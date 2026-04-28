@@ -1,0 +1,9 @@
+[Unit]
+Description=Enoch queue hang/stoppage Pushover alert check
+After=enoch-control-plane.service
+Wants=enoch-control-plane.service
+
+[Service]
+Type=oneshot
+Environment=OMX_WAKE_GATE_CONFIG=/etc/enoch/config.json
+ExecStart=/opt/enoch-agentic-research-system/deploy/enoch_queue_alert_check.py
