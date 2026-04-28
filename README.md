@@ -65,6 +65,7 @@ See [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md).
 - [`docs/historical/`](docs/historical/) — historical migration notes retained for engineering context only.
 - [`docs/launch-checklist.md`](docs/launch-checklist.md) — public launch checklist.
 - [`site/`](site/) — static launch site for explaining Enoch and highlighting selected generated artifacts.
+- [`docs/featured-paper-selection.md`](docs/featured-paper-selection.md) — rationale for the launch highlight set.
 - [`docs/outreach/launch-announcement.md`](docs/outreach/launch-announcement.md) — draft launch copy and repo descriptions.
 - [`docs/launch-todo.md`](docs/launch-todo.md) — launch TODO and remaining public-release gates.
 
