@@ -1,0 +1,85 @@
+{
+  "featured": [
+    {
+      "public_id": "enoch-paper-0041",
+      "title": "Home Lab Agent Orchestrator",
+      "category": "Agent safety / local ops",
+      "why_it_matters": "A dry-run, policy-gated agent architecture for homelab incident diagnosis that blocked unsafe actions while evidence reduction recovered diagnosis quality under noisy logs.",
+      "result": "Unsafe-action block rate stayed at 1.0 in the tested scenarios; evidence reduction recovered noisy-log diagnosis accuracy to 1.0 in the bounded synthetic fixture set.",
+      "bounds": "Synthetic incident fixtures, one small local model, and GB10-class hardware; not proof of production generalization.",
+      "paper_path": "papers/home-lab-agent-orchestrator/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0040",
+      "title": "Resource-Bounded Agent Kernel",
+      "category": "Agent control plane",
+      "why_it_matters": "Frames autonomous-agent reliability as a kernel/control-plane problem: typed dispatch, quota checks, and OS-level subprocess controls before actions execute.",
+      "result": "The paper reports enforced resource boundaries while preserving successful completion for in-quota tasks across toy-model and subprocess replay harnesses.",
+      "bounds": "Harness validation, not a production kernel certification.",
+      "paper_path": "papers/resource-bounded-agent-kernel/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0098",
+      "title": "Evidence-Bound Proof Synthesizer for Tool Ledger",
+      "category": "Tool-use security",
+      "why_it_matters": "Explores automatically synthesizing proof objects for tool calls from the evidence already present in agent traces.",
+      "result": "Generated benchmark: 200/200 benign accepted and 200/200 adversarial refused; real local transcript replay reported 95.2% checker/trace acceptance with policy-bounded refusals.",
+      "bounds": "Validated on local transcript corpora and generated traces only.",
+      "paper_path": "papers/evidence-bound-proof-synthesizer-for-tool-ledger/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0001",
+      "title": "DFlash vLLM/SGLang Throughput Shootout",
+      "category": "Local inference performance",
+      "why_it_matters": "A concrete GB10 serving benchmark that treats performance tuning as part of the research loop, including negative compatibility evidence.",
+      "result": "Reported vLLM speculative-decoding throughput speedups from 1.61x to 4.17x across prompt sets with zero measured quality degradation in the tested matrix; SGLang path documented as blocked by SM121 kernel compatibility.",
+      "bounds": "Single GPU, one target/draft model pair, modest sample sizes.",
+      "paper_path": "papers/dflash-vllm-sglang-throughput-shootout/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0083",
+      "title": "GB10 Local Server Utility Swap Broker Validation",
+      "category": "Local serving reliability",
+      "why_it_matters": "Targets practical home-lab inference operations: using brokered local endpoints without silently wedging the machine.",
+      "result": "The artifact documents a validation lane around local serving utility and memory/swap-aware broker behavior.",
+      "bounds": "Hardware- and configuration-specific; should be replicated before broad claims.",
+      "paper_path": "papers/gb10-local-server-utility-swap-broker-validation/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0115",
+      "title": "Memory Pressure Admission Gate",
+      "category": "Serving efficiency",
+      "why_it_matters": "Shows a queue/admission-control idea applied to LLM serving: compress or defer context-heavy prompts before they harm latency.",
+      "result": "On a compact live llama.cpp benchmark, the gate reported 69.0% lower p95 latency and 71.0% lower energy proxy with zero completion loss versus throughput-only baseline.",
+      "bounds": "Single server stack, one quantized model, 16-request deterministic workload.",
+      "paper_path": "papers/memory-pressure-admission-gate-live-serving-validation/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0012",
+      "title": "Value-per-Joule Broker Online Canary",
+      "category": "Energy-aware routing",
+      "why_it_matters": "Turns local inference routing into an explicit value-per-joule decision, which is exactly the kind of operational metric small AI labs need.",
+      "result": "Replay and live canary modes reported lower cost/joules per successful output without rollback-guard failures in the tested setting.",
+      "bounds": "Small models, single host, short-duration canary.",
+      "paper_path": "papers/value-per-joule-broker-online-canary-on-gb10-endpoints/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0023",
+      "title": "Wake-Gate Local Endpoint Harness Integration",
+      "category": "System integration",
+      "why_it_matters": "Connects model endpoint validation to the wake-gated dispatch system, showing how Enoch turns local endpoint checks into runnable project infrastructure.",
+      "result": "The contract harness successfully probed `/models` and `/chat/completions` on a live llama.cpp backend and shut the service down cleanly afterward.",
+      "bounds": "Functional probe only; no latency/throughput benchmark.",
+      "paper_path": "papers/wake-gate-local-endpoint-harness-integration/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0033",
+      "title": "Open-Weight Integrity Twin Agent Sweep",
+      "category": "Evaluator integrity",
+      "why_it_matters": "A useful example of the corpus exploring model/evaluator mismatch and tampering surfaces rather than only speed benchmarks.",
+      "result": "The artifact reports measurable evaluator-surface tampering in local open-weight endpoints with model-size-sensitive behavior.",
+      "bounds": "Small model panel and limited model-family coverage.",
+      "paper_path": "papers/open-weight-integrity-twin-agent-sweep/paper.md"
+    }
+  ]
+}

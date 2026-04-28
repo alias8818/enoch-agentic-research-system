@@ -1,0 +1,60 @@
+name: Publish launch site
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  check-pages:
+    name: check-pages-availability
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - name: Check whether GitHub Pages is enabled for this repository
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh api "repos/$GH_REPO/pages" >/tmp/pages.json 2>/tmp/pages.err; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            cat /tmp/pages.json
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "GitHub Pages is not enabled or not supported for this repository/plan yet." >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/pages.err >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+  build:
+    name: build-site
+    needs: check-pages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upload static site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - name: Note skipped deploy when Pages is unavailable
+        if: needs.check-pages.outputs.enabled != 'true'
+        run: echo "Pages deploy skipped because GitHub Pages is not enabled/supported yet. Enable Pages after public release, then run this workflow manually." >> "$GITHUB_STEP_SUMMARY"
+  deploy:
+    name: deploy-site
+    needs: [check-pages, build]
+    if: needs.check-pages.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

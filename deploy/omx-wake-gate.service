@@ -1,0 +1,17 @@
+[Unit]
+Description=Enoch Agentic Research Control Plane
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/enoch-agentic-research-system
+Environment=OMX_WAKE_GATE_CONFIG=/etc/enoch/config.json
+ExecStart=/opt/enoch-agentic-research-system/.venv/bin/uvicorn omx_wake_gate.app:app --host 0.0.0.0 --port 8787
+Restart=on-failure
+RestartSec=3
+User=enoch
+Group=enoch
+
+[Install]
+WantedBy=multi-user.target
