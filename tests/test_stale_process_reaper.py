@@ -6,11 +6,12 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from omx_wake_gate.config import GateConfig
 from omx_wake_gate.gate import WakeGate
-from omx_wake_gate.models import GateState, RunRecord, TelemetrySample
+from omx_wake_gate.models import GateState, ProcessInfo, RunRecord, TelemetrySample
 from omx_wake_gate.process_tracker import ProcessTracker
 
 
@@ -135,6 +136,59 @@ class StaleProcessReaperTests(unittest.TestCase):
             finally:
                 if proc.poll() is None:
                     proc.kill()
+
+    def test_reaper_returns_only_successfully_signaled_processes(self) -> None:
+        tracker = ProcessTracker(Path("/tmp"))
+        record = RunRecord(run_id="run", session_id="session", root_pid=999_999_999)
+        candidate = ProcessInfo(pid=123456, elapsed_sec=999, create_time=1000.0, cmdline="python smoke.py")
+        with patch.object(tracker, "stale_reap_candidates", return_value=[candidate]), patch(
+            "omx_wake_gate.process_tracker.os.kill", side_effect=PermissionError
+        ):
+            self.assertEqual(
+                tracker.reap_stale_project_processes(
+                    record,
+                    stale_after_sec=0,
+                    command_markers=["python"],
+                    term_grace_sec=0,
+                ),
+                [],
+            )
+
+    def test_reaper_does_not_sigkill_reused_pid(self) -> None:
+        class _ReusedProcess:
+            pid = 123456
+
+            def create_time(self) -> float:
+                return 2000.0
+
+            def is_running(self) -> bool:
+                return True
+
+            def status(self) -> str:
+                return "running"
+
+        tracker = ProcessTracker(Path("/tmp"))
+        record = RunRecord(run_id="run", session_id="session", root_pid=999_999_999)
+        candidate = ProcessInfo(pid=123456, elapsed_sec=999, create_time=1000.0, cmdline="python smoke.py")
+        signaled: list[tuple[int, int]] = []
+
+        def _kill(pid: int, sig: int) -> None:
+            signaled.append((pid, sig))
+
+        with patch.object(tracker, "stale_reap_candidates", return_value=[candidate]), patch(
+            "omx_wake_gate.process_tracker.os.kill", side_effect=_kill
+        ), patch("omx_wake_gate.process_tracker.psutil.Process", return_value=_ReusedProcess()):
+            self.assertEqual(
+                tracker.reap_stale_project_processes(
+                    record,
+                    stale_after_sec=0,
+                    command_markers=["python"],
+                    term_grace_sec=0,
+                ),
+                [],
+            )
+
+        self.assertEqual(len(signaled), 1)
 
 
 if __name__ == "__main__":

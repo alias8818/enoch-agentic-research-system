@@ -123,11 +123,13 @@ class ProcessTracker:
                 pgid = os.getpgid(proc.pid)
             except (ProcessLookupError, PermissionError):
                 pgid = None
+            create_time = proc.create_time()
             return ProcessInfo(
                 pid=proc.pid,
                 ppid=proc.ppid(),
                 pgid=pgid,
-                elapsed_sec=int(max(0, time.time() - proc.create_time())),
+                elapsed_sec=int(max(0, time.time() - create_time)),
+                create_time=create_time,
                 cmdline=cmdline,
             )
         except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -234,6 +236,15 @@ class ProcessTracker:
                 candidates.append(info)
         return candidates
 
+    @staticmethod
+    def _same_process(proc: object, info: ProcessInfo) -> bool:
+        if info.create_time is None:
+            return False
+        try:
+            return abs(proc.create_time() - info.create_time) < 0.01
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return False
+
     def reap_stale_project_processes(
         self,
         record: RunRecord,
@@ -252,22 +263,34 @@ class ProcessTracker:
         if not candidates:
             return []
 
+        term_signaled: list[ProcessInfo] = []
         for info in candidates:
             try:
                 os.kill(info.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                continue
-            except PermissionError:
+                term_signaled.append(info)
+            except (ProcessLookupError, PermissionError):
                 continue
 
         if term_grace_sec > 0:
             time.sleep(term_grace_sec)
 
-        for info in candidates:
+        reaped: list[ProcessInfo] = []
+        for info in term_signaled:
             try:
                 proc = psutil.Process(info.pid) if psutil is not None else None
-                if proc is not None and proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE:
-                    os.kill(info.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError, psutil.NoSuchProcess, psutil.AccessDenied):
+                if proc is None:
+                    continue
+                if not self._same_process(proc, info):
+                    # PID was reused during the TERM grace window. Never signal
+                    # the new occupant.
+                    continue
+                if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
+                    reaped.append(info)
+                    continue
+                os.kill(info.pid, signal.SIGKILL)
+                reaped.append(info)
+            except psutil.NoSuchProcess:
+                reaped.append(info)
+            except (ProcessLookupError, PermissionError, psutil.AccessDenied):
                 continue
-        return candidates
+        return reaped

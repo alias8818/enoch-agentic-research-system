@@ -62,6 +62,7 @@ class ProcessInfo(BaseModel):
     ppid: int | None = None
     pgid: int | None = None
     elapsed_sec: int | None = None
+    create_time: float | None = None
     cmdline: str = ""
 
 
