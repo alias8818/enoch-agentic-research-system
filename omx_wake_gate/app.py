@@ -2224,6 +2224,24 @@ async def _deliver_callback(callback: GateCallback) -> tuple[bool, str]:
         return False, f"{type(exc).__name__}: {exc}"
 
 
+async def _reap_and_log_stale_project_processes(record: RunRecord) -> None:
+    reaped_processes = await asyncio.to_thread(gate.reap_stale_project_processes, record)
+    if not reaped_processes:
+        return
+    store.append_event(
+        {
+            "kind": "stale_project_process_reaped",
+            "run_id": record.run_id,
+            "session_id": record.session_id,
+            "project_id": record.project_id,
+            "timestamp": utc_now(),
+            "reason": "root session exited/idle; project-owned stale smoke process exceeded grace window",
+            "stale_after_sec": config.stale_project_process_grace_sec,
+            "processes": reaped_processes,
+        }
+    )
+
+
 async def _evaluate_until_ready(run_id: str) -> None:
     try:
         while True:
@@ -2232,20 +2250,7 @@ async def _evaluate_until_ready(run_id: str) -> None:
                 return
             record = _assign_record_workload_profile(record)
 
-            reaped_processes = await asyncio.to_thread(gate.reap_stale_project_processes, record)
-            if reaped_processes:
-                store.append_event(
-                    {
-                        "kind": "stale_project_process_reaped",
-                        "run_id": record.run_id,
-                        "session_id": record.session_id,
-                        "project_id": record.project_id,
-                        "timestamp": utc_now(),
-                        "reason": "root session exited/idle; project-owned stale smoke process exceeded grace window",
-                        "stale_after_sec": config.stale_project_process_grace_sec,
-                        "processes": reaped_processes,
-                    }
-                )
+            await _reap_and_log_stale_project_processes(record)
 
             if gate.is_timed_out(record):
                 timeout_idempotency_key = f"{record.run_id}:gate_timeout:{record.idle_seen_at or record.last_event_at}"
@@ -2330,20 +2335,7 @@ async def _reconcile_missing_idle_loop() -> None:
             for record in store.list_runs():
                 record = _assign_record_workload_profile(record)
                 if record.gate_state == GateState.RUNNING:
-                    reaped_processes = await asyncio.to_thread(gate.reap_stale_project_processes, record)
-                    if reaped_processes:
-                        store.append_event(
-                            {
-                                "kind": "stale_project_process_reaped",
-                                "run_id": record.run_id,
-                                "session_id": record.session_id,
-                                "project_id": record.project_id,
-                                "timestamp": utc_now(),
-                                "reason": "root session exited/idle; project-owned stale smoke process exceeded grace window",
-                                "stale_after_sec": config.stale_project_process_grace_sec,
-                                "processes": reaped_processes,
-                            }
-                        )
+                    await _reap_and_log_stale_project_processes(record)
                     record, changed = gate.reconcile(record)
                     if changed:
                         store.append_event(
