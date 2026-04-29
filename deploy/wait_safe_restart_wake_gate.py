@@ -151,7 +151,7 @@ def main() -> int:
         attempt += 1
         try:
             data = fetch_dashboard(args.api_url, token, args.request_timeout_sec)
-            processes = project_exec_processes(args.project_root)
+            processes = project_exec_processes(str(Path(args.project_root).expanduser()))
             safe, reasons = safe_report(data, processes)
         except Exception as exc:
             safe = False
