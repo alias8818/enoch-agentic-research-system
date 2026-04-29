@@ -40,13 +40,18 @@ Enoch treats those as control-plane problems. It uses process tracking, CPU/GPU 
 
 ## Main components
 
-- **Control plane API** — queue state, project state, paper review state, pause/maintenance controls, dispatch decisions, and dashboard APIs.
+- **Control plane API** — FastAPI and LangGraph-era queue state, project state, paper review state, pause/maintenance controls, dispatch decisions, and dashboard APIs.
 - **Wake gate** — process-tree tracking and telemetry quiet-window checks before a run is considered complete.
 - **Worker preflight** — authenticated checks against a worker before dispatching new work.
 - **Single-lane safety** — prevents overlapping GPU-heavy work on constrained local hardware.
 - **Evidence sync** — copies run notes, metrics, result summaries, evidence bundles, and claim ledgers from worker projects into the control plane.
 - **Artifact writer** — generates publication-style Markdown reports from evidence context while preserving uncertainty and provenance.
 - **Quality gates** — scans generated reports for placeholder citations, missing provenance, and missing evidence artifacts.
+
+
+## Runtime and upstream tooling
+
+Enoch is the project-specific control plane and release package. It runs agent work through Codex/OMX automation, including [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex) orchestration for local agent execution, while the control-plane state model is built around FastAPI and LangGraph-era graph boundaries. OMX is part of the operating substrate; generated research artifacts are produced by Enoch runs and the artifact writer, not by OMX as an owning publisher.
 
 ## Idea intake
 

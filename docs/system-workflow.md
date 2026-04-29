@@ -22,13 +22,13 @@ Structured idea cards + Notion weight matrix
 Idea intake / queue
         |
         v
-VM control plane (FastAPI + LangGraph-era state model)
+VM control plane (FastAPI + LangGraph-era state/graph model)
         |
         | dispatch / preflight / pause safety
         v
 GB10 worker wake gate
         |
-        | OMX/Codex agent execution + process/telemetry tracking
+        | Codex/OMX agent execution + process/telemetry tracking
         v
 Project workspace with run notes, metrics, results, claim ledgers
         |
@@ -39,6 +39,11 @@ Publication artifact pipeline (GLM-5.1 writer + quality gates)
         v
 Dashboard, corpus export, and release artifacts
 ```
+
+
+## Tooling boundary
+
+Enoch is built around a FastAPI service, a LangGraph-era control-plane state/graph model, and Codex/OMX execution hooks. [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex) is credited as part of the OMX orchestration layer used to operate local agents. Enoch owns queue safety, wake-gate evidence, artifact packaging, and release framing; OMX does not own or author the generated papers.
 
 
 ## Intake boundary
