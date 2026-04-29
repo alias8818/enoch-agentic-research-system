@@ -117,9 +117,9 @@ function card(label,value,cls=''){return `<div class="card"><div class="label">$
 function finding(f){return `<div class="banner ${esc(f.severity||'info')}"><div class="row"><strong>${esc(f.severity||'info').toUpperCase()}</strong><span class="pill">${esc(f.source)}</span><span class="pill">${esc(f.authority)}</span></div><div>${esc(f.message)}</div><div class="muted">${esc(f.suggested_action||'')}</div></div>`;}
 function linkProject(id){return id?`<a href="#project:${encodeURIComponent(id)}">${esc(id)}</a>`:'';} function linkRun(id){return id?`<a href="#run:${encodeURIComponent(id)}">${esc(id)}</a>`:'';}
 function renderNav(active){$('nav').innerHTML=pages.map(([k,l])=>`<a class="${active===k||active.startsWith(k+':')?'active':''}" href="#${k}">${l}</a>`).join('');}
-async function statusPage(){renderNav('status'); const state=await api('/control/api/status'); const flags=state.flags||{}, counts=state.counts||{}, cfg=state.config||{}; const severity=(state.conflicts||[]).some(f=>f.severity==='critical')?'critical':((state.warnings||[]).length||!state.dispatch_safe?'warn':'good'); $('status').className='pill '+severity; $('status').textContent=state.dispatch_safe?'Dispatch safe':'Dispatch not safe';
+async function statusPage(){renderNav('status'); const state=await api('/control/api/status?refresh_worker=true'); const flags=state.flags||{}, counts=state.counts||{}, cfg=state.config||{}; const severity=(state.conflicts||[]).some(f=>f.severity==='critical')?'critical':((state.warnings||[]).length||!state.dispatch_safe?'warn':'good'); $('status').className='pill '+severity; $('status').textContent=state.dispatch_safe?'Dispatch safe':'Dispatch not safe';
 $('app').className=''; $('app').innerHTML=`<div class="banner ${severity}"><h2>${state.dispatch_safe?'Ready to dispatch':'Hold dispatch'}</h2><div>${esc((state.dispatch_blockers||[]).join(' · ')||'No blockers')}</div><div class="muted">Generated ${esc(state.generated_at)} · source ${esc(state.source)}</div></div><section class="grid">${card('Dispatch safe',state.dispatch_safe?'yes':'no',state.dispatch_safe?'good':'warn')}${card('Live dispatch',cfg.live_dispatch_enabled?'enabled':'disabled',cfg.live_dispatch_enabled?'good':'warn')}${card('Paused',flags.queue_paused?'yes':'no',flags.queue_paused?'warn':'good')}${card('Maintenance',flags.maintenance_mode?'yes':'no',flags.maintenance_mode?'warn':'good')}${card('Active',counts.active??(state.active_items||[]).length,(state.active_items||[]).length?'bad':'good')}${card('Queued',counts.queued??0,'info')}${card('Blocked',(counts.blocked??0)+(counts.needs_review??0)+(counts.dispatch_error??0),'warn')}${card('Papers',counts.papers??0,'info')}</section><section class="grid two"><div class="card"><h2>Source freshness</h2><table><thead><tr><th>Source</th><th>Status</th><th>Observed</th><th>Authority</th></tr></thead><tbody>${Object.values(state.source_freshness||{}).map(f=>`<tr><td>${esc(f.source)}</td><td class="${f.stale?'warn':'good'}">${esc(f.status)}${f.stale?' stale':''}</td><td class="mono">${esc(f.observed_at||'missing')}</td><td>${esc(f.authority)}</td></tr>`).join('')}</tbody></table></div><div class="card"><h2>Active lane</h2>${tableRows(state.active_items||[],['status','project_id','current_run_id','next_action_hint'])}</div></section><section class="grid two"><div class="card"><h2>Warnings</h2>${(state.warnings||[]).map(finding).join('')||'<span class="pill good">No warnings</span>'}</div><div class="card"><h2>Conflicts</h2>${(state.conflicts||[]).map(finding).join('')||'<span class="pill good">No conflicts</span>'}</div></section>`;}
-async function healthPage(){renderNav('health'); const data=await api('/control/api/queue-health'); const state=data.status||{}, active=data.active_run_detail||{}, alert=data.latest_alert_check||{}; const severity=(state.conflicts||[]).some(f=>f.severity==='critical')?'critical':((state.warnings||[]).length||(alert.should_alert)?'warn':'good'); $('status').className='pill '+severity; $('status').textContent=`queue health · ${(state.active_items||[]).length} active · ${(alert.findings||[]).length} alert findings`; $('app').className=''; $('app').innerHTML=`<div class="banner ${severity}"><h2>Queue Health</h2><div>${esc((state.dispatch_blockers||[]).join(' · ')||'No dispatch blockers')}</div><div class="muted">Generated ${esc(data.generated_at)} · alerts enabled ${esc((state.config||{}).pushover_alerts_enabled?'yes':'no')}</div></div><section class="grid">${card('Active lanes',(state.active_items||[]).length,(state.active_items||[]).length?'warn':'good')}${card('Warnings',(state.warnings||[]).length,(state.warnings||[]).length?'warn':'good')}${card('Conflicts',(state.conflicts||[]).length,(state.conflicts||[]).length?'bad':'good')}${card('Alert findings',(alert.findings||[]).length,(alert.findings||[]).length?'warn':'good')}${card('Queued',(state.counts||{}).queued??0,'info')}${card('Papers',(state.counts||{}).papers??0,'info')}</section><section class="grid two"><div class="card"><h2>Active run</h2><pre>${esc(JSON.stringify(active.run||active.queue_item||{},null,2))}</pre></div><div class="card"><h2>Worker freshness</h2><table><thead><tr><th>Source</th><th>Status</th><th>Observed</th><th>Fresh until</th></tr></thead><tbody>${Object.entries(state.source_freshness||{}).filter(([k])=>k.startsWith('worker')).map(([k,f])=>`<tr><td>${esc(k)}</td><td class="${f.stale?'warn':'good'}">${esc(f.status)}${f.stale?' stale':''}</td><td>${esc(f.observed_at||'missing')}</td><td>${esc(f.fresh_until||'')}</td></tr>`).join('')}</tbody></table><h3>Latest alert check</h3><pre>${esc(JSON.stringify(alert,null,2))}</pre></div></section><section class="grid two"><div class="card"><h2>Recent alerts</h2>${tableRows(data.recent_alert_events||[],['event_id','event_type','entity_id','created_at'])}</div><div class="card"><h2>Recent worker callbacks</h2>${tableRows(data.recent_worker_callbacks||[],['event_id','event_type','entity_id','created_at'])}</div></section>`;}
+async function healthPage(){renderNav('health'); const data=await api('/control/api/queue-health?refresh_worker=true'); const state=data.status||{}, active=data.active_run_detail||{}, alert=data.latest_alert_check||{}; const severity=(state.conflicts||[]).some(f=>f.severity==='critical')?'critical':((state.warnings||[]).length||(alert.should_alert)?'warn':'good'); $('status').className='pill '+severity; $('status').textContent=`queue health · ${(state.active_items||[]).length} active · ${(alert.findings||[]).length} alert findings`; $('app').className=''; $('app').innerHTML=`<div class="banner ${severity}"><h2>Queue Health</h2><div>${esc((state.dispatch_blockers||[]).join(' · ')||'No dispatch blockers')}</div><div class="muted">Generated ${esc(data.generated_at)} · alerts enabled ${esc((state.config||{}).pushover_alerts_enabled?'yes':'no')}</div></div><section class="grid">${card('Active lanes',(state.active_items||[]).length,(state.active_items||[]).length?'warn':'good')}${card('Warnings',(state.warnings||[]).length,(state.warnings||[]).length?'warn':'good')}${card('Conflicts',(state.conflicts||[]).length,(state.conflicts||[]).length?'bad':'good')}${card('Alert findings',(alert.findings||[]).length,(alert.findings||[]).length?'warn':'good')}${card('Queued',(state.counts||{}).queued??0,'info')}${card('Papers',(state.counts||{}).papers??0,'info')}</section><section class="grid two"><div class="card"><h2>Active run</h2><pre>${esc(JSON.stringify(active.run||active.queue_item||{},null,2))}</pre></div><div class="card"><h2>Worker freshness</h2><table><thead><tr><th>Source</th><th>Status</th><th>Observed</th><th>Fresh until</th></tr></thead><tbody>${Object.entries(state.source_freshness||{}).filter(([k])=>k.startsWith('worker')).map(([k,f])=>`<tr><td>${esc(k)}</td><td class="${f.stale?'warn':'good'}">${esc(f.status)}${f.stale?' stale':''}</td><td>${esc(f.observed_at||'missing')}</td><td>${esc(f.fresh_until||'')}</td></tr>`).join('')}</tbody></table><h3>Latest alert check</h3><pre>${esc(JSON.stringify(alert,null,2))}</pre></div></section><section class="grid two"><div class="card"><h2>Recent alerts</h2>${tableRows(data.recent_alert_events||[],['event_id','event_type','entity_id','created_at'])}</div><div class="card"><h2>Recent worker callbacks</h2>${tableRows(data.recent_worker_callbacks||[],['event_id','event_type','entity_id','created_at'])}</div></section>`;}
 function tableRows(rows,cols){return `<table><thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td>${cell(c,r[c],r)}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="${cols.length}">No rows</td></tr>`}</tbody></table>`;}
 function cell(c,v,r){if(c==='review')return r.paper_id?`<a href="#review:${encodeURIComponent(r.paper_id)}">Open ${esc(r.project_name||r.paper_id)}</a>`:''; if(c==='paper_title')return `<strong>${esc(r.project_name||r.paper_id||'Untitled')}</strong><div class="muted mono">${esc(r.paper_id||'')}</div>`; if(c==='project_id')return `${linkProject(v)}${r.project_name?`<div class="muted">${esc(r.project_name)}</div>`:''}`; if(c==='current_run_id'||c==='run_id')return linkRun(v); if(c==='paper_id')return v?`<a href="#paper:${encodeURIComponent(v)}">${esc(v)}</a>`:''; if(c==='notion_page_url'&&v)return `<a href="${esc(v)}">Notion</a>`; if(c==='rank_reasons'||c==='missing_signals')return `<span class="truncate">${esc((v||[]).join ? v.join('; ') : v)}</span>`; return `<span class="truncate">${esc(v)}</span>`;}
 async function queuePage(q){renderNav('queue:'+q); const search=new URLSearchParams(location.hash.split('?')[1]||''); const term=search.get('search')||''; const data=await api(`/control/api/queues/${encodeURIComponent(q)}?page_size=100&search=${encodeURIComponent(term)}`); $('status').className='pill info'; $('status').textContent=`${q} queue · ${data.page.total} rows`; $('app').className=''; $('app').innerHTML=`<section class="card"><h2>${esc(q)} queue</h2><div class="muted">Authority: ${esc(data.authority)} · generated ${esc(data.generated_at)}</div><div class="toolbar"><input id="search" value="${esc(term)}" placeholder="search project/status/action" onkeydown="if(event.key==='Enter'){location.hash='queue:${q}?search='+encodeURIComponent(this.value)}"/><button onclick="location.hash='queue:${q}?search='+encodeURIComponent($('search').value)">Search</button></div>${tableRows(data.rows,['status','project_id','project_name','dispatch_priority','selection_rank','last_run_state','current_run_id','next_action_hint','updated_at','notion_page_url'])}</section>`;}
@@ -557,12 +557,48 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             detail="stale cached observation" if stale else "fresh cached observation",
         )
 
-    def dashboard_status_response() -> DashboardStatusResponse:
+    def _worker_observations_need_refresh(observations: dict[str, DashboardObservationRecord], active: list[dict]) -> bool:
+        for source in ("worker_preflight", "worker_dashboard_api"):
+            observation = observations.get(source)
+            if observation is None or _is_stale(observation.observed_at, observation.ttl_seconds):
+                return True
+        preflight = observations.get("worker_preflight")
+        no_live = _preflight_check(preflight, "worker_no_live_runs")
+        if no_live:
+            worker_reports_idle = bool(no_live.get("ok"))
+            control_reports_active = bool(active)
+            if worker_reports_idle == control_reports_active:
+                # The cached worker/control active-lane projections disagree.
+                # Refresh before presenting a scary conflict; the transition
+                # may simply have happened between dashboard polls.
+                return True
+        return False
+
+    def _refresh_worker_observations_if_needed(observations: dict[str, DashboardObservationRecord], active: list[dict]) -> dict[str, DashboardObservationRecord]:
+        if not _worker_observations_need_refresh(observations, active):
+            return observations
+        if not config.live_dispatch_enabled or not config.worker_wake_gate_url or not config.worker_wake_gate_bearer_token:
+            return observations
+        preflight = run_worker_preflight(
+            WorkerPreflightRequest(
+                wake_gate_url=config.worker_wake_gate_url,
+                bearer_token=config.worker_wake_gate_bearer_token,
+                require_paused=False,
+                strict=False,
+            ),
+            store.flags(),
+        )
+        _record_preflight_observations(preflight)
+        return store.latest_dashboard_observations()
+
+    def dashboard_status_response(*, refresh_worker: bool = False) -> DashboardStatusResponse:
         rows = store.queue_rows()
         paper_rows = store.paper_rows()
         flags = store.flags()
         active = store.active_items()
         observations = store.latest_dashboard_observations()
+        if refresh_worker:
+            observations = _refresh_worker_observations_if_needed(observations, active)
         preflight = observations.get("worker_preflight")
         worker_dashboard = observations.get("worker_dashboard_api")
         recent_events = store.recent_events(10)
@@ -793,15 +829,15 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         return state_response()
 
     @router.get("/api/status", response_model=DashboardStatusResponse)
-    def dashboard_status(authorization: str | None = Header(default=None)) -> DashboardStatusResponse:
+    def dashboard_status(refresh_worker: bool = Query(default=False), authorization: str | None = Header(default=None)) -> DashboardStatusResponse:
         authorize(authorization)
-        return dashboard_status_response()
+        return dashboard_status_response(refresh_worker=refresh_worker)
 
     @router.post("/api/alerts/queue-check")
     def dashboard_queue_alert_check(payload: dict[str, Any] | None = None, authorization: str | None = Header(default=None)) -> dict[str, Any]:
         authorize(authorization)
         request_payload = payload or {}
-        status = dashboard_status_response()
+        status = dashboard_status_response(refresh_worker=bool(request_payload.get("refresh_worker", False)))
         return evaluate_and_notify_queue_alerts(
             config=config,
             store=store,
@@ -812,9 +848,9 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         )
 
     @router.get("/api/queue-health")
-    def dashboard_queue_health(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    def dashboard_queue_health(refresh_worker: bool = Query(default=False), authorization: str | None = Header(default=None)) -> dict[str, Any]:
         authorize(authorization)
-        status = dashboard_status_response()
+        status = dashboard_status_response(refresh_worker=refresh_worker)
         active = status.active_items[0] if status.active_items else None
         run_id = str((active or {}).get("current_run_id") or "")
         project_id = str((active or {}).get("project_id") or "")
