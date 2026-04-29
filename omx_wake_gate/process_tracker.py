@@ -237,12 +237,14 @@ class ProcessTracker:
         return candidates
 
     @staticmethod
-    def _same_process(proc: object, info: ProcessInfo) -> bool:
+    def _same_process(proc: object, info: ProcessInfo) -> bool | None:
         if info.create_time is None:
             return False
         try:
             return abs(proc.create_time() - info.create_time) < 0.01
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+        except psutil.NoSuchProcess:
+            return None
+        except psutil.AccessDenied:
             return False
 
     def reap_stale_project_processes(
@@ -280,7 +282,11 @@ class ProcessTracker:
                 proc = psutil.Process(info.pid) if psutil is not None else None
                 if proc is None:
                     continue
-                if not self._same_process(proc, info):
+                same_process = self._same_process(proc, info)
+                if same_process is None:
+                    reaped.append(info)
+                    continue
+                if not same_process:
                     # PID was reused during the TERM grace window. Never signal
                     # the new occupant.
                     continue
@@ -289,8 +295,8 @@ class ProcessTracker:
                     continue
                 os.kill(info.pid, signal.SIGKILL)
                 reaped.append(info)
-            except psutil.NoSuchProcess:
+            except (psutil.NoSuchProcess, ProcessLookupError):
                 reaped.append(info)
-            except (ProcessLookupError, PermissionError, psutil.AccessDenied):
+            except (PermissionError, psutil.AccessDenied):
                 continue
         return reaped
