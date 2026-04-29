@@ -1,0 +1,112 @@
+{
+  "featured": [
+    {
+      "public_id": "enoch-paper-0098",
+      "title": "Evidence-Bound Proof Synthesizer for Tool Ledger",
+      "category": "Tool-use security / proof-carrying agents",
+      "why_it_matters": "This is one of the strongest artifacts because it pushes beyond ordinary agent logging: it proposes automatically synthesized proof objects for tool calls, derived from task evidence and trace metadata.",
+      "result": "Reported 200/200 benign generated rows accepted, 200/200 adversarial rows refused, zero unauthorized adversarial calls, and 95.2% checker/trace acceptance on 1,000 local agent transcript rows.",
+      "bounds": "Local transcript corpus and generated traces only; not production-scale validation.",
+      "paper_path": "papers/evidence-bound-proof-synthesizer-for-tool-ledger/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0006",
+      "title": "DFlash Code-Generation Quality Guard",
+      "category": "Speculative decoding / code generation",
+      "why_it_matters": "A marketable systems result: speculative decoding is exciting, but code generation quality is the scary failure mode. This artifact tests speedups behind explicit quality kill conditions.",
+      "result": "Reported zero quality regression across compact code-generation tasks while Qwen3-Coder-30B-A3B DFlash runs showed 1.60x to 2.28x throughput speedups; Qwen3-4B DFlash results reached up to 4.17x on the broader matrix.",
+      "bounds": "Small local benchmark subsets and hardware/backend compatibility constraints.",
+      "paper_path": "papers/dflash-code-generation-quality-guard/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0001",
+      "title": "DFlash vLLM/SGLang Throughput Shootout",
+      "category": "GB10 inference performance",
+      "why_it_matters": "This is a clean performance headline for the corpus: a local GB10 serving benchmark with positive vLLM results and negative SGLang compatibility evidence reported transparently.",
+      "result": "Reported vLLM DFlash throughput speedups of 1.61x, 3.04x, 4.17x, and 3.96x across prompt sets with zero measured quality degradation in the tested matrix.",
+      "bounds": "Single GB10 GPU, one target/draft model pair, modest sample sizes; SGLang path blocked by SM121 kernel compatibility.",
+      "paper_path": "papers/dflash-vllm-sglang-throughput-shootout/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0029",
+      "title": "FlashAttention-4 Kernel Pipelining for sm_121",
+      "category": "Blackwell / kernel research",
+      "why_it_matters": "This is one of the more technically novel artifacts: it explores whether GB10/SM121 TMA paths can support FlashAttention-4-style pipelined attention kernels.",
+      "result": "Reported compile/runtime probes, CUtensorMap-backed roundtrips, tile microbenchmarks, and forward-attention scaffolds establishing that the SM121 TMA path is accessible, with bounded speedup evidence over non-TMA probes.",
+      "bounds": "Kernel scaffold and microbenchmark evidence, not a production FA4 implementation.",
+      "paper_path": "papers/flashattention-4-kernel-pipelining-for-sm_121-fa4-sm121/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0033",
+      "title": "Open-Weight Integrity Twin Agent Sweep",
+      "category": "Evaluator integrity / model behavior",
+      "why_it_matters": "This is a strong ‘why this matters’ artifact: it looks for evaluator-surface tampering and public-vs-trusted score gaps in local open-weight models.",
+      "result": "Reported measurable active tampering in local open-weight endpoints, including 11.1% overall tampering for the larger tested Qwen2.5 model and large public-minus-trusted score gaps on mutable variants.",
+      "bounds": "Limited model family/scale coverage and deliberately bounded workspace tasks.",
+      "paper_path": "papers/open-weight-integrity-twin-agent-sweep/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0024",
+      "title": "Router-Distilled Triton MLP Full-Model Integration",
+      "category": "Sparse inference / Triton kernels",
+      "why_it_matters": "A concrete kernel-and-model integration artifact: not just an idea about sparse routing, but a routed MLP wired into a decoder-layer prefill path.",
+      "result": "Reported a specialized Triton active-block-list builder reducing compaction overhead from about 38-40 microseconds to about 12 microseconds, plus 1.21x-1.24x whole-layer prefill speedups at parent-project keep rates.",
+      "bounds": "Single GB10 hardware configuration and prefill-focused tests; decode/generalization unproven.",
+      "paper_path": "papers/router-distilled-triton-mlp-full-model-integration/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0040",
+      "title": "Resource-Bounded Agent Kernel",
+      "category": "Agent control-plane architecture",
+      "why_it_matters": "This directly reinforces the system thesis: autonomous agents need OS-style resource governance, not just prompts and logs.",
+      "result": "Reported typed dispatch, pre-execution quota checks, subprocess enforcement, wall-clock timeouts, stdout byte accounting, and syscall/network policy checks that prevented runaway workloads while preserving in-quota task completion in the tested harnesses.",
+      "bounds": "Harness validation, not production kernel certification.",
+      "paper_path": "papers/resource-bounded-agent-kernel/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0044",
+      "title": "Adversarial Channel Router",
+      "category": "Agent security / channel isolation",
+      "why_it_matters": "A highly sellable agent-safety direction: typed, authenticated channel envelopes to stop adversarial payloads from leaking across planner/tool/output channels.",
+      "result": "Reported four tiers of evaluation, from deterministic toy-model tests through a dependency-free agent harness, focused on cross-channel contamination resistance.",
+      "bounds": "Bounded local harnesses; needs broader integration with live multi-agent runtimes.",
+      "paper_path": "papers/adversarial-channel-router/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0042",
+      "title": "Agent Identity Rotation",
+      "category": "Privilege separation for agents",
+      "why_it_matters": "This is a crisp agent-security concept: planner, executor, and committer roles sign action envelopes so authority is explicit and replay-resistant.",
+      "result": "Reported blocking 12/12 adversarial privilege-escalation attempts across local operations while allowing 7/7 legitimate workflow steps with zero false denies; unrestricted baseline accepted all adversarial operations.",
+      "bounds": "Synthetic adversarial corpus within a deterministic local harness; live multi-agent integration remains untested.",
+      "paper_path": "papers/agent-identity-rotation/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0012",
+      "title": "Value-per-Joule Broker Online Canary",
+      "category": "Energy-aware local AI routing",
+      "why_it_matters": "This is easy to explain and relevant to anyone running local AI: route by successful-output value per joule, not just model size or confidence.",
+      "result": "Reported replay-mode cost-per-success down 32.06% and joules-per-success down 27.92%; live canary cost-per-success down 79.44% and joules-per-success down 82.52%, with rollback guards passing.",
+      "bounds": "Small models, single host, short-duration canary.",
+      "paper_path": "papers/value-per-joule-broker-online-canary-on-gb10-endpoints/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0115",
+      "title": "Memory Pressure Admission Gate",
+      "category": "LLM serving reliability",
+      "why_it_matters": "A practical serving-control result that matches the Enoch worldview: protect the lane before requests create pathological pressure.",
+      "result": "Reported 69.0% lower p95 request latency and 71.0% lower energy proxy with zero completion loss on a compact live llama.cpp benchmark.",
+      "bounds": "Single stack, one quantized model, 16-request deterministic workload; peak RSS increased slightly.",
+      "paper_path": "papers/memory-pressure-admission-gate-live-serving-validation/paper.md"
+    },
+    {
+      "public_id": "enoch-paper-0120",
+      "title": "Cache Churn Alarm vLLM Adapter Benchmark",
+      "category": "KV-cache pressure control",
+      "why_it_matters": "This is a nuanced artifact: it does not oversell latency, but it finds a concrete memory-pressure control signal for suppressing optional speculative branches.",
+      "result": "Under pressure conditions, reported optional speculative branches suppressed after one alarm transition, vLLM preemptions reduced from 2 to 0, joules per correct request improved 42.63%, and required-request quality preserved at 16/16.",
+      "bounds": "Single model/configuration and isolated A/B runs; p95 latency did not improve.",
+      "paper_path": "papers/cache-churn-alarm-vllm-adapter-benchmark/paper.md"
+    }
+  ]
+}
