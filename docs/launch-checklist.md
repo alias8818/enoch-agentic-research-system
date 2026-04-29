@@ -6,7 +6,7 @@
 - [ ] Quickstart works from a fresh clone.
 - [ ] Deployment guide covers control VM and worker setup.
 - [ ] Configuration reference documents required tokens and optional integrations.
-- [ ] Historical workflow-tool notes are isolated under `docs/historical/`.
+- [x] Historical workflow-tool notes are isolated under `docs/historical/`; no n8n/OpenClaw workflow exports are shipped.
 - [ ] License is present.
 - [ ] No private career/application notes are present.
 - [ ] No live secrets, local state DBs, production logs, or generated private artifacts are present.
