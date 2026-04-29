@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from omx_wake_gate.config import GateConfig
 from omx_wake_gate.control_plane.router import create_control_plane_router
 from omx_wake_gate.control_plane.store import ControlPlaneStore
+from omx_wake_gate.control_plane.models import WorkerPreflightCheck, WorkerPreflightResponse
 from omx_wake_gate.control_plane.worker_adapter import HttpResult
 
 
@@ -230,6 +231,111 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("worker_preflight stale or missing", status["dispatch_blockers"])
             self.assertIn("worker_dashboard_api stale or missing", status["dispatch_blockers"])
             self.assertTrue(status["source_freshness"]["worker_preflight"]["stale"])
+
+
+    def test_dashboard_status_refreshes_stale_worker_evidence_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client_with_config(_live_config(tmp))
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "refresh-worker-evidence-import",
+                "queue_rows": [{
+                    "project_id": "idea-active-refresh",
+                    "project_name": "Active Refresh",
+                    "project_dir": "idea-active-refresh",
+                    "status": "awaiting_wake",
+                    "current_run_id": "run-active-refresh",
+                }],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            response = WorkerPreflightResponse(
+                ok=False,
+                target="http://worker.example",
+                summary="active worker lane",
+                checks=[
+                    WorkerPreflightCheck(name="wake_gate_healthz", ok=True, detail="ok", data={}),
+                    WorkerPreflightCheck(
+                        name="wake_gate_dashboard_api",
+                        ok=True,
+                        detail="dashboard API reachable",
+                        data={"body": {"totals": {"active_or_waiting": 1, "live": 1}, "telemetry": {}}},
+                    ),
+                    WorkerPreflightCheck(
+                        name="worker_no_live_runs",
+                        ok=False,
+                        detail="active_or_waiting=1, live=1",
+                        data={"active_or_waiting": 1, "live": 1},
+                    ),
+                ],
+            )
+            with patch("omx_wake_gate.control_plane.router.run_worker_preflight", return_value=response) as preflight:
+                status = client.get("/control/api/status?refresh_worker=true", headers=headers).json()
+
+            preflight.assert_called_once()
+            self.assertFalse(status["source_freshness"]["worker_preflight"]["stale"])
+            self.assertFalse(status["source_freshness"]["worker_dashboard_api"]["stale"])
+            self.assertEqual(status["warnings"], [])
+            self.assertEqual(status["conflicts"], [])
+            self.assertEqual(status["dispatch_blockers"], ["active GB10 lane exists"])
+
+    def test_dashboard_status_refreshes_fresh_but_conflicting_worker_projection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client_with_config(_live_config(tmp))
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="warn",
+                payload={
+                    "ok": False,
+                    "checks": [
+                        {"name": "wake_gate_healthz", "ok": True, "detail": "ok", "data": {}},
+                        {"name": "worker_no_live_runs", "ok": False, "detail": "active_or_waiting=1, live=1", "data": {"active_or_waiting": 1, "live": 1}},
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+            response = WorkerPreflightResponse(
+                ok=True,
+                target="http://worker.example",
+                summary="worker idle",
+                checks=[
+                    WorkerPreflightCheck(name="wake_gate_healthz", ok=True, detail="ok", data={}),
+                    WorkerPreflightCheck(name="wake_gate_dashboard_api", ok=True, detail="dashboard API reachable", data={"body": {"totals": {"active_or_waiting": 0, "live": 0}}}),
+                    WorkerPreflightCheck(name="worker_no_live_runs", ok=True, detail="active_or_waiting=0, live=0", data={"active_or_waiting": 0, "live": 0}),
+                ],
+            )
+            with patch("omx_wake_gate.control_plane.router.run_worker_preflight", return_value=response) as preflight:
+                status = client.get("/control/api/status?refresh_worker=true", headers=headers).json()
+
+            preflight.assert_called_once()
+            self.assertEqual(status["warnings"], [])
+            self.assertEqual(status["conflicts"], [])
+            self.assertEqual(status["dispatch_blockers"], ["no queued dispatch candidate"])
+
+
+    def test_dashboard_status_without_refresh_preserves_dispatch_safety_for_stale_worker_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client_with_config(_live_config(tmp))
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "stale-worker-evidence-import",
+                "queue_rows": [{
+                    "project_id": "idea-ready-stale",
+                    "project_name": "Ready Stale",
+                    "project_dir": "idea-ready-stale",
+                    "status": "queued",
+                    "dispatch_priority": 5,
+                }],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            with patch("omx_wake_gate.control_plane.router.run_worker_preflight") as preflight:
+                status = client.get("/control/api/status", headers=headers).json()
+
+            preflight.assert_not_called()
+            self.assertIn("worker_preflight stale or missing", status["dispatch_blockers"])
+            self.assertIn("worker_dashboard_api stale or missing", status["dispatch_blockers"])
 
 
     def test_dashboard_status_blocks_dispatch_when_fresh_worker_evidence_is_bad(self) -> None:
