@@ -2,7 +2,7 @@ name: Code CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "moltenhub-*"]
   pull_request:
     branches: [main]
 
