@@ -52,7 +52,7 @@ if [[ -z "$OMX_WAKE_GATE_URL" ]]; then
 fi
 
 if [[ -z "$OMX_WAKE_GATE_TOKEN_FILE" ]]; then
-  OMX_WAKE_GATE_TOKEN_FILE="${OMX_WAKE_GATE_TOKEN_FILE:-$HOME/projects/enoch_testing_ground/config/.omx_hook_token}"
+  OMX_WAKE_GATE_TOKEN_FILE="${OMX_WAKE_GATE_TOKEN_FILE:-$HOME/enoch/config/.omx_hook_token}"
 fi
 
 if [[ -z "${OMX_WAKE_GATE_TOKEN:-}" && -f "$OMX_WAKE_GATE_TOKEN_FILE" ]]; then

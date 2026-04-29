@@ -131,11 +131,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--config",
-        default="~/projects/enoch_testing_ground/config/omx-wake-gate.json",
+        default="~/enoch/config/omx-wake-gate.json",
         help="wake-gate config path containing omx_inbound_bearer_token",
     )
     parser.add_argument("--api-url", default="http://127.0.0.1:8787/dashboard/api?limit=20&event_limit=5")
-    parser.add_argument("--project-root", default="/srv/enoch/projects")
+    parser.add_argument("--project-root", default="~/enoch/projects")
     parser.add_argument("--service", default="omx-wake-gate.service")
     parser.add_argument("--interval-sec", type=float, default=30)
     parser.add_argument("--request-timeout-sec", type=float, default=8)

@@ -25,8 +25,8 @@ class GateConfig(BaseModel):
     listen_host: str = "0.0.0.0"
     listen_port: int = 8787
     state_dir: str = "~/.local/state/omx-wake-gate"
-    project_root: str = "~/projects/enoch_testing_ground/projects"
-    dispatch_script_path: str = "~/projects/enoch_testing_ground/bin/enoch_omx_dispatch.sh"
+    project_root: str = "~/enoch/projects"
+    dispatch_script_path: str = "~/enoch/bin/enoch_omx_dispatch.sh"
     dispatch_timeout_sec: int = Field(default=30, ge=5)
     omx_inbound_bearer_token: str
     sample_interval_sec: int = Field(default=5, ge=1)
@@ -66,7 +66,7 @@ class GateConfig(BaseModel):
     paper_writer_fallback_enabled: bool = True
     paper_evidence_sync_enabled: bool = False
     paper_evidence_sync_ssh_host: str = "worker-user@worker.example"
-    paper_evidence_sync_remote_root: str = "/srv/enoch/projects"
+    paper_evidence_sync_remote_root: str = "~/enoch/projects"
     paper_evidence_sync_timeout_sec: int = Field(default=90, ge=5)
 
 
