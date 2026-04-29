@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Enoch — Agentic Research Control Plane</title>
-  <meta name="description" content="Enoch is an agentic research control plane for queueing, supervising, evidence-syncing, and publishing AI-generated research artifacts." />
+  <meta name="description" content="Enoch is an agentic research control plane for queueing, supervising, evidence-syncing, and publishing bounded AI-generated research artifacts for inspection." />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -12,14 +12,14 @@
     <nav class="nav">
       <a href="#what">What it is</a>
       <a href="#workflow">Workflow</a>
-      <a href="#featured">Featured projects</a>
+      <a href="#featured">Featured artifacts</a>
       <a href="#launch">Launch notes</a>
     </nav>
     <section class="hero-grid">
       <div>
         <p class="eyebrow">Agentic research needs a control plane</p>
         <h1>Enoch turns local AI research runs into auditable artifacts.</h1>
-        <p class="lede">A scored idea enters a queue. A control VM checks safety. A worker executes under a wake gate. Evidence is synced. A model writes arXiv-style reports with claim boundaries and provenance. The system is the sell; the artifacts it produces are the proof.</p>
+        <p class="lede">A scored idea enters a queue. A control VM checks safety. A worker executes under a wake gate. Evidence is synced. A configured writer produces publication-style reports with claim boundaries and provenance. The system is the sell; the generated artifacts are evidence to inspect, not peer-reviewed claims.</p>
         <div class="actions">
           <a class="button primary" href="https://github.com/alias8818/enoch-agentic-research-system">Code repo</a>
           <a class="button" href="https://github.com/alias8818/enoch-ai-research-corpus">Research corpus</a>
@@ -40,8 +40,8 @@
         <h2>A reliability layer for long-running autonomous work.</h2>
       </div>
       <div class="copy">
-        <p>Enoch is the hard-cutover replacement for a scattered automation stack. It owns queue state, pause/maintenance controls, worker preflight, single-lane safety, process/telemetry truth, evidence sync, paper rewriting, and dashboard status.</p>
-        <p>The generated papers are released as AI-generated research artifacts. The human operator built and operated the surrounding system but does not claim personal authorship of the paper prose, arguments, or experimental results.</p>
+        <p>Enoch is a replacement for a scattered local automation stack. It owns queue state, pause/maintenance controls, worker preflight, single-lane safety, process/telemetry truth, evidence sync, paper rewriting, and dashboard status, built around FastAPI/LangGraph-era control-plane boundaries and operated with Codex/OMX automation.</p>
+        <p>The generated papers are released as AI-generated research artifacts. The human operator built and operated the surrounding Enoch system; OMX/oh-my-codex is credited as orchestration infrastructure, not as the owner or author of the generated paper prose, arguments, or experimental results.</p>
       </div>
     </section>
 
@@ -49,20 +49,20 @@
       <p class="eyebrow">Workflow</p>
       <h2>From idea intake to public artifact.</h2>
       <div class="flow">
-        <div><strong>1. Scout</strong><span>LLM-assisted review of technical signals, papers, news, and local runtime opportunities.</span></div>
+        <div><strong>1. Scout</strong><span>LLM-assisted review of technical signals, public papers, news, and local runtime opportunities.</span></div>
         <div><strong>2. Score</strong><span>Notion weight matrix ranks candidate ideas before execution.</span></div>
         <div><strong>3. Dispatch</strong><span>Control plane gates queue state, maintenance state, worker health, and single-lane safety.</span></div>
         <div><strong>4. Execute</strong><span>GB10 worker runs the experiment while wake gate watches process and telemetry truth.</span></div>
         <div><strong>5. Preserve</strong><span>Run notes, evidence bundles, claim ledgers, metrics, and manifests are synced.</span></div>
-        <div><strong>6. Publish</strong><span>GLM/Synthetic.new rewrites evidence-grounded reports with provenance and caveats.</span></div>
+        <div><strong>6. Publish</strong><span>A configured artifact writer drafts evidence-grounded reports with provenance and caveats.</span></div>
       </div>
     </section>
 
     <section id="featured" class="section">
       <div class="section-head">
         <div>
-          <p class="eyebrow">Featured projects</p>
-          <h2>Novel, replication-worthy artifacts from the corpus.</h2>
+          <p class="eyebrow">Featured artifacts</p>
+          <h2>Bounded, replication-worthy artifacts from the corpus.</h2>
         </div>
         <p>These are not “best papers” in a peer-review sense. They are the first public highlight set: artifacts with a clear novelty hook, concrete reported metrics, and bounded claims that make the corpus worth inspecting.</p>
       </div>
@@ -75,8 +75,8 @@
         <h2>Built in the open, with provenance up front.</h2>
       </div>
       <div class="copy">
-        <p>Release Enoch as an engineering artifact: a working control plane, a corpus of generated outputs, and a transparent record of what was automated. The hook is not “these are human papers.” The hook is that a local agentic system generated, supervised, rewrote, and packaged a research corpus with evidence and caveats—and some of the generated artifacts are legitimately interesting enough to invite replication.</p>
-        <p><a href="https://github.com/alias8818/enoch-agentic-research-system/blob/main/docs/launch-todo.md">Launch TODO</a> · <a href="https://github.com/alias8818/enoch-agentic-research-system/blob/main/docs/outreach/launch-announcement.md">Announcement drafts</a></p>
+        <p>Release Enoch as an engineering artifact: a working control plane, a corpus of generated outputs, and a transparent record of what was automated. The hook is not “these are human papers.” The hook is that a local agentic system generated, supervised, rewrote, and packaged a research corpus with evidence and caveats—and some of the generated artifacts are specific enough to invite independent replication attempts.</p>
+        <p><a href="https://github.com/alias8818/enoch-agentic-research-system/blob/main/docs/launch-todo.md">Launch TODO</a> · <a href="https://github.com/alias8818/enoch-agentic-research-system/blob/main/docs/outreach/launch-announcement.md">Announcement drafts</a> · <a href="https://github.com/Yeachan-Heo/oh-my-codex">oh-my-codex / OMX</a></p>
       </div>
     </section>
   </main>
