@@ -66,7 +66,7 @@ class GateConfig(BaseModel):
     paper_writer_fallback_enabled: bool = True
     paper_evidence_sync_enabled: bool = False
     paper_evidence_sync_ssh_host: str = "worker-user@worker.example"
-    paper_evidence_sync_remote_root: str = "/home/jeremy/projects/enoch_testing_ground/projects"
+    paper_evidence_sync_remote_root: str = "/srv/enoch/projects"
     paper_evidence_sync_timeout_sec: int = Field(default=90, ge=5)
 
 
