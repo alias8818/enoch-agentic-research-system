@@ -1,5 +1,7 @@
 # Enoch Agentic Research System
 
+![Enoch — Agentic Research Control Plane](site/assets/social-card.svg)
+
 Enoch is a reliability-focused control plane for autonomous AI research work. It turns a scored research idea into a supervised agent run, watches the real worker state, preserves evidence, and produces bounded, auditable AI-generated research artifacts.
 
 The project is built around a simple operational belief:
