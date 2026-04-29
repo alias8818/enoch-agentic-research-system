@@ -30,6 +30,16 @@
     }
   },
   "max_wait_after_idle_sec": 43200,
+  "stale_project_process_reaper_enabled": true,
+  "stale_project_process_grace_sec": 900,
+  "stale_project_process_term_grace_sec": 5.0,
+  "stale_project_process_command_markers": [
+    "timeout ",
+    "llama-cli",
+    "llama-server",
+    "vllm",
+    "sglang"
+  ],
   "completion_callback_url": "https://automation.example.com/webhook/omx-wake-ready",
   "completion_callback_token": "replace-with-callback-token",
   "completion_callback_timeout_sec": 120,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from statistics import mean
+from typing import Any
 
 from .config import GateConfig
 from .models import GateCallback, GateState, OmxEvent, RunRecord, utc_now
@@ -222,6 +223,28 @@ class WakeGate:
             idempotency_key=idempotency_key,
         )
         return record, callback
+
+    def reap_stale_project_processes(self, record: RunRecord) -> list[dict[str, Any]]:
+        if not self.config.stale_project_process_reaper_enabled:
+            return []
+        if record.gate_state not in {
+            GateState.RUNNING,
+            GateState.PENDING_IDLE_GATE,
+            GateState.WAITING_FOR_PROCESS_EXIT,
+            GateState.WAITING_FOR_QUIET_WINDOW,
+            GateState.FINISHED_PENDING_GATE,
+        }:
+            return []
+
+        sample = self.telemetry.sample()
+        reaped = self.process_tracker.reap_stale_project_processes(
+            record,
+            gpu_compute_pids=sample.gpu_compute_pids,
+            stale_after_sec=self.config.stale_project_process_grace_sec,
+            command_markers=self.config.stale_project_process_command_markers,
+            term_grace_sec=self.config.stale_project_process_term_grace_sec,
+        )
+        return [process.model_dump() for process in reaped]
 
     def is_timed_out(self, record: RunRecord) -> bool:
         if record.gate_state not in {

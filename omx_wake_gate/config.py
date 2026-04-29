@@ -38,6 +38,18 @@ class GateConfig(BaseModel):
     vram_delta_threshold_mib: int = Field(default=1024, ge=0)
     workload_profiles: dict[str, GateThresholdProfile] = Field(default_factory=dict)
     max_wait_after_idle_sec: int = Field(default=43200, ge=60)
+    stale_project_process_reaper_enabled: bool = True
+    stale_project_process_grace_sec: int = Field(default=900, ge=0)
+    stale_project_process_term_grace_sec: float = Field(default=5.0, ge=0.0, le=30.0)
+    stale_project_process_command_markers: list[str] = Field(
+        default_factory=lambda: [
+            "timeout ",
+            "llama-cli",
+            "llama-server",
+            "vllm",
+            "sglang",
+        ]
+    )
     completion_callback_url: str = ""
     completion_callback_token: str = ""
     completion_callback_timeout_sec: int = Field(default=120, ge=5)
