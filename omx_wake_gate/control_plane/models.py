@@ -8,6 +8,27 @@ from pydantic import BaseModel, Field
 from ..models import utc_now
 
 
+def idempotency_key_field(prefix: str):
+    return Field(default_factory=lambda: f"{prefix}:{utc_now()}")
+
+
+class OkResponse(BaseModel):
+    ok: bool = True
+
+
+class EventMutationResponse(OkResponse):
+    inserted_event: bool = False
+    event_id: int | None = None
+
+
+class DryRunCountResponse(OkResponse):
+    dry_run: bool
+    inserted_event: bool = False
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+
+
 class QueueStatus(str, Enum):
     QUEUED = "queued"
     DISPATCHING = "dispatching"
@@ -85,7 +106,7 @@ class MarkQueueItemPausedRequest(BaseModel):
 
 
 class NotionIntakeRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"notion-intake:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("notion-intake")
     source: str = "notion"
     notion_rows: list[dict[str, Any]] = Field(default_factory=list)
     dry_run: bool = True
@@ -95,13 +116,8 @@ class NotionIntakeRequest(BaseModel):
     default_sandbox: str = "danger-full-access"
 
 
-class NotionIntakeResponse(BaseModel):
-    ok: bool = True
+class NotionIntakeResponse(DryRunCountResponse):
     dry_run: bool
-    inserted_event: bool = False
-    created: int = 0
-    updated: int = 0
-    skipped: int = 0
     candidates: list[dict[str, Any]] = Field(default_factory=list)
     skipped_rows: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -231,31 +247,23 @@ class ReviewQueueItem(BaseModel):
 
 
 class PaperReviewBackfillRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-backfill:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-backfill")
     requested_by: str = "operator"
     source_audit_path: str = ""
     dry_run: bool = True
 
 
-class PaperReviewBackfillResponse(BaseModel):
-    ok: bool = True
+class PaperReviewBackfillResponse(DryRunCountResponse):
     dry_run: bool
-    inserted_event: bool = False
-    created: int = 0
-    updated: int = 0
-    skipped: int = 0
     errors: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class PaperReviewMutationResponse(BaseModel):
-    ok: bool = True
-    inserted_event: bool = False
-    event_id: int | None = None
+class PaperReviewMutationResponse(EventMutationResponse):
     item: ReviewQueueItem
 
 
 class PaperReviewClaimRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-claim:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-claim")
     requested_by: str = "operator"
     reviewer: str
     note: str = ""
@@ -263,14 +271,14 @@ class PaperReviewClaimRequest(BaseModel):
 
 
 class PaperReviewChecklistUpdateRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-checklist:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-checklist")
     requested_by: str = "operator"
     status: Literal["pending", "pass", "fail", "accepted_risk", "not_applicable"]
     note: str = ""
 
 
 class PaperReviewStatusUpdateRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-status:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-status")
     requested_by: str = "operator"
     review_status: ReviewStatus
     note: str = ""
@@ -278,28 +286,25 @@ class PaperReviewStatusUpdateRequest(BaseModel):
 
 
 class PaperReviewApproveFinalizationRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-approval:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-approval")
     requested_by: str = "operator"
     note: str = ""
 
 
 class PaperReviewPrepareFinalizationRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-package:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-package")
     requested_by: str = "operator"
     target_label: str = ""
     dry_run: bool = True
 
 
 class PaperReviewRewriteDraftRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-rewrite:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-rewrite")
     requested_by: str = "operator"
     force: bool = True
 
 
-class PaperReviewRewriteDraftResponse(BaseModel):
-    ok: bool = True
-    inserted_event: bool = False
-    event_id: int | None = None
+class PaperReviewRewriteDraftResponse(EventMutationResponse):
     item: ReviewQueueItem | None = None
     paper: dict[str, Any] | None = None
     writer: dict[str, Any] = Field(default_factory=dict)
@@ -307,7 +312,7 @@ class PaperReviewRewriteDraftResponse(BaseModel):
 
 
 class PaperReviewBulkRewriteRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-bulk-rewrite:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-bulk-rewrite")
     requested_by: str = "ai-publication-pipeline"
     paper_status: str = "publication_draft"
     review_status: str = ""
@@ -318,8 +323,7 @@ class PaperReviewBulkRewriteRequest(BaseModel):
     skip_rewritten: bool = True
 
 
-class PaperReviewBulkRewriteResponse(BaseModel):
-    ok: bool = True
+class PaperReviewBulkRewriteResponse(OkResponse):
     dry_run: bool = False
     matched: int = 0
     processed: int = 0
@@ -328,11 +332,8 @@ class PaperReviewBulkRewriteResponse(BaseModel):
     rows: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class PaperReviewFinalizationPackageResponse(BaseModel):
-    ok: bool = True
+class PaperReviewFinalizationPackageResponse(EventMutationResponse):
     dry_run: bool = True
-    inserted_event: bool = False
-    event_id: int | None = None
     item: ReviewQueueItem | None = None
     package_path: str = ""
     manifest: dict[str, Any] = Field(default_factory=dict)
@@ -349,7 +350,7 @@ class EventRecord(BaseModel):
 
 
 class ImportSnapshotRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"manual-import:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("manual-import")
     source: str = "legacy_n8n"
     queue_rows: list[dict[str, Any]] = Field(default_factory=list)
     paper_rows: list[dict[str, Any]] = Field(default_factory=list)
@@ -359,8 +360,7 @@ class ImportSnapshotRequest(BaseModel):
     paper_snapshot: dict[str, Any] | list[dict[str, Any]] | None = None
 
 
-class ImportSnapshotResponse(BaseModel):
-    ok: bool = True
+class ImportSnapshotResponse(OkResponse):
     inserted_event: bool
     imported_projects: int
     imported_queue_items: int
@@ -462,8 +462,7 @@ class DashboardFinding(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
-class DashboardApiResponse(BaseModel):
-    ok: bool = True
+class DashboardApiResponse(OkResponse):
     generated_at: str = Field(default_factory=utc_now)
     source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
     warnings: list[DashboardFinding] = Field(default_factory=list)
@@ -497,8 +496,6 @@ class DashboardStatusResponse(DashboardApiResponse):
     dispatch_blockers: list[str] = Field(default_factory=list)
     observations: dict[str, DashboardObservationRecord | None] = Field(default_factory=dict)
     recent_events: list[EventRecord] = Field(default_factory=list)
-
-
 
 
 class DashboardPageMeta(BaseModel):
@@ -598,8 +595,7 @@ class DashboardIntakeResponse(DashboardApiResponse):
     recent_events: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class ControlStateResponse(BaseModel):
-    ok: bool = True
+class ControlStateResponse(OkResponse):
     flags: ControlFlags
     counts: dict[str, int]
     active_items: list[dict[str, Any]]
@@ -607,15 +603,13 @@ class ControlStateResponse(BaseModel):
     recent_events: list[EventRecord] = Field(default_factory=list)
 
 
-class ProjectionResponse(BaseModel):
-    ok: bool = True
+class ProjectionResponse(OkResponse):
     generated_at: str = Field(default_factory=utc_now)
     rows: list[dict[str, Any]]
     counts: dict[str, int] = Field(default_factory=dict)
 
 
-class ExportSnapshotResponse(BaseModel):
-    ok: bool = True
+class ExportSnapshotResponse(OkResponse):
     generated_at: str = Field(default_factory=utc_now)
     source: str = "langgraph_control_plane"
     flags: ControlFlags
