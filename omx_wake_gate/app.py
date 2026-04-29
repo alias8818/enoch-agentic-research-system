@@ -2232,6 +2232,21 @@ async def _evaluate_until_ready(run_id: str) -> None:
                 return
             record = _assign_record_workload_profile(record)
 
+            reaped_processes = await asyncio.to_thread(gate.reap_stale_project_processes, record)
+            if reaped_processes:
+                store.append_event(
+                    {
+                        "kind": "stale_project_process_reaped",
+                        "run_id": record.run_id,
+                        "session_id": record.session_id,
+                        "project_id": record.project_id,
+                        "timestamp": utc_now(),
+                        "reason": "root session exited/idle; project-owned stale smoke process exceeded grace window",
+                        "stale_after_sec": config.stale_project_process_grace_sec,
+                        "processes": reaped_processes,
+                    }
+                )
+
             if gate.is_timed_out(record):
                 timeout_idempotency_key = f"{record.run_id}:gate_timeout:{record.idle_seen_at or record.last_event_at}"
                 if record.last_idempotency_key == timeout_idempotency_key:
@@ -2315,6 +2330,20 @@ async def _reconcile_missing_idle_loop() -> None:
             for record in store.list_runs():
                 record = _assign_record_workload_profile(record)
                 if record.gate_state == GateState.RUNNING:
+                    reaped_processes = await asyncio.to_thread(gate.reap_stale_project_processes, record)
+                    if reaped_processes:
+                        store.append_event(
+                            {
+                                "kind": "stale_project_process_reaped",
+                                "run_id": record.run_id,
+                                "session_id": record.session_id,
+                                "project_id": record.project_id,
+                                "timestamp": utc_now(),
+                                "reason": "root session exited/idle; project-owned stale smoke process exceeded grace window",
+                                "stale_after_sec": config.stale_project_process_grace_sec,
+                                "processes": reaped_processes,
+                            }
+                        )
                     record, changed = gate.reconcile(record)
                     if changed:
                         store.append_event(

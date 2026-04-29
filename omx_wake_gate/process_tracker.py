@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import time
 from pathlib import Path
 
@@ -98,6 +99,40 @@ class ProcessTracker:
         tracked.update(self._project_owned_processes(record))
         return tracked
 
+    def _root_exited(self, record: RunRecord) -> bool:
+        if psutil is None or record.root_pid is None:
+            return False
+        try:
+            root = psutil.Process(record.root_pid)
+            return not (root.is_running() and root.status() != psutil.STATUS_ZOMBIE)
+        except psutil.NoSuchProcess:
+            return True
+        except psutil.AccessDenied:
+            # Lack of access is not proof that the root is gone. Keep the gate
+            # conservative and do not reap project processes in this case.
+            return False
+
+    @staticmethod
+    def _process_info(proc: object) -> ProcessInfo | None:
+        try:
+            if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
+                return None
+            cmdline_parts = proc.cmdline()
+            cmdline = " ".join(cmdline_parts).strip() or proc.name()
+            try:
+                pgid = os.getpgid(proc.pid)
+            except (ProcessLookupError, PermissionError):
+                pgid = None
+            return ProcessInfo(
+                pid=proc.pid,
+                ppid=proc.ppid(),
+                pgid=pgid,
+                elapsed_sec=int(max(0, time.time() - proc.create_time())),
+                cmdline=cmdline,
+            )
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return None
+
     def snapshot(self, record: RunRecord, gpu_compute_pids: list[int] | None = None) -> ProcessSnapshot:
         if psutil is None:
             return ProcessSnapshot(
@@ -148,24 +183,91 @@ class ProcessTracker:
 
         described: list[ProcessInfo] = []
         for pid, proc in sorted(self._tracked_processes(record).items()):
-            try:
-                if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
-                    continue
-                cmdline_parts = proc.cmdline()
-                cmdline = " ".join(cmdline_parts).strip() or proc.name()
-                try:
-                    pgid = os.getpgid(proc.pid)
-                except (ProcessLookupError, PermissionError):
-                    pgid = None
-                described.append(
-                    ProcessInfo(
-                        pid=proc.pid,
-                        ppid=proc.ppid(),
-                        pgid=pgid,
-                        elapsed_sec=int(max(0, time.time() - proc.create_time())),
-                        cmdline=cmdline,
-                    )
-                )
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
+            info = self._process_info(proc)
+            if info is not None:
+                described.append(info)
         return described
+
+    def stale_reap_candidates(
+        self,
+        record: RunRecord,
+        *,
+        gpu_compute_pids: list[int] | None = None,
+        stale_after_sec: int,
+        command_markers: list[str],
+    ) -> list[ProcessInfo]:
+        """Return project-owned processes safe to reap after the Codex root exited.
+
+        The wake gate intentionally treats any process with cwd under the project
+        as live work so background benchmarks cannot be orphaned. That safety net
+        can wedge the queue when a bounded smoke command (for example
+        ``timeout 45s llama-cli ...``) survives after the Codex session has gone
+        idle/dead. Reaping is intentionally narrow: the root process must be
+        gone, the process must live under the project directory, it must be older
+        than the configured grace window, and it must either appear in GPU
+        compute telemetry or match an explicit stale-command marker.
+        """
+        if psutil is None or not self._root_exited(record):
+            return []
+
+        project_dir = self._project_dir(record)
+        if project_dir is None or not project_dir.exists():
+            return []
+
+        markers = [marker.lower() for marker in command_markers if marker.strip()]
+        gpu_pids = set(gpu_compute_pids or [])
+        candidates: list[ProcessInfo] = []
+        for pid, proc in sorted(self._project_owned_processes(record).items()):
+            if pid == record.root_pid:
+                continue
+            info = self._process_info(proc)
+            if info is None:
+                continue
+            if _is_benign_project_process(info.cmdline):
+                continue
+            if (info.elapsed_sec or 0) < stale_after_sec:
+                continue
+            cmd = info.cmdline.lower()
+            marker_match = any(marker in cmd for marker in markers)
+            gpu_match = pid in gpu_pids
+            if marker_match or gpu_match:
+                candidates.append(info)
+        return candidates
+
+    def reap_stale_project_processes(
+        self,
+        record: RunRecord,
+        *,
+        gpu_compute_pids: list[int] | None = None,
+        stale_after_sec: int,
+        command_markers: list[str],
+        term_grace_sec: float = 5.0,
+    ) -> list[ProcessInfo]:
+        candidates = self.stale_reap_candidates(
+            record,
+            gpu_compute_pids=gpu_compute_pids,
+            stale_after_sec=stale_after_sec,
+            command_markers=command_markers,
+        )
+        if not candidates:
+            return []
+
+        for info in candidates:
+            try:
+                os.kill(info.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                continue
+            except PermissionError:
+                continue
+
+        if term_grace_sec > 0:
+            time.sleep(term_grace_sec)
+
+        for info in candidates:
+            try:
+                proc = psutil.Process(info.pid) if psutil is not None else None
+                if proc is not None and proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE:
+                    os.kill(info.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return candidates
