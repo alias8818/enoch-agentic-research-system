@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 820" role="img" aria-labelledby="title desc">
+  <title id="title">Enoch architecture diagram</title>
+  <desc id="desc">Idea intake flows through a queue and control plane to local workers, evidence packaging, publication artifacts, dashboard and alerts.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07101f"/><stop offset="0.55" stop-color="#10172a"/><stop offset="1" stop-color="#090b16"/></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7dd3fc"/><stop offset="1" stop-color="#c084fc"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="4" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <style>
+      .title{font:800 42px ui-sans-serif,system-ui,Segoe UI,sans-serif;fill:#edf3ff;letter-spacing:-1px}.sub{font:500 20px ui-sans-serif,system-ui,Segoe UI,sans-serif;fill:#9fb0cc}.box{fill:rgba(16,22,36,.92);stroke:rgba(255,255,255,.18);stroke-width:2}.core{fill:rgba(125,211,252,.12);stroke:#7dd3fc;stroke-width:3}.label{font:800 22px ui-sans-serif,system-ui,Segoe UI,sans-serif;fill:#edf3ff}.small{font:500 16px ui-sans-serif,system-ui,Segoe UI,sans-serif;fill:#aebbd3}.tiny{font:700 13px ui-sans-serif,system-ui,Segoe UI,sans-serif;fill:#08101d}.arrow{stroke:url(#accent);stroke-width:4;fill:none;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#arrow)}.dash{stroke:#7dd3fc;stroke-width:2;stroke-dasharray:8 10;fill:none;opacity:.65}.chip{fill:url(#accent)}
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M2 2 L10 6 L2 10 Z" fill="#9ea8ff"/></marker>
+  </defs>
+  <rect width="1400" height="820" rx="34" fill="url(#bg)"/>
+  <circle cx="170" cy="80" r="260" fill="#7dd3fc" opacity=".12"/><circle cx="1230" cy="80" r="310" fill="#c084fc" opacity=".12"/>
+  <text x="70" y="78" class="title">Enoch: Agentic Research Control Plane</text>
+  <text x="70" y="112" class="sub">Queue safety, worker orchestration, evidence capture, provenance, and publication-style artifact packaging.</text>
+
+  <g transform="translate(80 190)">
+    <rect class="box" x="0" y="0" width="205" height="130" rx="24"/><text class="label" x="24" y="42">Idea intake</text><text class="small" x="24" y="76">News, papers,</text><text class="small" x="24" y="99">local opportunities</text>
+  </g>
+  <g transform="translate(330 190)">
+    <rect class="box" x="0" y="0" width="205" height="130" rx="24"/><text class="label" x="24" y="42">Notion score</text><text class="small" x="24" y="76">Weighted matrix</text><text class="small" x="24" y="99">for candidates</text>
+  </g>
+  <g transform="translate(585 160)">
+    <rect class="core" x="0" y="0" width="270" height="190" rx="30" filter="url(#glow)"/><text class="label" x="32" y="52">Control plane</text><text class="small" x="32" y="88">FastAPI + LangGraph-era</text><text class="small" x="32" y="116">state boundaries</text><text class="small" x="32" y="144">pause, preflight, dispatch</text><rect class="chip" x="32" y="156" width="95" height="24" rx="12"/><text class="tiny" x="50" y="173">single lane</text>
+  </g>
+  <g transform="translate(920 190)">
+    <rect class="box" x="0" y="0" width="205" height="130" rx="24"/><text class="label" x="24" y="42">Wake gate</text><text class="small" x="24" y="76">Process truth +</text><text class="small" x="24" y="99">telemetry checks</text>
+  </g>
+  <g transform="translate(1165 190)">
+    <rect class="box" x="0" y="0" width="170" height="130" rx="24"/><text class="label" x="24" y="42">Worker</text><text class="small" x="24" y="76">GB10 / local</text><text class="small" x="24" y="99">experiment</text>
+  </g>
+
+  <path class="arrow" d="M285 255 H330"/><path class="arrow" d="M535 255 H585"/><path class="arrow" d="M855 255 H920"/><path class="arrow" d="M1125 255 H1165"/>
+
+  <g transform="translate(140 520)">
+    <rect class="box" x="0" y="0" width="245" height="135" rx="24"/><text class="label" x="24" y="42">Evidence bundle</text><text class="small" x="24" y="76">Run notes, metrics,</text><text class="small" x="24" y="99">logs, manifests</text>
+  </g>
+  <g transform="translate(430 520)">
+    <rect class="box" x="0" y="0" width="245" height="135" rx="24"/><text class="label" x="24" y="42">Claim ledger</text><text class="small" x="24" y="76">Claims, limitations,</text><text class="small" x="24" y="99">review status</text>
+  </g>
+  <g transform="translate(720 520)">
+    <rect class="box" x="0" y="0" width="245" height="135" rx="24"/><text class="label" x="24" y="42">Paper artifact</text><text class="small" x="24" y="76">Generated Markdown</text><text class="small" x="24" y="99">with provenance</text>
+  </g>
+  <g transform="translate(1010 520)">
+    <rect class="box" x="0" y="0" width="245" height="135" rx="24"/><text class="label" x="24" y="42">Dashboard + alerts</text><text class="small" x="24" y="76">Status, hangs,</text><text class="small" x="24" y="99">Pushover alerts</text>
+  </g>
+  <path class="dash" d="M1248 320 C1248 430 260 410 260 520"/><path class="arrow" d="M385 588 H430"/><path class="arrow" d="M675 588 H720"/><path class="arrow" d="M965 588 H1010"/>
+  <text class="small" x="70" y="755">Generated artifacts are inspectable outputs, not peer-reviewed claims. The system emphasizes control, evidence, and auditability.</text>
+</svg>
