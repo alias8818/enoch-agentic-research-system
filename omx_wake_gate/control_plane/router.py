@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse
 from ..config import GateConfig
 from ..enoch_core.logic import draft_candidate_payload, eligible_paper_draft_candidates
 from ..enoch_core.store import IdempotencyConflict
-from ..models import GateCallback, utc_now
+from ..models import GateCallback, parse_timestamp, utc_now
 from .paper_writer import write_paper_artifacts
 from .models import (
     ControlStateResponse,
@@ -303,24 +303,15 @@ def _live_run_id(project_id: str) -> str:
     return f"{project_id}-{stamp}"
 
 
-def _parse_ts(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
 def _fresh_until(observed_at: str | None, ttl_seconds: int | None) -> str | None:
-    observed = _parse_ts(observed_at)
+    observed = parse_timestamp(observed_at)
     if observed is None or ttl_seconds is None:
         return None
     return (observed + timedelta(seconds=ttl_seconds)).isoformat()
 
 
 def _is_stale(observed_at: str | None, ttl_seconds: int | None) -> bool:
-    observed = _parse_ts(observed_at)
+    observed = parse_timestamp(observed_at)
     if observed is None or ttl_seconds is None:
         return True
     return datetime.now(timezone.utc) > observed + timedelta(seconds=ttl_seconds)
@@ -737,7 +728,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         return groups
 
     def _row_age_seconds(row: dict[str, Any]) -> int | None:
-        ts = _parse_ts(str(row.get("updated_at") or row.get("created_at") or ""))
+        ts = parse_timestamp(str(row.get("updated_at") or row.get("created_at") or ""))
         if ts is None:
             return None
         return max(0, int((datetime.now(timezone.utc) - ts).total_seconds()))

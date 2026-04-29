@@ -9,7 +9,7 @@ from typing import Any
 from urllib import parse, request
 
 from ..config import GateConfig
-from ..models import utc_now
+from ..models import parse_timestamp, utc_now
 from .models import DashboardFinding, DashboardStatusResponse
 from .store import ControlPlaneStore
 
@@ -20,15 +20,6 @@ class PushoverResult:
     ok: bool
     status_code: int | None = None
     detail: str = ""
-
-
-def _parse_ts(raw: str | None) -> datetime | None:
-    if not raw:
-        return None
-    try:
-        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-    except ValueError:
-        return None
 
 
 def _event_payload_hash(payload: dict[str, Any]) -> str:
@@ -65,7 +56,7 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
                 ))
 
         for row in status.active_items:
-            stale_at = _parse_ts(row.get("stale_after"))
+            stale_at = parse_timestamp(row.get("stale_after"))
             if stale_at and datetime.now(timezone.utc) > stale_at:
                 findings.append(DashboardFinding(
                     severity="warn",
@@ -77,7 +68,7 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
                     data={"project_id": row.get("project_id"), "run_id": row.get("current_run_id")},
                 ))
             elif not stale_at:
-                updated = _parse_ts(row.get("updated_at") or row.get("last_dispatch_at"))
+                updated = parse_timestamp(row.get("updated_at") or row.get("last_dispatch_at"))
                 if updated and datetime.now(timezone.utc) > updated + timedelta(seconds=hang_after_sec):
                     findings.append(DashboardFinding(
                         severity="warn",
