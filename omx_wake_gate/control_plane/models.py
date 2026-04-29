@@ -5,28 +5,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from ..models import utc_now
-
-
-def idempotency_key_field(prefix: str):
-    return Field(default_factory=lambda: f"{prefix}:{utc_now()}")
-
-
-class OkResponse(BaseModel):
-    ok: bool = True
-
-
-class EventMutationResponse(OkResponse):
-    inserted_event: bool = False
-    event_id: int | None = None
-
-
-class DryRunCountResponse(OkResponse):
-    dry_run: bool
-    inserted_event: bool = False
-    created: int = 0
-    updated: int = 0
-    skipped: int = 0
+from ..models import (
+    DryRunCountResponse,
+    EventMutationResponse,
+    GeneratedAtResponse,
+    OkResponse,
+    idempotency_key_field,
+    utc_now,
+)
 
 
 class QueueStatus(str, Enum):
@@ -462,8 +448,7 @@ class DashboardFinding(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
-class DashboardApiResponse(OkResponse):
-    generated_at: str = Field(default_factory=utc_now)
+class DashboardApiResponse(GeneratedAtResponse):
     source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
     warnings: list[DashboardFinding] = Field(default_factory=list)
     conflicts: list[DashboardFinding] = Field(default_factory=list)
@@ -603,14 +588,12 @@ class ControlStateResponse(OkResponse):
     recent_events: list[EventRecord] = Field(default_factory=list)
 
 
-class ProjectionResponse(OkResponse):
-    generated_at: str = Field(default_factory=utc_now)
+class ProjectionResponse(GeneratedAtResponse):
     rows: list[dict[str, Any]]
     counts: dict[str, int] = Field(default_factory=dict)
 
 
-class ExportSnapshotResponse(OkResponse):
-    generated_at: str = Field(default_factory=utc_now)
+class ExportSnapshotResponse(GeneratedAtResponse):
     source: str = "langgraph_control_plane"
     flags: ControlFlags
     queue_rows: list[dict[str, Any]]

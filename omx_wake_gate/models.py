@@ -25,6 +25,31 @@ def parse_timestamp(value: str | None) -> datetime | None:
     return parsed
 
 
+def idempotency_key_field(prefix: str):
+    return Field(default_factory=lambda: f"{prefix}:{utc_now()}")
+
+
+class OkResponse(BaseModel):
+    ok: bool = True
+
+
+class EventMutationResponse(OkResponse):
+    inserted_event: bool = False
+    event_id: int | None = None
+
+
+class DryRunCountResponse(OkResponse):
+    dry_run: bool
+    inserted_event: bool = False
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+
+
+class GeneratedAtResponse(OkResponse):
+    generated_at: str = Field(default_factory=utc_now)
+
+
 class SourceEvent(str, Enum):
     SESSION_START = "session-start"
     SESSION_IDLE = "session-idle"
