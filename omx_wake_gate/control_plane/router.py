@@ -111,7 +111,7 @@ CONTROL_DASHBOARD_HTML = """
 const pages=[['status','Status'],['health','Queue Health'],['queue:active','Active'],['queue:queued','Queued'],['queue:blocked','Blocked'],['queue:paused','Paused'],['reviews','Publication Review'],['papers','Papers'],['intake','Notion Intake'],['events','Events']];
 const $=id=>document.getElementById(id); const AI_ACTOR='ai-publication-pipeline'; const AI_NOTE='AI-generated publication pipeline; operator claims no personal authorship credit.'; const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 function token(){return localStorage.getItem('enochControlToken')||'';} function saveToken(){localStorage.setItem('enochControlToken',$('token').value.trim());route();}
-async function api(path,opts={}){const headers={Authorization:'Bearer '+token(),...(opts.headers||{})}; const r=await fetch(path,{...opts,headers}); if(!r.ok) throw new Error(path+' -> '+r.status+' '+await r.text()); return r.json();}
+async function api(path,opts={}){const headers={Authorization:'Bearer '+token(),...(opts.headers||{})}; const r=await fetch(path,{cache:'no-store',...opts,headers}); if(!r.ok) throw new Error(path+' -> '+r.status+' '+await r.text()); return r.json();}
 async function postJson(path,payload){return api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});}
 function card(label,value,cls=''){return `<div class="card"><div class="label">${esc(label)}</div><div class="value ${cls}">${esc(value)}</div></div>`;}
 function finding(f){return `<div class="banner ${esc(f.severity||'info')}"><div class="row"><strong>${esc(f.severity||'info').toUpperCase()}</strong><span class="pill">${esc(f.source)}</span><span class="pill">${esc(f.authority)}</span></div><div>${esc(f.message)}</div><div class="muted">${esc(f.suggested_action||'')}</div></div>`;}
@@ -143,7 +143,8 @@ async function eventsPage(){renderNav('events'); const data=await api('/control/
 async function intakePage(){renderNav('intake'); const data=await api('/control/api/intake/notion'); $('status').className='pill info'; $('status').textContent='notion intake'; $('app').className=''; $('app').innerHTML=`<section class="grid two"><div class="card"><h2>Latest Notion sync</h2><pre>${esc(JSON.stringify(data.latest_sync||{},null,2))}</pre></div><div class="card"><h2>Skipped reasons</h2><pre>${esc(JSON.stringify(data.skipped_reasons||{},null,2))}</pre></div></section><section class="card"><h2>Queued projection</h2>${tableRows(data.queued_projection||[],['project_id','project_name','queue_status','next_action_hint','updated_at','notion_page_url'])}</section>`;}
 async function detail(kind,id){renderNav(kind==='project'?'queue:active':kind==='paper'?'papers':'events'); const path=kind==='project'?`/control/api/projects/${id}`:kind==='run'?`/control/api/runs/${id}`:`/control/api/papers/${id}`; const data=await api(path); $('status').className='pill info'; $('status').textContent=`${kind} detail`; $('app').className=''; $('app').innerHTML=`<section class="grid two"><div class="card"><h2>${esc(kind)} ${esc(id)}</h2><pre>${esc(JSON.stringify(data[kind]||data.queue_item||data.paper||data.run||{},null,2))}</pre></div><div class="card"><h2>Related evidence</h2><pre>${esc(JSON.stringify({project:data.project, queue_item:data.queue_item, run:data.run, papers:data.papers, worker_observations:data.worker_observations},null,2))}</pre></div></section><section class="card"><h2>Events</h2>${tableRows(data.events||[],['event_id','event_type','entity_type','entity_id','created_at'])}</section>`;}
 async function route(){try{if(token())$('token').value=token(); const h=(location.hash||'#status').slice(1); if(h.startsWith('queue:')) return queuePage((h.split(':')[1]||'active').split('?')[0]); if(h==='health') return healthPage(); if(h==='reviews'||h.startsWith('reviews?')) return reviewsPage(); if(h==='papers') return papersPage(); if(h==='events') return eventsPage(); if(h==='intake') return intakePage(); if(h.startsWith('project:')) return detail('project',encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('run:')) return detail('run',encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('review:')) return reviewDetail(encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('paper:')) return detail('paper',encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); return statusPage();}catch(e){$('status').className='pill bad';$('status').textContent='Error';$('app').className='banner critical';$('app').textContent=e.message;}}
-window.addEventListener('hashchange',route); route(); setInterval(()=>{if((location.hash||'#status')==='#status')route()},15000);
+function autoRefreshCurrentPage(){const h=(location.hash||'#status').slice(1).split('?')[0]; if(h==='status'||h==='health') route();}
+window.addEventListener('hashchange',route); route(); setInterval(autoRefreshCurrentPage,15000);
 </script>
 </body>
 </html>
@@ -816,7 +817,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
 
     @router.get("/dashboard", response_class=HTMLResponse)
     def dashboard() -> HTMLResponse:
-        return HTMLResponse(CONTROL_DASHBOARD_HTML)
+        return HTMLResponse(CONTROL_DASHBOARD_HTML, headers={"Cache-Control": "no-store"})
 
     @router.get("/health")
     def health(authorization: str | None = Header(default=None)) -> dict:

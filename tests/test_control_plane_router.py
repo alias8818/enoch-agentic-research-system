@@ -189,6 +189,10 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("Enoch Control Status", response.text)
             self.assertIn("/control/api/status", response.text)
             self.assertIn("Queue Health", response.text)
+            self.assertEqual(response.headers.get("cache-control"), "no-store")
+            self.assertIn("cache:'no-store'", response.text)
+            self.assertIn("autoRefreshCurrentPage", response.text)
+            self.assertIn("h==='health'", response.text)
 
 
     def test_dashboard_status_contract_reports_config_and_missing_worker_observations(self) -> None:
