@@ -23,7 +23,7 @@ External signals
 The upstream agentic scout reviewed technical signals such as:
 
 - AI/ML news;
-- arXiv-style research papers;
+- public research papers;
 - systems/inference discussions;
 - LLM tooling and serving trends;
 - local hardware/runtime opportunities;

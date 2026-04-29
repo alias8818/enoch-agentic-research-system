@@ -43,7 +43,7 @@ Dashboard, corpus export, and release artifacts
 
 ## Intake boundary
 
-The upstream intake process used an LLM-assisted research scout to review news, arXiv-style papers, and systems trends, then frame candidate experiments for scoring. Notion acted as the weight-matrix and triage surface. That intake layer explains where ideas came from, but it is not the runtime authority.
+The upstream intake process used an LLM-assisted research scout to review news, public research papers, and systems trends, then frame candidate experiments for scoring. Notion acted as the weight-matrix and triage surface. That intake layer explains where ideas came from, but it is not the runtime authority.
 
 Runtime authority begins when a scored candidate becomes a queue item for the Enoch control plane. From there, safety and truth come from control-plane state, worker preflight, wake-gate telemetry, process tracking, and evidence artifacts.
 

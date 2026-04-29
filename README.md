@@ -1,6 +1,6 @@
 # Enoch Agentic Research System
 
-Enoch is a reliability-focused control plane for autonomous AI research work. It turns a scored research idea into a supervised agent run, watches the real worker state, preserves evidence, and produces auditable AI-generated research artifacts.
+Enoch is a reliability-focused control plane for autonomous AI research work. It turns a scored research idea into a supervised agent run, watches the real worker state, preserves evidence, and produces bounded, auditable AI-generated research artifacts.
 
 The project is built around a simple operational belief:
 
@@ -50,7 +50,7 @@ Enoch treats those as control-plane problems. It uses process tracking, CPU/GPU 
 
 ## Idea intake
 
-Ideas came from an upstream LLM-assisted scouting process that reviewed technical signals such as AI news, arXiv-style papers, systems discussions, and local hardware/runtime opportunities. Candidate ideas were framed as structured experiment cards, scored in a Notion weight matrix, and then handed to Enoch as queue candidates.
+Ideas came from an upstream LLM-assisted scouting process that reviewed technical signals such as AI news, public research papers, systems discussions, and local hardware/runtime opportunities. Candidate ideas were framed as structured experiment cards, scored in a Notion weight matrix, and then handed to Enoch as queue candidates.
 
 Notion is best understood as an intake and prioritization surface. Runtime authority begins in the Enoch control plane.
 
@@ -84,7 +84,7 @@ Start with [`docs/quickstart.md`](docs/quickstart.md) for a local developer smok
 
 ## Deployment
 
-Start with [`docs/deployment-guide.md`](docs/deployment-guide.md). It covers the control VM, worker machine, systemd service, dashboard/API smoke tests, Pushover alerts, dispatch checks, and paper-writer settings.
+Start with [`docs/deployment-guide.md`](docs/deployment-guide.md). It covers the control VM, worker machine, systemd service, dashboard/API smoke tests, optional Pushover alerts, dispatch checks, and paper-writer settings.
 
 For individual config fields, see [`docs/configuration-reference.md`](docs/configuration-reference.md).
 
