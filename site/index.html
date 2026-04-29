@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Enoch — Agentic Research Control Plane</title>
   <meta name="description" content="Enoch is an agentic research control plane for queueing, supervising, evidence-syncing, and publishing bounded AI-generated research artifacts for inspection." />
+  <meta property="og:title" content="Enoch — Agentic Research Control Plane" />
+  <meta property="og:description" content="Queue safety, worker orchestration, evidence capture, provenance, and AI-generated research artifacts." />
+  <meta property="og:image" content="https://alias8818.github.io/enoch-agentic-research-system/assets/social-card.svg" />
+  <meta name="twitter:card" content="summary_large_image" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -12,6 +16,7 @@
     <nav class="nav">
       <a href="#what">What it is</a>
       <a href="#workflow">Workflow</a>
+      <a href="#architecture">Diagrams</a>
       <a href="#featured">Featured artifacts</a>
       <a href="#launch">Launch notes</a>
     </nav>
@@ -26,6 +31,7 @@
         </div>
       </div>
       <aside class="stat-card">
+        <img class="hero-visual" src="assets/enoch-hero-generated.png" alt="Generated Enoch hero graphic showing a control plane coordinating worker nodes and artifact bundles" />
         <div><span class="stat">120</span><span>AI-generated research artifacts</span></div>
         <div><span class="stat">120/120</span><span>quality gate pass count at packaging</span></div>
         <div><span class="stat">0</span><span>personal authorship claims on generated papers</span></div>
@@ -56,6 +62,24 @@
         <div><strong>5. Preserve</strong><span>Run notes, evidence bundles, claim ledgers, metrics, and manifests are synced.</span></div>
         <div><strong>6. Publish</strong><span>A configured artifact writer drafts evidence-grounded reports with provenance and caveats.</span></div>
       </div>
+    </section>
+
+    <section id="architecture" class="section visual-section">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">System diagrams</p>
+          <h2>Control plane first, artifacts second.</h2>
+        </div>
+        <p>These diagrams are intentionally editable SVGs so the launch story stays crisp: queue safety and provenance are the product, while generated papers are inspectable outputs.</p>
+      </div>
+      <figure class="diagram-card">
+        <img src="assets/enoch-architecture.svg" alt="Enoch architecture diagram from idea intake through control plane, wake gate, worker, evidence, publication, dashboard, and alerts" />
+        <figcaption>Architecture: idea intake enters a gated control plane before local execution, evidence sync, paper packaging, dashboard visibility, and alerts.</figcaption>
+      </figure>
+      <figure class="diagram-card">
+        <img src="assets/provenance-flow.svg" alt="Provenance diagram linking generated text to metadata, evidence, claim ledger, and publication surface" />
+        <figcaption>Provenance: generated text is only useful when attached to metadata, evidence bundles, limitations, and review/audit state.</figcaption>
+      </figure>
     </section>
 
     <section id="featured" class="section">

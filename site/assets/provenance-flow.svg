@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 720" role="img" aria-labelledby="title desc">
+  <title id="title">Generated research provenance flow</title>
+  <desc id="desc">A generated claim is linked to evidence, claim ledger review state, quality gates, and a published artifact.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#080d18"/><stop offset="1" stop-color="#11182b"/></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#7dd3fc"/><stop offset="1" stop-color="#c084fc"/></linearGradient>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M2 2 L10 6 L2 10 Z" fill="#9ea8ff"/></marker>
+    <style>.title{font:800 40px ui-sans-serif,system-ui,Segoe UI,sans-serif;fill:#edf3ff;letter-spacing:-1px}.sub{font:500 19px ui-sans-serif,system-ui,Segoe UI,sans-serif;fill:#aebbd3}.box{fill:rgba(16,22,36,.9);stroke:rgba(255,255,255,.17);stroke-width:2}.label{font:800 22px ui-sans-serif,system-ui,Segoe UI,sans-serif;fill:#edf3ff}.small{font:500 16px ui-sans-serif,system-ui,Segoe UI,sans-serif;fill:#aebbd3}.warn{fill:#fde68a}.good{fill:#86efac}.arrow{stroke:url(#accent);stroke-width:4;fill:none;stroke-linecap:round;marker-end:url(#arrow)}.rail{stroke:rgba(255,255,255,.13);stroke-width:8;stroke-linecap:round}.dot{fill:url(#accent)}</style>
+  </defs>
+  <rect width="1400" height="720" rx="34" fill="url(#bg)"/>
+  <text x="70" y="76" class="title">Provenance-first generated research artifacts</text>
+  <text x="70" y="110" class="sub">The corpus is designed for audit and critique: every artifact points back to metadata, evidence, limitations, and review state.</text>
+  <line class="rail" x1="160" y1="360" x2="1240" y2="360"/>
+  <g transform="translate(70 230)"><rect class="box" width="210" height="170" rx="24"/><circle class="dot" cx="42" cy="50" r="14"/><text class="label" x="70" y="58">Generated text</text><text class="small" x="28" y="96">Markdown paper draft</text><text class="small" x="28" y="121">from configured writer</text></g>
+  <g transform="translate(335 230)"><rect class="box" width="210" height="170" rx="24"/><circle class="dot" cx="42" cy="50" r="14"/><text class="label" x="70" y="58">Metadata</text><text class="small" x="28" y="96">AI-generated flag</text><text class="small" x="28" y="121">source fingerprint</text></g>
+  <g transform="translate(600 230)"><rect class="box" width="210" height="170" rx="24"/><circle class="dot" cx="42" cy="50" r="14"/><text class="label" x="70" y="58">Evidence</text><text class="small" x="28" y="96">Run notes, metrics,</text><text class="small" x="28" y="121">decision records</text></g>
+  <g transform="translate(865 230)"><rect class="box" width="210" height="170" rx="24"/><circle class="dot" cx="42" cy="50" r="14"/><text class="label" x="70" y="58">Claim ledger</text><text class="small" x="28" y="96">Claims + limits</text><text class="small" x="28" y="121">audit reminders</text></g>
+  <g transform="translate(1130 230)"><rect class="box" width="210" height="170" rx="24"/><circle class="dot" cx="42" cy="50" r="14"/><text class="label" x="70" y="58">Published</text><text class="small" x="28" y="96">GitHub + HF</text><text class="small" x="28" y="121">inspection surface</text></g>
+  <path class="arrow" d="M280 315 H335"/><path class="arrow" d="M545 315 H600"/><path class="arrow" d="M810 315 H865"/><path class="arrow" d="M1075 315 H1130"/>
+  <g transform="translate(190 505)"><rect class="box" width="1020" height="82" rx="22"/><text class="label" x="30" y="34">Boundary condition</text><text class="small" x="30" y="60">Artifacts are AI-generated and not peer-reviewed scientific claims; they are released for workflow study, audit, critique, and replication attempts.</text></g>
+</svg>

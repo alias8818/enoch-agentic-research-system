@@ -46,3 +46,8 @@ h2 { font-size: clamp(2rem, 4vw, 4rem); line-height: .95; letter-spacing: -.04em
 footer { padding: 2rem clamp(1rem, 6vw, 6rem); color: var(--muted); }
 @media (max-width: 1050px) { .hero-grid, .split, .section-head { grid-template-columns: 1fr; } .cards { grid-template-columns: repeat(2, 1fr); } .flow { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 680px) { .nav { justify-content: flex-start; overflow-x: auto; } .cards, .flow { grid-template-columns: 1fr; } .hero-grid { padding-top: 2rem; } }
+.hero-visual { width: 100%; display: block; border-radius: 22px; border: 1px solid var(--line); aspect-ratio: 16 / 9; object-fit: cover; margin-bottom: .25rem; }
+.visual-section { background: linear-gradient(180deg, rgba(125,211,252,.035), rgba(192,132,252,.045)); }
+.diagram-card { margin: 2rem 0 0; padding: clamp(1rem, 2vw, 1.4rem); border: 1px solid var(--line); border-radius: 28px; background: rgba(16,22,36,.68); box-shadow: 0 24px 90px rgba(0,0,0,.28); }
+.diagram-card img { width: 100%; display: block; border-radius: 20px; }
+.diagram-card figcaption { color: var(--muted); line-height: 1.55; margin-top: .9rem; font-size: .98rem; }
