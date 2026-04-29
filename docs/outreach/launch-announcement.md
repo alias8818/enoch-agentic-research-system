@@ -33,10 +33,10 @@ A run goes through:
 4. Worker preflight and single-lane safety checks.
 5. Wake-gated execution with process and telemetry observation.
 6. Evidence sync: run notes, metrics, claim ledgers, manifests, and bundles.
-7. AI paper rewriting against evidence context.
+7. AI artifact rewriting against evidence context.
 8. Corpus quality scans and provenance packaging.
 
-I’m also releasing a corpus of 120 generated research artifacts from the system. These are publication-style AI-generated reports, not peer-reviewed publications and not human-authored papers. The point is transparency: show the outputs, show the evidence shape, and let people inspect the system that generated them.
+I’m also releasing a corpus of 120 generated research artifacts from the system. These are AI-generated technical artifacts with an academic-report shape, not peer-reviewed publications and not human-authored papers. The point is transparency: show the outputs, show the evidence shape, and let people inspect the system that generated them.
 
 What I hope is useful to others:
 
