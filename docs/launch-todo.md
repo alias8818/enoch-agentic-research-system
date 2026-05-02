@@ -40,6 +40,19 @@ This checklist tracks the remaining work before the Enoch system and generated c
 - [ ] Prepare 3-5 screenshots/cards for highlighted projects.
 - [ ] Choose launch order: GitHub, personal site/blog, Hacker News/Reddit, LinkedIn/X, and relevant AI/dev communities.
 
+
+## Operational TODO: reconnect new-run paper production
+
+Live check on 2026-05-02 showed that the LangGraph-era idea execution path is progressing, but new completed runs are not automatically becoming new paper rows. The control plane had hundreds of completed `wake_ready` runs with `next_action_hint = draft_paper_or_select_next_project`, while the paper table was still capped at the imported/rewrite-era 242 rows and had no `paper.drafted` events.
+
+Required follow-up:
+
+- [ ] Update paper draft eligibility so completed wake-gate runs with `next_action_hint = draft_paper_or_select_next_project` and sufficient evidence/artifacts are draft candidates; do not rely only on the old `last_run_state = finalize_positive` path.
+- [ ] Add a queue-pump phase that drafts eligible papers before dispatching additional ideas when the GB10 lane is idle. The pump should check alerts/preflight, skip if an active lane exists, draft a paper candidate if available, and only then call live dispatch for the next idea.
+- [ ] Backfill paper drafts for completed no-paper projects produced after the LangGraph cutover, preserving evidence sync, claim ledger, manifest, and publication-policy metadata.
+- [ ] Connect the publication/rewrite workflow to newly drafted papers, including review backfill and GLM-5.1/Synthetic.new rewrite where configured.
+- [ ] Add regression tests proving a `worker_callback.wake_ready` completion becomes paper-draft eligible and that the automated pump does not starve paper drafting by continually dispatching new ideas.
+
 ## Follow-up quality work
 
 - [ ] Pick 10-15 strongest papers for deeper external-style review and summary cards.
