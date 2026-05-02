@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from ..models import utc_now
+from ..models import OkResponse, utc_now
 
 EnochCoreMode = Literal["off", "shadow", "compare", "enforce"]
 
@@ -25,8 +25,7 @@ class QueueSnapshotRequest(BaseModel):
     captured_at: str = Field(default_factory=utc_now)
 
 
-class SnapshotIngestResponse(BaseModel):
-    ok: bool = True
+class SnapshotIngestResponse(OkResponse):
     mode: EnochCoreMode
     inserted: bool
     event_id: int
@@ -37,8 +36,7 @@ class SnapshotIngestResponse(BaseModel):
     message: str = "snapshot recorded locally only; no external side effects performed"
 
 
-class QueueProjection(BaseModel):
-    ok: bool = True
+class QueueProjection(OkResponse):
     mode: EnochCoreMode = "shadow"
     projection_version: str = "enoch-core.queue.v1"
     source: str = ""
@@ -53,8 +51,7 @@ class QueueProjection(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-class CandidateResponse(BaseModel):
-    ok: bool = True
+class CandidateResponse(OkResponse):
     mode: EnochCoreMode = "shadow"
     action: Literal["draft", "polish", "noop"]
     reason: str
@@ -66,8 +63,7 @@ class CandidateResponse(BaseModel):
     projection_version: str = "enoch-core.candidate.v1"
 
 
-class HealthResponse(BaseModel):
-    ok: bool = True
+class HealthResponse(OkResponse):
     service: str = "enoch_core"
     mode: EnochCoreMode = "shadow"
     db_path: str

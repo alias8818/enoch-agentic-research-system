@@ -34,6 +34,7 @@ from .models import (
     ProjectStatusResponse,
     RunRecord,
     SessionHistoryEntry,
+    parse_timestamp,
     utc_now,
 )
 from .process_tracker import ProcessTracker
@@ -1300,20 +1301,8 @@ def _trim_event(event: dict[str, Any], max_chars: int = 1600) -> dict[str, Any]:
     return trimmed
 
 
-def _parse_timestamp(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed
-
-
 def _record_age_seconds(record: RunRecord) -> float | None:
-    parsed = _parse_timestamp(record.updated_at or record.last_event_at or record.created_at)
+    parsed = parse_timestamp(record.updated_at or record.last_event_at or record.created_at)
     if parsed is None:
         return None
     return (datetime.now(timezone.utc) - parsed).total_seconds()
@@ -1547,8 +1536,7 @@ def _queue_snapshot_path() -> Path:
     return config.expanded_state_dir / "queue_snapshot.json"
 
 
-def _read_queue_snapshot() -> dict[str, Any]:
-    path = _queue_snapshot_path()
+def _read_snapshot_file(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
@@ -1556,6 +1544,10 @@ def _read_queue_snapshot() -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _read_queue_snapshot() -> dict[str, Any]:
+    return _read_snapshot_file(_queue_snapshot_path())
 
 
 def _snapshot_int(value: Any, default: int = 0) -> int:
@@ -1595,7 +1587,7 @@ def _queue_row_summary(row: dict[str, Any]) -> dict[str, Any]:
     return summarized
 
 
-def _count_queue_field(rows: list[dict[str, Any]], field: str) -> dict[str, int]:
+def _count_field(rows: list[dict[str, Any]], field: str) -> dict[str, int]:
     counts: Counter[str] = Counter()
     for row in rows:
         key = str(row.get(field) or "unknown").strip() or "unknown"
@@ -1611,12 +1603,12 @@ def _build_queue_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     status_counts = (
         payload.get("status_counts")
         if isinstance(payload.get("status_counts"), dict)
-        else _count_queue_field(rows, "queue_status")
+        else _count_field(rows, "queue_status")
     )
     run_state_counts = (
         payload.get("run_state_counts")
         if isinstance(payload.get("run_state_counts"), dict)
-        else _count_queue_field(rows, "last_run_state")
+        else _count_field(rows, "last_run_state")
     )
 
     active_statuses = {"dispatching", "awaiting_wake", "running"}
@@ -1674,14 +1666,7 @@ def _paper_snapshot_path() -> Path:
 
 
 def _read_paper_snapshot() -> dict[str, Any]:
-    path = _paper_snapshot_path()
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return _read_snapshot_file(_paper_snapshot_path())
 
 
 def _clean_snapshot_text(value: Any, max_chars: int = 2000) -> str:
@@ -1724,20 +1709,12 @@ def _paper_row_summary(row: dict[str, Any]) -> dict[str, Any]:
     return summarized
 
 
-def _count_by(rows: list[dict[str, Any]], field: str) -> dict[str, int]:
-    counts: Counter[str] = Counter()
-    for row in rows:
-        key = str(row.get(field) or "unknown").strip() or "unknown"
-        counts[key] += 1
-    return dict(sorted(counts.items()))
-
-
 def _build_paper_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     raw_rows = payload.get("latest_rows") if isinstance(payload.get("latest_rows"), list) else payload.get("rows")
     rows = [_paper_row_summary(row) for row in raw_rows[:120]] if isinstance(raw_rows, list) else []
     rows.sort(key=lambda row: row.get("updated_at") or row.get("generated_at") or "", reverse=True)
-    status_counts = payload.get("status_counts") if isinstance(payload.get("status_counts"), dict) else _count_by(rows, "paper_status")
-    type_counts = payload.get("type_counts") if isinstance(payload.get("type_counts"), dict) else _count_by(rows, "paper_type")
+    status_counts = payload.get("status_counts") if isinstance(payload.get("status_counts"), dict) else _count_field(rows, "paper_status")
+    type_counts = payload.get("type_counts") if isinstance(payload.get("type_counts"), dict) else _count_field(rows, "paper_type")
     reviewable_count = sum(1 for row in rows if row.get("reviewable"))
     publication_count = sum(1 for row in rows if row.get("paper_status") == "publication_draft")
     return {

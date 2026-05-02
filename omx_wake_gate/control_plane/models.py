@@ -5,7 +5,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from ..models import utc_now
+from ..models import (
+    DryRunCountResponse,
+    EventMutationResponse,
+    GeneratedAtResponse,
+    OkResponse,
+    idempotency_key_field,
+    utc_now,
+)
 
 
 class QueueStatus(str, Enum):
@@ -85,7 +92,7 @@ class MarkQueueItemPausedRequest(BaseModel):
 
 
 class NotionIntakeRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"notion-intake:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("notion-intake")
     source: str = "notion"
     notion_rows: list[dict[str, Any]] = Field(default_factory=list)
     dry_run: bool = True
@@ -95,13 +102,8 @@ class NotionIntakeRequest(BaseModel):
     default_sandbox: str = "danger-full-access"
 
 
-class NotionIntakeResponse(BaseModel):
-    ok: bool = True
+class NotionIntakeResponse(DryRunCountResponse):
     dry_run: bool
-    inserted_event: bool = False
-    created: int = 0
-    updated: int = 0
-    skipped: int = 0
     candidates: list[dict[str, Any]] = Field(default_factory=list)
     skipped_rows: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -232,31 +234,23 @@ class ReviewQueueItem(BaseModel):
 
 
 class PaperReviewBackfillRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-backfill:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-backfill")
     requested_by: str = "operator"
     source_audit_path: str = ""
     dry_run: bool = True
 
 
-class PaperReviewBackfillResponse(BaseModel):
-    ok: bool = True
+class PaperReviewBackfillResponse(DryRunCountResponse):
     dry_run: bool
-    inserted_event: bool = False
-    created: int = 0
-    updated: int = 0
-    skipped: int = 0
     errors: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class PaperReviewMutationResponse(BaseModel):
-    ok: bool = True
-    inserted_event: bool = False
-    event_id: int | None = None
+class PaperReviewMutationResponse(EventMutationResponse):
     item: ReviewQueueItem
 
 
 class PaperReviewClaimRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-claim:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-claim")
     requested_by: str = "operator"
     reviewer: str
     note: str = ""
@@ -264,14 +258,14 @@ class PaperReviewClaimRequest(BaseModel):
 
 
 class PaperReviewChecklistUpdateRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-checklist:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-checklist")
     requested_by: str = "operator"
     status: Literal["pending", "pass", "fail", "accepted_risk", "not_applicable"]
     note: str = ""
 
 
 class PaperReviewStatusUpdateRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-status:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-status")
     requested_by: str = "operator"
     review_status: ReviewStatus
     note: str = ""
@@ -279,28 +273,25 @@ class PaperReviewStatusUpdateRequest(BaseModel):
 
 
 class PaperReviewApproveFinalizationRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-approval:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-approval")
     requested_by: str = "operator"
     note: str = ""
 
 
 class PaperReviewPrepareFinalizationRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-package:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-package")
     requested_by: str = "operator"
     target_label: str = ""
     dry_run: bool = True
 
 
 class PaperReviewRewriteDraftRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-rewrite:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-rewrite")
     requested_by: str = "operator"
     force: bool = True
 
 
-class PaperReviewRewriteDraftResponse(BaseModel):
-    ok: bool = True
-    inserted_event: bool = False
-    event_id: int | None = None
+class PaperReviewRewriteDraftResponse(EventMutationResponse):
     item: ReviewQueueItem | None = None
     paper: dict[str, Any] | None = None
     writer: dict[str, Any] = Field(default_factory=dict)
@@ -308,7 +299,7 @@ class PaperReviewRewriteDraftResponse(BaseModel):
 
 
 class PaperReviewBulkRewriteRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-bulk-rewrite:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("paper-review-bulk-rewrite")
     requested_by: str = "ai-publication-pipeline"
     paper_status: str = "publication_draft"
     review_status: str = ""
@@ -319,8 +310,7 @@ class PaperReviewBulkRewriteRequest(BaseModel):
     skip_rewritten: bool = True
 
 
-class PaperReviewBulkRewriteResponse(BaseModel):
-    ok: bool = True
+class PaperReviewBulkRewriteResponse(OkResponse):
     dry_run: bool = False
     matched: int = 0
     processed: int = 0
@@ -329,11 +319,8 @@ class PaperReviewBulkRewriteResponse(BaseModel):
     rows: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class PaperReviewFinalizationPackageResponse(BaseModel):
-    ok: bool = True
+class PaperReviewFinalizationPackageResponse(EventMutationResponse):
     dry_run: bool = True
-    inserted_event: bool = False
-    event_id: int | None = None
     item: ReviewQueueItem | None = None
     package_path: str = ""
     manifest: dict[str, Any] = Field(default_factory=dict)
@@ -350,7 +337,7 @@ class EventRecord(BaseModel):
 
 
 class ImportSnapshotRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"manual-import:{utc_now()}")
+    idempotency_key: str = idempotency_key_field("manual-import")
     source: str = "legacy_n8n"
     queue_rows: list[dict[str, Any]] = Field(default_factory=list)
     paper_rows: list[dict[str, Any]] = Field(default_factory=list)
@@ -360,8 +347,7 @@ class ImportSnapshotRequest(BaseModel):
     paper_snapshot: dict[str, Any] | list[dict[str, Any]] | None = None
 
 
-class ImportSnapshotResponse(BaseModel):
-    ok: bool = True
+class ImportSnapshotResponse(OkResponse):
     inserted_event: bool
     imported_projects: int
     imported_queue_items: int
@@ -463,6 +449,12 @@ class DashboardFinding(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
+class DashboardApiResponse(GeneratedAtResponse):
+    source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
+    warnings: list[DashboardFinding] = Field(default_factory=list)
+    conflicts: list[DashboardFinding] = Field(default_factory=list)
+
+
 class DashboardConfigStatus(BaseModel):
     source: Literal["control_plane_config"] = "control_plane_config"
     authority: str = "static operational config"
@@ -478,11 +470,9 @@ class DashboardConfigStatus(BaseModel):
     queue_alert_hang_after_sec: int = 3600
 
 
-class DashboardStatusResponse(BaseModel):
-    ok: bool = True
+class DashboardStatusResponse(DashboardApiResponse):
     source: Literal["control_api_status"] = "control_api_status"
     authority: str = "aggregated read model"
-    generated_at: str = Field(default_factory=utc_now)
     flags: ControlFlags
     config: DashboardConfigStatus
     counts: dict[str, int]
@@ -490,13 +480,8 @@ class DashboardStatusResponse(BaseModel):
     next_candidate: dict[str, Any] | None = None
     dispatch_safe: bool = False
     dispatch_blockers: list[str] = Field(default_factory=list)
-    source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
     observations: dict[str, DashboardObservationRecord | None] = Field(default_factory=dict)
-    warnings: list[DashboardFinding] = Field(default_factory=list)
-    conflicts: list[DashboardFinding] = Field(default_factory=list)
     recent_events: list[EventRecord] = Field(default_factory=list)
-
-
 
 
 class DashboardPageMeta(BaseModel):
@@ -509,25 +494,18 @@ class DashboardPageMeta(BaseModel):
     sort: str = ""
 
 
-class DashboardQueueResponse(BaseModel):
-    ok: bool = True
+class DashboardQueueResponse(DashboardApiResponse):
     source: Literal["control_api_queue"] = "control_api_queue"
     authority: str = "control_plane_db queue read model"
-    generated_at: str = Field(default_factory=utc_now)
     queue: str
     page: DashboardPageMeta
     counts: dict[str, int] = Field(default_factory=dict)
     rows: list[dict[str, Any]] = Field(default_factory=list)
-    source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
-    warnings: list[DashboardFinding] = Field(default_factory=list)
-    conflicts: list[DashboardFinding] = Field(default_factory=list)
 
 
-class DashboardProjectDetailResponse(BaseModel):
-    ok: bool = True
+class DashboardProjectDetailResponse(DashboardApiResponse):
     source: Literal["control_api_project"] = "control_api_project"
     authority: str = "control_plane_db project aggregate"
-    generated_at: str = Field(default_factory=utc_now)
     project_id: str
     project: dict[str, Any] | None = None
     queue_item: dict[str, Any] | None = None
@@ -535,16 +513,11 @@ class DashboardProjectDetailResponse(BaseModel):
     papers: list[dict[str, Any]] = Field(default_factory=list)
     events: list[dict[str, Any]] = Field(default_factory=list)
     worker_observations: dict[str, DashboardObservationRecord | None] = Field(default_factory=dict)
-    source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
-    warnings: list[DashboardFinding] = Field(default_factory=list)
-    conflicts: list[DashboardFinding] = Field(default_factory=list)
 
 
-class DashboardRunDetailResponse(BaseModel):
-    ok: bool = True
+class DashboardRunDetailResponse(DashboardApiResponse):
     source: Literal["control_api_run"] = "control_api_run"
     authority: str = "control_plane_db run aggregate plus cached worker evidence"
-    generated_at: str = Field(default_factory=utc_now)
     run_id: str
     run: dict[str, Any] | None = None
     queue_item: dict[str, Any] | None = None
@@ -552,97 +525,63 @@ class DashboardRunDetailResponse(BaseModel):
     papers: list[dict[str, Any]] = Field(default_factory=list)
     events: list[dict[str, Any]] = Field(default_factory=list)
     worker_observations: dict[str, DashboardObservationRecord | None] = Field(default_factory=dict)
-    source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
-    warnings: list[DashboardFinding] = Field(default_factory=list)
-    conflicts: list[DashboardFinding] = Field(default_factory=list)
 
 
-class DashboardPapersResponse(BaseModel):
-    ok: bool = True
+class DashboardPapersResponse(DashboardApiResponse):
     source: Literal["control_api_papers"] = "control_api_papers"
     authority: str = "control_plane_db paper read model"
-    generated_at: str = Field(default_factory=utc_now)
     page: DashboardPageMeta
     counts: dict[str, int] = Field(default_factory=dict)
     rows: list[dict[str, Any]] = Field(default_factory=list)
-    source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
-    warnings: list[DashboardFinding] = Field(default_factory=list)
-    conflicts: list[DashboardFinding] = Field(default_factory=list)
 
 
-class DashboardPaperReviewsResponse(BaseModel):
-    ok: bool = True
+class DashboardPaperReviewsResponse(DashboardApiResponse):
     source: Literal["control_api_paper_reviews"] = "control_api_paper_reviews"
     authority: str = "control_plane_db paper review read model"
-    generated_at: str = Field(default_factory=utc_now)
     page: DashboardPageMeta
     counts: dict[str, int] = Field(default_factory=dict)
     rows: list[ReviewQueueItem] = Field(default_factory=list)
-    source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
-    warnings: list[DashboardFinding] = Field(default_factory=list)
-    conflicts: list[DashboardFinding] = Field(default_factory=list)
 
 
-class DashboardPaperReviewDetailResponse(BaseModel):
-    ok: bool = True
+class DashboardPaperReviewDetailResponse(DashboardApiResponse):
     source: Literal["control_api_paper_review"] = "control_api_paper_review"
     authority: str = "control_plane_db paper review aggregate"
-    generated_at: str = Field(default_factory=utc_now)
     paper_id: str
     item: ReviewQueueItem
     checklist: dict[str, Any] = Field(default_factory=dict)
     paper: dict[str, Any] | None = None
     project: dict[str, Any] | None = None
     events: list[dict[str, Any]] = Field(default_factory=list)
-    source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
-    warnings: list[DashboardFinding] = Field(default_factory=list)
-    conflicts: list[DashboardFinding] = Field(default_factory=list)
 
 
-class DashboardPaperDetailResponse(BaseModel):
-    ok: bool = True
+class DashboardPaperDetailResponse(DashboardApiResponse):
     source: Literal["control_api_paper"] = "control_api_paper"
     authority: str = "control_plane_db paper aggregate"
-    generated_at: str = Field(default_factory=utc_now)
     paper_id: str
     paper: dict[str, Any] | None = None
     project: dict[str, Any] | None = None
     run: dict[str, Any] | None = None
     events: list[dict[str, Any]] = Field(default_factory=list)
-    source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
-    warnings: list[DashboardFinding] = Field(default_factory=list)
-    conflicts: list[DashboardFinding] = Field(default_factory=list)
 
 
-class DashboardEventsResponse(BaseModel):
-    ok: bool = True
+class DashboardEventsResponse(DashboardApiResponse):
     source: Literal["control_api_events"] = "control_api_events"
     authority: str = "control_plane_db event log"
-    generated_at: str = Field(default_factory=utc_now)
     page: DashboardPageMeta
     rows: list[dict[str, Any]] = Field(default_factory=list)
-    source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
-    warnings: list[DashboardFinding] = Field(default_factory=list)
-    conflicts: list[DashboardFinding] = Field(default_factory=list)
 
 
-class DashboardIntakeResponse(BaseModel):
-    ok: bool = True
+class DashboardIntakeResponse(DashboardApiResponse):
     source: Literal["control_api_intake_notion"] = "control_api_intake_notion"
     authority: str = "Notion intake/review projection plus latest sync observation"
-    generated_at: str = Field(default_factory=utc_now)
     latest_sync: DashboardObservationRecord | None = None
     projection_counts: dict[str, int] = Field(default_factory=dict)
     queued_projection: list[dict[str, Any]] = Field(default_factory=list)
     skipped_reasons: dict[str, int] = Field(default_factory=dict)
     recent_events: list[dict[str, Any]] = Field(default_factory=list)
-    source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
-    warnings: list[DashboardFinding] = Field(default_factory=list)
-    conflicts: list[DashboardFinding] = Field(default_factory=list)
 
 
-class ControlStateResponse(BaseModel):
-    ok: bool = True
+class ControlStateResponse(OkResponse):
     flags: ControlFlags
     counts: dict[str, int]
     active_items: list[dict[str, Any]]
@@ -650,16 +589,12 @@ class ControlStateResponse(BaseModel):
     recent_events: list[EventRecord] = Field(default_factory=list)
 
 
-class ProjectionResponse(BaseModel):
-    ok: bool = True
-    generated_at: str = Field(default_factory=utc_now)
+class ProjectionResponse(GeneratedAtResponse):
     rows: list[dict[str, Any]]
     counts: dict[str, int] = Field(default_factory=dict)
 
 
-class ExportSnapshotResponse(BaseModel):
-    ok: bool = True
-    generated_at: str = Field(default_factory=utc_now)
+class ExportSnapshotResponse(GeneratedAtResponse):
     source: str = "langgraph_control_plane"
     flags: ControlFlags
     queue_rows: list[dict[str, Any]]

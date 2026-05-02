@@ -13,6 +13,43 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def parse_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def idempotency_key_field(prefix: str):
+    return Field(default_factory=lambda: f"{prefix}:{utc_now()}")
+
+
+class OkResponse(BaseModel):
+    ok: bool = True
+
+
+class EventMutationResponse(OkResponse):
+    inserted_event: bool = False
+    event_id: int | None = None
+
+
+class DryRunCountResponse(OkResponse):
+    dry_run: bool
+    inserted_event: bool = False
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+
+
+class GeneratedAtResponse(OkResponse):
+    generated_at: str = Field(default_factory=utc_now)
+
+
 class SourceEvent(str, Enum):
     SESSION_START = "session-start"
     SESSION_IDLE = "session-idle"
