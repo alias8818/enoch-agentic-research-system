@@ -34,6 +34,33 @@ class EnochCoreLogicTests(unittest.TestCase):
         candidates = eligible_paper_draft_candidates(queue_rows, paper_rows)
         self.assertEqual([row["project_id"] for row in candidates], ["p2"])
 
+
+    def test_wake_ready_completion_is_paper_draft_candidate(self) -> None:
+        queue_rows = [{
+            "project_id": "idea-wake",
+            "project_name": "Wake Ready",
+            "project_dir": "idea-wake",
+            "status": "completed",
+            "last_run_state": "wake_ready",
+            "next_action_hint": "draft_paper_or_select_next_project",
+            "current_run_id": "run-wake",
+        }]
+        candidates = eligible_paper_draft_candidates(queue_rows, [])
+        self.assertEqual([row["project_id"] for row in candidates], ["idea-wake"])
+
+    def test_paper_draft_candidate_excludes_existing_run_even_for_new_project(self) -> None:
+        queue_rows = [{
+            "project_id": "p-new",
+            "project_name": "Duplicate Run",
+            "project_dir": "p-new",
+            "status": "completed",
+            "last_run_state": "wake_ready",
+            "next_action_hint": "draft_paper_or_select_next_project",
+            "current_run_id": "r-existing",
+        }]
+        paper_rows = [{"project_id": "p-old", "run_id": "r-existing", "paper_id": "p-old:r-existing:arxiv_draft"}]
+        self.assertEqual(eligible_paper_draft_candidates(queue_rows, paper_rows), [])
+
     def test_paper_draft_candidate_noops_when_manual_review_required(self) -> None:
         queue_rows = [
             {

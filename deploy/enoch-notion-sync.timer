@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Enoch Notion sync periodically
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+AccuracySec=1min
+Unit=enoch-notion-sync.service
+
+[Install]
+WantedBy=timers.target

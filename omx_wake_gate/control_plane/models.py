@@ -111,6 +111,7 @@ class ProjectRecord(BaseModel):
     project_name: str = ""
     project_dir: str = ""
     notion_page_url: str = ""
+    notion_page_id: str = ""
     origin_idea_status: str = ""
     created_at: str = Field(default_factory=utc_now)
     updated_at: str = Field(default_factory=utc_now)

@@ -47,11 +47,11 @@ Live check on 2026-05-02 showed that the LangGraph-era idea execution path is pr
 
 Required follow-up:
 
-- [ ] Update paper draft eligibility so completed wake-gate runs with `next_action_hint = draft_paper_or_select_next_project` and sufficient evidence/artifacts are draft candidates; do not rely only on the old `last_run_state = finalize_positive` path.
-- [ ] Add a queue-pump phase that drafts eligible papers before dispatching additional ideas when the GB10 lane is idle. The pump should check alerts/preflight, skip if an active lane exists, draft a paper candidate if available, and only then call live dispatch for the next idea.
+- [x] Update paper draft eligibility so completed wake-gate runs with `next_action_hint = draft_paper_or_select_next_project` and sufficient evidence/artifacts are draft candidates; keep the old `last_run_state = finalize_positive` path.
+- [x] Add automated paper recovery without starving drafts: a dedicated draft-only timer calls `/control/papers/draft-next`, while the queue pump remains dispatch-only and single-lane gated.
 - [ ] Backfill paper drafts for completed no-paper projects produced after the LangGraph cutover, preserving evidence sync, claim ledger, manifest, and publication-policy metadata.
 - [ ] Connect the publication/rewrite workflow to newly drafted papers, including review backfill and GLM-5.1/Synthetic.new rewrite where configured.
-- [ ] Add regression tests proving a `worker_callback.wake_ready` completion becomes paper-draft eligible and that the automated pump does not starve paper drafting by continually dispatching new ideas.
+- [x] Add regression tests proving a `worker_callback.wake_ready` completion becomes paper-draft eligible, existing papers prevent duplicate drafts, the draft-only timer never dispatches, and the queue pump remains dispatch-only/single-lane gated.
 
 ## Follow-up quality work
 

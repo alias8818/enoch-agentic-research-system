@@ -147,11 +147,11 @@ class ControlPlaneRouterTests(unittest.TestCase):
             dry_run = client.post("/control/intake/notion-ideas", headers=headers, json={
                 "dry_run": True,
                 "notion_rows": [{
-                    "id": "324e3677-f1c6-8102-bb29-cd8c29f4b206",
+                    "id": "00000000-0000-4000-8000-000000000001",
                     "property_idea": "Dynamic Context Window Training",
                     "property_status": "exploring",
                     "property_priority": "High",
-                    "url": "https://www.notion.so/Dynamic-Context-Window-Training-324e3677f1c68102bb29cd8c29f4b206",
+                    "url": "https://www.notion.so/Dynamic-Context-Window-Training-00000000000040008000000000000001",
                 }],
             })
             self.assertEqual(dry_run.status_code, 200)
@@ -163,11 +163,11 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "idempotency_key": "router-notion-intake-1",
                 "dry_run": False,
                 "notion_rows": [{
-                    "id": "324e3677-f1c6-8102-bb29-cd8c29f4b206",
+                    "id": "00000000-0000-4000-8000-000000000001",
                     "property_idea": "Dynamic Context Window Training",
                     "property_status": "testing",
                     "property_priority": "Medium",
-                    "url": "https://www.notion.so/Dynamic-Context-Window-Training-324e3677f1c68102bb29cd8c29f4b206",
+                    "url": "https://www.notion.so/Dynamic-Context-Window-Training-00000000000040008000000000000001",
                 }],
             })
             self.assertEqual(commit.status_code, 200)
@@ -176,10 +176,13 @@ class ControlPlaneRouterTests(unittest.TestCase):
             projection = client.get("/control/projections/notion/execution-updates", headers=headers)
             self.assertEqual(projection.status_code, 200)
             self.assertEqual(projection.json()["counts"]["updates"], 1)
-            props = projection.json()["rows"][0]["properties"]
+            row = projection.json()["rows"][0]
+            self.assertEqual(row["page_id"], "00000000-0000-4000-8000-000000000001")
+            props = row["properties"]
             self.assertEqual(props["Execution State"], "queued")
             self.assertEqual(props["Current Run ID"], "")
-
+            self.assertEqual(props["OMX Project ID"], "00000000000040008000000000000001")
+            self.assertEqual(props["OMX Queue Status"], "queued")
 
     def test_control_dashboard_html_is_served_without_token(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -635,6 +638,92 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(response.json()["next_action_hint"], "draft_paper_or_select_next_project")
             status = client.get("/control/api/status", headers=headers).json()
             self.assertEqual(status["active_items"], [])
+
+    def test_worker_callback_wake_ready_can_draft_paper_when_evidence_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "projects" / "idea-callback-draft"
+            (project_dir / ".omx").mkdir(parents=True)
+            (project_dir / "run_notes.md").write_text("Verified useful result.\n", encoding="utf-8")
+            (project_dir / ".omx" / "project_decision.json").write_text('{"decision":"finalize_positive"}\n', encoding="utf-8")
+            client = _client_with_config(_live_config(tmp))
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "worker-callback-draft-import",
+                "queue_rows": [{
+                    "project_id": "idea-callback-draft",
+                    "project_name": "Callback Draft Project",
+                    "project_dir": "idea-callback-draft",
+                    "status": "awaiting_wake",
+                    "current_run_id": "run-callback-draft",
+                }],
+            })
+            response = client.post("/control/api/worker-callback", headers=headers, json={
+                "event_type": "wake_ready",
+                "run_id": "run-callback-draft",
+                "session_id": "session-callback-draft",
+                "project_id": "idea-callback-draft",
+                "project_name": "Callback Draft Project",
+                "source_event": "session-idle",
+                "gate_state": "wake_ready",
+                "process_tracking": {"root_pid": None, "process_group_id": None, "processes": [], "live_process_count": 0},
+                "telemetry": {},
+                "reason": "idle_sustain_met",
+                "idempotency_key": "run-callback-draft:wake_ready:test",
+            })
+            self.assertEqual(response.status_code, 200)
+            draft = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
+            self.assertEqual(draft.status_code, 200)
+            self.assertEqual(draft.json()["action"], "drafted")
+            self.assertEqual(draft.json()["candidate"]["project_id"], "idea-callback-draft")
+            events = client.get("/control/export/snapshot", headers=headers).json()["events"]
+            self.assertTrue(any(event["event_type"] == "paper.drafted" for event in events))
+
+    def test_paper_draft_writer_failure_does_not_mutate_project_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            original_dir = "idea-draft-fail"
+            project_dir = Path(tmp) / "projects" / original_dir
+            (project_dir / ".omx").mkdir(parents=True)
+            (project_dir / "run_notes.md").write_text("Verified useful result.\n", encoding="utf-8")
+            (project_dir / ".omx" / "project_decision.json").write_text('{"decision":"finalize_positive"}\n', encoding="utf-8")
+            response = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "import-draft-failure",
+                "queue_rows": [{
+                    "project_id": "idea-draft-fail",
+                    "project_name": "Draft Failure",
+                    "project_dir": original_dir,
+                    "status": "completed",
+                    "last_run_state": "wake_ready",
+                    "next_action_hint": "draft_paper_or_select_next_project",
+                    "current_run_id": "run-draft-fail",
+                    "manual_review_required": False,
+                }],
+                "paper_rows": [],
+            })
+            self.assertEqual(response.status_code, 200)
+            with patch("omx_wake_gate.control_plane.router.write_paper_artifacts", side_effect=RuntimeError("writer exploded")):
+                with self.assertRaisesRegex(RuntimeError, "writer exploded"):
+                    client.post("/control/papers/draft-next", headers=headers, json={"force": True})
+            snapshot = client.get("/control/export/snapshot", headers=headers).json()
+            project = next(row for row in snapshot["queue_rows"] if row["project_id"] == "idea-draft-fail")
+            self.assertEqual(project["project_dir"], original_dir)
+            self.assertEqual(snapshot["paper_rows"], [])
+
+    def test_notion_observation_endpoint_refreshes_status_freshness(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            response = client.post("/control/api/intake/notion-observation", headers=headers, json={"status": "warn", "payload": {"reason": "missing credentials"}})
+            self.assertEqual(response.status_code, 200)
+            status = client.get("/control/api/status", headers=headers).json()
+            notion = status["source_freshness"]["notion_sync"]
+            self.assertFalse(notion["stale"])
+            self.assertEqual(notion["status"], "warn")
+
+            missing = client.post("/control/api/intake/notion-observation", headers=headers, json={"status": "missing", "payload": {"reason": "legacy missing status"}})
+            self.assertEqual(missing.status_code, 200)
+            self.assertEqual(missing.json()["observation"]["status"], "warn")
 
     def test_worker_preflight_endpoint_requires_auth_and_returns_checks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1101,6 +1190,42 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(missing.status_code, 404)
             events = client.get(f"/control/api/events?entity_id={paper_id}", headers=headers).json()["rows"]
             self.assertIn("paper_review.draft_rewritten", {row["event_type"] for row in events})
+
+    def test_paper_review_rewrite_failure_does_not_mutate_project_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            paper_id = "router-rewrite-fail:run-1:arxiv_draft"
+            legacy_dir = Path(tmp) / "legacy-missing" / "router-rewrite-fail"
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "router-rewrite-fail-import",
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": "router-rewrite-fail",
+                    "project_name": "Router Rewrite Fail",
+                    "project_dir": str(legacy_dir),
+                    "run_id": "run-1",
+                    "paper_status": "publication_draft",
+                    "draft_markdown_path": "papers/run-1/final_paper.md",
+                    "draft_latex_path": "papers/run-1/final_paper.tex",
+                    "evidence_bundle_path": "papers/run-1/evidence.json",
+                    "claim_ledger_path": "papers/run-1/claims.json",
+                    "manifest_path": "papers/run-1/manifest.json",
+                }],
+            })
+            client.post("/control/api/paper-reviews/backfill", headers=headers, json={"idempotency_key": "router-rewrite-fail-backfill", "dry_run": False})
+            with patch("omx_wake_gate.control_plane.router.write_paper_artifacts", side_effect=RuntimeError("rewrite writer exploded")):
+                with self.assertRaisesRegex(RuntimeError, "rewrite writer exploded"):
+                    client.post(f"/control/api/paper-reviews/{paper_id}/rewrite-draft", headers=headers, json={
+                        "idempotency_key": "router-rewrite-fail-1",
+                        "requested_by": "alice",
+                        "force": True,
+                    })
+            paper = client.get(f"/control/api/papers/{paper_id}", headers=headers).json()["paper"]
+            self.assertEqual(paper["project_dir"], str(legacy_dir))
+            events = client.get(f"/control/api/events?entity_id={paper_id}", headers=headers).json()["rows"]
+            self.assertNotIn("paper_review.draft_rewritten", {row["event_type"] for row in events})
 
     def test_paper_review_rewrite_tolerates_missing_optional_worker_evidence_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

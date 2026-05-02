@@ -1168,8 +1168,6 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 use_current_dir = False
         artifact_root = (current_project_dir.resolve() if use_current_dir else (configured_root / project_id).resolve())
         artifact_root.mkdir(parents=True, exist_ok=True)
-        if not use_current_dir:
-            store.update_project_dir(project_id, str(artifact_root))
         source_project_dir = str((project or {}).get("project_dir") or "")
         evidence_sync = _sync_remote_project_evidence(config, project_id=project_id, artifact_root=artifact_root, source_project_dir=source_project_dir if source_project_dir and source_project_dir.startswith("/") and not use_current_dir else "", source_run_id=str(paper.get("run_id") or ""))
         if config.paper_evidence_sync_enabled and not _local_paper_evidence_present(artifact_root):
@@ -1192,6 +1190,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         }
         try:
             writer = write_paper_artifacts(config, candidate, record, force=payload.force)
+            if not use_current_dir:
+                store.update_project_dir(project_id, str(artifact_root))
             store.upsert_paper(record)
             event_payload = {
                 "action": "rewrite_draft",
@@ -1475,6 +1475,21 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         return response
 
 
+    @router.post("/api/intake/notion-observation")
+    def record_notion_observation(payload: dict[str, Any], authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        authorize(authorization)
+        status = str(payload.get("status") or "ok")
+        if status not in {"ok", "warn", "error", "unavailable"}:
+            status = "warn"
+        observation = store.upsert_dashboard_observation(
+            source="notion_sync",
+            status=status,
+            ttl_seconds=int(payload.get("ttl_seconds") or 3600),
+            payload=payload.get("payload") if isinstance(payload.get("payload"), dict) else payload,
+        )
+        return {"ok": True, "observation": observation.model_dump(mode="json")}
+
+
     @router.post("/worker/preflight", response_model=WorkerPreflightResponse)
     def worker_preflight(payload: WorkerPreflightRequest, authorization: str | None = Header(default=None)) -> WorkerPreflightResponse:
         authorize(authorization)
@@ -1554,20 +1569,59 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         rows = store.notion_execution_update_projection()
         return ProjectionResponse(rows=rows, counts={"updates": len(rows)})
 
+    def _candidate_project_dir(candidate: dict[str, Any]) -> Path:
+        project_id = str(candidate.get("project_id") or "").strip()
+        project_dir_text = str(candidate.get("project_dir") or project_id).strip()
+        root = config.expanded_project_root.resolve()
+        project_dir = Path(project_dir_text).expanduser()
+        if not project_dir.is_absolute():
+            return (root / project_dir).resolve()
+        resolved = project_dir.resolve()
+        try:
+            resolved.relative_to(root)
+            return resolved
+        except ValueError:
+            # Completed worker rows can carry a worker-absolute path that is not
+            # valid on the VM. Use a VM-local artifact root and keep the source
+            # path only for evidence sync.
+            return (root / project_id).resolve()
+
+    def _prepare_draft_evidence(candidate: dict[str, Any]) -> dict[str, Any]:
+        project_id = str(candidate.get("project_id") or "").strip()
+        artifact_root = _candidate_project_dir(candidate)
+        evidence_sync = _sync_remote_project_evidence(
+            config,
+            project_id=project_id,
+            artifact_root=artifact_root,
+            source_project_dir=str(candidate.get("project_dir") or "") if str(candidate.get("project_dir") or "").startswith("/") else "",
+            source_run_id=str(candidate.get("current_run_id") or candidate.get("run_id") or ""),
+        )
+        return {"artifact_root": str(artifact_root), "evidence_sync": evidence_sync, "local_evidence_present": _local_paper_evidence_present(artifact_root)}
+
     @router.post("/papers/draft-next", response_model=DraftNextResponse)
     def draft_next(payload: DraftNextRequest, authorization: str | None = Header(default=None)) -> DraftNextResponse:
         authorize(authorization)
         candidates = eligible_paper_draft_candidates(store.queue_rows(), store.paper_rows())
+        skipped: list[dict[str, Any]] = []
         if not candidates:
-            return DraftNextResponse(ok=True, action="noop", reason="no eligible finalize_positive project without paper remains")
-        candidate = candidates[0]
-        paper = _paper_record_from_candidate(candidate, force=payload.force)
-        writer = write_paper_artifacts(config, candidate, paper, force=payload.force)
-        store.upsert_paper(paper)
-        store.append_event(idempotency_key=f"paper-draft:{paper.paper_id}:{paper.updated_at}", event_type="paper.drafted", entity_type="paper", entity_id=paper.paper_id, payload={"requested_by": payload.requested_by, "paper": paper.model_dump(mode="json"), "writer": writer})
-        reason = f"paper draft created with {writer.get('provider')} / {writer.get('model')}"
-        if writer.get("fallback_used"):
-            reason += " (fallback used)"
-        return DraftNextResponse(ok=True, action="drafted", reason=reason, paper=paper, candidate=draft_candidate_payload(candidate))
+            return DraftNextResponse(ok=True, action="noop", reason="no eligible completed paper-draft candidate without paper remains")
+        for candidate in candidates:
+            evidence = _prepare_draft_evidence(candidate)
+            legacy_finalize_positive = str(candidate.get("last_run_state") or "").strip() == "finalize_positive"
+            if not legacy_finalize_positive and not evidence["local_evidence_present"]:
+                skipped.append({"project_id": candidate.get("project_id"), "run_id": candidate.get("current_run_id"), "reason": "missing paper evidence", "evidence_sync": evidence.get("evidence_sync")})
+                continue
+            paper = _paper_record_from_candidate(candidate, force=payload.force)
+            candidate_for_write = {**candidate, "project_dir": evidence.get("artifact_root") or candidate.get("project_dir")}
+            writer = write_paper_artifacts(config, candidate_for_write, paper, force=payload.force)
+            writer = {**writer, "evidence_sync": evidence.get("evidence_sync"), "artifact_root": evidence.get("artifact_root")}
+            store.update_project_dir(str(candidate.get("project_id") or ""), str(candidate_for_write["project_dir"]))
+            store.upsert_paper(paper)
+            store.append_event(idempotency_key=f"paper-draft:{paper.paper_id}:{paper.updated_at}", event_type="paper.drafted", entity_type="paper", entity_id=paper.paper_id, payload={"requested_by": payload.requested_by, "paper": paper.model_dump(mode="json"), "writer": writer})
+            reason = f"paper draft created with {writer.get('provider')} / {writer.get('model')}"
+            if writer.get("fallback_used"):
+                reason += " (fallback used)"
+            return DraftNextResponse(ok=True, action="drafted", reason=reason, paper=paper, candidate=draft_candidate_payload(candidate))
+        return DraftNextResponse(ok=True, action="noop", reason="eligible paper-draft candidates lacked sufficient local or synced evidence", candidate={"skipped": skipped[:10]})
 
     return router

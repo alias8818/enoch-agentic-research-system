@@ -155,12 +155,60 @@ Manual alert/preflight check:
 sudo OMX_WAKE_GATE_CONFIG=/etc/enoch/config.json /opt/enoch-agentic-research-system/deploy/enoch_queue_alert_check.py
 ```
 
-## 7. Smoke-test core API paths
+
+## 7. Enable Notion sync and draft-only paper production
+
+Notion is an operator-facing intake/projection surface. The control-plane SQLite database remains canonical, but a stale Notion database can confuse intake and idea selection. Configure Notion sync with an external env file; do not commit these credentials:
+
+```bash
+sudo install -m 0755 /opt/enoch-agentic-research-system/deploy/enoch_notion_sync.sh /opt/enoch-agentic-research-system/deploy/enoch_notion_sync.sh
+sudo tee /etc/enoch/notion-sync.env >/dev/null <<'EOF'
+NOTION_TOKEN=replace-with-notion-token
+# Use either NOTION_DATABASE_ID or NOTION_DATA_SOURCE_ID. Data source IDs
+# are preferred with the current Notion API when available.
+# NOTION_DATABASE_ID=replace-with-enoch-ideas-database-id
+NOTION_DATA_SOURCE_ID=replace-with-enoch-ideas-data-source-id
+NOTION_SYNC_MAX_UPDATES=25
+EOF
+sudo chmod 0600 /etc/enoch/notion-sync.env
+sudo cp /opt/enoch-agentic-research-system/deploy/enoch-notion-sync.service /etc/systemd/system/
+sudo cp /opt/enoch-agentic-research-system/deploy/enoch-notion-sync.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now enoch-notion-sync.timer
+```
+
+The sync helper accepts a data-source-only configuration. A healthy run prints a compact summary like `notion_rows_read`, `intake_updated`, `intake_skipped`, `execution_projection_count`, and `notion_updates_applied_count`; it does not print secrets or full row payloads to journald.
+
+Run one sync manually and inspect freshness:
+
+```bash
+sudo systemctl start enoch-notion-sync.service
+sudo journalctl -u enoch-notion-sync.service -n 50 --no-pager
+curl -fsS -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:8787/control/api/status | python3 -m json.tool
+```
+
+Paper drafting is dispatch-independent. During worker maintenance you may keep the queue paused and still run draft-only paper production; it calls `/control/papers/draft-next` and never `/control/dispatch-next`:
+
+```bash
+sudo cp /opt/enoch-agentic-research-system/deploy/enoch-paper-draft-next.service /etc/systemd/system/
+sudo cp /opt/enoch-agentic-research-system/deploy/enoch-paper-draft-next.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now enoch-paper-draft-next.timer
+# or one-shot:
+sudo systemctl start enoch-paper-draft-next.service
+```
+
+If dispatch must remain disabled, leave `enoch-queue-alert-check.timer` disabled. Re-enable that timer only when the worker lane is healthy and dispatch should resume.
+
+## 8. Smoke-test core API paths
 
 ```bash
 TOKEN=$(python3 - <<'PY'
 import json
-print(json.load(open('/etc/enoch/config.json'))['omx_inbound_bearer_token'])
+from pathlib import Path
+
+print(json.loads(Path('/etc/enoch/config.json').read_text(encoding='utf-8'))['omx_inbound_bearer_token'])
 PY
 )
 
@@ -173,7 +221,7 @@ curl -fsS -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:8787/control/api/preflight | python3 -m json.tool
 ```
 
-## 8. Dispatch flow
+## 9. Dispatch flow
 
 The dispatch path is intentionally guarded:
 

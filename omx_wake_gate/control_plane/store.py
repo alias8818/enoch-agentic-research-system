@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -102,8 +103,14 @@ def _notion_url(raw: dict[str, Any]) -> str:
     return _text(_first_present(raw, "url", "notion_page_url", "public_url"))
 
 
+def _notion_page_id_from_url(url: str) -> str:
+    compact = _text(url).replace("-", "")
+    matches = re.findall(r"[0-9a-fA-F]{32}", compact)
+    return matches[-1].lower() if matches else ""
+
+
 def _notion_page_id(raw: dict[str, Any]) -> str:
-    return _text(_first_present(raw, "id", "page_id", "notion_page_id"))
+    return _text(_first_present(raw, "id", "page_id", "notion_page_id")) or _notion_page_id_from_url(_notion_url(raw))
 
 
 def _priority_rank(raw: dict[str, Any]) -> int:
@@ -360,6 +367,7 @@ class ControlPlaneStore:
                     project_name TEXT NOT NULL,
                     project_dir TEXT NOT NULL,
                     notion_page_url TEXT NOT NULL,
+                    notion_page_id TEXT NOT NULL DEFAULT '',
                     origin_idea_status TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -463,6 +471,13 @@ class ControlPlaneStore:
                 """,
                 (int(flags.queue_paused), int(flags.maintenance_mode), flags.pause_reason, flags.paused_at, flags.paused_by, flags.updated_at),
             )
+            project_columns = {row[1] for row in conn.execute("PRAGMA table_info(projects)").fetchall()}
+            if "notion_page_id" not in project_columns:
+                conn.execute("ALTER TABLE projects ADD COLUMN notion_page_id TEXT NOT NULL DEFAULT ''")
+            conn.execute("""UPDATE projects
+                SET notion_page_id = lower(replace(substr(notion_page_url, length(notion_page_url) - 31, 32), '-', ''))
+                WHERE notion_page_id = ''
+                  AND length(replace(substr(notion_page_url, length(notion_page_url) - 31, 32), '-', '')) = 32""")
             review_columns = {row[1] for row in conn.execute("PRAGMA table_info(paper_review_items)").fetchall()}
             if "claimed_at" not in review_columns:
                 conn.execute("ALTER TABLE paper_review_items ADD COLUMN claimed_at TEXT NOT NULL DEFAULT ''")
@@ -536,6 +551,7 @@ class ControlPlaneStore:
                     project_name=_text(_first_present(raw, "project_name", "name", "title")) or project_id,
                     project_dir=_text(_first_present(raw, "project_dir", "project_path")),
                     notion_page_url=_text(_first_present(raw, "notion_page_url", "url")),
+                    notion_page_id=_text(_first_present(raw, "notion_page_id", "page_id", "id")) or _notion_page_id_from_url(_text(_first_present(raw, "notion_page_url", "url"))),
                     origin_idea_status=_text(_first_present(raw, "origin_idea_status", "idea_status")),
                     created_at=_text(_first_present(raw, "createdAt", "created_at")) or utc_now(),
                     updated_at=_text(_first_present(raw, "updatedAt", "updated_at", "last_execution_update")) or utc_now(),
@@ -553,8 +569,8 @@ class ControlPlaneStore:
                     last_dispatch_at=_first_present(raw, "last_dispatch_at", "last_execution_update"), last_callback_at=raw.get("last_callback_at"), stale_after=raw.get("stale_after"), updated_at=_text(_first_present(raw, "updatedAt", "updated_at", "last_execution_update")) or utc_now(),
                 )
                 conn.execute(
-                    "INSERT OR REPLACE INTO projects(project_id,project_name,project_dir,notion_page_url,origin_idea_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
-                    (project.project_id, project.project_name, project.project_dir, project.notion_page_url, project.origin_idea_status, project.created_at, project.updated_at),
+                    "INSERT OR REPLACE INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                    (project.project_id, project.project_name, project.project_dir, project.notion_page_url, project.notion_page_id, project.origin_idea_status, project.created_at, project.updated_at),
                 )
                 projects += 1
                 conn.execute(
@@ -569,8 +585,8 @@ class ControlPlaneStore:
                 if not paper_id or not project_id:
                     continue
                 conn.execute(
-                    "INSERT OR IGNORE INTO projects(project_id,project_name,project_dir,notion_page_url,origin_idea_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
-                    (project_id, _text(raw.get("project_name")) or project_id, _text(raw.get("project_dir")), _text(raw.get("notion_page_url")), "", utc_now(), utc_now()),
+                    "INSERT OR IGNORE INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                    (project_id, _text(raw.get("project_name")) or project_id, _text(raw.get("project_dir")), _text(raw.get("notion_page_url")), _text(raw.get("notion_page_id")) or _notion_page_id_from_url(_text(raw.get("notion_page_url"))), "", utc_now(), utc_now()),
                 )
                 status = _text(raw.get("paper_status")) or PaperStatus.DRAFT_REVIEW.value
                 if status not in PaperStatus._value2member_map_:
@@ -590,6 +606,7 @@ class ControlPlaneStore:
                     p.project_name AS project_name,
                     p.project_dir AS project_dir,
                     p.notion_page_url AS notion_page_url,
+                    p.notion_page_id AS notion_page_id,
                     p.origin_idea_status AS origin_idea_status,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
@@ -601,7 +618,7 @@ class ControlPlaneStore:
     def paper_rows(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
-                """SELECT pa.*, p.project_name AS project_name, p.project_dir AS project_dir, p.notion_page_url AS notion_page_url
+                """SELECT pa.*, p.project_name AS project_name, p.project_dir AS project_dir, p.notion_page_url AS notion_page_url, p.notion_page_id AS notion_page_id
                 FROM papers pa LEFT JOIN projects p USING(project_id)
                 ORDER BY pa.updated_at DESC"""
             ).fetchall()
@@ -625,6 +642,7 @@ class ControlPlaneStore:
                     p.project_name AS project_name,
                     p.project_dir AS project_dir,
                     p.notion_page_url AS notion_page_url,
+                    p.notion_page_id AS notion_page_id,
                     p.origin_idea_status AS origin_idea_status,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
@@ -642,7 +660,7 @@ class ControlPlaneStore:
     def paper_row(self, paper_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
-                """SELECT pa.*, p.project_name AS project_name, p.project_dir AS project_dir, p.notion_page_url AS notion_page_url
+                """SELECT pa.*, p.project_name AS project_name, p.project_dir AS project_dir, p.notion_page_url AS notion_page_url, p.notion_page_id AS notion_page_id
                 FROM papers pa LEFT JOIN projects p USING(project_id)
                 WHERE pa.paper_id=?""",
                 (paper_id,),
@@ -657,6 +675,7 @@ class ControlPlaneStore:
                     p.project_name AS project_name,
                     p.project_dir AS project_dir,
                     p.notion_page_url AS notion_page_url,
+                    p.notion_page_id AS notion_page_id,
                     q.status AS queue_status,
                     q.manual_review_required AS manual_review_required,
                     q.blocked_reason AS blocked_reason,
@@ -1221,6 +1240,7 @@ class ControlPlaneStore:
                 "project_name": title,
                 "project_dir": project_id,
                 "notion_page_url": page_url,
+                "notion_page_id": page_id,
                 "origin_idea_status": status,
                 "status": QueueStatus.QUEUED.value,
                 "selection_rank": _priority_rank(raw),
@@ -1253,6 +1273,7 @@ class ControlPlaneStore:
                     project_name=candidate["project_name"],
                     project_dir=candidate["project_dir"],
                     notion_page_url=candidate["notion_page_url"],
+                    notion_page_id=candidate["notion_page_id"],
                     origin_idea_status=candidate["origin_idea_status"],
                     created_at=now,
                     updated_at=now,
@@ -1269,8 +1290,8 @@ class ControlPlaneStore:
                     updated_at=now,
                 )
                 conn.execute(
-                    "INSERT OR REPLACE INTO projects(project_id,project_name,project_dir,notion_page_url,origin_idea_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
-                    (project.project_id, project.project_name, project.project_dir, project.notion_page_url, project.origin_idea_status, project.created_at, project.updated_at),
+                    "INSERT OR REPLACE INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                    (project.project_id, project.project_name, project.project_dir, project.notion_page_url, project.notion_page_id, project.origin_idea_status, project.created_at, project.updated_at),
                 )
                 if existed:
                     conn.execute(
@@ -1303,8 +1324,11 @@ class ControlPlaneStore:
             QueueStatus.BLOCKED.value: "blocked",
             QueueStatus.NEEDS_REVIEW.value: "blocked",
         }
+        paper_by_project = {paper.get("project_id"): paper for paper in self.paper_rows()}
         rows = []
         for row in self.queue_rows():
+            paper = paper_by_project.get(row.get("project_id")) or {}
+            row = {**row, "paper_id": paper.get("paper_id") or "", "paper_status": paper.get("paper_status") or "", "paper_type": paper.get("paper_type") or "", "draft_markdown_path": paper.get("draft_markdown_path") or "", "paper_updated_at": paper.get("updated_at") or ""}
             page_url = row.get("notion_page_url") or ""
             if not page_url:
                 continue
@@ -1312,6 +1336,7 @@ class ControlPlaneStore:
             blocked_reason = row.get("blocked_reason") or (row.get("last_result_summary") if execution_state in {"blocked", "failed"} else "") or ""
             rows.append({
                 "project_id": row.get("project_id") or "",
+                "page_id": row.get("notion_page_id") or _notion_page_id_from_url(page_url),
                 "notion_page_url": page_url,
                 "properties": {
                     "Execution State": execution_state,
@@ -1320,6 +1345,24 @@ class ControlPlaneStore:
                     "Blocked Reason": blocked_reason,
                     "Last Execution Update": row.get("updated_at") or utc_now(),
                     "Execution Summary": row.get("last_result_summary") or "",
+                    "OMX Project ID": row.get("project_id") or "",
+                    "OMX Queue Status": row.get("status") or "",
+                    "OMX Last Run State": row.get("last_run_state") or "",
+                    "OMX Last Event Type": row.get("last_event_type") or "",
+                    "OMX Next Action Hint": row.get("next_action_hint") or "",
+                    "OMX Project Dir": row.get("project_dir") or "",
+                    "OMX Current Session ID": row.get("current_session_id") or "",
+                    "OMX Last Result Summary": row.get("last_result_summary") or "",
+                    "OMX Last Error": row.get("last_error") or "",
+                    "OMX Manual Review Required": "__YES__" if row.get("manual_review_required") else "__NO__",
+                    "OMX Dispatch Priority": row.get("dispatch_priority") or 0,
+                    "OMX Selection Rank": row.get("selection_rank") or 0,
+                    "OMX Paper ID": row.get("paper_id") or "",
+                    "OMX Paper Status": row.get("paper_status") or "",
+                    "OMX Paper Type": row.get("paper_type") or "",
+                    "OMX Paper Markdown Path": row.get("draft_markdown_path") or "",
+                    "OMX Paper Updated At": row.get("paper_updated_at") or "",
+                    "OMX Paper Updated At ISO": row.get("paper_updated_at") or "",
                 },
             })
         return rows

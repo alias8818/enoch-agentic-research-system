@@ -43,6 +43,21 @@ def _post_json(base_url: str, path: str, token: str, payload: dict) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _preflight_summary(preflight: dict) -> dict:
+    checks = preflight.get("checks") if isinstance(preflight.get("checks"), list) else []
+    return {
+        "ok": preflight.get("ok"),
+        "target": preflight.get("target"),
+        "summary": preflight.get("summary"),
+        "failed_checks": [
+            {"name": check.get("name"), "detail": check.get("detail")}
+            for check in checks
+            if isinstance(check, dict) and not check.get("ok")
+        ],
+        "check_count": len(checks),
+    }
+
+
 def main() -> int:
     config = _load_config()
     token = str(config.get("omx_inbound_bearer_token") or "")
@@ -83,7 +98,19 @@ def main() -> int:
                 token,
                 {"dry_run": False, "requested_by": "systemd:queue-pump", "force_preflight": True},
             )
-    print(json.dumps({"preflight": preflight, "alert": alert, "status": {"dispatch_safe": status.get("dispatch_safe"), "dispatch_blockers": status.get("dispatch_blockers"), "active_count": len(status.get("active_items") or []), "next_candidate": (status.get("next_candidate") or {}).get("project_id")}, "dispatch": dispatch}, sort_keys=True))
+    status_summary = {
+        "dispatch_safe": status.get("dispatch_safe"),
+        "dispatch_blockers": status.get("dispatch_blockers"),
+        "active_count": len(status.get("active_items") or []),
+        "next_candidate": (status.get("next_candidate") or {}).get("project_id"),
+    }
+    output = {
+        "preflight": _preflight_summary(preflight),
+        "alert": alert,
+        "status": status_summary,
+        "dispatch": dispatch,
+    }
+    print(json.dumps(output, sort_keys=True))
     return 1 if alert.get("should_alert") and not (alert.get("sent") or alert.get("suppressed_by_cooldown") or not alert.get("alerts_enabled")) else 0
 
 

@@ -133,9 +133,22 @@ def _date(value: str) -> dict[str, Any]:
     return {"date": {"start": value} if value else None}
 
 
+def _number(value: Any) -> dict[str, Any]:
+    try:
+        return {"number": int(value)}
+    except (TypeError, ValueError):
+        return {"number": None}
+
+
+def _checkbox(value: Any) -> dict[str, Any]:
+    if value in {True, 1, "1", "true", "True", "TRUE", "__YES__"}:
+        return {"checkbox": True}
+    return {"checkbox": False}
+
+
 def notion_update_properties(row: dict[str, Any]) -> dict[str, Any]:
     props = row.get("properties") or {}
-    return {
+    payload = {
         "Execution State": _select(str(props.get("Execution State") or "")),
         "Current Run ID": _rich_text(str(props.get("Current Run ID") or "")),
         "Next Action": _rich_text(str(props.get("Next Action") or "")),
@@ -143,6 +156,19 @@ def notion_update_properties(row: dict[str, Any]) -> dict[str, Any]:
         "Last Execution Update": _date(str(props.get("Last Execution Update") or "")),
         "Execution Summary": _rich_text(str(props.get("Execution Summary") or "")),
     }
+    text_fields = [
+        "OMX Project ID", "OMX Queue Status", "OMX Last Run State", "OMX Last Event Type",
+        "OMX Next Action Hint", "OMX Project Dir", "OMX Current Session ID",
+        "OMX Last Result Summary", "OMX Last Error", "OMX Paper ID", "OMX Paper Status",
+        "OMX Paper Type", "OMX Paper Markdown Path", "OMX Paper Updated At ISO",
+    ]
+    for field in text_fields:
+        payload[field] = _rich_text(str(props.get(field) or ""))
+    for field in ("OMX Dispatch Priority", "OMX Selection Rank"):
+        payload[field] = _number(props.get(field))
+    payload["OMX Manual Review Required"] = _checkbox(props.get("OMX Manual Review Required"))
+    payload["OMX Paper Updated At"] = _date(str(props.get("OMX Paper Updated At") or ""))
+    return payload
 
 
 def control_post(base_url: str, token: str, path: str, payload: dict[str, Any], *, transport: Transport = _json_request) -> dict[str, Any]:
@@ -155,7 +181,23 @@ def control_get(base_url: str, token: str, path: str, *, transport: Transport = 
     return resp.body
 
 
-def apply_execution_updates(rows: list[dict[str, Any]], token: str, *, transport: Transport = _json_request, max_updates: int | None = None) -> list[dict[str, Any]]:
+def _existing_page_property_names(page_id: str, headers: dict[str, str], *, transport: Transport) -> set[str] | None:
+    try:
+        resp = transport("GET", f"{NOTION_API_BASE}/pages/{page_id}", headers, None)
+    except NotionSyncError:
+        return None
+    props = resp.body.get("properties") if isinstance(resp.body, dict) else None
+    return set(props.keys()) if isinstance(props, dict) else set()
+
+
+def apply_execution_updates(
+    rows: list[dict[str, Any]],
+    token: str,
+    *,
+    transport: Transport = _json_request,
+    max_updates: int | None = None,
+    filter_to_existing_properties: bool = True,
+) -> list[dict[str, Any]]:
     applied: list[dict[str, Any]] = []
     headers = notion_headers(token)
     for row in rows[:max_updates or len(rows)]:
@@ -165,9 +207,21 @@ def apply_execution_updates(rows: list[dict[str, Any]], token: str, *, transport
             # adapter should provide explicit IDs to avoid updating the wrong page.
             applied.append({"ok": False, "reason": "missing page_id", "project_id": row.get("project_id")})
             continue
-        payload = {"properties": notion_update_properties(row)}
+        properties = notion_update_properties(row)
+        skipped_properties: list[str] = []
+        if filter_to_existing_properties:
+            existing = _existing_page_property_names(page_id, headers, transport=transport)
+            if existing is None:
+                applied.append({"ok": False, "reason": "page property probe failed", "page_id": page_id, "project_id": row.get("project_id")})
+                continue
+            skipped_properties = sorted(name for name in properties if name not in existing)
+            properties = {name: value for name, value in properties.items() if name in existing}
+        if not properties:
+            applied.append({"ok": False, "reason": "no supported properties", "page_id": page_id, "project_id": row.get("project_id"), "skipped_properties": skipped_properties})
+            continue
+        payload = {"properties": properties}
         resp = transport("PATCH", f"{NOTION_API_BASE}/pages/{page_id}", headers, payload)
-        applied.append({"ok": True, "page_id": page_id, "status": resp.status})
+        applied.append({"ok": True, "page_id": page_id, "status": resp.status, "properties_patched": sorted(properties), "skipped_properties": skipped_properties})
     return applied
 
 
@@ -180,9 +234,9 @@ def run_sync(args: argparse.Namespace, *, transport: Transport = _json_request) 
     if args.rows_json:
         rows = json.loads(args.rows_json)
     else:
-        if not notion_token or not args.notion_database_id:
-            raise NotionSyncError("missing Notion token/database for live read; pass --rows-json for offline dry runs")
-        rows = query_notion_database(args.notion_database_id, notion_token, transport=transport, data_source_id=args.notion_data_source_id)
+        if not notion_token or not (args.notion_database_id or args.notion_data_source_id):
+            raise NotionSyncError("missing Notion token and database/data-source for live read; pass --rows-json for offline dry runs")
+        rows = query_notion_database(args.notion_database_id or args.notion_data_source_id, notion_token, transport=transport, data_source_id=args.notion_data_source_id)
     intake = control_post(
         args.control_url,
         control_token,
@@ -202,6 +256,8 @@ def run_sync(args: argparse.Namespace, *, transport: Transport = _json_request) 
         if not notion_token:
             raise NotionSyncError("missing Notion token for apply updates")
         applied = apply_execution_updates(projection.get("rows", []), notion_token, transport=transport, max_updates=args.max_updates)
+    applied_ok = sum(1 for item in applied if item.get("ok"))
+    applied_skipped = sum(1 for item in applied if not item.get("ok"))
     return {
         "ok": True,
         "mode": {"apply_intake": args.apply_intake, "apply_notion_updates": args.apply_notion_updates},
@@ -209,6 +265,9 @@ def run_sync(args: argparse.Namespace, *, transport: Transport = _json_request) 
         "intake": intake,
         "execution_projection_count": len(projection.get("rows", [])),
         "notion_updates_applied": applied,
+        "notion_updates_applied_count": applied_ok,
+        "notion_updates_skipped_count": applied_skipped,
+        "notion_updates_missing_page_id_count": sum(1 for item in applied if item.get("reason") == "missing page_id"),
     }
 
 

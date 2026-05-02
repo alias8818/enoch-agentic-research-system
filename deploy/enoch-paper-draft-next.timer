@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Enoch paper drafting periodically without dispatching work
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+AccuracySec=1min
+Unit=enoch-paper-draft-next.service
+
+[Install]
+WantedBy=timers.target

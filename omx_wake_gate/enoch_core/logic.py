@@ -5,6 +5,8 @@ from collections import Counter
 from typing import Any
 
 ACTIVE_QUEUE_STATUSES = {"dispatching", "awaiting_wake", "running"}
+WAKE_GATE_PAPER_STATES = {"wake_ready", "session_finished_ready"}
+PAPER_DRAFT_NEXT_ACTION = "draft_paper_or_select_next_project"
 EXCLUDED_DRAFT_NAME_FRAGMENT = (
     "human-validated",
     "human label",
@@ -85,15 +87,26 @@ def eligible_paper_draft_candidates(
             "benchmark" in haystack and "human" in haystack
         )
 
+    def draft_ready(row: dict[str, Any]) -> bool:
+        last_run_state = text(row.get("last_run_state"))
+        if last_run_state == "finalize_positive":
+            return True
+        return (
+            last_run_state in WAKE_GATE_PAPER_STATES
+            and text(row.get("next_action_hint")) == PAPER_DRAFT_NEXT_ACTION
+            and bool(text(row.get("current_run_id")) or text(row.get("run_id")))
+            and bool(text(row.get("project_dir")) or text(row.get("notion_page_url")) or text(row.get("last_result_summary")))
+        )
+
     candidates = [
         row
         for row in queue_rows
         if text(row.get("project_id"))
         and text(row.get("status")) == "completed"
-        and text(row.get("last_run_state")) == "finalize_positive"
+        and draft_ready(row)
         and not truthy(row.get("manual_review_required"))
         and text(row.get("project_id")) not in drafted_project_ids
-        and text(row.get("current_run_id")) not in drafted_run_ids
+        and text(row.get("current_run_id") or row.get("run_id")) not in drafted_run_ids
         and not excluded(row)
     ]
     return sorted(

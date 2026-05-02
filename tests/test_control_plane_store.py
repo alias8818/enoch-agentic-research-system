@@ -496,11 +496,11 @@ class ControlPlaneStoreTests(unittest.TestCase):
                 dry_run=True,
                 notion_rows=[
                     {
-                        "id": "324e3677-f1c6-8102-bb29-cd8c29f4b206",
+                        "id": "00000000-0000-4000-8000-000000000001",
                         "property_idea": "Dynamic Context Window Training",
                         "property_status": "exploring",
                         "property_priority": "High",
-                        "url": "https://www.notion.so/Dynamic-Context-Window-Training-324e3677f1c68102bb29cd8c29f4b206",
+                        "url": "https://www.notion.so/Dynamic-Context-Window-Training-00000000000040008000000000000001",
                     },
                     {"id": "discard-me", "property_idea": "Discarded", "property_status": "discarded"},
                 ],
@@ -519,7 +519,9 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertTrue(store.flags().queue_paused)
             rows = store.queue_rows()
             self.assertEqual(rows[0]["project_name"], "Dynamic Context Window Training")
+            self.assertEqual(rows[0]["notion_page_id"], "00000000-0000-4000-8000-000000000001")
             updates = store.notion_execution_update_projection()
+            self.assertEqual(updates[0]["page_id"], "00000000-0000-4000-8000-000000000001")
             self.assertEqual(updates[0]["properties"]["Execution State"], "queued")
             self.assertEqual(updates[0]["properties"]["Next Action"], "controller_review")
 

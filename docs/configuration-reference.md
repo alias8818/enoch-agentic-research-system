@@ -50,3 +50,18 @@ Primary config is a JSON file loaded from `OMX_WAKE_GATE_CONFIG`.
 ## Deprecated compatibility aliases
 
 Early private prototypes used callback fields named after a workflow tool. The public config should use `completion_callback_*`. The aliases are still accepted for old local configs but should not appear in new examples.
+
+## Notion sync environment
+
+Notion sync credentials are intentionally **not** stored in the public JSON config. Put them in an operator-owned environment file such as `/etc/enoch/notion-sync.env` or `/etc/omx-wake-gate/notion-sync.env`:
+
+```bash
+NOTION_TOKEN=replace-with-notion-token
+# Use either the parent database ID or the modern Notion data source ID.
+# NOTION_DATABASE_ID=replace-with-enoch-ideas-database-id
+NOTION_DATA_SOURCE_ID=replace-with-enoch-ideas-data-source-id
+# Optional write cap per timer run. Use a smaller value for gentler PATCH batches.
+# NOTION_SYNC_MAX_UPDATES=25
+```
+
+The sync runner also accepts `ENOCH_CONTROL_TOKEN`; if omitted, the deployed helper reads `omx_inbound_bearer_token` from the local control-plane config. The public repository must not contain real Notion tokens, database secrets, or private host defaults.
