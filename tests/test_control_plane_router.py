@@ -677,6 +677,37 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(draft.json()["candidate"]["project_id"], "idea-callback-draft")
             events = client.get("/control/export/snapshot", headers=headers).json()["events"]
             self.assertTrue(any(event["event_type"] == "paper.drafted" for event in events))
+            reviews = client.get("/control/api/paper-reviews?paper_status=draft_review", headers=headers).json()
+            self.assertEqual(reviews["page"]["total"], 1)
+            self.assertEqual(reviews["rows"][0]["project_id"], "idea-callback-draft")
+
+    def test_worker_callback_wake_ready_negative_decision_is_not_drafted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "projects" / "idea-callback-negative"
+            (project_dir / ".omx").mkdir(parents=True)
+            (project_dir / "run_notes.md").write_text("Ran successfully but the result was negative.\n", encoding="utf-8")
+            (project_dir / ".omx" / "project_decision.json").write_text('{"decision":"negative_result"}\n', encoding="utf-8")
+            client = _client_with_config(_live_config(tmp))
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "worker-callback-negative-import",
+                "queue_rows": [{
+                    "project_id": "idea-callback-negative",
+                    "project_name": "Callback Negative Project",
+                    "project_dir": "idea-callback-negative",
+                    "status": "completed",
+                    "last_run_state": "wake_ready",
+                    "next_action_hint": "draft_paper_or_select_next_project",
+                    "current_run_id": "run-callback-negative",
+                }],
+            })
+            draft = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
+            self.assertEqual(draft.status_code, 200)
+            self.assertEqual(draft.json()["action"], "noop")
+            self.assertIn("project decision", draft.json()["candidate"]["skipped"][0]["reason"])
+            snapshot = client.get("/control/export/snapshot", headers=headers).json()
+            self.assertEqual(snapshot["paper_rows"], [])
+            self.assertEqual(client.get("/control/api/paper-reviews", headers=headers).json()["page"]["total"], 0)
 
     def test_paper_draft_writer_failure_does_not_mutate_project_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

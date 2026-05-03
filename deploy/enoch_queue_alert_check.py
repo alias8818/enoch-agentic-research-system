@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from urllib.parse import quote
 from urllib import error, request
 
 
@@ -31,7 +32,7 @@ def _get_json(base_url: str, path: str, token: str) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _post_json(base_url: str, path: str, token: str, payload: dict) -> dict:
+def _post_json(base_url: str, path: str, token: str, payload: dict, *, timeout: int = 30) -> dict:
     data = json.dumps(payload).encode("utf-8")
     req = request.Request(
         f"{base_url}{path}",
@@ -39,7 +40,7 @@ def _post_json(base_url: str, path: str, token: str, payload: dict) -> dict:
         method="POST",
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
     )
-    with request.urlopen(req, timeout=30) as resp:
+    with request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -84,20 +85,43 @@ def main() -> int:
     status = _get_json(base_url, "/control/api/status", token)
     queue_pump_enabled = bool(config.get("queue_pump_enabled", config.get("live_dispatch_enabled", False)))
     dispatch = {"action": "skipped", "reason": "queue pump disabled"}
+    paper_draft = {"action": "skipped", "reason": "queue pump disabled"}
+    publication_rewrite = {"action": "skipped", "reason": "no paper drafted"}
     if queue_pump_enabled:
         if alert.get("should_alert"):
             dispatch = {"action": "skipped", "reason": "alert findings present; operator reconciliation required first"}
         elif not status.get("dispatch_safe"):
             dispatch = {"action": "skipped", "reason": "dispatch not safe", "blockers": status.get("dispatch_blockers") or []}
-        elif not status.get("next_candidate"):
-            dispatch = {"action": "skipped", "reason": "no queued candidate"}
         else:
-            dispatch = _post_json(
+            paper_draft = _post_json(
                 base_url,
-                "/control/dispatch-next",
+                "/control/papers/draft-next",
                 token,
-                {"dry_run": False, "requested_by": "systemd:queue-pump", "force_preflight": True},
+                {"dry_run": False, "requested_by": "systemd:queue-pump-before-dispatch"},
             )
+            if paper_draft.get("action") == "drafted":
+                paper_id = str((paper_draft.get("paper") or {}).get("paper_id") or "")
+                publication_rewrite = _post_json(
+                    base_url,
+                    f"/control/api/paper-reviews/{quote(paper_id, safe='')}/rewrite-draft",
+                    token,
+                    {
+                        "idempotency_key": f"paper-publication-pipeline:{paper_id or 'unknown'}",
+                        "requested_by": "systemd:queue-pump-before-dispatch",
+                        "force": True,
+                    },
+                    timeout=int(os.environ.get("ENOCH_PAPER_REWRITE_TIMEOUT_SEC", "900")),
+                )
+                dispatch = {"action": "skipped", "reason": "paper drafted before dispatch"}
+            elif not status.get("next_candidate"):
+                dispatch = {"action": "skipped", "reason": "no queued candidate"}
+            else:
+                dispatch = _post_json(
+                    base_url,
+                    "/control/dispatch-next",
+                    token,
+                    {"dry_run": False, "requested_by": "systemd:queue-pump", "force_preflight": True},
+                )
     status_summary = {
         "dispatch_safe": status.get("dispatch_safe"),
         "dispatch_blockers": status.get("dispatch_blockers"),
@@ -108,6 +132,8 @@ def main() -> int:
         "preflight": _preflight_summary(preflight),
         "alert": alert,
         "status": status_summary,
+        "paper_draft": paper_draft,
+        "publication_rewrite": publication_rewrite,
         "dispatch": dispatch,
     }
     print(json.dumps(output, sort_keys=True))

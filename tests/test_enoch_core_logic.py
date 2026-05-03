@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from pathlib import Path
 
 from omx_wake_gate.enoch_core.logic import (
     assert_single_active_lane,
     eligible_paper_draft_candidates,
     eligible_paper_polish_candidates,
+    paper_draft_decision_gate,
     queue_projection,
     validate_branch_queued,
 )
@@ -47,6 +50,22 @@ class EnochCoreLogicTests(unittest.TestCase):
         }]
         candidates = eligible_paper_draft_candidates(queue_rows, [])
         self.assertEqual([row["project_id"] for row in candidates], ["idea-wake"])
+
+    def test_wake_ready_positive_decision_artifacts_pass_paper_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".omx").mkdir()
+            (root / ".omx" / "project_decision.json").write_text('{"decision":"promising_continue"}\n', encoding="utf-8")
+            gate = paper_draft_decision_gate(root)
+            self.assertTrue(gate["eligible"])
+
+    def test_wake_ready_negative_decision_artifacts_fail_paper_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".omx").mkdir()
+            (root / ".omx" / "project_decision.json").write_text('{"decision":"negative_result"}\n', encoding="utf-8")
+            gate = paper_draft_decision_gate(root)
+            self.assertFalse(gate["eligible"])
 
     def test_paper_draft_candidate_excludes_existing_run_even_for_new_project(self) -> None:
         queue_rows = [{

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse
 
 from ..config import GateConfig
-from ..enoch_core.logic import draft_candidate_payload, eligible_paper_draft_candidates
+from ..enoch_core.logic import draft_candidate_payload, eligible_paper_draft_candidates, paper_draft_decision_gate
 from ..enoch_core.store import IdempotencyConflict
 from ..models import GateCallback, utc_now
 from .paper_writer import write_paper_artifacts
@@ -1611,17 +1611,47 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             if not legacy_finalize_positive and not evidence["local_evidence_present"]:
                 skipped.append({"project_id": candidate.get("project_id"), "run_id": candidate.get("current_run_id"), "reason": "missing paper evidence", "evidence_sync": evidence.get("evidence_sync")})
                 continue
+            decision_gate = {"eligible": True, "reason": "legacy finalize_positive state"}
+            if not legacy_finalize_positive:
+                decision_gate = paper_draft_decision_gate(str(evidence.get("artifact_root") or ""))
+                if not decision_gate.get("eligible"):
+                    skipped.append({
+                        "project_id": candidate.get("project_id"),
+                        "run_id": candidate.get("current_run_id"),
+                        "reason": "project decision is not paper-positive",
+                        "decision_gate": decision_gate,
+                        "evidence_sync": evidence.get("evidence_sync"),
+                    })
+                    continue
             paper = _paper_record_from_candidate(candidate, force=payload.force)
             candidate_for_write = {**candidate, "project_dir": evidence.get("artifact_root") or candidate.get("project_dir")}
             writer = write_paper_artifacts(config, candidate_for_write, paper, force=payload.force)
-            writer = {**writer, "evidence_sync": evidence.get("evidence_sync"), "artifact_root": evidence.get("artifact_root")}
+            writer = {**writer, "evidence_sync": evidence.get("evidence_sync"), "artifact_root": evidence.get("artifact_root"), "decision_gate": decision_gate}
             store.update_project_dir(str(candidate.get("project_id") or ""), str(candidate_for_write["project_dir"]))
             store.upsert_paper(paper)
+            try:
+                backfill_inserted, backfill_created, backfill_updated, backfill_skipped, backfill_errors = store.backfill_paper_reviews(
+                    PaperReviewBackfillRequest(
+                        idempotency_key=f"paper-review-backfill:{paper.paper_id}:{paper.updated_at}",
+                        requested_by=payload.requested_by,
+                        paper_ids=[paper.paper_id],
+                        dry_run=False,
+                    )
+                )
+                writer["review_backfill"] = {
+                    "inserted_event": backfill_inserted,
+                    "created": backfill_created,
+                    "updated": backfill_updated,
+                    "skipped": backfill_skipped,
+                    "errors": backfill_errors,
+                }
+            except IdempotencyConflict as exc:
+                writer["review_backfill"] = {"inserted_event": False, "created": 0, "updated": 0, "skipped": 0, "errors": [{"reason": str(exc)}]}
             store.append_event(idempotency_key=f"paper-draft:{paper.paper_id}:{paper.updated_at}", event_type="paper.drafted", entity_type="paper", entity_id=paper.paper_id, payload={"requested_by": payload.requested_by, "paper": paper.model_dump(mode="json"), "writer": writer})
             reason = f"paper draft created with {writer.get('provider')} / {writer.get('model')}"
             if writer.get("fallback_used"):
                 reason += " (fallback used)"
             return DraftNextResponse(ok=True, action="drafted", reason=reason, paper=paper, candidate=draft_candidate_payload(candidate))
-        return DraftNextResponse(ok=True, action="noop", reason="eligible paper-draft candidates lacked sufficient local or synced evidence", candidate={"skipped": skipped[:10]})
+        return DraftNextResponse(ok=True, action="noop", reason="eligible paper-draft candidates lacked sufficient positive local or synced evidence", candidate={"skipped": skipped[:10]})
 
     return router

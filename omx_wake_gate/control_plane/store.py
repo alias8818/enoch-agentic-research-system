@@ -758,7 +758,12 @@ class ControlPlaneStore:
 
     def backfill_paper_reviews(self, request: PaperReviewBackfillRequest) -> tuple[bool, int, int, int, list[dict[str, Any]]]:
         audit_by_paper = _audit_rows(request.source_audit_path)
-        papers = self.paper_rows()
+        requested_paper_ids = {_text(paper_id) for paper_id in request.paper_ids if _text(paper_id)}
+        papers = [
+            paper
+            for paper in self.paper_rows()
+            if not requested_paper_ids or _text(paper.get("paper_id")) in requested_paper_ids
+        ]
         errors: list[dict[str, Any]] = []
         candidates: list[PaperReviewRecord] = []
         for paper in papers:

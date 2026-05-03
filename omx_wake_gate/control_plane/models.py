@@ -235,6 +235,7 @@ class PaperReviewBackfillRequest(BaseModel):
     idempotency_key: str = Field(default_factory=lambda: f"paper-review-backfill:{utc_now()}")
     requested_by: str = "operator"
     source_audit_path: str = ""
+    paper_ids: list[str] = Field(default_factory=list)
     dry_run: bool = True
 
 

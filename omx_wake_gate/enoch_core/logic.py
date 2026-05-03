@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 ACTIVE_QUEUE_STATUSES = {"dispatching", "awaiting_wake", "running"}
@@ -14,6 +16,33 @@ EXCLUDED_DRAFT_NAME_FRAGMENT = (
     "human rater",
     "reviewer noise",
 )
+PAPER_DRAFT_POSITIVE_DECISION_TOKENS = (
+    "finalize_positive",
+    "positive",
+    "promising",
+    "viable",
+    "proceed",
+)
+PAPER_DRAFT_SUPPORTED_TOKENS = ("supported",)
+PAPER_DRAFT_BLOCKED_DECISION_TOKENS = (
+    "negative",
+    "not_promising",
+    "do_not",
+    "reject",
+    "inconclusive",
+    "needs_review",
+    "proceed_with_caveats",
+    "conditional_go_pilot",
+)
+PAPER_DECISION_FILES = (".omx/project_decision.json", "project_decision.json")
+PAPER_PRIMARY_DECISION_FIELDS = (
+    "project_decision",
+    "decision",
+    "verdict",
+    "outcome",
+    "recommendation",
+)
+PAPER_SUPPORTING_DECISION_FIELDS = ("hypothesis_status", "status")
 
 
 def text(value: Any) -> str:
@@ -29,6 +58,62 @@ def integer(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _normal(value: Any) -> str:
+    return text(value).lower().replace("-", "_").replace(" ", "_")
+
+
+def _paper_decision_json_values(artifact_root: str | Path) -> list[tuple[str, str, str]]:
+    root = Path(artifact_root)
+    values: list[tuple[str, str, str]] = []
+    for relative in PAPER_DECISION_FILES:
+        path = root / relative
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        for field in (*PAPER_PRIMARY_DECISION_FIELDS, *PAPER_SUPPORTING_DECISION_FIELDS):
+            if field in payload:
+                values.append((relative, field, text(payload.get(field))))
+    return values
+
+
+def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
+    """Return whether local project decision artifacts support paper drafting.
+
+    The wake-gate callback state only says the worker is done and the controller
+    may either draft or move on. The actual draft/no-draft polarity lives in the
+    project decision artifact. Keep this intentionally conservative for primary
+    decision fields so negative, needs-review, and caveat-only outcomes do not
+    become publication drafts merely because the worker session completed.
+    """
+    values = _paper_decision_json_values(artifact_root)
+    if not values:
+        return {"eligible": False, "reason": "missing project decision artifact", "values": []}
+
+    primary = [(source, field, _normal(value)) for source, field, value in values if field in PAPER_PRIMARY_DECISION_FIELDS]
+    supporting = [(source, field, _normal(value)) for source, field, value in values if field in PAPER_SUPPORTING_DECISION_FIELDS]
+
+    for source, field, value in primary:
+        if any(token in value for token in PAPER_DRAFT_BLOCKED_DECISION_TOKENS):
+            return {"eligible": False, "reason": "project decision is not positive", "source": source, "field": field, "decision": value, "values": values}
+
+    for source, field, value in primary:
+        if any(token in value for token in PAPER_DRAFT_POSITIVE_DECISION_TOKENS):
+            return {"eligible": True, "reason": "project decision is positive", "source": source, "field": field, "decision": value, "values": values}
+
+    if any(value == "continue" for _, _, value in primary) and any(
+        any(token in value for token in PAPER_DRAFT_SUPPORTED_TOKENS) for _, _, value in supporting
+    ):
+        source, field, value = next((item for item in primary if item[2] == "continue"), primary[0])
+        return {"eligible": True, "reason": "continue decision has supported hypothesis evidence", "source": source, "field": field, "decision": value, "values": values}
+
+    return {"eligible": False, "reason": "project decision lacks positive draft signal", "values": values}
 
 
 def queue_status_counts(queue_rows: list[dict[str, Any]]) -> dict[str, int]:

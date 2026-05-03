@@ -188,7 +188,7 @@ curl -fsS -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:8787/control/api/status | python3 -m json.tool
 ```
 
-Paper drafting is dispatch-independent. During worker maintenance you may keep the queue paused and still run draft-only paper production; it calls `/control/papers/draft-next` and never `/control/dispatch-next`:
+Paper drafting is dispatch-independent. During worker maintenance you may keep the queue paused and still run draft-only paper production; it calls `/control/papers/draft-next`, backfills the newly drafted paper into the review queue, and asks the publication rewrite endpoint to process that paper. It never calls `/control/dispatch-next`:
 
 ```bash
 sudo cp /opt/enoch-agentic-research-system/deploy/enoch-paper-draft-next.service /etc/systemd/system/
@@ -198,6 +198,8 @@ sudo systemctl enable --now enoch-paper-draft-next.timer
 # or one-shot:
 sudo systemctl start enoch-paper-draft-next.service
 ```
+
+The queue alert pump also tries paper production before dispatch when the control plane is idle and dispatch-safe. If `/control/papers/draft-next` drafts a paper, that timer tick skips `/control/dispatch-next` so publication writing catches up before another idea is launched.
 
 If dispatch must remain disabled, leave `enoch-queue-alert-check.timer` disabled. Re-enable that timer only when the worker lane is healthy and dispatch should resume.
 

@@ -27,12 +27,14 @@ class QueuePumpTests(unittest.TestCase):
             "conflicts": [],
         }
 
-        def fake_post(base_url: str, path: str, token: str, payload: dict) -> dict:
+        def fake_post(base_url: str, path: str, token: str, payload: dict, *, timeout: int = 30) -> dict:
             calls.append(path)
             if path == "/control/api/preflight":
                 return {"ok": True, "target": "http://worker.example:8787", "summary": "worker preflight passed", "checks": [{"name": "wake_gate_dashboard_api", "ok": True, "data": {"body": {"rows": ["x" * 1000]}}}]}
             if path == "/control/api/alerts/queue-check":
                 return {"should_alert": False, "sent": False, "alerts_enabled": True}
+            if path == "/control/papers/draft-next":
+                return {"action": "noop", "reason": "no eligible completed paper-draft candidate without paper remains"}
             if path == "/control/dispatch-next":
                 return {"action": "live_dispatch", "candidate": {"project_id": "queued-idea"}}
             raise AssertionError(path)
@@ -48,8 +50,9 @@ class QueuePumpTests(unittest.TestCase):
     def test_queue_pump_dispatches_when_safe_and_candidate_exists(self) -> None:
         code, output, calls = self._run_main()
         self.assertEqual(code, 0)
-        self.assertNotIn("/control/papers/draft-next", calls)
+        self.assertIn("/control/papers/draft-next", calls)
         self.assertIn("/control/dispatch-next", calls)
+        self.assertLess(calls.index("/control/papers/draft-next"), calls.index("/control/dispatch-next"))
         self.assertEqual(output["dispatch"]["action"], "live_dispatch")
         self.assertEqual(output["preflight"]["check_count"], 1)
         self.assertNotIn("checks", output["preflight"])
@@ -66,7 +69,7 @@ class QueuePumpTests(unittest.TestCase):
         }
         code, output, calls = self._run_main(status=status)
         self.assertEqual(code, 0)
-        self.assertNotIn("/control/papers/draft-next", calls)
+        self.assertIn("/control/papers/draft-next", calls)
         self.assertNotIn("/control/dispatch-next", calls)
         self.assertEqual(output["dispatch"]["reason"], "no queued candidate")
 

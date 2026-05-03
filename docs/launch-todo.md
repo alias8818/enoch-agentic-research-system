@@ -48,10 +48,10 @@ Live check on 2026-05-02 showed that the LangGraph-era idea execution path is pr
 Required follow-up:
 
 - [x] Update paper draft eligibility so completed wake-gate runs with `next_action_hint = draft_paper_or_select_next_project` and sufficient evidence/artifacts are draft candidates; keep the old `last_run_state = finalize_positive` path.
-- [x] Add automated paper recovery without starving drafts: a dedicated draft-only timer calls `/control/papers/draft-next`, while the queue pump remains dispatch-only and single-lane gated.
+- [x] Add automated paper recovery without starving drafts: a dedicated draft/publication timer calls `/control/papers/draft-next`, and the queue pump drafts/rewrite-kicks before dispatch when the lane is idle and safe.
 - [ ] Backfill paper drafts for completed no-paper projects produced after the LangGraph cutover, preserving evidence sync, claim ledger, manifest, and publication-policy metadata.
-- [ ] Connect the publication/rewrite workflow to newly drafted papers, including review backfill and GLM-5.1/Synthetic.new rewrite where configured.
-- [x] Add regression tests proving a `worker_callback.wake_ready` completion becomes paper-draft eligible, existing papers prevent duplicate drafts, the draft-only timer never dispatches, and the queue pump remains dispatch-only/single-lane gated.
+- [x] Connect the publication/rewrite workflow to newly drafted papers, including targeted review backfill and GLM-5.1/Synthetic.new rewrite where configured.
+- [x] Add regression tests proving a `worker_callback.wake_ready` completion becomes paper-draft eligible, existing papers prevent duplicate drafts, the draft-only timer never dispatches, and the queue pump drafts before dispatch but still dispatches when no draft candidate exists.
 
 ## Follow-up quality work
 
