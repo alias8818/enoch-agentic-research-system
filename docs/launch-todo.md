@@ -1,22 +1,24 @@
 # Public launch checklist
 
-This checklist tracks the remaining work before the Enoch system and generated corpus are made public. Completed packaging/security work has been collapsed so this page stays useful as an operator-facing launch board rather than a stale build log.
+This checklist tracks the remaining work before the Enoch system, generated corpus, and source-grounded docs are made public. Completed packaging/security work has been collapsed so this page stays useful as an operator-facing launch board rather than a stale build log.
 
 ## Current status
 
 - **Code repo:** public, packaged, CI-enabled, and protected at `alias8818/enoch-agentic-research-system`.
 - **Corpus repo:** public, quality-scanned, and protected at `alias8818/enoch-ai-research-corpus`.
 - **Launch site:** deployed at <https://alias8818.github.io/enoch-agentic-research-system/>.
+- **Docs repo:** public source-grounded docs at `alias8818/enoch-docs`.
 - **Release framing:** Enoch is the system/control-plane; the corpus artifacts are AI-generated, bounded, replication-worthy outputs that demonstrate what the system can produce.
 
 ## Final gates before public visibility
 
-- [x] Re-run final CI and secret scans on both repos immediately before flipping visibility.
-- [x] Confirm branch protection is enabled on both staged repos before visibility changes.
+- [x] Re-run final CI and secret scans on code/corpus repos and docs validation before flipping visibility.
+- [x] Confirm branch protection is enabled on staged repos before visibility changes.
 - [x] Flip `alias8818/enoch-agentic-research-system` public.
 - [x] Flip `alias8818/enoch-ai-research-corpus` public.
-- [x] Verify public anonymous access to both READMEs, the site, and all highlighted corpus links.
-- [x] Confirm final repo/site URLs are present in README, launch site copy, and announcement drafts.
+- [x] Flip `alias8818/enoch-docs` public.
+- [x] Verify public anonymous access to READMEs, docs, the site, and all highlighted corpus links.
+- [x] Confirm final repo/site/docs URLs are present in README, launch site copy, and announcement drafts.
 - [x] Verify the credits section names the tooling accurately:
   - Enoch control plane built on LangGraph-backed orchestration/state flow.
   - Development and launch operations assisted by oh-my-codex/OMX: <https://github.com/Yeachan-Heo/oh-my-codex>.
@@ -26,9 +28,9 @@ This checklist tracks the remaining work before the Enoch system and generated c
 - [x] Explain Enoch as an agentic research control plane.
 - [x] Highlight the strongest generated artifacts from the corpus.
 - [x] Use clear provenance/disclaimer language for AI-generated papers.
-- [x] Link the code repo and corpus repo.
-- [ ] Add screenshots or short GIFs from a clean demo/dashboard instance.
-- [ ] Add a one-minute architecture diagram or visual explainer.
+- [x] Link the code repo, corpus repo, and docs repo.
+- [x] Add sanitized screenshots to release docs from a clean demo/dashboard instance.
+- [x] Add an architecture diagram or visual explainer.
 - [ ] Add compact “why this matters” cards for the top highlighted papers.
 
 ## Outreach package
@@ -64,7 +66,7 @@ Required follow-up:
 
 - [x] Added GitHub issue/PR templates, CODEOWNERS, CI, Dependabot, security policy, and protection automation.
 - [x] Applied private-repo settings: issues on, discussions on, projects/wiki off, squash-only merges, branch delete on merge.
-- [x] Applied branch protection on both staged private repos.
+- [x] Applied branch protection on the staged code and corpus repos, with docs repo visibility tracked separately.
 - [x] Kept private career-positioning notes out of public repositories.
 - [x] Removed live secrets, local state DBs, production logs, and private LAN endpoints from public artifacts.
 - [x] Kept old n8n/OpenClaw workflow material historical only; workflow exports are not shipped as the product.

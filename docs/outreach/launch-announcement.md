@@ -16,6 +16,7 @@ Repos:
 
 - Code: https://github.com/alias8818/enoch-agentic-research-system
 - Corpus: https://github.com/alias8818/enoch-ai-research-corpus
+- Docs: https://github.com/alias8818/enoch-docs
 
 ## Longer announcement
 
@@ -55,6 +56,10 @@ Code repo:
 Corpus repo:
 
 > 120 AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim ledgers, manifests, and quality reports.
+
+Docs repo:
+
+> Source-grounded Enoch docs for operators, contributors, and reviewers covering the control plane, corpus, deployment, provenance, and release boundaries.
 
 ## Thread outline
 

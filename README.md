@@ -54,6 +54,8 @@ The reports produced by Enoch runs are AI-generated research artifacts, not huma
 
 See [`docs/release/authorship-and-provenance.md`](docs/release/authorship-and-provenance.md) for the full framing and recommended citation language.
 
+The separate [`enoch-docs`](https://github.com/alias8818/enoch-docs) repository contains source-grounded operator and reviewer documentation for the system, corpus, and release boundaries.
+
 ## Runtime and upstream tooling
 
 Enoch is the project-specific control plane and release package. It runs agent work through Codex/OMX automation, including [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex) orchestration for local agent execution. OMX is part of the operating substrate; generated research artifacts are produced by Enoch runs and the artifact writer, not by OMX as an owning publisher.
@@ -89,6 +91,8 @@ uv run pytest -q
 ```
 
 ## Documentation
+
+- [`enoch-docs`](https://github.com/alias8818/enoch-docs) — standalone source-grounded docs for operators, contributors, and reviewers
 
 **Using Enoch:**
 - [`docs/quickstart.md`](docs/quickstart.md) — local clone-to-dashboard smoke test

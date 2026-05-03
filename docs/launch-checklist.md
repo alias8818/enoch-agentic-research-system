@@ -1,6 +1,6 @@
 # Public launch checklist
 
-Use this as the final go/no-go checklist immediately before changing the code and corpus repositories from private to public.
+Use this as the final go/no-go checklist immediately before changing the code, corpus, and docs repositories from private to public.
 
 ## Repository readiness
 
@@ -24,6 +24,7 @@ Use this as the final go/no-go checklist immediately before changing the code an
 - [x] Corpus repo: `python3 scripts/quality_scan.py`
 - [x] Corpus repo: GitHub Actions `quality` and `secret-scan` pass on `main`.
 - [x] Fresh anonymous read test passes after visibility changes.
+- [x] Docs repo validates and link resolves at <https://github.com/alias8818/enoch-docs>.
 
 ## External integrations
 
@@ -44,8 +45,9 @@ All integration credentials must remain outside git and be configured through en
 
 ## Visibility flip sequence
 
-1. Confirm both repos still have branch protection enabled. ✅
+1. Confirm the code, corpus, and docs repos still have branch protection enabled. ✅
 2. Make `alias8818/enoch-agentic-research-system` public. ✅
 3. Make `alias8818/enoch-ai-research-corpus` public. ✅
-4. Open the site in a private/incognito browser and verify public links resolve. ✅
-5. Update launch posts with the final public URLs.
+4. Make `alias8818/enoch-docs` public. ✅
+5. Open the site and docs in a private/incognito browser and verify public links resolve. ✅
+6. Update launch posts with the final public URLs.
