@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${ENOCH_PROOF_TIMEOUT_CHILD:-0}" != "1" ]]; then
+  exec timeout "${ENOCH_PROOF_TIMEOUT:-90s}" env ENOCH_PROOF_TIMEOUT_CHILD=1 "$0" "$@"
+fi
+
+CURL_TIMEOUT_ARGS=(--connect-timeout "${ENOCH_CURL_CONNECT_TIMEOUT:-3}" --max-time "${ENOCH_CURL_MAX_TIME:-10}")
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -58,7 +64,7 @@ config.update({
 Path(dst).write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
 
-if curl -fsS "$BASE_URL/healthz" >/dev/null 2>&1; then
+if curl -fsS "${CURL_TIMEOUT_ARGS[@]}" "$BASE_URL/healthz" >/dev/null 2>&1; then
   echo "Port ${PORT} is already serving /healthz; stop that process or set ENOCH_PROOF_PORT." >&2
   exit 2
 fi
@@ -76,7 +82,7 @@ OMX_WAKE_GATE_CONFIG="$CONFIG_PATH" uv run uvicorn omx_wake_gate.app:app --host 
 SERVER_PID=$!
 
 for _ in $(seq 1 60); do
-  if curl -fsS "$BASE_URL/healthz" >/dev/null 2>&1; then
+  if curl -fsS "${CURL_TIMEOUT_ARGS[@]}" "$BASE_URL/healthz" >/dev/null 2>&1; then
     echo "PASS healthz"
     break
   fi
@@ -88,7 +94,7 @@ for _ in $(seq 1 60); do
   sleep 0.5
 done
 
-if ! curl -fsS "$BASE_URL/healthz" >/dev/null 2>&1; then
+if ! curl -fsS "${CURL_TIMEOUT_ARGS[@]}" "$BASE_URL/healthz" >/dev/null 2>&1; then
   echo "timed out waiting for $BASE_URL/healthz; log follows" >&2
   cat "$LOG_PATH" >&2
   exit 1

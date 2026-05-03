@@ -6,12 +6,14 @@ function renderManifest(manifest) {
   const artifactCount = document.getElementById('artifactCount');
   const gatePassCount = document.getElementById('gatePassCount');
   const manifestNote = document.getElementById('manifestNote');
-  if (!manifest || !Number.isFinite(Number(manifest.artifact_count)) || !Number.isFinite(Number(manifest.packaging_provenance_pass_count))) {
+  const strictAuditCount = document.getElementById('strictAuditCount');
+  if (!manifest || !Number.isFinite(Number(manifest.artifact_count)) || !Number.isFinite(Number(manifest.packaging_provenance_pass_count)) || !Number.isFinite(Number(manifest.strict_claim_evidence_pass_count))) {
     throw new Error('manifest missing required counts');
   }
   artifactCount.textContent = Number(manifest.artifact_count).toLocaleString();
   gatePassCount.textContent = `${Number(manifest.packaging_provenance_pass_count).toLocaleString()}/${Number(manifest.artifact_count).toLocaleString()}`;
-  manifestNote.textContent = `Gate: ${manifest.gate_name || 'packaging_provenance_gate'} ${manifest.gate_version || ''}. Not validated: scientific correctness, peer review, or independent replication.`;
+  strictAuditCount.textContent = `${Number(manifest.strict_claim_evidence_pass_count).toLocaleString()}/${Number(manifest.strict_claim_evidence_total_count || manifest.artifact_count).toLocaleString()}`;
+  manifestNote.textContent = `Lint gate: ${manifest.gate_name || 'packaging_provenance_gate'} ${manifest.gate_version || ''}. Strict audit: ${manifest.strict_claim_evidence_gate_status || 'blocked_audit_gaps'}. Not validated: scientific correctness, peer review, or independent replication.`;
 }
 
 fetch('ecosystem.json', {cache: 'no-cache'})
@@ -35,7 +37,7 @@ fetch('highlights.json')
         <p>${esc(item.why_it_matters)}</p>
         <p class="result"><strong>Reported result:</strong> ${esc(item.result)}</p>
         <p><strong>Bounded by:</strong> ${esc(item.bounds)}</p>
-        <p><strong>Gate scope:</strong> ${esc(item.gate_scope || 'packaging/provenance')} checks; not peer-reviewed or independently replicated unless the artifact says so.</p>
+        <p><strong>Gate scope:</strong> ${esc(item.gate_scope || 'packaging/provenance')} lint; strict claim/evidence audit is separate; not peer-reviewed or independently replicated unless the artifact says so.</p>
         ${item.falsification_prompt ? `<p><strong>Falsification prompt:</strong> ${esc(item.falsification_prompt)}</p>` : ''}
         <div class="meta"><span>${esc(item.public_id)}</span><a href="${corpusBase + encodeURI(item.paper_path)}">Read artifact</a></div>
       </article>`).join('');

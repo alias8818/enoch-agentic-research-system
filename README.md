@@ -31,7 +31,7 @@ LLM research scout
   -> agent run with process + telemetry supervision
   -> evidence sync
   -> AI-generated research artifact
-  -> corpus packaging/provenance checks
+  -> corpus packaging/provenance lint
 ```
 
 The repository contains the execution/control-plane layer and supporting docs. Historical notes describe earlier migration experiments, but this is not a workflow-export repository and does not ship workflow-tool configurations.

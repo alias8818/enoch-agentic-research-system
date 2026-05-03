@@ -5,7 +5,7 @@ This checklist tracks the remaining work before the Enoch system, generated corp
 ## Current status
 
 - **Code repo:** public, packaged, CI-enabled, and protected at `alias8818/enoch-agentic-research-system`.
-- **Corpus repo:** public, quality-scanned, and protected at `alias8818/enoch-ai-research-corpus`.
+- **Corpus repo:** public, packaging/provenance-linted, and protected at `alias8818/enoch-ai-research-corpus`.
 - **Launch site:** deployed at <https://alias8818.github.io/enoch-agentic-research-system/>.
 - **Docs website:** hosted at <https://solo-09d10f60.mintlify.app/>; source repo at `alias8818/enoch-docs`.
 - **Release framing:** Enoch is the system/control-plane; the corpus artifacts are AI-generated, bounded, replication-worthy outputs that demonstrate what the system can produce.
@@ -71,5 +71,5 @@ Required follow-up:
 - [x] Removed live secrets, local state DBs, production logs, and private LAN endpoints from public artifacts.
 - [x] Kept old n8n/OpenClaw workflow material historical only; workflow exports are not shipped as the product.
 - [x] Packaged the control-plane repo with quickstart, deployment guide, config reference, Pushover notes, and smoke tests.
-- [x] Packaged the corpus repo with 159 AI-generated research artifacts, provenance metadata, claim ledgers, evidence bundles, and packaging/provenance reports.
+- [x] Packaged the corpus repo with 159 AI-generated research artifacts, provenance metadata, claim-ledger files, evidence bundles, packaging/provenance reports, and a strict claim/evidence audit report.
 - [x] Stated clearly that generated papers are AI-generated artifacts and that no personal authorship credit is claimed for the paper text or results.

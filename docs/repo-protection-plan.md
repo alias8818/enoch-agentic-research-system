@@ -8,7 +8,7 @@ These settings are intended before making the repositories public.
 - PR template requires verification and secret-scan acknowledgement.
 - Issue templates steer security reports away from public disclosure.
 - Dependabot is enabled for GitHub Actions and Python dependencies where applicable.
-- CI workflows run tests, packaging/provenance checks, and gitleaks secret scanning.
+- CI workflows run tests, packaging/provenance lint checks, and gitleaks secret scanning.
 - Corpus CI rebuilds the paper index and packaging/provenance report and fails if generated files drift.
 
 ## GitHub settings to apply

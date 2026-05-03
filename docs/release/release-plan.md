@@ -13,5 +13,5 @@
 - License selected and checked in.
 - Secrets rotated if necessary.
 - README updated with provenance and no-human-authorship framing.
-- Corpus packaging/provenance scanner passes: no TODO placeholders, no fake citations, no missing evidence bundles.
+- Corpus packaging/provenance lint scanner passes: no TODO placeholders, no fake citations, no missing evidence bundles.
 - Website/catalog generated.

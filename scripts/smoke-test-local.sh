@@ -3,6 +3,7 @@ set -euo pipefail
 
 CONFIG="${OMX_WAKE_GATE_CONFIG:-}"
 BASE_URL="${ENOCH_BASE_URL:-http://127.0.0.1:8787}"
+CURL_TIMEOUT_ARGS=(--connect-timeout "${ENOCH_CURL_CONNECT_TIMEOUT:-3}" --max-time "${ENOCH_CURL_MAX_TIME:-10}")
 TOKEN="${ENOCH_CONTROL_TOKEN:-}"
 
 if [[ -n "$CONFIG" && -z "$TOKEN" ]]; then
@@ -18,21 +19,21 @@ if [[ -z "$TOKEN" ]]; then
 fi
 
 echo "healthz"
-curl -fsS "$BASE_URL/healthz" | python3 -m json.tool
+curl -fsS "${CURL_TIMEOUT_ARGS[@]}" "$BASE_URL/healthz" | python3 -m json.tool
 
 STATUS_JSON="$(mktemp)"
 trap 'rm -f "$STATUS_JSON"' EXIT
 
 echo "status"
-curl -fsS -H "Authorization: Bearer $TOKEN" "$BASE_URL/control/api/status" | python3 -m json.tool >"$STATUS_JSON"
+curl -fsS "${CURL_TIMEOUT_ARGS[@]}" -H "Authorization: Bearer $TOKEN" "$BASE_URL/control/api/status" | python3 -m json.tool >"$STATUS_JSON"
 cat "$STATUS_JSON"
 
 echo "preflight (non-strict self-check)"
-curl -fsS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+curl -fsS "${CURL_TIMEOUT_ARGS[@]}" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d "{\"wake_gate_url\":\"$BASE_URL\",\"bearer_token\":\"$TOKEN\",\"require_paused\":false,\"strict\":false}" \
   "$BASE_URL/control/api/preflight" | python3 -m json.tool
 
 echo "dispatch dry run"
-curl -fsS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+curl -fsS "${CURL_TIMEOUT_ARGS[@]}" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"dry_run":true,"requested_by":"smoke-test"}' \
   "$BASE_URL/control/dispatch-next" | python3 -m json.tool

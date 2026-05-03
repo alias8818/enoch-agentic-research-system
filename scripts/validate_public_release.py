@@ -30,6 +30,7 @@ OWNER_PROFILE_FILES = ["README.md"]
 HISTORIC_STALE_COUNT = re.compile(r"\b120\b|120/120")
 COUNT_PHRASE = re.compile(r"\b(\d{2,5})\b\s+(AI-generated artifacts indexed|AI-generated research artifacts|generated research artifacts|indexed artifacts|artifacts)", re.I)
 PASS_PHRASE = re.compile(r"\b(\d{2,5})\s*/\s*(\d{2,5})\b\s+(pass packaging/provenance|packaging/provenance passed|pass count|quality)", re.I)
+FULL_AUDIT_CLAIM = re.compile(r"fully auditable|deeply auditable", re.I)
 QUALITY_WORDING = re.compile(r"quality (?:gates?|scans?|checks?)", re.I)
 
 
@@ -96,10 +97,22 @@ def check_manifest(committed: dict, generated: dict | None, failures: list[str])
         "validated",
         "not_validated",
         "warnings",
+        "strict_claim_evidence_pass_count",
+        "strict_claim_evidence_total_count",
+        "strict_claim_evidence_gate_name",
+        "strict_claim_evidence_gate_status",
     ]
     for key in required:
         if key not in committed:
             fail(f"manifest missing required key: {key}", failures)
+    if committed.get("strict_claim_evidence_gate_name") != "strict_claim_evidence_audit":
+        fail("manifest strict claim/evidence gate name is not strict_claim_evidence_audit", failures)
+    if committed.get("strict_claim_evidence_pass_count") != 0:
+        fail("manifest should honestly report 0 strict claim/evidence passes until public audit files are present", failures)
+    if committed.get("strict_claim_evidence_total_count") != committed.get("artifact_count"):
+        fail("manifest strict claim/evidence total must match artifact count", failures)
+    if committed.get("strict_claim_evidence_gate_status") == "strict_pass" and committed.get("strict_claim_evidence_pass_count") != committed.get("artifact_count"):
+        fail("manifest strict audit status cannot be strict_pass unless every artifact passes", failures)
     if generated is None:
         return
     stable_keys = [key for key in required if key != "warnings"]
@@ -160,6 +173,12 @@ def main() -> int:
     check_counts(public_paths, int(manifest["artifact_count"]), int(manifest["packaging_provenance_pass_count"]), failures)
     check_quality_scope(public_paths, failures)
     check_required_copy(public_paths, failures)
+    combined_public = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in public_paths)
+    if "strict claim/evidence" not in combined_public.lower():
+        fail("missing strict claim/evidence audit public framing", failures)
+    for match in FULL_AUDIT_CLAIM.finditer(combined_public):
+        if int(manifest.get("strict_claim_evidence_pass_count", 0)) == 0:
+            fail(f"public copy implies full strict auditability while strict pass count is 0: {match.group(0)}", failures)
 
     if failures:
         for item in failures:
