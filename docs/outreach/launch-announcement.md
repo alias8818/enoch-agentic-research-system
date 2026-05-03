@@ -16,7 +16,7 @@ Repos:
 
 - Code: https://github.com/alias8818/enoch-agentic-research-system
 - Corpus: https://github.com/alias8818/enoch-ai-research-corpus
-- Docs: https://github.com/alias8818/enoch-docs
+- Docs: https://solo-09d10f60.mintlify.app/
 
 ## Longer announcement
 
@@ -59,7 +59,7 @@ Corpus repo:
 
 Docs repo:
 
-> Source-grounded Enoch docs for operators, contributors, and reviewers covering the control plane, corpus, deployment, provenance, and release boundaries.
+> Source-grounded Enoch docs for operators, contributors, and reviewers covering the control plane, corpus, deployment, provenance, and release boundaries. Hosted at https://solo-09d10f60.mintlify.app/ with source at https://github.com/alias8818/enoch-docs.
 
 ## Thread outline
 

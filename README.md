@@ -54,7 +54,9 @@ The reports produced by Enoch runs are AI-generated research artifacts, not huma
 
 See [`docs/release/authorship-and-provenance.md`](docs/release/authorship-and-provenance.md) for the full framing and recommended citation language.
 
-The separate [`enoch-docs`](https://github.com/alias8818/enoch-docs) repository contains source-grounded operator and reviewer documentation for the system, corpus, and release boundaries.
+[Enoch Docs](https://solo-09d10f60.mintlify.app/) contains source-grounded operator and reviewer documentation for the system, corpus, deployment path, and release boundaries.
+
+The docs source lives in [`alias8818/enoch-docs`](https://github.com/alias8818/enoch-docs).
 
 ## Runtime and upstream tooling
 
@@ -92,7 +94,7 @@ uv run pytest -q
 
 ## Documentation
 
-- [`enoch-docs`](https://github.com/alias8818/enoch-docs) — standalone source-grounded docs for operators, contributors, and reviewers
+- [Enoch Docs](https://solo-09d10f60.mintlify.app/) — hosted source-grounded docs for operators, contributors, and reviewers ([source](https://github.com/alias8818/enoch-docs))
 
 **Using Enoch:**
 - [`docs/quickstart.md`](docs/quickstart.md) — local clone-to-dashboard smoke test

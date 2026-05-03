@@ -7,7 +7,7 @@ This checklist tracks the remaining work before the Enoch system, generated corp
 - **Code repo:** public, packaged, CI-enabled, and protected at `alias8818/enoch-agentic-research-system`.
 - **Corpus repo:** public, quality-scanned, and protected at `alias8818/enoch-ai-research-corpus`.
 - **Launch site:** deployed at <https://alias8818.github.io/enoch-agentic-research-system/>.
-- **Docs repo:** public source-grounded docs at `alias8818/enoch-docs`.
+- **Docs website:** hosted at <https://solo-09d10f60.mintlify.app/>; source repo at `alias8818/enoch-docs`.
 - **Release framing:** Enoch is the system/control-plane; the corpus artifacts are AI-generated, bounded, replication-worthy outputs that demonstrate what the system can produce.
 
 ## Final gates before public visibility
@@ -16,7 +16,7 @@ This checklist tracks the remaining work before the Enoch system, generated corp
 - [x] Confirm branch protection is enabled on staged repos before visibility changes.
 - [x] Flip `alias8818/enoch-agentic-research-system` public.
 - [x] Flip `alias8818/enoch-ai-research-corpus` public.
-- [x] Flip `alias8818/enoch-docs` public.
+- [x] Flip `alias8818/enoch-docs` public and verify hosted docs at <https://solo-09d10f60.mintlify.app/>.
 - [x] Verify public anonymous access to READMEs, docs, the site, and all highlighted corpus links.
 - [x] Confirm final repo/site/docs URLs are present in README, launch site copy, and announcement drafts.
 - [x] Verify the credits section names the tooling accurately:
