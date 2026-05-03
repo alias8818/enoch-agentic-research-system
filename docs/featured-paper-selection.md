@@ -2,7 +2,7 @@
 
 The launch site should sell a two-part story:
 
-1. **The system is the product.** Enoch is a control plane for autonomous research: intake, queueing, dispatch gates, worker preflight, wake-gated completion, evidence sync, quality checks, and publication-style packaging.
+1. **The system is the product.** Enoch is a control plane for autonomous research: intake, queueing, dispatch gates, worker preflight, wake-gated completion, evidence sync, packaging/provenance checks, and publication-style packaging.
 2. **The output is also the product proof.** The generated corpus should show that the system can produce artifacts that are technically specific, evidence-bounded, and worth external critique or replication.
 
 ## Selection criteria

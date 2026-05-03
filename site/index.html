@@ -17,6 +17,7 @@
     <nav class="nav">
       <a href="#what">What it is</a>
       <a href="#workflow">Workflow</a>
+      <a href="#proof">Run proof</a>
       <a href="#architecture">Diagrams</a>
       <a href="https://solo-09d10f60.mintlify.app/">Docs</a>
       <a href="#featured">Featured artifacts</a>
@@ -25,8 +26,8 @@
     <section class="hero-grid">
       <div>
         <p class="eyebrow">Agentic research needs a control plane</p>
-        <h1>Enoch turns local AI research runs into auditable artifacts.</h1>
-        <p class="lede">A scored idea enters a queue. A control VM checks safety. A worker executes under a wake gate. Evidence is synced. A configured writer produces publication-style reports with claim boundaries and provenance. The system is the sell; the generated artifacts are evidence to inspect, not peer-reviewed claims.</p>
+        <h1>Run local AI research workflows with a control plane, not scattered scripts.</h1>
+        <p class="lede">Enoch queues ideas, gates worker dispatch, supervises process and telemetry completion, syncs evidence, and packages AI-generated artifacts with explicit provenance. Start by running the local proof, then inspect one artifact end to end: paper, evidence bundle, claim ledger, limitations, and gate scope.</p>
         <div class="actions">
           <a class="button primary" href="https://github.com/alias8818/enoch-agentic-research-system">Code repo</a>
           <a class="button" href="https://github.com/alias8818/enoch-ai-research-corpus">Research corpus</a>
@@ -35,9 +36,10 @@
       </div>
       <aside class="stat-card">
         <img class="hero-visual" src="assets/enoch-hero-generated.png" alt="Generated Enoch hero graphic showing a control plane coordinating worker nodes and artifact bundles" />
-        <div><span class="stat">120</span><span>AI-generated research artifacts</span></div>
-        <div><span class="stat">120/120</span><span>quality gate pass count at packaging</span></div>
-        <div><span class="stat">0</span><span>personal authorship claims on generated papers</span></div>
+        <div><span class="stat" id="artifactCount">manifest unavailable</span><span>AI-generated artifacts indexed</span></div>
+        <div><span class="stat" id="gatePassCount">manifest unavailable</span><span>pass packaging/provenance checks</span></div>
+        <div><span class="stat">0</span><span>peer-review or human-authorship claims</span></div>
+        <p class="manifest-note" id="manifestNote">Counts load from the public ecosystem manifest and fail closed instead of showing stale numbers.</p>
       </aside>
     </section>
   </header>
@@ -68,6 +70,37 @@
       </div>
     </section>
 
+
+    <section id="proof" class="section split callout">
+      <div>
+        <p class="eyebrow">Run the local proof</p>
+        <h2>Verify the control-plane path before trusting the corpus.</h2>
+      </div>
+      <div class="copy">
+        <p>This proof validates the local API/dashboard path, worker preflight self-check, and dispatch dry-run behavior. It does <strong>not</strong> validate scientific correctness, peer review, independent replication, or production readiness of generated artifacts.</p>
+        <pre><code>git clone https://github.com/alias8818/enoch-agentic-research-system.git
+cd enoch-agentic-research-system
+scripts/proof-local.sh</code></pre>
+        <p>Expected smoke output includes <code>PASS healthz</code>, <code>PASS control status</code>, <code>PASS wake gate healthz self-check</code>, and <code>PASS dispatch dry-run</code>. For setup details, read the <a href="https://solo-09d10f60.mintlify.app/quickstart">quickstart</a>.</p>
+      </div>
+    </section>
+
+    <section id="inspect" class="section split">
+      <div>
+        <p class="eyebrow">Inspect one artifact end to end</p>
+        <h2>Use one bounded artifact as the audit path.</h2>
+      </div>
+      <div class="copy">
+        <p><strong>vLLM Attention-Sink Retention 3B Continuous-Serving Stress Campaign</strong> is a concrete serving-performance artifact with limitations and reproducibility caveats. Treat it as inspectable, not independently replicated.</p>
+        <ol>
+          <li><a href="https://github.com/alias8818/enoch-ai-research-corpus/blob/main/papers/vllm-attention-sink-retention-3b-continuous-serving-stress-campaign/paper.md">Read the generated report</a>.</li>
+          <li><a href="https://github.com/alias8818/enoch-ai-research-corpus/blob/main/papers/vllm-attention-sink-retention-3b-continuous-serving-stress-campaign/evidence_bundle.json">Open the evidence bundle</a>.</li>
+          <li><a href="https://github.com/alias8818/enoch-ai-research-corpus/blob/main/papers/vllm-attention-sink-retention-3b-continuous-serving-stress-campaign/claim_ledger.json">Open the claim ledger</a>.</li>
+          <li>Read the limitations and decide whether each claim is strong, weak, or unsupported.</li>
+        </ol>
+      </div>
+    </section>
+
     <section id="architecture" class="section visual-section">
       <div class="section-head">
         <div>
@@ -92,7 +125,7 @@
           <p class="eyebrow">Featured artifacts</p>
           <h2>Bounded, replication-worthy artifacts from the corpus.</h2>
         </div>
-        <p>These are not “best papers” in a peer-review sense. They are the first public highlight set: artifacts with a clear novelty hook, concrete reported metrics, and bounded claims that make the corpus worth inspecting.</p>
+        <p>These are not “best papers” in a peer-review sense. They are inspectable AI-generated artifacts with concrete reported metrics, evidence metadata, and bounded claims. Packaging/provenance pass does not imply scientific correctness or independent replication.</p>
       </div>
       <div id="cards" class="cards"></div>
     </section>
@@ -103,7 +136,7 @@
         <h2>Built in the open, with provenance up front.</h2>
       </div>
       <div class="copy">
-        <p>Release Enoch as an engineering artifact: a working control plane, a corpus of generated outputs, and a transparent record of what was automated. The hook is not “these are human papers.” The hook is that a local agentic system generated, supervised, rewrote, and packaged a research corpus with evidence and caveats—and some of the generated artifacts are specific enough to invite independent replication attempts.</p>
+        <p>Release Enoch as an engineering artifact: a working control plane, a corpus of generated outputs, and a transparent record of what was automated. The hook is not “these are human papers.” The hook is that a local agentic system generated, supervised, rewrote, and packaged a research corpus with evidence, claim ledgers, packaging/provenance checks, and caveats—and some generated artifacts are specific enough to invite independent replication attempts.</p>
         <p><a href="https://github.com/alias8818/enoch-agentic-research-system/blob/main/docs/launch-todo.md">Launch TODO</a> · <a href="https://github.com/alias8818/enoch-agentic-research-system/blob/main/docs/outreach/launch-announcement.md">Announcement drafts</a> · <a href="https://solo-09d10f60.mintlify.app/">Enoch Docs</a> · <a href="https://github.com/Yeachan-Heo/oh-my-codex">oh-my-codex / OMX</a></p>
       </div>
     </section>

@@ -59,8 +59,8 @@ repo_edit "$CODE_REPO" \
   "Agentic research control plane: queue state, worker preflight, wake-gated execution, evidence sync, dashboard, alerts, and AI-generated paper packaging." \
   "agentic-ai,research-automation,control-plane,langgraph,wake-gate,local-ai"
 repo_edit "$CORPUS_REPO" \
-  "120 AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim ledgers, manifests, and quality reports." \
+  "AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim ledgers, manifests, and packaging/provenance reports." \
   "ai-generated,research-corpus,agentic-ai,provenance,claim-ledger,local-ai"
 
-protect_branch "$CODE_REPO" '["tests", "secret-scan"]'
-protect_branch "$CORPUS_REPO" '["quality", "secret-scan"]'
+protect_branch "$CODE_REPO" '["tests", "public-release-integrity", "secret-scan"]'
+protect_branch "$CORPUS_REPO" '["quality", "public-release-integrity", "secret-scan"]'

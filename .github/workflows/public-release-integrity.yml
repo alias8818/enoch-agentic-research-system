@@ -1,0 +1,48 @@
+name: Public release integrity
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  public-release-integrity:
+    name: public-release-integrity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout system repo
+        uses: actions/checkout@v4
+        with:
+          path: enoch-agentic-research-system
+      - name: Checkout corpus repo
+        uses: actions/checkout@v4
+        with:
+          repository: alias8818/enoch-ai-research-corpus
+          path: enoch-ai-research-corpus
+      - name: Checkout docs repo
+        uses: actions/checkout@v4
+        with:
+          repository: alias8818/enoch-docs
+          path: enoch-docs
+      - name: Checkout profile site repo
+        uses: actions/checkout@v4
+        with:
+          repository: alias8818/alias8818.github.io
+          path: alias8818.github.io
+      - name: Checkout owner profile repo
+        uses: actions/checkout@v4
+        with:
+          repository: alias8818/alias8818
+          path: alias8818
+      - name: Generate fresh manifest without overwriting committed public manifest
+        working-directory: enoch-agentic-research-system
+        run: |
+          python3 scripts/generate_ecosystem_manifest.py --corpus ../enoch-ai-research-corpus --docs ../enoch-docs --output /tmp/enoch-ecosystem.generated.json
+      - name: Validate committed public release accounting and wording
+        working-directory: enoch-agentic-research-system
+        run: |
+          python3 scripts/validate_public_release.py --system . --corpus ../enoch-ai-research-corpus --docs ../enoch-docs --profile ../alias8818.github.io --owner-profile ../alias8818 --generated-manifest /tmp/enoch-ecosystem.generated.json

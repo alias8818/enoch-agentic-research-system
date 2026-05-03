@@ -38,7 +38,7 @@ All integration credentials must remain outside git and be configured through en
 ## Corpus release
 
 - [x] Corpus imported into the separate corpus repo.
-- [x] Corpus quality scan passes for the staged corpus.
+- [x] Corpus packaging/provenance scan passes for the staged corpus.
 - [x] Corpus README explains AI-generated/no-human-authorship framing.
 - [x] Strongest generated artifacts are selected for the launch site.
 - [ ] Optional: add extra summary cards for the strongest 10-15 papers after public launch.

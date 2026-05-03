@@ -262,7 +262,7 @@ Recommended model-provider settings for Synthetic.new / GLM-5.1:
 }
 ```
 
-Do not publish generated artifacts until the corpus quality gates pass.
+Do not publish generated artifacts until the corpus packaging/provenance checks pass.
 
 ## 10. What is not included
 

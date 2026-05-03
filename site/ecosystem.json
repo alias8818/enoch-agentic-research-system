@@ -1,0 +1,43 @@
+{
+  "artifact_count": 159,
+  "gate_name": "packaging_provenance_gate",
+  "gate_scope": "artifact packaging, provenance, placeholder, and overclaim linting",
+  "gate_version": "1.0",
+  "generated_at": "2026-05-03T14:59:51Z",
+  "not_validated": [
+    "peer_review",
+    "scientific_correctness",
+    "external_replication",
+    "statistical_power",
+    "semantic_output_quality",
+    "citation_accuracy"
+  ],
+  "packaging_provenance_pass_count": 159,
+  "repos": {
+    "corpus": {
+      "commit": "76262e0c42014e369a0b96a60962e07621830840",
+      "name": "alias8818/enoch-ai-research-corpus"
+    },
+    "docs": {
+      "commit": "d68ef1f961bd85580b6aca887f0c7b8f9e7353ad",
+      "name": "alias8818/enoch-docs"
+    },
+    "system": {
+      "commit": "0e99ae204671c39dc834d1999d2ee0760a1c8701",
+      "name": "alias8818/enoch-agentic-research-system"
+    }
+  },
+  "validated": [
+    "ai_provenance_notice_present",
+    "no_placeholder_citation_patterns",
+    "no_unsupported_human_authorship_claim",
+    "no_unsupported_peer_review_claim",
+    "evidence_bundle_present",
+    "claim_ledger_present"
+  ],
+  "warnings": [
+    "Generated artifacts are not peer-reviewed publications.",
+    "Packaging/provenance pass does not imply scientific correctness.",
+    "Generated artifacts have not been independently replicated unless an individual artifact states otherwise."
+  ]
+}

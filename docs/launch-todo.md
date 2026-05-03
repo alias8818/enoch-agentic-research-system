@@ -71,5 +71,5 @@ Required follow-up:
 - [x] Removed live secrets, local state DBs, production logs, and private LAN endpoints from public artifacts.
 - [x] Kept old n8n/OpenClaw workflow material historical only; workflow exports are not shipped as the product.
 - [x] Packaged the control-plane repo with quickstart, deployment guide, config reference, Pushover notes, and smoke tests.
-- [x] Packaged the corpus repo with 120 AI-generated research artifacts, provenance metadata, claim ledgers, evidence bundles, and quality reports.
+- [x] Packaged the corpus repo with 159 AI-generated research artifacts, provenance metadata, claim ledgers, evidence bundles, and packaging/provenance reports.
 - [x] Stated clearly that generated papers are AI-generated artifacts and that no personal authorship credit is claimed for the paper text or results.

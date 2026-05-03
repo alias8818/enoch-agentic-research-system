@@ -34,7 +34,7 @@ Project workspace with run notes, metrics, results, claim ledgers
         |
         | evidence sync
         v
-Publication artifact pipeline (GLM-5.1 writer + quality gates)
+Publication artifact pipeline (GLM-5.1 writer + packaging/provenance checks)
         |
         v
 Dashboard, corpus export, and release artifacts
@@ -63,7 +63,7 @@ See `docs/idea-intake-workflow.md` for the full intake narrative. For the determ
 - control dashboard for operators;
 - evidence synchronization from worker to VM;
 - paper/research-artifact generation;
-- quality scanning and corpus export;
+- packaging/provenance scanning and corpus export;
 - tests for routing, state, safety, telemetry, and paper artifact behavior.
 
 ## What is explicitly out of scope
@@ -71,7 +71,7 @@ See `docs/idea-intake-workflow.md` for the full intake narrative. For the determ
 - n8n workflow exports as part of the released system;
 - workflow-tool configuration exports from earlier prototypes;
 - claims of peer review or human authorship for generated papers;
-- public release without secret scanning and quality gates.
+- public release without secret scanning and packaging/provenance checks.
 
 Earlier workflow-tool references appear only in historical notes because they were part of the prototype lineage. They are not the workflow being released here.
 

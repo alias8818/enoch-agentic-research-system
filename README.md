@@ -31,7 +31,7 @@ LLM research scout
   -> agent run with process + telemetry supervision
   -> evidence sync
   -> AI-generated research artifact
-  -> corpus quality gates
+  -> corpus packaging/provenance checks
 ```
 
 The repository contains the execution/control-plane layer and supporting docs. Historical notes describe earlier migration experiments, but this is not a workflow-export repository and does not ship workflow-tool configurations.
@@ -44,7 +44,7 @@ The repository contains the execution/control-plane layer and supporting docs. H
 - **Single-lane safety** — prevents overlapping GPU-heavy work on constrained local hardware; the control plane holds the lock, not the dispatch script.
 - **Evidence sync** — copies run notes, metrics, result summaries, evidence bundles, and claim ledgers from worker projects into the control plane before artifact generation begins.
 - **Artifact writer** — generates publication-style Markdown reports from evidence context while preserving uncertainty and provenance; does not free-float against raw model output.
-- **Quality gates** — scans generated reports for placeholder citations, missing provenance, and missing evidence artifacts before they enter the corpus.
+- **Packaging/provenance checks** — scan generated reports for placeholder citations, missing provenance, and missing evidence artifacts before they enter the corpus; they do not validate scientific correctness or peer review.
 
 ## Generated research artifacts
 

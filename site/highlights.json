@@ -10,6 +10,25 @@
       "paper_path": "papers/evidence-bound-proof-synthesizer-for-tool-ledger/paper.md"
     },
     {
+      "public_id": "enoch-paper-0159",
+      "title": "vLLM Attention-Sink Retention 3B Continuous-Serving Stress Campaign",
+      "category": "Serving performance / retention stress",
+      "why_it_matters": "Canonical inspection path: a bounded continuous-serving artifact with concrete latency, error, output-divergence, limitations, evidence bundle, and claim ledger links.",
+      "result": "Reported no request errors and no paired p95 latency regression beyond the pre-set kill gate in the tested 3B serving envelope.",
+      "bounds": "Single model, single hardware environment, limited trials, no semantic output-quality validation, and not independently replicated.",
+      "paper_path": "papers/vllm-attention-sink-retention-3b-continuous-serving-stress-campaign/paper.md",
+      "proof_level": "inspectable_not_replicated",
+      "gate_scope": "packaging_provenance",
+      "reproduction_status": "not independently reproduced",
+      "evidence_links": {
+        "paper": "papers/vllm-attention-sink-retention-3b-continuous-serving-stress-campaign/paper.md",
+        "evidence_bundle": "papers/vllm-attention-sink-retention-3b-continuous-serving-stress-campaign/evidence_bundle.json",
+        "claim_ledger": "papers/vllm-attention-sink-retention-3b-continuous-serving-stress-campaign/claim_ledger.json",
+        "manifest": "papers/vllm-attention-sink-retention-3b-continuous-serving-stress-campaign/metadata.json"
+      },
+      "falsification_prompt": "Run the same paired benchmark on another GPU/model and compare p95 latency, request errors, and output divergence."
+    },
+    {
       "public_id": "enoch-paper-0006",
       "title": "DFlash Code-Generation Quality Guard",
       "category": "Speculative decoding / code generation",

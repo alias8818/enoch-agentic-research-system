@@ -6,11 +6,11 @@ Enoch is an agentic research control plane: it queues ideas, gates dispatch, sup
 
 ## Short launch post
 
-I’m releasing Enoch, a local agentic research control plane, plus a corpus of 120 AI-generated research artifacts.
+I’m releasing Enoch, a local agentic research control plane, plus a corpus of 159 AI-generated research artifacts.
 
 The interesting part is not that the papers are “human papers.” They are not. They are explicitly AI-generated artifacts, and I do not claim personal authorship of their prose, arguments, or results.
 
-The interesting part is the system around them: idea intake, scoring, queue state, maintenance pause, worker preflight, wake-gated execution, process/telemetry truth, evidence sync, claim ledgers, paper rewriting, quality scans, and a dashboard for seeing what the system is actually doing. Enoch is built with FastAPI/LangGraph-era control-plane boundaries and operated through Codex/OMX automation, including oh-my-codex.
+The interesting part is the system around them: idea intake, scoring, queue state, maintenance pause, worker preflight, wake-gated execution, process/telemetry truth, evidence sync, claim ledgers, paper rewriting, packaging/provenance scans, and a dashboard for seeing what the system is actually doing. Enoch is built with FastAPI/LangGraph-era control-plane boundaries and operated through Codex/OMX automation, including oh-my-codex.
 
 Repos:
 
@@ -35,9 +35,9 @@ A run goes through:
 5. Wake-gated execution with process and telemetry observation.
 6. Evidence sync: run notes, metrics, claim ledgers, manifests, and bundles.
 7. AI artifact rewriting against evidence context.
-8. Corpus quality scans and provenance packaging.
+8. Corpus packaging/provenance scans and provenance packaging.
 
-I’m also releasing a corpus of 120 generated research artifacts from the system. These are publication-style AI-generated reports, not peer-reviewed publications and not human-authored papers. The point is transparency: show the outputs, show the evidence shape, and let people inspect the system that generated them.
+I’m also releasing a corpus of 159 generated research artifacts from the system. These are publication-style AI-generated reports, not peer-reviewed publications and not human-authored papers. The point is transparency: show the outputs, show the evidence shape, and let people inspect the system that generated them.
 
 What I hope is useful to others:
 
@@ -55,7 +55,7 @@ Code repo:
 
 Corpus repo:
 
-> 120 AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim ledgers, manifests, and quality reports.
+> 159 AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim ledgers, manifests, and packaging/provenance reports.
 
 Docs repo:
 
@@ -63,9 +63,9 @@ Docs repo:
 
 ## Thread outline
 
-1. “I’m releasing Enoch: an agentic research control plane plus 120 AI-generated research artifacts.”
+1. “I’m releasing Enoch: an agentic research control plane plus 159 AI-generated research artifacts.”
 2. “The papers are not human-authored; that is explicit. The point is the system that generated and bounded them.”
 3. “Why I built it: queues hung, dashboards lied, workers kept running, evidence got scattered.”
-4. “What Enoch does: queue, preflight, pause, wake gate, evidence sync, claim ledgers, paper writer, quality gates—operated through Codex/OMX, with oh-my-codex credited as orchestration infrastructure.”
+4. “What Enoch does: queue, preflight, pause, wake gate, evidence sync, claim ledgers, paper writer, packaging/provenance checks—operated through Codex/OMX, with oh-my-codex credited as orchestration infrastructure.”
 5. “Some highlighted artifacts: Evidence-Bound Proof Synthesizer, Resource-Bounded Agent Kernel, DFlash GB10 throughput, Value-per-Joule Broker, and Memory Pressure Admission Gate.”
 6. “What I want feedback on: control-plane design, evidence schema, generated-paper framing, and which experiments deserve real replication.”

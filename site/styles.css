@@ -51,3 +51,7 @@ footer { padding: 2rem clamp(1rem, 6vw, 6rem); color: var(--muted); }
 .diagram-card { margin: 2rem 0 0; padding: clamp(1rem, 2vw, 1.4rem); border: 1px solid var(--line); border-radius: 28px; background: rgba(16,22,36,.68); box-shadow: 0 24px 90px rgba(0,0,0,.28); }
 .diagram-card img { width: 100%; display: block; border-radius: 20px; }
 .diagram-card figcaption { color: var(--muted); line-height: 1.55; margin-top: .9rem; font-size: .98rem; }
+.manifest-note { color: var(--muted); font-size: .9rem; line-height: 1.45; margin: 0 .4rem .2rem; }
+pre { overflow-x: auto; padding: 1rem; border-radius: 18px; border: 1px solid var(--line); background: rgba(7,10,18,.72); color: var(--text); }
+code { color: var(--text); }
+ol { line-height: 1.7; }
