@@ -1289,6 +1289,39 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("paper_review.draft_rewritten", event_types)
             self.assertIn("paper_review.finalization_package_prepared", event_types)
 
+    def test_paper_artifact_endpoint_resolves_relative_project_dir_under_configured_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_dir = config.expanded_project_root / "relative-project"
+            paper_dir = project_dir / "papers" / "run-relative"
+            paper_dir.mkdir(parents=True)
+            (paper_dir / "paper.md").write_text("# Relative Artifact\n", encoding="utf-8")
+
+            paper_id = "relative-project:run-relative:arxiv_draft"
+            response = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "relative-project-artifact-import",
+                "queue_rows": [{
+                    "project_id": "relative-project",
+                    "project_name": "Relative Project",
+                    "project_dir": "relative-project",
+                    "status": "completed",
+                }],
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": "relative-project",
+                    "run_id": "run-relative",
+                    "paper_status": "publication_draft",
+                    "draft_markdown_path": "papers/run-relative/paper.md",
+                }],
+            })
+            self.assertEqual(response.status_code, 200)
+
+            artifact = client.get(f"/control/api/papers/{paper_id}/artifact/draft_markdown_path", headers=headers)
+            self.assertEqual(artifact.status_code, 200)
+            self.assertIn("Relative Artifact", artifact.json()["content"])
+
     def test_paper_review_rewrite_failure_does_not_mutate_project_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _config(tmp)
