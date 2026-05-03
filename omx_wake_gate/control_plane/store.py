@@ -28,6 +28,7 @@ from .models import (
     QueueStatus,
     ReviewQueueItem,
     ReviewStatus,
+    RunState,
     RunRecord,
 )
 
@@ -1269,6 +1270,8 @@ class ControlPlaneStore:
             payload=event_payload,
         )
         created = updated = 0
+        if not inserted:
+            return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
         now = utc_now()
         with self._connect() as conn:
             for candidate in candidates:
@@ -1475,11 +1478,18 @@ class ControlPlaneStore:
         project_id = _text(payload.get("project_id"))
         event_type = _text(payload.get("event_type"))
         idempotency_key = _text(payload.get("idempotency_key")) or f"worker-callback:{run_id}:{event_type}:{now}"
+        if not project_id and run_id:
+            with self._connect() as conn:
+                found = conn.execute("SELECT project_id FROM runs WHERE run_id=?", (run_id,)).fetchone()
+                project_id = found["project_id"] if found else ""
         status = QueueStatus.COMPLETED.value
         next_action_hint = "select_next_project"
         manual_review_required = 0
         last_error = ""
-        if event_type == "question_pending":
+        if event_type == "session_started":
+            status = QueueStatus.RUNNING.value
+            next_action_hint = "await_callback"
+        elif event_type == "question_pending":
             status = QueueStatus.NEEDS_REVIEW.value
             next_action_hint = "answer_worker_question"
             manual_review_required = 1
@@ -1490,11 +1500,25 @@ class ControlPlaneStore:
             last_error = _text(payload.get("reason")) or event_type
         elif event_type in {"wake_ready", "session_finished_ready"}:
             next_action_hint = "draft_paper_or_select_next_project"
+        else:
+            status = QueueStatus.NEEDS_REVIEW.value
+            next_action_hint = "inspect_unknown_worker_callback"
+            manual_review_required = 1
+            last_error = _text(payload.get("reason")) or f"unknown worker callback: {event_type}"
+        event_payload = {
+            **payload,
+            "received_by": received_by,
+            "applied_status": status,
+            "applied_next_action_hint": next_action_hint,
+        }
+        replayed_event_id = self._replayed_event_id(idempotency_key, event_payload)
+        if replayed_event_id is not None:
+            row = self.queue_row(project_id) if project_id else {}
+            return replayed_event_id, False, row or {}
         summary = f"worker callback {event_type}: {_text(payload.get('reason')) or 'worker reported ready'}"
+        run_state = RunState.RUNNING.value if event_type == "session_started" else event_type
+        run_ended_at = None if event_type == "session_started" else now
         with self._connect() as conn:
-            if not project_id and run_id:
-                found = conn.execute("SELECT project_id FROM runs WHERE run_id=?", (run_id,)).fetchone()
-                project_id = found["project_id"] if found else ""
             if project_id:
                 conn.execute(
                     """UPDATE queue_items
@@ -1510,14 +1534,14 @@ class ControlPlaneStore:
                     SET session_id=COALESCE(NULLIF(?, ''), session_id), state=?, ended_at=?, last_callback_at=?,
                         gate_state=?, current_activity=?, updated_at=?
                     WHERE run_id=?""",
-                    (_text(payload.get("session_id")), event_type, now, now, _text(payload.get("gate_state")) or event_type, "worker_callback", now, run_id),
+                    (_text(payload.get("session_id")), run_state, run_ended_at, now, _text(payload.get("gate_state")) or event_type, "worker_callback", now, run_id),
                 )
         event_id, inserted = self.append_event(
             idempotency_key=idempotency_key,
             event_type=f"worker_callback.{event_type}",
             entity_type="run",
             entity_id=run_id or project_id or "unknown",
-            payload={**payload, "received_by": received_by, "received_at": now, "applied_status": status, "applied_next_action_hint": next_action_hint},
+            payload=event_payload,
         )
         row = next((item for item in self.queue_rows() if item.get("project_id") == project_id), {})
         return event_id, inserted, row

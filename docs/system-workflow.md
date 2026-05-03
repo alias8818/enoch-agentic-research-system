@@ -52,7 +52,7 @@ The upstream intake process used an LLM-assisted research scout to review news, 
 
 Runtime authority begins when a scored candidate becomes a queue item for the Enoch control plane. From there, safety and truth come from control-plane state, worker preflight, wake-gate telemetry, process tracking, and evidence artifacts.
 
-See `docs/idea-intake-workflow.md` for the full intake narrative.
+See `docs/idea-intake-workflow.md` for the full intake narrative. For the deterministic intake-to-publication state audit, review `docs/end-to-end-workflow-audit.md`.
 
 ## What is in scope
 

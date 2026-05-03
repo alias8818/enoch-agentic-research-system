@@ -884,7 +884,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/api/worker-callback")
     def worker_callback(callback: GateCallback, authorization: str | None = Header(default=None)) -> dict[str, Any]:
         authorize(authorization)
-        event_id, inserted, row = store.record_worker_callback(callback)
+        try:
+            event_id, inserted, row = store.record_worker_callback(callback)
+        except IdempotencyConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {
             "ok": True,
             "accepted": True,

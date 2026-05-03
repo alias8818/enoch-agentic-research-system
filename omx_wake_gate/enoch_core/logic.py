@@ -26,6 +26,9 @@ PAPER_DRAFT_POSITIVE_DECISION_TOKENS = (
 PAPER_DRAFT_SUPPORTED_TOKENS = ("supported",)
 PAPER_DRAFT_BLOCKED_DECISION_TOKENS = (
     "negative",
+    "non_positive",
+    "not_positive",
+    "nonpositive",
     "not_promising",
     "do_not",
     "reject",
@@ -64,6 +67,15 @@ def _normal(value: Any) -> str:
     return text(value).lower().replace("-", "_").replace(" ", "_")
 
 
+def _decision_tokens(value: str) -> set[str]:
+    return {token for token in re.split(r"[^a-z0-9]+", value) if token}
+
+
+def _has_decision_token(value: str, tokens: tuple[str, ...]) -> bool:
+    token_set = set(tokens)
+    return value in token_set or bool(_decision_tokens(value) & token_set)
+
+
 def _paper_decision_json_values(artifact_root: str | Path) -> list[tuple[str, str, str]]:
     root = Path(artifact_root)
     values: list[tuple[str, str, str]] = []
@@ -100,15 +112,15 @@ def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
     supporting = [(source, field, _normal(value)) for source, field, value in values if field in PAPER_SUPPORTING_DECISION_FIELDS]
 
     for source, field, value in primary:
-        if any(token in value for token in PAPER_DRAFT_BLOCKED_DECISION_TOKENS):
+        if _has_decision_token(value, PAPER_DRAFT_BLOCKED_DECISION_TOKENS):
             return {"eligible": False, "reason": "project decision is not positive", "source": source, "field": field, "decision": value, "values": values}
 
     for source, field, value in primary:
-        if any(token in value for token in PAPER_DRAFT_POSITIVE_DECISION_TOKENS):
+        if _has_decision_token(value, PAPER_DRAFT_POSITIVE_DECISION_TOKENS):
             return {"eligible": True, "reason": "project decision is positive", "source": source, "field": field, "decision": value, "values": values}
 
     if any(value == "continue" for _, _, value in primary) and any(
-        any(token in value for token in PAPER_DRAFT_SUPPORTED_TOKENS) for _, _, value in supporting
+        value in PAPER_DRAFT_SUPPORTED_TOKENS for _, _, value in supporting
     ):
         source, field, value = next((item for item in primary if item[2] == "continue"), primary[0])
         return {"eligible": True, "reason": "continue decision has supported hypothesis evidence", "source": source, "field": field, "decision": value, "values": values}
@@ -205,7 +217,7 @@ def eligible_paper_draft_candidates(
 
 
 def draft_candidate_payload(candidate: dict[str, Any]) -> dict[str, Any]:
-    run_id = text(candidate.get("current_run_id"))
+    run_id = text(candidate.get("current_run_id") or candidate.get("run_id"))
     return {
         "project_id": text(candidate.get("project_id")),
         "project_name": text(candidate.get("project_name")) or text(candidate.get("project_id")),

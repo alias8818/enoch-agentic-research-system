@@ -65,6 +65,34 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(action, "dry_run_dispatch")
             self.assertEqual(candidate["project_id"], "idea-1")
 
+    def test_notion_intake_replay_does_not_rewrite_queue_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            payload = NotionIntakeRequest(
+                idempotency_key="notion-replay-1",
+                dry_run=False,
+                notion_rows=[{
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "property_idea": "Replay Safe Idea",
+                    "property_status": "testing",
+                    "property_priority": "High",
+                    "url": "https://www.notion.so/Replay-Safe-Idea-00000000000040008000000000000001",
+                }],
+            )
+            inserted, created, updated, *_ = store.ingest_notion_ideas(payload)
+            self.assertTrue(inserted)
+            self.assertEqual((created, updated), (1, 0))
+            before = store.queue_row("00000000000040008000000000000001")
+
+            inserted_again, created_again, updated_again, *_ = store.ingest_notion_ideas(payload)
+            after = store.queue_row("00000000000040008000000000000001")
+
+            self.assertFalse(inserted_again)
+            self.assertEqual((created_again, updated_again), (0, 0))
+            self.assertEqual(after, before)
+            with self.assertRaises(IdempotencyConflict):
+                store.ingest_notion_ideas(payload.model_copy(update={"notion_rows": []}))
+
     def test_mark_dispatch_started_clears_stale_error_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
@@ -93,6 +121,87 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(row["last_run_state"], "dispatch_accepted")
             self.assertEqual(row["last_error"], "")
             self.assertEqual(row["last_result_summary"], "")
+
+
+    def test_session_started_callback_keeps_queue_item_active(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="callback-session-started-import",
+                    queue_rows=[{
+                        "project_id": "idea-started",
+                        "project_name": "Started Project",
+                        "project_dir": "idea-started",
+                        "status": "awaiting_wake",
+                        "current_run_id": "run-started",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            store.mark_dispatch_started(
+                project_id="idea-started",
+                run_id="run-started",
+                session_id="session-dispatched",
+                dispatch_payload={"project_id": "idea-started"},
+                requested_by="test",
+            )
+            event_id, inserted, row = store.record_worker_callback({
+                "event_type": "session_started",
+                "run_id": "run-started",
+                "session_id": "session-started",
+                "project_id": "idea-started",
+                "source_event": "session-start",
+                "gate_state": "running",
+                "process_tracking": {},
+                "telemetry": {},
+                "reason": "worker accepted dispatch",
+                "idempotency_key": "run-started:session_started:test",
+            })
+            self.assertTrue(inserted)
+            self.assertIsInstance(event_id, int)
+            self.assertEqual(row["status"], "running")
+            self.assertEqual(row["next_action_hint"], "await_callback")
+            self.assertEqual(row["last_run_state"], "session_started")
+            self.assertFalse(row["manual_review_required"])
+            run = store.run_row("run-started")
+            self.assertEqual(run["state"], "running")
+            self.assertIsNone(run["ended_at"])
+            self.assertEqual(run["last_callback_at"], row["last_callback_at"])
+
+    def test_unknown_worker_callback_requires_manual_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="callback-unknown-import",
+                    queue_rows=[{
+                        "project_id": "idea-unknown-callback",
+                        "project_name": "Unknown Callback Project",
+                        "project_dir": "idea-unknown-callback",
+                        "status": "awaiting_wake",
+                        "current_run_id": "run-unknown-callback",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            _event_id, inserted, row = store.record_worker_callback({
+                "event_type": "surprise_ready",
+                "run_id": "run-unknown-callback",
+                "session_id": "session-unknown-callback",
+                "project_id": "idea-unknown-callback",
+                "source_event": "test",
+                "gate_state": "surprise_ready",
+                "process_tracking": {},
+                "telemetry": {},
+                "reason": "unexpected worker callback",
+                "idempotency_key": "run-unknown-callback:surprise_ready:test",
+            })
+            self.assertTrue(inserted)
+            self.assertEqual(row["status"], "needs_review")
+            self.assertEqual(row["next_action_hint"], "inspect_unknown_worker_callback")
+            self.assertTrue(row["manual_review_required"])
+            self.assertIn("unexpected worker callback", row["last_error"])
 
     def test_dashboard_observations_store_latest_by_source_and_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

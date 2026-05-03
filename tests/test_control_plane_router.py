@@ -639,6 +639,51 @@ class ControlPlaneRouterTests(unittest.TestCase):
             status = client.get("/control/api/status", headers=headers).json()
             self.assertEqual(status["active_items"], [])
 
+    def test_worker_callback_idempotency_replay_and_conflict_are_side_effect_safe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client_with_config(_live_config(tmp))
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "worker-callback-idempotency-import",
+                "queue_rows": [{
+                    "project_id": "idea-callback-idempotent",
+                    "project_name": "Callback Idempotent Project",
+                    "project_dir": "idea-callback-idempotent",
+                    "status": "awaiting_wake",
+                    "current_run_id": "run-callback-idempotent",
+                }],
+            })
+            callback = {
+                "event_type": "wake_ready",
+                "run_id": "run-callback-idempotent",
+                "session_id": "session-callback-idempotent",
+                "project_id": "idea-callback-idempotent",
+                "project_name": "Callback Idempotent Project",
+                "source_event": "session-idle",
+                "gate_state": "wake_ready",
+                "process_tracking": {"root_pid": None, "process_group_id": None, "processes": [], "live_process_count": 0},
+                "telemetry": {},
+                "reason": "idle_sustain_met",
+                "idempotency_key": "run-callback-idempotent:wake_ready:test",
+                "seen_at": "2026-05-03T08:00:00Z",
+                "delivered_at": "2026-05-03T08:00:01Z",
+            }
+
+            first = client.post("/control/api/worker-callback", headers=headers, json=callback)
+            self.assertEqual(first.status_code, 200)
+            self.assertTrue(first.json()["inserted_event"])
+            replay = client.post("/control/api/worker-callback", headers=headers, json=callback)
+            self.assertEqual(replay.status_code, 200)
+            self.assertFalse(replay.json()["inserted_event"])
+            self.assertEqual(replay.json()["event_id"], first.json()["event_id"])
+            conflict = client.post("/control/api/worker-callback", headers=headers, json={**callback, "event_type": "gate_error", "reason": "different outcome"})
+            self.assertEqual(conflict.status_code, 409)
+            status = client.get("/control/api/status", headers=headers).json()
+            self.assertEqual(status["active_items"], [])
+            queue = client.get("/control/queue", headers=headers).json()["rows"][0]
+            self.assertEqual(queue["last_run_state"], "wake_ready")
+            self.assertEqual(queue["next_action_hint"], "draft_paper_or_select_next_project")
+
     def test_worker_callback_wake_ready_can_draft_paper_when_evidence_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "projects" / "idea-callback-draft"

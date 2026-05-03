@@ -102,7 +102,7 @@ def create_enoch_core_router(config: GateConfig, require_bearer: RequireBearer) 
             return CandidateResponse(
                 mode=effective_mode,
                 action="noop",
-                reason="No eligible finalize_positive project without an existing paper draft remains.",
+                reason="No eligible completed paper-draft candidate without an existing paper draft remains.",
                 candidate=None,
                 candidate_count=0,
                 active_count=active_count,

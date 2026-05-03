@@ -6,6 +6,7 @@ from pathlib import Path
 
 from omx_wake_gate.enoch_core.logic import (
     assert_single_active_lane,
+    draft_candidate_payload,
     eligible_paper_draft_candidates,
     eligible_paper_polish_candidates,
     paper_draft_decision_gate,
@@ -51,6 +52,18 @@ class EnochCoreLogicTests(unittest.TestCase):
         candidates = eligible_paper_draft_candidates(queue_rows, [])
         self.assertEqual([row["project_id"] for row in candidates], ["idea-wake"])
 
+    def test_draft_candidate_payload_preserves_legacy_run_id_fallback(self) -> None:
+        candidate = {
+            "project_id": "idea-legacy",
+            "project_name": "Legacy Run Field",
+            "project_dir": "idea-legacy",
+            "run_id": "run-legacy",
+            "notion_page_url": "https://www.notion.so/example",
+        }
+        payload = draft_candidate_payload(candidate)
+        self.assertEqual(payload["run_id"], "run-legacy")
+        self.assertEqual(payload["draft_payload"]["run_id"], "run-legacy")
+
     def test_wake_ready_positive_decision_artifacts_pass_paper_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -64,6 +77,27 @@ class EnochCoreLogicTests(unittest.TestCase):
             root = Path(tmp)
             (root / ".omx").mkdir()
             (root / ".omx" / "project_decision.json").write_text('{"decision":"negative_result"}\n', encoding="utf-8")
+            gate = paper_draft_decision_gate(root)
+            self.assertFalse(gate["eligible"])
+
+
+    def test_paper_draft_gate_rejects_negated_positive_words(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".omx").mkdir()
+            for decision in ("not_positive", "nonpositive", "non-positive"):
+                (root / ".omx" / "project_decision.json").write_text(f'{{"decision":"{decision}"}}\n', encoding="utf-8")
+                gate = paper_draft_decision_gate(root)
+                self.assertFalse(gate["eligible"], decision)
+
+    def test_paper_draft_gate_requires_exact_supported_token(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".omx").mkdir()
+            (root / ".omx" / "project_decision.json").write_text('{"decision":"continue","status":"unsupported"}\n', encoding="utf-8")
+            gate = paper_draft_decision_gate(root)
+            self.assertFalse(gate["eligible"])
+            (root / ".omx" / "project_decision.json").write_text('{"decision":"continue","status":"not_supported"}\n', encoding="utf-8")
             gate = paper_draft_decision_gate(root)
             self.assertFalse(gate["eligible"])
 
