@@ -1181,7 +1181,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "project_name": "Router Rewrite",
                     "project_dir": str(legacy_dir),
                     "run_id": "run-1",
-                    "paper_status": "publication_draft",
+                    "paper_status": "draft_review",
                     "draft_markdown_path": "papers/run-1/final_paper.md",
                     "draft_latex_path": "papers/run-1/final_paper.tex",
                     "evidence_bundle_path": "papers/run-1/evidence.json",
@@ -1200,6 +1200,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             body = response.json()
             self.assertTrue(body["inserted_event"])
             self.assertEqual(body["writer"]["provider"], "deterministic")
+            self.assertEqual(body["paper"]["paper_status"], "publication_draft")
+            review_detail = client.get(f"/control/api/paper-reviews/{paper_id}", headers=headers).json()
+            self.assertEqual(review_detail["paper"]["paper_status"], "publication_draft")
             artifact_root = Path(body["artifact_root"])
             self.assertEqual(artifact_root, config.expanded_project_root / "router-rewrite")
             self.assertTrue((artifact_root / "papers/run-1/final_paper.md").exists())

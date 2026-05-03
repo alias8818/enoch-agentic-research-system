@@ -43,6 +43,7 @@ from .models import (
     NotionIntakeResponse,
     ExportSnapshotResponse,
     PaperRecord,
+    PaperStatus,
     PaperReviewApproveFinalizationRequest,
     PaperReviewBackfillRequest,
     PaperReviewBackfillResponse,
@@ -1172,7 +1173,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         evidence_sync = _sync_remote_project_evidence(config, project_id=project_id, artifact_root=artifact_root, source_project_dir=source_project_dir if source_project_dir and source_project_dir.startswith("/") and not use_current_dir else "", source_run_id=str(paper.get("run_id") or ""))
         if config.paper_evidence_sync_enabled and not _local_paper_evidence_present(artifact_root):
             raise HTTPException(status_code=424, detail={"message": "paper rewrite requires synced project evidence", "evidence_sync": evidence_sync})
-        record = PaperRecord.model_validate(paper).model_copy(update={"updated_at": utc_now()})
+        record = PaperRecord.model_validate(paper).model_copy(update={"paper_status": PaperStatus.PUBLICATION_DRAFT, "updated_at": utc_now()})
         candidate = {
             "project_id": project_id,
             "project_name": str((project or paper or item).get("project_name") or project_id),
