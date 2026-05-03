@@ -720,9 +720,22 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(draft.status_code, 200)
             self.assertEqual(draft.json()["action"], "drafted")
             self.assertEqual(draft.json()["candidate"]["project_id"], "idea-callback-draft")
+            paper_id = draft.json()["paper"]["paper_id"]
+            rewrite = client.post(f"/control/api/paper-reviews/{paper_id}/rewrite-draft", headers=headers, json={
+                "idempotency_key": "worker-callback-draft-rewrite",
+                "requested_by": "test",
+                "force": True,
+            })
+            self.assertEqual(rewrite.status_code, 200)
+            self.assertEqual(rewrite.json()["paper"]["paper_status"], "publication_draft")
+            self.assertEqual(rewrite.json()["item"]["review_status"], "finalized")
+            self.assertTrue(Path(rewrite.json()["item"]["finalization_package_path"]).exists())
             events = client.get("/control/export/snapshot", headers=headers).json()["events"]
-            self.assertTrue(any(event["event_type"] == "paper.drafted" for event in events))
-            reviews = client.get("/control/api/paper-reviews?paper_status=draft_review", headers=headers).json()
+            event_types = {event["event_type"] for event in events}
+            self.assertIn("paper.drafted", event_types)
+            self.assertIn("paper_review.draft_rewritten", event_types)
+            self.assertIn("paper_review.finalization_package_prepared", event_types)
+            reviews = client.get("/control/api/paper-reviews?review_status=finalized", headers=headers).json()
             self.assertEqual(reviews["page"]["total"], 1)
             self.assertEqual(reviews["rows"][0]["project_id"], "idea-callback-draft")
 
@@ -1246,8 +1259,12 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertTrue(body["inserted_event"])
             self.assertEqual(body["writer"]["provider"], "deterministic")
             self.assertEqual(body["paper"]["paper_status"], "publication_draft")
+            self.assertEqual(body["item"]["review_status"], "finalized")
+            self.assertTrue(Path(body["item"]["finalization_package_path"]).exists())
+            self.assertEqual(body["writer"]["automated_finalization"]["review_status"], "finalized")
             review_detail = client.get(f"/control/api/paper-reviews/{paper_id}", headers=headers).json()
             self.assertEqual(review_detail["paper"]["paper_status"], "publication_draft")
+            self.assertEqual(review_detail["item"]["review_status"], "finalized")
             artifact_root = Path(body["artifact_root"])
             self.assertEqual(artifact_root, config.expanded_project_root / "router-rewrite")
             self.assertTrue((artifact_root / "papers/run-1/final_paper.md").exists())
@@ -1268,7 +1285,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             missing = client.get(f"/control/api/papers/{paper_id}/artifact/not_a_field", headers=headers)
             self.assertEqual(missing.status_code, 404)
             events = client.get(f"/control/api/events?entity_id={paper_id}", headers=headers).json()["rows"]
-            self.assertIn("paper_review.draft_rewritten", {row["event_type"] for row in events})
+            event_types = {row["event_type"] for row in events}
+            self.assertIn("paper_review.draft_rewritten", event_types)
+            self.assertIn("paper_review.finalization_package_prepared", event_types)
 
     def test_paper_review_rewrite_failure_does_not_mutate_project_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

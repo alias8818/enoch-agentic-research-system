@@ -1158,6 +1158,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         item = store.paper_review_row(paper_id, include_rank_reasons=True)
         if paper is None or item is None:
             raise HTTPException(status_code=404, detail="paper review not found")
+        if str(item.get("review_status") or "") == "rejected":
+            raise HTTPException(status_code=400, detail="rejected paper reviews cannot be rewritten or auto-published")
         project_id = str(paper.get("project_id") or "")
         project = store.project_row(project_id) if project_id else None
         configured_root = config.expanded_project_root.resolve()
@@ -1214,12 +1216,31 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 },
             }
             event_id, inserted = store.append_event(idempotency_key=payload.idempotency_key, event_type="paper_review.draft_rewritten", entity_type="paper_review", entity_id=paper_id, payload=event_payload)
+            finalization_event_id, finalization_inserted, finalized_item, package_path, _manifest = store.prepare_paper_review_finalization_package(
+                paper_id,
+                PaperReviewPrepareFinalizationRequest(
+                    idempotency_key=f"{payload.idempotency_key}:automated-finalization",
+                    requested_by=payload.requested_by,
+                    target_label="automated-publication",
+                    dry_run=False,
+                ),
+                require_approval=False,
+            )
         except IdempotencyConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        refreshed = store.paper_review_row(paper_id, include_rank_reasons=True) or item
-        writer_with_sync = {**writer, "evidence_sync": evidence_sync}
+        refreshed = store.paper_review_row(paper_id, include_rank_reasons=True) or finalized_item or item
+        writer_with_sync = {
+            **writer,
+            "evidence_sync": evidence_sync,
+            "automated_finalization": {
+                "inserted_event": finalization_inserted,
+                "event_id": finalization_event_id,
+                "package_path": package_path,
+                "review_status": str((refreshed or {}).get("review_status") or ""),
+            },
+        }
         return PaperReviewRewriteDraftResponse(inserted_event=inserted, event_id=event_id, item=refreshed, paper=store.paper_row(paper_id), writer=writer_with_sync, artifact_root=str(artifact_root))
 
     @router.post("/api/paper-reviews/rewrite-batch", response_model=PaperReviewBulkRewriteResponse)

@@ -1002,18 +1002,24 @@ class ControlPlaneStore:
         except OSError:
             return {}
 
-    def prepare_paper_review_finalization_package(self, paper_id: str, request: PaperReviewPrepareFinalizationRequest) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
+    def prepare_paper_review_finalization_package(self, paper_id: str, request: PaperReviewPrepareFinalizationRequest, *, require_approval: bool = True) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
         row = self._require_paper_review(paper_id)
         payload = self._mutation_payload(request, action="prepare_finalization_package")
-        payload.update({"to_status": ReviewStatus.FINALIZED.value})
+        payload.update({"to_status": ReviewStatus.FINALIZED.value, "require_approval": require_approval})
         if not request.dry_run:
             replayed_event_id = self._replayed_event_id(request.idempotency_key, payload)
             if replayed_event_id is not None:
                 item = self.paper_review_row(paper_id) or {}
                 return replayed_event_id, False, item, _text(item.get("finalization_package_path")), self._load_manifest(_text(item.get("finalization_package_path")))
         current = _text(row.get("review_status"))
-        if not request.dry_run and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value:
+        if not request.dry_run and current == ReviewStatus.FINALIZED.value:
+            item = self.paper_review_row(paper_id) or {}
+            path = _text(item.get("finalization_package_path"))
+            return None, False, item, path, self._load_manifest(path)
+        if not request.dry_run and require_approval and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value:
             raise ValueError("finalization package requires review_status=approved_for_finalization")
+        if not request.dry_run and not require_approval and current == ReviewStatus.REJECTED.value:
+            raise ValueError("automated finalization cannot publish rejected paper reviews")
         paper = self.paper_row(paper_id)
         if paper is None:
             raise ValueError("paper row not found")
@@ -1037,6 +1043,8 @@ class ControlPlaneStore:
             "review_status": current,
             "reviewer": _text(row.get("reviewer")),
             "decision_summary": _text(row.get("decision_summary")),
+            "require_approval": require_approval,
+            "automated_publication": not require_approval,
             "artifacts": artifacts,
             "checklist": checklist,
             "review_item": self.paper_review_row(paper_id) or {},
