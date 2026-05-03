@@ -9,7 +9,7 @@ These settings are intended before making the repositories public.
 - Issue templates steer security reports away from public disclosure.
 - Dependabot is enabled for GitHub Actions and Python dependencies where applicable.
 - CI workflows run tests, packaging/provenance checks, and gitleaks secret scanning.
-- Corpus CI rebuilds the paper index and quality report and fails if generated files drift.
+- Corpus CI rebuilds the paper index and packaging/provenance report and fails if generated files drift.
 
 ## GitHub settings to apply
 

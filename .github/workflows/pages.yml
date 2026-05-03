@@ -39,6 +39,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Inject build metadata
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          path = Path('site/index.html')
+          html = path.read_text(encoding='utf-8')
+          html = html.replace('__GITHUB_SHA__', os.environ['GITHUB_SHA'])
+          path.write_text(html, encoding='utf-8')
+          PY
       - name: Upload static site artifact
         uses: actions/upload-pages-artifact@v3
         with:

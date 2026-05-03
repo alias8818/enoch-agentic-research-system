@@ -3,23 +3,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-
-
-def git_commit(path: Path, *, allow_unknown: bool = False) -> str:
-    try:
-        commit = subprocess.check_output(["git", "-C", str(path), "rev-parse", "HEAD"], text=True, stderr=subprocess.PIPE).strip()
-    except Exception as exc:
-        if allow_unknown:
-            return "unknown"
-        raise SystemExit(f"could not resolve git commit for {path}: {exc}") from exc
-    if not commit:
-        if allow_unknown:
-            return "unknown"
-        raise SystemExit(f"empty git commit for {path}")
-    return commit
 
 
 def load_json(path: Path) -> dict:
@@ -33,7 +18,6 @@ def main() -> int:
     parser.add_argument("--docs", type=Path, required=True, help="Path to alias8818/enoch-docs")
     parser.add_argument("--system", type=Path, default=Path("."), help="Path to alias8818/enoch-agentic-research-system")
     parser.add_argument("--output", type=Path, default=Path("site/ecosystem.json"))
-    parser.add_argument("--allow-unknown-commits", action="store_true", help="Allow unknown commit values for local/offline manifest drafts")
     args = parser.parse_args()
 
     system = args.system.resolve()
@@ -64,9 +48,9 @@ def main() -> int:
             "citation_accuracy",
         ]),
         "repos": {
-            "system": {"name": "alias8818/enoch-agentic-research-system", "commit": git_commit(system, allow_unknown=args.allow_unknown_commits)},
-            "corpus": {"name": "alias8818/enoch-ai-research-corpus", "commit": git_commit(corpus, allow_unknown=args.allow_unknown_commits)},
-            "docs": {"name": "alias8818/enoch-docs", "commit": git_commit(docs, allow_unknown=args.allow_unknown_commits)},
+            "system": {"name": "alias8818/enoch-agentic-research-system"},
+            "corpus": {"name": "alias8818/enoch-ai-research-corpus"},
+            "docs": {"name": "alias8818/enoch-docs"},
         },
         "warnings": [
             "Generated artifacts are not peer-reviewed publications.",

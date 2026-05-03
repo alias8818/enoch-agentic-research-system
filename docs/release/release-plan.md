@@ -5,7 +5,7 @@
 1. Keep code and generated corpus artifacts in separate repositories.
 2. Verify no secrets are committed.
 3. Verify tests pass from a clean checkout.
-4. Generate corpus index and quality report.
+4. Generate corpus index and packaging/provenance report.
 5. Review public-facing language for provenance, authorship boundaries, and historical-only migration notes.
 
 ## Public release gates

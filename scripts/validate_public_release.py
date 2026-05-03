@@ -112,8 +112,8 @@ def check_manifest(committed: dict, generated: dict | None, failures: list[str])
         committed_repo = committed_repos.get(repo_key) or {}
         if committed_repo.get("name") != generated_repo.get("name"):
             fail(f"committed manifest repo name drift for {repo_key}: {committed_repo.get('name')!r} != {generated_repo.get('name')!r}", failures)
-        if not committed_repo.get("commit"):
-            fail(f"committed manifest missing repo commit for {repo_key}", failures)
+        if "commit" in committed_repo:
+            fail(f"committed manifest should not contain volatile repo commit for {repo_key}", failures)
 
 
 def main() -> int:
