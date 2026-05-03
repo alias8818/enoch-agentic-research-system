@@ -24,7 +24,7 @@ Use this as the final go/no-go checklist immediately before changing the code, c
 - [x] Corpus repo: `python3 scripts/quality_scan.py`
 - [x] Corpus repo: GitHub Actions `quality` and `secret-scan` pass on `main`.
 - [x] Fresh anonymous read test passes after visibility changes.
-- [x] Docs repo validates and link resolves at <https://github.com/alias8818/enoch-docs>.
+- [x] Docs repo validates and hosted docs resolve at <https://solo-09d10f60.mintlify.app/>.
 
 ## External integrations
 
