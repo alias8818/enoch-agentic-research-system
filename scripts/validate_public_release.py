@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 PUBLIC_FILES = [
@@ -173,6 +175,13 @@ def main() -> int:
     check_counts(public_paths, int(manifest["artifact_count"]), int(manifest["packaging_provenance_pass_count"]), failures)
     check_quality_scope(public_paths, failures)
     check_required_copy(public_paths, failures)
+    corpus_trust_validator = corpus / "scripts" / "validate_public_trust_surfaces.py"
+    if corpus_trust_validator.exists():
+        result = subprocess.run([sys.executable, str(corpus_trust_validator)], cwd=corpus, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if result.returncode != 0:
+            fail("corpus public trust validator failed:\n" + result.stdout.strip(), failures)
+    else:
+        fail("missing corpus public trust validator", failures)
     combined_public = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in public_paths)
     if "strict claim/evidence" not in combined_public.lower():
         fail("missing strict claim/evidence audit public framing", failures)
