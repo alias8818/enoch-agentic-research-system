@@ -1,10 +1,10 @@
 {
   "artifact_count": 159,
-  "claim_ledgers_empty": 159,
+  "claim_ledgers_empty": 158,
   "gate_name": "packaging_provenance_gate",
   "gate_scope": "artifact packaging, provenance, placeholder, and overclaim linting",
   "gate_version": "1.0",
-  "generated_at": "2026-05-03T16:05:05Z",
+  "generated_at": "2026-05-04T07:55:04Z",
   "not_validated": [
     "peer_review",
     "scientific_correctness",
@@ -27,11 +27,11 @@
     }
   },
   "result_file_refs": 1425,
-  "result_file_refs_missing": 1425,
+  "result_file_refs_missing": 1405,
   "strict_claim_evidence_gap_summary": "Claim ledgers are empty or result_file references are not publicly present; packaging/provenance lint must not be read as deep claim audit.",
   "strict_claim_evidence_gate_name": "strict_claim_evidence_audit",
   "strict_claim_evidence_gate_status": "blocked_audit_gaps",
-  "strict_claim_evidence_pass_count": 0,
+  "strict_claim_evidence_pass_count": 1,
   "strict_claim_evidence_total_count": 159,
   "validated": [
     "ai_provenance_notice_present",

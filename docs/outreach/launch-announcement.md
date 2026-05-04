@@ -55,7 +55,7 @@ Code repo:
 
 Corpus repo:
 
-> 159 AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim-ledger files, manifests, packaging/provenance reports, and a strict claim/evidence audit report. Current public status: 159/159 packaging/provenance lint passes and 0/159 strict claim/evidence audit passes.
+> 159 AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim-ledger files, manifests, packaging/provenance reports, and a strict claim/evidence audit report. Current public status: 159/159 packaging/provenance lint passes and 1/159 strict claim/evidence audit pass.
 
 Docs repo:
 
