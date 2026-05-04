@@ -58,5 +58,9 @@
   "paper_writer_timeout_sec": 180,
   "paper_writer_temperature": 0.2,
   "paper_writer_max_tokens": 12000,
-  "paper_writer_fallback_enabled": true
+  "paper_writer_fallback_enabled": true,
+  "route_observability_enabled": false,
+  "route_observability_log_path": "",
+  "route_observability_slow_ms": 1000,
+  "route_observability_memory_warn_rss_mib": 0
 }

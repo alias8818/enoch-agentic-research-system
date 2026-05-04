@@ -21,6 +21,7 @@ from .control_plane.router import create_control_plane_router
 from .config import GateConfig
 from .enoch_core.router import create_enoch_core_router
 from .gate import WakeGate
+from .observability import RouteObservationMiddleware
 from .models import (
     DispatchRequest,
     GateCallback,
@@ -58,6 +59,18 @@ telemetry = TelemetryCollector()
 gate = WakeGate(config, ProcessTracker(config.expanded_project_root), telemetry)
 sender = CallbackSender(config)
 app = FastAPI(title="omx_wake_gate", version="0.1.0")
+if config.route_observability_enabled:
+    route_observation_path = (
+        Path(config.route_observability_log_path).expanduser()
+        if config.route_observability_log_path
+        else config.expanded_state_dir / "route_observations.jsonl"
+    )
+    app.add_middleware(
+        RouteObservationMiddleware,
+        observation_path=route_observation_path,
+        slow_ms=config.route_observability_slow_ms,
+        memory_warn_rss_mib=config.route_observability_memory_warn_rss_mib,
+    )
 evaluation_tasks: dict[str, asyncio.Task] = {}
 reconcile_task: asyncio.Task | None = None
 

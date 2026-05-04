@@ -103,9 +103,9 @@ UX principles:
 
 ### Phase 0: Baseline and observability
 
-- Add a memory smoke script for dashboard/control endpoints.
+- Add a memory smoke script for dashboard/control endpoints. Initial tool: `scripts/dashboard_memory_smoke.py`.
 - Measure RSS before and after repeated calls to current dashboard endpoints.
-- Add route timing and response-size middleware behind a config flag.
+- Add route timing and response-size middleware behind a config flag. Initial module: `omx_wake_gate.observability.RouteObservationMiddleware`.
 - Document route ownership and data growth risks.
 
 ### Phase 1: Bounded read models

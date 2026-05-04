@@ -36,6 +36,19 @@ Primary config is a JSON file loaded from `OMX_WAKE_GATE_CONFIG`.
 | `queue_pump_enabled` | Enables the timer-driven queue pump that dispatches queued projects when the lane is safe. |
 | `queue_pump_paper_draft_enabled` | Optional compatibility flag for drafting/rewrite-kicking one eligible paper before dispatch; defaults off so execution-only queues are not starved by paper production. |
 
+## Route observability fields
+
+These fields are for private operator diagnostics. Keep them disabled by default unless collecting a memory or latency baseline.
+
+| Field | Purpose |
+|---|---|
+| `route_observability_enabled` | Enables lightweight per-route timing, response-size, and RSS observations. Defaults off. |
+| `route_observability_log_path` | Optional JSONL path for route observations. Defaults to `route_observations.jsonl` under `state_dir` when observability is enabled. |
+| `route_observability_slow_ms` | Marks route observations as slow at or above this duration. |
+| `route_observability_memory_warn_rss_mib` | Marks observations when current RSS exceeds this threshold. `0` disables the memory warning flag. |
+
+The middleware does not record request bodies, response bodies, query strings, or bearer tokens. Use `scripts/dashboard_memory_smoke.py` to collect repeatable endpoint timing and server RSS-header evidence during dashboard redesign work.
+
 ## Paper writer fields
 
 | Field | Purpose |

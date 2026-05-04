@@ -80,6 +80,10 @@ class GateConfig(BaseModel):
     paper_evidence_sync_ssh_host: str = "worker-user@worker.example"
     paper_evidence_sync_remote_root: str = "~/enoch/projects"
     paper_evidence_sync_timeout_sec: int = Field(default=90, ge=5)
+    route_observability_enabled: bool = False
+    route_observability_log_path: str = ""
+    route_observability_slow_ms: int = Field(default=1000, ge=0)
+    route_observability_memory_warn_rss_mib: int = Field(default=0, ge=0)
 
 
     @model_validator(mode="after")
