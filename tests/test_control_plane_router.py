@@ -264,6 +264,10 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("/control/api/v1/overview", response.text)
             self.assertIn("/control/api/v1/observability/memory", response.text)
             self.assertIn("/control/api/v1/observability/health", response.text)
+            self.assertIn("Work is idle", response.text)
+            self.assertIn("Needs attention", response.text)
+            self.assertIn("Recent activity", response.text)
+            self.assertIn("System health", response.text)
             self.assertEqual(response.headers.get("cache-control"), "no-store")
             self.assertIn("cache:'no-store'", response.text)
             self.assertIn("autoRefreshCurrentPage", response.text)
@@ -271,6 +275,10 @@ class ControlPlaneRouterTests(unittest.TestCase):
             initial_app = response.text.split('<main class="wrap">', 1)[1].split('</main>', 1)[0]
             self.assertNotIn("<pre", initial_app)
             self.assertIn("<details><summary>", response.text)
+            self.assertNotIn("overview ·", response.text)
+            self.assertNotIn("Recent event summaries", response.text)
+            self.assertNotIn("source ${", response.text)
+            self.assertNotIn("authority ${", response.text)
 
 
     def test_dashboard_status_contract_reports_config_and_missing_worker_observations(self) -> None:
@@ -1608,9 +1616,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             for path in ["/control/api/v1/overview", "/control/api/v1/queue", "/control/api/v1/projects/", "/control/api/v1/runs", "/control/api/v1/papers", "/control/api/v1/events", "/control/api/v1/observability/memory", "/control/api/paper-reviews", "/control/api/intake/notion"]:
                 self.assertIn(path, response.text)
-            for stale_path in ["/control/api/status?refresh_worker=true", "/control/api/queues/", "/control/api/events?page_size=200", "/control/api/papers?page_size=100"]:
+            for stale_path in ["/control/api/status?refresh_worker=true", "/control/api/queues/", "/control/api/events?page_size=200", "/control/api/papers?page_size=100", "['event_id','event_type','entity_type','entity_id','created_at','payload_summary']"]:
                 self.assertNotIn(stale_path, response.text)
-            for ui_text in ["Publication Review", "publication_review_v1 checklist", "approve-finalization", "prepare-finalization-package", "review queue", "Raw evidence is intentionally collapsed"]:
+            for ui_text in ["Publication Review", "publication_review_v1 checklist", "approve-finalization", "prepare-finalization-package", "review queue", "Formatted control-plane events", "System totals below are separate"]:
                 self.assertIn(ui_text, response.text)
 
 
