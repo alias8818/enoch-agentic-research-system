@@ -100,15 +100,20 @@ PY
   write_unit "$PREFIX/deploy/omx-wake-gate.service" /etc/systemd/system/enoch-control-plane.service
   write_unit "$PREFIX/deploy/enoch-queue-alert-check.service" /etc/systemd/system/enoch-queue-alert-check.service
   write_unit "$PREFIX/deploy/enoch-notion-sync.service" /etc/systemd/system/enoch-notion-sync.service
-  write_unit "$PREFIX/deploy/enoch-paper-draft-next.service" /etc/systemd/system/enoch-paper-draft-next.service
+  if [[ "${ENOCH_INSTALL_PAPER_DRAFT_NEXT_UNITS:-0}" == "1" ]]; then
+    write_unit "$PREFIX/deploy/enoch-paper-draft-next.service" /etc/systemd/system/enoch-paper-draft-next.service
+  fi
   cp "$PREFIX/deploy/enoch-queue-alert-check.timer" /etc/systemd/system/enoch-queue-alert-check.timer
   cp "$PREFIX/deploy/enoch-notion-sync.timer" /etc/systemd/system/enoch-notion-sync.timer
-  cp "$PREFIX/deploy/enoch-paper-draft-next.timer" /etc/systemd/system/enoch-paper-draft-next.timer
+  if [[ "${ENOCH_INSTALL_PAPER_DRAFT_NEXT_UNITS:-0}" == "1" ]]; then
+    cp "$PREFIX/deploy/enoch-paper-draft-next.timer" /etc/systemd/system/enoch-paper-draft-next.timer
+  fi
   systemctl daemon-reload
   echo "Installed systemd units. Edit $CONFIG_DIR/config.json, then run:"
   echo "  sudo systemctl enable --now enoch-control-plane.service"
   echo "  sudo systemctl enable --now enoch-notion-sync.timer         # optional Notion intake/projection sync"
-  echo "  sudo systemctl enable --now enoch-paper-draft-next.timer    # optional draft-only paper production"
+  echo "  ENOCH_INSTALL_PAPER_DRAFT_NEXT_UNITS=1 sudo -E scripts/install-control-plane.sh  # install opt-in draft-only paper units"
+  echo "  sudo systemctl edit enoch-paper-draft-next.service             # set ENOCH_ENABLE_PAPER_DRAFT_NEXT=1 before intentional drafting"
   echo "  sudo systemctl enable --now enoch-queue-alert-check.timer   # optional Pushover/queue alerts + dispatch pump"
 else
   echo "Dependency install complete. Run with sudo/root to copy this checkout to $PREFIX, create $CONFIG_DIR and $STATE_DIR, and install systemd units."

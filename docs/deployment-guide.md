@@ -188,15 +188,26 @@ curl -fsS -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:8787/control/api/status | python3 -m json.tool
 ```
 
-Paper drafting is dispatch-independent. During worker maintenance you may keep the queue paused and still run draft-only paper production; it calls `/control/papers/draft-next`, backfills the newly drafted paper into the review queue, and asks the publication rewrite endpoint to process that paper. It never calls `/control/dispatch-next`:
+Paper drafting is dispatch-independent, but it is intentionally disabled by default because it can spend model tokens. The one-shot script exits before reading credentials or calling the control plane unless `ENOCH_ENABLE_PAPER_DRAFT_NEXT=1` is set. Install the timer only when a human explicitly wants draft-only paper production:
 
 ```bash
-sudo cp /opt/enoch-agentic-research-system/deploy/enoch-paper-draft-next.service /etc/systemd/system/
-sudo cp /opt/enoch-agentic-research-system/deploy/enoch-paper-draft-next.timer /etc/systemd/system/
+cd /opt/enoch-agentic-research-system
+ENOCH_INSTALL_PAPER_DRAFT_NEXT_UNITS=1 sudo -E scripts/install-control-plane.sh
+sudo systemctl edit enoch-paper-draft-next.service
+# Add:
+# [Service]
+# Environment=ENOCH_ENABLE_PAPER_DRAFT_NEXT=1
 sudo systemctl daemon-reload
 sudo systemctl enable --now enoch-paper-draft-next.timer
-# or one-shot:
+# or one-shot, after the opt-in environment is present:
 sudo systemctl start enoch-paper-draft-next.service
+```
+
+To guarantee no draft-next work runs, disable and mask both units. The script still remains token-safe by default if a future deploy copies the units back.
+
+```bash
+sudo systemctl disable --now enoch-paper-draft-next.timer enoch-paper-draft-next.service || true
+sudo systemctl mask --now enoch-paper-draft-next.timer enoch-paper-draft-next.service
 ```
 
 By default, the queue alert pump is execution-only: it dispatches the next queued project when the control plane is idle and dispatch-safe, and it does not draft papers. To restore the older draft-before-dispatch compatibility behavior, set `"queue_pump_paper_draft_enabled": true`; if `/control/papers/draft-next` drafts a paper, that timer tick skips `/control/dispatch-next` so publication writing catches up before another idea is launched.

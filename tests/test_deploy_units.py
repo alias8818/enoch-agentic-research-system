@@ -27,10 +27,14 @@ def test_notion_sync_unit_is_credential_gated_and_non_dispatching() -> None:
     assert "192.168.1.77" not in service + script
 
 
-def test_paper_draft_unit_never_dispatches() -> None:
+def test_paper_draft_unit_is_opt_in_and_never_dispatches() -> None:
     service = (ROOT / "deploy" / "enoch-paper-draft-next.service").read_text(encoding="utf-8")
     script = (ROOT / "deploy" / "enoch_paper_draft_next.sh").read_text(encoding="utf-8")
     combined = service + script
+    assert "Environment=ENOCH_ENABLE_PAPER_DRAFT_NEXT=0" in service
+    assert "ENOCH_ENABLE_PAPER_DRAFT_NEXT:-0" in script
+    assert "paper draft automation disabled" in script
+    assert script.index("paper draft automation disabled") < script.index("omx_inbound_bearer_token")
     assert "/control/papers/draft-next" in combined
     assert "/control/api/paper-reviews/$paper_path/rewrite-draft" in script
     assert "/control/dispatch-next" not in combined
@@ -113,7 +117,10 @@ def test_queue_pump_dispatches_when_no_draft_candidate_exists(tmp_path) -> None:
     assert calls.index("/control/papers/draft-next") < calls.index("/control/dispatch-next")
 
 
-def test_install_script_installs_sync_and_draft_units() -> None:
+def test_install_script_keeps_draft_units_opt_in() -> None:
     install = (ROOT / "scripts" / "install-control-plane.sh").read_text(encoding="utf-8")
-    for name in ["enoch-notion-sync.service", "enoch-notion-sync.timer", "enoch-paper-draft-next.service", "enoch-paper-draft-next.timer"]:
+    for name in ["enoch-notion-sync.service", "enoch-notion-sync.timer"]:
         assert name in install
+    assert "ENOCH_INSTALL_PAPER_DRAFT_NEXT_UNITS:-0" in install
+    assert "enoch-paper-draft-next.service" in install
+    assert "enoch-paper-draft-next.timer" in install

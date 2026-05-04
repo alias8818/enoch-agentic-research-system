@@ -3,6 +3,11 @@ set -euo pipefail
 CONFIG_PATH="${OMX_WAKE_GATE_CONFIG:-/etc/enoch/config.json}"
 CONTROL_URL="${ENOCH_CONTROL_URL:-http://127.0.0.1:8787}"
 CONTROL_TOKEN="${ENOCH_CONTROL_TOKEN:-}"
+ENABLE_PAPER_DRAFT_NEXT="${ENOCH_ENABLE_PAPER_DRAFT_NEXT:-0}"
+if [[ "$ENABLE_PAPER_DRAFT_NEXT" != "1" ]]; then
+  echo '{"ok":true,"action":"skipped","reason":"paper draft automation disabled; set ENOCH_ENABLE_PAPER_DRAFT_NEXT=1 to run intentionally"}'
+  exit 0
+fi
 if [[ -z "$CONTROL_TOKEN" && -r "$CONFIG_PATH" ]]; then
   CONTROL_TOKEN="$(python3 - "$CONFIG_PATH" <<'PY'
 import json, sys
