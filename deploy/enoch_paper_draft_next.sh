@@ -20,11 +20,42 @@ if [[ -z "$CONTROL_TOKEN" ]]; then
   echo '{"ok":false,"action":"skipped","reason":"missing ENOCH_CONTROL_TOKEN and unreadable control config"}'
   exit 2
 fi
-draft_response="$(curl -fsS -X POST \
-  -H "Authorization: Bearer $CONTROL_TOKEN" \
-  -H "Content-Type: application/json" \
-  "$CONTROL_URL/control/papers/draft-next" \
-  -d "{\"force\":false,\"requested_by\":\"systemd:enoch-paper-draft-next\"}")"
+CURL_TEMP_FILES=()
+cleanup_curl_temp_files() {
+  if [[ ${#CURL_TEMP_FILES[@]} -gt 0 ]]; then
+    rm -f "${CURL_TEMP_FILES[@]}"
+  fi
+}
+trap cleanup_curl_temp_files EXIT HUP INT TERM
+post_json() {
+  local path="$1"
+  local payload="$2"
+  local config_file payload_file
+  config_file="$(mktemp)"
+  payload_file="$(mktemp)"
+  chmod 600 "$config_file" "$payload_file"
+  CURL_TEMP_FILES+=("$config_file" "$payload_file")
+  printf '%s' "$payload" >"$payload_file"
+  {
+    printf 'fail\n'
+    printf 'show-error\n'
+    printf 'silent\n'
+    printf 'request = "POST"\n'
+    printf 'url = "%s%s"\n' "$CONTROL_URL" "$path"
+    printf 'header = "Authorization: Bearer %s"\n' "$CONTROL_TOKEN"
+    printf 'header = "Content-Type: application/json"\n'
+    printf 'data-binary = "@%s"\n' "$payload_file"
+  } >"$config_file"
+  local response status
+  set +e
+  response="$(curl --config "$config_file")"
+  status=$?
+  set -e
+  rm -f "$config_file" "$payload_file"
+  printf '%s' "$response"
+  return "$status"
+}
+draft_response="$(post_json "/control/papers/draft-next" "{\"force\":false,\"requested_by\":\"systemd:enoch-paper-draft-next\"}")"
 draft_action="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("action",""))' <<<"$draft_response")"
 paper_id="$(python3 -c 'import json,sys; print((json.load(sys.stdin).get("paper") or {}).get("paper_id",""))' <<<"$draft_response")"
 rewrite_response='{"ok":true,"action":"skipped","reason":"no paper drafted"}'
@@ -35,22 +66,10 @@ import sys
 print(quote(sys.argv[1], safe=""))
 PY
 )"
-  rewrite_response="$(curl -fsS -X POST \
-    -H "Authorization: Bearer $CONTROL_TOKEN" \
-    -H "Content-Type: application/json" \
-    "$CONTROL_URL/control/api/paper-reviews/$paper_path/rewrite-draft" \
-    -d "{\"idempotency_key\":\"paper-publication-pipeline:$paper_id:$(date -u +%Y%m%dT%H%M%SZ)\",\"requested_by\":\"systemd:enoch-paper-draft-next\",\"force\":true}")"
+  rewrite_response="$(post_json "/control/api/paper-reviews/$paper_path/rewrite-draft" "{\"idempotency_key\":\"paper-publication-pipeline:$paper_id:$(date -u +%Y%m%dT%H%M%SZ)\",\"requested_by\":\"systemd:enoch-paper-draft-next\",\"force\":true}")"
 fi
-rewrite_pending_drafts_response="$(curl -fsS -X POST \
-  -H "Authorization: Bearer $CONTROL_TOKEN" \
-  -H "Content-Type: application/json" \
-  "$CONTROL_URL/control/api/paper-reviews/rewrite-batch" \
-  -d "{\"idempotency_key\":\"paper-publication-pending-drafts:$(date -u +%Y%m%dT%H%M%SZ)\",\"requested_by\":\"systemd:enoch-paper-draft-next\",\"paper_status\":\"draft_review\",\"review_status\":\"\",\"limit\":20,\"force\":true,\"dry_run\":false,\"skip_rewritten\":false}")"
-rewrite_pending_publication_response="$(curl -fsS -X POST \
-  -H "Authorization: Bearer $CONTROL_TOKEN" \
-  -H "Content-Type: application/json" \
-  "$CONTROL_URL/control/api/paper-reviews/rewrite-batch" \
-  -d "{\"idempotency_key\":\"paper-publication-pending-publication:$(date -u +%Y%m%dT%H%M%SZ)\",\"requested_by\":\"systemd:enoch-paper-draft-next\",\"paper_status\":\"publication_draft\",\"review_status\":\"\",\"limit\":20,\"force\":true,\"dry_run\":false,\"skip_rewritten\":false}")"
+rewrite_pending_drafts_response="$(post_json "/control/api/paper-reviews/rewrite-batch" "{\"idempotency_key\":\"paper-publication-pending-drafts:$(date -u +%Y%m%dT%H%M%SZ)\",\"requested_by\":\"systemd:enoch-paper-draft-next\",\"paper_status\":\"draft_review\",\"review_status\":\"\",\"limit\":20,\"force\":true,\"dry_run\":false,\"skip_rewritten\":false}")"
+rewrite_pending_publication_response="$(post_json "/control/api/paper-reviews/rewrite-batch" "{\"idempotency_key\":\"paper-publication-pending-publication:$(date -u +%Y%m%dT%H%M%SZ)\",\"requested_by\":\"systemd:enoch-paper-draft-next\",\"paper_status\":\"publication_draft\",\"review_status\":\"\",\"limit\":20,\"force\":true,\"dry_run\":false,\"skip_rewritten\":false}")"
 python3 - "$draft_response" "$rewrite_response" "$rewrite_pending_drafts_response" "$rewrite_pending_publication_response" <<'PY'
 import json, sys
 print(json.dumps({

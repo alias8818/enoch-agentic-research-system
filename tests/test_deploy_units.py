@@ -35,6 +35,9 @@ def test_paper_draft_unit_is_opt_in_and_never_dispatches() -> None:
     assert "ENOCH_ENABLE_PAPER_DRAFT_NEXT:-0" in script
     assert "paper draft automation disabled" in script
     assert script.index("paper draft automation disabled") < script.index("omx_inbound_bearer_token")
+    assert "curl --config" in script
+    assert "trap cleanup_curl_temp_files EXIT HUP INT TERM" in script
+    assert 'curl -fsS -X POST' not in script
     assert "/control/papers/draft-next" in combined
     assert "/control/api/paper-reviews/$paper_path/rewrite-draft" in script
     assert "/control/dispatch-next" not in combined
