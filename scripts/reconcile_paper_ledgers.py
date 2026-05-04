@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""Reconcile live paper automation, finalized review rows, and public corpus.
+
+This is the guardrail for status claims such as "all papers are done".
+It intentionally treats the three paper ledgers as separate until this report
+proves they are aligned:
+
+1. live control-plane draft eligibility (`/control/state` next_candidate),
+2. live finalized publication rows (`/control/api/paper-reviews`), and
+3. public corpus index (`papers/index.json`).
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import sys
+import urllib.parse
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+
+def source_fingerprint(paper_id: str) -> str:
+    return hashlib.sha256(paper_id.encode("utf-8")).hexdigest()[:16]
+
+
+def request_json(base_url: str, token: str, path: str) -> dict[str, Any]:
+    req = urllib.request.Request(base_url.rstrip("/") + path, headers={"Authorization": f"Bearer {token}"})
+    with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310 - operator-provided control URL
+        return json.loads(resp.read())
+
+
+def iter_review_rows(base_url: str, token: str, *, review_status: str, paper_status: str, page_size: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        query = urllib.parse.urlencode(
+            {
+                "page": page,
+                "page_size": page_size,
+                "review_status": review_status,
+                "paper_status": paper_status,
+                "include_rank_reasons": "false",
+            }
+        )
+        payload = request_json(base_url, token, f"/control/api/paper-reviews?{query}")
+        page_rows = list(payload.get("rows") or [])
+        rows.extend(page_rows)
+        page_meta = payload.get("page") or {}
+        total = int(page_meta.get("total") or len(rows))
+        if len(rows) >= total or not page_rows:
+            return rows
+        page += 1
+
+
+def load_public_index(corpus: Path) -> dict[str, Any]:
+    index_path = corpus / "papers" / "index.json"
+    payload = json.loads(index_path.read_text(encoding="utf-8"))
+    papers = list(payload.get("papers") or [])
+    by_fp = {str(row.get("source_record_fingerprint") or ""): row for row in papers if row.get("source_record_fingerprint")}
+    return {"path": str(index_path), "count": int(payload.get("count") or len(papers)), "papers": papers, "by_fingerprint": by_fp}
+
+
+def compact_row(row: dict[str, Any]) -> dict[str, str]:
+    return {
+        "paper_id": str(row.get("paper_id") or ""),
+        "project_id": str(row.get("project_id") or ""),
+        "project_name": str(row.get("project_name") or ""),
+        "run_id": str(row.get("run_id") or ""),
+        "paper_status": str(row.get("paper_status") or ""),
+        "review_status": str(row.get("review_status") or ""),
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Compare live Enoch paper ledgers with the public corpus index.")
+    parser.add_argument("--control-url", default=os.environ.get("ENOCH_CONTROL_URL", "http://127.0.0.1:8787"))
+    parser.add_argument("--token", default=os.environ.get("ENOCH_CONTROL_TOKEN", ""))
+    parser.add_argument("--corpus", type=Path, default=Path("../enoch-ai-research-corpus"))
+    parser.add_argument("--page-size", type=int, default=200)
+    parser.add_argument("--require-synced", action="store_true", help="Exit nonzero if draft candidates or unpublished finalized papers remain.")
+    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON only.")
+    args = parser.parse_args()
+
+    if not args.token:
+        print("Set --token or ENOCH_CONTROL_TOKEN", file=sys.stderr)
+        return 2
+
+    overview = request_json(args.control_url, args.token, "/control/api/v1/overview?active_limit=5&event_limit=5")
+    state = request_json(args.control_url, args.token, "/control/state")
+    finalized_rows = iter_review_rows(args.control_url, args.token, review_status="finalized", paper_status="", page_size=args.page_size)
+    public = load_public_index(args.corpus)
+
+    finalized_by_fp = {source_fingerprint(str(row.get("paper_id") or "")): row for row in finalized_rows if row.get("paper_id")}
+    public_by_fp: dict[str, Any] = public["by_fingerprint"]
+    unpublished = [row for fp, row in finalized_by_fp.items() if fp not in public_by_fp]
+    public_without_live_finalized = [row for fp, row in public_by_fp.items() if fp not in finalized_by_fp]
+    next_candidate = state.get("next_candidate")
+
+    report = {
+        "ok": not next_candidate and not unpublished,
+        "control_url": args.control_url,
+        "live_counts": overview.get("counts"),
+        "operator_counts": overview.get("operator_counts"),
+        "paper_counts": overview.get("paper_counts"),
+        "next_draft_candidate": next_candidate,
+        "live_finalized_count": len(finalized_rows),
+        "public_corpus_count": public["count"],
+        "unpublished_finalized_count": len(unpublished),
+        "public_without_live_finalized_count": len(public_without_live_finalized),
+        "unpublished_finalized_sample": [compact_row(row) for row in unpublished[:20]],
+        "public_without_live_finalized_sample": public_without_live_finalized[:20],
+        "corpus_index": public["path"],
+    }
+
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print("Paper ledger reconciliation")
+        print(f"  live finalized rows: {report['live_finalized_count']}")
+        print(f"  public corpus rows: {report['public_corpus_count']}")
+        print(f"  unpublished finalized rows: {report['unpublished_finalized_count']}")
+        print(f"  public rows without live finalized match: {report['public_without_live_finalized_count']}")
+        if next_candidate:
+            print("  next live draft candidate: " + json.dumps(next_candidate, sort_keys=True))
+        else:
+            print("  next live draft candidate: none")
+        if unpublished:
+            print("  unpublished finalized sample:")
+            for row in unpublished[:20]:
+                item = compact_row(row)
+                print(f"    - {item['project_name']} | {item['project_id']} | {item['paper_status']} / {item['review_status']}")
+
+    if args.require_synced and (next_candidate or unpublished):
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
