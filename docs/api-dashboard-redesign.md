@@ -117,9 +117,9 @@ UX principles:
 
 ### Phase 2: Dashboard shell redesign
 
-- Replace first-screen raw output with professional cards/tables/drawers.
-- Move raw JSON/log views behind explicit evidence/debug affordances.
-- Keep legacy endpoints available during migration.
+- Replace first-screen raw output with professional cards/tables/drawers. Initial `/control/dashboard` shell migration now defaults to overview, queue, runs, papers, events, detail, and observability views backed by `/control/api/v1/*`.
+- Move raw JSON/log views behind explicit evidence/debug affordances. Initial shell uses collapsed evidence/debug panels for JSON and raw artifact previews instead of first-screen `<pre>` dumps.
+- Keep legacy endpoints available during migration. Publication review and Notion intake still use their existing command/read endpoints until those lanes receive dedicated v1 read models.
 
 ### Phase 3: Migration and compatibility
 

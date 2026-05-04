@@ -260,12 +260,17 @@ class ControlPlaneRouterTests(unittest.TestCase):
             response = client.get("/control/dashboard")
             self.assertEqual(response.status_code, 200)
             self.assertIn("Enoch Control Status", response.text)
-            self.assertIn("/control/api/status", response.text)
-            self.assertIn("Queue Health", response.text)
+            self.assertIn("Professional operator console", response.text)
+            self.assertIn("/control/api/v1/overview", response.text)
+            self.assertIn("/control/api/v1/observability/memory", response.text)
+            self.assertIn("/control/api/v1/observability/health", response.text)
             self.assertEqual(response.headers.get("cache-control"), "no-store")
             self.assertIn("cache:'no-store'", response.text)
             self.assertIn("autoRefreshCurrentPage", response.text)
-            self.assertIn("h==='health'", response.text)
+            self.assertIn("h==='observability'", response.text)
+            initial_app = response.text.split('<main class="wrap">', 1)[1].split('</main>', 1)[0]
+            self.assertNotIn("<pre", initial_app)
+            self.assertIn("<details><summary>", response.text)
 
 
     def test_dashboard_status_contract_reports_config_and_missing_worker_observations(self) -> None:
@@ -1601,9 +1606,11 @@ class ControlPlaneRouterTests(unittest.TestCase):
             client = _client(tmp)
             response = client.get("/control/dashboard")
             self.assertEqual(response.status_code, 200)
-            for path in ["/control/api/queues/", "/control/api/projects/", "/control/api/runs/", "/control/api/papers", "/control/api/paper-reviews", "/control/api/events", "/control/api/intake/notion"]:
+            for path in ["/control/api/v1/overview", "/control/api/v1/queue", "/control/api/v1/projects/", "/control/api/v1/runs", "/control/api/v1/papers", "/control/api/v1/events", "/control/api/v1/observability/memory", "/control/api/paper-reviews", "/control/api/intake/notion"]:
                 self.assertIn(path, response.text)
-            for ui_text in ["Publication Review", "publication_review_v1 checklist", "approve-finalization", "prepare-finalization-package", "review queue"]:
+            for stale_path in ["/control/api/status?refresh_worker=true", "/control/api/queues/", "/control/api/events?page_size=200", "/control/api/papers?page_size=100"]:
+                self.assertNotIn(stale_path, response.text)
+            for ui_text in ["Publication Review", "publication_review_v1 checklist", "approve-finalization", "prepare-finalization-package", "review queue", "Raw evidence is intentionally collapsed"]:
                 self.assertIn(ui_text, response.text)
 
 
