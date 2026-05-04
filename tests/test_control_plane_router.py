@@ -147,9 +147,18 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 self.assertTrue(queue.json()["page"]["has_more"])
                 self.assertEqual(queue.json()["page"]["next_cursor"], "2")
 
-                papers = client.get("/control/api/v1/papers?page_size=2", headers=headers)
+                recent = client.get("/control/api/v1/queue?queue=all&page_size=2&sort=recent", headers=headers)
+                self.assertEqual(recent.status_code, 200)
+                self.assertEqual(recent.json()["page"]["filters"]["sort"], "recent")
+
+                created = client.get("/control/api/v1/queue?queue=all&page_size=2&sort=created", headers=headers)
+                self.assertEqual(created.status_code, 200)
+                self.assertEqual(created.json()["page"]["filters"]["sort"], "created")
+
+                papers = client.get("/control/api/v1/papers?page_size=2&sort=created", headers=headers)
                 self.assertEqual(papers.status_code, 200)
                 self.assertEqual(papers.json()["page"]["returned"], 2)
+                self.assertEqual(papers.json()["page"]["filters"]["sort"], "created")
                 self.assertNotIn("draft_markdown_path", papers.json()["rows"][0])
                 self.assertIn("artifact_paths_present", papers.json()["rows"][0])
 
@@ -268,6 +277,10 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("Needs attention", response.text)
             self.assertIn("Recent activity", response.text)
             self.assertIn("System health", response.text)
+            self.assertIn("All projects", response.text)
+            self.assertIn("Recently added", response.text)
+            self.assertIn("Recently updated", response.text)
+            self.assertIn("200 per page", response.text)
             self.assertEqual(response.headers.get("cache-control"), "no-store")
             self.assertIn("cache:'no-store'", response.text)
             self.assertIn("autoRefreshCurrentPage", response.text)
@@ -1618,7 +1631,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 self.assertIn(path, response.text)
             for stale_path in ["/control/api/status?refresh_worker=true", "/control/api/queues/", "/control/api/events?page_size=200", "/control/api/papers?page_size=100", "['event_id','event_type','entity_type','entity_id','created_at','payload_summary']"]:
                 self.assertNotIn(stale_path, response.text)
-            for ui_text in ["Publication Review", "publication_review_v1 checklist", "approve-finalization", "prepare-finalization-package", "review queue", "Formatted control-plane events", "System totals below are separate"]:
+            for ui_text in ["Publication Review", "publication_review_v1 checklist", "approve-finalization", "prepare-finalization-package", "review queue", "Formatted control-plane events", "Search, filter, sort, and page", "Recently added", "Find projects", "Find papers", "choose 200 per page"]:
                 self.assertIn(ui_text, response.text)
 
 

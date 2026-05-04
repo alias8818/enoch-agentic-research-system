@@ -656,6 +656,7 @@ class ControlPlaneStore:
         search: str = "",
         page_size: int = 50,
         cursor: str = "",
+        sort: str = "priority",
     ) -> tuple[list[dict[str, Any]], str | None, bool]:
         safe_size = max(1, min(page_size, 200))
         offset = max(0, _int(cursor, 0))
@@ -690,6 +691,14 @@ class ControlPlaneStore:
             )
             params.extend([needle] * 6)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        order_by = {
+            "priority": "q.dispatch_priority ASC, q.updated_at DESC",
+            "recent": "q.updated_at DESC, q.dispatch_priority ASC",
+            "oldest": "q.updated_at ASC, q.dispatch_priority ASC",
+            "created": "p.created_at DESC, q.updated_at DESC",
+            "name": "p.project_name COLLATE NOCASE ASC, q.updated_at DESC",
+            "status": "q.status ASC, q.updated_at DESC",
+        }.get(sort, "q.dispatch_priority ASC, q.updated_at DESC")
         sql = f"""SELECT q.*,
                     p.project_name AS project_name,
                     p.project_dir AS project_dir,
@@ -700,7 +709,7 @@ class ControlPlaneStore:
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)
                 {where}
-                ORDER BY q.dispatch_priority ASC, q.updated_at DESC
+                ORDER BY {order_by}
                 LIMIT ? OFFSET ?"""
         with self._connect() as conn:
             rows = conn.execute(sql, (*params, safe_size + 1, offset)).fetchall()
@@ -738,6 +747,7 @@ class ControlPlaneStore:
         search: str = "",
         page_size: int = 50,
         cursor: str = "",
+        sort: str = "recent",
     ) -> tuple[list[dict[str, Any]], str | None, bool]:
         safe_size = max(1, min(page_size, 200))
         offset = max(0, _int(cursor, 0))
@@ -760,11 +770,17 @@ class ControlPlaneStore:
             )
             params.extend([needle] * 5)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        order_by = {
+            "recent": "pa.updated_at DESC, pa.paper_id DESC",
+            "created": "pa.generated_at DESC, pa.updated_at DESC",
+            "status": "pa.paper_status ASC, pa.updated_at DESC",
+            "title": "p.project_name COLLATE NOCASE ASC, pa.updated_at DESC",
+        }.get(sort, "pa.updated_at DESC, pa.paper_id DESC")
         sql = f"""SELECT pa.*, p.project_name AS project_name, p.project_dir AS project_dir,
                     p.notion_page_url AS notion_page_url, p.notion_page_id AS notion_page_id
                 FROM papers pa LEFT JOIN projects p USING(project_id)
                 {where}
-                ORDER BY pa.updated_at DESC, pa.paper_id DESC
+                ORDER BY {order_by}
                 LIMIT ? OFFSET ?"""
         with self._connect() as conn:
             rows = conn.execute(sql, (*params, safe_size + 1, offset)).fetchall()
