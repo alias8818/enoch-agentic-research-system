@@ -84,6 +84,7 @@ def main() -> int:
     )
     status = _get_json(base_url, "/control/api/status", token)
     queue_pump_enabled = bool(config.get("queue_pump_enabled", config.get("live_dispatch_enabled", False)))
+    paper_draft_before_dispatch_enabled = bool(config.get("queue_pump_paper_draft_enabled", False))
     dispatch = {"action": "skipped", "reason": "queue pump disabled"}
     paper_draft = {"action": "skipped", "reason": "queue pump disabled"}
     publication_rewrite = {"action": "skipped", "reason": "no paper drafted"}
@@ -93,12 +94,15 @@ def main() -> int:
         elif not status.get("dispatch_safe"):
             dispatch = {"action": "skipped", "reason": "dispatch not safe", "blockers": status.get("dispatch_blockers") or []}
         else:
-            paper_draft = _post_json(
-                base_url,
-                "/control/papers/draft-next",
-                token,
-                {"dry_run": False, "requested_by": "systemd:queue-pump-before-dispatch"},
-            )
+            if not paper_draft_before_dispatch_enabled:
+                paper_draft = {"action": "skipped", "reason": "queue pump paper drafting disabled"}
+            else:
+                paper_draft = _post_json(
+                    base_url,
+                    "/control/papers/draft-next",
+                    token,
+                    {"dry_run": False, "requested_by": "systemd:queue-pump-before-dispatch"},
+                )
             if paper_draft.get("action") == "drafted":
                 paper_id = str((paper_draft.get("paper") or {}).get("paper_id") or "")
                 publication_rewrite = _post_json(

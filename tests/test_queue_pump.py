@@ -50,10 +50,10 @@ class QueuePumpTests(unittest.TestCase):
     def test_queue_pump_dispatches_when_safe_and_candidate_exists(self) -> None:
         code, output, calls = self._run_main()
         self.assertEqual(code, 0)
-        self.assertIn("/control/papers/draft-next", calls)
+        self.assertNotIn("/control/papers/draft-next", calls)
         self.assertIn("/control/dispatch-next", calls)
-        self.assertLess(calls.index("/control/papers/draft-next"), calls.index("/control/dispatch-next"))
         self.assertEqual(output["dispatch"]["action"], "live_dispatch")
+        self.assertEqual(output["paper_draft"]["reason"], "queue pump paper drafting disabled")
         self.assertEqual(output["preflight"]["check_count"], 1)
         self.assertNotIn("checks", output["preflight"])
         self.assertLess(len(json.dumps(output)), 1000)
@@ -69,7 +69,7 @@ class QueuePumpTests(unittest.TestCase):
         }
         code, output, calls = self._run_main(status=status)
         self.assertEqual(code, 0)
-        self.assertIn("/control/papers/draft-next", calls)
+        self.assertNotIn("/control/papers/draft-next", calls)
         self.assertNotIn("/control/dispatch-next", calls)
         self.assertEqual(output["dispatch"]["reason"], "no queued candidate")
 

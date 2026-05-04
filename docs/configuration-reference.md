@@ -33,6 +33,8 @@ Primary config is a JSON file loaded from `OMX_WAKE_GATE_CONFIG`.
 | `pushover_api_url` | Pushover API endpoint. Defaults to the public messages endpoint. |
 | `queue_alert_cooldown_sec` | Minimum time between duplicate alerts. |
 | `queue_alert_hang_after_sec` | Active-run age threshold before hang alerts are considered. |
+| `queue_pump_enabled` | Enables the timer-driven queue pump that dispatches queued projects when the lane is safe. |
+| `queue_pump_paper_draft_enabled` | Optional compatibility flag for drafting/rewrite-kicking one eligible paper before dispatch; defaults off so execution-only queues are not starved by paper production. |
 
 ## Paper writer fields
 

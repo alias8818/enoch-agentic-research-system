@@ -37,11 +37,36 @@ def test_paper_draft_unit_never_dispatches() -> None:
     assert "192.168.1.77" not in combined
 
 
-def test_queue_pump_drafts_before_dispatch_when_candidate_exists(tmp_path, capsys) -> None:
+def test_queue_pump_dispatches_without_paper_draft_by_default(tmp_path, capsys) -> None:
     pump = _load_queue_pump_module()
 
     config = tmp_path / "config.json"
     config.write_text(json.dumps({"omx_inbound_bearer_token": "token", "queue_pump_enabled": True}), encoding="utf-8")
+    calls: list[tuple[str, dict]] = []
+
+    def fake_post(base_url: str, path: str, token: str, payload: dict, *, timeout: int = 30) -> dict:
+        calls.append((path, payload))
+        if path == "/control/api/preflight":
+            return {"ok": True, "checks": []}
+        if path == "/control/api/alerts/queue-check":
+            return {"should_alert": False}
+        if path == "/control/dispatch-next":
+            return {"action": "dispatched", "project_id": "queued"}
+        raise AssertionError(f"unexpected post {path}")
+
+    with patch.dict("os.environ", {"OMX_WAKE_GATE_CONFIG": str(config)}, clear=False), patch.object(pump, "_get_json", return_value={"dispatch_safe": True, "active_items": [], "next_candidate": {"project_id": "queued"}}), patch.object(pump, "_post_json", side_effect=fake_post):
+        assert pump.main() == 0
+    assert "/control/papers/draft-next" not in [path for path, _payload in calls]
+    assert "/control/dispatch-next" in [path for path, _payload in calls]
+    output = json.loads(capsys.readouterr().out)
+    assert output["paper_draft"]["reason"] == "queue pump paper drafting disabled"
+
+
+def test_queue_pump_can_opt_into_drafting_before_dispatch(tmp_path, capsys) -> None:
+    pump = _load_queue_pump_module()
+
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"omx_inbound_bearer_token": "token", "queue_pump_enabled": True, "queue_pump_paper_draft_enabled": True}), encoding="utf-8")
     calls: list[tuple[str, dict]] = []
 
     def fake_post(base_url: str, path: str, token: str, payload: dict, *, timeout: int = 30) -> dict:
@@ -68,7 +93,7 @@ def test_queue_pump_dispatches_when_no_draft_candidate_exists(tmp_path) -> None:
     pump = _load_queue_pump_module()
 
     config = tmp_path / "config.json"
-    config.write_text(json.dumps({"omx_inbound_bearer_token": "token", "queue_pump_enabled": True}), encoding="utf-8")
+    config.write_text(json.dumps({"omx_inbound_bearer_token": "token", "queue_pump_enabled": True, "queue_pump_paper_draft_enabled": True}), encoding="utf-8")
     calls: list[str] = []
 
     def fake_post(base_url: str, path: str, token: str, payload: dict, *, timeout: int = 30) -> dict:
