@@ -24,3 +24,5 @@ include = ["omx_wake_gate*"]
 dev = [
     "pytest>=9.0.3",
 ]
+[tool.pytest.ini_options]
+pythonpath = ["."]
