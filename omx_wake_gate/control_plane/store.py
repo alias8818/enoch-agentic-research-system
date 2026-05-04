@@ -29,7 +29,6 @@ from .models import (
     ReviewQueueItem,
     ReviewStatus,
     RunState,
-    RunRecord,
 )
 
 SCHEMA_VERSION = 1
@@ -616,6 +615,100 @@ class ControlPlaneStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def queue_counts_sql(self) -> dict[str, int]:
+        """Return queue group counts without materializing queue rows."""
+
+        counts: dict[str, int] = {}
+        with self._connect() as conn:
+            for row in conn.execute("SELECT status, COUNT(*) AS count FROM queue_items GROUP BY status").fetchall():
+                status = _text(row["status"]) or "unknown"
+                count = int(row["count"] or 0)
+                counts[status] = count
+                counts["all"] = counts.get("all", 0) + count
+                if status in ACTIVE_STATUSES:
+                    counts["active"] = counts.get("active", 0) + count
+                if status == QueueStatus.QUEUED.value:
+                    counts["queued"] = counts.get("queued", 0) + count
+                if status == QueueStatus.PAUSED.value:
+                    counts["paused"] = counts.get("paused", 0) + count
+                if status in {QueueStatus.COMPLETED.value, QueueStatus.CANCELED.value}:
+                    counts["completed"] = counts.get("completed", 0) + count
+            manual_blocked = conn.execute(
+                """SELECT COUNT(*) AS count FROM queue_items
+                WHERE manual_review_required = 1
+                   OR status IN (?, ?, ?)""",
+                (QueueStatus.BLOCKED.value, QueueStatus.NEEDS_REVIEW.value, QueueStatus.DISPATCH_ERROR.value),
+            ).fetchone()
+            counts["blocked"] = int((manual_blocked or {})["count"] or 0)
+        counts.setdefault("all", 0)
+        counts.setdefault("active", 0)
+        counts.setdefault("queued", 0)
+        counts.setdefault("blocked", 0)
+        counts.setdefault("paused", 0)
+        counts.setdefault("completed", 0)
+        return counts
+
+    def queue_page(
+        self,
+        *,
+        queue: str = "all",
+        status: str = "",
+        search: str = "",
+        page_size: int = 50,
+        cursor: str = "",
+    ) -> tuple[list[dict[str, Any]], str | None, bool]:
+        safe_size = max(1, min(page_size, 200))
+        offset = max(0, _int(cursor, 0))
+        clauses: list[str] = []
+        params: list[Any] = []
+        if queue == "active":
+            clauses.append(f"q.status IN ({','.join('?' for _ in ACTIVE_STATUSES)})")
+            params.extend(sorted(ACTIVE_STATUSES))
+        elif queue == "queued":
+            clauses.append("q.status = ?")
+            params.append(QueueStatus.QUEUED.value)
+        elif queue == "blocked":
+            clauses.append("(q.manual_review_required = 1 OR q.status IN (?, ?, ?))")
+            params.extend([QueueStatus.BLOCKED.value, QueueStatus.NEEDS_REVIEW.value, QueueStatus.DISPATCH_ERROR.value])
+        elif queue == "paused":
+            clauses.append("q.status = ?")
+            params.append(QueueStatus.PAUSED.value)
+        elif queue == "completed":
+            clauses.append("q.status IN (?, ?)")
+            params.extend([QueueStatus.COMPLETED.value, QueueStatus.CANCELED.value])
+        elif queue not in {"", "all"}:
+            clauses.append("q.status = ?")
+            params.append(queue)
+        if status:
+            clauses.append("q.status = ?")
+            params.append(status)
+        if search.strip():
+            needle = f"%{search.strip()}%"
+            clauses.append(
+                """(q.project_id LIKE ? OR p.project_name LIKE ? OR q.status LIKE ?
+                OR q.next_action_hint LIKE ? OR q.current_run_id LIKE ? OR q.last_run_state LIKE ?)"""
+            )
+            params.extend([needle] * 6)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = f"""SELECT q.*,
+                    p.project_name AS project_name,
+                    p.project_dir AS project_dir,
+                    p.notion_page_url AS notion_page_url,
+                    p.notion_page_id AS notion_page_id,
+                    p.origin_idea_status AS origin_idea_status,
+                    p.created_at AS project_created_at,
+                    p.updated_at AS project_updated_at
+                FROM queue_items q JOIN projects p USING(project_id)
+                {where}
+                ORDER BY q.dispatch_priority ASC, q.updated_at DESC
+                LIMIT ? OFFSET ?"""
+        with self._connect() as conn:
+            rows = conn.execute(sql, (*params, safe_size + 1, offset)).fetchall()
+        page_rows = [dict(row) for row in rows[:safe_size]]
+        has_more = len(rows) > safe_size
+        next_cursor = str(offset + safe_size) if has_more else None
+        return page_rows, next_cursor, has_more
+
     def paper_rows(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -625,11 +718,102 @@ class ControlPlaneStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def paper_counts_sql(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        with self._connect() as conn:
+            for row in conn.execute("SELECT paper_status, COUNT(*) AS count FROM papers GROUP BY paper_status").fetchall():
+                status = _text(row["paper_status"]) or "unknown"
+                count = int(row["count"] or 0)
+                counts[status] = count
+                counts["all"] = counts.get("all", 0) + count
+        counts.setdefault("all", 0)
+        return counts
+
+    def paper_page(
+        self,
+        *,
+        status: str = "",
+        project_id: str = "",
+        run_id: str = "",
+        search: str = "",
+        page_size: int = 50,
+        cursor: str = "",
+    ) -> tuple[list[dict[str, Any]], str | None, bool]:
+        safe_size = max(1, min(page_size, 200))
+        offset = max(0, _int(cursor, 0))
+        clauses: list[str] = []
+        params: list[Any] = []
+        if status:
+            clauses.append("pa.paper_status = ?")
+            params.append(status)
+        if project_id:
+            clauses.append("pa.project_id = ?")
+            params.append(project_id)
+        if run_id:
+            clauses.append("pa.run_id = ?")
+            params.append(run_id)
+        if search.strip():
+            needle = f"%{search.strip()}%"
+            clauses.append(
+                """(pa.paper_id LIKE ? OR pa.project_id LIKE ? OR pa.run_id LIKE ?
+                OR pa.paper_status LIKE ? OR p.project_name LIKE ?)"""
+            )
+            params.extend([needle] * 5)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = f"""SELECT pa.*, p.project_name AS project_name, p.project_dir AS project_dir,
+                    p.notion_page_url AS notion_page_url, p.notion_page_id AS notion_page_id
+                FROM papers pa LEFT JOIN projects p USING(project_id)
+                {where}
+                ORDER BY pa.updated_at DESC, pa.paper_id DESC
+                LIMIT ? OFFSET ?"""
+        with self._connect() as conn:
+            rows = conn.execute(sql, (*params, safe_size + 1, offset)).fetchall()
+        page_rows = [dict(row) for row in rows[:safe_size]]
+        has_more = len(rows) > safe_size
+        next_cursor = str(offset + safe_size) if has_more else None
+        return page_rows, next_cursor, has_more
+
 
     def run_rows(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute("SELECT * FROM runs ORDER BY updated_at DESC, run_id DESC").fetchall()
         return [dict(row) for row in rows]
+
+    def run_page(
+        self,
+        *,
+        state: str = "",
+        project_id: str = "",
+        search: str = "",
+        page_size: int = 50,
+        cursor: str = "",
+    ) -> tuple[list[dict[str, Any]], str | None, bool]:
+        safe_size = max(1, min(page_size, 200))
+        offset = max(0, _int(cursor, 0))
+        clauses: list[str] = []
+        params: list[Any] = []
+        if state:
+            clauses.append("(r.state = ? OR r.gate_state = ?)")
+            params.extend([state, state])
+        if project_id:
+            clauses.append("r.project_id = ?")
+            params.append(project_id)
+        if search.strip():
+            needle = f"%{search.strip()}%"
+            clauses.append("(r.run_id LIKE ? OR r.project_id LIKE ? OR p.project_name LIKE ? OR r.session_id LIKE ? OR r.current_activity LIKE ?)")
+            params.extend([needle] * 5)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = f"""SELECT r.*, p.project_name AS project_name, p.project_dir AS project_dir
+            FROM runs r LEFT JOIN projects p USING(project_id)
+            {where}
+            ORDER BY r.updated_at DESC, r.run_id DESC
+            LIMIT ? OFFSET ?"""
+        with self._connect() as conn:
+            rows = conn.execute(sql, (*params, safe_size + 1, offset)).fetchall()
+        page_rows = [dict(row) for row in rows[:safe_size]]
+        has_more = len(rows) > safe_size
+        next_cursor = str(offset + safe_size) if has_more else None
+        return page_rows, next_cursor, has_more
 
     def run_row(self, run_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
@@ -1092,8 +1276,105 @@ class ControlPlaneStore:
             out.append(item)
         return out
 
+    def event_page(
+        self,
+        *,
+        entity_type: str = "",
+        entity_id: str = "",
+        event_type: str = "",
+        search: str = "",
+        page_size: int = 50,
+        cursor: str = "",
+        include_payload: bool = False,
+    ) -> tuple[list[dict[str, Any]], str | None, bool]:
+        safe_size = max(1, min(page_size, 200))
+        clauses: list[str] = []
+        params: list[Any] = []
+        if entity_type:
+            clauses.append("entity_type = ?")
+            params.append(entity_type)
+        if entity_id:
+            clauses.append("entity_id = ?")
+            params.append(entity_id)
+        if event_type:
+            clauses.append("event_type = ?")
+            params.append(event_type)
+        if search:
+            clauses.append("(event_type LIKE ? OR entity_id LIKE ? OR payload_json LIKE ?)")
+            needle = f"%{search}%"
+            params.extend([needle, needle, needle])
+        cursor_id = _int(cursor, 0)
+        if cursor_id > 0:
+            clauses.append("event_id < ?")
+            params.append(cursor_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM events {where} ORDER BY event_id DESC LIMIT ?",
+                (*params, safe_size + 1),
+            ).fetchall()
+        out = []
+        for row in rows[:safe_size]:
+            item = dict(row)
+            payload_json = item.pop("payload_json", "{}")
+            item.pop("payload_hash", None)
+            if include_payload:
+                item["payload"] = json.loads(payload_json)
+            else:
+                try:
+                    payload = json.loads(payload_json)
+                    item["payload_summary"] = {
+                        "keys": sorted(payload.keys())[:12] if isinstance(payload, dict) else [],
+                        "bytes": len(payload_json.encode("utf-8")),
+                    }
+                except json.JSONDecodeError:
+                    item["payload_summary"] = {"keys": [], "bytes": len(payload_json.encode("utf-8")), "invalid_json": True}
+            out.append(item)
+        has_more = len(rows) > safe_size
+        next_cursor = str(out[-1]["event_id"]) if has_more and out else None
+        return out, next_cursor, has_more
+
     def active_items(self) -> list[dict[str, Any]]:
         return [row for row in self.queue_rows() if row.get("status") in ACTIVE_STATUSES]
+
+    def active_items_sql(self, *, limit: int = 10) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 50))
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""SELECT q.*,
+                    p.project_name AS project_name,
+                    p.project_dir AS project_dir,
+                    p.notion_page_url AS notion_page_url,
+                    p.notion_page_id AS notion_page_id,
+                    p.origin_idea_status AS origin_idea_status,
+                    p.created_at AS project_created_at,
+                    p.updated_at AS project_updated_at
+                FROM queue_items q JOIN projects p USING(project_id)
+                WHERE q.status IN ({','.join('?' for _ in ACTIVE_STATUSES)})
+                ORDER BY q.updated_at DESC
+                LIMIT ?""",
+                (*sorted(ACTIVE_STATUSES), safe_limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def next_candidate_sql(self) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """SELECT q.*,
+                    p.project_name AS project_name,
+                    p.project_dir AS project_dir,
+                    p.notion_page_url AS notion_page_url,
+                    p.notion_page_id AS notion_page_id,
+                    p.origin_idea_status AS origin_idea_status,
+                    p.created_at AS project_created_at,
+                    p.updated_at AS project_updated_at
+                FROM queue_items q JOIN projects p USING(project_id)
+                WHERE q.status = ?
+                ORDER BY q.dispatch_priority ASC, q.updated_at DESC
+                LIMIT 1""",
+                (QueueStatus.QUEUED.value,),
+            ).fetchone()
+        return dict(row) if row else None
 
     def status_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}

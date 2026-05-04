@@ -110,10 +110,10 @@ UX principles:
 
 ### Phase 1: Bounded read models
 
-- Add SQL-backed bounded queries for queue, papers, events, active rows, and counts.
-- Add a wake-gate run index so list views do not parse every run JSON file.
-- Add `/control/api/v1/*` read-model endpoints.
-- Lock these endpoints with unit and API tests.
+- Add SQL-backed bounded queries for queue, papers, events, active rows, and counts. Initial methods are in `ControlPlaneStore.queue_page`, `paper_page`, `run_page`, `event_page`, `active_items_sql`, and SQL count helpers.
+- Add a wake-gate run index so list views do not parse every run JSON file. The first v1 run list is bounded from the control-plane SQL run table; the file-backed wake-gate index remains a follow-up for `/dashboard/api` replacement.
+- Add `/control/api/v1/*` read-model endpoints. Initial endpoints cover overview, lanes, queue, runs, projects, papers, events, and observability health/memory.
+- Lock these endpoints with unit and API tests. Initial regression asserts v1 routes do not call legacy full-list `queue_rows`, `paper_rows`, or `event_rows`.
 
 ### Phase 2: Dashboard shell redesign
 

@@ -94,6 +94,76 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(body["action"], "drafted")
             self.assertTrue((project_dir / body["paper"]["draft_markdown_path"]).exists())
 
+    def test_v1_dashboard_read_models_are_bounded_and_do_not_call_legacy_full_lists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_root = Path(tmp) / "projects"
+            queue_rows = []
+            paper_rows = []
+            for idx in range(3):
+                project_id = f"idea-{idx}"
+                (project_root / project_id).mkdir(parents=True, exist_ok=True)
+                queue_rows.append({
+                    "project_id": project_id,
+                    "project_name": f"Project {idx}",
+                    "project_dir": project_id,
+                    "status": "queued" if idx else "awaiting_wake",
+                    "dispatch_priority": idx,
+                    "selection_rank": idx,
+                    "current_run_id": f"run-{idx}",
+                    "last_run_state": "dispatch_accepted",
+                    "next_action_hint": "await_callback" if idx == 0 else "controller_review",
+                })
+                paper_rows.append({
+                    "paper_id": f"paper-{idx}",
+                    "project_id": project_id,
+                    "run_id": f"run-{idx}",
+                    "paper_status": "publication_draft",
+                    "draft_markdown_path": "paper.md",
+                    "draft_latex_path": "paper.tex",
+                    "evidence_bundle_path": "evidence_bundle.json",
+                    "claim_ledger_path": "claim_ledger.json",
+                    "manifest_path": "paper_manifest.json",
+                })
+            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "v1-bounded-import",
+                "queue_rows": queue_rows,
+                "paper_rows": paper_rows,
+            })
+            self.assertEqual(imported.status_code, 200)
+
+            with patch.object(ControlPlaneStore, "queue_rows", side_effect=AssertionError("legacy queue_rows should not be used")), \
+                 patch.object(ControlPlaneStore, "paper_rows", side_effect=AssertionError("legacy paper_rows should not be used")), \
+                 patch.object(ControlPlaneStore, "event_rows", side_effect=AssertionError("legacy event_rows should not be used")):
+                overview = client.get("/control/api/v1/overview", headers=headers)
+                self.assertEqual(overview.status_code, 200)
+                self.assertEqual(overview.json()["counts"]["all"], 3)
+                self.assertLessEqual(len(overview.json()["recent_events"]), 10)
+
+                queue = client.get("/control/api/v1/queue?page_size=2", headers=headers)
+                self.assertEqual(queue.status_code, 200)
+                self.assertEqual(queue.json()["page"]["returned"], 2)
+                self.assertTrue(queue.json()["page"]["has_more"])
+                self.assertEqual(queue.json()["page"]["next_cursor"], "2")
+
+                papers = client.get("/control/api/v1/papers?page_size=2", headers=headers)
+                self.assertEqual(papers.status_code, 200)
+                self.assertEqual(papers.json()["page"]["returned"], 2)
+                self.assertNotIn("draft_markdown_path", papers.json()["rows"][0])
+                self.assertIn("artifact_paths_present", papers.json()["rows"][0])
+
+                events = client.get("/control/api/v1/events?page_size=2", headers=headers)
+                self.assertEqual(events.status_code, 200)
+                self.assertLessEqual(events.json()["page"]["returned"], 2)
+                if events.json()["rows"]:
+                    self.assertIn("payload_summary", events.json()["rows"][0])
+                    self.assertNotIn("payload", events.json()["rows"][0])
+
+                runs = client.get("/control/api/v1/runs?page_size=2", headers=headers)
+                self.assertEqual(runs.status_code, 200)
+                self.assertLessEqual(runs.json()["page"]["returned"], 2)
+
     def test_export_and_notion_projection_endpoints(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)

@@ -21,10 +21,12 @@ from urllib import error, request
 
 DEFAULT_ENDPOINTS = [
     "/healthz",
-    "/dashboard/api?limit=10&event_limit=5",
-    "/control/api/status",
-    "/control/api/events?page_size=25",
-    "/control/api/papers?page_size=25",
+    "/control/api/v1/overview?active_limit=5&event_limit=5",
+    "/control/api/v1/queue?page_size=25",
+    "/control/api/v1/runs?page_size=25",
+    "/control/api/v1/papers?page_size=25",
+    "/control/api/v1/events?page_size=25",
+    "/control/api/v1/observability/memory",
 ]
 
 

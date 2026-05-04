@@ -14,6 +14,7 @@ from ..config import GateConfig
 from ..enoch_core.logic import draft_candidate_payload, eligible_paper_draft_candidates, paper_draft_decision_gate
 from ..enoch_core.store import IdempotencyConflict
 from ..models import GateCallback, utc_now
+from ..observability import current_rss_mib, peak_rss_mib
 from .paper_writer import write_paper_artifacts
 from .models import (
     ControlStateResponse,
@@ -65,6 +66,7 @@ from .models import (
 )
 from .alerts import evaluate_and_notify_queue_alerts
 from .graphs import build_dispatch_graph
+from . import read_models
 from .store import ControlPlaneStore
 from .worker_adapter import post_worker_json, run_worker_preflight
 
@@ -901,6 +903,246 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "queue_item": row,
             "controller_action": "record_worker_callback",
             "next_action_hint": row.get("next_action_hint") if row else "callback_recorded_no_queue_row",
+        }
+
+    @router.get("/api/v1/overview")
+    def dashboard_v1_overview(
+        authorization: str | None = Header(default=None),
+        active_limit: int = Query(default=5, ge=1, le=25),
+        event_limit: int = Query(default=10, ge=0, le=50),
+    ) -> dict[str, Any]:
+        authorize(authorization)
+        data = read_models.overview(store, active_limit=active_limit, event_limit=event_limit)
+        return {
+            "ok": True,
+            "source": "control_api_v1_overview",
+            "authority": "bounded dashboard read model",
+            "generated_at": utc_now(),
+            **data,
+            "links": {
+                "queue": "/control/api/v1/queue",
+                "runs": "/control/api/v1/runs",
+                "papers": "/control/api/v1/papers",
+                "events": "/control/api/v1/events",
+            },
+        }
+
+    @router.get("/api/v1/lanes")
+    def dashboard_v1_lanes(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        authorize(authorization)
+        active = [read_models.summarize_queue_row(row) for row in store.active_items_sql(limit=10)]
+        next_candidate = store.next_candidate_sql()
+        return {
+            "ok": True,
+            "source": "control_api_v1_lanes",
+            "authority": "bounded active-lane read model",
+            "generated_at": utc_now(),
+            "active_items": active,
+            "next_candidate": read_models.summarize_queue_row(next_candidate) if next_candidate else None,
+            "counts": store.queue_counts_sql(),
+        }
+
+    @router.get("/api/v1/queue")
+    def dashboard_v1_queue(
+        authorization: str | None = Header(default=None),
+        queue: str = Query(default="all"),
+        status: str = "",
+        search: str = "",
+        cursor: str = "",
+        page_size: int = Query(default=50, ge=1, le=200),
+    ) -> dict[str, Any]:
+        authorize(authorization)
+        safe_size = read_models.page_size(page_size)
+        rows, next_cursor, has_more = store.queue_page(queue=queue, status=status, search=search, cursor=cursor, page_size=safe_size)
+        out = [read_models.summarize_queue_row(row) for row in rows]
+        return {
+            "ok": True,
+            "source": "control_api_v1_queue",
+            "authority": "bounded SQL queue read model",
+            "generated_at": utc_now(),
+            "counts": store.queue_counts_sql(),
+            "page": read_models.page_response(rows=out, next_cursor=next_cursor, has_more=has_more, page_size_value=safe_size, cursor=cursor, filters={"queue": queue, "status": status, "search": search}),
+            "rows": out,
+        }
+
+    @router.get("/api/v1/runs")
+    def dashboard_v1_runs(
+        authorization: str | None = Header(default=None),
+        state: str = "",
+        project_id: str = "",
+        search: str = "",
+        cursor: str = "",
+        page_size: int = Query(default=50, ge=1, le=200),
+    ) -> dict[str, Any]:
+        authorize(authorization)
+        safe_size = read_models.page_size(page_size)
+        rows, next_cursor, has_more = store.run_page(state=state, project_id=project_id, search=search, cursor=cursor, page_size=safe_size)
+        out = [read_models.summarize_run_row(row) for row in rows]
+        return {
+            "ok": True,
+            "source": "control_api_v1_runs",
+            "authority": "bounded SQL run read model",
+            "generated_at": utc_now(),
+            "page": read_models.page_response(rows=out, next_cursor=next_cursor, has_more=has_more, page_size_value=safe_size, cursor=cursor, filters={"state": state, "project_id": project_id, "search": search}),
+            "rows": out,
+        }
+
+    @router.get("/api/v1/runs/{run_id}")
+    def dashboard_v1_run_detail(run_id: str, authorization: str | None = Header(default=None), event_limit: int = Query(default=50, ge=0, le=100)) -> dict[str, Any]:
+        authorize(authorization)
+        run = store.run_row(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="run not found")
+        project_id = str(run.get("project_id") or "")
+        events, next_cursor, has_more = store.event_page(entity_id=run_id, page_size=event_limit, include_payload=False)
+        papers, paper_cursor, paper_more = store.paper_page(run_id=run_id, page_size=25)
+        return {
+            "ok": True,
+            "source": "control_api_v1_run",
+            "authority": "bounded SQL run detail read model",
+            "generated_at": utc_now(),
+            "run_id": run_id,
+            "run": read_models.summarize_run_row(run),
+            "project": store.project_row(project_id) if project_id else None,
+            "papers": [read_models.summarize_paper_row(row) for row in papers],
+            "papers_page": read_models.page_response(rows=papers, next_cursor=paper_cursor, has_more=paper_more, page_size_value=25, cursor="", filters={"run_id": run_id}),
+            "events": events,
+            "events_page": read_models.page_response(rows=events, next_cursor=next_cursor, has_more=has_more, page_size_value=read_models.page_size(event_limit, cap=100), cursor="", filters={"entity_id": run_id}),
+        }
+
+    @router.get("/api/v1/projects/{project_id}")
+    def dashboard_v1_project_detail(project_id: str, authorization: str | None = Header(default=None), event_limit: int = Query(default=50, ge=0, le=100)) -> dict[str, Any]:
+        authorize(authorization)
+        project = store.project_row(project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="project not found")
+        runs, run_cursor, run_more = store.run_page(project_id=project_id, page_size=25)
+        papers, paper_cursor, paper_more = store.paper_page(project_id=project_id, page_size=25)
+        events, event_cursor, event_more = store.event_page(entity_id=project_id, page_size=event_limit, include_payload=False)
+        return {
+            "ok": True,
+            "source": "control_api_v1_project",
+            "authority": "bounded SQL project detail read model",
+            "generated_at": utc_now(),
+            "project_id": project_id,
+            "project": project,
+            "queue_item": store.queue_row(project_id),
+            "runs": [read_models.summarize_run_row(row) for row in runs],
+            "runs_page": read_models.page_response(rows=runs, next_cursor=run_cursor, has_more=run_more, page_size_value=25, cursor="", filters={"project_id": project_id}),
+            "papers": [read_models.summarize_paper_row(row) for row in papers],
+            "papers_page": read_models.page_response(rows=papers, next_cursor=paper_cursor, has_more=paper_more, page_size_value=25, cursor="", filters={"project_id": project_id}),
+            "events": events,
+            "events_page": read_models.page_response(rows=events, next_cursor=event_cursor, has_more=event_more, page_size_value=read_models.page_size(event_limit, cap=100), cursor="", filters={"entity_id": project_id}),
+        }
+
+    @router.get("/api/v1/papers")
+    def dashboard_v1_papers(
+        authorization: str | None = Header(default=None),
+        status: str = "",
+        search: str = "",
+        cursor: str = "",
+        page_size: int = Query(default=50, ge=1, le=200),
+    ) -> dict[str, Any]:
+        authorize(authorization)
+        safe_size = read_models.page_size(page_size)
+        rows, next_cursor, has_more = store.paper_page(status=status, search=search, cursor=cursor, page_size=safe_size)
+        out = [read_models.summarize_paper_row(row) for row in rows]
+        return {
+            "ok": True,
+            "source": "control_api_v1_papers",
+            "authority": "bounded SQL paper read model",
+            "generated_at": utc_now(),
+            "counts": store.paper_counts_sql(),
+            "page": read_models.page_response(rows=out, next_cursor=next_cursor, has_more=has_more, page_size_value=safe_size, cursor=cursor, filters={"status": status, "search": search}),
+            "rows": out,
+        }
+
+    @router.get("/api/v1/papers/{paper_id}")
+    def dashboard_v1_paper_detail(paper_id: str, authorization: str | None = Header(default=None), event_limit: int = Query(default=50, ge=0, le=100)) -> dict[str, Any]:
+        authorize(authorization)
+        paper = store.paper_row(paper_id)
+        if paper is None:
+            raise HTTPException(status_code=404, detail="paper not found")
+        project_id = str(paper.get("project_id") or "")
+        run_id = str(paper.get("run_id") or "")
+        events, next_cursor, has_more = store.event_page(entity_id=paper_id, page_size=event_limit, include_payload=False)
+        return {
+            "ok": True,
+            "source": "control_api_v1_paper",
+            "authority": "bounded SQL paper detail read model",
+            "generated_at": utc_now(),
+            "paper_id": paper_id,
+            "paper": read_models.summarize_paper_row(paper),
+            "project": store.project_row(project_id) if project_id else None,
+            "run": store.run_row(run_id) if run_id else None,
+            "events": events,
+            "events_page": read_models.page_response(rows=events, next_cursor=next_cursor, has_more=has_more, page_size_value=read_models.page_size(event_limit, cap=100), cursor="", filters={"entity_id": paper_id}),
+        }
+
+    @router.get("/api/v1/events")
+    def dashboard_v1_events(
+        authorization: str | None = Header(default=None),
+        entity_type: str = "",
+        entity_id: str = "",
+        event_type: str = "",
+        search: str = "",
+        cursor: str = "",
+        page_size: int = Query(default=50, ge=1, le=200),
+        include_payload: bool = False,
+    ) -> dict[str, Any]:
+        authorize(authorization)
+        safe_size = read_models.page_size(page_size)
+        rows, next_cursor, has_more = store.event_page(entity_type=entity_type, entity_id=entity_id, event_type=event_type, search=search, cursor=cursor, page_size=safe_size, include_payload=include_payload)
+        return {
+            "ok": True,
+            "source": "control_api_v1_events",
+            "authority": "bounded SQL event read model",
+            "generated_at": utc_now(),
+            "page": read_models.page_response(rows=rows, next_cursor=next_cursor, has_more=has_more, page_size_value=safe_size, cursor=cursor, filters={"entity_type": entity_type, "entity_id": entity_id, "event_type": event_type, "search": search, "include_payload": include_payload}),
+            "rows": rows,
+        }
+
+    @router.get("/api/v1/observability/health")
+    def dashboard_v1_observability_health(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        authorize(authorization)
+        latest_route_observation = None
+        if config.route_observability_enabled:
+            path = Path(config.route_observability_log_path).expanduser() if config.route_observability_log_path else config.expanded_state_dir / "route_observations.jsonl"
+            try:
+                with path.open("rb") as handle:
+                    handle.seek(0, 2)
+                    size = handle.tell()
+                    handle.seek(max(0, size - 4096))
+                    latest = handle.readlines()[-1:] or []
+                    latest_route_observation = latest[0].decode("utf-8", errors="replace").strip() if latest else None
+            except OSError:
+                latest_route_observation = None
+        return {
+            "ok": True,
+            "source": "control_api_v1_observability_health",
+            "authority": "bounded route observability read model",
+            "generated_at": utc_now(),
+            "route_observability_enabled": config.route_observability_enabled,
+            "route_observability_log_configured": bool(config.route_observability_log_path),
+            "latest_route_observation": latest_route_observation,
+        }
+
+    @router.get("/api/v1/observability/memory")
+    def dashboard_v1_observability_memory(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        authorize(authorization)
+        rss = current_rss_mib()
+        peak = peak_rss_mib()
+        warn_threshold = config.route_observability_memory_warn_rss_mib
+        return {
+            "ok": True,
+            "source": "control_api_v1_observability_memory",
+            "authority": "current controller process memory sample",
+            "generated_at": utc_now(),
+            "rss_mib": rss,
+            "peak_rss_mib": peak,
+            "warn_threshold_mib": warn_threshold,
+            "memory_warn": bool(warn_threshold and rss is not None and rss >= warn_threshold),
+            "route_observability_enabled": config.route_observability_enabled,
         }
 
 
