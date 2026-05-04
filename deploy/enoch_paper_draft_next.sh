@@ -36,7 +36,22 @@ PY
     "$CONTROL_URL/control/api/paper-reviews/$paper_path/rewrite-draft" \
     -d "{\"idempotency_key\":\"paper-publication-pipeline:$paper_id:$(date -u +%Y%m%dT%H%M%SZ)\",\"requested_by\":\"systemd:enoch-paper-draft-next\",\"force\":true}")"
 fi
-python3 - "$draft_response" "$rewrite_response" <<'PY'
+rewrite_pending_drafts_response="$(curl -fsS -X POST \
+  -H "Authorization: Bearer $CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  "$CONTROL_URL/control/api/paper-reviews/rewrite-batch" \
+  -d "{\"idempotency_key\":\"paper-publication-pending-drafts:$(date -u +%Y%m%dT%H%M%SZ)\",\"requested_by\":\"systemd:enoch-paper-draft-next\",\"paper_status\":\"draft_review\",\"review_status\":\"\",\"limit\":20,\"force\":true,\"dry_run\":false,\"skip_rewritten\":false}")"
+rewrite_pending_publication_response="$(curl -fsS -X POST \
+  -H "Authorization: Bearer $CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  "$CONTROL_URL/control/api/paper-reviews/rewrite-batch" \
+  -d "{\"idempotency_key\":\"paper-publication-pending-publication:$(date -u +%Y%m%dT%H%M%SZ)\",\"requested_by\":\"systemd:enoch-paper-draft-next\",\"paper_status\":\"publication_draft\",\"review_status\":\"\",\"limit\":20,\"force\":true,\"dry_run\":false,\"skip_rewritten\":false}")"
+python3 - "$draft_response" "$rewrite_response" "$rewrite_pending_drafts_response" "$rewrite_pending_publication_response" <<'PY'
 import json, sys
-print(json.dumps({"draft": json.loads(sys.argv[1]), "publication_rewrite": json.loads(sys.argv[2])}, sort_keys=True))
+print(json.dumps({
+    "draft": json.loads(sys.argv[1]),
+    "publication_rewrite": json.loads(sys.argv[2]),
+    "pending_draft_rewrite": json.loads(sys.argv[3]),
+    "pending_publication_rewrite": json.loads(sys.argv[4]),
+}, sort_keys=True))
 PY

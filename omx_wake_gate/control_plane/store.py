@@ -608,6 +608,10 @@ class ControlPlaneStore:
                     p.notion_page_url AS notion_page_url,
                     p.notion_page_id AS notion_page_id,
                     p.origin_idea_status AS origin_idea_status,
+                    (SELECT pa.paper_id FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_id,
+                    (SELECT pa.paper_status FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status,
+                    (SELECT rv.review_status FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_review_status,
+                    (SELECT rv.finalization_package_path FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_finalization_package_path,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)
@@ -705,6 +709,10 @@ class ControlPlaneStore:
                     p.notion_page_url AS notion_page_url,
                     p.notion_page_id AS notion_page_id,
                     p.origin_idea_status AS origin_idea_status,
+                    (SELECT pa.paper_id FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_id,
+                    (SELECT pa.paper_status FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status,
+                    (SELECT rv.review_status FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_review_status,
+                    (SELECT rv.finalization_package_path FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_finalization_package_path,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)
@@ -721,8 +729,12 @@ class ControlPlaneStore:
     def paper_rows(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
-                """SELECT pa.*, p.project_name AS project_name, p.project_dir AS project_dir, p.notion_page_url AS notion_page_url, p.notion_page_id AS notion_page_id
+                """SELECT pa.*, p.project_name AS project_name, p.project_dir AS project_dir, p.notion_page_url AS notion_page_url, p.notion_page_id AS notion_page_id,
+                    rv.review_status AS review_status,
+                    rv.finalization_package_path AS finalization_package_path,
+                    rv.finalized_at AS finalized_at
                 FROM papers pa LEFT JOIN projects p USING(project_id)
+                LEFT JOIN paper_review_items rv USING(paper_id)
                 ORDER BY pa.updated_at DESC"""
             ).fetchall()
         return [dict(row) for row in rows]
@@ -777,8 +789,12 @@ class ControlPlaneStore:
             "title": "p.project_name COLLATE NOCASE ASC, pa.updated_at DESC",
         }.get(sort, "pa.updated_at DESC, pa.paper_id DESC")
         sql = f"""SELECT pa.*, p.project_name AS project_name, p.project_dir AS project_dir,
-                    p.notion_page_url AS notion_page_url, p.notion_page_id AS notion_page_id
+                    p.notion_page_url AS notion_page_url, p.notion_page_id AS notion_page_id,
+                    rv.review_status AS review_status,
+                    rv.finalization_package_path AS finalization_package_path,
+                    rv.finalized_at AS finalized_at
                 FROM papers pa LEFT JOIN projects p USING(project_id)
+                LEFT JOIN paper_review_items rv USING(paper_id)
                 {where}
                 ORDER BY {order_by}
                 LIMIT ? OFFSET ?"""
@@ -789,6 +805,23 @@ class ControlPlaneStore:
         next_cursor = str(offset + safe_size) if has_more else None
         return page_rows, next_cursor, has_more
 
+
+
+    def operator_paper_rows_sql(self) -> list[dict[str, Any]]:
+        """Return paper rows with review metadata for normalized operator aggregation."""
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT pa.*, p.project_name AS project_name, p.project_dir AS project_dir,
+                    p.notion_page_url AS notion_page_url, p.notion_page_id AS notion_page_id,
+                    rv.review_status AS review_status,
+                    rv.finalization_package_path AS finalization_package_path,
+                    rv.finalized_at AS finalized_at
+                FROM papers pa LEFT JOIN projects p USING(project_id)
+                LEFT JOIN paper_review_items rv USING(paper_id)
+                ORDER BY pa.updated_at DESC"""
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def run_rows(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
@@ -803,6 +836,7 @@ class ControlPlaneStore:
         search: str = "",
         page_size: int = 50,
         cursor: str = "",
+        sort: str = "recent",
     ) -> tuple[list[dict[str, Any]], str | None, bool]:
         safe_size = max(1, min(page_size, 200))
         offset = max(0, _int(cursor, 0))
@@ -819,10 +853,22 @@ class ControlPlaneStore:
             clauses.append("(r.run_id LIKE ? OR r.project_id LIKE ? OR p.project_name LIKE ? OR r.session_id LIKE ? OR r.current_activity LIKE ?)")
             params.extend([needle] * 5)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        sql = f"""SELECT r.*, p.project_name AS project_name, p.project_dir AS project_dir
+        order_by = {
+            "recent": "r.updated_at DESC, r.run_id DESC",
+            "oldest": "r.updated_at ASC, r.run_id ASC",
+            "started": "r.started_at DESC, r.updated_at DESC",
+            "ended": "r.ended_at DESC, r.updated_at DESC",
+            "state": "r.state ASC, r.updated_at DESC",
+            "project": "p.project_name COLLATE NOCASE ASC, r.updated_at DESC",
+        }.get(sort, "r.updated_at DESC, r.run_id DESC")
+        sql = f"""SELECT r.*, p.project_name AS project_name, p.project_dir AS project_dir,
+                (SELECT pa.paper_id FROM papers pa WHERE pa.run_id = r.run_id ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_id,
+                (SELECT pa.paper_status FROM papers pa WHERE pa.run_id = r.run_id ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status,
+                (SELECT rv.review_status FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.run_id = r.run_id ORDER BY pa.updated_at DESC LIMIT 1) AS related_review_status,
+                (SELECT rv.finalization_package_path FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.run_id = r.run_id ORDER BY pa.updated_at DESC LIMIT 1) AS related_finalization_package_path
             FROM runs r LEFT JOIN projects p USING(project_id)
             {where}
-            ORDER BY r.updated_at DESC, r.run_id DESC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?"""
         with self._connect() as conn:
             rows = conn.execute(sql, (*params, safe_size + 1, offset)).fetchall()
@@ -833,7 +879,16 @@ class ControlPlaneStore:
 
     def run_row(self, run_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
+            row = conn.execute(
+                """SELECT r.*, p.project_name AS project_name, p.project_dir AS project_dir,
+                (SELECT pa.paper_id FROM papers pa WHERE pa.run_id = r.run_id ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_id,
+                (SELECT pa.paper_status FROM papers pa WHERE pa.run_id = r.run_id ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status,
+                (SELECT rv.review_status FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.run_id = r.run_id ORDER BY pa.updated_at DESC LIMIT 1) AS related_review_status,
+                (SELECT rv.finalization_package_path FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.run_id = r.run_id ORDER BY pa.updated_at DESC LIMIT 1) AS related_finalization_package_path
+                FROM runs r LEFT JOIN projects p USING(project_id)
+                WHERE r.run_id=?""",
+                (run_id,),
+            ).fetchone()
         return dict(row) if row else None
 
     def queue_row(self, project_id: str) -> dict[str, Any] | None:
@@ -845,6 +900,10 @@ class ControlPlaneStore:
                     p.notion_page_url AS notion_page_url,
                     p.notion_page_id AS notion_page_id,
                     p.origin_idea_status AS origin_idea_status,
+                    (SELECT pa.paper_id FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_id,
+                    (SELECT pa.paper_status FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status,
+                    (SELECT rv.review_status FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_review_status,
+                    (SELECT rv.finalization_package_path FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_finalization_package_path,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)
@@ -861,8 +920,12 @@ class ControlPlaneStore:
     def paper_row(self, paper_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
-                """SELECT pa.*, p.project_name AS project_name, p.project_dir AS project_dir, p.notion_page_url AS notion_page_url, p.notion_page_id AS notion_page_id
+                """SELECT pa.*, p.project_name AS project_name, p.project_dir AS project_dir, p.notion_page_url AS notion_page_url, p.notion_page_id AS notion_page_id,
+                    rv.review_status AS review_status,
+                    rv.finalization_package_path AS finalization_package_path,
+                    rv.finalized_at AS finalized_at
                 FROM papers pa LEFT JOIN projects p USING(project_id)
+                LEFT JOIN paper_review_items rv USING(paper_id)
                 WHERE pa.paper_id=?""",
                 (paper_id,),
             ).fetchone()
@@ -1302,6 +1365,7 @@ class ControlPlaneStore:
         page_size: int = 50,
         cursor: str = "",
         include_payload: bool = False,
+        sort: str = "recent",
     ) -> tuple[list[dict[str, Any]], str | None, bool]:
         safe_size = max(1, min(page_size, 200))
         clauses: list[str] = []
@@ -1324,9 +1388,15 @@ class ControlPlaneStore:
             clauses.append("event_id < ?")
             params.append(cursor_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        order_by = {
+            "recent": "event_id DESC",
+            "oldest": "event_id ASC",
+            "type": "event_type ASC, event_id DESC",
+            "entity": "entity_type ASC, entity_id ASC, event_id DESC",
+        }.get(sort, "event_id DESC")
         with self._connect() as conn:
             rows = conn.execute(
-                f"SELECT * FROM events {where} ORDER BY event_id DESC LIMIT ?",
+                f"SELECT * FROM events {where} ORDER BY {order_by} LIMIT ?",
                 (*params, safe_size + 1),
             ).fetchall()
         out = []
@@ -1350,6 +1420,37 @@ class ControlPlaneStore:
         next_cursor = str(out[-1]["event_id"]) if has_more and out else None
         return out, next_cursor, has_more
 
+
+    def operator_queue_rows_sql(self) -> list[dict[str, Any]]:
+        """Return queue rows needed for normalized operator-count aggregation.
+
+        This intentionally stays SQL-backed so v1 overview does not regress to
+        legacy full-list helper methods that tests guard against.
+        """
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT q.*,
+                    p.project_name AS project_name,
+                    p.project_dir AS project_dir,
+                    p.notion_page_url AS notion_page_url,
+                    p.notion_page_id AS notion_page_id,
+                    p.origin_idea_status AS origin_idea_status,
+                    (SELECT pa.paper_id FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_id,
+                    (SELECT pa.paper_status FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status,
+                    (SELECT rv.review_status FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_review_status,
+                    (SELECT rv.finalization_package_path FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_finalization_package_path,
+                    p.created_at AS project_created_at,
+                    p.updated_at AS project_updated_at
+                FROM queue_items q JOIN projects p USING(project_id)
+                WHERE q.status != ?
+                   OR q.next_action_hint = ?
+                   OR q.manual_review_required = 1
+                ORDER BY q.updated_at DESC""",
+                (QueueStatus.CANCELED.value, "draft_paper_or_select_next_project"),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def active_items(self) -> list[dict[str, Any]]:
         return [row for row in self.queue_rows() if row.get("status") in ACTIVE_STATUSES]
 
@@ -1363,6 +1464,10 @@ class ControlPlaneStore:
                     p.notion_page_url AS notion_page_url,
                     p.notion_page_id AS notion_page_id,
                     p.origin_idea_status AS origin_idea_status,
+                    (SELECT pa.paper_id FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_id,
+                    (SELECT pa.paper_status FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status,
+                    (SELECT rv.review_status FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_review_status,
+                    (SELECT rv.finalization_package_path FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_finalization_package_path,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)
@@ -1382,6 +1487,10 @@ class ControlPlaneStore:
                     p.notion_page_url AS notion_page_url,
                     p.notion_page_id AS notion_page_id,
                     p.origin_idea_status AS origin_idea_status,
+                    (SELECT pa.paper_id FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_id,
+                    (SELECT pa.paper_status FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status,
+                    (SELECT rv.review_status FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_review_status,
+                    (SELECT rv.finalization_package_path FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_finalization_package_path,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)

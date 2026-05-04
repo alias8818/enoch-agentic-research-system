@@ -169,9 +169,16 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     self.assertIn("payload_summary", events.json()["rows"][0])
                     self.assertNotIn("payload", events.json()["rows"][0])
 
-                runs = client.get("/control/api/v1/runs?page_size=2", headers=headers)
+                runs = client.get("/control/api/v1/runs?page_size=2&sort=state&search=project", headers=headers)
                 self.assertEqual(runs.status_code, 200)
                 self.assertLessEqual(runs.json()["page"]["returned"], 2)
+                self.assertEqual(runs.json()["page"]["filters"]["sort"], "state")
+                self.assertEqual(runs.json()["page"]["filters"]["search"], "project")
+
+                event_filtered = client.get("/control/api/v1/events?page_size=2&sort=type&search=import", headers=headers)
+                self.assertEqual(event_filtered.status_code, 200)
+                self.assertEqual(event_filtered.json()["page"]["filters"]["sort"], "type")
+                self.assertEqual(event_filtered.json()["page"]["filters"]["search"], "import")
 
     def test_export_and_notion_projection_endpoints(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1631,8 +1638,10 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 self.assertIn(path, response.text)
             for stale_path in ["/control/api/status?refresh_worker=true", "/control/api/queues/", "/control/api/events?page_size=200", "/control/api/papers?page_size=100", "['event_id','event_type','entity_type','entity_id','created_at','payload_summary']"]:
                 self.assertNotIn(stale_path, response.text)
-            for ui_text in ["Publication Review", "publication_review_v1 checklist", "approve-finalization", "prepare-finalization-package", "review queue", "Formatted control-plane events", "Search, filter, sort, and page", "Recently added", "Find projects", "Find papers", "choose 200 per page"]:
+            for ui_text in ["Publication Automation", "Automated rewrite/finalization lane", "prepare finalization package", "Formatted control-plane events", "Search, filter, sort, and page", "Recently added", "Find projects", "Find papers", "Find runs", "Find events", "choose 200 per page"]:
                 self.assertIn(ui_text, response.text)
+            for removed_manual_review_text in ["Auto-pass checklist", "approve-finalization"]:
+                self.assertNotIn(removed_manual_review_text, response.text)
 
 
 if __name__ == "__main__":
