@@ -163,6 +163,24 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
             from pg_tables
             where schemaname = 'enoch' and not rowsecurity
           ), '[]'::jsonb),
+          'rls_tables_without_policies', coalesce((
+            select jsonb_agg(t.tablename order by t.tablename)
+            from pg_tables t
+            where t.schemaname = 'enoch'
+              and not exists (
+                select 1
+                from pg_policies p
+                where p.schemaname = t.schemaname
+                  and p.tablename = t.tablename
+              )
+          ), '[]'::jsonb),
+          'set_updated_at_search_path', coalesce((
+            select to_jsonb(p.proconfig)
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'enoch' and p.proname = 'set_updated_at'
+            limit 1
+          ), 'null'::jsonb),
           'operator_dashboard_counts', (
             select to_jsonb(odc)
             from enoch.operator_dashboard_counts odc
@@ -189,6 +207,10 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         failures.append("expected fixture publication-ready count to be 1")
     if checks["rls_disabled_tables"]:
         failures.append(f"RLS disabled tables: {checks['rls_disabled_tables']}")
+    if checks["rls_tables_without_policies"]:
+        failures.append(f"RLS tables without policies: {checks['rls_tables_without_policies']}")
+    if "search_path=enoch, pg_temp" not in (checks["set_updated_at_search_path"] or []):
+        failures.append("set_updated_at must pin search_path to enoch, pg_temp")
 
     return {
         "ok": not failures,

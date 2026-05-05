@@ -1,5 +1,5 @@
 -- Enoch/OMX control-plane baseline for hosted Supabase/Postgres.
--- Local-only draft: this migration is intentionally not applied to cloud yet.
+-- Baseline draft: apply only to sandbox/preview cloud targets until cutover is approved.
 -- Design notes:
 --   * The authoritative control-plane schema lives in private schema `enoch`.
 --   * `public` remains empty; browser/Data API mutation is not part of Phase 1.
