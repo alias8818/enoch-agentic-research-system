@@ -81,9 +81,13 @@ args=(
   --default-model "$DEFAULT_MODEL"
   --default-sandbox "$DEFAULT_SANDBOX"
   --apply-intake
-  --apply-notion-updates
   --max-updates "${NOTION_SYNC_MAX_UPDATES:-500}"
 )
+case "${ENOCH_NOTION_APPLY_UPDATES:-0}" in
+  1|true|TRUE|yes|YES|on|ON)
+    args+=(--apply-notion-updates)
+    ;;
+esac
 if [[ -n "${NOTION_DATA_SOURCE_ID:-}" ]]; then
   args+=(--notion-data-source-id "$NOTION_DATA_SOURCE_ID")
 fi
