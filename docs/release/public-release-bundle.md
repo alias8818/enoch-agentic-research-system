@@ -35,19 +35,21 @@ The script pushes and verifies remote SHAs in this order:
 
 The corpus repo is intentionally last because its cross-repo workflow reads the other repos from remote `main`.
 
-## Paper ledger reconciliation gate
+## Corpus ledger reconciliation gate
 
-Before saying the corpus is current or that there are no papers left to write, reconcile the separate ledgers explicitly:
+Before saying the public corpus is current, reconcile the finalized publication-draft lane against the corpus index:
 
 ```bash
 ENOCH_CONTROL_TOKEN="$TOKEN" \
   python3 scripts/reconcile_paper_ledgers.py \
-  --control-url http://192.168.1.166:8787 \
+  --control-url http://<control-plane-host>:8787 \
   --corpus ../enoch-ai-research-corpus \
   --require-synced
 ```
 
-This check compares live draft eligibility, finalized control-plane review rows, and the public corpus index. A nonzero exit means at least one ledger is not aligned; do not claim the release count is final until the report is clean.
+This check compares finalized control-plane `publication_draft` rows and the public corpus index. A nonzero exit means the corpus import lane is not aligned; do not claim the release count is final until the report is clean.
+
+Do not mix old-system finalized `draft_review` rows into the publish backlog; they are historical automation records, not current corpus work. Use `--paper-status '' --verbose` only when deliberately auditing legacy exact-fingerprint drift. Use `--include-draft-candidate` only when separately checking whether new papers still need to be written.
 
 ## Stop rule
 

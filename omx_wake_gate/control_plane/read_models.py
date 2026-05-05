@@ -121,7 +121,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
             tone="bad",
             attention=True,
             next_step="Open the item and resolve the blocker or worker question.",
-            explanation="Queue status or manual-review flag requires operator action.",
+            explanation="Queue status or manual-action flag requires operator action.",
         )
     if queue_status == QueueStatus.PAUSED.value:
         return _stage(
@@ -141,7 +141,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
         )
     if paper_status == PaperStatus.PUBLICATION_DRAFT.value and review_status in READY_REVIEW_STATUSES and _text(row.get("finalization_package_path") or row.get("related_finalization_package_path")):
         return _stage(
-            "approved_for_corpus",
+            "ready_to_publish",
             tone="good",
             attention=False,
             next_step="Import this finalized publication draft into the public corpus if it is not already present.",
@@ -346,7 +346,7 @@ def summarize_run_row(row: dict[str, Any]) -> dict[str, Any]:
 OPERATOR_STAGE_PRECEDENCE = {
     "blocked_needs_operator": 100,
     "needs_review": 90,
-    "approved_for_corpus": 80,
+    "ready_to_publish": 80,
     "finalization_needed": 75,
     "draft_created": 70,
     "run_complete_draft_needed": 60,
@@ -414,7 +414,7 @@ def operator_counts_from_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
         stage = _text(row.get("operator_stage")) or operator_stage_for_record(row)["operator_stage"]
         counts[stage] = counts.get(stage, 0) + 1
     counts["needs_attention"] = sum(1 for row in reconciled if bool(row.get("operator_attention") or operator_stage_for_record(row)["operator_attention"]))
-    counts["ready_to_publish"] = counts.get("approved_for_corpus", 0)
+    counts["ready_to_publish"] = counts.get("ready_to_publish", 0)
     counts["total_operator_items"] = len(reconciled)
     return counts
 

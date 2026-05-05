@@ -52,7 +52,7 @@ class OperatorStatusTests(unittest.TestCase):
             ({"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project"}, "run_complete_draft_needed", False),
             ({"status": "completed", "last_run_state": "session_finished_ready", "next_action_hint": "select_next_project"}, "run_complete_no_paper", False),
             ({"paper_id": "paper-1", "paper_status": "draft_review"}, "draft_created", False),
-            ({"paper_id": "paper-2", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json"}, "approved_for_corpus", False),
+            ({"paper_id": "paper-2", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json"}, "ready_to_publish", False),
             ({"paper_id": "paper-approved", "paper_status": "publication_draft", "review_status": "approved_for_finalization"}, "finalization_needed", False),
             ({"paper_id": "paper-finalized-no-package", "paper_status": "publication_draft", "review_status": "finalized"}, "finalization_needed", False),
             ({"paper_id": "paper-missing-review", "paper_status": "publication_draft"}, "finalization_needed", False),
@@ -185,13 +185,13 @@ class OperatorStatusTests(unittest.TestCase):
 
             papers = client.get("/control/api/v1/papers?page_size=10", headers=headers).json()
             paper_stages = {row["paper_id"]: row["operator_stage"] for row in papers["rows"]}
-            self.assertEqual(paper_stages["paper-ready"], "approved_for_corpus")
+            self.assertEqual(paper_stages["paper-ready"], "ready_to_publish")
             self.assertEqual(paper_stages["paper-unreviewed"], "finalization_needed")
 
             detail = client.get("/control/api/v1/projects/idea-ready", headers=headers).json()
-            self.assertEqual(detail["queue_item"]["operator_stage"], "approved_for_corpus")
+            self.assertEqual(detail["queue_item"]["operator_stage"], "ready_to_publish")
             self.assertEqual(detail["queue_item"]["related_paper_id"], "paper-ready")
-            self.assertEqual(detail["papers"][0]["operator_stage"], "approved_for_corpus")
+            self.assertEqual(detail["papers"][0]["operator_stage"], "ready_to_publish")
 
     def test_overview_suppresses_stale_queue_without_run_id_by_project_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -360,7 +360,7 @@ class OperatorStatusTests(unittest.TestCase):
             papers = client.get("/control/api/v1/papers?page_size=10", headers=headers).json()
             paper_stages = {row["paper_id"]: row["operator_stage"] for row in papers["rows"]}
             self.assertEqual(paper_stages["paper-unbackfilled"], "finalization_needed")
-            self.assertEqual(paper_stages["paper-ready-stale"], "approved_for_corpus")
+            self.assertEqual(paper_stages["paper-ready-stale"], "ready_to_publish")
 
 
 
@@ -445,10 +445,10 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertEqual(finalized.status_code, 200, finalized.text)
 
             detail = client.get("/control/api/v1/projects/idea-with-paper", headers=headers).json()
-            self.assertEqual(detail["queue_item"]["operator_stage"], "approved_for_corpus")
+            self.assertEqual(detail["queue_item"]["operator_stage"], "ready_to_publish")
             self.assertEqual(detail["queue_item"]["related_paper_id"], "paper-existing")
             runs = client.get("/control/api/v1/runs?search=run-with-paper", headers=headers).json()
-            self.assertEqual(runs["rows"][0]["operator_stage"], "approved_for_corpus")
+            self.assertEqual(runs["rows"][0]["operator_stage"], "ready_to_publish")
             overview = client.get("/control/api/v1/overview", headers=headers).json()
             self.assertNotIn("run_complete_draft_needed", overview["operator_counts"])
             self.assertEqual(overview["operator_counts"]["ready_to_publish"], 1)

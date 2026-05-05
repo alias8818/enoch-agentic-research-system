@@ -300,7 +300,7 @@ def _review_rank(paper: dict[str, Any], queue_item: dict[str, Any] | None, audit
     queue_item = queue_item or {}
     if _text(queue_item.get("blocked_reason")) or _text(queue_item.get("status")) in {QueueStatus.BLOCKED.value, QueueStatus.NEEDS_REVIEW.value, QueueStatus.DISPATCH_ERROR.value} or bool(queue_item.get("manual_review_required")):
         score -= 100
-        reasons.append("blocked/manual-review queue signal -100")
+        reasons.append("blocked/manual-action queue signal -100")
 
     material_missing = sorted(set(missing))
     if material_missing:

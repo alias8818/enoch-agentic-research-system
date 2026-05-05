@@ -40,7 +40,7 @@ def main() -> int:
     parser.add_argument("--profile", default=DEFAULT_TARGETS["profile"])
     parser.add_argument("--manifest", default=DEFAULT_TARGETS["manifest"])
     parser.add_argument("--docs", default=DEFAULT_TARGETS["docs"])
-    parser.add_argument("--expected-count", type=int, default=302)
+    parser.add_argument("--expected-count", type=int, default=356)
     parser.add_argument("--expected-gate", default="packaging_provenance_gate")
     args = parser.parse_args()
     failures: list[str] = []
@@ -59,14 +59,14 @@ def main() -> int:
     require("Run the local proof" in launch, "launch missing local proof section", failures)
     require("packaging/provenance" in launch, "launch missing packaging/provenance wording", failures)
     require("strict claim/evidence" in launch, "launch missing strict claim/evidence audit wording", failures)
-    require("2/302" in launch, "launch missing strict audit 2/302 status", failures)
+    require("2/356" in launch, "launch missing strict audit 2/356 status", failures)
     require("not peer-reviewed" in launch, "launch missing not-peer-reviewed caveat", failures)
-    require('name="enoch-corpus-count" content="302"' in launch, "launch missing corpus-count meta", failures)
+    require('name="enoch-corpus-count" content="356"' in launch, "launch missing corpus-count meta", failures)
     require('name="enoch-build-sha"' in launch and '__GITHUB_SHA__' not in launch, "launch missing injected build SHA", failures)
 
-    require("302" in profile, "profile missing 302 count", failures)
-    require("302/302" in profile, "profile missing 302/302 pass count", failures)
-    require("2/302" in profile, "profile missing strict audit 2/302 status", failures)
+    require("356" in profile, "profile missing 356 count", failures)
+    require("356/356" in profile, "profile missing 356/356 pass count", failures)
+    require("2/356" in profile, "profile missing strict audit 2/356 status", failures)
     require("packaging/provenance" in profile, "profile missing packaging/provenance wording", failures)
     require("strict claim/evidence" in profile, "profile missing strict claim/evidence wording", failures)
 
