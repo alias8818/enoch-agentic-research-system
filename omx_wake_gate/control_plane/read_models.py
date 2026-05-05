@@ -440,14 +440,33 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
     queue_rows = [summarize_queue_row(row) for row in raw_queue_rows]
     paper_rows = [summarize_paper_row(row) for row in raw_paper_rows]
     operator_counts = operator_counts_from_rows([*queue_rows, *paper_rows])
-    write_candidates = eligible_paper_draft_candidates(raw_queue_rows, raw_paper_rows)
+    raw_write_candidates = eligible_paper_draft_candidates(raw_queue_rows, raw_paper_rows)
+    write_candidates: list[dict[str, Any]] = []
+    gate_rejected: list[dict[str, Any]] = []
+    for candidate in raw_write_candidates:
+        gate = _paper_draft_gate_for_row(candidate)
+        if gate is not None and not bool(gate.get("eligible")):
+            gate_rejected.append({
+                "project_id": candidate.get("project_id", ""),
+                "project_name": candidate.get("project_name", ""),
+                "run_id": candidate.get("current_run_id") or candidate.get("run_id") or "",
+                "decision_summary": _decision_summary_from_gate(gate),
+                "gate_reason": gate.get("reason", ""),
+            })
+            continue
+        write_candidates.append(candidate)
     paper_pipeline = {
         "write_needed": len(write_candidates),
+        "raw_completed_no_paper_candidates": len(raw_write_candidates),
+        "not_writable_by_decision_gate": len(gate_rejected),
+        "gate_rejected_sample": gate_rejected[:10],
         "next_write_candidate": draft_candidate_payload(write_candidates[0]) if write_candidates else None,
         "finalize_needed": operator_counts.get("finalization_needed", 0),
         "publish_ready": operator_counts.get("ready_to_publish", 0),
         "definitions": {
-            "write_needed": "completed positive runs with no live paper row yet",
+            "write_needed": "completed runs with no live paper row that currently pass the paper-positive decision gate",
+            "raw_completed_no_paper_candidates": "completed no-paper rows before checking local project decision artifacts",
+            "not_writable_by_decision_gate": "completed no-paper rows rejected by local project decision artifacts as negative, needs-review, or otherwise non-positive",
             "finalize_needed": "publication drafts missing automated finalization package",
             "publish_ready": "finalized publication drafts ready for corpus import",
         },
