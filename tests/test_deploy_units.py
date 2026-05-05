@@ -44,6 +44,18 @@ def test_paper_draft_unit_is_opt_in_and_never_dispatches() -> None:
     assert "192.168.1.77" not in combined
 
 
+def test_paper_drain_is_bounded_opt_in_and_does_not_run_broad_rewrite_batches() -> None:
+    script = (ROOT / "deploy" / "enoch_paper_drain_until_noop.py").read_text(encoding="utf-8")
+    assert "ENOCH_ENABLE_PAPER_DRAIN" in script
+    assert "ENOCH_PAPER_DRAIN_MAX_RUNS" in script
+    assert "ENOCH_PAPER_DRAIN_FAIL_LIMIT" in script
+    assert "/control/papers/draft-next" in script
+    assert "/control/api/paper-reviews/{encoded}/rewrite-draft" in script
+    assert "/control/api/paper-reviews/rewrite-batch" not in script
+    assert "/control/dispatch-next" not in script
+    assert "192.168.1." not in script
+
+
 def test_queue_pump_dispatches_without_paper_draft_by_default(tmp_path, capsys) -> None:
     pump = _load_queue_pump_module()
 

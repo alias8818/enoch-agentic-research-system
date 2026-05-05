@@ -44,7 +44,11 @@ class PaperWriterTests(unittest.TestCase):
             project.mkdir(parents=True)
             meta = write_paper_artifacts(self._config(tmp), {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"}, self._paper(), force=True)
             self.assertEqual(meta["provider"], "deterministic")
-            self.assertTrue((project / "papers/run/paper.md").exists())
+            draft = (project / "papers/run/paper.md").read_text(encoding="utf-8")
+            self.assertIn("Status: first draft", draft)
+            self.assertIn("Automation Status", draft)
+            self.assertNotIn("Review Required", draft)
+            self.assertNotIn("Human review", draft)
             self.assertTrue((project / "papers/run/manifest.json").exists())
 
     def test_synthetic_writer_uses_openai_compatible_response(self) -> None:
