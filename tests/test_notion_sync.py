@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import unittest
 
 from omx_wake_gate.control_plane.notion_sync import (
