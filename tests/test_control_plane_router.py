@@ -270,6 +270,27 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(props["OMX Project ID"], "00000000000040008000000000000001")
             self.assertEqual(props["OMX Queue Status"], "queued")
 
+    def test_notion_intake_defaults_to_configured_worker_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp).model_copy(update={"worker_wake_gate_url": "http://192.168.1.77:8787"})
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+
+            response = client.post("/control/intake/notion-ideas", headers=headers, json={
+                "idempotency_key": "router-notion-configured-worker",
+                "dry_run": False,
+                "notion_rows": [{
+                    "id": "00000000-0000-4000-8000-000000000077",
+                    "property_idea": "Configured Worker Target",
+                    "property_status": "exploring",
+                    "url": "https://www.notion.so/Configured-Worker-00000000000040008000000000000077",
+                }],
+            })
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["created"], 1)
+            self.assertEqual(response.json()["candidates"][0]["machine_target"], "192.168.1.77")
+
     def test_control_dashboard_html_is_served_without_token(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)

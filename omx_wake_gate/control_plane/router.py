@@ -6,6 +6,7 @@ import re
 import shlex
 import subprocess
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse
@@ -1745,6 +1746,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/intake/notion-ideas", response_model=NotionIntakeResponse)
     def intake_notion_ideas(payload: NotionIntakeRequest, authorization: str | None = Header(default=None)) -> NotionIntakeResponse:
         authorize(authorization)
+        if payload.default_machine_target == "worker.example":
+            configured_worker = urlparse(config.worker_wake_gate_url).hostname or ""
+            if configured_worker:
+                payload = payload.model_copy(update={"default_machine_target": configured_worker})
         try:
             inserted, created, updated, skipped, candidates, skipped_rows = store.ingest_notion_ideas(payload)
         except IdempotencyConflict as exc:
