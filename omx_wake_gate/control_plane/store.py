@@ -137,7 +137,7 @@ REVIEW_CHECKLIST_DEFINITION = (
     ("limitations_ethics", "Limitations/ethics", True),
     ("formatting_quality", "Formatting quality", True),
     ("target_venue_fit", "Target venue/application fit", False),
-    ("final_human_approval", "Final human approval", True),
+    ("final_human_approval", "Automated finalization approval", True),
 )
 REVIEW_CHECKLIST_ITEMS = tuple(item_id for item_id, _label, _required in REVIEW_CHECKLIST_DEFINITION)
 CHECKLIST_ITEM_STATUSES = {"pending", "pass", "fail", "accepted_risk", "not_applicable"}
@@ -1168,7 +1168,7 @@ class ControlPlaneStore:
         if status == "accepted_risk" and not note:
             raise ValueError("accepted_risk checklist status requires a note")
         if item_id == "final_human_approval" and status in {"accepted_risk", "not_applicable"}:
-            raise ValueError("final_human_approval must be pass or fail/pending")
+            raise ValueError("automated finalization approval must be pass or fail/pending")
         if status == "not_applicable" and item.get("required") and not note:
             raise ValueError("not_applicable on a required item requires a note")
         payload = self._mutation_payload(request, action="checklist_update")
@@ -1228,7 +1228,7 @@ class ControlPlaneStore:
                 continue
             status = _text(item.get("status"))
             if item["id"] == "final_human_approval" and status != "pass":
-                blockers.append("final_human_approval must pass")
+                blockers.append("automated finalization approval must pass")
             elif status == "accepted_risk" and not _text(item.get("note")):
                 blockers.append(f"{item['id']} accepted risk requires note")
             elif status != "pass" and status != "accepted_risk":
