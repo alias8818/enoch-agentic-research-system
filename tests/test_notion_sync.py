@@ -124,6 +124,7 @@ class NotionSyncTests(unittest.TestCase):
             include_status=["exploring", "testing"],
             apply_intake=False,
             apply_notion_updates=False,
+            override_existing_dispatch_metadata=False,
             max_updates=None,
         )
         result = run_sync(args, transport=transport)
@@ -145,11 +146,14 @@ class NotionSyncTests(unittest.TestCase):
             include_status=["exploring", "testing"],
             apply_intake=False,
             apply_notion_updates=False,
+            override_existing_dispatch_metadata=False,
             max_updates=None,
         )
         result = run_sync(args, transport=transport)
         self.assertTrue(result["ok"])
         self.assertFalse(result["mode"]["apply_intake"])
+        intake_payload = next(call[3] for call in transport.calls if call[1].endswith("/control/intake/notion-ideas"))
+        self.assertFalse(intake_payload["override_existing_dispatch_metadata"])
         self.assertEqual(result["notion_rows_read"], 1)
         methods = [call[0] for call in transport.calls]
         self.assertEqual(methods, ["GET", "POST", "POST", "GET"])
@@ -167,10 +171,13 @@ class NotionSyncTests(unittest.TestCase):
             include_status=["exploring", "testing"],
             apply_intake=True,
             apply_notion_updates=True,
+            override_existing_dispatch_metadata=True,
             max_updates=1,
         )
         result = run_sync(args, transport=transport)
         self.assertTrue(result["mode"]["apply_intake"])
+        intake_payload = next(call[3] for call in transport.calls if call[1].endswith("/control/intake/notion-ideas"))
+        self.assertTrue(intake_payload["override_existing_dispatch_metadata"])
         self.assertEqual(result["notion_updates_applied"][0]["page_id"], "page-1")
         self.assertEqual(result["notion_updates_applied_count"], 1)
         self.assertEqual(result["notion_updates_skipped_count"], 0)

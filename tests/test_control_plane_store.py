@@ -93,6 +93,150 @@ class ControlPlaneStoreTests(unittest.TestCase):
             with self.assertRaises(IdempotencyConflict):
                 store.ingest_notion_ideas(payload.model_copy(update={"notion_rows": []}))
 
+    def test_notion_intake_preserves_existing_queue_routing_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="seed-notion-preserve-routing",
+                    queue_rows=[{
+                        "project_id": "00000000000040008000000000000002",
+                        "project_name": "Preserve Routing",
+                        "project_dir": "preserve-routing",
+                        "status": "queued",
+                        "selection_rank": 3,
+                        "dispatch_priority": 3,
+                        "machine_target": "gb10.local",
+                        "model": "gpt-5.5-high",
+                        "sandbox": "workspace-write",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            before = store.queue_row("00000000000040008000000000000002")
+
+            inserted, created, updated, *_ = store.ingest_notion_ideas(
+                NotionIntakeRequest(
+                    idempotency_key="notion-preserve-routing",
+                    dry_run=False,
+                    default_machine_target="worker.example",
+                    default_model="gpt-5.5",
+                    default_sandbox="danger-full-access",
+                    notion_rows=[{
+                        "id": "00000000-0000-4000-8000-000000000002",
+                        "property_idea": "Preserve Routing",
+                        "property_status": "testing",
+                        "property_priority": "High",
+                        "url": "https://www.notion.so/Preserve-Routing-00000000000040008000000000000002",
+                    }],
+                )
+            )
+            after = store.queue_row("00000000000040008000000000000002")
+
+            self.assertTrue(inserted)
+            self.assertEqual((created, updated), (0, 1))
+            self.assertEqual(after["machine_target"], before["machine_target"])
+            self.assertEqual(after["model"], before["model"])
+            self.assertEqual(after["sandbox"], before["sandbox"])
+            self.assertEqual(after["dispatch_priority"], 10)
+            self.assertEqual(after["selection_rank"], 10)
+
+    def test_notion_intake_preserves_active_queue_routing_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="seed-notion-preserve-active-routing",
+                    queue_rows=[{
+                        "project_id": "00000000000040008000000000000003",
+                        "project_name": "Preserve Active Routing",
+                        "project_dir": "preserve-active-routing",
+                        "status": "running",
+                        "selection_rank": 3,
+                        "dispatch_priority": 3,
+                        "current_run_id": "run-active",
+                        "machine_target": "gb10.local",
+                        "model": "gpt-5.5-high",
+                        "sandbox": "workspace-write",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            before = store.queue_row("00000000000040008000000000000003")
+
+            inserted, created, updated, *_ = store.ingest_notion_ideas(
+                NotionIntakeRequest(
+                    idempotency_key="notion-preserve-active-routing",
+                    dry_run=False,
+                    default_machine_target="worker.example",
+                    default_model="gpt-5.5",
+                    default_sandbox="danger-full-access",
+                    notion_rows=[{
+                        "id": "00000000-0000-4000-8000-000000000003",
+                        "property_idea": "Preserve Active Routing",
+                        "property_status": "testing",
+                        "property_priority": "High",
+                        "url": "https://www.notion.so/Preserve-Active-Routing-00000000000040008000000000000003",
+                    }],
+                )
+            )
+            after = store.queue_row("00000000000040008000000000000003")
+
+            self.assertTrue(inserted)
+            self.assertEqual((created, updated), (0, 1))
+            self.assertEqual(after["status"], before["status"])
+            self.assertEqual(after["current_run_id"], before["current_run_id"])
+            self.assertEqual(after["machine_target"], before["machine_target"])
+            self.assertEqual(after["model"], before["model"])
+            self.assertEqual(after["sandbox"], before["sandbox"])
+            self.assertEqual(after["dispatch_priority"], before["dispatch_priority"])
+            self.assertEqual(after["selection_rank"], before["selection_rank"])
+
+    def test_notion_intake_can_override_existing_dispatch_metadata_explicitly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            project_id = "00000000000040008000000000000003"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="import-existing-notion-row-override",
+                    queue_rows=[{
+                        "project_id": project_id,
+                        "project_name": "Override Notion Idea",
+                        "project_dir": project_id,
+                        "status": "queued",
+                        "machine_target": "gb10.local",
+                        "model": "gpt-5.5-high",
+                        "sandbox": "workspace-write",
+                    }],
+                    paper_rows=[],
+                )
+            )
+
+            payload = NotionIntakeRequest(
+                idempotency_key="notion-override-existing-metadata",
+                dry_run=False,
+                default_machine_target="operator-selected",
+                default_model="gpt-5.4",
+                default_sandbox="danger-full-access",
+                override_existing_dispatch_metadata=True,
+                notion_rows=[{
+                    "id": "00000000-0000-4000-8000-000000000003",
+                    "property_idea": "Override Notion Idea",
+                    "property_status": "testing",
+                    "property_priority": "Medium",
+                    "url": "https://www.notion.so/Override-Notion-Idea-00000000000040008000000000000003",
+                }],
+            )
+            inserted, created, updated, *_ = store.ingest_notion_ideas(payload)
+            row = store.queue_row(project_id)
+
+            self.assertTrue(inserted)
+            self.assertEqual((created, updated), (0, 1))
+            self.assertEqual(row["dispatch_priority"], 50)
+            self.assertEqual(row["machine_target"], "operator-selected")
+            self.assertEqual(row["model"], "gpt-5.4")
+            self.assertEqual(row["sandbox"], "danger-full-access")
+
     def test_mark_dispatch_started_clears_stale_error_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
