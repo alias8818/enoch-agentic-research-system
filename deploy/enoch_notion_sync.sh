@@ -19,6 +19,22 @@ PY
 )"
 fi
 NOTION_AUTH="${NOTION_TOKEN:-${NOTION_API_KEY:-}}"
+DEFAULT_MACHINE_TARGET="${ENOCH_NOTION_DEFAULT_MACHINE_TARGET:-}"
+if [[ -z "$DEFAULT_MACHINE_TARGET" && -r "$CONFIG_PATH" ]]; then
+  DEFAULT_MACHINE_TARGET="$(python3 - "$CONFIG_PATH" <<'PY'
+import json
+import sys
+from urllib.parse import urlparse
+
+with open(sys.argv[1], encoding="utf-8") as fh:
+    data = json.load(fh)
+print(urlparse(data.get("worker_wake_gate_url", "")).hostname or "")
+PY
+)"
+fi
+DEFAULT_MACHINE_TARGET="${DEFAULT_MACHINE_TARGET:-worker.example}"
+DEFAULT_MODEL="${ENOCH_NOTION_DEFAULT_MODEL:-gpt-5.5}"
+DEFAULT_SANDBOX="${ENOCH_NOTION_DEFAULT_SANDBOX:-danger-full-access}"
 if [[ -z "$CONTROL_TOKEN" || -z "$NOTION_AUTH" || ( -z "${NOTION_DATABASE_ID:-}" && -z "${NOTION_DATA_SOURCE_ID:-}" ) ]]; then
   control_token_configured=false
   notion_token_configured=false
@@ -61,6 +77,9 @@ args=(
   --control-url "$CONTROL_URL"
   --notion-database-id "${NOTION_DATABASE_ID:-}"
   --idempotency-key "notion-sync:$(date -u +%Y%m%dT%H%M%SZ)"
+  --default-machine-target "$DEFAULT_MACHINE_TARGET"
+  --default-model "$DEFAULT_MODEL"
+  --default-sandbox "$DEFAULT_SANDBOX"
   --apply-intake
   --apply-notion-updates
   --max-updates "${NOTION_SYNC_MAX_UPDATES:-500}"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import unittest
 
 from omx_wake_gate.control_plane.notion_sync import (
@@ -12,6 +13,10 @@ from omx_wake_gate.control_plane.notion_sync import (
     query_notion_database,
     run_sync,
 )
+
+
+def json_dumps(value: object) -> str:
+    return json.dumps(value)
 
 
 class FakeTransport:
@@ -152,10 +157,50 @@ class NotionSyncTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertFalse(result["mode"]["apply_intake"])
         intake_payload = next(call[3] for call in transport.calls if call[1].endswith("/control/intake/notion-ideas"))
+        self.assertEqual(intake_payload["default_machine_target"], "worker.example")
+        self.assertEqual(intake_payload["default_model"], "gpt-5.5")
+        self.assertEqual(intake_payload["default_sandbox"], "danger-full-access")
         self.assertFalse(intake_payload["override_existing_dispatch_metadata"])
         self.assertEqual(result["notion_rows_read"], 1)
         methods = [call[0] for call in transport.calls]
         self.assertEqual(methods, ["GET", "POST", "POST", "GET"])
+
+    def test_runner_forwards_explicit_default_dispatch_metadata(self) -> None:
+        transport = FakeTransport()
+        rows = [{
+            "id": "page-new",
+            "url": "https://notion.so/page-new",
+            "properties": {
+                "Idea": {"type": "title", "title": [{"plain_text": "New Idea"}]},
+                "Status": {"type": "select", "select": {"name": "exploring"}},
+            },
+        }]
+        args = argparse.Namespace(
+            control_url="http://control",
+            control_token="control-secret",
+            notion_token="",
+            notion_database_id="",
+            notion_data_source_id="",
+            rows_json=json_dumps(rows),
+            idempotency_key="test-sync-explicit-defaults",
+            include_status=["exploring"],
+            default_machine_target="192.168.1.77",
+            default_model="gpt-5.5",
+            default_sandbox="danger-full-access",
+            apply_intake=True,
+            apply_notion_updates=False,
+            override_existing_dispatch_metadata=False,
+            max_updates=None,
+        )
+
+        result = run_sync(args, transport=transport)
+
+        self.assertTrue(result["ok"])
+        intake_payload = next(call[3] for call in transport.calls if call[1].endswith("/control/intake/notion-ideas"))
+        self.assertEqual(intake_payload["default_machine_target"], "192.168.1.77")
+        self.assertEqual(intake_payload["default_model"], "gpt-5.5")
+        self.assertEqual(intake_payload["default_sandbox"], "danger-full-access")
+        self.assertFalse(intake_payload["override_existing_dispatch_metadata"])
 
     def test_runner_apply_mode_patches_projected_updates(self) -> None:
         transport = FakeTransport()

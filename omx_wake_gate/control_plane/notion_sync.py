@@ -247,6 +247,9 @@ def run_sync(args: argparse.Namespace, *, transport: Transport = _json_request) 
             "notion_rows": rows,
             "dry_run": not args.apply_intake,
             "include_statuses": args.include_status,
+            "default_machine_target": getattr(args, "default_machine_target", "worker.example"),
+            "default_model": getattr(args, "default_model", "gpt-5.5"),
+            "default_sandbox": getattr(args, "default_sandbox", "danger-full-access"),
             "override_existing_dispatch_metadata": getattr(args, "override_existing_dispatch_metadata", False),
         },
         transport=transport,
@@ -282,6 +285,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rows-json", default="", help="Offline JSON array of normalized Notion rows; bypasses live Notion read.")
     parser.add_argument("--idempotency-key", default="notion-sync-manual")
     parser.add_argument("--include-status", action="append", default=["exploring", "testing"])
+    parser.add_argument("--default-machine-target", default=os.environ.get("ENOCH_NOTION_DEFAULT_MACHINE_TARGET", "worker.example"))
+    parser.add_argument("--default-model", default=os.environ.get("ENOCH_NOTION_DEFAULT_MODEL", "gpt-5.5"))
+    parser.add_argument("--default-sandbox", default=os.environ.get("ENOCH_NOTION_DEFAULT_SANDBOX", "danger-full-access"))
     parser.add_argument("--apply-intake", action="store_true", help="Commit eligible Notion ideas into canonical queue. Default is dry-run.")
     parser.add_argument(
         "--override-existing-dispatch-metadata",
