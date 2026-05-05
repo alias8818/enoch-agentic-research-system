@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from omx_wake_gate.enoch_core.logic import paper_draft_decision_gate
+from omx_wake_gate.enoch_core.logic import draft_candidate_payload, eligible_paper_draft_candidates, paper_draft_decision_gate
 
 from .models import PaperStatus, QueueStatus, ReviewStatus, RunState
 
@@ -435,9 +435,23 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
     paper_counts = store.paper_counts_sql()
     active = [summarize_queue_row(row) for row in store.active_items_sql(limit=active_limit)]
     next_candidate = store.next_candidate_sql()
-    queue_rows = [summarize_queue_row(row) for row in store.operator_queue_rows_sql()]
-    paper_rows = [summarize_paper_row(row) for row in store.operator_paper_rows_sql()]
+    raw_queue_rows = store.operator_queue_rows_sql()
+    raw_paper_rows = store.operator_paper_rows_sql()
+    queue_rows = [summarize_queue_row(row) for row in raw_queue_rows]
+    paper_rows = [summarize_paper_row(row) for row in raw_paper_rows]
     operator_counts = operator_counts_from_rows([*queue_rows, *paper_rows])
+    write_candidates = eligible_paper_draft_candidates(raw_queue_rows, raw_paper_rows)
+    paper_pipeline = {
+        "write_needed": len(write_candidates),
+        "next_write_candidate": draft_candidate_payload(write_candidates[0]) if write_candidates else None,
+        "finalize_needed": operator_counts.get("finalization_needed", 0),
+        "publish_ready": operator_counts.get("ready_to_publish", 0),
+        "definitions": {
+            "write_needed": "completed positive runs with no live paper row yet",
+            "finalize_needed": "publication drafts missing automated finalization package",
+            "publish_ready": "finalized publication drafts ready for corpus import",
+        },
+    }
     events, next_cursor, has_more = store.event_page(page_size=event_limit, include_payload=False)
     return {
         "counts": {
@@ -446,6 +460,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         },
         "paper_counts": paper_counts,
         "operator_counts": operator_counts,
+        "paper_pipeline": paper_pipeline,
         "operator_model": {
             "source": "control_plane.read_models.operator_stage_for_record",
             "raw_state_note": "wake_ready/session_finished_ready are worker-delivery callbacks; paper polarity comes from decision artifacts and paper review/finalization state.",

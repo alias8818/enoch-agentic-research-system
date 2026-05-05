@@ -173,6 +173,9 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertIn("operator_model", overview)
             self.assertEqual(overview["operator_counts"]["ready_to_publish"], 1)
             self.assertEqual(overview["operator_counts"]["run_complete_draft_needed"], 1)
+            self.assertIn("paper_pipeline", overview)
+            self.assertIn("write_needed", overview["paper_pipeline"])
+            self.assertEqual(overview["paper_pipeline"]["publish_ready"], 1)
             self.assertEqual(overview["operator_counts"].get("needs_attention", 0), 0)
 
             queue = client.get("/control/api/v1/queue?page_size=3&sort=name", headers=headers).json()
@@ -487,9 +490,11 @@ class OperatorStatusTests(unittest.TestCase):
             client = _client(tmp)
             html = client.get("/control/dashboard").text
             self.assertIn("operator_stage_label", html)
-            self.assertIn("Ready for corpus", html)
-            self.assertIn("Draft needed", html)
-            self.assertIn("workState(counts,operators={})", html)
+            self.assertIn("Paper pipeline", html)
+            self.assertIn("1. Write papers", html)
+            self.assertIn("2. Finalize drafts", html)
+            self.assertIn("3. Publish/import", html)
+            self.assertIn("workState(counts,operators={},pipeline={})", html)
             self.assertIn("project_decision_summary", html)
             self.assertIn("['operator_stage_label','project_id','run_id','related_paper_id','operator_next_step','updated_at']", html)
 
