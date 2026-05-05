@@ -1716,11 +1716,18 @@ class ControlPlaneStore:
                     (project.project_id, project.project_name, project.project_dir, project.notion_page_url, project.notion_page_id, project.origin_idea_status, project.created_at, project.updated_at),
                 )
                 if existed:
-                    conn.execute(
-                        """UPDATE queue_items SET selection_rank=?, dispatch_priority=?, machine_target=?, model=?, sandbox=?, updated_at=?
-                        WHERE project_id=? AND status NOT IN ('dispatching','running','awaiting_wake','wake_received','reconciling')""",
-                        (qi.selection_rank, qi.dispatch_priority, qi.machine_target, qi.model, qi.sandbox, qi.updated_at, qi.project_id),
-                    )
+                    if request.override_existing_dispatch_metadata:
+                        conn.execute(
+                            """UPDATE queue_items SET selection_rank=?, dispatch_priority=?, machine_target=?, model=?, sandbox=?, updated_at=?
+                            WHERE project_id=? AND status NOT IN ('dispatching','running','awaiting_wake','wake_received','reconciling')""",
+                            (qi.selection_rank, qi.dispatch_priority, qi.machine_target, qi.model, qi.sandbox, qi.updated_at, qi.project_id),
+                        )
+                    else:
+                        conn.execute(
+                            """UPDATE queue_items SET selection_rank=?, dispatch_priority=?, updated_at=?
+                            WHERE project_id=? AND status NOT IN ('dispatching','running','awaiting_wake','wake_received','reconciling')""",
+                            (qi.selection_rank, qi.dispatch_priority, qi.updated_at, qi.project_id),
+                        )
                     updated += 1
                 else:
                     conn.execute(

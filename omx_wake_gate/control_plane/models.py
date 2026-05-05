@@ -93,6 +93,7 @@ class NotionIntakeRequest(BaseModel):
     default_machine_target: str = "worker.example"
     default_model: str = "gpt-5.5"
     default_sandbox: str = "danger-full-access"
+    override_existing_dispatch_metadata: bool = False
 
 
 class NotionIntakeResponse(BaseModel):

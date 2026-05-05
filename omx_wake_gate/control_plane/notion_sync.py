@@ -247,6 +247,7 @@ def run_sync(args: argparse.Namespace, *, transport: Transport = _json_request) 
             "notion_rows": rows,
             "dry_run": not args.apply_intake,
             "include_statuses": args.include_status,
+            "override_existing_dispatch_metadata": getattr(args, "override_existing_dispatch_metadata", False),
         },
         transport=transport,
     )
@@ -282,6 +283,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--idempotency-key", default="notion-sync-manual")
     parser.add_argument("--include-status", action="append", default=["exploring", "testing"])
     parser.add_argument("--apply-intake", action="store_true", help="Commit eligible Notion ideas into canonical queue. Default is dry-run.")
+    parser.add_argument(
+        "--override-existing-dispatch-metadata",
+        action="store_true",
+        help="Allow Notion intake defaults to overwrite existing queue machine/model/sandbox metadata. Default preserves existing dispatch metadata.",
+    )
     parser.add_argument("--apply-notion-updates", action="store_true", help="PATCH Notion execution overlay fields. Default is read-only.")
     parser.add_argument("--max-updates", type=int, default=None)
     return parser
