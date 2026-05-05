@@ -7,6 +7,8 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 PUBLIC_FILES = [
     "README.md",
@@ -34,6 +36,13 @@ COUNT_PHRASE = re.compile(r"\b(\d{2,5})\b\s+(AI-generated artifacts indexed|AI-g
 PASS_PHRASE = re.compile(r"\b(\d{2,5})\s*/\s*(\d{2,5})\b\s+(pass packaging/provenance|packaging/provenance passed|pass count|quality)", re.I)
 FULL_AUDIT_CLAIM = re.compile(r"fully auditable|deeply auditable", re.I)
 QUALITY_WORDING = re.compile(r"quality (?:gates?|scans?|checks?)", re.I)
+GITHUB_REPO_METADATA = [
+    "alias8818/enoch-agentic-research-system",
+    "alias8818/enoch-ai-research-corpus",
+    "alias8818/enoch-docs",
+    "alias8818/alias8818",
+    "alias8818/alias8818.github.io",
+]
 
 
 def load_json(path: Path) -> dict:
@@ -132,6 +141,43 @@ def check_manifest(committed: dict, generated: dict | None, failures: list[str])
             fail(f"committed manifest should not contain volatile repo commit for {repo_key}", failures)
 
 
+def fetch_github_repo_metadata(repo: str) -> dict:
+    req = Request(
+        f"https://api.github.com/repos/{repo}",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "enoch-public-release-validator/1.0",
+        },
+    )
+    with urlopen(req, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def check_github_metadata(artifact_count: int, failures: list[str]) -> None:
+    expected_corpus_prefix = f"{artifact_count} AI-generated research artifacts produced by Enoch"
+    expected_homepage = "https://alias8818.github.io/enoch-agentic-research-system/"
+    for repo in GITHUB_REPO_METADATA:
+        try:
+            metadata = fetch_github_repo_metadata(repo)
+        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+            fail(f"could not fetch GitHub repo metadata for {repo}: {exc}", failures)
+            continue
+        description = str(metadata.get("description") or "")
+        homepage = str(metadata.get("homepage") or "")
+        metadata_text = f"{description} {homepage}"
+        for match in HISTORIC_STALE_COUNT.finditer(metadata_text):
+            fail(f"historic stale count in GitHub metadata for {repo}: {match.group(0)}", failures)
+        for match in COUNT_PHRASE.finditer(metadata_text):
+            value = int(match.group(1))
+            if value != artifact_count:
+                fail(f"artifact count drift in GitHub metadata for {repo}: {value} != {artifact_count}", failures)
+        if repo == "alias8818/enoch-ai-research-corpus":
+            if not description.startswith(expected_corpus_prefix):
+                fail(f"corpus GitHub description does not start with {expected_corpus_prefix!r}: {description!r}", failures)
+            if homepage != expected_homepage:
+                fail(f"corpus GitHub homepage drift: {homepage!r} != {expected_homepage!r}", failures)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate Enoch public release accounting and gate wording.")
     parser.add_argument("--system", type=Path, required=True)
@@ -140,6 +186,7 @@ def main() -> int:
     parser.add_argument("--profile", type=Path, required=True)
     parser.add_argument("--owner-profile", type=Path, default=None)
     parser.add_argument("--generated-manifest", type=Path, default=None, help="Optional freshly generated manifest to compare against committed site/ecosystem.json")
+    parser.add_argument("--skip-github-metadata", action="store_true", help="Skip live GitHub repository About/description checks for offline validation")
     args = parser.parse_args()
 
     system = args.system.resolve()
@@ -189,6 +236,8 @@ def main() -> int:
     for match in FULL_AUDIT_CLAIM.finditer(combined_public):
         if int(manifest.get("strict_claim_evidence_pass_count", 0)) == 0:
             fail(f"public copy implies full strict auditability while strict pass count is 0: {match.group(0)}", failures)
+    if not args.skip_github_metadata:
+        check_github_metadata(int(manifest["artifact_count"]), failures)
 
     if failures:
         for item in failures:
