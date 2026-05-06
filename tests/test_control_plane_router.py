@@ -330,8 +330,14 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("cache:'no-store'", response.text)
             self.assertIn("autoRefreshCurrentPage", response.text)
             self.assertIn("h==='observability'", response.text)
-            initial_app = response.text.split('<main class="wrap">', 1)[1].split('</main>', 1)[0]
+            initial_app = response.text.split('<div id="app"', 1)[1].split('</main>', 1)[0]
             self.assertNotIn("<pre", initial_app)
+            self.assertIn('class="app-shell"', response.text)
+            self.assertIn('class="sidebar"', response.text)
+            self.assertIn('id="globalSearch"', response.text)
+            self.assertIn("globalSearch()", response.text)
+            self.assertIn("Token required", response.text)
+            self.assertIn("does not call authenticated APIs until a token is saved", response.text)
             self.assertIn("<details><summary>", response.text)
             self.assertNotIn("overview ·", response.text)
             self.assertNotIn("Recent event summaries", response.text)

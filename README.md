@@ -14,7 +14,7 @@ Long-running autonomous AI work fails in ways ordinary scripts do not:
 - evidence scatters across machines and run folders;
 - generated reports overstate results when claim boundaries aren't preserved.
 
-Enoch treats those as control-plane problems, not model problems. It uses process tracking, CPU/GPU quiet-window telemetry, idempotent APIs, stale-state reconciliation, a live dashboard, evidence bundles, and claim ledgers to make autonomous work observable and auditable.
+Enoch treats those as control-plane problems, not model problems. It uses process tracking, CPU/GPU quiet-window telemetry, idempotent APIs, stale-state reconciliation, a professional operator dashboard, evidence bundles, and claim ledgers to make autonomous work observable and auditable.
 
 > Agentic AI systems need control planes. A model can propose and execute work, but a separate system should decide what is queued, what is safe to dispatch, whether work is actually done, and what evidence supports the final artifact.
 

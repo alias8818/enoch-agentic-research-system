@@ -47,7 +47,13 @@ Open:
 http://127.0.0.1:8787/dashboard
 ```
 
-Paste the generated token when prompted.
+The legacy wake-gate dashboard remains available at `/dashboard`. For the redesigned operator console, open:
+
+```text
+http://127.0.0.1:8787/control/dashboard
+```
+
+Paste the generated token when prompted. The redesigned console starts on bounded `/control/api/v1/*` read models, so local smoke checks and large live ledgers stay predictable.
 
 ## 4. Run smoke tests
 

@@ -85,38 +85,83 @@ CONTROL_DASHBOARD_HTML = """
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Enoch Control Status Dashboard</title>
   <style>
-    :root { color-scheme: dark; --bg:#07111f; --bg2:#0b1220; --panel:#101827; --panel2:#132033; --text:#eef6ff; --muted:#9fb1c7; --line:#283852; --good:#4ade80; --warn:#fbbf24; --bad:#fb7185; --info:#60a5fa; --critical:#f43f5e; font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
-    * { box-sizing:border-box; } body { margin:0; background:radial-gradient(circle at 18% 0%, rgba(37,99,235,.30), transparent 30%), linear-gradient(135deg,#05070b,var(--bg)); color:var(--text); line-height:1.45; }
-    header { border-bottom:1px solid var(--line); background:rgba(7,17,31,.92); backdrop-filter:blur(14px); position:sticky; top:0; z-index:10; }
-    .wrap { width:min(1460px, calc(100vw - 32px)); margin:0 auto; } .top { display:flex; justify-content:space-between; gap:18px; align-items:center; padding:16px 0; }
-    h1 { margin:0; font-size:clamp(1.35rem, 2vw, 2.2rem); letter-spacing:-.04em; } h2 { margin:0 0 10px; } h3 { margin:14px 0 8px; }
-    .sub,.muted { color:var(--muted); } .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; }
-    input,select,button { background:#0b1220; color:var(--text); border:1px solid var(--line); border-radius:11px; padding:9px 11px; } button { cursor:pointer; } button:hover, nav a:hover { border-color:var(--info); }
-    nav { display:flex; gap:8px; flex-wrap:wrap; padding:0 0 14px; } nav a { color:var(--text); text-decoration:none; border:1px solid var(--line); border-radius:999px; padding:7px 11px; background:#0b1220; } nav a.active { border-color:var(--info); color:#bfdbfe; box-shadow:0 0 0 1px rgba(96,165,250,.2) inset; }
-    main { padding:22px 0 44px; } .hero { display:grid; grid-template-columns:2fr 1fr; gap:14px; align-items:stretch; } .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; } .grid.two { grid-template-columns:repeat(2,minmax(0,1fr)); } .grid.three { grid-template-columns:repeat(3,minmax(0,1fr)); }
-    .card { background:linear-gradient(180deg,rgba(16,24,39,.97),rgba(11,18,32,.97)); border:1px solid var(--line); border-radius:18px; padding:16px; box-shadow:0 16px 44px rgba(0,0,0,.25); overflow:auto; } .card.tight { padding:12px; }
-    .label { color:var(--muted); font-size:.84rem; text-transform:uppercase; letter-spacing:.05em; } .value { font-size:2rem; font-weight:850; margin-top:5px; letter-spacing:-.04em; }
-    .pill { display:inline-flex; gap:7px; align-items:center; border:1px solid var(--line); border-radius:999px; padding:5px 9px; font-size:.84rem; margin:2px; } .good { color:var(--good); } .warn { color:var(--warn); } .bad,.critical { color:var(--critical); } .info { color:var(--info); }
-    section { margin-top:16px; } table { width:100%; border-collapse:collapse; font-size:.91rem; } th,td { text-align:left; border-bottom:1px solid var(--line); padding:9px 7px; vertical-align:top; } th { color:var(--muted); font-weight:650; }
-    a { color:#93c5fd; } .truncate { max-width:420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:bottom; }
-    .banner { border:1px solid var(--line); border-radius:18px; padding:16px; background:#0b1220; } .banner.good { border-color:rgba(74,222,128,.42); background:rgba(20,83,45,.18); } .banner.warn { border-color:rgba(251,191,36,.5); background:rgba(113,63,18,.18); } .banner.critical { border-color:rgba(244,63,94,.55); background:rgba(127,29,29,.22); }
+    :root {
+      color-scheme: light dark;
+      --bg:#f8fafc; --surface:#ffffff; --surface-muted:#f1f5f9; --sidebar:#ffffff; --text:#0f172a; --muted:#64748b; --line:#e2e8f0;
+      --good:#16a34a; --good-bg:#dcfce7; --warn:#d97706; --warn-bg:#fef3c7; --bad:#dc2626; --bad-bg:#fee2e2; --info:#2563eb; --info-bg:#dbeafe;
+      --shadow:0 1px 2px rgba(15,23,42,.06),0 8px 24px rgba(15,23,42,.06); --radius:18px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#09090b; --surface:#111113; --surface-muted:#18181b; --sidebar:#111113; --text:#f4f4f5; --muted:#a1a1aa; --line:#27272a; --good:#22c55e; --good-bg:#052e16; --warn:#f59e0b; --warn-bg:#451a03; --bad:#fb7185; --bad-bg:#4c0519; --info:#60a5fa; --info-bg:#172554; --shadow:0 1px 1px rgba(0,0,0,.35),0 16px 48px rgba(0,0,0,.35); }
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); line-height:1.45; }
+    a { color:inherit; text-decoration:none; } a:hover { color:var(--info); }
+    h1,h2,h3 { letter-spacing:-.035em; } h1 { margin:0; font-size:clamp(1.7rem,2.6vw,2.7rem); } h2 { margin:0 0 10px; font-size:1.05rem; } h3 { margin:14px 0 8px; font-size:.98rem; }
+    input,select,button { background:var(--surface); color:var(--text); border:1px solid var(--line); border-radius:12px; padding:9px 11px; box-shadow:none; }
+    button { cursor:pointer; font-weight:650; } button:hover, nav a:hover { border-color:color-mix(in srgb, var(--info) 55%, var(--line)); background:var(--surface-muted); }
+    .app-shell { min-height:100vh; display:grid; grid-template-columns:280px minmax(0,1fr); }
+    .sidebar { position:sticky; top:0; height:100vh; padding:18px 16px; border-right:1px solid var(--line); background:var(--sidebar); display:flex; flex-direction:column; gap:18px; }
+    .brand { display:flex; align-items:center; gap:11px; padding:5px 4px 14px; border-bottom:1px solid var(--line); }
+    .brand-mark { width:34px; height:34px; border-radius:12px; display:grid; place-items:center; background:#0f172a; color:white; font-weight:900; box-shadow:var(--shadow); }
+    .brand-title { font-weight:850; letter-spacing:-.04em; } .brand-subtitle,.sub,.muted { color:var(--muted); } .brand-subtitle { font-size:.8rem; margin-top:2px; }
+    nav { display:grid; gap:5px; }
+    nav a { display:flex; align-items:center; justify-content:space-between; color:var(--muted); border:1px solid transparent; border-radius:12px; padding:9px 10px; font-weight:650; }
+    nav a.active { color:var(--text); background:var(--surface-muted); border-color:var(--line); box-shadow:inset 3px 0 0 var(--info); }
+    .sidebar-footer { margin-top:auto; color:var(--muted); font-size:.82rem; border-top:1px solid var(--line); padding-top:12px; }
+    .dashboard-main { min-width:0; padding:18px 26px 44px; }
+    .topbar { height:54px; display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:28px; }
+    .search-box { flex:1; max-width:560px; position:relative; }
+    .search-box input { width:100%; padding-left:36px; background:var(--surface); } .search-box:before { content:'⌕'; position:absolute; left:13px; top:7px; color:var(--muted); font-size:1.2rem; }
+    .token-row { display:flex; gap:8px; align-items:center; }
+    .page-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:14px; }
+    .wrap { width:100%; margin:0; } main { padding:0; }
+    section { margin-top:16px; }
+    .hero { display:grid; grid-template-columns:minmax(0,2fr) minmax(280px,1fr); gap:16px; align-items:stretch; }
+    .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; } .grid.two { grid-template-columns:repeat(2,minmax(0,1fr)); } .grid.three { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .card,.banner { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:18px; box-shadow:var(--shadow); overflow:auto; }
+    .card.tight { padding:13px; } .card:hover { border-color:color-mix(in srgb, var(--line) 55%, var(--muted)); }
+    .label { color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; font-weight:750; }
+    .value { font-size:2rem; font-weight:850; margin-top:6px; letter-spacing:-.05em; }
+    .pill { display:inline-flex; gap:7px; align-items:center; border:1px solid var(--line); border-radius:999px; padding:5px 9px; font-size:.82rem; margin:2px; background:var(--surface); color:var(--muted); font-weight:650; }
+    .good { color:var(--good); } .warn { color:var(--warn); } .bad,.critical { color:var(--bad); } .info { color:var(--info); }
+    .banner.good { border-color:color-mix(in srgb, var(--good) 45%, var(--line)); background:linear-gradient(135deg,var(--good-bg),var(--surface)); }
+    .banner.warn { border-color:color-mix(in srgb, var(--warn) 45%, var(--line)); background:linear-gradient(135deg,var(--warn-bg),var(--surface)); }
+    .banner.critical { border-color:color-mix(in srgb, var(--bad) 45%, var(--line)); background:linear-gradient(135deg,var(--bad-bg),var(--surface)); }
+    table { width:100%; border-collapse:separate; border-spacing:0; font-size:.9rem; }
+    th,td { text-align:left; border-bottom:1px solid var(--line); padding:11px 10px; vertical-align:top; } th { color:var(--muted); font-weight:750; font-size:.78rem; text-transform:uppercase; letter-spacing:.05em; }
+    tbody tr:hover { background:var(--surface-muted); }
+    .truncate { max-width:420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:bottom; }
+    .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; }
     .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; } .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:12px 0; } .toolbar-note { color:var(--muted); margin-top:12px; } .activity-list { display:grid; gap:10px; } .card.tight strong { font-size:1rem; }
-    details { border:1px solid var(--line); border-radius:14px; padding:10px 12px; background:rgba(11,18,32,.72); margin-top:10px; } summary { cursor:pointer; color:#bfdbfe; } pre { white-space:pre-wrap; color:#cbd5e1; margin:10px 0 0; max-height:480px; overflow:auto; }
-    @media (max-width:1000px) { .hero,.grid,.grid.two,.grid.three { grid-template-columns:repeat(2,minmax(0,1fr)); } .top { align-items:flex-start; flex-direction:column; } }
-    @media (max-width:620px) { .hero,.grid,.grid.two,.grid.three { grid-template-columns:1fr; } }
+    details { border:1px solid var(--line); border-radius:14px; padding:10px 12px; background:var(--surface-muted); margin-top:10px; } summary { cursor:pointer; color:var(--text); font-weight:700; } pre { white-space:pre-wrap; color:var(--muted); margin:10px 0 0; max-height:480px; overflow:auto; }
+    .kpi-strip { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:16px; }
+    @media (max-width:1100px) { .app-shell { grid-template-columns:1fr; } .sidebar { position:relative; height:auto; } nav { grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard-main { padding:18px; } .hero,.grid,.grid.two,.grid.three,.kpi-strip { grid-template-columns:repeat(2,minmax(0,1fr)); } .topbar { height:auto; align-items:stretch; flex-direction:column; } .search-box { max-width:none; } }
+    @media (max-width:640px) { nav,.hero,.grid,.grid.two,.grid.three,.kpi-strip { grid-template-columns:1fr; } .page-heading,.token-row { align-items:stretch; flex-direction:column; } }
   </style>
 </head>
 <body>
-<header>
-  <div class="wrap top"><div><h1>Enoch Control Status Dashboard</h1><div class="sub">Professional operator console backed by bounded control-plane read models</div></div><div class="row"><input id="token" placeholder="Bearer token" type="password" /><button onclick="saveToken()">Save</button><button onclick="route()">Refresh</button></div></div>
-  <div class="wrap"><nav id="nav"></nav></div>
-</header>
-<main class="wrap"><div id="status" class="pill warn">Loading…</div><div id="app" class="banner warn">Loading dashboard cards…</div></main>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">E</div><div><div class="brand-title">Enoch Control</div><div class="brand-subtitle">Professional operator console</div></div></div>
+    <nav id="nav" aria-label="Dashboard navigation"></nav>
+    <div class="sidebar-footer">Bounded Supabase read models · raw states stay in drill-down views</div>
+  </aside>
+  <main class="dashboard-main">
+    <div class="topbar">
+      <div class="search-box"><input id="globalSearch" placeholder="Search projects, runs, papers, or events…" onkeydown="if(event.key==='Enter')globalSearch()" /></div>
+      <div class="token-row"><input id="token" placeholder="Bearer token" type="password" /><button onclick="saveToken()">Save token</button><button onclick="route()">Refresh</button></div>
+    </div>
+    <div class="page-heading"><div><h1>Dashboard</h1><div class="sub">Operator-first state, paper pipeline, and release readiness.</div></div><div id="status" class="pill warn">Loading…</div></div>
+    <div id="app" class="banner warn">Loading dashboard cards…</div>
+  </main>
+</div>
 <script>
 const pages=[['overview','Overview'],['projects','Projects'],['queue:active','Active'],['queue:queued','Queued'],['queue:blocked','Blocked'],['runs','Runs'],['papers','Papers'],['events','Events'],['automation','Publication Automation'],['intake','Ideas'],['observability','Observability']];
 const $=id=>document.getElementById(id); const AI_ACTOR='ai-publication-pipeline'; const AI_NOTE='AI-generated publication pipeline; operator claims no personal authorship credit.';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function token(){return localStorage.getItem('enochControlToken')||'';} function saveToken(){localStorage.setItem('enochControlToken',$('token').value.trim());route();}
+function token(){return localStorage.getItem('enochControlToken')||'';} function saveToken(){localStorage.setItem('enochControlToken',$('token').value.trim());route();} function globalSearch(){const q=($('globalSearch')?.value||'').trim(); if(q) location.hash='projects?search='+encodeURIComponent(q); }
 async function api(path,opts={}){const headers={Authorization:'Bearer '+token(),...(opts.headers||{})}; const r=await fetch(path,{cache:'no-store',...opts,headers}); if(!r.ok) throw new Error(path+' -> '+r.status+' '+await r.text()); return r.json();}
 async function postJson(path,payload){return api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});}
 function renderNav(active){$('nav').innerHTML=pages.map(([k,l])=>`<a class="${active===k||active.startsWith(k+':')?'active':''}" href="#${k}">${l}</a>`).join('');}
@@ -171,7 +216,7 @@ async function prepareFinalizationPackage(dry_run){const result=await postJson(`
 async function rewriteReviewDraft(){const result=await postJson(`/control/api/publication-automation/${window.currentReviewId}/rewrite-draft`,{idempotency_key:'dashboard-rewrite:'+window.currentReviewId+':'+Date.now(),requested_by:AI_ACTOR,force:true}); alert('Rewrite complete: '+(result.writer||{}).provider+' / '+((result.writer||{}).model||'')); return reviewDetail(window.currentReviewId);}
 async function rewriteBatchVisible(){const search=new URLSearchParams(location.hash.split('?')[1]||''); const button=$('rewriteBatchButton'), status=$('batchStatus'); if(button){button.disabled=true; button.textContent='GLM-5.1 batch running…';} if(status){status.className='banner warn'; status.textContent='GLM-5.1 rewrite running. Do not click again.';} const payload={idempotency_key:'dashboard-bulk-rewrite:'+Date.now(),requested_by:AI_ACTOR,paper_status:search.get('paper_status')||'publication_draft',review_status:search.get('review_status')||'',search:search.get('search')||'',limit:10,force:true,dry_run:false,skip_rewritten:true}; try{const result=await postJson('/control/api/publication-automation/rewrite-batch',payload); if(status){status.className=result.failed?'banner warn':'banner good'; status.innerHTML=`<strong>Batch rewrite complete.</strong><div>${esc(result.rewritten)} rewritten · ${esc(result.failed)} failed · ${esc(result.matched)} matched.</div>${debugBlock('Batch rows',result.rows||[])}`;} return reviewsPage();}catch(e){if(status){status.className='banner critical'; status.textContent='Batch rewrite failed: '+e.message;} throw e;}finally{if(button){button.disabled=false; button.textContent='Rewrite next 10 with GLM-5.1';}}}
 async function detail(kind,id){renderNav(kind==='project'?'queue:active':kind==='paper'?'papers':'runs'); const path=kind==='project'?`/control/api/v1/projects/${id}`:kind==='run'?`/control/api/v1/runs/${id}`:`/control/api/v1/papers/${id}`; const data=await api(path); $('status').className='pill info'; $('status').textContent=`${kind} detail`; const primary=data[kind]||data.project||data.paper||data.run||{}; $('app').className=''; $('app').innerHTML=`<section class="grid two"><div class="card"><h2>${esc(kind)} ${esc(id)}</h2>${tableRows([primary],Object.keys(primary).filter(k=>!['links'].includes(k)).slice(0,10))}</div><div class="card"><h2>Related records</h2>${data.runs?`<h3>Runs</h3>${tableRows(data.runs,['state','run_id','current_activity','updated_at'])}`:''}${data.papers?`<h3>Papers</h3>${tableRows(data.papers,['operator_stage_label','paper_id','run_id','artifact_paths_present','updated_at'])}`:''}${data.queue_item?`<h3>Queue</h3>${tableRows([data.queue_item],['operator_stage_label','project_decision_summary','project_id','current_run_id','operator_next_step','operator_explanation','updated_at'])}`:''}</div></section><section class="card"><h2>Related activity</h2>${activityCards(data.events||[])}</section>`;}
-async function route(){try{if(token())$('token').value=token(); const h=(location.hash||'#overview').slice(1); if(h==='projects'||h.startsWith('projects?')) return projectListPage('projects','all'); if(h.startsWith('queue:')) return queuePage((h.split(':')[1]||'active').split('?')[0]); if(h==='runs'||h.startsWith('runs?')) return runsPage(); if(h==='papers'||h.startsWith('papers?')) return papersPage(); if(h==='events'||h.startsWith('events?')) return eventsPage(); if(h==='automation'||h.startsWith('automation?')||h==='reviews'||h.startsWith('reviews?')) return reviewsPage(); if(h==='intake') return intakePage(); if(h==='observability') return observabilityPage(); if(h.startsWith('project:')) return detail('project',encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('run:')) return detail('run',encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('paper:')) return detail('paper',encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('automation:')) return reviewDetail(encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('review:')) return reviewDetail(encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); return overviewPage();}catch(e){$('status').className='pill bad';$('status').textContent='Error';$('app').className='banner critical';$('app').textContent=e.message;}}
+async function route(){try{if(token())$('token').value=token(); renderNav((location.hash||'#overview').slice(1).split('?')[0]); if(!token()){$('status').className='pill warn';$('status').textContent='Token required';$('app').className='banner warn';$('app').innerHTML='<strong>Enter the control-plane bearer token to load bounded operator read models.</strong><div class="muted">The dashboard does not call authenticated APIs until a token is saved locally in this browser.</div>';return;} const h=(location.hash||'#overview').slice(1); if(h==='projects'||h.startsWith('projects?')) return projectListPage('projects','all'); if(h.startsWith('queue:')) return queuePage((h.split(':')[1]||'active').split('?')[0]); if(h==='runs'||h.startsWith('runs?')) return runsPage(); if(h==='papers'||h.startsWith('papers?')) return papersPage(); if(h==='events'||h.startsWith('events?')) return eventsPage(); if(h==='automation'||h.startsWith('automation?')||h==='reviews'||h.startsWith('reviews?')) return reviewsPage(); if(h==='intake') return intakePage(); if(h==='observability') return observabilityPage(); if(h.startsWith('project:')) return detail('project',encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('run:')) return detail('run',encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('paper:')) return detail('paper',encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('automation:')) return reviewDetail(encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('review:')) return reviewDetail(encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); return overviewPage();}catch(e){$('status').className='pill bad';$('status').textContent='Error';$('app').className='banner critical';$('app').textContent=e.message;}}
 function autoRefreshCurrentPage(){const h=(location.hash||'#overview').slice(1).split('?')[0]; if(h==='overview'||h==='observability') route();}
 window.addEventListener('hashchange',route); route(); setInterval(autoRefreshCurrentPage,15000);
 </script>

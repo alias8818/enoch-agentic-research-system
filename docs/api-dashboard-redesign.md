@@ -4,7 +4,7 @@ This plan captures the next architectural lane for the private Enoch operator AP
 
 ## Why this exists
 
-The control-plane/dashboard process has shown memory-pressure behavior on the 8 GiB controller VM. The current dashboard also exposes too much raw JSON/log output as first-screen content, which makes the system look patchworked and harder to operate.
+The control-plane/dashboard process has shown memory-pressure behavior on the 8 GiB controller VM. The old dashboard also exposed too much raw JSON/log output as first-screen content, which made the system look patchworked and harder to operate. The current redesign keeps bounded v1 read models and replaces the first-screen experience with a shadcn-like operator shell.
 
 The redesign target is:
 
@@ -91,6 +91,8 @@ Primary navigation:
 5. **Events** — bounded searchable audit log with summaries first and payloads expandable.
 6. **Observability** — memory trend, request latency, response sizes, route errors, and restart evidence.
 
+Current `/control/dashboard` implementation now uses this IA as a shadcn-like sidebar/topbar shell with cards, tables, search routing, and collapsed debug panels. It is still intentionally dependency-free inline HTML/CSS/JS; do not claim an actual shadcn/ui package is installed unless the implementation changes.
+
 UX principles:
 
 - status and next action before raw evidence;
@@ -117,7 +119,7 @@ UX principles:
 
 ### Phase 2: Dashboard shell redesign
 
-- Replace first-screen raw output with professional cards/tables/drawers. Initial `/control/dashboard` shell migration now defaults to overview, queue, runs, papers, events, detail, and observability views backed by `/control/api/v1/*`.
+- Replace first-screen raw output with professional cards/tables/drawers. Initial `/control/dashboard` shell migration now defaults to a shadcn-like sidebar/topbar layout with overview, queue, runs, papers, events, detail, and observability views backed by `/control/api/v1/*`.
 - Move raw JSON/log views behind explicit evidence/debug affordances. Initial shell uses collapsed evidence/debug panels for JSON and raw artifact previews instead of first-screen `<pre>` dumps.
 - Keep compatibility/debug endpoints explicitly labeled. Publication automation and Supabase-native idea intake use command endpoints, while operator dashboard reads use bounded v1 read models.
 
@@ -125,7 +127,7 @@ UX principles:
 
 - Move dashboard data loading to v1 endpoints.
 - Mark heavyweight legacy endpoints as deprecated or debug-only.
-- Update deployment docs and operator screenshots.
+- Update deployment docs and operator screenshots. Screenshots must be real sanitized captures from the redesigned dashboard, not template placeholders.
 
 ### Phase 4: Retention and memory hardening
 

@@ -140,7 +140,16 @@ Implemented on 2026-05-06:
 - Raw completed/no-paper and decision-gate rejection counts moved into `Debug paper counts` drill-down.
 - Paper pipeline primary cards remain derived from `paper_pipeline.write_needed`, `paper_pipeline.finalize_needed`, and `paper_pipeline.publish_ready`.
 - Regression evidence: `uv run pytest -q tests/test_control_plane_operator_status.py tests/test_control_plane_router.py tests/test_state_doctor.py`.
-- Live deployment evidence: `enoch-control-plane.service` restarted on `192.168.1.166`; `/control/dashboard` HTML contains the new question cards and `Debug paper counts`; live `/control/api/v1/overview` still reports `write_needed=0`, `raw_completed_no_paper_candidates=220`, `not_writable_by_decision_gate=220`, `finalize_needed=0`, `publish_ready=491`.
+- Live deployment evidence: `enoch-control-plane.service` restarted on `192.168.1.166`; `/control/dashboard` HTML contains the new question cards and `Debug paper counts`; live `/control/api/v1/overview` still reports `write_needed=0`, `raw_completed_no_paper_candidates=220`, `not_writable_by_decision_gate=220`, `finalize_needed=0`, `publish_ready=0`.
+
+## Dashboard shell redesign evidence
+
+Implemented on 2026-05-06:
+
+- `/control/dashboard` now uses a professional operator shell: sidebar navigation, top search, token/refresh controls, card/table layout, light/dark variables, and collapsed debug panels.
+- The shell remains dependency-free inline HTML/CSS/JS and continues to read from bounded `/control/api/v1/*` endpoints.
+- No-token browser loads now stop before authenticated API calls and show a token-required message instead of emitting repeated unauthenticated 401 requests.
+- Authenticated browser smoke shows the overview cards with `write_needed=0`, `publish_ready=0`, and non-writable rows labeled as done/no-paper informational state.
 
 ## State transition map evidence
 

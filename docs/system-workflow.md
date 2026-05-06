@@ -60,7 +60,7 @@ See `docs/idea-intake-workflow.md` for the full intake narrative. For the determ
 - pause/maintenance controls;
 - worker preflight and single-active-lane safety checks;
 - wake-gate process tracking and CPU/GPU quiet-window evidence;
-- control dashboard for operators;
+- professional `/control/dashboard` operator console backed by bounded read models;
 - evidence synchronization from worker to VM;
 - paper/research-artifact generation;
 - packaging/provenance scanning and corpus export;

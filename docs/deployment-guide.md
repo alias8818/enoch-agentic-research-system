@@ -121,7 +121,13 @@ Open the dashboard:
 http://<control-vm>:8787/dashboard
 ```
 
-Use `omx_inbound_bearer_token` as the dashboard/API token.
+Use `omx_inbound_bearer_token` as the dashboard/API token. The legacy wake-gate dashboard remains at `/dashboard`; the redesigned operator console is:
+
+```text
+http://<control-vm>:8787/control/dashboard
+```
+
+The redesigned `/control/dashboard` shell uses bounded `/control/api/v1/*` read models by default; reserve heavyweight legacy status endpoints for debugging only.
 
 ## 6. Enable Pushover queue alerts
 
