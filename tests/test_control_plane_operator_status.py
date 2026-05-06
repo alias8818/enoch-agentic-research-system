@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from omx_wake_gate.config import GateConfig
 from omx_wake_gate.control_plane.read_models import operator_stage_for_record
+from omx_wake_gate.control_plane.state_contract import OperatorLane
 from omx_wake_gate.control_plane.store import REVIEW_CHECKLIST_DEFINITION
 from omx_wake_gate.control_plane.router import create_control_plane_router
 
@@ -48,23 +49,26 @@ def _client(tmp: str) -> TestClient:
 class OperatorStatusTests(unittest.TestCase):
     def test_operator_stage_translates_core_lifecycle_rows(self) -> None:
         cases = [
-            ({"status": "queued"}, "idea_queued", False),
-            ({"status": "awaiting_wake"}, "running", False),
-            ({"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project"}, "run_complete_no_paper", False),
-            ({"status": "completed", "last_run_state": "session_finished_ready", "next_action_hint": "select_next_project"}, "run_complete_no_paper", False),
-            ({"paper_id": "paper-1", "paper_status": "draft_review"}, "draft_created", False),
-            ({"paper_id": "paper-2", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json"}, "ready_to_publish", False),
-            ({"paper_id": "paper-approved", "paper_status": "publication_draft", "review_status": "approved_for_finalization"}, "finalization_needed", False),
-            ({"paper_id": "paper-finalized-no-package", "paper_status": "publication_draft", "review_status": "finalized"}, "finalization_needed", False),
-            ({"paper_id": "paper-missing-review", "paper_status": "publication_draft"}, "finalization_needed", False),
-            ({"paper_id": "paper-3", "paper_status": "publication_draft", "review_status": "unreviewed"}, "finalization_needed", False),
-            ({"status": "blocked"}, "blocked_needs_operator", True),
-            ({"status": "paused"}, "paused_work", False),
+            ({"status": "queued"}, "ready_queue", "idea_queued", False),
+            ({"status": "awaiting_wake"}, "running", "running", False),
+            ({"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project"}, "complete_no_paper", "run_complete_no_paper", False),
+            ({"status": "completed", "last_run_state": "session_finished_ready", "next_action_hint": "select_next_project"}, "complete_no_paper", "run_complete_no_paper", False),
+            ({"paper_id": "paper-1", "paper_status": "draft_review"}, "automate_publication", "draft_created", False),
+            ({"paper_id": "paper-2", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json"}, "ready_to_publish", "ready_to_publish", False),
+            ({"paper_id": "paper-approved", "paper_status": "publication_draft", "review_status": "approved_for_finalization"}, "automate_publication", "finalization_needed", False),
+            ({"paper_id": "paper-finalized-no-package", "paper_status": "publication_draft", "review_status": "finalized"}, "automate_publication", "finalization_needed", False),
+            ({"paper_id": "paper-missing-review", "paper_status": "publication_draft"}, "automate_publication", "finalization_needed", False),
+            ({"paper_id": "paper-3", "paper_status": "publication_draft", "review_status": "unreviewed"}, "automate_publication", "finalization_needed", False),
+            ({"status": "blocked"}, "needs_operator", "blocked_needs_operator", True),
+            ({"status": "paused"}, "paused", "paused_work", False),
         ]
-        for row, stage, attention in cases:
+        for row, lane, detail_stage, attention in cases:
             with self.subTest(row=row):
                 translated = operator_stage_for_record(row)
-                self.assertEqual(translated["operator_stage"], stage)
+                self.assertIn(translated["operator_stage"], {item.value for item in OperatorLane})
+                self.assertEqual(translated["operator_stage"], lane)
+                self.assertEqual(translated["operator_lane"], lane)
+                self.assertEqual(translated["operator_detail_stage"], detail_stage)
                 self.assertIs(translated["operator_attention"], attention)
 
     def test_v1_endpoints_expose_operator_status_fields(self) -> None:
@@ -139,7 +143,7 @@ class OperatorStatusTests(unittest.TestCase):
             })
             self.assertEqual(backfill.status_code, 200, backfill.text)
             approved_paper = client.get("/control/api/v1/papers/paper-ready", headers=headers).json()
-            self.assertEqual(approved_paper["paper"]["operator_stage"], "finalization_needed")
+            self.assertEqual(approved_paper["paper"]["operator_detail_stage"], "finalization_needed")
             finalized = client.post("/control/api/paper-reviews/paper-ready/prepare-finalization-package", headers=headers, json={
                 "idempotency_key": "operator-status-finalized",
                 "requested_by": "test",
@@ -152,7 +156,7 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertIn("operator_counts", overview)
             self.assertIn("operator_model", overview)
             self.assertEqual(overview["operator_counts"]["ready_to_publish"], 1)
-            self.assertEqual(overview["operator_counts"]["run_complete_draft_needed"], 1)
+            self.assertEqual(overview["operator_detail_counts"]["run_complete_draft_needed"], 1)
             self.assertIn("paper_pipeline", overview)
             self.assertIn("write_needed", overview["paper_pipeline"])
             self.assertEqual(overview["paper_pipeline"]["publish_ready"], 1)
@@ -160,13 +164,17 @@ class OperatorStatusTests(unittest.TestCase):
 
             queue = client.get("/control/api/v1/queue?page_size=3&sort=name", headers=headers).json()
             stages = {row["project_id"]: row["operator_stage"] for row in queue["rows"]}
-            self.assertEqual(stages["idea-draft-needed"], "run_complete_draft_needed")
+            detail_stages = {row["project_id"]: row["operator_detail_stage"] for row in queue["rows"]}
+            self.assertEqual(stages["idea-draft-needed"], "write_paper")
+            self.assertEqual(detail_stages["idea-draft-needed"], "run_complete_draft_needed")
             self.assertIn("operator_next_step", queue["rows"][0])
 
             papers = client.get("/control/api/v1/papers?page_size=10", headers=headers).json()
             paper_stages = {row["paper_id"]: row["operator_stage"] for row in papers["rows"]}
+            paper_detail_stages = {row["paper_id"]: row["operator_detail_stage"] for row in papers["rows"]}
             self.assertEqual(paper_stages["paper-ready"], "ready_to_publish")
-            self.assertEqual(paper_stages["paper-unreviewed"], "finalization_needed")
+            self.assertEqual(paper_stages["paper-unreviewed"], "automate_publication")
+            self.assertEqual(paper_detail_stages["paper-unreviewed"], "finalization_needed")
 
             detail = client.get("/control/api/v1/projects/idea-ready", headers=headers).json()
             self.assertEqual(detail["queue_item"]["operator_stage"], "ready_to_publish")
@@ -201,6 +209,7 @@ class OperatorStatusTests(unittest.TestCase):
 
             overview = client.get("/control/api/v1/overview", headers=headers).json()
             self.assertNotIn("run_complete_draft_needed", overview["operator_counts"])
+            self.assertNotIn("run_complete_draft_needed", overview.get("operator_detail_counts", {}))
             self.assertEqual(overview["operator_counts"].get("needs_attention", 0), 0)
 
     def test_overview_keeps_new_run_draft_needed_when_older_project_paper_exists(self) -> None:
@@ -231,7 +240,7 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertEqual(imported.status_code, 200, imported.text)
 
             overview = client.get("/control/api/v1/overview", headers=headers).json()
-            self.assertEqual(overview["operator_counts"]["run_complete_draft_needed"], 1)
+            self.assertEqual(overview["operator_detail_counts"]["run_complete_draft_needed"], 1)
             self.assertEqual(overview["operator_counts"].get("needs_attention", 0), 0)
 
     def test_overview_counts_unbackfilled_publication_drafts_and_suppresses_stale_queue_actions(self) -> None:
@@ -315,10 +324,13 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertEqual(overview["operator_counts"].get("needs_attention", 0), 0)
             self.assertEqual(overview["operator_counts"]["ready_to_publish"], 1)
             self.assertNotIn("run_complete_draft_needed", overview["operator_counts"])
+            self.assertNotIn("run_complete_draft_needed", overview.get("operator_detail_counts", {}))
 
             papers = client.get("/control/api/v1/papers?page_size=10", headers=headers).json()
             paper_stages = {row["paper_id"]: row["operator_stage"] for row in papers["rows"]}
-            self.assertEqual(paper_stages["paper-unbackfilled"], "finalization_needed")
+            paper_detail_stages = {row["paper_id"]: row["operator_detail_stage"] for row in papers["rows"]}
+            self.assertEqual(paper_stages["paper-unbackfilled"], "automate_publication")
+            self.assertEqual(paper_detail_stages["paper-unbackfilled"], "finalization_needed")
             self.assertEqual(paper_stages["paper-ready-stale"], "ready_to_publish")
 
 
@@ -390,6 +402,7 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertEqual(runs["rows"][0]["operator_stage"], "ready_to_publish")
             overview = client.get("/control/api/v1/overview", headers=headers).json()
             self.assertNotIn("run_complete_draft_needed", overview["operator_counts"])
+            self.assertNotIn("run_complete_draft_needed", overview.get("operator_detail_counts", {}))
             self.assertEqual(overview["operator_counts"]["ready_to_publish"], 1)
 
     def test_negative_decision_artifact_is_no_paper_not_draft_needed(self) -> None:
@@ -415,14 +428,15 @@ class OperatorStatusTests(unittest.TestCase):
 
             detail = client.get("/control/api/v1/projects/idea-negative", headers=headers).json()
             queue_item = detail["queue_item"]
-            self.assertEqual(queue_item["operator_stage"], "run_complete_no_paper")
+            self.assertEqual(queue_item["operator_stage"], "complete_no_paper")
             self.assertFalse(queue_item["paper_draft_eligible"])
             self.assertEqual(queue_item["project_decision_summary"], "negative_result (project decision is not positive)")
             self.assertIn("No paper draft is needed", queue_item["operator_next_step"])
 
             overview = client.get("/control/api/v1/overview", headers=headers).json()
             self.assertNotIn("run_complete_draft_needed", overview["operator_counts"])
-            self.assertEqual(overview["operator_counts"]["run_complete_no_paper"], 1)
+            self.assertNotIn("run_complete_draft_needed", overview.get("operator_detail_counts", {}))
+            self.assertEqual(overview["operator_counts"]["complete_no_paper"], 1)
 
     def test_missing_project_dir_uses_project_id_evidence_fallback_for_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -455,7 +469,7 @@ class OperatorStatusTests(unittest.TestCase):
 
                 detail = client.get("/control/api/v1/projects/idea-fallback", headers=headers).json()
                 queue_item = detail["queue_item"]
-                self.assertEqual(queue_item["operator_stage"], "run_complete_no_paper")
+                self.assertEqual(queue_item["operator_stage"], "complete_no_paper")
                 self.assertFalse(queue_item["paper_draft_eligible"])
                 self.assertEqual(
                     queue_item["project_decision_summary"],
@@ -512,6 +526,9 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertIn("workState(counts,operators={},pipeline={})", html)
             self.assertIn("project_decision_summary", html)
             self.assertIn("['operator_stage_label','project_id','run_id','related_paper_id','operator_next_step','updated_at']", html)
+            self.assertIn("operators.ready_queue", html)
+            self.assertIn("Publication drafts", html)
+            self.assertNotIn("Publication-ready drafts", html)
 
 
 if __name__ == "__main__":

@@ -249,6 +249,14 @@ curl -fsS -H "Authorization: Bearer $TOKEN" \
 
 The control plane can rewrite and package generated research artifacts when paper rows and evidence are present.
 
+Use the operator state model in [`docs/state-model.md`](state-model.md) when interpreting dashboard/API paper counts:
+
+- `write_needed` means a completed run is paper-positive and has no live paper row.
+- `finalize_needed` means a draft needs automated rewrite/finalization/package work.
+- `publish_ready` means a `publication_draft` also has a finalized automation package and finalization package path.
+
+Do not treat raw `wake_ready`, `draft_review`, or `publication_draft` values by themselves as user-facing paper work or publication readiness.
+
 Recommended model-provider settings for Synthetic.new / GLM-5.1:
 
 ```json

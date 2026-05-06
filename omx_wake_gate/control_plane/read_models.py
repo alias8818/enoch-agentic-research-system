@@ -15,6 +15,7 @@ from .state_contract import (
     DRAFT_PAPER_STATUSES,
     PAPER_DRAFT_NEXT_ACTION,
     PUBLICATION_READY_AUTOMATION_STATUSES,
+    OperatorLane,
     WAKE_GATE_COMPLETION_STATES,
 )
 
@@ -29,10 +30,22 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
-def _stage(label: str, *, tone: str, attention: bool, next_step: str, explanation: str, **extra: Any) -> dict[str, Any]:
+def _stage(
+    detail_label: str,
+    *,
+    lane: OperatorLane,
+    tone: str,
+    attention: bool,
+    next_step: str,
+    explanation: str,
+    **extra: Any,
+) -> dict[str, Any]:
     stage = {
-        "operator_stage": label,
-        "operator_stage_label": label.replace("_", " ").title(),
+        "operator_stage": lane.value,
+        "operator_stage_label": lane.value.replace("_", " ").title(),
+        "operator_lane": lane.value,
+        "operator_detail_stage": detail_label,
+        "operator_detail_stage_label": detail_label.replace("_", " ").title(),
         "operator_tone": tone,
         "operator_attention": attention,
         "operator_next_step": next_step,
@@ -148,6 +161,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     if queue_status in ATTENTION_QUEUE_STATUSES or manual_review:
         return _stage(
             "blocked_needs_operator",
+            lane=OperatorLane.NEEDS_OPERATOR,
             tone="bad",
             attention=True,
             next_step="Open the item and resolve the blocker or worker question.",
@@ -156,6 +170,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     if queue_status == QueueStatus.PAUSED.value:
         return _stage(
             "paused_work",
+            lane=OperatorLane.PAUSED,
             tone="muted",
             attention=False,
             next_step="Resume only when maintenance policy says this project should re-enter the queue.",
@@ -164,6 +179,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     if review_status == "rejected" or paper_status == "archived":
         return _stage(
             "run_complete_no_paper",
+            lane=OperatorLane.COMPLETE_NO_PAPER,
             tone="muted",
             attention=False,
             next_step="No paper publication action is needed for this record.",
@@ -172,6 +188,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     if paper_status in {PaperStatus.PUBLICATION_DRAFT.value, PaperStatus.DRAFT_REVIEW.value} and review_status in READY_REVIEW_STATUSES and _text(row.get("finalization_package_path") or row.get("related_finalization_package_path")):
         return _stage(
             "ready_to_publish",
+            lane=OperatorLane.READY_TO_PUBLISH,
             tone="good",
             attention=False,
             next_step="Import this finalized publication draft into the public corpus if it is not already present.",
@@ -180,6 +197,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     if paper_status == PaperStatus.PUBLICATION_DRAFT.value:
         return _stage(
             "finalization_needed",
+            lane=OperatorLane.AUTOMATE_PUBLICATION,
             tone="warn",
             attention=False,
             next_step="Run automated rewrite/finalization; no human approval is required.",
@@ -188,6 +206,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     if paper_status in DRAFT_PAPER_STATUSES or (has_paper and paper_status):
         return _stage(
             "draft_created",
+            lane=OperatorLane.AUTOMATE_PUBLICATION,
             tone="info",
             attention=False,
             next_step="Continue automated rewrite/finalization or inspect artifacts if automation failed.",
@@ -196,6 +215,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     if queue_status in ACTIVE_QUEUE_STATUSES or last_run_state in ACTIVE_QUEUE_STATUSES:
         return _stage(
             "running",
+            lane=OperatorLane.RUNNING,
             tone="info",
             attention=False,
             next_step="Wait for worker callback or gate completion.",
@@ -204,6 +224,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     if queue_status == "queued":
         return _stage(
             "idea_queued",
+            lane=OperatorLane.READY_QUEUE,
             tone="info",
             attention=False,
             next_step="Dispatch when the lane is available.",
@@ -215,6 +236,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
         if gate is None or not bool(gate.get("eligible")):
             return _stage(
                 "run_complete_no_paper",
+                lane=OperatorLane.COMPLETE_NO_PAPER,
                 tone="muted",
                 attention=False,
                 next_step="No paper draft is needed; select the next project.",
@@ -225,6 +247,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
             )
         return _stage(
             "run_complete_draft_needed",
+            lane=OperatorLane.WRITE_PAPER,
             tone="warn",
             attention=False,
             next_step="Run draft-next because the decision artifacts are positive.",
@@ -236,6 +259,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     if queue_status == "completed" or last_run_state in WAKE_GATE_COMPLETION_STATES:
         return _stage(
             "run_complete_no_paper",
+            lane=OperatorLane.COMPLETE_NO_PAPER,
             tone="muted",
             attention=False,
             next_step="Select the next project unless separate paper evidence appears.",
@@ -243,6 +267,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
         )
     return _stage(
         "blocked_needs_operator",
+        lane=OperatorLane.NEEDS_OPERATOR,
         tone="warn",
         attention=True,
         next_step="Inspect raw state because this row does not match a known operator lifecycle stage.",
@@ -386,6 +411,19 @@ OPERATOR_STAGE_PRECEDENCE = {
     "paused_work": 20,
 }
 
+OPERATOR_LANE_PRECEDENCE = {
+    OperatorLane.NEEDS_OPERATOR.value: 100,
+    OperatorLane.READY_TO_PUBLISH.value: 90,
+    OperatorLane.AUTOMATE_PUBLICATION.value: 80,
+    OperatorLane.WRITE_PAPER.value: 70,
+    OperatorLane.RUNNING.value: 60,
+    OperatorLane.READY_QUEUE.value: 50,
+    OperatorLane.COMPLETE_NO_PAPER.value: 40,
+    OperatorLane.PAUSED.value: 30,
+    OperatorLane.PUBLISHED.value: 20,
+    OperatorLane.HISTORICAL.value: 10,
+}
+
 
 def _typed_lifecycle_key(row: dict[str, Any]) -> str:
     paper_id = _text(row.get("paper_id"))
@@ -405,7 +443,7 @@ def _queue_is_superseded_by_paper(
     paper_projects: set[str],
     paper_runs: set[str],
 ) -> bool:
-    if _text(row.get("operator_stage")) != "run_complete_draft_needed":
+    if _text(row.get("operator_detail_stage")) != "run_complete_draft_needed":
         return False
     run_id = _text(row.get("run_id") or row.get("current_run_id"))
     if run_id:
@@ -414,8 +452,7 @@ def _queue_is_superseded_by_paper(
     return bool(project_id and project_id in paper_projects)
 
 
-def operator_counts_from_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
-    counts: dict[str, int] = {}
+def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     staged_rows = [row if row.get("operator_stage") else with_operator_stage(row) for row in rows]
     paper_projects = {
         _text(row.get("project_id"))
@@ -435,16 +472,33 @@ def operator_counts_from_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
             anonymous.append(staged)
             continue
         current = by_key.get(key)
-        stage = _text(staged.get("operator_stage"))
-        current_stage = _text((current or {}).get("operator_stage"))
-        if current is None or OPERATOR_STAGE_PRECEDENCE.get(stage, 0) > OPERATOR_STAGE_PRECEDENCE.get(current_stage, 0):
+        detail_stage = _text(staged.get("operator_detail_stage"))
+        current_detail_stage = _text((current or {}).get("operator_detail_stage"))
+        lane = _text(staged.get("operator_lane") or staged.get("operator_stage"))
+        current_lane = _text((current or {}).get("operator_lane") or (current or {}).get("operator_stage"))
+        precedence = max(OPERATOR_STAGE_PRECEDENCE.get(detail_stage, 0), OPERATOR_LANE_PRECEDENCE.get(lane, 0))
+        current_precedence = max(OPERATOR_STAGE_PRECEDENCE.get(current_detail_stage, 0), OPERATOR_LANE_PRECEDENCE.get(current_lane, 0))
+        if current is None or precedence > current_precedence:
             by_key[key] = staged
-    reconciled = [*by_key.values(), *anonymous]
+    return [*by_key.values(), *anonymous]
+
+
+def operator_detail_counts_from_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in _reconciled_operator_rows(rows):
+        detail_stage = _text(row.get("operator_detail_stage")) or operator_stage_for_record(row)["operator_detail_stage"]
+        counts[detail_stage] = counts.get(detail_stage, 0) + 1
+    return counts
+
+
+def operator_counts_from_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    reconciled = _reconciled_operator_rows(rows)
     for row in reconciled:
-        stage = _text(row.get("operator_stage")) or operator_stage_for_record(row)["operator_stage"]
-        counts[stage] = counts.get(stage, 0) + 1
+        lane = _text(row.get("operator_lane") or row.get("operator_stage")) or operator_stage_for_record(row)["operator_lane"]
+        counts[lane] = counts.get(lane, 0) + 1
     counts["needs_attention"] = sum(1 for row in reconciled if bool(row.get("operator_attention") or operator_stage_for_record(row)["operator_attention"]))
-    counts["ready_to_publish"] = counts.get("ready_to_publish", 0)
+    counts[OperatorLane.READY_TO_PUBLISH.value] = counts.get(OperatorLane.READY_TO_PUBLISH.value, 0)
     counts["total_operator_items"] = len(reconciled)
     return counts
 
@@ -483,6 +537,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
     queue_rows = [summarize_queue_row(row) for row in raw_queue_rows]
     paper_rows = [summarize_paper_row(row) for row in raw_paper_rows]
     operator_counts = operator_counts_from_rows([*queue_rows, *paper_rows])
+    operator_detail_counts = operator_detail_counts_from_rows([*queue_rows, *paper_rows])
     raw_write_candidates = eligible_paper_draft_candidates(raw_queue_rows, raw_paper_rows)
     write_candidates: list[dict[str, Any]] = []
     gate_rejected: list[dict[str, Any]] = []
@@ -504,8 +559,8 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         "not_writable_by_decision_gate": len(gate_rejected),
         "gate_rejected_sample": gate_rejected[:10],
         "next_write_candidate": draft_candidate_payload(write_candidates[0]) if write_candidates else None,
-        "finalize_needed": operator_counts.get("finalization_needed", 0),
-        "publish_ready": operator_counts.get("ready_to_publish", 0),
+        "finalize_needed": operator_detail_counts.get("finalization_needed", 0),
+        "publish_ready": operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0),
         "definitions": {
             "write_needed": "completed runs with no live paper row that currently pass the paper-positive decision gate",
             "raw_completed_no_paper_candidates": "completed no-paper rows before checking local project decision artifacts",
@@ -525,6 +580,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         },
         "paper_counts": paper_counts,
         "operator_counts": operator_counts,
+        "operator_detail_counts": operator_detail_counts,
         "paper_pipeline": paper_pipeline,
         "operator_model": {
             "source": "control_plane.read_models.operator_stage_for_record",

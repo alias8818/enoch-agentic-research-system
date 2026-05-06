@@ -9,7 +9,7 @@ Supabase owns the runtime ledger. The control plane keeps detailed raw states fo
 Trust these surfaces in this order:
 
 1. **Dashboard operator lanes** for current action: what needs attention, what is running, what can be written, what can be finalized, what is ready to publish, and what is already imported.
-2. **`operator_dashboard_counts` / paper pipeline definitions** for aggregate counts. Do not replace them with ad hoc raw-status counts.
+2. **`operator_counts`, `operator_detail_counts`, and paper pipeline definitions** for aggregate counts. Do not replace them with ad hoc raw-status counts.
 3. **Raw state surfaces** only when debugging a row. Raw values explain evidence; they are not the user workflow.
 4. **`docs/state-reduction-audit.md`** for the generated raw-value disposition table. Do not hand-edit that audit unless regenerating it from `state_contract.py`.
 
@@ -32,7 +32,13 @@ The dashboard and assistant should answer simple questions with these lanes:
 | `paused` | Work is intentionally held by maintenance or policy. | Resume only after policy decision. |
 | `historical` | Terminal, provenance, debug, or imported evidence that is not current operator work. | No action. |
 
-These lanes are derived, not directly stored as the lifecycle source of truth.
+These lanes are derived, not directly stored as the lifecycle source of truth. In v1 dashboard/API rows, `operator_stage` and `operator_lane` are the canonical lane names above. More specific compatibility detail, such as `run_complete_draft_needed` or `finalization_needed`, belongs in `operator_detail_stage` and should be treated as drill-down context rather than the primary workflow vocabulary.
+
+Count fields follow the same split:
+
+- `operator_counts` groups rows by canonical operator lane and keeps `operator_stage`/`operator_lane` vocabulary user-facing.
+- `operator_detail_counts` groups rows by compatibility/detail stage for drill-down metrics and legacy counters.
+- `paper_pipeline.write_needed`, `paper_pipeline.finalize_needed`, and `paper_pipeline.publish_ready` are the preferred paper-work counters. They intentionally combine lane and detail evidence so dashboards do not infer paper work from raw statuses alone.
 
 ## Canonical lifecycle state surfaces
 

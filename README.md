@@ -38,7 +38,7 @@ The repository contains the execution/control-plane layer and supporting docs. H
 
 ## Main components
 
-- **Control plane API** — queue state, project state, paper review state, pause/maintenance controls, and dispatch decisions; built with FastAPI and LangGraph-era graph boundaries.
+- **Control plane API** — queue state, project state, publication automation/finalization state, pause/maintenance controls, and dispatch decisions; built with FastAPI and LangGraph-era graph boundaries.
 - **Wake gate** — proves a run is actually done, not just agent-session-closed: process-tree tracking and CPU/GPU quiet-window telemetry sustained over a configurable window.
 - **Worker preflight** — authenticated health checks against the worker before dispatching new work, so dispatch fails early rather than silently.
 - **Single-lane safety** — prevents overlapping GPU-heavy work on constrained local hardware; the control plane holds the lock, not the dispatch script.
@@ -101,6 +101,7 @@ uv run pytest -q
 - [`docs/deployment-guide.md`](docs/deployment-guide.md) — full deployment guide
 - [`docs/configuration-reference.md`](docs/configuration-reference.md) — config field reference
 - [`docs/system-workflow.md`](docs/system-workflow.md) — architecture and control-plane boundaries
+- [`docs/state-model.md`](docs/state-model.md) — operator lane vocabulary and raw-state/detail-stage boundaries
 - [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md) — LLM scouting, Supabase ideas, and queue handoff
 
 **Release context:**
