@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from omx_wake_gate.control_plane.store import ControlPlaneStore  # noqa: E402
-from omx_wake_gate.control_plane.models import ImportSnapshotRequest, PaperRecord, PaperStatus  # noqa: E402
+from omx_wake_gate.control_plane.models import ImportSnapshotRequest, NotionIntakeRequest, PaperRecord, PaperStatus  # noqa: E402
 from omx_wake_gate.control_plane.supabase_store import ReadOnlyStoreError, SupabaseControlPlaneStore, SupabaseReadOnlyControlPlaneStore  # noqa: E402
 
 IMAGE = "postgres:17-alpine"
@@ -379,6 +379,38 @@ def main() -> int:
             final_queue_counts = write_store.queue_counts_sql()
             if final_queue_counts.get("queued") != 0 or final_queue_counts.get("paused") != 1 or final_queue_counts.get("completed") != 1:
                 failures.append(f"queue_counts_sql bucket mismatch after writes: {final_queue_counts}")
+            dry_notion = write_store.ingest_notion_ideas(NotionIntakeRequest(
+                dry_run=True,
+                source="validator-notion",
+                notion_rows=[{"Idea": "Dry Notion Idea", "Status": "exploring"}],
+            ))
+            if dry_notion[0] or dry_notion[1] != 0 or not dry_notion[4]:
+                failures.append("dry-run notion intake did not return candidates without insert")
+            notion_inserted, notion_created, notion_updated, notion_skipped, notion_candidates, _ = write_store.ingest_notion_ideas(NotionIntakeRequest(
+                dry_run=False,
+                idempotency_key="write-smoke-notion-intake",
+                source="validator-notion",
+                include_statuses=["exploring"],
+                default_machine_target="validator-worker",
+                default_model="gpt-5.5",
+                default_sandbox="danger-full-access",
+                notion_rows=[{
+                    "Idea": "Live Notion Idea",
+                    "Status": "exploring",
+                    "url": "https://www.notion.so/Live-Notion-Idea-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "Priority": "High",
+                }],
+            ))
+            if not notion_inserted or notion_created != 1 or notion_updated != 0 or notion_skipped != 0 or not notion_candidates:
+                failures.append("notion intake insert counts mismatch")
+            notion_project_id = notion_candidates[0]["project_id"] if notion_candidates else ""
+            notion_row = write_store.queue_row(notion_project_id) if notion_project_id else None
+            if not notion_row or notion_row.get("machine_target") != "validator-worker":
+                failures.append("notion intake did not persist queue/project metadata")
+            if not any(row.get("project_id") == notion_project_id for row in write_store.queue_notion_projection()):
+                failures.append("queue_notion_projection missing notion intake row")
+            if not any(row.get("project_id") == notion_project_id for row in write_store.notion_execution_update_projection()):
+                failures.append("notion_execution_update_projection missing notion intake row")
 
             report: dict[str, Any] = {
                 "ok": not failures,

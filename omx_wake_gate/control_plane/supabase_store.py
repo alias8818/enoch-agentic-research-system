@@ -9,7 +9,7 @@ from typing import Any
 
 from ..enoch_core.store import IdempotencyConflict
 from ..models import utc_now
-from .models import ControlFlags, DashboardObservationRecord, ImportSnapshotRequest, PaperRecord, PaperStatus, RunState
+from .models import ControlFlags, DashboardObservationRecord, ImportSnapshotRequest, NotionIntakeRequest, PaperRecord, PaperStatus, RunState
 from .store import (
     ACTIVE_STATUSES,
     QueueStatus,
@@ -18,7 +18,13 @@ from .store import (
     _hash,
     _int,
     _json,
+    _notion_page_id,
     _notion_page_id_from_url,
+    _notion_status,
+    _notion_title,
+    _notion_url,
+    _priority_rank,
+    _slug_id,
     _snapshot_rows,
     _text,
 )
@@ -590,6 +596,200 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             payload_hash=payload_hash,
             created_at=now,
         )
+
+    def ingest_notion_ideas(self, request: NotionIntakeRequest) -> tuple[bool, int, int, int, list[dict[str, Any]], list[dict[str, Any]]]:
+        include_statuses = {item.strip().lower() for item in request.include_statuses if item.strip()}
+        candidates: list[dict[str, Any]] = []
+        skipped_rows: list[dict[str, Any]] = []
+        for raw in request.notion_rows:
+            title = _notion_title(raw)
+            status = _notion_status(raw).lower()
+            page_id = _notion_page_id(raw)
+            page_url = _notion_url(raw)
+            if not title:
+                skipped_rows.append({"reason": "missing title", "row": raw})
+                continue
+            if include_statuses and status and status not in include_statuses:
+                skipped_rows.append({"reason": f"status {status!r} not included", "title": title, "status": status, "page_id": page_id})
+                continue
+            project_id = _slug_id(page_id.replace("-", "")) if page_id else f"notion-{_slug_id(title)}"
+            if not project_id:
+                skipped_rows.append({"reason": "missing project id", "title": title, "page_id": page_id})
+                continue
+            rank = _priority_rank(raw)
+            candidates.append({
+                "project_id": project_id,
+                "project_name": title,
+                "project_dir": project_id,
+                "notion_page_url": page_url,
+                "notion_page_id": page_id,
+                "origin_idea_status": status,
+                "status": QueueStatus.QUEUED.value,
+                "selection_rank": rank,
+                "dispatch_priority": rank,
+                "next_action_hint": "controller_review",
+                "machine_target": request.default_machine_target,
+                "model": request.default_model,
+                "sandbox": request.default_sandbox,
+                "source_row": raw,
+            })
+        if request.dry_run:
+            return False, 0, 0, len(skipped_rows), candidates, skipped_rows
+        event_payload = request.model_dump(mode="json")
+        event_payload["candidate_count"] = len(candidates)
+        event_payload["skipped_count"] = len(skipped_rows)
+        _event_id, inserted = self.append_event(
+            idempotency_key=request.idempotency_key,
+            event_type="notion.intake",
+            entity_type="snapshot",
+            entity_id=request.source,
+            payload=event_payload,
+        )
+        created = updated = 0
+        if not inserted:
+            return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
+        now = utc_now()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                for candidate in candidates:
+                    existed = cur.execute("select 1 from queue_items where project_id = %s", (candidate["project_id"],)).fetchone() is not None
+                    cur.execute(
+                        """
+                        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+                        values (%s,%s,%s,%s,%s,%s,%s,%s)
+                        on conflict (project_id) do update set
+                          project_name=excluded.project_name, project_dir=excluded.project_dir, notion_page_url=excluded.notion_page_url,
+                          notion_page_id=excluded.notion_page_id, origin_idea_status=excluded.origin_idea_status, updated_at=excluded.updated_at
+                        """,
+                        (candidate["project_id"], candidate["project_name"], candidate["project_dir"], candidate["notion_page_url"], candidate["notion_page_id"], candidate["origin_idea_status"], now, now),
+                    )
+                    if existed:
+                        if request.override_existing_dispatch_metadata:
+                            cur.execute(
+                                """
+                                update queue_items
+                                set selection_rank=%s, dispatch_priority=%s, machine_target=%s, model=%s, sandbox=%s, updated_at=%s
+                                where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
+                                """,
+                                (candidate["selection_rank"], candidate["dispatch_priority"], candidate["machine_target"], candidate["model"], candidate["sandbox"], now, candidate["project_id"]),
+                            )
+                        else:
+                            cur.execute(
+                                """
+                                update queue_items
+                                set selection_rank=%s, dispatch_priority=%s, updated_at=%s
+                                where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
+                                """,
+                                (candidate["selection_rank"], candidate["dispatch_priority"], now, candidate["project_id"]),
+                            )
+                        updated += 1
+                    else:
+                        cur.execute(
+                            """
+                            insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+                            values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            """,
+                            (
+                                candidate["project_id"], QueueStatus.QUEUED.value, candidate["selection_rank"], candidate["dispatch_priority"],
+                                True, 0, 0, 0, 2, "", "", "", "", candidate["next_action_hint"], False, "", "", "",
+                                candidate["machine_target"], candidate["model"], candidate["sandbox"], None, None, None, now,
+                            ),
+                        )
+                        created += 1
+        return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
+
+    def notion_execution_update_projection(self) -> list[dict[str, Any]]:
+        state_map = {
+            QueueStatus.QUEUED.value: "queued",
+            QueueStatus.DISPATCHING.value: "running",
+            QueueStatus.RUNNING.value: "running",
+            QueueStatus.AWAITING_WAKE.value: "waiting",
+            QueueStatus.WAKE_RECEIVED.value: "waiting",
+            QueueStatus.RECONCILING.value: "waiting",
+            QueueStatus.COMPLETED.value: "completed",
+            QueueStatus.PAUSED.value: "blocked",
+            QueueStatus.CANCELED.value: "completed",
+            QueueStatus.DISPATCH_ERROR.value: "failed",
+            QueueStatus.BLOCKED.value: "blocked",
+            QueueStatus.NEEDS_REVIEW.value: "blocked",
+        }
+        paper_by_project = {paper.get("project_id"): paper for paper in self.paper_rows()}
+        rows = []
+        for row in self.queue_rows():
+            paper = paper_by_project.get(row.get("project_id")) or {}
+            merged = {**row, "paper_id": paper.get("paper_id") or "", "paper_status": paper.get("paper_status") or "", "paper_type": paper.get("paper_type") or "", "draft_markdown_path": paper.get("draft_markdown_path") or "", "paper_updated_at": paper.get("updated_at") or ""}
+            page_url = merged.get("notion_page_url") or ""
+            if not page_url:
+                continue
+            execution_state = state_map.get(merged.get("status") or "", "blocked")
+            blocked_reason = merged.get("blocked_reason") or (merged.get("last_result_summary") if execution_state in {"blocked", "failed"} else "") or ""
+            rows.append({
+                "project_id": merged.get("project_id") or "",
+                "page_id": merged.get("notion_page_id") or _notion_page_id_from_url(page_url),
+                "notion_page_url": page_url,
+                "properties": {
+                    "Execution State": execution_state,
+                    "Current Run ID": merged.get("current_run_id") or "",
+                    "Next Action": merged.get("next_action_hint") or "",
+                    "Blocked Reason": blocked_reason,
+                    "Last Execution Update": merged.get("updated_at") or utc_now(),
+                    "Execution Summary": merged.get("last_result_summary") or "",
+                    "OMX Project ID": merged.get("project_id") or "",
+                    "OMX Queue Status": merged.get("status") or "",
+                    "OMX Last Run State": merged.get("last_run_state") or "",
+                    "OMX Last Event Type": merged.get("last_event_type") or "",
+                    "OMX Next Action Hint": merged.get("next_action_hint") or "",
+                    "OMX Project Dir": merged.get("project_dir") or "",
+                    "OMX Current Session ID": merged.get("current_session_id") or "",
+                    "OMX Last Result Summary": merged.get("last_result_summary") or "",
+                    "OMX Last Error": merged.get("last_error") or "",
+                    "OMX Manual Review Required": "__YES__" if merged.get("manual_review_required") else "__NO__",
+                    "OMX Dispatch Priority": merged.get("dispatch_priority") or 0,
+                    "OMX Selection Rank": merged.get("selection_rank") or 0,
+                    "OMX Paper ID": merged.get("paper_id") or "",
+                    "OMX Paper Status": merged.get("paper_status") or "",
+                    "OMX Paper Type": merged.get("paper_type") or "",
+                    "OMX Paper Markdown Path": merged.get("draft_markdown_path") or "",
+                    "OMX Paper Updated At": merged.get("paper_updated_at") or "",
+                    "OMX Paper Updated At ISO": merged.get("paper_updated_at") or "",
+                },
+            })
+        return rows
+
+    def queue_notion_projection(self) -> list[dict[str, Any]]:
+        return [{
+            "project_id": row.get("project_id") or "",
+            "project_name": row.get("project_name") or "",
+            "queue_status": row.get("status") or "",
+            "next_action_hint": row.get("next_action_hint") or "",
+            "last_run_state": row.get("last_run_state") or "",
+            "last_event_type": row.get("last_event_type") or "",
+            "current_run_id": row.get("current_run_id") or "",
+            "current_session_id": row.get("current_session_id") or "",
+            "machine_target": row.get("machine_target") or "",
+            "manual_review_required": bool(row.get("manual_review_required")),
+            "blocked_reason": row.get("blocked_reason") or "",
+            "last_result_summary": row.get("last_result_summary") or "",
+            "notion_page_url": row.get("notion_page_url") or "",
+            "updated_at": row.get("updated_at") or "",
+        } for row in self.queue_rows()]
+
+    def paper_notion_projection(self) -> list[dict[str, Any]]:
+        return [{
+            "paper_id": paper.get("paper_id") or "",
+            "project_id": paper.get("project_id") or "",
+            "project_name": paper.get("project_name") or paper.get("project_id") or "",
+            "paper_status": paper.get("paper_status") or "",
+            "paper_type": paper.get("paper_type") or "",
+            "run_id": paper.get("run_id") or "",
+            "draft_markdown_path": paper.get("draft_markdown_path") or "",
+            "draft_latex_path": paper.get("draft_latex_path") or "",
+            "evidence_bundle_path": paper.get("evidence_bundle_path") or "",
+            "claim_ledger_path": paper.get("claim_ledger_path") or "",
+            "manifest_path": paper.get("manifest_path") or "",
+            "notion_page_url": paper.get("notion_page_url") or "",
+            "updated_at": paper.get("updated_at") or "",
+        } for paper in self.paper_rows()]
 
     def _replayed_event_id(self, idempotency_key: str, payload: dict[str, Any]) -> int | None:
         payload_hash = _hash(payload)
