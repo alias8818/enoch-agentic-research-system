@@ -1,6 +1,6 @@
 # State simplification TODO
 
-Status: active next-phase backlog after the Supabase state-contract cleanup on 2026-05-06. State doctor command is implemented; corpus/publication reconciliation is next.
+Status: active next-phase backlog after the Supabase state-contract cleanup on 2026-05-06. State doctor command is implemented; corpus/publication/public-count reconciliation is locally clean; Hugging Face sync verification remains next.
 
 The current state model is coherent and live-clean. The next work is to make the operator experience even simpler: actions first, raw states only as drill-down evidence.
 
@@ -28,10 +28,11 @@ The current state model is coherent and live-clean. The next work is to make the
 
 ## 3. Corpus/publication reconciliation
 
-- [ ] Reconcile `publication_draft`, `ready_to_publish`, corpus import ledger, public repo count, and Hugging Face count.
-- [ ] Produce one canonical answer for: what is actually public?
-- [ ] Make stale public count drift fail validation/CI where possible.
-- [ ] Keep public labels/counts generated from a single source or deterministic manifest path.
+- [x] Reconcile `publication_draft`, `ready_to_publish`, corpus import ledger, and public repo count.
+- [ ] Verify/update Hugging Face count after the corpus repo commit is published.
+- [x] Produce one canonical answer for: what is actually public locally.
+- [x] Make stale public count drift fail validation/CI where possible.
+- [x] Keep public labels/counts generated from a single source or deterministic manifest path.
 
 ## 4. Retire Notion assumptions
 
@@ -57,7 +58,7 @@ The current state model is coherent and live-clean. The next work is to make the
 ## Preferred execution order
 
 1. State doctor command. (done)
-2. Corpus/publication reconciliation. (next)
+2. Corpus/publication reconciliation. (local/public counts done; HF verification next)
 3. Dashboard polish.
 4. State transition map.
 5. Notion-runtime retirement.
@@ -74,7 +75,7 @@ Last verified on 2026-05-06:
 - paper rows: `publication_draft = 494`, `archived = 2`, `all = 496`
 - state normalization dry-run: `0` rows
 - live state contract: OK
-- state doctor: state/dashboard checks OK; corpus reconciliation fails loudly because 120 finalized publication drafts are not yet represented in the local public corpus index
+- state doctor: OK; corpus reconciliation reports 0 importable finalized publication drafts after local corpus import
 
 ## State doctor evidence
 
@@ -91,8 +92,8 @@ uv run python scripts/state_doctor.py \
 
 Last observed state doctor result on 2026-05-06:
 
-- exit code: `1`
-- failure reason: corpus drift from finalized publication drafts not yet represented in the public corpus
+- exit code: `0`
+- failure reason: none
 - `state_contract.ok`: OK
 - `normalization.total_rows`: `0`
 - `control_plane.overview`: OK
@@ -102,5 +103,5 @@ Last observed state doctor result on 2026-05-06:
 - `paper_pipeline.finalize_needed`: `0`
 - `paper_pipeline.publish_ready`: `491`
 - `corpus_reconciliation.live_finalized_publication_draft_count`: `491`
-- `corpus_reconciliation.public_corpus_count`: `375`
-- `corpus_reconciliation.importable_finalized_count`: `120`
+- `corpus_reconciliation.public_corpus_count`: `495`
+- `corpus_reconciliation.importable_finalized_count`: `0`
