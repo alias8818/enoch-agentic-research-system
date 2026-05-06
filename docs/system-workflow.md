@@ -16,7 +16,7 @@ The system is valuable because it joins three layers that are often split apart:
 LLM research scout
         |
         v
-Structured idea cards + Notion weight matrix
+Structured idea cards + Supabase-native ideas workbench
         |
         v
 Idea intake / queue
@@ -48,7 +48,7 @@ Enoch is built around a FastAPI service, a LangGraph-era control-plane state/gra
 
 ## Intake boundary
 
-The upstream intake process used an LLM-assisted research scout to review news, public research papers, and systems trends, then frame candidate experiments for scoring. Notion acted as the weight-matrix and triage surface. That intake layer explains where ideas came from, but it is not the runtime authority.
+The upstream intake process uses an LLM-assisted research scout to review news, public research papers, and systems trends, then frame candidate experiments for scoring. Supabase now acts as the editable ideas workbench and triage database. Historical Notion identifiers may remain as provenance on imported rows, but Notion is not the active runtime authority.
 
 Runtime authority begins when a scored candidate becomes a queue item for the Enoch control plane. From there, safety and truth come from control-plane state, worker preflight, wake-gate telemetry, process tracking, and evidence artifacts.
 

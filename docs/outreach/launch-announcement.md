@@ -29,7 +29,7 @@ Enoch treats those as first-class systems problems.
 A run goes through:
 
 1. LLM-assisted idea scouting and structured idea cards.
-2. Notion scoring / weight-matrix intake.
+2. Supabase-native scoring / ideas workbench intake.
 3. Control-plane queue and maintenance gates.
 4. Worker preflight and single-lane safety checks.
 5. Wake-gated execution with process and telemetry observation.

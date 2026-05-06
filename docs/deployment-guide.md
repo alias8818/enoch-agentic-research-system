@@ -2,7 +2,7 @@
 
 This guide describes a two-machine Enoch deployment that mirrors the reference setup:
 
-- **Control VM** — hosts the FastAPI control plane, dashboard, queue state, paper review APIs, alert timer, and corpus/export tooling.
+- **Control VM** — hosts the FastAPI control plane, dashboard, Supabase-backed queue state, publication automation APIs, alert timer, and corpus/export tooling.
 - **Worker machine** — hosts the wake gate used by OMX/Codex runs, tracks process trees and telemetry, and stores project workspaces and evidence.
 
 A single-machine development deployment is also possible: run both services on localhost and set `worker_wake_gate_url` to the same host.

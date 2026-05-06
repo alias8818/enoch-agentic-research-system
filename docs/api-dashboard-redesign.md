@@ -12,7 +12,7 @@ The redesign target is:
 - clear command/read separation;
 - a professional dashboard organized around operator tasks;
 - memory and response-size observability;
-- a migration path that does not break dispatch, wake callbacks, paper production, or Notion sync.
+- a migration path that does not break dispatch, wake callbacks, paper production, or Supabase-native idea intake.
 
 ## Current risk surfaces
 
@@ -31,7 +31,7 @@ Keep command APIs stable and explicit:
 - queue pause/resume;
 - dispatch-next;
 - worker-callback;
-- Notion intake;
+- Supabase-native idea intake;
 - paper draft/review/finalization mutations;
 - preflight/alerts.
 
@@ -84,7 +84,7 @@ omx_wake_gate/
 
 Primary navigation:
 
-1. **Overview** — Controller, GB10, Queue, Paper lane, Notion sync, Memory, and one “needs attention” list.
+1. **Overview** — Controller, GB10, Queue, Paper lane, Supabase intake, Memory, and one “needs attention” list.
 2. **Work Queue** — paginated projects with status, priority, last state, next action, and age.
 3. **GB10 / Wake Gate** — active lane, quiet-window/callback status, attention items, and bounded history.
 4. **Papers** — draft/review/finalized lanes and artifact status, with raw artifacts hidden by default.
@@ -119,7 +119,7 @@ UX principles:
 
 - Replace first-screen raw output with professional cards/tables/drawers. Initial `/control/dashboard` shell migration now defaults to overview, queue, runs, papers, events, detail, and observability views backed by `/control/api/v1/*`.
 - Move raw JSON/log views behind explicit evidence/debug affordances. Initial shell uses collapsed evidence/debug panels for JSON and raw artifact previews instead of first-screen `<pre>` dumps.
-- Keep legacy endpoints available during migration. Publication review and Notion intake still use their existing command/read endpoints until those lanes receive dedicated v1 read models.
+- Keep compatibility/debug endpoints explicitly labeled. Publication automation and Supabase-native idea intake use command endpoints, while operator dashboard reads use bounded v1 read models.
 
 ### Phase 3: Migration and compatibility
 
@@ -140,7 +140,7 @@ UX principles:
 - v1 list endpoints enforce hard caps and return page/cursor metadata.
 - Overview loads from aggregate read models and does not parse all run JSON files.
 - Active lane, queue health, paper lane, GB10 state, and memory pressure are human-readable.
-- Existing dispatch, callback, paper, Notion, and preflight tests continue passing.
+- Existing dispatch, callback, paper, Supabase intake, legacy-Notion-disabled, and preflight tests continue passing.
 - Auth remains required and normal dashboard responses do not leak secrets or absolute private paths.
 
 ## Test plan summary
