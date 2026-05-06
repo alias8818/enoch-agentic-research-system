@@ -481,6 +481,7 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertEqual(pipeline["write_needed"], 0)
             self.assertEqual(pipeline["raw_completed_no_paper_candidates"], 1)
             self.assertEqual(pipeline["not_writable_by_decision_gate"], 1)
+            self.assertEqual(overview["operator_counts"].get("write_paper", 0), 0)
 
     def test_missing_project_dir_and_missing_decision_is_not_draft_needed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -509,6 +510,7 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertEqual(pipeline["write_needed"], 0)
             self.assertEqual(pipeline["raw_completed_no_paper_candidates"], 1)
             self.assertEqual(pipeline["not_writable_by_decision_gate"], 1)
+            self.assertEqual(overview["operator_counts"].get("write_paper", 0), 0)
             self.assertEqual(
                 pipeline["gate_rejected_sample"][0]["gate_reason"],
                 "missing project decision artifact",

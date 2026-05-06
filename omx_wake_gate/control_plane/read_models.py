@@ -553,6 +553,11 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
             })
             continue
         write_candidates.append(candidate)
+    # Operator counts are the high-level read model used by cards and alerts.
+    # `write_paper` must stay decision-gated here too; otherwise completed
+    # no-paper rows with missing/negative/unknown decisions leak into the
+    # operator-facing lane even though `paper_pipeline.write_needed` is 0.
+    operator_counts[OperatorLane.WRITE_PAPER.value] = len(write_candidates)
     paper_pipeline = {
         "write_needed": len(write_candidates),
         "raw_completed_no_paper_candidates": len(raw_write_candidates),

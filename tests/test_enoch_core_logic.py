@@ -101,6 +101,14 @@ class EnochCoreLogicTests(unittest.TestCase):
             gate = paper_draft_decision_gate(root)
             self.assertFalse(gate["eligible"])
 
+    def test_paper_draft_gate_accepts_supported_on_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".omx").mkdir()
+            (root / ".omx" / "project_decision.json").write_text('{"decision":"continue","status":"supported_on_bounded_benchmark"}\n', encoding="utf-8")
+            gate = paper_draft_decision_gate(root)
+            self.assertTrue(gate["eligible"])
+
     def test_paper_draft_candidate_excludes_existing_run_even_for_new_project(self) -> None:
         queue_rows = [{
             "project_id": "p-new",
