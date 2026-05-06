@@ -138,27 +138,6 @@ class OperatorStatusTests(unittest.TestCase):
                 "dry_run": False,
             })
             self.assertEqual(backfill.status_code, 200, backfill.text)
-            for status in ("triage_ready", "in_review"):
-                updated = client.post("/control/api/paper-reviews/paper-ready/status", headers=headers, json={
-                    "idempotency_key": f"operator-status-{status}",
-                    "requested_by": "test",
-                    "review_status": status,
-                })
-                self.assertEqual(updated.status_code, 200, updated.text)
-            for item_id, _label, required in REVIEW_CHECKLIST_DEFINITION:
-                if not required:
-                    continue
-                checklist = client.post(f"/control/api/paper-reviews/paper-ready/checklist/{item_id}", headers=headers, json={
-                    "idempotency_key": f"operator-status-checklist-{item_id}",
-                    "requested_by": "test",
-                    "status": "pass",
-                })
-                self.assertEqual(checklist.status_code, 200, checklist.text)
-            approved = client.post("/control/api/paper-reviews/paper-ready/approve-finalization", headers=headers, json={
-                "idempotency_key": "operator-status-approved",
-                "requested_by": "test",
-            })
-            self.assertEqual(approved.status_code, 200, approved.text)
             approved_paper = client.get("/control/api/v1/papers/paper-ready", headers=headers).json()
             self.assertEqual(approved_paper["paper"]["operator_stage"], "finalization_needed")
             finalized = client.post("/control/api/paper-reviews/paper-ready/prepare-finalization-package", headers=headers, json={
@@ -324,27 +303,6 @@ class OperatorStatusTests(unittest.TestCase):
                 "dry_run": False,
             })
             self.assertEqual(backfill.status_code, 200, backfill.text)
-            for status in ("triage_ready", "in_review"):
-                updated = client.post("/control/api/paper-reviews/paper-ready-stale/status", headers=headers, json={
-                    "idempotency_key": f"operator-ready-stale-{status}",
-                    "requested_by": "test",
-                    "review_status": status,
-                })
-                self.assertEqual(updated.status_code, 200, updated.text)
-            for item_id, _label, required in REVIEW_CHECKLIST_DEFINITION:
-                if not required:
-                    continue
-                checklist = client.post(f"/control/api/paper-reviews/paper-ready-stale/checklist/{item_id}", headers=headers, json={
-                    "idempotency_key": f"operator-ready-stale-checklist-{item_id}",
-                    "requested_by": "test",
-                    "status": "pass",
-                })
-                self.assertEqual(checklist.status_code, 200, checklist.text)
-            approved = client.post("/control/api/paper-reviews/paper-ready-stale/approve-finalization", headers=headers, json={
-                "idempotency_key": "operator-ready-stale-approved",
-                "requested_by": "test",
-            })
-            self.assertEqual(approved.status_code, 200, approved.text)
             finalized = client.post("/control/api/paper-reviews/paper-ready-stale/prepare-finalization-package", headers=headers, json={
                 "idempotency_key": "operator-ready-stale-finalized",
                 "requested_by": "test",
@@ -417,26 +375,6 @@ class OperatorStatusTests(unittest.TestCase):
                 "dry_run": False,
             })
             self.assertEqual(backfill.status_code, 200, backfill.text)
-            for status in ("triage_ready", "in_review"):
-                updated = client.post("/control/api/paper-reviews/paper-existing/status", headers=headers, json={
-                    "idempotency_key": f"operator-existing-paper-{status}",
-                    "requested_by": "test",
-                    "review_status": status,
-                })
-                self.assertEqual(updated.status_code, 200, updated.text)
-            for item_id, _label, required in REVIEW_CHECKLIST_DEFINITION:
-                if required:
-                    checklist = client.post(f"/control/api/paper-reviews/paper-existing/checklist/{item_id}", headers=headers, json={
-                        "idempotency_key": f"operator-existing-paper-checklist-{item_id}",
-                        "requested_by": "test",
-                        "status": "pass",
-                    })
-                    self.assertEqual(checklist.status_code, 200, checklist.text)
-            approved = client.post("/control/api/paper-reviews/paper-existing/approve-finalization", headers=headers, json={
-                "idempotency_key": "operator-existing-paper-approved",
-                "requested_by": "test",
-            })
-            self.assertEqual(approved.status_code, 200, approved.text)
             finalized = client.post("/control/api/paper-reviews/paper-existing/prepare-finalization-package", headers=headers, json={
                 "idempotency_key": "operator-existing-paper-finalized",
                 "requested_by": "test",

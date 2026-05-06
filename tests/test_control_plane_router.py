@@ -1192,7 +1192,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(body["page"]["queue"], "paper_reviews")
             self.assertEqual(body["page"]["total"], 242)
             self.assertEqual(len(body["rows"]), 242)
-            self.assertEqual(body["counts"]["triage_ready"], 242)
+            self.assertEqual(body["counts"]["queued"], 242)
             self.assertEqual(body["rows"][0]["paper_status"], "publication_draft")
             self.assertIn("rank_reasons", body["rows"][0])
 
@@ -1271,7 +1271,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "reviewer": "alice",
             })
             self.assertEqual(claim.status_code, 200)
-            self.assertEqual(claim.json()["item"]["review_status"], "in_review")
+            self.assertEqual(claim.json()["item"]["review_status"], "claimed")
             self.assertEqual(claim.json()["item"]["reviewer"], "alice")
             claim_repeat = client.post(f"/control/api/paper-reviews/{paper_id}/claim", headers=headers, json={
                 "idempotency_key": "router-claim-1",
@@ -1306,21 +1306,13 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "requested_by": "alice",
                 "note": "ready",
             })
-            self.assertEqual(approval.status_code, 200)
-            self.assertEqual(approval.json()["item"]["review_status"], "approved_for_finalization")
-            approval_repeat = client.post(f"/control/api/paper-reviews/{paper_id}/approve-finalization", headers=headers, json={
-                "idempotency_key": "router-approve-1",
-                "requested_by": "alice",
-                "note": "ready",
-            })
-            self.assertEqual(approval_repeat.status_code, 200)
-            self.assertFalse(approval_repeat.json()["inserted_event"])
-            self.assertEqual(approval_repeat.json()["event_id"], approval.json()["event_id"])
+            self.assertEqual(approval.status_code, 400)
+            self.assertIn("manual paper approval has been removed", approval.text)
 
             rejected_status = client.post(f"/control/api/paper-reviews/{paper_id}/status", headers=headers, json={
                 "idempotency_key": "router-status-invalid",
                 "requested_by": "alice",
-                "review_status": "rejected",
+                "review_status": "approved_for_finalization",
                 "note": "no",
             })
             self.assertEqual(rejected_status.status_code, 400)
@@ -1330,7 +1322,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             event_types = {row["event_type"] for row in events.json()["rows"]}
             self.assertIn("paper_review.claimed", event_types)
             self.assertIn("paper_review.checklist_updated", event_types)
-            self.assertIn("paper_review.approved_for_finalization", event_types)
+            self.assertNotIn("paper_review.approved_for_finalization", event_types)
 
     def test_paper_review_bulk_rewrite_batches_publication_drafts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1565,7 +1557,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(body["writer"]["evidence_sync"]["http_sync"]["files"], 1)
             self.assertTrue((Path(body["artifact_root"]) / "papers/run-1/evidence_bundle.json").exists())
 
-    def test_paper_review_prepare_finalization_package_endpoint_is_guarded_and_idempotent(self) -> None:
+    def test_paper_review_prepare_finalization_package_endpoint_is_automated_and_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
             headers = {"Authorization": f"Bearer {TOKEN}"}
@@ -1608,23 +1600,6 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(Path(dry.json()["package_path"]).exists())
             self.assertTrue(dry.json()["manifest"]["no_submission_side_effects"])
 
-            blocked = client.post(f"/control/api/paper-reviews/{paper_id}/prepare-finalization-package", headers=headers, json={
-                "idempotency_key": "router-package-blocked",
-                "requested_by": "alice",
-                "dry_run": False,
-            })
-            self.assertEqual(blocked.status_code, 400)
-
-            client.post(f"/control/api/paper-reviews/{paper_id}/claim", headers=headers, json={"idempotency_key": "router-package-claim", "requested_by": "alice", "reviewer": "alice"})
-            for item_id in ["artifact_readability", "title_abstract_quality", "claim_evidence_alignment", "novelty_significance", "reproducibility", "limitations_ethics", "formatting_quality", "final_human_approval"]:
-                response = client.post(f"/control/api/paper-reviews/{paper_id}/checklist/{item_id}", headers=headers, json={
-                    "idempotency_key": f"router-package-check-{item_id}",
-                    "requested_by": "alice",
-                    "status": "pass",
-                })
-                self.assertEqual(response.status_code, 200)
-            approval = client.post(f"/control/api/paper-reviews/{paper_id}/approve-finalization", headers=headers, json={"idempotency_key": "router-package-approve", "requested_by": "alice"})
-            self.assertEqual(approval.status_code, 200)
             committed = client.post(f"/control/api/paper-reviews/{paper_id}/prepare-finalization-package", headers=headers, json={
                 "idempotency_key": "router-package-commit",
                 "requested_by": "alice",

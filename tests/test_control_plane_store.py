@@ -501,7 +501,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
             rows = store.paper_review_rows()
             self.assertEqual(len(rows), 2)
             self.assertEqual(rows[0]["paper_id"], "pub:run-1:arxiv_draft")
-            self.assertEqual(rows[0]["review_status"], "triage_ready")
+            self.assertEqual(rows[0]["review_status"], "queued")
             self.assertIn("readiness audit passed +20", rows[0]["rank_reasons"])
             self.assertEqual(rows[0]["checklist_progress"]["pending"], 9)
 
@@ -530,7 +530,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
             store.backfill_paper_reviews(PaperReviewBackfillRequest(idempotency_key="review-backfill-stale-1", dry_run=False))
             initial = store.paper_review_row(paper_id)
             self.assertIsNotNone(initial)
-            self.assertEqual(initial["review_status"], "unreviewed")
+            self.assertEqual(initial["review_status"], "queued")
             self.assertIn("readiness_audit", initial["missing_signals"])
 
             store.import_snapshot(
@@ -558,7 +558,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual((created, updated, skipped, errors), (0, 1, 0, []))
             refreshed = store.paper_review_row(paper_id)
             self.assertIsNotNone(refreshed)
-            self.assertEqual(refreshed["review_status"], "triage_ready")
+            self.assertEqual(refreshed["review_status"], "queued")
             self.assertEqual(refreshed["missing_signals"], [])
             self.assertGreater(refreshed["rank_score"], initial["rank_score"])
 
@@ -586,7 +586,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertIn("draft_latex_path", errors[0]["missing_paths"])
             rows = store.paper_review_rows()
             self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0]["review_status"], "unreviewed")
+            self.assertEqual(rows[0]["review_status"], "blocked")
             self.assertIn("draft_latex_path", rows[0]["missing_signals"])
 
     def test_paper_review_claim_checklist_status_and_approval_events(self) -> None:
@@ -615,7 +615,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
 
             event_id, inserted, item = store.claim_paper_review(paper_id, PaperReviewClaimRequest(idempotency_key="claim-1", requested_by="alice", reviewer="alice"))
             self.assertTrue(inserted)
-            self.assertEqual(item["review_status"], "in_review")
+            self.assertEqual(item["review_status"], "claimed")
             self.assertEqual(item["reviewer"], "alice")
             event_id_again, inserted_again, _ = store.claim_paper_review(paper_id, PaperReviewClaimRequest(idempotency_key="claim-1", requested_by="alice", reviewer="alice"))
             self.assertFalse(inserted_again)
@@ -636,18 +636,13 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(checklist["progress"]["passed"], 8)
             self.assertEqual(checklist["progress"]["pending"], 1)
 
-            event_id, inserted, approved = store.approve_paper_review_finalization(paper_id, PaperReviewApproveFinalizationRequest(idempotency_key="approve-1", requested_by="alice", note="ready"))
-            self.assertTrue(inserted)
-            self.assertEqual(approved["review_status"], "approved_for_finalization")
-            event_id_again, inserted_again, approved_again = store.approve_paper_review_finalization(paper_id, PaperReviewApproveFinalizationRequest(idempotency_key="approve-1", requested_by="alice", note="ready"))
-            self.assertFalse(inserted_again)
-            self.assertEqual(event_id_again, event_id)
-            self.assertEqual(approved_again["review_status"], "approved_for_finalization")
+            with self.assertRaises(ValueError):
+                store.approve_paper_review_finalization(paper_id, PaperReviewApproveFinalizationRequest(idempotency_key="approve-1", requested_by="alice", note="ready"))
             self.assertEqual(store.paper_row(paper_id)["paper_status"], "publication_draft")
             events = store.event_rows(entity_id=paper_id, limit=50)
             self.assertTrue(any(event["event_type"] == "paper_review.claimed" for event in events))
             self.assertTrue(any(event["event_type"] == "paper_review.checklist_updated" for event in events))
-            self.assertTrue(any(event["event_type"] == "paper_review.approved_for_finalization" for event in events))
+            self.assertFalse(any(event["event_type"] == "paper_review.approved_for_finalization" for event in events))
 
     def test_prepare_finalization_package_dry_run_commit_and_retry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -684,8 +679,6 @@ class ControlPlaneStoreTests(unittest.TestCase):
             _event_id, _inserted, _item = store.claim_paper_review(paper_id, PaperReviewClaimRequest(idempotency_key="package-claim", requested_by="alice", reviewer="alice"))
             for item_id in ["artifact_readability", "title_abstract_quality", "claim_evidence_alignment", "novelty_significance", "reproducibility", "limitations_ethics", "formatting_quality", "final_human_approval"]:
                 store.update_paper_review_checklist(paper_id, item_id, PaperReviewChecklistUpdateRequest(idempotency_key=f"package-check-{item_id}", requested_by="alice", status="pass"))
-            store.approve_paper_review_finalization(paper_id, PaperReviewApproveFinalizationRequest(idempotency_key="package-approve", requested_by="alice"))
-
             event_id, inserted, item, package_path, manifest = store.prepare_paper_review_finalization_package(
                 paper_id, PaperReviewPrepareFinalizationRequest(idempotency_key="package-dry", requested_by="alice", target_label="first-paper", dry_run=True)
             )
@@ -695,10 +688,10 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertTrue(manifest["no_submission_side_effects"])
             self.assertEqual(len(manifest["artifacts"]), 5)
             self.assertTrue(all(artifact["readable"] for artifact in manifest["artifacts"]))
-            self.assertEqual(item["review_status"], "approved_for_finalization")
+            self.assertEqual(item["review_status"], "claimed")
 
             event_id, inserted, finalized, package_path, manifest = store.prepare_paper_review_finalization_package(
-                paper_id, PaperReviewPrepareFinalizationRequest(idempotency_key="package-commit", requested_by="alice", target_label="first-paper", dry_run=False)
+                paper_id, PaperReviewPrepareFinalizationRequest(idempotency_key="package-commit", requested_by="alice", target_label="first-paper", dry_run=False), require_approval=False
             )
             self.assertTrue(inserted)
             self.assertEqual(finalized["review_status"], "finalized")
@@ -706,7 +699,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertTrue(Path(package_path).exists())
             self.assertEqual(store.paper_row(paper_id)["paper_status"], "publication_draft")
             event_id_again, inserted_again, finalized_again, package_path_again, _manifest_again = store.prepare_paper_review_finalization_package(
-                paper_id, PaperReviewPrepareFinalizationRequest(idempotency_key="package-commit", requested_by="alice", target_label="first-paper", dry_run=False)
+                paper_id, PaperReviewPrepareFinalizationRequest(idempotency_key="package-commit", requested_by="alice", target_label="first-paper", dry_run=False), require_approval=False
             )
             self.assertFalse(inserted_again)
             self.assertEqual(event_id_again, event_id)
@@ -743,7 +736,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 store.claim_paper_review(paper_id, PaperReviewClaimRequest(idempotency_key="claim-blocked", requested_by="alice", reviewer="alice"))
             _event_id, _inserted, claimed = store.claim_paper_review(paper_id, PaperReviewClaimRequest(idempotency_key="claim-cleared", requested_by="alice", reviewer="alice", clear_blocker=True))
-            self.assertEqual(claimed["review_status"], "in_review")
+            self.assertEqual(claimed["review_status"], "claimed")
             self.assertEqual(claimed["blocker"], "")
 
     def test_notion_intake_dry_run_and_commit_preserves_pause_gate(self) -> None:

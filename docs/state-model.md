@@ -56,6 +56,9 @@ Run:
 uv run python scripts/validate_state_contract.py
 uv run python scripts/validate_state_contract.py --database-url "$ENOCH_SUPABASE_DATABASE_URL"
 uv run python scripts/generate_state_reduction_audit.py --database-url "$ENOCH_SUPABASE_DATABASE_URL"
+uv run python scripts/normalize_state_surfaces.py --database-url "$ENOCH_SUPABASE_DATABASE_URL"
 ```
+
+`normalize_state_surfaces.py` is dry-run by default. Use `--apply` only after the generated change counts match the state-reduction audit and the system is intentionally in the automation freeze window.
 
 The live check fails if any persisted state value falls outside the contract or if a raw state value lacks an operator-lane/disposition decision.

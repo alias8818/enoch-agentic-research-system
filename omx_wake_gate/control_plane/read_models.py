@@ -169,13 +169,13 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
             next_step="No paper publication action is needed for this record.",
             explanation="The paper/review record is rejected or archived.",
         )
-    if paper_status == PaperStatus.PUBLICATION_DRAFT.value and review_status in READY_REVIEW_STATUSES and _text(row.get("finalization_package_path") or row.get("related_finalization_package_path")):
+    if paper_status in {PaperStatus.PUBLICATION_DRAFT.value, PaperStatus.DRAFT_REVIEW.value} and review_status in READY_REVIEW_STATUSES and _text(row.get("finalization_package_path") or row.get("related_finalization_package_path")):
         return _stage(
             "ready_to_publish",
             tone="good",
             attention=False,
             next_step="Import this finalized publication draft into the public corpus if it is not already present.",
-            explanation="Publication draft artifacts are finalized and a finalization package exists; corpus publication is tracked outside this control-plane row.",
+            explanation="Publication artifacts have a finalized automation package; corpus publication is tracked outside this control-plane row.",
         )
     if paper_status == PaperStatus.PUBLICATION_DRAFT.value:
         return _stage(

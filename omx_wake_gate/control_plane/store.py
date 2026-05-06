@@ -157,14 +157,18 @@ REVIEW_CHECKLIST_DEFINITION = (
 )
 REVIEW_CHECKLIST_ITEMS = tuple(item_id for item_id, _label, _required in REVIEW_CHECKLIST_DEFINITION)
 CHECKLIST_ITEM_STATUSES = {"pending", "pass", "fail", "accepted_risk", "not_applicable"}
-SYSTEM_REVIEW_STATUSES = {ReviewStatus.UNREVIEWED.value, ReviewStatus.TRIAGE_READY.value}
+SYSTEM_REVIEW_STATUSES = {ReviewStatus.QUEUED.value, ReviewStatus.UNREVIEWED.value, ReviewStatus.TRIAGE_READY.value}
 ALLOWED_STATUS_TRANSITIONS = {
-    ReviewStatus.UNREVIEWED.value: {ReviewStatus.TRIAGE_READY.value, ReviewStatus.BLOCKED.value, ReviewStatus.REJECTED.value},
-    ReviewStatus.TRIAGE_READY.value: {ReviewStatus.IN_REVIEW.value, ReviewStatus.BLOCKED.value, ReviewStatus.REJECTED.value},
-    ReviewStatus.IN_REVIEW.value: {ReviewStatus.CHANGES_REQUESTED.value, ReviewStatus.BLOCKED.value, ReviewStatus.APPROVED_FOR_FINALIZATION.value, ReviewStatus.REJECTED.value},
-    ReviewStatus.CHANGES_REQUESTED.value: {ReviewStatus.IN_REVIEW.value, ReviewStatus.BLOCKED.value, ReviewStatus.REJECTED.value},
-    ReviewStatus.BLOCKED.value: {ReviewStatus.TRIAGE_READY.value, ReviewStatus.IN_REVIEW.value, ReviewStatus.REJECTED.value},
-    ReviewStatus.APPROVED_FOR_FINALIZATION.value: {ReviewStatus.FINALIZED.value, ReviewStatus.IN_REVIEW.value},
+    ReviewStatus.QUEUED.value: {ReviewStatus.CLAIMED.value, ReviewStatus.BLOCKED.value, ReviewStatus.DEFERRED.value, ReviewStatus.REJECTED.value},
+    ReviewStatus.CLAIMED.value: {ReviewStatus.QUEUED.value, ReviewStatus.BLOCKED.value, ReviewStatus.FINALIZED.value, ReviewStatus.REJECTED.value},
+    ReviewStatus.BLOCKED.value: {ReviewStatus.QUEUED.value, ReviewStatus.CLAIMED.value, ReviewStatus.REJECTED.value},
+    ReviewStatus.DEFERRED.value: {ReviewStatus.QUEUED.value, ReviewStatus.REJECTED.value},
+    # Legacy compatibility transitions. New automation should prefer queued/claimed.
+    ReviewStatus.UNREVIEWED.value: {ReviewStatus.QUEUED.value, ReviewStatus.TRIAGE_READY.value, ReviewStatus.BLOCKED.value, ReviewStatus.REJECTED.value},
+    ReviewStatus.TRIAGE_READY.value: {ReviewStatus.QUEUED.value, ReviewStatus.CLAIMED.value, ReviewStatus.IN_REVIEW.value, ReviewStatus.BLOCKED.value, ReviewStatus.REJECTED.value},
+    ReviewStatus.IN_REVIEW.value: {ReviewStatus.CLAIMED.value, ReviewStatus.CHANGES_REQUESTED.value, ReviewStatus.BLOCKED.value, ReviewStatus.APPROVED_FOR_FINALIZATION.value, ReviewStatus.REJECTED.value},
+    ReviewStatus.CHANGES_REQUESTED.value: {ReviewStatus.BLOCKED.value, ReviewStatus.QUEUED.value, ReviewStatus.CLAIMED.value, ReviewStatus.IN_REVIEW.value, ReviewStatus.REJECTED.value},
+    ReviewStatus.APPROVED_FOR_FINALIZATION.value: {ReviewStatus.FINALIZED.value, ReviewStatus.CLAIMED.value, ReviewStatus.IN_REVIEW.value},
     ReviewStatus.FINALIZED.value: set(),
     ReviewStatus.REJECTED.value: set(),
 }
@@ -993,7 +997,7 @@ class ControlPlaneStore:
             project_name=_text(row.get("project_name")),
             paper_status=_text(row.get("paper_status")),
             paper_type=_text(row.get("paper_type")),
-            review_status=_text(row.get("review_status")) or ReviewStatus.UNREVIEWED.value,
+            review_status=_text(row.get("review_status")) or ReviewStatus.QUEUED.value,
             checklist_progress=_checklist_progress(checklist),
             blocker=_text(row.get("blocker")),
             reviewer=_text(row.get("reviewer")),
@@ -1054,7 +1058,7 @@ class ControlPlaneStore:
             initial_missing = ([] if audit else ["readiness_audit"]) + missing_paths
             queue_item = self.queue_row(_text(paper.get("project_id")))
             rank_score, rank_reasons, missing_signals, tiebreaker, _bucket = _review_rank(paper, queue_item, audit, initial_missing)
-            status = ReviewStatus.TRIAGE_READY if _readiness_passed(audit) and not missing_paths else ReviewStatus.UNREVIEWED
+            status = ReviewStatus.QUEUED if not missing_paths else ReviewStatus.BLOCKED
             candidates.append(PaperReviewRecord(
                 paper_id=paper_id,
                 review_status=status,
@@ -1087,7 +1091,7 @@ class ControlPlaneStore:
                     existing_review_status = _text(existing["review_status"])
                     next_review_status = (
                         record.review_status.value
-                        if existing_review_status in {ReviewStatus.UNREVIEWED.value, ReviewStatus.TRIAGE_READY.value}
+                        if existing_review_status in SYSTEM_REVIEW_STATUSES
                         else existing_review_status
                     )
                     changes = {
@@ -1152,10 +1156,10 @@ class ControlPlaneStore:
             raise ValueError(f"cannot claim paper review from {current}")
         if current == ReviewStatus.BLOCKED.value and _text(row.get("blocker")) and not request.clear_blocker:
             raise ValueError("blocked review requires clear_blocker=true to claim")
-        if current not in {ReviewStatus.TRIAGE_READY.value, ReviewStatus.UNREVIEWED.value, ReviewStatus.CHANGES_REQUESTED.value, ReviewStatus.BLOCKED.value, ReviewStatus.IN_REVIEW.value}:
+        if current not in {ReviewStatus.QUEUED.value, ReviewStatus.CLAIMED.value, ReviewStatus.TRIAGE_READY.value, ReviewStatus.UNREVIEWED.value, ReviewStatus.CHANGES_REQUESTED.value, ReviewStatus.BLOCKED.value, ReviewStatus.IN_REVIEW.value}:
             raise ValueError(f"cannot claim paper review from {current}")
         payload = self._mutation_payload(request, action="claim")
-        payload.update({"to_status": ReviewStatus.IN_REVIEW.value})
+        payload.update({"to_status": ReviewStatus.CLAIMED.value})
         event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.claimed", entity_type="paper_review", entity_id=paper_id, payload=payload)
         if inserted:
             now = utc_now()
@@ -1165,7 +1169,7 @@ class ControlPlaneStore:
                     """UPDATE paper_review_items
                     SET review_status=?, reviewer=?, blocker=?, claimed_at=?, checklist_json=?, updated_at=?
                     WHERE paper_id=?""",
-                    (ReviewStatus.IN_REVIEW.value, _text(request.reviewer), "" if request.clear_blocker else _text(row.get("blocker")), now, _json(checklist), now, paper_id),
+                    (ReviewStatus.CLAIMED.value, _text(request.reviewer), "" if request.clear_blocker else _text(row.get("blocker")), now, _json(checklist), now, paper_id),
                 )
         return event_id, inserted, self.paper_review_row(paper_id) or {}
 
@@ -1226,36 +1230,7 @@ class ControlPlaneStore:
         return event_id, inserted, self.paper_review_row(paper_id) or {}
 
     def approve_paper_review_finalization(self, paper_id: str, request: PaperReviewApproveFinalizationRequest) -> tuple[int, bool, dict[str, Any]]:
-        row = self._require_paper_review(paper_id)
-        payload = self._mutation_payload(request, action="approve_finalization")
-        payload.update({"to_status": ReviewStatus.APPROVED_FOR_FINALIZATION.value})
-        replayed_event_id = self._replayed_event_id(request.idempotency_key, payload)
-        if replayed_event_id is not None:
-            return replayed_event_id, False, self.paper_review_row(paper_id) or {}
-        current = _text(row.get("review_status"))
-        if current != ReviewStatus.IN_REVIEW.value:
-            raise ValueError("approval requires review_status=in_review")
-        checklist = _normalize_review_checklist(_json_dict(row.get("checklist_json")))
-        blockers: list[str] = []
-        for item in checklist["items"]:
-            if not item.get("required"):
-                continue
-            status = _text(item.get("status"))
-            if item["id"] == "final_human_approval" and status != "pass":
-                blockers.append("automated finalization approval must pass")
-            elif status == "accepted_risk" and not _text(item.get("note")):
-                blockers.append(f"{item['id']} accepted risk requires note")
-            elif status != "pass" and status != "accepted_risk":
-                blockers.append(f"{item['id']} must pass or be accepted_risk")
-        if blockers:
-            raise ValueError("; ".join(blockers))
-        event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.approved_for_finalization", entity_type="paper_review", entity_id=paper_id, payload=payload)
-        if inserted:
-            now = utc_now()
-            decision_summary = _text(request.note) or "approved for finalization"
-            with self._connect() as conn:
-                conn.execute("UPDATE paper_review_items SET review_status=?, decision_summary=?, updated_at=? WHERE paper_id=?", (ReviewStatus.APPROVED_FOR_FINALIZATION.value, decision_summary, now, paper_id))
-        return event_id, inserted, self.paper_review_row(paper_id) or {}
+        raise ValueError("manual paper approval has been removed; use automated prepare-finalization-package or rewrite-draft")
 
     def _resolved_artifact(self, paper: dict[str, Any], field: str) -> dict[str, Any]:
         raw_path = _text(paper.get(field))
@@ -1294,7 +1269,7 @@ class ControlPlaneStore:
             path = _text(item.get("finalization_package_path"))
             return None, False, item, path, self._load_manifest(path)
         if not request.dry_run and require_approval and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value:
-            raise ValueError("finalization package requires review_status=approved_for_finalization")
+            raise ValueError("legacy approval-gated finalization requires internal approved_for_finalization state")
         if not request.dry_run and not require_approval and current == ReviewStatus.REJECTED.value:
             raise ValueError("automated finalization cannot publish rejected paper reviews")
         paper = self.paper_row(paper_id)
@@ -1317,8 +1292,8 @@ class ControlPlaneStore:
             "project_id": _text(paper.get("project_id")),
             "project_name": _text(paper.get("project_name")),
             "paper_status": _text(paper.get("paper_status")),
-            "review_status": current,
-            "reviewer": _text(row.get("reviewer")),
+            "automation_status": current,
+            "automation_actor": _text(row.get("reviewer")),
             "decision_summary": _text(row.get("decision_summary")),
             "require_approval": require_approval,
             "automated_publication": not require_approval,

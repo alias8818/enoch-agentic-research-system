@@ -48,14 +48,21 @@ class PaperStatus(str, Enum):
 
 
 class ReviewStatus(str, Enum):
+    # Canonical publication-automation statuses.
+    QUEUED = "queued"
+    CLAIMED = "claimed"
+    BLOCKED = "blocked"
+    FINALIZED = "finalized"
+    DEFERRED = "deferred"
+    REJECTED = "rejected"
+    # Legacy compatibility states from the old paper-review lane. They remain
+    # accepted for imported rows and old clients, but new code should not mint
+    # them as the normal path.
     UNREVIEWED = "unreviewed"
     TRIAGE_READY = "triage_ready"
     IN_REVIEW = "in_review"
     CHANGES_REQUESTED = "changes_requested"
-    BLOCKED = "blocked"
     APPROVED_FOR_FINALIZATION = "approved_for_finalization"
-    FINALIZED = "finalized"
-    REJECTED = "rejected"
 
 
 class ControlFlags(BaseModel):
@@ -189,7 +196,7 @@ class PaperRecord(BaseModel):
     project_id: str
     run_id: str = ""
     paper_type: str = "arxiv_draft"
-    paper_status: PaperStatus = PaperStatus.DRAFT_REVIEW
+    paper_status: PaperStatus = PaperStatus.PUBLICATION_DRAFT
     draft_markdown_path: str = ""
     draft_latex_path: str = ""
     evidence_bundle_path: str = ""
@@ -201,7 +208,7 @@ class PaperRecord(BaseModel):
 
 class PaperReviewRecord(BaseModel):
     paper_id: str
-    review_status: ReviewStatus = ReviewStatus.UNREVIEWED
+    review_status: ReviewStatus = ReviewStatus.QUEUED
     reviewer: str = ""
     blocker: str = ""
     claimed_at: str = ""
@@ -233,14 +240,14 @@ class ReviewQueueItem(BaseModel):
     project_name: str = ""
     paper_status: str = ""
     paper_type: str = ""
-    review_status: str = ReviewStatus.UNREVIEWED.value
+    review_status: str = ReviewStatus.QUEUED.value
     checklist_progress: dict[str, int] = Field(default_factory=dict)
     blocker: str = ""
     reviewer: str = ""
     claimed_at: str = ""
     updated_at: str = ""
     rank_score: int = 0
-    rank_bucket: str = "review"
+    rank_bucket: str = "automation"
     rank_reasons: list[str] = Field(default_factory=list)
     missing_signals: list[str] = Field(default_factory=list)
     rank_tiebreaker: str = ""

@@ -1695,7 +1695,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     def dashboard_paper_review_prepare_finalization_package(paper_id: str, payload: PaperReviewPrepareFinalizationRequest, authorization: str | None = Header(default=None)) -> PaperReviewFinalizationPackageResponse:
         authorize(authorization)
         try:
-            event_id, inserted, item, package_path, manifest = store.prepare_paper_review_finalization_package(paper_id, payload)
+            event_id, inserted, item, package_path, manifest = store.prepare_paper_review_finalization_package(paper_id, payload, require_approval=False)
         except IdempotencyConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:

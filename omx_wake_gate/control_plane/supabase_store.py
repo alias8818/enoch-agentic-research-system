@@ -33,6 +33,7 @@ from .models import (
 from .store import (
     ACTIVE_STATUSES,
     ALLOWED_STATUS_TRANSITIONS,
+    SYSTEM_REVIEW_STATUSES,
     QueueStatus,
     _audit_rows,
     _bool,
@@ -817,7 +818,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             project_name=_text(row.get("project_name")),
             paper_status=_text(row.get("paper_status")),
             paper_type=_text(row.get("paper_type")),
-            review_status=_text(row.get("review_status")) or ReviewStatus.UNREVIEWED.value,
+            review_status=_text(row.get("review_status")) or ReviewStatus.QUEUED.value,
             checklist_progress=_checklist_progress(checklist),
             blocker=_text(row.get("blocker")),
             reviewer=_text(row.get("reviewer")),
@@ -892,7 +893,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             initial_missing = ([] if audit else ["readiness_audit"]) + missing_paths
             queue_item = self.queue_row(_text(paper.get("project_id")))
             rank_score, rank_reasons, missing_signals, tiebreaker, _bucket = _review_rank(paper, queue_item, audit, initial_missing)
-            status = ReviewStatus.TRIAGE_READY if _readiness_passed(audit) and not missing_paths else ReviewStatus.UNREVIEWED
+            status = ReviewStatus.QUEUED if not missing_paths else ReviewStatus.BLOCKED
             candidates.append(PaperReviewRecord(
                 paper_id=paper_id,
                 review_status=status,
@@ -924,7 +925,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     missing_signals_json = _json(record.missing_signals)
                     if existing:
                         existing_status = _text(existing["automation_status"])
-                        next_status = record.review_status.value if existing_status in {ReviewStatus.UNREVIEWED.value, ReviewStatus.TRIAGE_READY.value} else existing_status
+                        next_status = record.review_status.value if existing_status in SYSTEM_REVIEW_STATUSES else existing_status
                         changes = {
                             "automation_status": next_status,
                             "rank_score": record.rank_score,
@@ -966,10 +967,10 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             raise ValueError(f"cannot claim paper review from {current}")
         if current == ReviewStatus.BLOCKED.value and _text(row.get("blocker")) and not request.clear_blocker:
             raise ValueError("blocked review requires clear_blocker=true to claim")
-        if current not in {ReviewStatus.TRIAGE_READY.value, ReviewStatus.UNREVIEWED.value, ReviewStatus.CHANGES_REQUESTED.value, ReviewStatus.BLOCKED.value, ReviewStatus.IN_REVIEW.value}:
+        if current not in {ReviewStatus.QUEUED.value, ReviewStatus.CLAIMED.value, ReviewStatus.TRIAGE_READY.value, ReviewStatus.UNREVIEWED.value, ReviewStatus.CHANGES_REQUESTED.value, ReviewStatus.BLOCKED.value, ReviewStatus.IN_REVIEW.value}:
             raise ValueError(f"cannot claim paper review from {current}")
         payload = self._mutation_payload(request, action="claim")
-        payload.update({"to_status": ReviewStatus.IN_REVIEW.value})
+        payload.update({"to_status": ReviewStatus.CLAIMED.value})
         event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.claimed", entity_type="paper_review", entity_id=paper_id, payload=payload)
         if inserted:
             now = utc_now()
@@ -978,7 +979,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 with conn.cursor() as cur:
                     cur.execute(
                         "update publication_automation_items set automation_status=%s, automation_actor=%s, blocker=%s, claimed_at=%s, checklist_json=%s::jsonb, updated_at=%s where paper_id=%s",
-                        (ReviewStatus.IN_REVIEW.value, _text(request.reviewer), "" if request.clear_blocker else _text(row.get("blocker")), now, _json(checklist), now, paper_id),
+                        (ReviewStatus.CLAIMED.value, _text(request.reviewer), "" if request.clear_blocker else _text(row.get("blocker")), now, _json(checklist), now, paper_id),
                     )
         return event_id, inserted, self.paper_review_row(paper_id) or {}
 
@@ -1041,37 +1042,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         return event_id, inserted, self.paper_review_row(paper_id) or {}
 
     def approve_paper_review_finalization(self, paper_id: str, request: PaperReviewApproveFinalizationRequest) -> tuple[int, bool, dict[str, Any]]:
-        row = self._require_paper_review(paper_id)
-        payload = self._mutation_payload(request, action="approve_finalization")
-        payload.update({"to_status": ReviewStatus.APPROVED_FOR_FINALIZATION.value})
-        replayed_event_id = self._replayed_event_id(request.idempotency_key, payload)
-        if replayed_event_id is not None:
-            return replayed_event_id, False, self.paper_review_row(paper_id) or {}
-        current = _text(row.get("automation_status"))
-        if current != ReviewStatus.IN_REVIEW.value:
-            raise ValueError("approval requires review_status=in_review")
-        checklist = _normalize_review_checklist(_json_dict(row.get("checklist_json")))
-        blockers: list[str] = []
-        for item in checklist["items"]:
-            if not item.get("required"):
-                continue
-            status = _text(item.get("status"))
-            if item["id"] == "final_human_approval" and status != "pass":
-                blockers.append("automated finalization approval must pass")
-            elif status == "accepted_risk" and not _text(item.get("note")):
-                blockers.append(f"{item['id']} accepted risk requires note")
-            elif status != "pass" and status != "accepted_risk":
-                blockers.append(f"{item['id']} must pass or be accepted_risk")
-        if blockers:
-            raise ValueError("; ".join(blockers))
-        event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.approved_for_finalization", entity_type="paper_review", entity_id=paper_id, payload=payload)
-        if inserted:
-            now = utc_now()
-            decision_summary = _text(request.note) or "approved for finalization"
-            with self._connect() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("update publication_automation_items set automation_status=%s, decision_summary=%s, updated_at=%s where paper_id=%s", (ReviewStatus.APPROVED_FOR_FINALIZATION.value, decision_summary, now, paper_id))
-        return event_id, inserted, self.paper_review_row(paper_id) or {}
+        raise ValueError("manual paper approval has been removed; use automated prepare-finalization-package or rewrite-draft")
 
     def _resolved_artifact(self, paper: dict[str, Any], field: str) -> dict[str, Any]:
         raw_path = _text(paper.get(field))
@@ -1111,7 +1082,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             path = _text(item.get("finalization_package_path"))
             return None, False, item, path, self._load_manifest(path)
         if not request.dry_run and require_approval and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value:
-            raise ValueError("finalization package requires review_status=approved_for_finalization")
+            raise ValueError("legacy approval-gated finalization requires internal approved_for_finalization state")
         if not request.dry_run and not require_approval and current == ReviewStatus.REJECTED.value:
             raise ValueError("automated finalization cannot publish rejected paper reviews")
         paper = self.paper_row(paper_id)
@@ -1134,7 +1105,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "project_id": _text(paper.get("project_id")),
             "project_name": _text(paper.get("project_name")),
             "paper_status": _text(paper.get("paper_status")),
-            "review_status": current,
+            "automation_status": current,
             "reviewer": _text(row.get("automation_actor")),
             "decision_summary": _text(row.get("decision_summary")),
             "require_approval": require_approval,
