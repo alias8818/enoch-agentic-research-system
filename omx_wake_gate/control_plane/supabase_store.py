@@ -527,24 +527,94 @@ class SupabaseReadOnlyControlPlaneStore:
         include_payload: bool = False,
         sort: str = "recent",
     ) -> tuple[list[dict[str, Any]], str | None, bool]:
-        limit = max(1, min(page_size, 200)) + max(0, _int(cursor, 0)) + 1
-        rows = self.recent_events(limit)
+        safe_size = max(1, min(page_size, 200))
+        clauses: list[str] = []
+        params: list[Any] = []
         if entity_type:
-            rows = [row for row in rows if row.get("entity_type") == entity_type]
+            clauses.append("entity_type = %s")
+            params.append(entity_type)
         if entity_id:
-            rows = [row for row in rows if row.get("entity_id") == entity_id]
+            clauses.append("entity_id = %s")
+            params.append(entity_id)
         if event_type:
-            rows = [row for row in rows if row.get("event_type") == event_type]
-        rows = [row for row in rows if self._matches(row, search, ["event_type", "entity_id"])]
-        if not include_payload:
-            for row in rows:
-                payload_json = self._json_text(row.pop("payload", {}))
-                row["payload_summary"] = {"keys": [], "bytes": len(payload_json.encode("utf-8"))}
+            clauses.append("event_type = %s")
+            params.append(event_type)
+        if search:
+            clauses.append("(event_type ilike %s or entity_id ilike %s)")
+            needle = f"%{search}%"
+            params.extend([needle, needle])
+
+        cursor_id = _int(cursor, 0)
         if sort == "oldest":
-            rows.sort(key=lambda row: int(row.get("event_id") or 0))
+            if cursor_id > 0:
+                clauses.append("event_id > %s")
+                params.append(cursor_id)
+            order_by = "event_id asc"
+        elif sort == "recent":
+            if cursor_id > 0:
+                clauses.append("event_id < %s")
+                params.append(cursor_id)
+            order_by = "event_id desc"
         else:
-            rows.sort(key=lambda row: int(row.get("event_id") or 0), reverse=True)
-        return self._page(rows, page_size, cursor)
+            # Non-event-id orderings need offset cursors to preserve a stable
+            # sorted page contract. Keep the SQL bounded; never fetch
+            # cursor+page_size rows and slice in Python.
+            order_by = {
+                "type": "event_type asc, event_id desc",
+                "entity": "entity_type asc, entity_id asc, event_id desc",
+            }.get(sort, "event_id desc")
+
+        where = f"where {' and '.join(clauses)}" if clauses else ""
+        if include_payload:
+            select_list = """
+                event_id,
+                idempotency_key,
+                event_type,
+                entity_type,
+                entity_id,
+                payload_json,
+                created_at
+            """
+        else:
+            select_list = """
+                event_id,
+                idempotency_key,
+                event_type,
+                entity_type,
+                entity_id,
+                pg_column_size(payload_json) as payload_bytes,
+                created_at
+            """
+
+        if sort in {"recent", "oldest"}:
+            params.append(safe_size + 1)
+            rows = self._query(
+                f"select {select_list} from control_events {where} order by {order_by} limit %s",
+                tuple(params),
+            )
+        else:
+            offset = max(0, cursor_id)
+            params.extend([safe_size + 1, offset])
+            rows = self._query(
+                f"select {select_list} from control_events {where} order by {order_by} limit %s offset %s",
+                tuple(params),
+            )
+
+        out: list[dict[str, Any]] = []
+        for row in rows[:safe_size]:
+            item = dict(row)
+            if include_payload:
+                item["payload"] = self._payload(item.pop("payload_json"))
+            else:
+                item["payload_summary"] = {"keys": [], "bytes": int(item.pop("payload_bytes") or 0)}
+            item["created_at"] = str(item.get("created_at") or "")
+            out.append(item)
+        has_more = len(rows) > safe_size
+        if sort in {"recent", "oldest"}:
+            next_cursor = str(out[-1]["event_id"]) if has_more and out else None
+        else:
+            next_cursor = str(max(0, cursor_id) + safe_size) if has_more else None
+        return out, next_cursor, has_more
 
     def run_rows(self) -> list[dict[str, Any]]:
         return self._query("select * from runs order by updated_at desc, run_id desc")
@@ -556,7 +626,22 @@ class SupabaseReadOnlyControlPlaneStore:
         return counts
 
     def recent_events(self, limit: int = 20) -> list[dict[str, Any]]:
-        rows = self._query("select * from control_events order by event_id desc limit %s", (max(0, limit),))
+        rows = self._query(
+            """
+            select
+                event_id,
+                idempotency_key,
+                event_type,
+                entity_type,
+                entity_id,
+                payload_json,
+                created_at
+            from control_events
+            order by event_id desc
+            limit %s
+            """,
+            (max(0, limit),),
+        )
         out: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)

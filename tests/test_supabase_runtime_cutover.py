@@ -1,4 +1,7 @@
+from typing import Any, Sequence
+
 from scripts.validate_supabase_runtime_cutover import compare
+
 from omx_wake_gate.control_plane.supabase_store import SupabaseControlPlaneStore, _decision_gate_state, _decision_summary
 
 
@@ -106,3 +109,58 @@ def test_project_decision_summary_prefers_status_over_long_recommendation() -> N
     }
 
     assert _decision_summary(gate) == "negative_result (project decision lacks positive draft signal)"
+
+
+class _CapturingSupabaseStore(SupabaseControlPlaneStore):
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        super().__init__("postgresql://example.invalid/postgres", connect=lambda: None)
+        self.rows = rows
+        self.calls: list[tuple[str, tuple[Any, ...]]] = []
+
+    def _query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        self.calls.append((sql, tuple(params)))
+        return self.rows
+
+
+def test_supabase_event_page_uses_bounded_sql_pagination_without_payload_body() -> None:
+    store = _CapturingSupabaseStore(
+        [
+            {
+                "event_id": event_id,
+                "idempotency_key": f"event-{event_id}",
+                "event_type": "paper.draft",
+                "entity_type": "paper",
+                "entity_id": "paper-1",
+                "payload_bytes": 1234,
+                "created_at": "2026-05-06T12:00:00+00:00",
+            }
+            for event_id in (300, 299, 298)
+        ]
+    )
+
+    rows, next_cursor, has_more = store.event_page(page_size=2, cursor="301", include_payload=False)
+
+    assert [row["event_id"] for row in rows] == [300, 299]
+    assert rows[0]["payload_summary"] == {"keys": [], "bytes": 1234}
+    assert next_cursor == "299"
+    assert has_more is True
+    assert len(store.calls) == 1
+    sql, params = store.calls[0]
+    normalized_sql = " ".join(sql.lower().split())
+    assert "select *" not in normalized_sql
+    assert "payload_json," not in normalized_sql
+    assert "pg_column_size(payload_json) as payload_bytes" in normalized_sql
+    assert "order by event_id desc limit %s" in normalized_sql
+    assert params == (301, 3)
+
+
+def test_supabase_event_page_offset_sorts_stay_bounded() -> None:
+    store = _CapturingSupabaseStore([])
+
+    store.event_page(page_size=50, cursor="200", include_payload=False, sort="type")
+
+    sql, params = store.calls[0]
+    normalized_sql = " ".join(sql.lower().split())
+    assert "limit %s offset %s" in normalized_sql
+    assert "select *" not in normalized_sql
+    assert params == (51, 200)
