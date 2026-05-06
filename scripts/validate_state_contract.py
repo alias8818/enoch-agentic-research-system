@@ -26,10 +26,13 @@ MIGRATION_GLOBS = ("supabase/migrations/*.sql",)
 def _extract_in_values(sql: str, column: str) -> set[str]:
     # Purposefully simple: this validates our migration text contains the same
     # literal state vocabulary as the Python contract.
-    pattern = re.compile(rf"{re.escape(column)}\s+in\s*\((.*?)\)", re.IGNORECASE | re.DOTALL)
+    pattern = re.compile(
+        rf"(?<![a-z0-9_]){re.escape(column)}(?![a-z0-9_])\s+in\s*\((.*?)\)",
+        re.IGNORECASE | re.DOTALL,
+    )
     values: set[str] = set()
     for match in pattern.finditer(sql):
-        values.update(re.findall(r"'([^']+)'", match.group(1)))
+        values.update(re.findall(r"'([^']*)'", match.group(1)))
     return values
 
 
@@ -85,7 +88,9 @@ def _validate_migrations() -> list[str]:
     failures: list[str] = []
     column_by_surface = {
         "queue_items.status": "status",
+        "queue_items.last_run_state": "last_run_state",
         "runs.state": "state",
+        "runs.gate_state": "gate_state",
         "papers.paper_status": "paper_status",
         "publication_automation_items.automation_status": "automation_status",
         "project_decisions.decision_gate_state": "decision_gate_state",

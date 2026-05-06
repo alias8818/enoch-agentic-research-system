@@ -31,6 +31,7 @@ from .models import (
     ReviewStatus,
     RunState,
 )
+from .state_contract import RUN_STATES
 
 SCHEMA_VERSION = 1
 ACTIVE_STATUSES = {"dispatching", "running", "awaiting_wake", "wake_received", "reconciling"}
@@ -46,6 +47,29 @@ def _hash(payload: Any) -> str:
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _contract_worker_callback_states(event_type: str, gate_state: str = "") -> tuple[str, str, str]:
+    """Normalize worker callback labels into contract-safe persisted states.
+
+    `last_event_type` and the append-only event stream preserve the exact raw
+    callback. The lifecycle/detail columns should stay inside the finite state
+    contract so Supabase constraints can reject accidental new workflow states.
+    """
+
+    event = _text(event_type)
+    raw_gate_state = _text(gate_state)
+    if event == "session_started":
+        run_state = RunState.RUNNING.value
+        last_run_state = RunState.RUNNING.value
+    elif event in RUN_STATES:
+        run_state = event
+        last_run_state = event
+    else:
+        run_state = "needs_review"
+        last_run_state = "needs_review"
+    persisted_gate_state = raw_gate_state if raw_gate_state in RUN_STATES else run_state
+    return last_run_state, run_state, persisted_gate_state
 
 
 
@@ -2037,7 +2061,7 @@ class ControlPlaneStore:
             row = self.queue_row(project_id) if project_id else {}
             return replayed_event_id, False, row or {}
         summary = f"worker callback {event_type}: {_text(payload.get('reason')) or 'worker reported ready'}"
-        run_state = RunState.RUNNING.value if event_type == "session_started" else event_type
+        last_run_state, run_state, gate_state = _contract_worker_callback_states(event_type, _text(payload.get("gate_state")))
         run_ended_at = None if event_type == "session_started" else now
         with self._connect() as conn:
             if project_id:
@@ -2047,7 +2071,7 @@ class ControlPlaneStore:
                         last_event_type=?, next_action_hint=?, manual_review_required=?, last_error=?,
                         last_result_summary=?, last_callback_at=?, updated_at=?
                     WHERE project_id=?""",
-                    (status, _text(payload.get("session_id")), event_type, "worker_callback", next_action_hint, manual_review_required, last_error, summary, now, now, project_id),
+                    (status, _text(payload.get("session_id")), last_run_state, "worker_callback", next_action_hint, manual_review_required, last_error, summary, now, now, project_id),
                 )
             if run_id:
                 conn.execute(
@@ -2055,7 +2079,7 @@ class ControlPlaneStore:
                     SET session_id=COALESCE(NULLIF(?, ''), session_id), state=?, ended_at=?, last_callback_at=?,
                         gate_state=?, current_activity=?, updated_at=?
                     WHERE run_id=?""",
-                    (_text(payload.get("session_id")), run_state, run_ended_at, now, _text(payload.get("gate_state")) or event_type, "worker_callback", now, run_id),
+                    (_text(payload.get("session_id")), run_state, run_ended_at, now, gate_state, "worker_callback", now, run_id),
                 )
         event_id, inserted = self.append_event(
             idempotency_key=idempotency_key,

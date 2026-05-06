@@ -311,7 +311,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertIsInstance(event_id, int)
             self.assertEqual(row["status"], "running")
             self.assertEqual(row["next_action_hint"], "await_callback")
-            self.assertEqual(row["last_run_state"], "session_started")
+            self.assertEqual(row["last_run_state"], "running")
             self.assertFalse(row["manual_review_required"])
             run = store.run_row("run-started")
             self.assertEqual(run["state"], "running")
@@ -334,6 +334,13 @@ class ControlPlaneStoreTests(unittest.TestCase):
                     paper_rows=[],
                 )
             )
+            store.mark_dispatch_started(
+                project_id="idea-unknown-callback",
+                run_id="run-unknown-callback",
+                session_id="session-dispatched",
+                dispatch_payload={"project_id": "idea-unknown-callback"},
+                requested_by="test",
+            )
             _event_id, inserted, row = store.record_worker_callback({
                 "event_type": "surprise_ready",
                 "run_id": "run-unknown-callback",
@@ -351,6 +358,10 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(row["next_action_hint"], "inspect_unknown_worker_callback")
             self.assertTrue(row["manual_review_required"])
             self.assertIn("unexpected worker callback", row["last_error"])
+            self.assertEqual(row["last_run_state"], "needs_review")
+            run = store.run_row("run-unknown-callback")
+            self.assertEqual(run["state"], "needs_review")
+            self.assertEqual(run["gate_state"], "needs_review")
 
     def test_dashboard_observations_store_latest_by_source_and_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

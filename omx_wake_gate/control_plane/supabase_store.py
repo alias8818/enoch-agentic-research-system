@@ -39,6 +39,7 @@ from .store import (
     _audit_rows,
     _bool,
     _checklist_progress,
+    _contract_worker_callback_states,
     _default_review_checklist,
     _first_present,
     _hash,
@@ -1828,7 +1829,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         if replayed_event_id is not None:
             return replayed_event_id, False, self.queue_row(project_id) or {}
         summary = f"worker callback {event_type}: {_text(payload.get('reason')) or 'worker reported ready'}"
-        run_state = RunState.RUNNING.value if event_type == "session_started" else event_type
+        last_run_state, run_state, gate_state = _contract_worker_callback_states(event_type, _text(payload.get("gate_state")))
         run_ended_at = None if event_type == "session_started" else now
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -1841,7 +1842,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             last_result_summary=%s, last_callback_at=%s, updated_at=%s
                         where project_id=%s
                         """,
-                        (status, _text(payload.get("session_id")), event_type, "worker_callback", next_action_hint, manual_review_required, last_error, summary, now, now, project_id),
+                        (status, _text(payload.get("session_id")), last_run_state, "worker_callback", next_action_hint, manual_review_required, last_error, summary, now, now, project_id),
                     )
                 if run_id:
                     cur.execute(
@@ -1851,7 +1852,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             gate_state=%s, current_activity=%s, updated_at=%s
                         where run_id=%s
                         """,
-                        (_text(payload.get("session_id")), run_state, run_ended_at, now, _text(payload.get("gate_state")) or event_type, "worker_callback", now, run_id),
+                        (_text(payload.get("session_id")), run_state, run_ended_at, now, gate_state, "worker_callback", now, run_id),
                     )
         event_id, inserted = self.append_event(
             idempotency_key=idempotency_key,

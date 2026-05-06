@@ -203,6 +203,25 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         select 'fixture-core-snapshot', 'n8n_queue', id, 'migration-validator',
                '{"idempotency_key":"fixture-core-snapshot","queue_rows":[{"project_id":"core-fixture"}],"paper_rows":[]}'::jsonb
         from inserted_event;
+
+        do $$
+        begin
+          begin
+            insert into enoch.queue_items(project_id, status, last_run_state)
+            values ('fixture-invalid-last-run-state', 'queued', 'session_started');
+            raise exception 'queue_items.last_run_state accepted invalid callback state';
+          exception when check_violation then
+            null;
+          end;
+
+          begin
+            update enoch.runs set gate_state = 'surprise_ready'
+            where run_id = 'run-positive';
+            raise exception 'runs.gate_state accepted invalid callback state';
+          exception when check_violation then
+            null;
+          end;
+        end $$;
         """,
     )
 
