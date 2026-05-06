@@ -83,15 +83,25 @@ def _get_overview(base: str, token: str) -> dict[str, Any]:
 
 def _wait_for_active(base: str, token: str, *, timeout_seconds: float) -> dict[str, Any] | None:
     deadline = time.monotonic() + timeout_seconds
-    last: dict[str, Any] | None = None
+    last_overview: dict[str, Any] | None = None
+    last_state: dict[str, Any] | None = None
     while time.monotonic() < deadline:
+        state = _get_state(base, token)
+        state_active = state.get("active_items") or []
+        if state_active:
+            return state_active[0]
+        last_state = state
         overview = _get_overview(base, token)
         active = ((overview.get("lanes") or {}).get("active") or [])
         if active:
             return active[0]
-        last = overview
+        last_overview = overview
         time.sleep(2)
-    return {"timeout": True, "last_overview_counts": (last or {}).get("counts", {})}
+    return {
+        "timeout": True,
+        "last_state_counts": (last_state or {}).get("counts", {}),
+        "last_overview_counts": (last_overview or {}).get("counts", {}),
+    }
 
 
 def drill(args: argparse.Namespace) -> dict[str, Any]:
