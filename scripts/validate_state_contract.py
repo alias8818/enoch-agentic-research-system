@@ -12,7 +12,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from omx_wake_gate.control_plane.state_contract import STATE_CONTRACT  # noqa: E402
+from omx_wake_gate.control_plane.state_contract import STATE_CONTRACT, STATE_DISPOSITIONS, STATE_REDUCTION_PLAN  # noqa: E402
 
 MIGRATION_GLOBS = ("supabase/migrations/*.sql",)
 
@@ -56,6 +56,32 @@ def _validate_migrations() -> list[str]:
     return failures
 
 
+def _validate_reduction_plan() -> list[str]:
+    failures: list[str] = []
+    for surface, values in STATE_CONTRACT.items():
+        planned = STATE_REDUCTION_PLAN.get(surface)
+        if planned is None:
+            failures.append(f"state reduction plan missing surface: {surface}")
+            continue
+        missing = values - set(planned)
+        extra = set(planned) - values
+        if missing:
+            failures.append(f"state reduction plan for {surface} missing values: {sorted(missing)}")
+        if extra:
+            failures.append(f"state reduction plan for {surface} has values outside contract: {sorted(extra)}")
+        for value, decision in planned.items():
+            disposition = str(decision.get("disposition") or "")
+            lane = str(decision.get("operator_lane") or "")
+            replacement = str(decision.get("replacement") or "")
+            if disposition not in STATE_DISPOSITIONS:
+                failures.append(f"state reduction plan for {surface}.{value} has invalid disposition: {disposition!r}")
+            if not lane:
+                failures.append(f"state reduction plan for {surface}.{value} missing operator_lane")
+            if disposition in {"alias", "migrate_after_freeze"} and not replacement and value not in {"needs_review"}:
+                failures.append(f"state reduction plan for {surface}.{value} disposition={disposition} needs replacement")
+    return failures
+
+
 def _live_distincts(database_url: str) -> dict[str, list[tuple[str, int]]]:
     import psycopg
 
@@ -81,7 +107,7 @@ def _live_distincts(database_url: str) -> dict[str, list[tuple[str, int]]]:
 
 
 def validate(*, database_url: str = "") -> dict[str, Any]:
-    failures = _validate_migrations()
+    failures = _validate_migrations() + _validate_reduction_plan()
     live: dict[str, Any] = {}
     if database_url:
         live = _live_distincts(database_url)
@@ -94,6 +120,7 @@ def validate(*, database_url: str = "") -> dict[str, Any]:
         "ok": not failures,
         "failures": failures,
         "contract": {surface: sorted(values) for surface, values in sorted(STATE_CONTRACT.items())},
+        "reduction_plan": STATE_REDUCTION_PLAN,
         "live_distincts": live,
     }
 

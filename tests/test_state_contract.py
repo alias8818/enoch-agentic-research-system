@@ -5,6 +5,7 @@ from omx_wake_gate.control_plane.state_contract import (
     QUEUE_STATUSES,
     RUN_STATES,
     STATE_CONTRACT,
+    STATE_REDUCTION_PLAN,
 )
 from scripts.validate_state_contract import validate
 
@@ -34,3 +35,12 @@ def test_state_contract_names_all_persisted_state_surfaces() -> None:
         "projects.origin_idea_status",
     }
     assert expected <= set(STATE_CONTRACT)
+
+
+def test_state_reduction_plan_covers_every_raw_state_value() -> None:
+    assert set(STATE_REDUCTION_PLAN) == set(STATE_CONTRACT)
+    for surface, values in STATE_CONTRACT.items():
+        assert set(STATE_REDUCTION_PLAN[surface]) == values
+        for value, decision in STATE_REDUCTION_PLAN[surface].items():
+            assert decision["operator_lane"]
+            assert decision["disposition"] in {"keep", "alias", "legacy_internal", "migrate_after_freeze"}

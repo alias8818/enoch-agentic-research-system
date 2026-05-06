@@ -23,7 +23,7 @@ The dashboard and assistant should answer simple questions with these lanes:
 
 ## Raw state surfaces
 
-The canonical raw state contract is code-owned in `omx_wake_gate/control_plane/state_contract.py` and schema-owned in `supabase/migrations/20260506165512_enoch_state_contract_constraints.sql`.
+The canonical raw state contract is code-owned in `omx_wake_gate/control_plane/state_contract.py` and schema-owned in `supabase/migrations/20260506165512_enoch_state_contract_constraints.sql`. The reduction/disposition table for every raw value is generated in `docs/state-reduction-audit.md`.
 
 | Surface | Meaning | Notes |
 | --- | --- | --- |
@@ -55,6 +55,7 @@ Run:
 ```bash
 uv run python scripts/validate_state_contract.py
 uv run python scripts/validate_state_contract.py --database-url "$ENOCH_SUPABASE_DATABASE_URL"
+uv run python scripts/generate_state_reduction_audit.py --database-url "$ENOCH_SUPABASE_DATABASE_URL"
 ```
 
-The live check fails if any persisted state value falls outside the contract.
+The live check fails if any persisted state value falls outside the contract or if a raw state value lacks an operator-lane/disposition decision.
