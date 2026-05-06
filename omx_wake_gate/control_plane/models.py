@@ -107,6 +107,29 @@ class NotionIntakeResponse(BaseModel):
     skipped_rows: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class IdeaIntakeRequest(BaseModel):
+    idempotency_key: str = Field(default_factory=lambda: f"ideas-intake:{utc_now()}")
+    source: str = "supabase_native"
+    ideas: list[dict[str, Any]] = Field(default_factory=list)
+    dry_run: bool = True
+    include_statuses: list[str] = Field(default_factory=lambda: ["exploring", "testing"])
+    default_machine_target: str = "worker.example"
+    default_model: str = "gpt-5.5"
+    default_sandbox: str = "danger-full-access"
+    override_existing_dispatch_metadata: bool = False
+
+
+class IdeaIntakeResponse(BaseModel):
+    ok: bool = True
+    dry_run: bool
+    inserted_event: bool = False
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+    skipped_rows: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class ProjectRecord(BaseModel):
     project_id: str
     project_name: str = ""
@@ -434,7 +457,7 @@ class WorkerPreflightResponse(BaseModel):
 
 class DashboardObservationRecord(BaseModel):
     observation_id: int | None = None
-    source: Literal["worker_dashboard_api", "worker_preflight", "notion_sync", "snapshot_mirror"]
+    source: Literal["worker_dashboard_api", "worker_preflight", "notion_sync", "snapshot_mirror", "idea_intake"]
     scope: str = "global"
     observed_at: str = Field(default_factory=utc_now)
     ttl_seconds: int = 300
@@ -630,8 +653,8 @@ class DashboardEventsResponse(BaseModel):
 
 class DashboardIntakeResponse(BaseModel):
     ok: bool = True
-    source: Literal["control_api_intake_notion"] = "control_api_intake_notion"
-    authority: str = "Notion intake/review projection plus latest sync observation"
+    source: Literal["control_api_intake_ideas", "control_api_intake_notion"] = "control_api_intake_ideas"
+    authority: str = "Supabase-native ideas workbench plus latest intake observation"
     generated_at: str = Field(default_factory=utc_now)
     latest_sync: DashboardObservationRecord | None = None
     projection_counts: dict[str, int] = Field(default_factory=dict)

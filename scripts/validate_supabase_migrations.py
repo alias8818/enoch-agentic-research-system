@@ -88,6 +88,55 @@ def fetch_json(container: str, sql: str) -> Any:
     return json.loads(raw)
 
 
+def seed_native_ideas_backfill_fixture(container: str) -> None:
+    """Seed rows that must be migrated by the native ideas migration.
+
+    This runs immediately before the `enoch_native_ideas` migration is applied,
+    after the baseline tables exist but before `enoch.ideas` exists.
+    """
+
+    psql(
+        container,
+        """
+        insert into enoch.projects(project_id, project_name, project_dir, notion_page_id, notion_page_url, origin_idea_status)
+        values
+          ('fixture-project-only', 'Fixture Project Only', 'fixture-project-only', '', '', 'exploring');
+
+        insert into enoch.queue_items(project_id, status, selection_rank, dispatch_priority, machine_target, model, sandbox)
+        values
+          ('fixture-project-only', 'queued', 41, 42, 'fixture-worker', 'gpt-5.5', 'danger-full-access');
+
+        insert into enoch.control_events(
+          idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash
+        ) values (
+          'fixture-native-ideas-backfill',
+          'notion.intake',
+          'snapshot',
+          'notion',
+          jsonb_build_object(
+            'notion_rows',
+            jsonb_build_array(jsonb_build_object(
+              'id', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+              'url', 'https://notion.example/Fixture-aaaaaaaaaaaa',
+              'property_idea', 'Fixture Rich Idea',
+              'property_status', 'testing',
+              'property_priority', 'High',
+              'property_category', 'spec-decoding',
+              'property_description', 'rich description',
+              'property_omx_project_id', 'fixture-rich-idea',
+              'property_omx_machine_target', 'gb10',
+              'property_omx_model', 'gpt-5.5',
+              'property_omx_sandbox', 'danger-full-access',
+              'property_omx_selection_rank', '7',
+              'property_omx_dispatch_priority', '8'
+            ))
+          ),
+          repeat('9', 64)
+        );
+        """,
+    )
+
+
 def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
     psql(
         container,
@@ -107,6 +156,8 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         """,
     )
     for migration in migrations:
+        if migration.name.endswith("_enoch_native_ideas.sql"):
+            seed_native_ideas_backfill_fixture(container)
         psql_file(container, migration)
 
     psql(
@@ -187,6 +238,27 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
           'operator_dashboard_counts', (
             select to_jsonb(odc)
             from enoch.operator_dashboard_counts odc
+          ),
+          'native_ideas_contract', (
+            select jsonb_build_object(
+              'idea_count', count(*),
+              'rich_idea', (
+                select to_jsonb(i)
+                from enoch.ideas i
+                where i.idea_id = 'fixture-rich-idea'
+              ),
+              'project_snapshot', (
+                select to_jsonb(i)
+                from enoch.ideas i
+                where i.idea_id = 'fixture-project-only'
+              ),
+              'workbench_rows', (
+                select count(*)
+                from enoch.idea_workbench
+                where idea_id in ('fixture-rich-idea', 'fixture-project-only')
+              )
+            )
+            from enoch.ideas
           )
         );
         """,
@@ -214,6 +286,19 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         failures.append(f"RLS tables without policies: {checks['rls_tables_without_policies']}")
     if "search_path=enoch, pg_temp" not in (checks["set_updated_at_search_path"] or []):
         failures.append("set_updated_at must pin search_path to enoch, pg_temp")
+    native_ideas = checks["native_ideas_contract"]
+    rich_idea = native_ideas["rich_idea"] or {}
+    project_snapshot = native_ideas["project_snapshot"] or {}
+    if rich_idea.get("title") != "Fixture Rich Idea":
+        failures.append("native ideas migration did not backfill rich Notion payload title")
+    if rich_idea.get("source_kind") != "notion_import":
+        failures.append("native ideas migration did not preserve Notion import as provenance")
+    if rich_idea.get("selection_rank") != 7 or rich_idea.get("dispatch_priority") != 8:
+        failures.append("native ideas migration did not preserve numeric dispatch metadata")
+    if project_snapshot.get("source_kind") != "project_snapshot":
+        failures.append("native ideas migration did not backfill project-only rows")
+    if native_ideas.get("workbench_rows") != 2:
+        failures.append("idea_workbench must expose both native ideas fixture rows")
 
     return {
         "ok": not failures,

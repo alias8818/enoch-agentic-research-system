@@ -291,6 +291,39 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(response.json()["created"], 1)
             self.assertEqual(response.json()["candidates"][0]["machine_target"], "192.168.1.77")
 
+    def test_supabase_native_ideas_intake_is_primary_dashboard_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp).model_copy(update={"worker_wake_gate_url": "http://192.168.1.77:8787"})
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+
+            response = client.post("/control/intake/ideas", headers=headers, json={
+                "idempotency_key": "router-ideas-intake-1",
+                "dry_run": False,
+                "ideas": [{
+                    "idea_id": "supabase-native-idea",
+                    "title": "Supabase Native Idea",
+                    "idea_status": "testing",
+                    "priority": "High",
+                    "selection_rank": 9,
+                    "dispatch_priority": 8,
+                }],
+            })
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["created"], 1)
+            self.assertEqual(response.json()["candidates"][0]["machine_target"], "192.168.1.77")
+
+            intake = client.get("/control/api/intake/ideas", headers=headers)
+            self.assertEqual(intake.status_code, 200)
+            body = intake.json()
+            self.assertEqual(body["source"], "control_api_intake_ideas")
+            self.assertIn("Supabase-native ideas", body["authority"])
+            self.assertTrue(any(row["idea_id"] == "supabase-native-idea" for row in body["queued_projection"]))
+
+            projection = client.get("/control/projections/ideas/workbench", headers=headers)
+            self.assertEqual(projection.status_code, 200)
+            self.assertIn("testing", projection.json()["counts"])
+
     def test_control_dashboard_html_is_served_without_token(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
@@ -303,6 +336,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("/control/api/v1/observability/health", response.text)
             self.assertIn("Work is idle", response.text)
             self.assertIn("Needs attention", response.text)
+            self.assertIn("/control/api/intake/ideas", response.text)
+            self.assertIn("Supabase idea workbench", response.text)
+            self.assertNotIn("Notion Intake", response.text)
             self.assertIn("Recent activity", response.text)
             self.assertIn("System health", response.text)
             self.assertIn("All projects", response.text)
@@ -1655,7 +1691,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             client = _client(tmp)
             response = client.get("/control/dashboard")
             self.assertEqual(response.status_code, 200)
-            for path in ["/control/api/v1/overview", "/control/api/v1/queue", "/control/api/v1/projects/", "/control/api/v1/runs", "/control/api/v1/papers", "/control/api/v1/events", "/control/api/v1/observability/memory", "/control/api/paper-reviews", "/control/api/intake/notion"]:
+            for path in ["/control/api/v1/overview", "/control/api/v1/queue", "/control/api/v1/projects/", "/control/api/v1/runs", "/control/api/v1/papers", "/control/api/v1/events", "/control/api/v1/observability/memory", "/control/api/paper-reviews", "/control/api/intake/ideas"]:
                 self.assertIn(path, response.text)
             for stale_path in ["/control/api/status?refresh_worker=true", "/control/api/queues/", "/control/api/events?page_size=200", "/control/api/papers?page_size=100", "['event_id','event_type','entity_type','entity_id','created_at','payload_summary']"]:
                 self.assertNotIn(stale_path, response.text)

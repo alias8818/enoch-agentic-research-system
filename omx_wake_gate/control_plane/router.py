@@ -40,6 +40,8 @@ from .models import (
     DraftNextResponse,
     ImportSnapshotRequest,
     ImportSnapshotResponse,
+    IdeaIntakeRequest,
+    IdeaIntakeResponse,
     MarkQueueItemPausedRequest,
     NotionIntakeRequest,
     NotionIntakeResponse,
@@ -111,7 +113,7 @@ CONTROL_DASHBOARD_HTML = """
 </header>
 <main class="wrap"><div id="status" class="pill warn">Loading…</div><div id="app" class="banner warn">Loading dashboard cards…</div></main>
 <script>
-const pages=[['overview','Overview'],['projects','Projects'],['queue:active','Active'],['queue:queued','Queued'],['queue:blocked','Blocked'],['runs','Runs'],['papers','Papers'],['events','Events'],['reviews','Publication Automation'],['intake','Notion Intake'],['observability','Observability']];
+const pages=[['overview','Overview'],['projects','Projects'],['queue:active','Active'],['queue:queued','Queued'],['queue:blocked','Blocked'],['runs','Runs'],['papers','Papers'],['events','Events'],['reviews','Publication Automation'],['intake','Ideas'],['observability','Observability']];
 const $=id=>document.getElementById(id); const AI_ACTOR='ai-publication-pipeline'; const AI_NOTE='AI-generated publication pipeline; operator claims no personal authorship credit.';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function token(){return localStorage.getItem('enochControlToken')||'';} function saveToken(){localStorage.setItem('enochControlToken',$('token').value.trim());route();}
@@ -128,8 +130,8 @@ function automationStatusLabel(s){const v=String(s||''); const map={unreviewed:'
 function shortId(value){const s=String(value||''); if(!s)return ''; if(s.length<=26)return esc(s); return `<span title="${esc(s)}">${esc(s.slice(0,10)+'…'+s.slice(-8))}</span>`;}
 function formatBytes(bytes){const n=Number(bytes||0); if(!n)return 'no payload'; if(n>1024*1024)return (n/1024/1024).toFixed(1)+' MB'; if(n>1024)return (n/1024).toFixed(1)+' KB'; return n+' B';}
 function formatTime(value){if(!value)return ''; const d=new Date(value); if(Number.isNaN(d.getTime()))return esc(value); return d.toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});}
-function eventLabel(type){const map={'notion.intake':'Notion sync imported ideas','paper_review.finalization_package_prepared':'Finalization package prepared','paper_review.draft_rewritten':'Draft rewritten','paper.drafted':'Paper draft created','paper_review.backfill':'Review queue backfilled','worker.callback':'Worker callback received','control.pause':'Queue paused','control.resume':'Queue resumed'}; return map[type]||titleCase(type);}
-function eventTone(type){const t=String(type||''); if(t.includes('error')||t.includes('failed'))return 'bad'; if(t.includes('blocked')||t.includes('pause'))return 'warn'; if(t.includes('draft')||t.includes('finalization')||t.includes('notion'))return 'info'; return 'good';}
+function eventLabel(type){const map={'notion.intake':'Legacy Notion import captured','ideas.intake':'Supabase ideas imported','paper_review.finalization_package_prepared':'Finalization package prepared','paper_review.draft_rewritten':'Draft rewritten','paper.drafted':'Paper draft created','paper_review.backfill':'Review queue backfilled','worker.callback':'Worker callback received','control.pause':'Queue paused','control.resume':'Queue resumed'}; return map[type]||titleCase(type);}
+function eventTone(type){const t=String(type||''); if(t.includes('error')||t.includes('failed'))return 'bad'; if(t.includes('blocked')||t.includes('pause'))return 'warn'; if(t.includes('draft')||t.includes('finalization')||t.includes('notion')||t.includes('ideas'))return 'info'; return 'good';}
 function payloadDigest(summary){const bytes=summary?.bytes||0; const keys=(summary?.keys||[]).filter(k=>!['notion_rows','paper','payload'].includes(k)).slice(0,4); return `<span class="pill">${esc(formatBytes(bytes))}</span>${keys.map(k=>`<span class="pill">${esc(titleCase(k))}</span>`).join('')}${bytes>1024*1024?'<span class="pill warn">large payload hidden</span>':''}`;}
 function activityCards(rows){return `<div class="activity-list">${(rows||[]).map(e=>`<div class="card tight"><div class="row"><strong class="${eventTone(e.event_type)}">${esc(eventLabel(e.event_type))}</strong><span class="pill">${esc(formatTime(e.created_at))}</span><span class="pill">${esc(titleCase(e.entity_type))}</span></div><div class="muted mono">${shortId(e.entity_id)}</div><div class="row">${payloadDigest(e.payload_summary||{})}</div></div>`).join('')||'<div class="card tight"><strong>No recent activity</strong><div class="muted">No control-plane events were returned for this view.</div></div>'}</div>`;}
 function cell(c,v,r){if(c==='project_id')return `${linkProject(v)}${r.project_name?`<div class="muted">${esc(r.project_name)}</div>`:''}`; if(c==='current_run_id'||c==='run_id')return linkRun(v); if(c==='paper_id')return linkPaper(v); if(c==='review')return r.paper_id?`<a href="#review:${encodeURIComponent(r.paper_id)}">Open ${esc(r.project_name||r.paper_id)}</a>`:''; if(c==='paper_title')return `<strong>${esc(r.project_name||r.paper_id||'Untitled')}</strong><div class="muted mono">${shortId(r.paper_id||'')}</div>`; if(c==='notion_page_url'&&v)return `<a href="${esc(v)}">Notion</a>`; if(c==='artifact_paths_present')return Object.entries(v||{}).map(([k,ok])=>`<span class="pill ${ok?'good':'warn'}">${esc(k.replace('_path','').replaceAll('_',' '))}: ${ok?'yes':'no'}</span>`).join(''); if(c==='payload_summary')return payloadDigest(v||{}); if(c==='paper_status')return `<span class="truncate ${statusClass(v)}">${esc(paperStatusLabel(v))}</span>`; if(c==='entity_id')return shortId(v); if(c==='created_at'||c==='updated_at'||c==='generated_at')return formatTime(v); if(typeof v==='boolean')return `<span class="pill ${v?'good':'warn'}">${v?'yes':'no'}</span>`; if(Array.isArray(v))return `<span class="truncate">${esc(v.join('; '))}</span>`; if(v&&typeof v==='object')return '<span class="muted">details hidden</span>'; return `<span class="truncate ${statusClass(v)}">${esc(v)}</span>`;}
@@ -152,7 +154,7 @@ function eventControls(params){const size=params.get('page_size')||'50', sort=pa
 function applyEventFilters(){const params=new URLSearchParams(); const term=$('eventSearch')?.value||'', eventType=$('eventType')?.value||'', entityType=$('entityType')?.value||'', entityId=$('entityId')?.value||'', sort=$('eventSort')?.value||'recent', pageSize=$('eventPageSize')?.value||'50'; if(term)params.set('search',term); if(eventType)params.set('event_type',eventType); if(entityType)params.set('entity_type',entityType); if(entityId)params.set('entity_id',entityId); if(sort)params.set('sort',sort); if(pageSize)params.set('page_size',pageSize); location.hash='events'+(params.toString()?('?'+params.toString()):'');}
 async function eventsPage(){renderNav('events'); const params=new URLSearchParams(location.hash.split('?')[1]||''); const cursor=params.get('cursor')||'', pageSize=params.get('page_size')||'50', term=params.get('search')||'', entityType=params.get('entity_type')||'', entityId=params.get('entity_id')||'', eventType=params.get('event_type')||'', sort=params.get('sort')||'recent'; const qs=new URLSearchParams({page_size:pageSize,cursor,search:term,entity_type:entityType,entity_id:entityId,event_type:eventType,sort}); const data=await api('/control/api/v1/events?'+qs.toString()); const nextParams=new URLSearchParams(params); if(data.page.next_cursor)nextParams.set('cursor',data.page.next_cursor); $('status').className='pill info'; $('status').textContent=`Activity log · ${data.page.returned} shown`; $('app').className=''; $('app').innerHTML=`<section class="card"><h2>Activity log</h2><div class="muted">Human-readable event stream. Payload fields are summarized as chips; large payloads are not printed into the table.</div>${eventControls(params)}${pageMeta(data.page,'Showing latest')}${activityCards(data.rows||[])}<div class="toolbar">${cursor?`<button onclick="history.back()">Previous view</button>`:''}${data.page.has_more?`<button onclick="location.hash='events?${nextParams.toString()}'">Next page</button>`:''}</div></section>`;}
 async function observabilityPage(){renderNav('observability'); const [memory,health]=await Promise.all([api('/control/api/v1/observability/memory'),api('/control/api/v1/observability/health')]); $('status').className='pill '+(memory.memory_warn?'warn':'good'); $('status').textContent=`Observability · controller memory ${Number(memory.rss_mib||0).toFixed(0)} MiB`; $('app').className=''; $('app').innerHTML=`<section class="grid three">${card('Controller memory',Number(memory.rss_mib||0).toFixed(0),memory.memory_warn?'warn':'good','MiB RSS now')}${card('Peak memory',Number(memory.peak_rss_mib||0).toFixed(0),'info','MiB since process start')}${card('Route observations',health.route_observability_enabled?'On':'Off',health.route_observability_enabled?'good':'warn','Request timing and size sampling')}</section><section class="card"><h2>Diagnostics</h2><div class="muted">Technical route-observation evidence is collapsed here for debugging only.</div>${health.latest_route_observation?`<details><summary>Latest route observation JSONL</summary><pre>${esc(health.latest_route_observation)}</pre></details>`:'<span class="pill warn">No observation logged</span>'}${debugBlock('Memory details',memory)}${debugBlock('Health details',health)}</section>`;}
-async function intakePage(){renderNav('intake'); const data=await api('/control/api/intake/notion'); $('status').className='pill info'; $('status').textContent='notion intake'; $('app').className=''; $('app').innerHTML=`<section class="grid two"><div class="card"><h2>Latest Notion sync</h2>${tableRows([data.latest_sync||{}],['source','status','observed_at','authority'])}${debugBlock('Latest sync JSON',data.latest_sync||{})}</div><div class="card"><h2>Skipped reasons</h2>${tableRows(Object.entries(data.skipped_reasons||{}).map(([reason,count])=>({reason,count})),['reason','count'])}</div></section><section class="card"><h2>Queued projection</h2>${tableRows(data.queued_projection||[],['project_id','project_name','queue_status','next_action_hint','updated_at','notion_page_url'])}</section>`;}
+async function intakePage(){renderNav('intake'); const data=await api('/control/api/intake/ideas'); $('status').className='pill info'; $('status').textContent='Supabase ideas'; $('app').className=''; $('app').innerHTML=`<section class="grid two"><div class="card"><h2>Supabase idea workbench</h2><div class="muted">Native idea rows are the editable intake ledger. Legacy Notion fields, when present, are provenance only.</div>${tableRows([data.latest_sync||{}],['source','status','observed_at','authority'])}${debugBlock('Latest intake JSON',data.latest_sync||{})}</div><div class="card"><h2>Skipped reasons</h2>${tableRows(Object.entries(data.skipped_reasons||{}).map(([reason,count])=>({reason,count})),['reason','count'])}</div></section><section class="card"><h2>Idea workbench</h2>${tableRows(data.queued_projection||[],['idea_id','title','idea_status','queue_status','next_action_hint','paper_status','source_kind','updated_at'])}</section>`;}
 async function reviewsPage(){renderNav('reviews'); const search=new URLSearchParams(location.hash.split('?')[1]||''); const term=search.get('search')||'', reviewStatus=search.get('review_status')||'', paperStatus=search.get('paper_status')||'', page=search.get('page')||'1', sort=search.get('sort')||'-rank_score', pageSize=search.get('page_size')||'100'; const qs=new URLSearchParams({page,page_size:pageSize,search:term,review_status:reviewStatus,paper_status:paperStatus,sort,include_rank_reasons:'true'}); const data=await api('/control/api/paper-reviews?'+qs.toString()); const rows=(data.rows||[]).map(r=>({...r,review:'Open',automation_state:automationStatusLabel(r.review_status),progress:`${(r.checklist_progress||{}).passed||0}/${(r.checklist_progress||{}).total||0}`,reasons:(r.rank_reasons||[]).slice(0,2).join('; ')})); $('status').className='pill info'; $('status').textContent=`automation queue · ${data.page.total} filtered · ${data.counts.all||0} total`; $('app').className=''; $('app').innerHTML=`<section class="card"><h2>Publication Automation Queue</h2><div class="muted">Automated rewrite/finalization lane · canonical /control/api/paper-reviews · page ${esc(data.page.page)} · returned ${esc(data.page.returned)} of ${esc(data.page.total)}</div><div class="row">${Object.entries(data.counts||{}).map(([k,v])=>`<span class="pill">${esc(k)} ${esc(v)}</span>`).join('')}</div><div id="batchStatus" class="banner info">GLM-5.1 batch idle. Click rewrite once; a 10-paper batch usually takes several minutes.</div><div class="toolbar"><button onclick="openNextReview()">Open next publication-ready</button><button id="rewriteBatchButton" onclick="rewriteBatchVisible()">Rewrite next 10 with GLM-5.1</button><input id="search" value="${esc(term)}" placeholder="search papers/projects"/><select id="review_status"><option value="">all automation states</option>${['triage_ready','unreviewed','in_review','changes_requested','blocked','approved_for_finalization','finalized','rejected'].map(v=>`<option value="${v}" ${reviewStatus===v?'selected':''}>${automationStatusLabel(v)}</option>`).join('')}</select><select id="paper_status"><option value="">all paper states</option>${['publication_draft','draft_review'].map(v=>`<option value="${v}" ${paperStatus===v?'selected':''}>${paperStatusLabel(v)}</option>`).join('')}</select><select id="reviewSort"><option value="-rank_score" ${sort==='-rank_score'?'selected':''}>Highest rank</option><option value="updated_at" ${sort==='updated_at'?'selected':''}>Recently updated</option><option value="review_status" ${sort==='review_status'?'selected':''}>Automation state</option><option value="paper_status" ${sort==='paper_status'?'selected':''}>Paper status</option></select><select id="reviewPageSize">${['25','50','100','200'].map(v=>`<option value="${v}" ${pageSize===v?'selected':''}>${v} per page</option>`).join('')}</select><button onclick="location.hash='reviews?search='+encodeURIComponent($('search').value)+'&review_status='+encodeURIComponent($('review_status').value)+'&paper_status='+encodeURIComponent($('paper_status').value)+'&sort='+encodeURIComponent($('reviewSort').value)+'&page_size='+encodeURIComponent($('reviewPageSize').value)">Apply</button></div>${tableRows(rows,['review','paper_title','rank_score','rank_bucket','automation_state','progress','paper_status','project_id','blocker','reasons','updated_at'])}${debugBlock('Automation queue JSON',data)}</section>`;}
 async function openNextReview(){const data=await api('/control/api/paper-reviews/next?paper_status=publication_draft'); location.hash='review:'+encodeURIComponent((data.item||{}).paper_id||data.paper_id);}
 function artifactButtons(id){return ['draft_markdown_path','draft_latex_path','evidence_bundle_path','claim_ledger_path','manifest_path'].map(k=>`<button onclick="previewArtifact('${esc(id)}','${k}')">Preview ${k.replace('_path','').replaceAll('_',' ')}</button>`).join(' ');}
@@ -1686,12 +1688,12 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             conflicts=[],
         )
 
-    @router.get("/api/intake/notion", response_model=DashboardIntakeResponse)
-    def dashboard_notion_intake(authorization: str | None = Header(default=None)) -> DashboardIntakeResponse:
-        authorize(authorization)
-        latest = store.latest_dashboard_observation(source="notion_sync")
-        projection = store.queue_notion_projection()
-        recent = store.event_rows(limit=20, event_type="notion.intake")
+    def _dashboard_ideas_intake_response(*, legacy_notion_alias: bool = False) -> DashboardIntakeResponse:
+        latest = store.latest_dashboard_observation(source="idea_intake") or store.latest_dashboard_observation(source="notion_sync")
+        projection = store.idea_workbench_projection() if hasattr(store, "idea_workbench_projection") else store.queue_notion_projection()
+        recent = store.event_rows(limit=20, event_type="ideas.intake")
+        if not recent:
+            recent = store.event_rows(limit=20, event_type="notion.intake")
         skipped_reasons: dict[str, int] = {}
         if latest:
             payload = latest.payload or {}
@@ -1700,10 +1702,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 skipped_reasons[reason] = skipped_reasons.get(reason, 0) + 1
         warnings = []
         freshness = _intake_freshness()
-        notion_fresh = freshness.get("notion_sync")
-        if notion_fresh and notion_fresh.stale:
-            warnings.append(DashboardFinding(severity="warn", source="notion_sync", authority=notion_fresh.authority, message="Notion intake observation is stale or missing", observed_at=notion_fresh.observed_at, suggested_action="run the Notion intake/sync workflow"))
+        if not projection:
+            warnings.append(DashboardFinding(severity="warn", source="idea_intake", authority="Supabase-native ideas workbench", message="No Supabase-native ideas are visible", observed_at=utc_now(), suggested_action="load ideas into Supabase before resuming the queue"))
         return DashboardIntakeResponse(
+            source="control_api_intake_notion" if legacy_notion_alias else "control_api_intake_ideas",
+            authority="Legacy Notion projection alias; Supabase ideas are canonical" if legacy_notion_alias else "Supabase-native ideas workbench; Notion is provenance only",
             latest_sync=latest,
             projection_counts=store.status_counts(),
             queued_projection=projection,
@@ -1713,6 +1716,16 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             warnings=warnings,
             conflicts=[],
         )
+
+    @router.get("/api/intake/ideas", response_model=DashboardIntakeResponse)
+    def dashboard_ideas_intake(authorization: str | None = Header(default=None)) -> DashboardIntakeResponse:
+        authorize(authorization)
+        return _dashboard_ideas_intake_response()
+
+    @router.get("/api/intake/notion", response_model=DashboardIntakeResponse)
+    def dashboard_notion_intake(authorization: str | None = Header(default=None)) -> DashboardIntakeResponse:
+        authorize(authorization)
+        return _dashboard_ideas_intake_response(legacy_notion_alias=True)
 
     @router.post("/pause", response_model=ControlStateResponse)
     def pause(payload: PauseRequest, authorization: str | None = Header(default=None)) -> ControlStateResponse:
@@ -1772,6 +1785,35 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if not payload.dry_run:
             store.upsert_dashboard_observation(
                 source="notion_sync",
+                status="ok" if skipped == 0 else "warn",
+                ttl_seconds=3600,
+                payload=response.model_dump(mode="json"),
+            )
+        return response
+
+    @router.post("/intake/ideas", response_model=IdeaIntakeResponse)
+    def intake_ideas(payload: IdeaIntakeRequest, authorization: str | None = Header(default=None)) -> IdeaIntakeResponse:
+        authorize(authorization)
+        if payload.default_machine_target == "worker.example":
+            configured_worker = urlparse(config.worker_wake_gate_url).hostname or ""
+            if configured_worker:
+                payload = payload.model_copy(update={"default_machine_target": configured_worker})
+        try:
+            inserted, created, updated, skipped, candidates, skipped_rows = store.ingest_ideas(payload)
+        except IdempotencyConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        response = IdeaIntakeResponse(
+            dry_run=payload.dry_run,
+            inserted_event=inserted,
+            created=created,
+            updated=updated,
+            skipped=skipped,
+            candidates=candidates,
+            skipped_rows=skipped_rows,
+        )
+        if not payload.dry_run:
+            store.upsert_dashboard_observation(
+                source="idea_intake",
                 status="ok" if skipped == 0 else "warn",
                 ttl_seconds=3600,
                 payload=response.model_dump(mode="json"),
@@ -1856,6 +1898,16 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         authorize(authorization)
         rows = store.queue_notion_projection()
         return ProjectionResponse(rows=rows, counts=store.status_counts())
+
+    @router.get("/projections/ideas/workbench", response_model=ProjectionResponse)
+    def ideas_workbench_projection(authorization: str | None = Header(default=None)) -> ProjectionResponse:
+        authorize(authorization)
+        rows = store.idea_workbench_projection() if hasattr(store, "idea_workbench_projection") else store.queue_notion_projection()
+        counts: dict[str, int] = {}
+        for row in rows:
+            key = str(row.get("idea_status") or row.get("queue_status") or "unknown")
+            counts[key] = counts.get(key, 0) + 1
+        return ProjectionResponse(rows=rows, counts=counts)
 
     @router.get("/projections/notion/papers", response_model=ProjectionResponse)
     def notion_papers_projection(authorization: str | None = Header(default=None)) -> ProjectionResponse:
