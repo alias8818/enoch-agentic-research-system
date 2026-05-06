@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import threading
 from pathlib import Path
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -128,8 +127,6 @@ class SupabaseReadOnlyControlPlaneStore:
             raise ValueError("supabase_database_url is required for supabase backends")
         self._connect_factory = connect or self._psycopg_connect
         self._external_connect_factory = connect is not None
-        self._conn_lock = threading.RLock()
-        self._persistent_conn: Any | None = None
 
     def _psycopg_connect(self) -> Any:
         try:
@@ -154,23 +151,21 @@ class SupabaseReadOnlyControlPlaneStore:
                     close()
             return
 
-        with self._conn_lock:
-            conn = self._persistent_conn
-            if conn is None or getattr(conn, "closed", False):
-                conn = self._connect_factory()
-                self._persistent_conn = conn
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("set search_path to enoch, public")
-                yield conn
-                conn.commit()
-            except Exception:
-                rollback = getattr(conn, "rollback", None)
-                if callable(rollback):
-                    rollback()
-                if getattr(conn, "closed", False):
-                    self._persistent_conn = None
-                raise
+        conn = self._connect_factory()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("set search_path to enoch, public")
+            yield conn
+            conn.commit()
+        except Exception:
+            rollback = getattr(conn, "rollback", None)
+            if callable(rollback):
+                rollback()
+            raise
+        finally:
+            close = getattr(conn, "close", None)
+            if callable(close):
+                close()
 
     def _query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
         with self._connect() as conn:

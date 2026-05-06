@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import threading
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
@@ -28,8 +27,6 @@ class SupabaseEnochCoreStore:
             raise ValueError("supabase_database_url is required for the Supabase Enoch core store")
         self._connect_factory = connect or self._psycopg_connect
         self._external_connect_factory = connect is not None
-        self._conn_lock = threading.RLock()
-        self._persistent_conn: Any | None = None
 
     def _psycopg_connect(self) -> Any:
         try:
@@ -54,23 +51,21 @@ class SupabaseEnochCoreStore:
                     close()
             return
 
-        with self._conn_lock:
-            conn = self._persistent_conn
-            if conn is None or getattr(conn, "closed", False):
-                conn = self._connect_factory()
-                self._persistent_conn = conn
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("set search_path to enoch, public")
-                yield conn
-                conn.commit()
-            except Exception:
-                rollback = getattr(conn, "rollback", None)
-                if callable(rollback):
-                    rollback()
-                if getattr(conn, "closed", False):
-                    self._persistent_conn = None
-                raise
+        conn = self._connect_factory()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("set search_path to enoch, public")
+            yield conn
+            conn.commit()
+        except Exception:
+            rollback = getattr(conn, "rollback", None)
+            if callable(rollback):
+                rollback()
+            raise
+        finally:
+            close = getattr(conn, "close", None)
+            if callable(close):
+                close()
 
     @staticmethod
     def canonical_json(payload: Any) -> str:
