@@ -1,6 +1,6 @@
 # API and dashboard redesign plan
 
-This plan captures the next architectural lane for the private Enoch operator API and dashboard. It is intentionally conservative: first make the read paths bounded and observable, then replace the raw-output dashboard with a professional operator experience.
+This plan captures the next architectural lane for the private Enoch operator API and dashboard. It is intentionally conservative: first make the read paths bounded and observable, then replace the raw-output dashboard with a professional operator experience. For the first shipped performance slice and live timing evidence, see [`docs/dashboard-performance.md`](dashboard-performance.md).
 
 ## Why this exists
 
@@ -128,6 +128,7 @@ UX principles:
 - Move dashboard data loading to v1 endpoints.
 - Mark heavyweight legacy endpoints as deprecated or debug-only.
 - Update deployment docs and operator screenshots. Screenshots must be real sanitized captures from the redesigned dashboard, not template placeholders.
+- Move list filtering/sorting/pagination into SQL and keep payload sizes bounded. Initial Supabase slice shipped for queue, runs, papers, and idea intake.
 
 ### Phase 4: Retention and memory hardening
 

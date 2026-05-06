@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 import time
 from pathlib import Path
 from collections.abc import Callable, Iterator, Sequence
@@ -130,6 +131,8 @@ class SupabaseReadOnlyControlPlaneStore:
             raise ValueError("supabase_database_url is required for supabase backends")
         self._connect_factory = connect or self._psycopg_connect
         self._external_connect_factory = connect is not None
+        self._conn: Any | None = None
+        self._conn_lock = threading.Lock()
 
     def _psycopg_connect(self) -> Any:
         try:
@@ -154,23 +157,30 @@ class SupabaseReadOnlyControlPlaneStore:
                     close()
             return
 
-        conn = self._connect_factory()
-        try:
+        self._conn_lock.acquire()
+        conn = self._conn
+        if conn is None or bool(getattr(conn, "closed", False)):
+            conn = self._connect_factory()
             with conn.cursor() as cur:
                 cur.execute("set statement_timeout to '45s'")
                 cur.execute("set idle_in_transaction_session_timeout to '30s'")
                 cur.execute("set search_path to enoch, public")
+            self._conn = conn
+        try:
             yield conn
             conn.commit()
-        except Exception:
+        except Exception as exc:
             rollback = getattr(conn, "rollback", None)
             if callable(rollback):
                 rollback()
+            if bool(getattr(conn, "closed", False)) or self._is_transient_connection_error(exc):
+                close = getattr(conn, "close", None)
+                if callable(close):
+                    close()
+                self._conn = None
             raise
         finally:
-            close = getattr(conn, "close", None)
-            if callable(close):
-                close()
+            self._conn_lock.release()
 
     @staticmethod
     def _is_transient_connection_error(exc: Exception) -> bool:
@@ -480,6 +490,15 @@ class SupabaseReadOnlyControlPlaneStore:
             return True
         return any(needle in _text(row.get(key)).lower() for key in keys)
 
+    @staticmethod
+    def _sql_page(rows: list[dict[str, Any]], *, page_size: int, cursor: str) -> tuple[list[dict[str, Any]], str | None, bool]:
+        safe_size = max(1, min(page_size, 200))
+        offset = max(0, _int(cursor, 0))
+        page_rows = rows[:safe_size]
+        has_more = len(rows) > safe_size
+        next_cursor = str(offset + safe_size) if has_more else None
+        return page_rows, next_cursor, has_more
+
     def queue_page(
         self,
         *,
@@ -490,41 +509,61 @@ class SupabaseReadOnlyControlPlaneStore:
         cursor: str = "",
         sort: str = "priority",
     ) -> tuple[list[dict[str, Any]], str | None, bool]:
-        rows = self.queue_rows()
+        safe_size = max(1, min(page_size, 200))
+        offset = max(0, _int(cursor, 0))
+        clauses: list[str] = []
+        params: list[Any] = []
         if queue == "active":
-            rows = [row for row in rows if row.get("status") in ACTIVE_STATUSES]
+            placeholders = ",".join(["%s"] * len(ACTIVE_STATUSES))
+            clauses.append(f"q.status in ({placeholders})")
+            params.extend(sorted(ACTIVE_STATUSES))
         elif queue == "queued":
-            rows = [row for row in rows if row.get("status") == QueueStatus.QUEUED.value]
+            clauses.append("q.status = %s")
+            params.append(QueueStatus.QUEUED.value)
         elif queue == "blocked":
-            rows = [
-                row for row in rows
-                if row.get("manual_review_required") or row.get("status") in {
-                    QueueStatus.BLOCKED.value,
-                    QueueStatus.NEEDS_REVIEW.value,
-                    QueueStatus.DISPATCH_ERROR.value,
-                }
-            ]
+            clauses.append("(q.manual_review_required = true or q.status in (%s, %s, %s))")
+            params.extend([QueueStatus.BLOCKED.value, QueueStatus.NEEDS_REVIEW.value, QueueStatus.DISPATCH_ERROR.value])
         elif queue == "paused":
-            rows = [row for row in rows if row.get("status") == QueueStatus.PAUSED.value]
+            clauses.append("q.status = %s")
+            params.append(QueueStatus.PAUSED.value)
         elif queue == "completed":
-            rows = [row for row in rows if row.get("status") in {QueueStatus.COMPLETED.value, QueueStatus.CANCELED.value}]
+            clauses.append("q.status in (%s, %s)")
+            params.extend([QueueStatus.COMPLETED.value, QueueStatus.CANCELED.value])
         elif queue not in {"", "all"}:
-            rows = [row for row in rows if row.get("status") == queue]
+            clauses.append("q.status = %s")
+            params.append(queue)
         if status:
-            rows = [row for row in rows if row.get("status") == status]
-        rows = [
-            row for row in rows
-            if self._matches(row, search, ["project_id", "project_name", "status", "next_action_hint", "current_run_id", "last_run_state"])
-        ]
+            clauses.append("q.status = %s")
+            params.append(status)
+        if search:
+            needle = f"%{search.strip()}%"
+            clauses.append(
+                """
+                (
+                  q.project_id ilike %s
+                  or p.project_name ilike %s
+                  or q.status ilike %s
+                  or q.next_action_hint ilike %s
+                  or q.current_run_id ilike %s
+                  or q.last_run_state ilike %s
+                )
+                """
+            )
+            params.extend([needle, needle, needle, needle, needle, needle])
+        where = f"where {' and '.join(clauses)}" if clauses else ""
         if sort == "recent":
-            rows.sort(key=lambda row: _text(row.get("updated_at")), reverse=True)
+            order_by = "q.updated_at desc, q.project_id desc"
         elif sort == "oldest":
-            rows.sort(key=lambda row: _text(row.get("updated_at")))
+            order_by = "q.updated_at asc, q.project_id asc"
         elif sort == "name":
-            rows.sort(key=lambda row: (_text(row.get("project_name")).lower(), _text(row.get("updated_at"))))
+            order_by = "lower(p.project_name) asc, q.updated_at desc"
         elif sort == "status":
-            rows.sort(key=lambda row: (_text(row.get("status")), _text(row.get("updated_at"))), reverse=True)
-        return self._page(rows, page_size, cursor)
+            order_by = "q.status asc, q.updated_at desc"
+        else:
+            order_by = "q.dispatch_priority asc, q.selection_rank asc, q.updated_at desc"
+        params.extend([safe_size + 1, offset])
+        rows = self._queue_rows(f"{where} order by {order_by} limit %s offset %s", tuple(params))
+        return self._sql_page(rows, page_size=safe_size, cursor=cursor)
 
     def paper_page(
         self,
@@ -537,21 +576,45 @@ class SupabaseReadOnlyControlPlaneStore:
         cursor: str = "",
         sort: str = "recent",
     ) -> tuple[list[dict[str, Any]], str | None, bool]:
-        rows = self.paper_rows()
+        safe_size = max(1, min(page_size, 200))
+        offset = max(0, _int(cursor, 0))
+        clauses: list[str] = []
+        params: list[Any] = []
         if status:
-            rows = [row for row in rows if row.get("paper_status") == status]
+            clauses.append("pa.paper_status = %s")
+            params.append(status)
         if project_id:
-            rows = [row for row in rows if row.get("project_id") == project_id]
+            clauses.append("pa.project_id = %s")
+            params.append(project_id)
         if run_id:
-            rows = [row for row in rows if row.get("run_id") == run_id]
-        rows = [row for row in rows if self._matches(row, search, ["paper_id", "project_id", "run_id", "paper_status", "project_name"])]
+            clauses.append("pa.run_id = %s")
+            params.append(run_id)
+        if search:
+            needle = f"%{search.strip()}%"
+            clauses.append(
+                """
+                (
+                  pa.paper_id ilike %s
+                  or pa.project_id ilike %s
+                  or coalesce(pa.run_id, '') ilike %s
+                  or pa.paper_status ilike %s
+                  or p.project_name ilike %s
+                )
+                """
+            )
+            params.extend([needle, needle, needle, needle, needle])
+        where = f"where {' and '.join(clauses)}" if clauses else ""
         if sort == "status":
-            rows.sort(key=lambda row: (_text(row.get("paper_status")), _text(row.get("updated_at"))), reverse=True)
+            order_by = "pa.paper_status asc, pa.updated_at desc, pa.paper_id desc"
         elif sort == "title":
-            rows.sort(key=lambda row: (_text(row.get("project_name")).lower(), _text(row.get("updated_at"))))
+            order_by = "lower(coalesce(p.project_name, '')) asc, pa.updated_at desc, pa.paper_id desc"
+        elif sort == "oldest":
+            order_by = "pa.updated_at asc, pa.paper_id asc"
         else:
-            rows.sort(key=lambda row: (_text(row.get("updated_at")), _text(row.get("paper_id"))), reverse=True)
-        return self._page(rows, page_size, cursor)
+            order_by = "pa.updated_at desc, pa.paper_id desc"
+        params.extend([safe_size + 1, offset])
+        rows = self._paper_rows(f"{where} order by {order_by} limit %s offset %s", tuple(params))
+        return self._sql_page(rows, page_size=safe_size, cursor=cursor)
 
     def run_page(
         self,
@@ -563,14 +626,39 @@ class SupabaseReadOnlyControlPlaneStore:
         cursor: str = "",
         sort: str = "recent",
     ) -> tuple[list[dict[str, Any]], str | None, bool]:
-        rows = self.run_rows()
+        safe_size = max(1, min(page_size, 200))
+        offset = max(0, _int(cursor, 0))
+        clauses: list[str] = []
+        params: list[Any] = []
         if state:
-            rows = [row for row in rows if row.get("state") == state or row.get("gate_state") == state]
+            clauses.append("(r.state = %s or r.gate_state = %s)")
+            params.extend([state, state])
         if project_id:
-            rows = [row for row in rows if row.get("project_id") == project_id]
-        rows = [row for row in rows if self._matches(row, search, ["run_id", "project_id", "session_id", "current_activity"])]
-        rows.sort(key=lambda row: (_text(row.get("updated_at")), _text(row.get("run_id"))), reverse=(sort != "oldest"))
-        return self._page(rows, page_size, cursor)
+            clauses.append("r.project_id = %s")
+            params.append(project_id)
+        if search:
+            needle = f"%{search.strip()}%"
+            clauses.append(
+                """
+                (
+                  r.run_id ilike %s
+                  or r.project_id ilike %s
+                  or r.session_id ilike %s
+                  or r.current_activity ilike %s
+                )
+                """
+            )
+            params.extend([needle, needle, needle, needle])
+        where = f"where {' and '.join(clauses)}" if clauses else ""
+        if sort == "oldest":
+            order_by = "r.updated_at asc, r.run_id asc"
+        elif sort == "state":
+            order_by = "r.state asc, r.updated_at desc, r.run_id desc"
+        else:
+            order_by = "r.updated_at desc, r.run_id desc"
+        params.extend([safe_size + 1, offset])
+        rows = self._query(f"select r.* from runs r {where} order by {order_by} limit %s offset %s", tuple(params))
+        return self._sql_page(rows, page_size=safe_size, cursor=cursor)
 
     def event_page(
         self,
@@ -1744,7 +1832,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "updated_at": row.get("updated_at") or "",
         } for row in self.queue_rows()]
 
-    def idea_workbench_projection(self) -> list[dict[str, Any]]:
+    def idea_workbench_projection(self, *, limit: int = 200) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 500))
         with self._connect() as conn:
             with conn.cursor() as cur:
                 rows = cur.execute(
@@ -1756,7 +1845,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                            queue_updated_at, paper_id, paper_status, created_at, updated_at
                     from idea_workbench
                     order by updated_at desc, idea_id asc
-                    """
+                    limit %s
+                    """,
+                    (safe_limit,),
                 ).fetchall()
         return [dict(row) for row in rows]
 

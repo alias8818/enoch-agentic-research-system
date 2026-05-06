@@ -86,6 +86,62 @@ def test_supabase_runtime_store_exposes_dashboard_and_dispatch_methods() -> None
         assert callable(getattr(store, method_name))
 
 
+def test_supabase_runtime_store_reuses_connection_for_dashboard_reads() -> None:
+    class FakeCursor:
+        def __init__(self, conn: "FakeConnection") -> None:
+            self.conn = conn
+
+        def __enter__(self) -> "FakeCursor":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def execute(self, sql: str, params: Sequence[Any] = ()) -> None:
+            self.conn.executed.append((sql, tuple(params)))
+
+        def fetchall(self) -> list[dict[str, Any]]:
+            return []
+
+    class FakeConnection:
+        def __init__(self) -> None:
+            self.closed = False
+            self.commits = 0
+            self.closes = 0
+            self.executed: list[tuple[str, tuple[Any, ...]]] = []
+
+        def cursor(self) -> FakeCursor:
+            return FakeCursor(self)
+
+        def commit(self) -> None:
+            self.commits += 1
+
+        def rollback(self) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closes += 1
+            self.closed = True
+
+    connections: list[FakeConnection] = []
+
+    def connect() -> FakeConnection:
+        conn = FakeConnection()
+        connections.append(conn)
+        return conn
+
+    store = SupabaseControlPlaneStore("postgresql://example.invalid/postgres", connect=connect)
+    store._external_connect_factory = False
+
+    store._query("select 1")
+    store._query("select 2")
+
+    assert len(connections) == 1
+    assert connections[0].commits == 2
+    assert connections[0].closes == 0
+    assert any("set search_path" in sql for sql, _ in connections[0].executed)
+
+
 def test_supabase_legacy_notion_intake_preserves_runtime_project_dir() -> None:
     source = inspect.getsource(SupabaseControlPlaneStore.ingest_notion_ideas)
 
@@ -173,6 +229,80 @@ def test_supabase_event_page_offset_sorts_stay_bounded() -> None:
     assert "limit %s offset %s" in normalized_sql
     assert "select *" not in normalized_sql
     assert params == (51, 200)
+
+
+def test_supabase_queue_page_pushes_filters_sort_and_pagination_into_sql() -> None:
+    store = _CapturingSupabaseStore([{"project_id": "p1"}, {"project_id": "p2"}, {"project_id": "p3"}])
+
+    rows, next_cursor, has_more = store.queue_page(
+        queue="blocked",
+        search="decoder",
+        page_size=2,
+        cursor="50",
+        sort="recent",
+    )
+
+    assert [row["project_id"] for row in rows] == ["p1", "p2"]
+    assert next_cursor == "52"
+    assert has_more is True
+    assert len(store.calls) == 1
+    sql, params = store.calls[0]
+    normalized_sql = " ".join(sql.lower().split())
+    assert "from queue_items q" in normalized_sql
+    assert "manual_review_required = true or q.status in" in normalized_sql
+    assert "p.project_name ilike %s" in normalized_sql
+    assert "order by q.updated_at desc, q.project_id desc limit %s offset %s" in normalized_sql
+    assert params[-2:] == (3, 50)
+
+
+def test_supabase_paper_page_pushes_filters_sort_and_pagination_into_sql() -> None:
+    store = _CapturingSupabaseStore([{"paper_id": "paper-1"}, {"paper_id": "paper-2"}])
+
+    rows, next_cursor, has_more = store.paper_page(
+        status="publication_draft",
+        project_id="project-1",
+        search="mamba",
+        page_size=1,
+        cursor="10",
+        sort="title",
+    )
+
+    assert rows == [{"paper_id": "paper-1"}]
+    assert next_cursor == "11"
+    assert has_more is True
+    sql, params = store.calls[0]
+    normalized_sql = " ".join(sql.lower().split())
+    assert "from papers pa" in normalized_sql
+    assert "pa.paper_status = %s" in normalized_sql
+    assert "pa.project_id = %s" in normalized_sql
+    assert "p.project_name ilike %s" in normalized_sql
+    assert "order by lower(coalesce(p.project_name, '')) asc, pa.updated_at desc, pa.paper_id desc limit %s offset %s" in normalized_sql
+    assert params[-2:] == (2, 10)
+
+
+def test_supabase_run_page_pushes_filters_sort_and_pagination_into_sql() -> None:
+    store = _CapturingSupabaseStore([{"run_id": "run-1"}, {"run_id": "run-2"}, {"run_id": "run-3"}])
+
+    rows, next_cursor, has_more = store.run_page(
+        state="completed",
+        project_id="project-1",
+        search="callback",
+        page_size=2,
+        cursor="0",
+        sort="state",
+    )
+
+    assert [row["run_id"] for row in rows] == ["run-1", "run-2"]
+    assert next_cursor == "2"
+    assert has_more is True
+    sql, params = store.calls[0]
+    normalized_sql = " ".join(sql.lower().split())
+    assert "select r.* from runs r" in normalized_sql
+    assert "(r.state = %s or r.gate_state = %s)" in normalized_sql
+    assert "r.project_id = %s" in normalized_sql
+    assert "r.current_activity ilike %s" in normalized_sql
+    assert "order by r.state asc, r.updated_at desc, r.run_id desc limit %s offset %s" in normalized_sql
+    assert params[-2:] == (3, 0)
 
 
 def test_overview_uses_supabase_batched_read_parts_when_available() -> None:

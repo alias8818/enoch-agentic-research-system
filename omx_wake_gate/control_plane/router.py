@@ -1874,9 +1874,15 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             conflicts=[],
         )
 
-    def _dashboard_ideas_intake_response(*, legacy_notion_alias: bool = False) -> DashboardIntakeResponse:
+    def _dashboard_ideas_intake_response(*, legacy_notion_alias: bool = False, page_size: int = 50, include_latest_payload: bool = False) -> DashboardIntakeResponse:
         latest = store.latest_dashboard_observation(source="idea_intake")
-        projection = store.idea_workbench_projection() if hasattr(store, "idea_workbench_projection") else store.queue_notion_projection()
+        if hasattr(store, "idea_workbench_projection"):
+            try:
+                projection = store.idea_workbench_projection(limit=page_size)
+            except TypeError:
+                projection = store.idea_workbench_projection()[:page_size]
+        else:
+            projection = store.queue_notion_projection()[:page_size]
         recent = store.event_rows(limit=20, event_type="ideas.intake")
         if not recent:
             recent = store.event_rows(limit=20, event_type="notion.intake")
@@ -1886,6 +1892,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             for item in payload.get("skipped_rows") or []:
                 reason = str(item.get("reason") or "unknown") if isinstance(item, dict) else "unknown"
                 skipped_reasons[reason] = skipped_reasons.get(reason, 0) + 1
+            if not include_latest_payload:
+                latest = latest.model_copy(update={"payload": {"payload_omitted": True, "skipped_row_count": len(payload.get("skipped_rows") or [])}})
         warnings = []
         freshness = _intake_freshness()
         if not projection:
@@ -1904,15 +1912,23 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         )
 
     @router.get("/api/intake/ideas", response_model=DashboardIntakeResponse)
-    def dashboard_ideas_intake(authorization: str | None = Header(default=None)) -> DashboardIntakeResponse:
+    def dashboard_ideas_intake(
+        authorization: str | None = Header(default=None),
+        page_size: int = Query(default=50, ge=1, le=200),
+        include_latest_payload: bool = Query(default=False),
+    ) -> DashboardIntakeResponse:
         authorize(authorization)
-        return _dashboard_ideas_intake_response()
+        return _dashboard_ideas_intake_response(page_size=page_size, include_latest_payload=include_latest_payload)
 
     @router.get("/api/intake/notion", response_model=DashboardIntakeResponse)
-    def dashboard_notion_intake(authorization: str | None = Header(default=None)) -> DashboardIntakeResponse:
+    def dashboard_notion_intake(
+        authorization: str | None = Header(default=None),
+        page_size: int = Query(default=50, ge=1, le=200),
+        include_latest_payload: bool = Query(default=False),
+    ) -> DashboardIntakeResponse:
         authorize(authorization)
         _require_legacy_notion_api_enabled()
-        return _dashboard_ideas_intake_response(legacy_notion_alias=True)
+        return _dashboard_ideas_intake_response(legacy_notion_alias=True, page_size=page_size, include_latest_payload=include_latest_payload)
 
     @router.post("/pause", response_model=ControlStateResponse)
     def pause(payload: PauseRequest, authorization: str | None = Header(default=None)) -> ControlStateResponse:
