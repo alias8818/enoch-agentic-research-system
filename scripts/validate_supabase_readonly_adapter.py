@@ -347,8 +347,37 @@ def main() -> int:
                 failures.append("import_snapshot counts mismatch")
             if write_store.queue_row("proj-import") is None or write_store.paper_row("paper-import") is None:
                 failures.append("import_snapshot did not persist imported rows")
+            dispatch_event_id, dispatched = write_store.mark_dispatch_started(
+                project_id="proj-import",
+                run_id="run-live-smoke",
+                session_id="session-live-smoke",
+                dispatch_payload={"target": "validator"},
+                requested_by="validator",
+            )
+            if dispatch_event_id <= 0 or dispatched.get("status") != "awaiting_wake":
+                failures.append("mark_dispatch_started did not persist awaiting_wake state")
+            callback_payload = {
+                "run_id": "run-live-smoke",
+                "project_id": "proj-import",
+                "session_id": "session-live-smoke",
+                "event_type": "wake_ready",
+                "gate_state": "wake_ready",
+                "reason": "validator ready",
+                "idempotency_key": "write-smoke-worker-callback",
+            }
+            callback_event_id, callback_inserted, callback_row = write_store.record_worker_callback(callback_payload)
+            callback_event_id_again, callback_inserted_again, _ = write_store.record_worker_callback(callback_payload)
+            if (
+                callback_event_id <= 0
+                or not callback_inserted
+                or callback_inserted_again
+                or callback_event_id_again != callback_event_id
+                or callback_row.get("status") != "completed"
+                or callback_row.get("next_action_hint") != "draft_paper_or_select_next_project"
+            ):
+                failures.append("record_worker_callback did not persist idempotent wake_ready completion")
             final_queue_counts = write_store.queue_counts_sql()
-            if final_queue_counts.get("queued") != 1 or final_queue_counts.get("paused") != 1:
+            if final_queue_counts.get("queued") != 0 or final_queue_counts.get("paused") != 1 or final_queue_counts.get("completed") != 1:
                 failures.append(f"queue_counts_sql bucket mismatch after writes: {final_queue_counts}")
 
             report: dict[str, Any] = {

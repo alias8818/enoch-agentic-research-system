@@ -9,7 +9,7 @@ from typing import Any
 
 from ..enoch_core.store import IdempotencyConflict
 from ..models import utc_now
-from .models import ControlFlags, DashboardObservationRecord, ImportSnapshotRequest, PaperRecord, PaperStatus
+from .models import ControlFlags, DashboardObservationRecord, ImportSnapshotRequest, PaperRecord, PaperStatus, RunState
 from .store import (
     ACTIVE_STATUSES,
     QueueStatus,
@@ -122,7 +122,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 counts["active"] = counts.get("active", 0) + count
             # The status bucket key already records queued/paused counts.
             # Do not add the same row count twice under the same public key.
-            if status in {QueueStatus.COMPLETED.value, QueueStatus.CANCELED.value}:
+            if status == QueueStatus.CANCELED.value:
                 counts["completed"] = counts.get("completed", 0) + count
         blocked = self._one(
             """
@@ -590,6 +590,141 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             payload_hash=payload_hash,
             created_at=now,
         )
+
+    def _replayed_event_id(self, idempotency_key: str, payload: dict[str, Any]) -> int | None:
+        payload_hash = _hash(payload)
+        row = self._one(
+            "select event_id, payload_hash from control_events where idempotency_key = %s",
+            (idempotency_key,),
+        )
+        if row is None:
+            return None
+        if row["payload_hash"] != payload_hash:
+            raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different payload")
+        return int(row["event_id"])
+
+    def mark_dispatch_started(
+        self,
+        *,
+        project_id: str,
+        run_id: str,
+        session_id: str,
+        dispatch_payload: dict[str, Any],
+        requested_by: str,
+    ) -> tuple[int, dict[str, Any]]:
+        now = utc_now()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update queue_items
+                    set status=%s, current_run_id=%s, current_session_id=%s, last_run_state=%s,
+                        last_event_type=%s, next_action_hint=%s, last_error=%s, last_result_summary=%s,
+                        last_dispatch_at=%s, updated_at=%s
+                    where project_id=%s
+                    """,
+                    (
+                        QueueStatus.AWAITING_WAKE.value, run_id, session_id, "dispatch_accepted",
+                        "live_dispatch", "await_callback", "", "", now, now, project_id,
+                    ),
+                )
+                cur.execute(
+                    """
+                    insert into runs(run_id,project_id,session_id,state,dispatch_mode,started_at,ended_at,last_callback_at,gate_state,current_activity,idempotency_key,updated_at)
+                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    on conflict (run_id) do update set
+                      project_id=excluded.project_id, session_id=excluded.session_id, state=excluded.state,
+                      dispatch_mode=excluded.dispatch_mode, started_at=excluded.started_at, ended_at=excluded.ended_at,
+                      last_callback_at=excluded.last_callback_at, gate_state=excluded.gate_state,
+                      current_activity=excluded.current_activity, idempotency_key=excluded.idempotency_key, updated_at=excluded.updated_at
+                    """,
+                    (run_id, project_id, session_id, "running", "exec", now, None, None, "running", "dispatched", f"live-dispatch:{run_id}", now),
+                )
+        event_id, _ = self.append_event(
+            idempotency_key=f"live-dispatch:{run_id}",
+            event_type="controller.live_dispatch",
+            entity_type="project",
+            entity_id=project_id,
+            payload={"requested_by": requested_by, "run_id": run_id, "session_id": session_id, "dispatch": dispatch_payload},
+        )
+        return event_id, self.queue_row(project_id) or {}
+
+    def record_worker_callback(self, callback: Any, *, received_by: str = "worker-callback") -> tuple[int, bool, dict[str, Any]]:
+        now = utc_now()
+        payload = callback.model_dump(mode="json") if hasattr(callback, "model_dump") else dict(callback)
+        run_id = _text(payload.get("run_id"))
+        project_id = _text(payload.get("project_id"))
+        event_type = _text(payload.get("event_type"))
+        idempotency_key = _text(payload.get("idempotency_key")) or f"worker-callback:{run_id}:{event_type}:{now}"
+        if not project_id and run_id:
+            row = self._one("select project_id from runs where run_id = %s", (run_id,))
+            project_id = _text(row.get("project_id") if row else "")
+        status = QueueStatus.COMPLETED.value
+        next_action_hint = "select_next_project"
+        manual_review_required = False
+        last_error = ""
+        if event_type == "session_started":
+            status = QueueStatus.RUNNING.value
+            next_action_hint = "await_callback"
+        elif event_type == "question_pending":
+            status = QueueStatus.NEEDS_REVIEW.value
+            next_action_hint = "answer_worker_question"
+            manual_review_required = True
+        elif event_type in {"gate_timeout", "gate_error"}:
+            status = QueueStatus.BLOCKED.value
+            next_action_hint = "inspect_worker_gate_failure"
+            manual_review_required = True
+            last_error = _text(payload.get("reason")) or event_type
+        elif event_type in {"wake_ready", "session_finished_ready"}:
+            next_action_hint = "draft_paper_or_select_next_project"
+        else:
+            status = QueueStatus.NEEDS_REVIEW.value
+            next_action_hint = "inspect_unknown_worker_callback"
+            manual_review_required = True
+            last_error = _text(payload.get("reason")) or f"unknown worker callback: {event_type}"
+        event_payload = {
+            **payload,
+            "received_by": received_by,
+            "applied_status": status,
+            "applied_next_action_hint": next_action_hint,
+        }
+        replayed_event_id = self._replayed_event_id(idempotency_key, event_payload)
+        if replayed_event_id is not None:
+            return replayed_event_id, False, self.queue_row(project_id) or {}
+        summary = f"worker callback {event_type}: {_text(payload.get('reason')) or 'worker reported ready'}"
+        run_state = RunState.RUNNING.value if event_type == "session_started" else event_type
+        run_ended_at = None if event_type == "session_started" else now
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                if project_id:
+                    cur.execute(
+                        """
+                        update queue_items
+                        set status=%s, current_session_id=coalesce(nullif(%s, ''), current_session_id), last_run_state=%s,
+                            last_event_type=%s, next_action_hint=%s, manual_review_required=%s, last_error=%s,
+                            last_result_summary=%s, last_callback_at=%s, updated_at=%s
+                        where project_id=%s
+                        """,
+                        (status, _text(payload.get("session_id")), event_type, "worker_callback", next_action_hint, manual_review_required, last_error, summary, now, now, project_id),
+                    )
+                if run_id:
+                    cur.execute(
+                        """
+                        update runs
+                        set session_id=coalesce(nullif(%s, ''), session_id), state=%s, ended_at=%s, last_callback_at=%s,
+                            gate_state=%s, current_activity=%s, updated_at=%s
+                        where run_id=%s
+                        """,
+                        (_text(payload.get("session_id")), run_state, run_ended_at, now, _text(payload.get("gate_state")) or event_type, "worker_callback", now, run_id),
+                    )
+        event_id, inserted = self.append_event(
+            idempotency_key=idempotency_key,
+            event_type=f"worker_callback.{event_type}",
+            entity_type="run",
+            entity_id=run_id or project_id or "unknown",
+            payload=event_payload,
+        )
+        return event_id, inserted, self.queue_row(project_id) or {}
 
     def mark_queue_item_paused(self, *, project_id: str, reason: str, updated_by: str = "operator") -> bool:
         now = utc_now()
