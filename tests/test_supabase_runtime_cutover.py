@@ -2,6 +2,7 @@ from typing import Any, Sequence
 
 from scripts.validate_supabase_runtime_cutover import compare
 
+from omx_wake_gate.control_plane import read_models
 from omx_wake_gate.control_plane.supabase_store import SupabaseControlPlaneStore, _decision_gate_state, _decision_summary
 
 
@@ -164,3 +165,34 @@ def test_supabase_event_page_offset_sorts_stay_bounded() -> None:
     assert "limit %s offset %s" in normalized_sql
     assert "select *" not in normalized_sql
     assert params == (51, 200)
+
+
+def test_overview_uses_supabase_batched_read_parts_when_available() -> None:
+    class BatchedOnlyStore:
+        def __init__(self) -> None:
+            self.called = False
+
+        def overview_read_model_parts(self, *, active_limit: int, event_limit: int) -> dict[str, Any]:
+            self.called = True
+            assert active_limit == 1
+            assert event_limit == 0
+            return {
+                "counts": {"all": 0, "active": 0, "queued": 0, "blocked": 0, "paused": 0, "completed": 0},
+                "paper_counts": {"all": 0},
+                "active_items": [],
+                "next_candidate": None,
+                "raw_queue_rows": [],
+                "raw_paper_rows": [],
+                "events_page": ([], None, False),
+            }
+
+        def __getattr__(self, name: str) -> Any:
+            raise AssertionError(f"overview should not call unbatched store method {name}")
+
+    store = BatchedOnlyStore()
+
+    data = read_models.overview(store, active_limit=1, event_limit=0)  # type: ignore[arg-type]
+
+    assert store.called
+    assert data["paper_pipeline"]["write_needed"] == 0
+    assert data["recent_events"] == []

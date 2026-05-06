@@ -194,6 +194,11 @@ class SupabaseReadOnlyControlPlaneStore:
         assert last_exc is not None
         raise last_exc
 
+    @staticmethod
+    def _cursor_rows(cur: Any, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        cur.execute(sql, tuple(params))
+        return [dict(row) for row in cur.fetchall()]
+
     def _one(self, sql: str, params: Sequence[Any] = ()) -> dict[str, Any] | None:
         rows = self._query(sql, params)
         return rows[0] if rows else None
@@ -313,9 +318,8 @@ class SupabaseReadOnlyControlPlaneStore:
         )
         return rows[0] if rows else None
 
-    def _queue_rows(self, suffix: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
-        return self._query(
-            f"""
+    def _queue_rows_query(self, suffix: str) -> str:
+        return f"""
             select q.*,
               p.project_name,
               p.project_dir,
@@ -377,9 +381,13 @@ class SupabaseReadOnlyControlPlaneStore:
             from queue_items q
             join projects p using(project_id)
             {suffix}
-            """,
-            params,
-        )
+            """
+
+    def _queue_rows_from_cursor(self, cur: Any, suffix: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        return self._cursor_rows(cur, self._queue_rows_query(suffix), params)
+
+    def _queue_rows(self, suffix: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        return self._query(self._queue_rows_query(suffix), params)
 
     def paper_rows(self) -> list[dict[str, Any]]:
         return self._paper_rows("order by pa.updated_at desc")
@@ -387,9 +395,8 @@ class SupabaseReadOnlyControlPlaneStore:
     def operator_paper_rows_sql(self) -> list[dict[str, Any]]:
         return self.paper_rows()
 
-    def _paper_rows(self, suffix: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
-        return self._query(
-            f"""
+    def _paper_rows_query(self, suffix: str) -> str:
+        return f"""
             select pa.*,
               p.project_name,
               p.project_dir,
@@ -402,9 +409,13 @@ class SupabaseReadOnlyControlPlaneStore:
             left join projects p using(project_id)
             left join publication_automation_items rv using(paper_id)
             {suffix}
-            """,
-            params,
-        )
+            """
+
+    def _paper_rows_from_cursor(self, cur: Any, suffix: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        return self._cursor_rows(cur, self._paper_rows_query(suffix), params)
+
+    def _paper_rows(self, suffix: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        return self._query(self._paper_rows_query(suffix), params)
 
 
     @staticmethod
@@ -615,6 +626,127 @@ class SupabaseReadOnlyControlPlaneStore:
         else:
             next_cursor = str(max(0, cursor_id) + safe_size) if has_more else None
         return out, next_cursor, has_more
+
+    def overview_read_model_parts(self, *, active_limit: int = 5, event_limit: int = 10) -> dict[str, Any]:
+        """Return the overview read-model inputs using one database connection.
+
+        The overview endpoint combines several bounded read models. Running each
+        helper through `_query()` opened a fresh Supabase/Postgres connection and
+        made the dashboard latency mostly connection setup time. Keep the public
+        read-model semantics in `read_models.overview()` while batching the SQL
+        reads for this adapter only.
+        """
+
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                with self._connect() as conn:
+                    with conn.cursor() as cur:
+                        counts: dict[str, int] = {}
+                        for row in self._cursor_rows(cur, "select status, count(*) as count from queue_items group by status"):
+                            status = _text(row["status"]) or "unknown"
+                            count = int(row["count"] or 0)
+                            counts[status] = count
+                            counts["all"] = counts.get("all", 0) + count
+                        active = self._cursor_rows(
+                            cur,
+                            "select count(*) as count from queue_items where status = any(%s)",
+                            (sorted(ACTIVE_STATUSES),),
+                        )
+                        counts["active"] = int((active[0] if active else {}).get("count") or 0)
+                        queued = self._cursor_rows(cur, "select count(*) as count from queue_items where status = %s", (QueueStatus.QUEUED.value,))
+                        counts["queued"] = int((queued[0] if queued else {}).get("count") or 0)
+                        blocked = self._cursor_rows(
+                            cur,
+                            """
+                            select count(*) as count
+                            from queue_items
+                            where manual_review_required = true or status in (%s, %s, %s)
+                            """,
+                            (QueueStatus.BLOCKED.value, QueueStatus.NEEDS_REVIEW.value, QueueStatus.DISPATCH_ERROR.value),
+                        )
+                        counts["blocked"] = int((blocked[0] if blocked else {}).get("count") or 0)
+                        for key in ("all", "active", "queued", "blocked", "paused", "completed"):
+                            counts.setdefault(key, 0)
+
+                        paper_counts: dict[str, int] = {}
+                        for row in self._cursor_rows(cur, "select paper_status, count(*) as count from papers group by paper_status"):
+                            status = _text(row["paper_status"]) or "unknown"
+                            count = int(row["count"] or 0)
+                            paper_counts[status] = count
+                            paper_counts["all"] = paper_counts.get("all", 0) + count
+                        paper_counts.setdefault("all", 0)
+
+                        safe_active_limit = max(1, min(active_limit, 50))
+                        placeholders = ",".join(["%s"] * len(ACTIVE_STATUSES))
+                        active_items = self._queue_rows_from_cursor(
+                            cur,
+                            f"where q.status in ({placeholders}) order by q.updated_at desc limit %s",
+                            (*sorted(ACTIVE_STATUSES), safe_active_limit),
+                        )
+                        next_candidates = self._queue_rows_from_cursor(
+                            cur,
+                            "where q.status = %s order by q.dispatch_priority asc, q.updated_at desc limit 1",
+                            (QueueStatus.QUEUED.value,),
+                        )
+                        raw_queue_rows = self._queue_rows_from_cursor(
+                            cur,
+                            """
+                            where q.status <> %s or q.next_action_hint = %s or q.manual_review_required = true
+                            order by q.updated_at desc
+                            """,
+                            (QueueStatus.CANCELED.value, "draft_paper_or_select_next_project"),
+                        )
+                        raw_paper_rows = self._paper_rows_from_cursor(cur, "order by pa.updated_at desc")
+
+                        safe_event_limit = max(0, min(event_limit, 50))
+                        if safe_event_limit:
+                            event_rows = self._cursor_rows(
+                                cur,
+                                """
+                                select
+                                    event_id,
+                                    idempotency_key,
+                                    event_type,
+                                    entity_type,
+                                    entity_id,
+                                    pg_column_size(payload_json) as payload_bytes,
+                                    created_at
+                                from control_events
+                                order by event_id desc
+                                limit %s
+                                """,
+                                (safe_event_limit + 1,),
+                            )
+                            events = []
+                            for row in event_rows[:safe_event_limit]:
+                                item = dict(row)
+                                item["payload_summary"] = {"keys": [], "bytes": int(item.pop("payload_bytes") or 0)}
+                                item["created_at"] = str(item.get("created_at") or "")
+                                events.append(item)
+                            event_has_more = len(event_rows) > safe_event_limit
+                            event_next_cursor = str(events[-1]["event_id"]) if event_has_more and events else None
+                        else:
+                            events = []
+                            event_next_cursor = None
+                            event_has_more = False
+                return {
+                    "counts": counts,
+                    "paper_counts": paper_counts,
+                    "active_items": active_items,
+                    "next_candidate": next_candidates[0] if next_candidates else None,
+                    "raw_queue_rows": raw_queue_rows,
+                    "raw_paper_rows": raw_paper_rows,
+                    "events_page": (events, event_next_cursor, event_has_more),
+                }
+            except Exception as exc:
+                last_exc = exc
+                if attempt < 2 and self._is_transient_connection_error(exc):
+                    time.sleep(0.25 * (attempt + 1))
+                    continue
+                raise
+        assert last_exc is not None
+        raise last_exc
 
     def run_rows(self) -> list[dict[str, Any]]:
         return self._query("select * from runs order by updated_at desc, run_id desc")

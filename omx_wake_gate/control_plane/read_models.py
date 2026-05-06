@@ -461,12 +461,25 @@ def page_response(*, rows: list[dict[str, Any]], next_cursor: str | None, has_mo
 
 
 def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: int = 10) -> dict[str, Any]:
-    counts = store.queue_counts_sql()
-    paper_counts = store.paper_counts_sql()
-    active = [summarize_queue_row(row) for row in store.active_items_sql(limit=active_limit)]
-    next_candidate = store.next_candidate_sql()
-    raw_queue_rows = store.operator_queue_rows_sql()
-    raw_paper_rows = store.operator_paper_rows_sql()
+    batched_parts = None
+    batched_reader = getattr(store, "overview_read_model_parts", None)
+    if callable(batched_reader):
+        batched_parts = batched_reader(active_limit=active_limit, event_limit=event_limit)
+
+    if batched_parts is not None:
+        counts = batched_parts["counts"]
+        paper_counts = batched_parts["paper_counts"]
+        active = [summarize_queue_row(row) for row in batched_parts["active_items"]]
+        next_candidate = batched_parts["next_candidate"]
+        raw_queue_rows = batched_parts["raw_queue_rows"]
+        raw_paper_rows = batched_parts["raw_paper_rows"]
+    else:
+        counts = store.queue_counts_sql()
+        paper_counts = store.paper_counts_sql()
+        active = [summarize_queue_row(row) for row in store.active_items_sql(limit=active_limit)]
+        next_candidate = store.next_candidate_sql()
+        raw_queue_rows = store.operator_queue_rows_sql()
+        raw_paper_rows = store.operator_paper_rows_sql()
     queue_rows = [summarize_queue_row(row) for row in raw_queue_rows]
     paper_rows = [summarize_paper_row(row) for row in raw_paper_rows]
     operator_counts = operator_counts_from_rows([*queue_rows, *paper_rows])
@@ -501,7 +514,10 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
             "publish_ready": "finalized publication drafts ready for corpus import",
         },
     }
-    events, next_cursor, has_more = store.event_page(page_size=event_limit, include_payload=False)
+    if batched_parts is not None:
+        events, next_cursor, has_more = batched_parts["events_page"]
+    else:
+        events, next_cursor, has_more = store.event_page(page_size=event_limit, include_payload=False)
     return {
         "counts": {
             **counts,
