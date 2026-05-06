@@ -89,3 +89,16 @@ def test_project_decision_gate_state_classifies_mixed_as_needs_review() -> None:
 
     assert _decision_gate_state(gate) == "needs_review"
     assert _decision_summary(gate) == "continue (project decision lacks positive draft signal)"
+
+
+def test_project_decision_summary_prefers_status_over_long_recommendation() -> None:
+    gate = {
+        "eligible": False,
+        "reason": "project decision lacks positive draft signal",
+        "values": [
+            (".omx/project_decision.json", "recommendation", "Do not scale this formulation without a revised mechanism."),
+            (".omx/project_decision.json", "status", "negative_result"),
+        ],
+    }
+
+    assert _decision_summary(gate) == "negative_result (project decision lacks positive draft signal)"

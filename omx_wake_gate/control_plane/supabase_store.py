@@ -89,17 +89,21 @@ def _decision_summary(gate: dict[str, Any]) -> str:
     reason = _text(gate.get("reason"))
     decision = _text(gate.get("decision"))
     if not decision:
-        for item in gate.get("values") or []:
-            if isinstance(item, (list, tuple)) and len(item) >= 3 and _text(item[1]) in {
-                "project_decision",
-                "decision",
-                "verdict",
-                "outcome",
-                "recommendation",
-                "status",
-                "hypothesis_status",
-            }:
-                decision = _text(item[2])
+        values = gate.get("values") or []
+        for preferred_field in (
+            "project_decision",
+            "decision",
+            "status",
+            "hypothesis_status",
+            "verdict",
+            "outcome",
+            "recommendation",
+        ):
+            for item in values:
+                if isinstance(item, (list, tuple)) and len(item) >= 3 and _text(item[1]) == preferred_field:
+                    decision = _text(item[2])
+                    break
+            if decision:
                 break
     if decision and reason:
         return f"{decision} ({reason})"
