@@ -12,6 +12,14 @@ From `enoch-agentic-research-system`:
 python3 scripts/push_public_release_bundle.py
 ```
 
+If the change includes corpus imports and you need dashboard publish/import counts updated at the same time, include the ledger sync during preflight:
+
+```bash
+python3 scripts/push_public_release_bundle.py --sync-corpus-ledger --ledger-use-linked
+```
+
+Use `--ledger-database-url` or `ENOCH_SUPABASE_DATABASE_URL` instead of `--ledger-use-linked` when a direct Postgres URL is available. The ledger sync reads `../enoch-ai-research-corpus/papers/index.json`, matches live paper rows by `source_record_fingerprint`, and updates `corpus_imports` so `publish_ready` means missing-corpus work only.
+
 This preflight:
 
 - requires all release repos to be on `main`, clean, and not behind `origin/main`
@@ -22,7 +30,7 @@ This preflight:
 When preflight passes:
 
 ```bash
-python3 scripts/push_public_release_bundle.py --push --watch
+python3 scripts/push_public_release_bundle.py --sync-corpus-ledger --ledger-use-linked --push --watch
 ```
 
 The script pushes and verifies remote SHAs in this order:
@@ -47,7 +55,7 @@ ENOCH_CONTROL_TOKEN="$TOKEN" \
   --require-synced
 ```
 
-This check compares finalized control-plane `publication_draft` rows and the public corpus index. A nonzero exit means the corpus import lane is not aligned; do not claim the release count is final until the report is clean.
+This check compares finalized control-plane `publication_draft` rows and the public corpus index. A nonzero exit means the corpus import lane is not aligned; do not claim the release count is final until the report is clean. If the report is clean but the dashboard still shows publish/import work, run the bundle script with `--sync-corpus-ledger` so Supabase `corpus_imports` catches up to the public index.
 
 Do not mix old-system finalized `draft_review` rows into the publish backlog; they are historical automation records, not current corpus work. Use `--paper-status '' --verbose` only when deliberately auditing legacy exact-fingerprint drift. Use `--include-draft-candidate` only when separately checking whether new papers still need to be written.
 

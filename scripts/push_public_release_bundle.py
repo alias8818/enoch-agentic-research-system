@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -103,6 +104,41 @@ def push_and_verify(repo: Repo, *, push: bool, timeout: int) -> None:
         time.sleep(2)
 
 
+
+def sync_corpus_import_ledger(system: Repo, corpus: Repo, *, database_url: str, use_linked: bool) -> None:
+    """Sync the Supabase corpus_imports ledger from the public corpus index."""
+
+    if database_url.strip():
+        run(
+            [
+                sys.executable,
+                "scripts/sync_corpus_import_ledger.py",
+                "--corpus",
+                str(corpus.path),
+                "--database-url",
+                database_url,
+                "--apply",
+            ],
+            cwd=system.path,
+        )
+        return
+    if not use_linked:
+        raise SystemExit("--sync-corpus-ledger requires --ledger-database-url/ENOCH_SUPABASE_DATABASE_URL or --ledger-use-linked")
+    with tempfile.TemporaryDirectory(prefix="enoch-ledger-sync-") as tmp:
+        sql_path = Path(tmp) / "sync-corpus-import-ledger.sql"
+        run(
+            [
+                sys.executable,
+                "scripts/sync_corpus_import_ledger.py",
+                "--corpus",
+                str(corpus.path),
+                "--sql-output",
+                str(sql_path),
+            ],
+            cwd=system.path,
+        )
+        run(["supabase", "db", "query", "--linked", "-f", str(sql_path)], cwd=system.path)
+
 def run_local_release_checks(system: Repo, corpus: Repo, docs: Repo, profile_site: Repo, owner_profile: Repo) -> None:
     with tempfile.TemporaryDirectory(prefix="enoch-release-") as tmp:
         generated = Path(tmp) / "ecosystem.generated.json"
@@ -174,6 +210,9 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2], help="Directory containing all public release repos")
     parser.add_argument("--push", action="store_true", help="Actually push repos. Without this, only preflight validation runs.")
     parser.add_argument("--watch", action="store_true", help="After pushing corpus, watch its Public release integrity workflow.")
+    parser.add_argument("--sync-corpus-ledger", action="store_true", help="After local release checks, sync Supabase corpus_imports from the public corpus index.")
+    parser.add_argument("--ledger-database-url", default=os.environ.get("ENOCH_SUPABASE_DATABASE_URL", ""), help="Postgres/Supabase URL for --sync-corpus-ledger; defaults to ENOCH_SUPABASE_DATABASE_URL.")
+    parser.add_argument("--ledger-use-linked", action="store_true", help="Use `supabase db query --linked` for --sync-corpus-ledger when no database URL is available.")
     parser.add_argument("--allow-dirty", action="store_true", help="Allow uncommitted changes for local preflight only; never use with --push.")
     parser.add_argument("--remote-timeout", type=int, default=120, help="Seconds to wait for origin/main to match each local HEAD")
     args = parser.parse_args()
@@ -199,6 +238,13 @@ def main() -> int:
         require_not_behind(repo)
 
     run_local_release_checks(system, corpus, docs, profile_site, owner_profile)
+    if args.sync_corpus_ledger:
+        sync_corpus_import_ledger(
+            system,
+            corpus,
+            database_url=args.ledger_database_url,
+            use_linked=bool(args.ledger_use_linked),
+        )
 
     print("release push order:", " -> ".join([repo.key for repo in [*ordered_dependencies, corpus]]))
     if not args.push:
