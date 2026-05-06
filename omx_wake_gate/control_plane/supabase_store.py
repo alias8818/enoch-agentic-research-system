@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 from pathlib import Path
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -78,6 +79,9 @@ class SupabaseReadOnlyControlPlaneStore:
         if not self.database_url:
             raise ValueError("supabase_database_url is required for supabase backends")
         self._connect_factory = connect or self._psycopg_connect
+        self._external_connect_factory = connect is not None
+        self._conn_lock = threading.RLock()
+        self._persistent_conn: Any | None = None
 
     def _psycopg_connect(self) -> Any:
         try:
@@ -89,16 +93,36 @@ class SupabaseReadOnlyControlPlaneStore:
 
     @contextmanager
     def _connect(self) -> Iterator[Any]:
-        conn = self._connect_factory()
-        try:
-            with conn:
+        if self._external_connect_factory:
+            conn = self._connect_factory()
+            try:
+                with conn:
+                    with conn.cursor() as cur:
+                        cur.execute("set search_path to enoch, public")
+                    yield conn
+            finally:
+                close = getattr(conn, "close", None)
+                if callable(close):
+                    close()
+            return
+
+        with self._conn_lock:
+            conn = self._persistent_conn
+            if conn is None or getattr(conn, "closed", False):
+                conn = self._connect_factory()
+                self._persistent_conn = conn
+            try:
                 with conn.cursor() as cur:
                     cur.execute("set search_path to enoch, public")
                 yield conn
-        finally:
-            close = getattr(conn, "close", None)
-            if callable(close):
-                close()
+                conn.commit()
+            except Exception:
+                rollback = getattr(conn, "rollback", None)
+                if callable(rollback):
+                    rollback()
+                if getattr(conn, "closed", False):
+                    self._persistent_conn = None
+                raise
 
     def _query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
         with self._connect() as conn:
@@ -201,9 +225,27 @@ class SupabaseReadOnlyControlPlaneStore:
             (*sorted(ACTIVE_STATUSES), safe_limit),
         )
 
+    def active_items(self) -> list[dict[str, Any]]:
+        return self.active_items_sql(limit=50)
+
     def next_candidate_sql(self) -> dict[str, Any] | None:
         rows = self._queue_rows(
             "where q.status = %s order by q.dispatch_priority asc, q.updated_at desc limit 1",
+            (QueueStatus.QUEUED.value,),
+        )
+        return rows[0] if rows else None
+
+    def next_dispatch_candidate(self) -> dict[str, Any] | None:
+        if self.flags().queue_paused:
+            return None
+        if self.active_items():
+            return None
+        rows = self._queue_rows(
+            """
+            where q.status = %s and q.manual_review_required = false
+            order by q.dispatch_priority asc, q.selection_rank asc, q.updated_at asc
+            limit 1
+            """,
             (QueueStatus.QUEUED.value,),
         )
         return rows[0] if rows else None
@@ -624,6 +666,32 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             payload_hash=payload_hash,
             created_at=now,
         )
+
+    def dispatch_next_dry_run(self, *, requested_by: str) -> tuple[str, dict[str, Any] | None, int | None, str]:
+        flags = self.flags()
+        if flags.queue_paused:
+            event_id, _ = self.append_event(
+                idempotency_key=f"dispatch-paused:{utc_now()}",
+                event_type="controller.dispatch_paused",
+                entity_type="control",
+                entity_id="queue",
+                payload={"requested_by": requested_by, "flags": flags.model_dump(mode="json")},
+            )
+            return "paused", None, event_id, flags.pause_reason or "queue paused"
+        active = self.active_items()
+        if active:
+            return "noop", None, None, "active GB10 lane already exists"
+        candidate = self.next_dispatch_candidate()
+        if not candidate:
+            return "noop", None, None, "no queued candidate"
+        event_id, _ = self.append_event(
+            idempotency_key=f"dry-dispatch:{candidate['project_id']}:{utc_now()}",
+            event_type="controller.dry_run_dispatch",
+            entity_type="project",
+            entity_id=candidate["project_id"],
+            payload={"requested_by": requested_by, "candidate": candidate},
+        )
+        return "dry_run_dispatch", candidate, event_id, "dry-run dispatch selected candidate"
 
     def _paper_review_join_rows(self) -> list[dict[str, Any]]:
         return self._query(

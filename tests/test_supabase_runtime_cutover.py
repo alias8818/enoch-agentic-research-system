@@ -1,4 +1,5 @@
 from scripts.validate_supabase_runtime_cutover import compare
+from omx_wake_gate.control_plane.supabase_store import SupabaseControlPlaneStore
 
 
 def test_compare_accepts_matching_operator_counts_and_safe_pause() -> None:
@@ -56,3 +57,20 @@ def test_compare_rejects_mixed_ledgers_and_unpaused_runtime() -> None:
     assert any("queue_paused" in failure for failure in result.failures)
     assert any("queue_items count is lower" in failure for failure in result.failures)
     assert any("papers count does not match" in failure for failure in result.failures)
+
+
+def test_supabase_runtime_store_exposes_dashboard_and_dispatch_methods() -> None:
+    store = SupabaseControlPlaneStore("postgresql://example.invalid/postgres", connect=lambda: None)
+
+    for method_name in (
+        "active_items",
+        "next_dispatch_candidate",
+        "dispatch_next_dry_run",
+        "status_counts",
+        "queue_rows",
+        "paper_rows",
+        "run_rows",
+        "export_snapshot",
+        "latest_dashboard_observations",
+    ):
+        assert callable(getattr(store, method_name))
