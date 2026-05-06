@@ -18,7 +18,7 @@ Use this as the final go/no-go checklist immediately before changing the code, c
 
 - [x] Code repo: `uv run pytest -q`
 - [x] Code repo: `python3 -m compileall -q omx_wake_gate tests`
-- [ ] Code repo: `scripts/smoke-test-local.sh` against a local server or documented equivalent smoke path.
+- [x] Code repo: `scripts/smoke-test-local.sh` or documented equivalent smoke path. Live evidence on 2026-05-06: `validate_supabase_resume_readiness.py` passed, and `scripts/smoke-test-local.sh` completed against `http://192.168.1.166:8787` with the bounded status endpoint.
 - [x] Code repo: GitHub Actions `tests` and `secret-scan` pass on `main`.
 - [x] Corpus repo: `python3 scripts/build_index.py`
 - [x] Corpus repo: `python3 scripts/quality_scan.py`

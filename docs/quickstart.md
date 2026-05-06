@@ -58,7 +58,7 @@ export OMX_WAKE_GATE_CONFIG=$PWD/.local/config/config.json
 scripts/smoke-test-local.sh
 ```
 
-Expected result: health, status, preflight, and dispatch dry-run endpoints respond with JSON.
+Expected result: health, bounded status overview, preflight, and dispatch dry-run endpoints respond with JSON. The smoke uses `/control/api/v1/overview` by default so large live ledgers do not make the check noisy; set `ENOCH_STATUS_ENDPOINT=/control/api/status` only when you intentionally need the full legacy status payload. For a control-plane-only live smoke where worker preflight is covered separately, set `ENOCH_SMOKE_SKIP_PREFLIGHT=1`.
 
 ## 5. Move to two-machine testing
 
