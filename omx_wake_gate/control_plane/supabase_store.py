@@ -3,27 +3,55 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from pathlib import Path
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
 from ..enoch_core.store import IdempotencyConflict
 from ..models import utc_now
-from .models import ControlFlags, DashboardObservationRecord, ImportSnapshotRequest, NotionIntakeRequest, PaperRecord, PaperStatus, RunState
+from .models import (
+    ControlFlags,
+    DashboardObservationRecord,
+    ImportSnapshotRequest,
+    NotionIntakeRequest,
+    PaperRecord,
+    PaperReviewApproveFinalizationRequest,
+    PaperReviewBackfillRequest,
+    PaperReviewChecklistUpdateRequest,
+    PaperReviewClaimRequest,
+    PaperReviewPrepareFinalizationRequest,
+    PaperReviewRecord,
+    PaperReviewStatusUpdateRequest,
+    PaperStatus,
+    ReviewQueueItem,
+    ReviewStatus,
+    RunState,
+)
 from .store import (
     ACTIVE_STATUSES,
+    ALLOWED_STATUS_TRANSITIONS,
     QueueStatus,
+    _audit_rows,
     _bool,
+    _checklist_progress,
+    _default_review_checklist,
     _first_present,
     _hash,
     _int,
     _json,
+    _json_dict,
+    _json_list,
     _notion_page_id,
     _notion_page_id_from_url,
     _notion_status,
     _notion_title,
     _notion_url,
+    _normalize_review_checklist,
     _priority_rank,
+    _progress_for_items,
+    _readiness_passed,
+    _review_rank,
     _slug_id,
     _snapshot_rows,
     _text,
@@ -596,6 +624,392 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             payload_hash=payload_hash,
             created_at=now,
         )
+
+    def _paper_review_join_rows(self) -> list[dict[str, Any]]:
+        return self._query(
+            """
+            select
+              pa.*,
+              p.project_name,
+              p.project_dir,
+              p.notion_page_url,
+              p.notion_page_id,
+              q.status as queue_status,
+              q.manual_review_required,
+              q.blocked_reason,
+              q.next_action_hint,
+              rv.automation_status as review_status,
+              rv.automation_actor as reviewer,
+              rv.blocker,
+              rv.claimed_at,
+              rv.checklist_json,
+              rv.rank_score,
+              rv.rank_reasons_json,
+              rv.missing_signals_json,
+              rv.rank_tiebreaker,
+              rv.source_audit_path,
+              rv.finalization_package_path,
+              rv.finalized_at,
+              rv.decision_summary,
+              rv.created_at as review_created_at,
+              rv.updated_at as review_updated_at
+            from publication_automation_items rv
+            join papers pa using(paper_id)
+            left join projects p using(project_id)
+            left join queue_items q using(project_id)
+            order by rv.rank_score desc, pa.updated_at desc, pa.paper_id asc
+            """
+        )
+
+    def _review_queue_item_from_row(self, row: dict[str, Any], *, include_rank_reasons: bool = True) -> dict[str, Any]:
+        checklist = _json_dict(row.get("checklist_json")) or _default_review_checklist()
+        rank_reasons = _json_list(row.get("rank_reasons_json")) if include_rank_reasons else []
+        missing_signals = _json_list(row.get("missing_signals_json"))
+        score = _int(row.get("rank_score"), 0)
+        updated_at = _text(row.get("review_updated_at")) or _text(row.get("updated_at"))
+        item = ReviewQueueItem(
+            paper_id=_text(row.get("paper_id")),
+            project_id=_text(row.get("project_id")),
+            project_name=_text(row.get("project_name")),
+            paper_status=_text(row.get("paper_status")),
+            paper_type=_text(row.get("paper_type")),
+            review_status=_text(row.get("review_status")) or ReviewStatus.UNREVIEWED.value,
+            checklist_progress=_checklist_progress(checklist),
+            blocker=_text(row.get("blocker")),
+            reviewer=_text(row.get("reviewer")),
+            claimed_at=_text(row.get("claimed_at")),
+            updated_at=updated_at,
+            rank_score=score,
+            rank_bucket="blocked" if score < 0 else "ready" if score >= 100 else "review",
+            rank_reasons=rank_reasons,
+            missing_signals=missing_signals,
+            rank_tiebreaker=_text(row.get("rank_tiebreaker")),
+            draft_markdown_path=_text(row.get("draft_markdown_path")),
+            draft_latex_path=_text(row.get("draft_latex_path")),
+            evidence_bundle_path=_text(row.get("evidence_bundle_path")),
+            claim_ledger_path=_text(row.get("claim_ledger_path")),
+            manifest_path=_text(row.get("manifest_path")),
+            finalization_package_path=_text(row.get("finalization_package_path")),
+            finalized_at=_text(row.get("finalized_at")),
+            decision_summary=_text(row.get("decision_summary")),
+            links={
+                "review": f"/control/api/paper-reviews/{_text(row.get('paper_id'))}",
+                "paper": f"/control/api/papers/{_text(row.get('paper_id'))}",
+                "project": f"/control/api/projects/{_text(row.get('project_id'))}",
+                "run": f"/control/api/runs/{_text(row.get('run_id'))}" if _text(row.get("run_id")) else "",
+            },
+        )
+        return item.model_dump(mode="json")
+
+    def paper_review_rows(self, *, include_rank_reasons: bool = True) -> list[dict[str, Any]]:
+        return [self._review_queue_item_from_row(row, include_rank_reasons=include_rank_reasons) for row in self._paper_review_join_rows()]
+
+    def paper_review_row(self, paper_id: str, *, include_rank_reasons: bool = True) -> dict[str, Any] | None:
+        for row in self._paper_review_join_rows():
+            if row.get("paper_id") == paper_id:
+                return self._review_queue_item_from_row(row, include_rank_reasons=include_rank_reasons)
+        return None
+
+    def _raw_paper_review_row(self, paper_id: str) -> dict[str, Any] | None:
+        return self._one("select * from publication_automation_items where paper_id = %s", (paper_id,))
+
+    def _require_paper_review(self, paper_id: str) -> dict[str, Any]:
+        row = self._raw_paper_review_row(paper_id)
+        if row is None:
+            raise ValueError("paper review not found")
+        return row
+
+    def paper_review_checklist(self, paper_id: str) -> dict[str, Any]:
+        row = self._raw_paper_review_row(paper_id)
+        return _normalize_review_checklist(_json_dict(row.get("checklist_json")) if row else {})
+
+    def _mutation_payload(self, request: Any, *, action: str) -> dict[str, Any]:
+        payload = request.model_dump(mode="json")
+        payload["action"] = action
+        return payload
+
+    def backfill_paper_reviews(self, request: PaperReviewBackfillRequest) -> tuple[bool, int, int, int, list[dict[str, Any]]]:
+        audit_by_paper = _audit_rows(request.source_audit_path)
+        requested_paper_ids = {_text(paper_id) for paper_id in request.paper_ids if _text(paper_id)}
+        papers = [paper for paper in self.paper_rows() if not requested_paper_ids or _text(paper.get("paper_id")) in requested_paper_ids]
+        errors: list[dict[str, Any]] = []
+        candidates: list[PaperReviewRecord] = []
+        for paper in papers:
+            paper_id = _text(paper.get("paper_id"))
+            mandatory = ["draft_markdown_path", "draft_latex_path", "evidence_bundle_path", "claim_ledger_path", "manifest_path"]
+            missing_paths = [name for name in mandatory if not _text(paper.get(name))]
+            if missing_paths:
+                errors.append({"paper_id": paper_id, "reason": "missing mandatory artifact path", "missing_paths": missing_paths})
+            audit = audit_by_paper.get(paper_id, {})
+            initial_missing = ([] if audit else ["readiness_audit"]) + missing_paths
+            queue_item = self.queue_row(_text(paper.get("project_id")))
+            rank_score, rank_reasons, missing_signals, tiebreaker, _bucket = _review_rank(paper, queue_item, audit, initial_missing)
+            status = ReviewStatus.TRIAGE_READY if _readiness_passed(audit) and not missing_paths else ReviewStatus.UNREVIEWED
+            candidates.append(PaperReviewRecord(
+                paper_id=paper_id,
+                review_status=status,
+                checklist_json=_default_review_checklist(),
+                rank_score=rank_score,
+                rank_reasons=rank_reasons,
+                missing_signals=missing_signals,
+                rank_tiebreaker=tiebreaker,
+                source_audit_path=request.source_audit_path,
+            ))
+        if request.dry_run:
+            return False, len(candidates), 0, 0, errors
+        event_payload = request.model_dump(mode="json")
+        event_payload.update({"candidate_count": len(candidates), "error_count": len(errors)})
+        _, inserted = self.append_event(
+            idempotency_key=request.idempotency_key,
+            event_type="paper_review.backfill",
+            entity_type="paper_reviews",
+            entity_id="backfill",
+            payload=event_payload,
+        )
+        created = updated = skipped = 0
+        now = utc_now()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                for record in candidates:
+                    existing = cur.execute("select * from publication_automation_items where paper_id = %s", (record.paper_id,)).fetchone()
+                    rank_reasons_json = _json(record.rank_reasons)
+                    missing_signals_json = _json(record.missing_signals)
+                    if existing:
+                        existing_status = _text(existing["automation_status"])
+                        next_status = record.review_status.value if existing_status in {ReviewStatus.UNREVIEWED.value, ReviewStatus.TRIAGE_READY.value} else existing_status
+                        changes = {
+                            "automation_status": next_status,
+                            "rank_score": record.rank_score,
+                            "rank_reasons_json": rank_reasons_json,
+                            "missing_signals_json": missing_signals_json,
+                            "rank_tiebreaker": record.rank_tiebreaker,
+                            "source_audit_path": record.source_audit_path,
+                        }
+                        if all(str(existing[key]) == str(value) for key, value in changes.items()):
+                            skipped += 1
+                            continue
+                        cur.execute(
+                            """
+                            update publication_automation_items
+                            set automation_status=%s, rank_score=%s, rank_reasons_json=%s::jsonb, missing_signals_json=%s::jsonb,
+                                rank_tiebreaker=%s, source_audit_path=%s, updated_at=%s
+                            where paper_id=%s
+                            """,
+                            (next_status, record.rank_score, rank_reasons_json, missing_signals_json, record.rank_tiebreaker, record.source_audit_path, now, record.paper_id),
+                        )
+                        updated += 1
+                        continue
+                    cur.execute(
+                        """
+                        insert into publication_automation_items(paper_id,automation_status,automation_actor,blocker,claimed_at,checklist_json,rank_score,rank_reasons_json,missing_signals_json,rank_tiebreaker,source_audit_path,finalization_package_path,finalized_at,decision_summary,created_at,updated_at)
+                        values (%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s)
+                        """,
+                        (record.paper_id, record.review_status.value, record.reviewer, record.blocker, None, _json(_normalize_review_checklist(record.checklist_json)), record.rank_score, rank_reasons_json, missing_signals_json, record.rank_tiebreaker, record.source_audit_path, record.finalization_package_path, None, record.decision_summary, now, now),
+                    )
+                    created += 1
+        return inserted, created, updated, skipped, errors
+
+    def claim_paper_review(self, paper_id: str, request: PaperReviewClaimRequest) -> tuple[int, bool, dict[str, Any]]:
+        if not _text(request.reviewer):
+            raise ValueError("reviewer is required")
+        row = self._require_paper_review(paper_id)
+        current = _text(row.get("automation_status"))
+        if current in {ReviewStatus.FINALIZED.value, ReviewStatus.REJECTED.value, ReviewStatus.APPROVED_FOR_FINALIZATION.value}:
+            raise ValueError(f"cannot claim paper review from {current}")
+        if current == ReviewStatus.BLOCKED.value and _text(row.get("blocker")) and not request.clear_blocker:
+            raise ValueError("blocked review requires clear_blocker=true to claim")
+        if current not in {ReviewStatus.TRIAGE_READY.value, ReviewStatus.UNREVIEWED.value, ReviewStatus.CHANGES_REQUESTED.value, ReviewStatus.BLOCKED.value, ReviewStatus.IN_REVIEW.value}:
+            raise ValueError(f"cannot claim paper review from {current}")
+        payload = self._mutation_payload(request, action="claim")
+        payload.update({"to_status": ReviewStatus.IN_REVIEW.value})
+        event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.claimed", entity_type="paper_review", entity_id=paper_id, payload=payload)
+        if inserted:
+            now = utc_now()
+            checklist = _normalize_review_checklist(_json_dict(row.get("checklist_json")))
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "update publication_automation_items set automation_status=%s, automation_actor=%s, blocker=%s, claimed_at=%s, checklist_json=%s::jsonb, updated_at=%s where paper_id=%s",
+                        (ReviewStatus.IN_REVIEW.value, _text(request.reviewer), "" if request.clear_blocker else _text(row.get("blocker")), now, _json(checklist), now, paper_id),
+                    )
+        return event_id, inserted, self.paper_review_row(paper_id) or {}
+
+    def update_paper_review_status(self, paper_id: str, request: PaperReviewStatusUpdateRequest) -> tuple[int, bool, dict[str, Any]]:
+        row = self._require_paper_review(paper_id)
+        current = _text(row.get("automation_status"))
+        target = request.review_status.value
+        if target == ReviewStatus.APPROVED_FOR_FINALIZATION.value:
+            raise ValueError("use approve-finalization endpoint for approval")
+        if target in {ReviewStatus.FINALIZED.value}:
+            raise ValueError("finalized status is reserved for finalization package workflow")
+        if target not in ALLOWED_STATUS_TRANSITIONS.get(current, set()) and target != current:
+            raise ValueError(f"invalid review status transition {current} -> {target}")
+        blocker = _text(request.blocker)
+        note = _text(request.note)
+        if target in {ReviewStatus.BLOCKED.value, ReviewStatus.CHANGES_REQUESTED.value, ReviewStatus.REJECTED.value} and not (blocker or note):
+            raise ValueError(f"{target} requires blocker or note")
+        payload = self._mutation_payload(request, action="status_update")
+        payload.update({"to_status": target})
+        event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.status_changed", entity_type="paper_review", entity_id=paper_id, payload=payload)
+        if inserted:
+            now = utc_now()
+            next_blocker = blocker if target == ReviewStatus.BLOCKED.value else ""
+            decision_summary = note if target in {ReviewStatus.REJECTED.value, ReviewStatus.CHANGES_REQUESTED.value} else _text(row.get("decision_summary"))
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("update publication_automation_items set automation_status=%s, blocker=%s, decision_summary=%s, updated_at=%s where paper_id=%s", (target, next_blocker, decision_summary, now, paper_id))
+        return event_id, inserted, self.paper_review_row(paper_id) or {}
+
+    def update_paper_review_checklist(self, paper_id: str, item_id: str, request: PaperReviewChecklistUpdateRequest) -> tuple[int, bool, dict[str, Any]]:
+        row = self._require_paper_review(paper_id)
+        checklist = _normalize_review_checklist(_json_dict(row.get("checklist_json")))
+        item = next((entry for entry in checklist["items"] if entry["id"] == item_id), None)
+        if item is None:
+            raise ValueError(f"unknown checklist item {item_id}")
+        status = _text(request.status)
+        note = _text(request.note)
+        if status == "fail" and not note:
+            raise ValueError("fail checklist status requires a note")
+        if status == "accepted_risk" and not note:
+            raise ValueError("accepted_risk checklist status requires a note")
+        if item_id == "final_human_approval" and status in {"accepted_risk", "not_applicable"}:
+            raise ValueError("automated finalization approval must be pass or fail/pending")
+        if status == "not_applicable" and item.get("required") and not note:
+            raise ValueError("not_applicable on a required item requires a note")
+        payload = self._mutation_payload(request, action="checklist_update")
+        payload["item_id"] = item_id
+        event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.checklist_updated", entity_type="paper_review", entity_id=paper_id, payload=payload)
+        if inserted:
+            now = utc_now()
+            item.update({"status": status, "note": note, "updated_at": now, "updated_by": _text(request.requested_by)})
+            risks = [risk for risk in checklist.get("accepted_risks", []) if isinstance(risk, dict) and risk.get("item_id") != item_id]
+            if status == "accepted_risk":
+                risks.append({"item_id": item_id, "risk": note, "accepted_by": _text(request.requested_by), "accepted_at": now})
+            checklist["accepted_risks"] = risks
+            checklist["progress"] = _progress_for_items(checklist["items"])
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("update publication_automation_items set checklist_json=%s::jsonb, updated_at=%s where paper_id=%s", (_json(checklist), now, paper_id))
+        return event_id, inserted, self.paper_review_row(paper_id) or {}
+
+    def approve_paper_review_finalization(self, paper_id: str, request: PaperReviewApproveFinalizationRequest) -> tuple[int, bool, dict[str, Any]]:
+        row = self._require_paper_review(paper_id)
+        payload = self._mutation_payload(request, action="approve_finalization")
+        payload.update({"to_status": ReviewStatus.APPROVED_FOR_FINALIZATION.value})
+        replayed_event_id = self._replayed_event_id(request.idempotency_key, payload)
+        if replayed_event_id is not None:
+            return replayed_event_id, False, self.paper_review_row(paper_id) or {}
+        current = _text(row.get("automation_status"))
+        if current != ReviewStatus.IN_REVIEW.value:
+            raise ValueError("approval requires review_status=in_review")
+        checklist = _normalize_review_checklist(_json_dict(row.get("checklist_json")))
+        blockers: list[str] = []
+        for item in checklist["items"]:
+            if not item.get("required"):
+                continue
+            status = _text(item.get("status"))
+            if item["id"] == "final_human_approval" and status != "pass":
+                blockers.append("automated finalization approval must pass")
+            elif status == "accepted_risk" and not _text(item.get("note")):
+                blockers.append(f"{item['id']} accepted risk requires note")
+            elif status != "pass" and status != "accepted_risk":
+                blockers.append(f"{item['id']} must pass or be accepted_risk")
+        if blockers:
+            raise ValueError("; ".join(blockers))
+        event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.approved_for_finalization", entity_type="paper_review", entity_id=paper_id, payload=payload)
+        if inserted:
+            now = utc_now()
+            decision_summary = _text(request.note) or "approved for finalization"
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("update publication_automation_items set automation_status=%s, decision_summary=%s, updated_at=%s where paper_id=%s", (ReviewStatus.APPROVED_FOR_FINALIZATION.value, decision_summary, now, paper_id))
+        return event_id, inserted, self.paper_review_row(paper_id) or {}
+
+    def _resolved_artifact(self, paper: dict[str, Any], field: str) -> dict[str, Any]:
+        raw_path = _text(paper.get(field))
+        project_dir = Path(_text(paper.get("project_dir"))).expanduser() if _text(paper.get("project_dir")) else None
+        path = Path(raw_path).expanduser() if raw_path else Path()
+        resolved = path if path.is_absolute() else (project_dir / path if project_dir else path)
+        exists = bool(raw_path) and resolved.exists()
+        readable = exists and resolved.is_file()
+        size_bytes = resolved.stat().st_size if readable else 0
+        return {"field": field, "path": raw_path, "absolute_path": str(resolved), "exists": exists, "readable": readable, "size_bytes": size_bytes}
+
+    def _finalization_manifest_path(self, paper_id: str, idempotency_key: str) -> Path:
+        root = Path(os.environ.get("ENOCH_SUPABASE_FINALIZATION_ROOT", "/tmp/enoch-supabase-finalization-packages")).expanduser()
+        return root / _slug_id(paper_id) / _slug_id(idempotency_key) / "finalization_manifest.json"
+
+    def _load_manifest(self, package_path: str) -> dict[str, Any]:
+        if not package_path:
+            return {}
+        path = Path(package_path)
+        try:
+            return _json_dict(path.read_text(encoding="utf-8")) if path.exists() else {}
+        except OSError:
+            return {}
+
+    def prepare_paper_review_finalization_package(self, paper_id: str, request: PaperReviewPrepareFinalizationRequest, *, require_approval: bool = True) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
+        row = self._require_paper_review(paper_id)
+        payload = self._mutation_payload(request, action="prepare_finalization_package")
+        payload.update({"to_status": ReviewStatus.FINALIZED.value, "require_approval": require_approval})
+        if not request.dry_run:
+            replayed_event_id = self._replayed_event_id(request.idempotency_key, payload)
+            if replayed_event_id is not None:
+                item = self.paper_review_row(paper_id) or {}
+                return replayed_event_id, False, item, _text(item.get("finalization_package_path")), self._load_manifest(_text(item.get("finalization_package_path")))
+        current = _text(row.get("automation_status"))
+        if not request.dry_run and current == ReviewStatus.FINALIZED.value:
+            item = self.paper_review_row(paper_id) or {}
+            path = _text(item.get("finalization_package_path"))
+            return None, False, item, path, self._load_manifest(path)
+        if not request.dry_run and require_approval and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value:
+            raise ValueError("finalization package requires review_status=approved_for_finalization")
+        if not request.dry_run and not require_approval and current == ReviewStatus.REJECTED.value:
+            raise ValueError("automated finalization cannot publish rejected paper reviews")
+        paper = self.paper_row(paper_id)
+        if paper is None:
+            raise ValueError("paper row not found")
+        checklist = self.paper_review_checklist(paper_id)
+        artifacts = [self._resolved_artifact(paper, field) for field in ("draft_markdown_path", "draft_latex_path", "evidence_bundle_path", "claim_ledger_path", "manifest_path")]
+        unreadable = [artifact["field"] for artifact in artifacts if not artifact["readable"]]
+        if unreadable and not request.dry_run:
+            raise ValueError(f"finalization package requires readable artifacts: {', '.join(unreadable)}")
+        package_path = self._finalization_manifest_path(paper_id, request.idempotency_key)
+        now = utc_now()
+        manifest = {
+            "schema": "paper_finalization_package_v1",
+            "generated_at": now,
+            "dry_run": request.dry_run,
+            "requested_by": request.requested_by,
+            "target_label": request.target_label,
+            "paper_id": paper_id,
+            "project_id": _text(paper.get("project_id")),
+            "project_name": _text(paper.get("project_name")),
+            "paper_status": _text(paper.get("paper_status")),
+            "review_status": current,
+            "reviewer": _text(row.get("automation_actor")),
+            "decision_summary": _text(row.get("decision_summary")),
+            "require_approval": require_approval,
+            "automated_publication": not require_approval,
+            "artifacts": artifacts,
+            "checklist": checklist,
+            "review_item": self.paper_review_row(paper_id) or {},
+            "no_submission_side_effects": True,
+        }
+        if request.dry_run:
+            return None, False, self.paper_review_row(paper_id) or {}, str(package_path), manifest
+        package_path.parent.mkdir(parents=True, exist_ok=True)
+        package_path.write_text(_json(manifest), encoding="utf-8")
+        event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.finalization_package_prepared", entity_type="paper_review", entity_id=paper_id, payload=payload)
+        if inserted:
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "update publication_automation_items set automation_status=%s, finalization_package_path=%s, finalized_at=%s, updated_at=%s where paper_id=%s",
+                        (ReviewStatus.FINALIZED.value, str(package_path), now, now, paper_id),
+                    )
+        item = self.paper_review_row(paper_id) or {}
+        return event_id, inserted, item, str(package_path), manifest
 
     def ingest_notion_ideas(self, request: NotionIntakeRequest) -> tuple[bool, int, int, int, list[dict[str, Any]], list[dict[str, Any]]]:
         include_statuses = {item.strip().lower() for item in request.include_statuses if item.strip()}

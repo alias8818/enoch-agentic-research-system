@@ -22,7 +22,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from omx_wake_gate.control_plane.store import ControlPlaneStore  # noqa: E402
-from omx_wake_gate.control_plane.models import ImportSnapshotRequest, NotionIntakeRequest, PaperRecord, PaperStatus  # noqa: E402
+from omx_wake_gate.control_plane.models import (  # noqa: E402
+    ImportSnapshotRequest,
+    NotionIntakeRequest,
+    PaperRecord,
+    PaperReviewApproveFinalizationRequest,
+    PaperReviewBackfillRequest,
+    PaperReviewChecklistUpdateRequest,
+    PaperReviewClaimRequest,
+    PaperReviewPrepareFinalizationRequest,
+    PaperStatus,
+)
 from omx_wake_gate.control_plane.supabase_store import ReadOnlyStoreError, SupabaseControlPlaneStore, SupabaseReadOnlyControlPlaneStore  # noqa: E402
 
 IMAGE = "postgres:17-alpine"
@@ -411,6 +421,114 @@ def main() -> int:
                 failures.append("queue_notion_projection missing notion intake row")
             if not any(row.get("project_id") == notion_project_id for row in write_store.notion_execution_update_projection()):
                 failures.append("notion_execution_update_projection missing notion intake row")
+            write_store.upsert_paper(PaperRecord(
+                paper_id="paper-review-smoke",
+                project_id=notion_project_id,
+                run_id="",
+                paper_status=PaperStatus.DRAFT_REVIEW,
+                draft_markdown_path="draft.md",
+                draft_latex_path="draft.tex",
+                evidence_bundle_path="evidence.json",
+                claim_ledger_path="claims.json",
+                manifest_path="manifest.json",
+            ))
+            review_inserted, review_created, review_updated, _review_skipped, review_errors = write_store.backfill_paper_reviews(PaperReviewBackfillRequest(
+                idempotency_key="write-smoke-paper-review-backfill",
+                dry_run=False,
+                paper_ids=["paper-review-smoke"],
+            ))
+            if not review_inserted or review_created != 1 or review_updated != 0 or review_errors:
+                failures.append(f"paper review backfill mismatch: created={review_created} updated={review_updated} errors={review_errors}")
+            claim_event_id, claim_inserted, claimed_review = write_store.claim_paper_review(
+                "paper-review-smoke",
+                PaperReviewClaimRequest(
+                    idempotency_key="write-smoke-paper-review-claim",
+                    reviewer="validator",
+                ),
+            )
+            if claim_event_id <= 0 or not claim_inserted or claimed_review.get("review_status") != "in_review":
+                failures.append("paper review claim did not persist in_review state")
+            checklist = write_store.paper_review_checklist("paper-review-smoke")
+            for item in checklist.get("items", []):
+                if item.get("required"):
+                    write_store.update_paper_review_checklist(
+                        "paper-review-smoke",
+                        item["id"],
+                        PaperReviewChecklistUpdateRequest(
+                            idempotency_key=f"write-smoke-checklist-{item['id']}",
+                            requested_by="validator",
+                            status="pass",
+                        ),
+                    )
+            approve_event_id, approve_inserted, approved_review = write_store.approve_paper_review_finalization(
+                "paper-review-smoke",
+                PaperReviewApproveFinalizationRequest(
+                    idempotency_key="write-smoke-paper-review-approve",
+                    requested_by="validator",
+                    note="validator approved",
+                ),
+            )
+            approve_event_id_again, approve_inserted_again, _ = write_store.approve_paper_review_finalization(
+                "paper-review-smoke",
+                PaperReviewApproveFinalizationRequest(
+                    idempotency_key="write-smoke-paper-review-approve",
+                    requested_by="validator",
+                    note="validator approved",
+                ),
+            )
+            if (
+                approve_event_id <= 0
+                or not approve_inserted
+                or approve_inserted_again
+                or approve_event_id_again != approve_event_id
+                or approved_review.get("review_status") != "approved_for_finalization"
+            ):
+                failures.append("paper review approval did not persist idempotent approved_for_finalization state")
+            if not any(row.get("paper_id") == "paper-review-smoke" for row in write_store.paper_review_rows()):
+                failures.append("paper_review_rows missing smoke review row")
+            artifact_root = Path(tmp) / "artifact-root"
+            artifact_root.mkdir()
+            for rel_path in ("draft.md", "draft.tex", "evidence.json", "claims.json", "manifest.json"):
+                (artifact_root / rel_path).write_text(f"{rel_path}\n", encoding="utf-8")
+            write_store.update_project_dir(notion_project_id, str(artifact_root))
+            dry_event_id, dry_inserted, _dry_item, dry_package_path, dry_manifest = write_store.prepare_paper_review_finalization_package(
+                "paper-review-smoke",
+                PaperReviewPrepareFinalizationRequest(
+                    idempotency_key="write-smoke-finalization-dry",
+                    requested_by="validator",
+                    dry_run=True,
+                ),
+            )
+            if dry_event_id is not None or dry_inserted or not dry_manifest.get("dry_run") or not dry_package_path:
+                failures.append("dry-run finalization package did not stay side-effect free")
+            package_event_id, package_inserted, finalized_item, package_path, manifest = write_store.prepare_paper_review_finalization_package(
+                "paper-review-smoke",
+                PaperReviewPrepareFinalizationRequest(
+                    idempotency_key="write-smoke-finalization",
+                    requested_by="validator",
+                    dry_run=False,
+                ),
+            )
+            package_event_id_again, package_inserted_again, _finalized_item_again, package_path_again, _manifest_again = write_store.prepare_paper_review_finalization_package(
+                "paper-review-smoke",
+                PaperReviewPrepareFinalizationRequest(
+                    idempotency_key="write-smoke-finalization",
+                    requested_by="validator",
+                    dry_run=False,
+                ),
+            )
+            if (
+                package_event_id is None
+                or package_event_id <= 0
+                or not package_inserted
+                or package_inserted_again
+                or package_event_id_again != package_event_id
+                or package_path_again != package_path
+                or finalized_item.get("review_status") != "finalized"
+                or not Path(package_path).exists()
+                or manifest.get("schema") != "paper_finalization_package_v1"
+            ):
+                failures.append("finalization package did not persist idempotent finalized state")
 
             report: dict[str, Any] = {
                 "ok": not failures,
