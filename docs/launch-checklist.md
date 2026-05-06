@@ -41,7 +41,7 @@ All integration credentials must remain outside git and be configured through en
 - [x] Corpus packaging/provenance scan passes for the staged corpus.
 - [x] Corpus README explains AI-generated/no-human-authorship framing.
 - [x] Strongest generated artifacts are selected for the launch site.
-- [ ] Optional: add extra summary cards for the strongest 10-15 papers after public launch.
+- [x] Optional: add extra summary cards for the strongest 10-15 papers after public launch. Completed as 13 highlighted artifacts in `site/highlights.json` and the corpus highlighted-artifacts index.
 
 ## Visibility flip sequence
 

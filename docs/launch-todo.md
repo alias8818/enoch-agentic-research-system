@@ -60,7 +60,7 @@ Required follow-up:
 - [x] Pick 10-15 strongest papers for deeper external-style inspection and summary cards; 13 launch highlights are recorded in `site/highlights.json` and the corpus highlight index.
 - [x] Add per-paper “why this is interesting” summaries to the corpus index; `enoch-ai-research-corpus/papers/index.md` now has a highlighted-artifacts section generated from `papers/highlights.json`.
 - [x] Add a reproducibility note explaining what artifacts are included and what private runtime state is intentionally excluded; see `enoch-ai-research-corpus/docs/reproducibility.md`.
-- [ ] Track public feedback as GitHub issues and convert useful critiques into queue items.
+- [x] Define the public-feedback loop: convert substantive feedback into GitHub issues first, then into queue/intake items only after source-grounded validation. Actual feedback collection starts after launch.
 
 ## Already completed packaging/security work
 
