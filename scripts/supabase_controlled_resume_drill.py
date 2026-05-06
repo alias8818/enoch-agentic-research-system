@@ -110,6 +110,8 @@ def drill(args: argparse.Namespace) -> dict[str, Any]:
     if not flags_before.get("queue_paused") or not flags_before.get("maintenance_mode"):
         raise DrillError(f"expected paused maintenance before drill, got flags={flags_before}")
 
+    overview_before = _get_overview(base, token)
+    queued_before = int(((overview_before.get("counts") or {}).get("queued") or 0))
     dry_dispatch = _require_200(
         "dispatch dry-run",
         _request("POST", f"{base}/control/dispatch-next", token, {"dry_run": True, "requested_by": "supabase-controlled-resume-drill"}),
@@ -126,11 +128,14 @@ def drill(args: argparse.Namespace) -> dict[str, Any]:
             "timer_check": readiness.get("timer_check"),
         },
         "state_before": flags_before,
+        "queued_before": queued_before,
         "dry_dispatch_before": dry_dispatch,
     }
     if not args.apply:
-        report["next"] = "rerun with --apply to dispatch exactly one candidate, then re-pause"
+        report["next"] = "rerun with --apply to dispatch exactly one candidate, then re-pause" if queued_before > 0 else "no queued candidate is available; add/import a Supabase idea before running --apply"
         return report
+    if queued_before <= 0:
+        raise DrillError("no queued candidate is available; refusing to unpause for an apply drill")
 
     resumed = _require_200(
         "resume",
