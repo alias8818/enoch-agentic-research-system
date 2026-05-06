@@ -1,6 +1,6 @@
 # State simplification TODO
 
-Status: active next-phase backlog after the Supabase state-contract cleanup on 2026-05-06. State doctor command is implemented; corpus/publication/public-count reconciliation is clean across local corpus, GitHub public surfaces, and Hugging Face export. Notion-runtime retirement is now guarded for primary UI wording and source-metadata overwrite safety.
+Status: active next-phase backlog after the Supabase state-contract cleanup on 2026-05-06. State doctor command is implemented; corpus/publication/public-count reconciliation is clean across local corpus, GitHub public surfaces, and Hugging Face export. Notion-runtime retirement is now guarded for primary UI wording and source-metadata overwrite safety, and the live Supabase resume-readiness smoke passed.
 
 The current state model is coherent and live-clean. The remaining legacy/unknown rows have been classified as historical or attention-lane residue, not active runtime drift.
 
@@ -61,7 +61,7 @@ The current state model is coherent and live-clean. The remaining legacy/unknown
 2. Corpus/publication reconciliation. (done)
 3. Dashboard polish. (done)
 4. State transition map. (done)
-5. Notion-runtime retirement. (code/tests done; final live smoke pending)
+5. Notion-runtime retirement. (done; live Supabase resume-readiness smoke passed)
 
 ## Previous known live baseline
 
@@ -162,6 +162,29 @@ Implemented on 2026-05-06:
 - Regression evidence:
   - `uv run pytest -q tests/test_control_plane_store.py::ControlPlaneStoreTests::test_notion_intake_preserves_existing_queue_routing_metadata tests/test_control_plane_store.py::ControlPlaneStoreTests::test_supabase_native_intake_preserves_existing_source_provenance tests/test_control_plane_store.py::ControlPlaneStoreTests::test_legacy_notion_reingest_preserves_runtime_project_dir tests/test_control_plane_router.py::ControlPlaneRouterTests::test_control_dashboard_html_is_served_without_token tests/test_control_plane_router.py::ControlPlaneRouterTests::test_project_prompt_uses_source_provenance_instead_of_notion_authority`
   - `uv run pytest -q tests/test_supabase_runtime_cutover.py::test_supabase_legacy_notion_intake_preserves_runtime_project_dir`
+
+## 2026-05-06 live Supabase resume-readiness evidence
+
+Command:
+
+```bash
+python3 scripts/validate_supabase_resume_readiness.py \
+  --control-url http://192.168.1.166:8787 \
+  --ssh-host root@192.168.1.166 \
+  --token-file <(ssh root@192.168.1.166 'cat /root/enoch-control-plane-token.txt') \
+  --output /tmp/enoch-supabase-resume-readiness.json
+```
+
+Result: `ok = true`, failures = `[]`.
+
+Evidence from `/tmp/enoch-supabase-resume-readiness.json`:
+
+- `/enoch-core/health`: `store_backend = supabase`, `db_path = supabase`.
+- Legacy Notion intake/projection endpoints return `410`.
+- Supabase-native ideas workbench returns `200` and reports authority: `Supabase-native ideas workbench; Notion is provenance only`.
+- Queue remains paused/maintenance-guarded after the controlled resume drill.
+- Notion sync/background timers are not active: enabled states `masked`, `masked`, `disabled`, `disabled`; active states all `inactive`.
+- Paper pipeline is gate-aware: `write_needed = 0`, `publish_ready = 0`, `missing_from_corpus = 0`, `published_imported = 492`, `publication_ready_total = 492`, `raw_completed_no_paper_candidates = 220`, `not_writable_by_decision_gate = 220`.
 
 
 ## 2026-05-06 corpus import count correction
