@@ -17,14 +17,14 @@ The current state model is coherent and live-clean. The next work is to finish t
 
 ## 2. State transition map
 
-- [ ] Add a one-page lifecycle map: Idea -> Queue -> Run -> Decision -> Paper -> Publication -> Corpus.
-- [ ] For each transition, document:
+- [x] Add a one-page lifecycle map: Idea -> Queue -> Run -> Decision -> Paper -> Publication -> Corpus.
+- [x] For each transition, document:
   - source of truth;
   - writer/owner;
   - validation gate;
   - impossible/invalid transitions;
   - operator lane shown in the dashboard.
-- [ ] Add tests or validators for any transition that is currently implicit.
+- [x] Add tests or validators for any transition that is currently implicit.
 
 ## 3. Corpus/publication reconciliation
 
@@ -60,7 +60,7 @@ The current state model is coherent and live-clean. The next work is to finish t
 1. State doctor command. (done)
 2. Corpus/publication reconciliation. (done)
 3. Dashboard polish. (done)
-4. State transition map.
+4. State transition map. (done)
 5. Notion-runtime retirement.
 
 ## Current known live baseline
@@ -128,3 +128,11 @@ Implemented on 2026-05-06:
 - Paper pipeline primary cards remain derived from `paper_pipeline.write_needed`, `paper_pipeline.finalize_needed`, and `paper_pipeline.publish_ready`.
 - Regression evidence: `uv run pytest -q tests/test_control_plane_operator_status.py tests/test_control_plane_router.py tests/test_state_doctor.py`.
 - Live deployment evidence: `enoch-control-plane.service` restarted on `192.168.1.166`; `/control/dashboard` HTML contains the new question cards and `Debug paper counts`; live `/control/api/v1/overview` still reports `write_needed=0`, `raw_completed_no_paper_candidates=220`, `not_writable_by_decision_gate=220`, `finalize_needed=0`, `publish_ready=491`.
+
+## State transition map evidence
+
+Implemented on 2026-05-06:
+
+- Added `docs/state-transition-map.md` with the lifecycle `Idea -> Queue -> Run -> Decision -> Paper -> Publication -> Corpus`.
+- Documented source of truth, writer/owner, validation gate, invalid transitions, and operator lane for each transition.
+- Added `tests/test_state_transition_map.py` to lock decision-gate, publication-readiness, and operator-count invariants.

@@ -2,7 +2,7 @@
 
 Status: active migration contract as of 2026-05-06.
 
-Supabase owns the runtime ledger. The control plane keeps detailed raw states for callbacks, backfills, provenance, and audit, but users and agents should reason from a small deterministic operator model.
+Supabase owns the runtime ledger. The control plane keeps detailed raw states for callbacks, backfills, provenance, and audit, but users and agents should reason from a small deterministic operator model. See [`docs/state-transition-map.md`](state-transition-map.md) for the lifecycle transition map.
 
 ## What to trust
 

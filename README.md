@@ -102,6 +102,7 @@ uv run pytest -q
 - [`docs/configuration-reference.md`](docs/configuration-reference.md) — config field reference
 - [`docs/system-workflow.md`](docs/system-workflow.md) — architecture and control-plane boundaries
 - [`docs/state-model.md`](docs/state-model.md) — operator lane vocabulary and raw-state/detail-stage boundaries
+- [`docs/state-transition-map.md`](docs/state-transition-map.md) — Idea -> Queue -> Run -> Decision -> Paper -> Publication -> Corpus lifecycle map
 - [`docs/state-simplification-todo.md`](docs/state-simplification-todo.md) — next-phase state/ledger simplification backlog
 - [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md) — LLM scouting, Supabase ideas, and queue handoff
 
