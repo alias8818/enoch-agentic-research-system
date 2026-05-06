@@ -27,7 +27,7 @@ The dashboard and assistant should answer simple questions with these lanes:
 | `complete_no_paper` | Worker delivery is complete, but the paper decision gate is not actionable-positive. | Select the next project. |
 | `write_paper` | A completed run has no live paper row and passes the positive paper decision gate. | Run bounded/explicit paper drafting only. |
 | `automate_publication` | A paper exists and still needs automated rewrite/finalization/package work. | Let automation finalize or inspect artifacts if automation failed. |
-| `ready_to_publish` | A publication draft has a finalized automation package. | Import/sync to public corpus if not already present. |
+| `ready_to_publish` | A publication draft has a finalized automation package and no corpus-import ledger row. | Import/sync to public corpus. |
 | `published` | Corpus import ledger records the paper. | No action. |
 | `paused` | Work is intentionally held by maintenance or policy. | Resume only after policy decision. |
 | `historical` | Terminal, provenance, debug, or imported evidence that is not current operator work. | No action. |
@@ -38,7 +38,7 @@ Count fields follow the same split:
 
 - `operator_counts` groups rows by canonical operator lane and keeps `operator_stage`/`operator_lane` vocabulary user-facing.
 - `operator_detail_counts` groups rows by compatibility/detail stage for drill-down metrics and legacy counters.
-- `paper_pipeline.write_needed`, `paper_pipeline.finalize_needed`, and `paper_pipeline.publish_ready` are the preferred paper-work counters. They intentionally combine lane and detail evidence so dashboards do not infer paper work from raw statuses alone.
+- `paper_pipeline.write_needed`, `paper_pipeline.finalize_needed`, and `paper_pipeline.publish_ready` are the preferred actionable paper-work counters. `publish_ready` means finalized drafts missing a corpus-import ledger row, not all historical finalized drafts. `paper_pipeline.publication_ready_total` and `paper_pipeline.published_imported` are informational reconciliation counts.
 
 ## Canonical lifecycle state surfaces
 
@@ -99,7 +99,8 @@ Publication is a separate automation lane after a paper exists:
 | --- | --- |
 | Is there a draft to finalize/package? | `papers.paper_status = publication_draft` without a finalized automation package. |
 | Is publication automation active or queued? | `publication_automation_items.automation_status in ('queued', 'claimed')`. |
-| Is the paper ready for corpus import? | `papers.paper_status = publication_draft` plus `publication_automation_items.automation_status = finalized` plus a finalization package path. |
+| Is the paper finalized? | `papers.paper_status = publication_draft` plus `publication_automation_items.automation_status = finalized` plus a finalization package path. |
+| Is the paper ready for corpus import? | Finalized paper evidence above and no matching `corpus_imports` ledger row. |
 | Is it already public/corpus-imported? | `corpus_imports` ledger. |
 
 Avoid user-facing paper review/approval wording. Old values such as `draft_review`, `human_review_required`, `in_review`, `unreviewed`, `changes_requested`, and `approved_for_finalization` are compatibility or migration states, not the normal operator workflow.
@@ -112,7 +113,7 @@ The dashboard should lead with operator questions:
 - **What is running or queued?** `running` and `ready_queue`.
 - **What paper work is actionable?** `write_needed`, not raw completed/no-paper candidates.
 - **What needs automated finalization?** `finalize_needed` / `publication_automation_pending`.
-- **What is ready to publish?** finalized publication drafts only.
+- **What is ready to publish?** finalized publication drafts that are missing a corpus-import ledger row.
 - **What is already published?** corpus import ledger.
 
 Raw tables, raw statuses, and legacy labels belong in detail/debug drawers, not first-screen workflow language.
@@ -123,7 +124,7 @@ Raw tables, raw statuses, and legacy labels belong in detail/debug drawers, not 
 2. Raw completed/no-paper candidates are informational and must not be presented as papers to write.
 3. Negative, missing, malformed, unknown, or ambiguous project decisions are not writable.
 4. `wake_ready` means worker delivery completed; it does not mean the result was positive.
-5. Publication readiness means `publication_draft` plus finalized automation package, not a draft row by itself.
+5. Finalization readiness means `publication_draft` plus finalized automation package, not a draft row by itself; actionable publication/import readiness additionally requires no corpus-import ledger row.
 6. Human/operator paper approval is not a normal workflow state. Use automated finalization/package wording.
 7. Notion/source idea status is provenance only now that Supabase owns the runtime ledger.
 8. New raw state strings or new state-like persisted columns require updating `state_contract.py`, the Supabase constraint migration when applicable, `scripts/validate_state_contract.py` coverage, this document, and the parent release wiki at `/home/jeremy/Desktop/projects/enoch-release/.omx/wiki/state-model-contract.md`.

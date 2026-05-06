@@ -491,6 +491,25 @@ class ControlPlaneStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_paper_review_items_status
                     ON paper_review_items(review_status, rank_score DESC, updated_at DESC);
+                CREATE TABLE IF NOT EXISTS corpus_imports(
+                    corpus_import_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    paper_id TEXT NOT NULL REFERENCES papers(paper_id),
+                    corpus_repo TEXT NOT NULL DEFAULT '',
+                    artifact_slug TEXT NOT NULL DEFAULT '',
+                    commit_sha TEXT NOT NULL DEFAULT '',
+                    manifest_path TEXT NOT NULL DEFAULT '',
+                    manifest_hash TEXT NOT NULL DEFAULT '',
+                    source_record_fingerprint TEXT NOT NULL DEFAULT '',
+                    public_artifact_id TEXT NOT NULL DEFAULT '',
+                    public_index_path TEXT NOT NULL DEFAULT '',
+                    hf_dataset_synced INTEGER NOT NULL DEFAULT 0,
+                    hf_dataset_url TEXT NOT NULL DEFAULT '',
+                    imported_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(paper_id, corpus_repo)
+                );
+                CREATE INDEX IF NOT EXISTS idx_corpus_imports_fingerprint
+                    ON corpus_imports(source_record_fingerprint);
                 CREATE TABLE IF NOT EXISTS dashboard_observations(
                     observation_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     source TEXT NOT NULL,
@@ -664,6 +683,10 @@ class ControlPlaneStore:
                     (SELECT pa.paper_status FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status,
                     (SELECT rv.review_status FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_review_status,
                     (SELECT rv.finalization_package_path FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_finalization_package_path,
+                    (SELECT ci.corpus_import_id FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_import_id,
+                    (SELECT ci.artifact_slug FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_artifact_slug,
+                    (SELECT ci.source_record_fingerprint FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_source_record_fingerprint,
+                    (SELECT CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_imported,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)
@@ -763,6 +786,10 @@ class ControlPlaneStore:
                     (SELECT pa.paper_status FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status,
                     (SELECT rv.review_status FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_review_status,
                     (SELECT rv.finalization_package_path FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_finalization_package_path,
+                    (SELECT ci.corpus_import_id FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_import_id,
+                    (SELECT ci.artifact_slug FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_artifact_slug,
+                    (SELECT ci.source_record_fingerprint FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_source_record_fingerprint,
+                    (SELECT CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_imported,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)
@@ -782,9 +809,18 @@ class ControlPlaneStore:
                 """SELECT pa.*, p.project_name AS project_name, p.project_dir AS project_dir, p.notion_page_url AS notion_page_url, p.notion_page_id AS notion_page_id,
                     rv.review_status AS review_status,
                     rv.finalization_package_path AS finalization_package_path,
-                    rv.finalized_at AS finalized_at
+                    rv.finalized_at AS finalized_at,
+                    ci.corpus_import_id AS corpus_import_id,
+                    ci.artifact_slug AS artifact_slug,
+                    ci.commit_sha AS corpus_commit_sha,
+                    ci.manifest_path AS corpus_manifest_path,
+                    ci.manifest_hash AS corpus_manifest_hash,
+                    ci.source_record_fingerprint AS source_record_fingerprint,
+                    ci.hf_dataset_synced AS hf_dataset_synced,
+                    CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END AS corpus_imported
                 FROM papers pa LEFT JOIN projects p USING(project_id)
                 LEFT JOIN paper_review_items rv USING(paper_id)
+                LEFT JOIN corpus_imports ci USING(paper_id)
                 ORDER BY pa.updated_at DESC"""
             ).fetchall()
         return [dict(row) for row in rows]
@@ -842,9 +878,18 @@ class ControlPlaneStore:
                     p.notion_page_url AS notion_page_url, p.notion_page_id AS notion_page_id,
                     rv.review_status AS review_status,
                     rv.finalization_package_path AS finalization_package_path,
-                    rv.finalized_at AS finalized_at
+                    rv.finalized_at AS finalized_at,
+                    ci.corpus_import_id AS corpus_import_id,
+                    ci.artifact_slug AS artifact_slug,
+                    ci.commit_sha AS corpus_commit_sha,
+                    ci.manifest_path AS corpus_manifest_path,
+                    ci.manifest_hash AS corpus_manifest_hash,
+                    ci.source_record_fingerprint AS source_record_fingerprint,
+                    ci.hf_dataset_synced AS hf_dataset_synced,
+                    CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END AS corpus_imported
                 FROM papers pa LEFT JOIN projects p USING(project_id)
                 LEFT JOIN paper_review_items rv USING(paper_id)
+                LEFT JOIN corpus_imports ci USING(paper_id)
                 {where}
                 ORDER BY {order_by}
                 LIMIT ? OFFSET ?"""
@@ -866,9 +911,18 @@ class ControlPlaneStore:
                     p.notion_page_url AS notion_page_url, p.notion_page_id AS notion_page_id,
                     rv.review_status AS review_status,
                     rv.finalization_package_path AS finalization_package_path,
-                    rv.finalized_at AS finalized_at
+                    rv.finalized_at AS finalized_at,
+                    ci.corpus_import_id AS corpus_import_id,
+                    ci.artifact_slug AS artifact_slug,
+                    ci.commit_sha AS corpus_commit_sha,
+                    ci.manifest_path AS corpus_manifest_path,
+                    ci.manifest_hash AS corpus_manifest_hash,
+                    ci.source_record_fingerprint AS source_record_fingerprint,
+                    ci.hf_dataset_synced AS hf_dataset_synced,
+                    CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END AS corpus_imported
                 FROM papers pa LEFT JOIN projects p USING(project_id)
                 LEFT JOIN paper_review_items rv USING(paper_id)
+                LEFT JOIN corpus_imports ci USING(paper_id)
                 ORDER BY pa.updated_at DESC"""
             ).fetchall()
         return [dict(row) for row in rows]
@@ -954,6 +1008,10 @@ class ControlPlaneStore:
                     (SELECT pa.paper_status FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status,
                     (SELECT rv.review_status FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_review_status,
                     (SELECT rv.finalization_package_path FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_finalization_package_path,
+                    (SELECT ci.corpus_import_id FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_import_id,
+                    (SELECT ci.artifact_slug FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_artifact_slug,
+                    (SELECT ci.source_record_fingerprint FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_source_record_fingerprint,
+                    (SELECT CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_imported,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)
@@ -973,9 +1031,18 @@ class ControlPlaneStore:
                 """SELECT pa.*, p.project_name AS project_name, p.project_dir AS project_dir, p.notion_page_url AS notion_page_url, p.notion_page_id AS notion_page_id,
                     rv.review_status AS review_status,
                     rv.finalization_package_path AS finalization_package_path,
-                    rv.finalized_at AS finalized_at
+                    rv.finalized_at AS finalized_at,
+                    ci.corpus_import_id AS corpus_import_id,
+                    ci.artifact_slug AS artifact_slug,
+                    ci.commit_sha AS corpus_commit_sha,
+                    ci.manifest_path AS corpus_manifest_path,
+                    ci.manifest_hash AS corpus_manifest_hash,
+                    ci.source_record_fingerprint AS source_record_fingerprint,
+                    ci.hf_dataset_synced AS hf_dataset_synced,
+                    CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END AS corpus_imported
                 FROM papers pa LEFT JOIN projects p USING(project_id)
                 LEFT JOIN paper_review_items rv USING(paper_id)
+                LEFT JOIN corpus_imports ci USING(paper_id)
                 WHERE pa.paper_id=?""",
                 (paper_id,),
             ).fetchone()
@@ -1461,6 +1528,10 @@ class ControlPlaneStore:
                     (SELECT pa.paper_status FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status,
                     (SELECT rv.review_status FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_review_status,
                     (SELECT rv.finalization_package_path FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_finalization_package_path,
+                    (SELECT ci.corpus_import_id FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_import_id,
+                    (SELECT ci.artifact_slug FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_artifact_slug,
+                    (SELECT ci.source_record_fingerprint FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_source_record_fingerprint,
+                    (SELECT CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_imported,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)
@@ -1489,6 +1560,10 @@ class ControlPlaneStore:
                     (SELECT pa.paper_status FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status,
                     (SELECT rv.review_status FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_review_status,
                     (SELECT rv.finalization_package_path FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_finalization_package_path,
+                    (SELECT ci.corpus_import_id FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_import_id,
+                    (SELECT ci.artifact_slug FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_artifact_slug,
+                    (SELECT ci.source_record_fingerprint FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_source_record_fingerprint,
+                    (SELECT CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_imported,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)
@@ -1512,6 +1587,10 @@ class ControlPlaneStore:
                     (SELECT pa.paper_status FROM papers pa WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status,
                     (SELECT rv.review_status FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_review_status,
                     (SELECT rv.finalization_package_path FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_finalization_package_path,
+                    (SELECT ci.corpus_import_id FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_import_id,
+                    (SELECT ci.artifact_slug FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_artifact_slug,
+                    (SELECT ci.source_record_fingerprint FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_source_record_fingerprint,
+                    (SELECT CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_imported,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)

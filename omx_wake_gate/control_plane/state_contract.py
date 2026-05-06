@@ -31,7 +31,7 @@ OPERATOR_LANE_DESCRIPTIONS: Final[dict[str, str]] = {
     OperatorLane.COMPLETE_NO_PAPER.value: "Worker delivery is complete, but the paper decision gate is not actionable-positive.",
     OperatorLane.WRITE_PAPER.value: "A positive completed run has no paper yet and can be drafted by explicit bounded automation.",
     OperatorLane.AUTOMATE_PUBLICATION.value: "A paper artifact exists and should flow through automated rewrite/finalization/package steps.",
-    OperatorLane.READY_TO_PUBLISH.value: "A publication draft has a finalized automation package and is ready for corpus import.",
+    OperatorLane.READY_TO_PUBLISH.value: "A publication draft has a finalized automation package and no corpus-import ledger row.",
     OperatorLane.PUBLISHED.value: "The paper is represented by a public/corpus import ledger.",
     OperatorLane.PAUSED.value: "Work is intentionally held by maintenance or policy.",
     OperatorLane.HISTORICAL.value: "Terminal, provenance, debug, or imported evidence that is not current operator work.",

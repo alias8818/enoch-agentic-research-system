@@ -362,6 +362,42 @@ class SupabaseReadOnlyControlPlaneStore:
                 limit 1
               ) as related_finalization_package_path,
               (
+                select ci.corpus_import_id
+                from papers pa
+                left join corpus_imports ci using(paper_id)
+                where pa.project_id = q.project_id
+                  and (q.current_run_id = '' or pa.run_id = q.current_run_id)
+                order by pa.updated_at desc
+                limit 1
+              ) as related_corpus_import_id,
+              (
+                select ci.artifact_slug
+                from papers pa
+                left join corpus_imports ci using(paper_id)
+                where pa.project_id = q.project_id
+                  and (q.current_run_id = '' or pa.run_id = q.current_run_id)
+                order by pa.updated_at desc
+                limit 1
+              ) as related_artifact_slug,
+              (
+                select ci.source_record_fingerprint
+                from papers pa
+                left join corpus_imports ci using(paper_id)
+                where pa.project_id = q.project_id
+                  and (q.current_run_id = '' or pa.run_id = q.current_run_id)
+                order by pa.updated_at desc
+                limit 1
+              ) as related_source_record_fingerprint,
+              (
+                select (ci.paper_id is not null)
+                from papers pa
+                left join corpus_imports ci using(paper_id)
+                where pa.project_id = q.project_id
+                  and (q.current_run_id = '' or pa.run_id = q.current_run_id)
+                order by pa.updated_at desc
+                limit 1
+              ) as related_corpus_imported,
+              (
                 select d.decision_gate_state
                 from project_decisions d
                 where d.project_id = q.project_id
@@ -405,10 +441,19 @@ class SupabaseReadOnlyControlPlaneStore:
               p.notion_page_id,
               rv.automation_status as review_status,
               rv.finalization_package_path,
-              rv.finalized_at
+              rv.finalized_at,
+              ci.corpus_import_id,
+              ci.artifact_slug,
+              ci.commit_sha as corpus_commit_sha,
+              ci.manifest_path as corpus_manifest_path,
+              ci.manifest_hash as corpus_manifest_hash,
+              ci.source_record_fingerprint,
+              ci.hf_dataset_synced,
+              (ci.paper_id is not null) as corpus_imported
             from papers pa
             left join projects p using(project_id)
             left join publication_automation_items rv using(paper_id)
+            left join corpus_imports ci using(paper_id)
             {suffix}
             """
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,25 @@ ATTENTION_REVIEW_STATUSES: set[str] = set()
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def paper_source_fingerprint(paper_id: str) -> str:
+    """Stable public-corpus fingerprint for a control-plane paper row."""
+
+    return hashlib.sha256(_text(paper_id).encode("utf-8")).hexdigest()[:16]
+
+
+def _paper_imported(row: dict[str, Any]) -> bool:
+    return bool(
+        row.get("corpus_imported")
+        or row.get("related_corpus_imported")
+        or _text(row.get("corpus_import_id"))
+        or _text(row.get("related_corpus_import_id"))
+        or _text(row.get("artifact_slug"))
+        or _text(row.get("related_artifact_slug"))
+        or _text(row.get("source_record_fingerprint"))
+        or _text(row.get("related_source_record_fingerprint"))
+    )
 
 
 def _stage(
@@ -185,14 +205,23 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
             next_step="No paper publication action is needed for this record.",
             explanation="The paper/review record is rejected or archived.",
         )
+    if has_paper and _paper_imported(row):
+        return _stage(
+            "published",
+            lane=OperatorLane.PUBLISHED,
+            tone="good",
+            attention=False,
+            next_step="No corpus-import action is needed; this paper is already represented by the import ledger.",
+            explanation="The corpus import ledger contains this paper, so it is public/imported rather than publish work.",
+        )
     if paper_status in {PaperStatus.PUBLICATION_DRAFT.value, PaperStatus.DRAFT_REVIEW.value} and review_status in READY_REVIEW_STATUSES and _text(row.get("finalization_package_path") or row.get("related_finalization_package_path")):
         return _stage(
             "ready_to_publish",
             lane=OperatorLane.READY_TO_PUBLISH,
             tone="good",
             attention=False,
-            next_step="Import this finalized publication draft into the public corpus if it is not already present.",
-            explanation="Publication artifacts have a finalized automation package; corpus publication is tracked outside this control-plane row.",
+            next_step="Import this finalized publication draft into the public corpus.",
+            explanation="Publication artifacts have a finalized automation package and no corpus-import ledger row is visible.",
         )
     if paper_status == PaperStatus.PUBLICATION_DRAFT.value:
         return _stage(
@@ -342,6 +371,10 @@ def summarize_queue_row(row: dict[str, Any]) -> dict[str, Any]:
         "related_paper_status": row.get("related_paper_status", ""),
         "related_review_status": row.get("related_review_status", ""),
         "related_finalization_package_path": row.get("related_finalization_package_path", ""),
+        "related_corpus_imported": row.get("related_corpus_imported", False),
+        "related_corpus_import_id": row.get("related_corpus_import_id", ""),
+        "related_artifact_slug": row.get("related_artifact_slug", ""),
+        "related_source_record_fingerprint": row.get("related_source_record_fingerprint", ""),
         "updated_at": row.get("updated_at", ""),
         "age_seconds": row_age_seconds(row),
         "links": queue_links(row),
@@ -358,6 +391,13 @@ def summarize_paper_row(row: dict[str, Any]) -> dict[str, Any]:
         "paper_status": row.get("paper_status", ""),
         "review_status": row.get("review_status", ""),
         "finalization_package_path": row.get("finalization_package_path", ""),
+        "corpus_imported": row.get("corpus_imported", False),
+        "corpus_import_id": row.get("corpus_import_id", ""),
+        "artifact_slug": row.get("artifact_slug", ""),
+        "source_record_fingerprint": row.get("source_record_fingerprint", ""),
+        "corpus_commit_sha": row.get("corpus_commit_sha", ""),
+        "corpus_manifest_path": row.get("corpus_manifest_path", ""),
+        "hf_dataset_synced": row.get("hf_dataset_synced", False),
         "generated_at": row.get("generated_at", ""),
         "updated_at": row.get("updated_at", ""),
         "age_seconds": row_age_seconds(row),
@@ -558,6 +598,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
     # no-paper rows with missing/negative/unknown decisions leak into the
     # operator-facing lane even though `paper_pipeline.write_needed` is 0.
     operator_counts[OperatorLane.WRITE_PAPER.value] = len(write_candidates)
+    publication_ready_total = operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0) + operator_counts.get(OperatorLane.PUBLISHED.value, 0)
     paper_pipeline = {
         "write_needed": len(write_candidates),
         "raw_completed_no_paper_candidates": len(raw_write_candidates),
@@ -566,12 +607,18 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         "next_write_candidate": draft_candidate_payload(write_candidates[0]) if write_candidates else None,
         "finalize_needed": operator_detail_counts.get("finalization_needed", 0),
         "publish_ready": operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0),
+        "missing_from_corpus": operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0),
+        "published_imported": operator_counts.get(OperatorLane.PUBLISHED.value, 0),
+        "publication_ready_total": publication_ready_total,
         "definitions": {
             "write_needed": "completed runs with no live paper row that currently pass the paper-positive decision gate",
             "raw_completed_no_paper_candidates": "completed no-paper rows before checking local project decision artifacts",
             "not_writable_by_decision_gate": "completed no-paper rows rejected by local project decision artifacts as negative, needs-review, or otherwise non-positive",
             "finalize_needed": "publication drafts missing automated finalization package",
-            "publish_ready": "finalized publication drafts ready for corpus import",
+            "publish_ready": "finalized publication drafts that are missing a corpus-import ledger row",
+            "missing_from_corpus": "same as publish_ready; actionable corpus import work only",
+            "published_imported": "papers represented by the corpus-import ledger",
+            "publication_ready_total": "finalized publication drafts whether already imported or still missing corpus import",
         },
     }
     if batched_parts is not None:

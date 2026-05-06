@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from omx_wake_gate.config import GateConfig
-from omx_wake_gate.control_plane.read_models import operator_stage_for_record
+from omx_wake_gate.control_plane.read_models import operator_stage_for_record, paper_source_fingerprint
 from omx_wake_gate.control_plane.state_contract import OperatorLane
 from omx_wake_gate.control_plane.store import REVIEW_CHECKLIST_DEFINITION
 from omx_wake_gate.control_plane.router import create_control_plane_router
@@ -55,6 +55,7 @@ class OperatorStatusTests(unittest.TestCase):
             ({"status": "completed", "last_run_state": "session_finished_ready", "next_action_hint": "select_next_project"}, "complete_no_paper", "run_complete_no_paper", False),
             ({"paper_id": "paper-1", "paper_status": "draft_review"}, "automate_publication", "draft_created", False),
             ({"paper_id": "paper-2", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json"}, "ready_to_publish", "ready_to_publish", False),
+            ({"paper_id": "paper-imported", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json", "corpus_imported": True}, "published", "published", False),
             ({"paper_id": "paper-approved", "paper_status": "publication_draft", "review_status": "approved_for_finalization"}, "automate_publication", "finalization_needed", False),
             ({"paper_id": "paper-finalized-no-package", "paper_status": "publication_draft", "review_status": "finalized"}, "automate_publication", "finalization_needed", False),
             ({"paper_id": "paper-missing-review", "paper_status": "publication_draft"}, "automate_publication", "finalization_needed", False),
@@ -180,6 +181,89 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertEqual(detail["queue_item"]["operator_stage"], "ready_to_publish")
             self.assertEqual(detail["queue_item"]["related_paper_id"], "paper-ready")
             self.assertEqual(detail["papers"][0]["operator_stage"], "ready_to_publish")
+
+    def test_corpus_import_ledger_removes_publication_draft_from_publish_work(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_dir = Path(tmp) / "projects" / "idea-imported"
+            project_dir.mkdir(parents=True)
+            _write_decision(project_dir, "finalize_positive")
+            for artifact_name in ("paper.md", "paper.tex", "evidence_bundle.json", "claim_ledger.json", "paper_manifest.json"):
+                (project_dir / artifact_name).write_text("{}" if artifact_name.endswith(".json") else "paper", encoding="utf-8")
+            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "operator-imported-ledger-import",
+                "queue_rows": [{
+                    "project_id": "idea-imported",
+                    "project_name": "Imported Paper",
+                    "project_dir": str(project_dir),
+                    "status": "completed",
+                    "last_run_state": "wake_ready",
+                    "next_action_hint": "draft_paper_or_select_next_project",
+                    "current_run_id": "run-imported",
+                }],
+                "paper_rows": [{
+                    "paper_id": "paper-imported",
+                    "project_id": "idea-imported",
+                    "run_id": "run-imported",
+                    "paper_status": "publication_draft",
+                    "draft_markdown_path": "paper.md",
+                    "draft_latex_path": "paper.tex",
+                    "evidence_bundle_path": "evidence_bundle.json",
+                    "claim_ledger_path": "claim_ledger.json",
+                    "manifest_path": "paper_manifest.json",
+                }],
+            })
+            self.assertEqual(imported.status_code, 200, imported.text)
+            backfill = client.post("/control/api/paper-reviews/backfill", headers=headers, json={
+                "idempotency_key": "operator-imported-ledger-backfill",
+                "paper_ids": ["paper-imported"],
+                "dry_run": False,
+            })
+            self.assertEqual(backfill.status_code, 200, backfill.text)
+            finalized = client.post("/control/api/paper-reviews/paper-imported/prepare-finalization-package", headers=headers, json={
+                "idempotency_key": "operator-imported-ledger-finalized",
+                "requested_by": "test",
+                "target_label": "operator-imported-ledger",
+                "dry_run": False,
+            })
+            self.assertEqual(finalized.status_code, 200, finalized.text)
+
+            with sqlite3.connect(Path(tmp) / "state" / "control_plane.sqlite3") as conn:
+                conn.execute(
+                    """INSERT INTO corpus_imports(
+                        paper_id, corpus_repo, artifact_slug, commit_sha, manifest_path, manifest_hash,
+                        source_record_fingerprint, public_artifact_id, public_index_path, hf_dataset_synced,
+                        hf_dataset_url, imported_at, created_at
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        "paper-imported",
+                        "enoch-ai-research-corpus",
+                        "imported-paper",
+                        "abc123",
+                        "papers/imported-paper/paper_manifest.json",
+                        "def456",
+                        paper_source_fingerprint("paper-imported"),
+                        "imported-paper",
+                        "papers/index.json",
+                        1,
+                        "https://huggingface.co/datasets/aliasocracy/enoch-ai-research-corpus",
+                        "2026-05-06T21:00:00+00:00",
+                        "2026-05-06T21:00:00+00:00",
+                    ),
+                )
+
+            overview = client.get("/control/api/v1/overview", headers=headers).json()
+            self.assertEqual(overview["operator_counts"].get("ready_to_publish", 0), 0)
+            self.assertEqual(overview["operator_counts"].get("published", 0), 1)
+            self.assertEqual(overview["paper_pipeline"]["publish_ready"], 0)
+            self.assertEqual(overview["paper_pipeline"]["missing_from_corpus"], 0)
+            self.assertEqual(overview["paper_pipeline"]["published_imported"], 1)
+            self.assertEqual(overview["paper_pipeline"]["publication_ready_total"], 1)
+
+            detail = client.get("/control/api/v1/projects/idea-imported", headers=headers).json()
+            self.assertEqual(detail["queue_item"]["operator_stage"], "published")
+            self.assertEqual(detail["papers"][0]["operator_stage"], "published")
 
     def test_overview_suppresses_stale_queue_without_run_id_by_project_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

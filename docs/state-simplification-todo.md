@@ -63,15 +63,15 @@ The current state model is coherent and live-clean. The remaining legacy/unknown
 4. State transition map. (done)
 5. Notion-runtime retirement. (code/tests done; final live smoke pending)
 
-## Current known live baseline
+## Previous known live baseline
 
-Last verified on 2026-05-06:
+Last verified on 2026-05-06 before corpus-import ledger-backed dashboard semantics:
 
 - `write_needed = 0`
 - `raw_completed_no_paper_candidates = 220`
 - `not_writable_by_decision_gate = 220`
 - `finalize_needed = 0`
-- `publish_ready = 491`
+- `publish_ready = 491` under the old finalized-total semantics
 - paper rows: `publication_draft = 494`, `archived = 2`, `all = 496`
 - state normalization dry-run: `0` rows
 - live state contract: OK
@@ -101,7 +101,7 @@ Last observed state doctor result on 2026-05-06:
 - `paper_pipeline.raw_completed_no_paper_candidates`: `220`
 - `paper_pipeline.not_writable_by_decision_gate`: `220`
 - `paper_pipeline.finalize_needed`: `0`
-- `paper_pipeline.publish_ready`: `491`
+- `paper_pipeline.publish_ready`: `491` under the old finalized-total semantics
 - `corpus_reconciliation.live_finalized_publication_draft_count`: `491`
 - `corpus_reconciliation.public_corpus_count`: `495`
 - `corpus_reconciliation.importable_finalized_count`: `0`
@@ -162,3 +162,10 @@ Implemented on 2026-05-06:
 - Regression evidence:
   - `uv run pytest -q tests/test_control_plane_store.py::ControlPlaneStoreTests::test_notion_intake_preserves_existing_queue_routing_metadata tests/test_control_plane_store.py::ControlPlaneStoreTests::test_supabase_native_intake_preserves_existing_source_provenance tests/test_control_plane_store.py::ControlPlaneStoreTests::test_legacy_notion_reingest_preserves_runtime_project_dir tests/test_control_plane_router.py::ControlPlaneRouterTests::test_control_dashboard_html_is_served_without_token tests/test_control_plane_router.py::ControlPlaneRouterTests::test_project_prompt_uses_source_provenance_instead_of_notion_authority`
   - `uv run pytest -q tests/test_supabase_runtime_cutover.py::test_supabase_legacy_notion_intake_preserves_runtime_project_dir`
+
+
+## 2026-05-06 corpus import count correction
+
+- Dashboard publish/import work is being corrected to be ledger-backed: `publish_ready` / `missing_from_corpus` means finalized drafts without a `corpus_imports` row.
+- Historical finalized drafts already represented in the corpus move to `published_imported` / `published` and should not appear as actionable import work.
+- Public release count drift was fixed by updating GitHub metadata for `alias8818/enoch-ai-research-corpus` to `496`; `validate_public_release.py` passed afterward.

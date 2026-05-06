@@ -194,6 +194,16 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         insert into enoch.publication_automation_items(paper_id, automation_status, finalization_package_path) values
           ('paper-existing', 'finalized', 'package.json');
 
+        insert into enoch.corpus_imports(
+          paper_id, corpus_repo, artifact_slug, source_record_fingerprint, imported_at
+        ) values (
+          'paper-existing',
+          'enoch-ai-research-corpus',
+          'fixture-existing-paper',
+          left(encode(extensions.digest('paper-existing', 'sha256'), 'hex'), 16),
+          now()
+        );
+
         with inserted_event as (
           insert into enoch.core_events(idempotency_key, event_type, source, payload_json, payload_hash)
           values ('fixture-core-snapshot', 'n8n.queue_snapshot', 'migration-validator', '{"ok":true}'::jsonb, 'fixture-hash')
@@ -326,8 +336,12 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         failures.append("expected fixture raw completed/no-paper candidates to be 2")
     if dashboard_counts["not_writable_by_decision_gate"] != 1:
         failures.append("expected fixture decision-gate rejects to be 1")
-    if dashboard_counts["publication_ready"] != 1:
-        failures.append("expected fixture publication-ready count to be 1")
+    if dashboard_counts["publication_ready"] != 0:
+        failures.append("expected fixture publication-ready missing-corpus count to be 0")
+    if dashboard_counts["publication_ready_total"] != 1:
+        failures.append("expected fixture publication-ready total count to be 1")
+    if dashboard_counts["corpus_imported"] != 1:
+        failures.append("expected fixture corpus-imported count to be 1")
     if checks["rls_disabled_tables"]:
         failures.append(f"RLS disabled tables: {checks['rls_disabled_tables']}")
     if checks["rls_tables_without_policies"]:

@@ -253,7 +253,7 @@ Use the operator state model in [`docs/state-model.md`](state-model.md) when int
 
 - `write_needed` means a completed run is paper-positive and has no live paper row.
 - `finalize_needed` means a draft needs automated rewrite/finalization/package work.
-- `publish_ready` means a `publication_draft` also has a finalized automation package and finalization package path.
+- `publish_ready` means a `publication_draft` has a finalized automation package and finalization package path, and does **not** have a matching `corpus_imports` ledger row. Historical finalized drafts already imported are tracked as `published_imported`, not actionable publish work.
 
 Do not treat raw `wake_ready`, `draft_review`, or `publication_draft` values by themselves as user-facing paper work or publication readiness.
 
