@@ -43,6 +43,22 @@ The script pushes and verifies remote SHAs in this order:
 
 The corpus repo is intentionally last because its cross-repo workflow reads the other repos from remote `main`.
 
+
+## One-command corpus release workflow
+
+For the broader agentic path from finalized control-plane papers to public corpus/HF/dashboard accounting, use:
+
+```bash
+python3 scripts/run_public_corpus_release.py \
+  --import-from-control-plane \
+  --build-hf \
+  --reconcile-control-plane \
+  --sync-corpus-ledger \
+  --ledger-use-linked
+```
+
+Add `--publish-hf` only when the Hugging Face write token is present and you intend to publish. Run with `--dry-run` first when changing flags. This workflow does not push git repos; use `push_public_release_bundle.py --sync-corpus-ledger --push --watch` after reviewing and committing the changed release surfaces.
+
 ## Corpus ledger reconciliation gate
 
 Before saying the public corpus is current, reconcile the finalized publication-draft lane against the corpus index:
