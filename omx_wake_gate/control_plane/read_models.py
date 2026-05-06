@@ -70,7 +70,9 @@ def _project_dir_candidates(project_dir: str) -> list[Path]:
 def _paper_draft_gate_for_row(row: dict[str, Any]) -> dict[str, Any] | None:
     project_dir = _text(row.get("project_dir"))
     if not project_dir:
-        return None
+        project_dir = _text(row.get("project_id"))
+    if not project_dir:
+        return {"eligible": False, "reason": "missing project decision artifact", "values": [], "project_dir": ""}
     last_gate: dict[str, Any] | None = None
     for candidate in _project_dir_candidates(project_dir):
         try:
@@ -182,14 +184,14 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     if queue_status == "completed" and last_run_state in WAKE_GATE_COMPLETION_STATES and next_action == PAPER_DRAFT_NEXT_ACTION:
         gate = _paper_draft_gate_for_row(row)
         decision_summary = _decision_summary_from_gate(gate)
-        if gate is not None and not bool(gate.get("eligible")):
+        if gate is None or not bool(gate.get("eligible")):
             return _stage(
                 "run_complete_no_paper",
                 tone="muted",
                 attention=False,
                 next_step="No paper draft is needed; select the next project.",
                 explanation=f"Worker delivery is complete, but the project decision is not a positive paper signal: {decision_summary or 'not eligible'}.",
-                paper_draft_eligible=False,
+                paper_draft_eligible=False if gate is not None else None,
                 project_decision_summary=decision_summary,
                 project_decision_gate=gate,
             )
@@ -445,13 +447,13 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
     gate_rejected: list[dict[str, Any]] = []
     for candidate in raw_write_candidates:
         gate = _paper_draft_gate_for_row(candidate)
-        if gate is not None and not bool(gate.get("eligible")):
+        if gate is None or not bool(gate.get("eligible")):
             gate_rejected.append({
                 "project_id": candidate.get("project_id", ""),
                 "project_name": candidate.get("project_name", ""),
                 "run_id": candidate.get("current_run_id") or candidate.get("run_id") or "",
                 "decision_summary": _decision_summary_from_gate(gate),
-                "gate_reason": gate.get("reason", ""),
+                "gate_reason": (gate or {}).get("reason", "missing project decision artifact"),
             })
             continue
         write_candidates.append(candidate)

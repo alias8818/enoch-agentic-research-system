@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -49,7 +50,7 @@ class OperatorStatusTests(unittest.TestCase):
         cases = [
             ({"status": "queued"}, "idea_queued", False),
             ({"status": "awaiting_wake"}, "running", False),
-            ({"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project"}, "run_complete_draft_needed", False),
+            ({"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project"}, "run_complete_no_paper", False),
             ({"status": "completed", "last_run_state": "session_finished_ready", "next_action_hint": "select_next_project"}, "run_complete_no_paper", False),
             ({"paper_id": "paper-1", "paper_status": "draft_review"}, "draft_created", False),
             ({"paper_id": "paper-2", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json"}, "ready_to_publish", False),
@@ -484,6 +485,82 @@ class OperatorStatusTests(unittest.TestCase):
             overview = client.get("/control/api/v1/overview", headers=headers).json()
             self.assertNotIn("run_complete_draft_needed", overview["operator_counts"])
             self.assertEqual(overview["operator_counts"]["run_complete_no_paper"], 1)
+
+    def test_missing_project_dir_uses_project_id_evidence_fallback_for_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            fallback_dir = Path(tmp) / "projects" / "idea-fallback"
+            fallback_dir.mkdir(parents=True)
+            (fallback_dir / ".omx").mkdir()
+            (fallback_dir / ".omx" / "project_decision.json").write_text(
+                '{"decision":"continue","hypothesis_status":"mixed"}\n',
+                encoding="utf-8",
+            )
+            config_path = Path(tmp) / "config.json"
+            config_path.write_text(f'{{"project_root": "{Path(tmp) / "projects"}"}}\n', encoding="utf-8")
+            with patch.dict("os.environ", {"OMX_WAKE_GATE_CONFIG": str(config_path)}):
+                imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                    "idempotency_key": "operator-fallback-import",
+                    "queue_rows": [{
+                        "project_id": "idea-fallback",
+                        "project_name": "Fallback Mixed Result",
+                        "project_dir": "",
+                        "status": "completed",
+                        "last_run_state": "wake_ready",
+                        "next_action_hint": "draft_paper_or_select_next_project",
+                        "current_run_id": "run-fallback",
+                        "last_result_summary": "worker completed with artifacts",
+                    }],
+                })
+                self.assertEqual(imported.status_code, 200, imported.text)
+
+                detail = client.get("/control/api/v1/projects/idea-fallback", headers=headers).json()
+                queue_item = detail["queue_item"]
+                self.assertEqual(queue_item["operator_stage"], "run_complete_no_paper")
+                self.assertFalse(queue_item["paper_draft_eligible"])
+                self.assertEqual(
+                    queue_item["project_decision_summary"],
+                    "project decision lacks positive draft signal",
+                )
+
+                overview = client.get("/control/api/v1/overview", headers=headers).json()
+            pipeline = overview["paper_pipeline"]
+            self.assertEqual(pipeline["write_needed"], 0)
+            self.assertEqual(pipeline["raw_completed_no_paper_candidates"], 1)
+            self.assertEqual(pipeline["not_writable_by_decision_gate"], 1)
+
+    def test_missing_project_dir_and_missing_decision_is_not_draft_needed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            config_path = Path(tmp) / "config.json"
+            config_path.write_text(f'{{"project_root": "{Path(tmp) / "projects"}"}}\n', encoding="utf-8")
+            with patch.dict("os.environ", {"OMX_WAKE_GATE_CONFIG": str(config_path)}):
+                imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                    "idempotency_key": "operator-missing-decision-import",
+                    "queue_rows": [{
+                        "project_id": "idea-missing-decision",
+                        "project_name": "Missing Decision",
+                        "project_dir": "",
+                        "status": "completed",
+                        "last_run_state": "wake_ready",
+                        "next_action_hint": "draft_paper_or_select_next_project",
+                        "current_run_id": "run-missing-decision",
+                        "last_result_summary": "worker completed with artifacts",
+                    }],
+                })
+                self.assertEqual(imported.status_code, 200, imported.text)
+
+                overview = client.get("/control/api/v1/overview", headers=headers).json()
+            pipeline = overview["paper_pipeline"]
+            self.assertEqual(pipeline["write_needed"], 0)
+            self.assertEqual(pipeline["raw_completed_no_paper_candidates"], 1)
+            self.assertEqual(pipeline["not_writable_by_decision_gate"], 1)
+            self.assertEqual(
+                pipeline["gate_rejected_sample"][0]["gate_reason"],
+                "missing project decision artifact",
+            )
 
     def test_dashboard_prefers_operator_columns(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
