@@ -137,6 +137,114 @@ STATE_CONTRACT: Final[dict[str, set[str]]] = {
     "projects.origin_idea_status": IDEA_STATUSES,
 }
 
+STATE_SURFACE_CLASSES: Final[set[str]] = {
+    "canonical_lifecycle",
+    "derived_operator",
+    "system_flag",
+    "attention_flag",
+    "operator_hint",
+    "diagnostic_context",
+    "provenance_text",
+    "type_discriminator",
+    "event_taxonomy",
+    "projection_metadata",
+}
+
+STATE_LIKE_COLUMN_NAMES: Final[set[str]] = {
+    "status",
+    "state",
+    "gate_state",
+    "last_run_state",
+    "idea_status",
+    "origin_idea_status",
+    "paper_status",
+    "automation_status",
+    "decision_gate_state",
+    "queue_paused",
+    "maintenance_mode",
+    "manual_review_required",
+    "auto_continue",
+    "pause_reason",
+    "paused_by",
+    "last_event_type",
+    "next_action_hint",
+    "blocked_reason",
+    "last_error",
+    "last_result_summary",
+    "current_activity",
+    "decision_summary",
+    "decision_key",
+    "artifact_path",
+    "dispatch_mode",
+    "decision_type",
+    "paper_type",
+    "event_type",
+    "entity_type",
+    "snapshot_type",
+    "projection_version",
+}
+
+
+def _surface(
+    surface_class: str,
+    *,
+    contract_surface: str = "",
+    operator_lane: OperatorLane | None = None,
+    reason: str = "",
+) -> dict[str, str]:
+    if surface_class not in STATE_SURFACE_CLASSES:
+        raise ValueError(f"unknown state surface class: {surface_class}")
+    return {
+        "class": surface_class,
+        "contract_surface": contract_surface,
+        "operator_lane": (operator_lane or OperatorLane.HISTORICAL).value,
+        "reason": reason,
+    }
+
+
+# Inventory for every state-like persisted column admitted by the Supabase schema.
+# Only `canonical_lifecycle` entries participate in STATE_CONTRACT. The other
+# entries are intentionally classified so agents do not promote flags, event
+# taxonomy, or type discriminators into user-facing lifecycle states.
+STATE_SURFACE_INVENTORY: Final[dict[str, dict[str, str]]] = {
+    **{
+        surface: _surface(
+            "canonical_lifecycle",
+            contract_surface=surface,
+            reason="raw persisted lifecycle/detail state with explicit allowed values",
+        )
+        for surface in STATE_CONTRACT
+    },
+    "control_flags.queue_paused": _surface("system_flag", operator_lane=OperatorLane.PAUSED, reason="global dispatch pause switch, not a per-project lifecycle"),
+    "control_flags.maintenance_mode": _surface("system_flag", operator_lane=OperatorLane.PAUSED, reason="global maintenance policy flag"),
+    "control_flags.pause_reason": _surface("provenance_text", operator_lane=OperatorLane.PAUSED, reason="pause explanation text; queue_paused is the state-bearing flag"),
+    "control_flags.paused_by": _surface("provenance_text", operator_lane=OperatorLane.PAUSED, reason="pause actor audit field"),
+    "queue_items.manual_review_required": _surface("attention_flag", operator_lane=OperatorLane.NEEDS_OPERATOR, reason="explicit operator-attention boolean that decorates queue status"),
+    "queue_items.auto_continue": _surface("system_flag", operator_lane=OperatorLane.RUNNING, reason="automation policy flag; lifecycle still comes from queue status"),
+    "queue_items.last_event_type": _surface("event_taxonomy", reason="last callback/event taxonomy for evidence only"),
+    "queue_items.next_action_hint": _surface("operator_hint", reason="planner hint; paper actionability is still derived from decision gate and paper ledgers"),
+    "queue_items.blocked_reason": _surface("diagnostic_context", operator_lane=OperatorLane.NEEDS_OPERATOR, reason="blocker explanation text, not a finite state vocabulary"),
+    "queue_items.last_error": _surface("diagnostic_context", operator_lane=OperatorLane.NEEDS_OPERATOR, reason="error explanation text, not a finite state vocabulary"),
+    "queue_items.last_result_summary": _surface("provenance_text", reason="worker result summary/provenance text"),
+    "runs.dispatch_mode": _surface("type_discriminator", reason="dispatch strategy/provenance, not lifecycle"),
+    "runs.current_activity": _surface("provenance_text", operator_lane=OperatorLane.RUNNING, reason="free-form worker activity label"),
+    "project_decisions.decision_type": _surface("type_discriminator", reason="decision record kind; paper polarity lives in decision_gate_state"),
+    "project_decisions.decision_summary": _surface("provenance_text", reason="human-readable decision summary; actionability lives in decision_gate_state"),
+    "project_decisions.artifact_path": _surface("provenance_text", reason="decision artifact provenance path"),
+    "papers.paper_type": _surface("type_discriminator", reason="artifact kind such as arxiv draft; paper lifecycle lives in paper_status"),
+    "publication_automation_items.decision_summary": _surface("provenance_text", reason="automation decision summary; lifecycle lives in automation_status"),
+    "idea_events.event_type": _surface("event_taxonomy", reason="Supabase-native idea workbench event taxonomy"),
+    "control_events.event_type": _surface("event_taxonomy", reason="append-only event taxonomy for audit/logging"),
+    "control_events.entity_type": _surface("event_taxonomy", reason="event target taxonomy for audit/logging"),
+    "operator_observations.status": _surface("projection_metadata", reason="health/observation status, not work lifecycle"),
+    "core_events.event_type": _surface("event_taxonomy", reason="Enoch core shadow/proposal event taxonomy"),
+    "core_snapshots.snapshot_type": _surface("type_discriminator", reason="snapshot/projection kind"),
+    "core_decisions.decision_key": _surface("type_discriminator", reason="domain decision lookup key; not a lifecycle state"),
+    "core_decisions.decision_type": _surface("type_discriminator", reason="core decision kind; domain-specific payload owns details"),
+    "core_projection_cache.projection_version": _surface("projection_metadata", reason="cache schema/version metadata"),
+}
+
+
 STATE_DISPOSITIONS: Final[set[str]] = {
     "keep",
     "alias",

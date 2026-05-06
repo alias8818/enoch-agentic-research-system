@@ -12,7 +12,13 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from omx_wake_gate.control_plane.state_contract import STATE_CONTRACT, STATE_DISPOSITIONS, STATE_REDUCTION_PLAN  # noqa: E402
+from omx_wake_gate.control_plane.state_contract import (  # noqa: E402
+    STATE_CONTRACT,
+    STATE_DISPOSITIONS,
+    STATE_LIKE_COLUMN_NAMES,
+    STATE_SURFACE_INVENTORY,
+    STATE_REDUCTION_PLAN,
+)
 
 MIGRATION_GLOBS = ("supabase/migrations/*.sql",)
 
@@ -33,6 +39,45 @@ def _migration_sql() -> str:
         for path in sorted(REPO_ROOT.glob(glob)):
             chunks.append(path.read_text(encoding="utf-8"))
     return "\n".join(chunks)
+
+
+def _migration_state_like_surfaces() -> set[str]:
+    """Return persisted schema columns that look state-bearing or state-adjacent.
+
+    This intentionally catches more than finite lifecycle states. The inventory
+    then classifies each surface as canonical lifecycle, flag, hint, provenance,
+    taxonomy, or projection metadata so future changes do not silently promote
+    raw metadata into operator-facing workflow states.
+    """
+
+    sql = _migration_sql()
+    surfaces: set[str] = set()
+    table_pattern = re.compile(
+        r"create\s+table\s+if\s+not\s+exists\s+enoch\.([a-z_]+)\s*\((.*?)\n\);",
+        re.IGNORECASE | re.DOTALL,
+    )
+    state_suffixes = ("_status", "_state", "_mode", "_type")
+    for match in table_pattern.finditer(sql):
+        table = match.group(1)
+        body = match.group(2)
+        for line in body.splitlines():
+            column_match = re.match(r"\s*([a-z_][a-z0-9_]*)\s+([a-z][a-z0-9_ ]*)", line, re.IGNORECASE)
+            if not column_match:
+                continue
+            column = column_match.group(1)
+            if column in {
+                "constraint",
+                "primary",
+                "foreign",
+                "unique",
+                "check",
+                "on",
+                "references",
+            }:
+                continue
+            if column in STATE_LIKE_COLUMN_NAMES or column.endswith(state_suffixes):
+                surfaces.add(f"{table}.{column}")
+    return surfaces
 
 
 def _validate_migrations() -> list[str]:
@@ -82,6 +127,46 @@ def _validate_reduction_plan() -> list[str]:
     return failures
 
 
+def _validate_surface_inventory() -> list[str]:
+    failures: list[str] = []
+    discovered = _migration_state_like_surfaces()
+    missing = discovered - set(STATE_SURFACE_INVENTORY)
+    extra_canonical = {
+        surface
+        for surface, decision in STATE_SURFACE_INVENTORY.items()
+        if decision.get("class") == "canonical_lifecycle" and surface not in STATE_CONTRACT
+    }
+    noncanonical_contract = {
+        surface
+        for surface, decision in STATE_SURFACE_INVENTORY.items()
+        if surface in STATE_CONTRACT and decision.get("class") != "canonical_lifecycle"
+    }
+    if missing:
+        failures.append(f"state surface inventory missing schema surfaces: {sorted(missing)}")
+    if extra_canonical:
+        failures.append(f"state surface inventory marks non-contract surfaces as canonical_lifecycle: {sorted(extra_canonical)}")
+    if noncanonical_contract:
+        failures.append(f"state surface inventory marks contract surfaces as non-canonical: {sorted(noncanonical_contract)}")
+    for surface, decision in sorted(STATE_SURFACE_INVENTORY.items()):
+        surface_class = str(decision.get("class") or "")
+        if surface_class not in {
+            "canonical_lifecycle",
+            "derived_operator",
+            "system_flag",
+            "attention_flag",
+            "operator_hint",
+            "diagnostic_context",
+            "provenance_text",
+            "type_discriminator",
+            "event_taxonomy",
+            "projection_metadata",
+        }:
+            failures.append(f"state surface inventory for {surface} has invalid class: {surface_class!r}")
+        if not str(decision.get("reason") or ""):
+            failures.append(f"state surface inventory for {surface} missing reason")
+    return failures
+
+
 def _live_distincts(database_url: str) -> dict[str, list[tuple[str, int]]]:
     import psycopg
 
@@ -107,7 +192,7 @@ def _live_distincts(database_url: str) -> dict[str, list[tuple[str, int]]]:
 
 
 def validate(*, database_url: str = "") -> dict[str, Any]:
-    failures = _validate_migrations() + _validate_reduction_plan()
+    failures = _validate_migrations() + _validate_reduction_plan() + _validate_surface_inventory()
     live: dict[str, Any] = {}
     if database_url:
         live = _live_distincts(database_url)
@@ -120,6 +205,7 @@ def validate(*, database_url: str = "") -> dict[str, Any]:
         "ok": not failures,
         "failures": failures,
         "contract": {surface: sorted(values) for surface, values in sorted(STATE_CONTRACT.items())},
+        "state_surface_inventory": STATE_SURFACE_INVENTORY,
         "reduction_plan": STATE_REDUCTION_PLAN,
         "live_distincts": live,
     }

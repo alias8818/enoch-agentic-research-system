@@ -2,51 +2,123 @@
 
 Status: active migration contract as of 2026-05-06.
 
-This document separates **raw persisted states** from the small **operator vocabulary**. Raw states exist so callbacks, historical imports, paper artifacts, and Supabase ledgers remain auditable. Operator views must not lead with those raw values unless the user opens evidence/debug details.
+Supabase owns the runtime ledger. The control plane keeps detailed raw states for callbacks, backfills, provenance, and audit, but users and agents should reason from a small deterministic operator model.
 
-## Operator vocabulary
+## What to trust
+
+Trust these surfaces in this order:
+
+1. **Dashboard operator lanes** for current action: what needs attention, what is running, what can be written, what can be finalized, what is ready to publish, and what is already imported.
+2. **`operator_dashboard_counts` / paper pipeline definitions** for aggregate counts. Do not replace them with ad hoc raw-status counts.
+3. **Raw state surfaces** only when debugging a row. Raw values explain evidence; they are not the user workflow.
+4. **`docs/state-reduction-audit.md`** for the generated raw-value disposition table. Do not hand-edit that audit unless regenerating it from `state_contract.py`.
+
+Do not trust `wake_ready`, `session_finished_ready`, `completed`, `draft_review`, or legacy review-like fields as standalone signals for paper work or publication readiness.
+
+## Derived operator lanes
 
 The dashboard and assistant should answer simple questions with these lanes:
 
-| Operator lane | Meaning | Primary source | User action |
-| --- | --- | --- | --- |
-| `ready_queue` | Work is eligible to dispatch when the system is unpaused. | `queue_items.status = queued` | None unless changing priority. |
-| `running` | Work is dispatching, running, or waiting for wake callback. | `queue_items.status`, wake-gate run records | Wait. |
-| `needs_operator` | A blocker, worker question, dispatch error, or explicit manual flag exists. | `queue_items.status`, `manual_review_required`, error/blocker fields | Resolve the blocker/question. |
-| `complete_no_paper` | Worker completed, but paper gate says no actionable positive paper. | `paper_eligibility`, project decisions | Select next project. |
-| `write_paper` | Worker completed and decision gate is positive with no existing paper. | `paper_eligibility.write_needed` | Run bounded/explicit paper drain only. |
-| `automate_publication` | A paper exists but automated finalization/package is not done. | `papers`, `publication_automation_items` | Let automation finalize; no paper approval step. |
-| `ready_to_publish` | Publication draft has finalized automation package. | `papers.paper_status = publication_draft` plus finalized package | Import/sync to public corpus if not already present. |
-| `published` | Corpus import ledger records the paper. | `corpus_imports` | No action. |
-| `paused` | Work intentionally held by maintenance/pause policy. | `control_flags`, queue row | Resume only after policy decision. |
-| `historical` | Old evidence row that is not live work or attention. | run/history ledgers | No action. |
-
-## Raw state surfaces
-
-The canonical raw state contract is code-owned in `omx_wake_gate/control_plane/state_contract.py` and schema-owned in `supabase/migrations/20260506165512_enoch_state_contract_constraints.sql`. The reduction/disposition table for every raw value is generated in `docs/state-reduction-audit.md`.
-
-| Surface | Meaning | Notes |
+| Operator lane | Meaning | User action |
 | --- | --- | --- |
-| `ideas.idea_status` | Supabase-native idea workbench state. | Provenance/triage only; execution state starts in `queue_items`. |
-| `projects.origin_idea_status` | Source idea status copied onto project records. | Provenance only; do not infer work status from it. |
-| `queue_items.status` | Control-plane project execution lane. | Primary persisted work queue state. |
-| `queue_items.last_run_state` | Last worker/callback/project evidence state. | Detail field, not operator lane. |
-| `runs.state` | Worker run lifecycle/import state. | Includes historical values such as `unknown` and `dispatch_accepted`. |
-| `runs.gate_state` | Wake-gate internal signal. | Detail field for debug/evidence. |
-| `project_decisions.decision_gate_state` | Paper-writing decision gate. | Only `positive` can count as `write_paper`. |
-| `papers.paper_status` | Paper artifact generation state. | Public readiness also needs finalized automation package. |
-| `publication_automation_items.automation_status` | Automated finalization/package state. | Replaces operator-facing paper approval language. Legacy review-like values remain internal for backfill parity. |
+| `ready_queue` | Work is eligible to dispatch when the system is unpaused. | None unless changing priority. |
+| `running` | Work is dispatching, running, writing, finalizing, or waiting for wake callback. | Wait. |
+| `needs_operator` | A blocker, worker question, dispatch/gate failure, manual-action flag, or automation blocker exists. | Resolve the blocker/question. |
+| `complete_no_paper` | Worker delivery is complete, but the paper decision gate is not actionable-positive. | Select the next project. |
+| `write_paper` | A completed run has no live paper row and passes the positive paper decision gate. | Run bounded/explicit paper drafting only. |
+| `automate_publication` | A paper exists and still needs automated rewrite/finalization/package work. | Let automation finalize or inspect artifacts if automation failed. |
+| `ready_to_publish` | A publication draft has a finalized automation package. | Import/sync to public corpus if not already present. |
+| `published` | Corpus import ledger records the paper. | No action. |
+| `paused` | Work is intentionally held by maintenance or policy. | Resume only after policy decision. |
+| `historical` | Terminal, provenance, debug, or imported evidence that is not current operator work. | No action. |
+
+These lanes are derived, not directly stored as the lifecycle source of truth.
+
+## Canonical lifecycle state surfaces
+
+The canonical raw state contract is code-owned in `omx_wake_gate/control_plane/state_contract.py` and schema-owned in the Supabase constraint migrations. These are the lifecycle-bearing state surfaces:
+
+| Surface | Lifecycle role | Operator rule |
+| --- | --- | --- |
+| `queue_items.status` | Primary project execution queue. | Use for dispatchable, active, paused, blocked, and terminal queue state. |
+| `runs.state` | Worker run lifecycle/import state. | Use for run evidence and callbacks; historical/import values stay debug-only. |
+| `queue_items.last_run_state` | Latest run/callback/detail copied onto the queue row. | Detail field; never treat it alone as an operator lane. |
+| `runs.gate_state` | Wake-gate internal signal. | Detail/debug field; `wake_ready` means delivery completed, not paper polarity. |
+| `papers.paper_status` | Paper artifact generation state. | A draft row is not publication-ready until automation finalization succeeds. |
+| `publication_automation_items.automation_status` | Automated publication/finalization/package state. | Use automation language; legacy review-like values are compatibility/internal only. |
+| `project_decisions.decision_gate_state` | Paper-writing decision gate. | Only `positive` can derive `write_paper`. |
+
+## Non-lifecycle flags, config, and provenance
+
+`state_contract.py` also inventories state-like columns that are **not** canonical lifecycle surfaces. Keep these classes out of the user workflow:
+
+| Class | Meaning | Operator treatment |
+| --- | --- | --- |
+| `system_flag` | Runtime policy/config switch. | Can pause or shape automation, but does not replace row lifecycle state. |
+| `attention_flag` | Boolean/manual marker for operator attention. | Decorates a lifecycle row as `needs_operator`; not a separate review process. |
+| `type_discriminator` | Record kind, artifact kind, dispatch mode, or snapshot kind. | Provenance/type metadata only. |
+| `event_taxonomy` | Append-only event/action names. | Audit/debug metadata only. |
+| `projection_metadata` | Observation health or cache/version metadata. | Dashboard/debug metadata only. |
+
+Common examples:
+
+| Surface | Type | How to use it |
+| --- | --- | --- |
+| `queue_items.manual_review_required` | Flag | Forces `needs_operator` until cleared; do not model it as a separate review workflow. |
+| `queue_items.blocked_reason` / `last_error` | Evidence fields | Explain why an item needs operator action. |
+| `queue_items.next_action_hint` | Hint | Helps derive paper drafting only with completed delivery and a positive decision gate. |
+| `control_flags` | Runtime config | Pause/maintenance policy; it can hold work but does not replace row lifecycle state. |
+| `ideas.idea_status` | Source/provenance | Intake provenance only after Supabase cutover. |
+| `projects.origin_idea_status` | Source/provenance | Copied source status; do not infer current work status from it. |
+| `corpus_imports` | Publication provenance | Import ledger for `published`; it is not a paper-writing or finalization state. |
+| `dashboard_observations` / telemetry | Observability | Freshness/debug evidence only; do not use as lifecycle truth. |
+
+## Paper decision gate
+
+`write_paper` is intentionally narrow:
+
+- The worker delivery must be complete.
+- There must be no live paper row for that project/run.
+- The current project decision gate must be `positive`.
+
+`negative`, `missing`, `malformed`, `unknown`, and ambiguous legacy decision values map to `complete_no_paper`. Raw completed/no-paper rows that fail the gate are informational, not a backlog of papers to write.
+
+## Publication automation
+
+Publication is a separate automation lane after a paper exists:
+
+| State question | Trust this |
+| --- | --- |
+| Is there a draft to finalize/package? | `papers.paper_status = publication_draft` without a finalized automation package. |
+| Is publication automation active or queued? | `publication_automation_items.automation_status in ('queued', 'claimed')`. |
+| Is the paper ready for corpus import? | `papers.paper_status = publication_draft` plus `publication_automation_items.automation_status = finalized` plus a finalization package path. |
+| Is it already public/corpus-imported? | `corpus_imports` ledger. |
+
+Avoid user-facing paper review/approval wording. Old values such as `draft_review`, `human_review_required`, `in_review`, `unreviewed`, `changes_requested`, and `approved_for_finalization` are compatibility or migration states, not the normal operator workflow.
+
+## Dashboard guidance
+
+The dashboard should lead with operator questions:
+
+- **What needs my attention?** `needs_operator` / `needs_attention`.
+- **What is running or queued?** `running` and `ready_queue`.
+- **What paper work is actionable?** `write_needed`, not raw completed/no-paper candidates.
+- **What needs automated finalization?** `finalize_needed` / `publication_automation_pending`.
+- **What is ready to publish?** finalized publication drafts only.
+- **What is already published?** corpus import ledger.
+
+Raw tables, raw statuses, and legacy labels belong in detail/debug drawers, not first-screen workflow language.
 
 ## Hard rules
 
 1. `write_needed` means actionable positive paper work only.
 2. Raw completed/no-paper candidates are informational and must not be presented as papers to write.
-3. Negative, missing, malformed, unknown, or needs-review project decisions are not writable.
+3. Negative, missing, malformed, unknown, or ambiguous project decisions are not writable.
 4. `wake_ready` means worker delivery completed; it does not mean the result was positive.
 5. Publication readiness means `publication_draft` plus finalized automation package, not a draft row by itself.
 6. Human/operator paper approval is not a normal workflow state. Use automated finalization/package wording.
 7. Notion/source idea status is provenance only now that Supabase owns the runtime ledger.
-8. New raw state strings require updating `state_contract.py`, the Supabase constraint migration, and `scripts/validate_state_contract.py` coverage.
+8. New raw state strings or new state-like persisted columns require updating `state_contract.py`, the Supabase constraint migration when applicable, `scripts/validate_state_contract.py` coverage, this document, and the parent release wiki at `/home/jeremy/Desktop/projects/enoch-release/.omx/wiki/state-model-contract.md`.
 
 ## Validation
 

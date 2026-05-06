@@ -5,6 +5,7 @@ from omx_wake_gate.control_plane.state_contract import (
     QUEUE_STATUSES,
     RUN_STATES,
     STATE_CONTRACT,
+    STATE_SURFACE_INVENTORY,
     STATE_REDUCTION_PLAN,
 )
 from scripts.validate_state_contract import validate
@@ -44,3 +45,12 @@ def test_state_reduction_plan_covers_every_raw_state_value() -> None:
         for value, decision in STATE_REDUCTION_PLAN[surface].items():
             assert decision["operator_lane"]
             assert decision["disposition"] in {"keep", "alias", "legacy_internal", "migrate_after_freeze"}
+
+
+def test_state_surface_inventory_classifies_non_lifecycle_signals() -> None:
+    for surface in STATE_CONTRACT:
+        assert STATE_SURFACE_INVENTORY[surface]["class"] == "canonical_lifecycle"
+    assert STATE_SURFACE_INVENTORY["queue_items.manual_review_required"]["class"] == "attention_flag"
+    assert STATE_SURFACE_INVENTORY["queue_items.next_action_hint"]["class"] == "operator_hint"
+    assert STATE_SURFACE_INVENTORY["control_events.event_type"]["class"] == "event_taxonomy"
+    assert STATE_SURFACE_INVENTORY["runs.dispatch_mode"]["class"] == "type_discriminator"
