@@ -174,7 +174,7 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
         "dry_runs": {
             "dispatch": dispatch_dry.body,
             "ideas_created": idea_dry.body.get("created") if isinstance(idea_dry.body, dict) else None,
-            "paper_review_backfill": review_backfill_dry.body,
+            "publication_automation_backfill": review_backfill_dry.body,
         },
         "timer_check": timer_check,
     }
