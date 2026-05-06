@@ -8,6 +8,7 @@ from omx_wake_gate.control_plane.state_contract import (
     STATE_SURFACE_INVENTORY,
     STATE_REDUCTION_PLAN,
 )
+from scripts.generate_state_reduction_audit import render
 from scripts.validate_state_contract import validate
 
 
@@ -54,3 +55,10 @@ def test_state_surface_inventory_classifies_non_lifecycle_signals() -> None:
     assert STATE_SURFACE_INVENTORY["queue_items.next_action_hint"]["class"] == "operator_hint"
     assert STATE_SURFACE_INVENTORY["control_events.event_type"]["class"] == "event_taxonomy"
     assert STATE_SURFACE_INVENTORY["runs.dispatch_mode"]["class"] == "type_discriminator"
+
+
+def test_generated_state_reduction_audit_includes_state_surface_inventory() -> None:
+    text = render(live={})
+    assert "## State-like surface inventory" in text
+    assert "`queue_items.manual_review_required` | `attention_flag`" in text
+    assert "`queue_items.status` | `canonical_lifecycle` | `queue_items.status`" in text

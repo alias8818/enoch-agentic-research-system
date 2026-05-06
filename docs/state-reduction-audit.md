@@ -35,6 +35,49 @@ Operator-facing surfaces should lead with the operator lane, not the raw value.
 5. Review/approval-like paper terms are compatibility/internal only; users see publication automation or artifact inspection.
 6. Idea/project source status is provenance. Runtime execution state lives in `queue_items`.
 
+## State-like surface inventory
+
+The schema also contains state-like flags, hints, event names, type discriminators, and provenance fields. These are classified here so they do not get promoted into lifecycle states by accident.
+
+| Surface | Class | Contract surface | Operator lane | Reason |
+| --- | --- | --- | --- | --- |
+| `control_events.entity_type` | `event_taxonomy` |  | `historical` | event target taxonomy for audit/logging |
+| `control_events.event_type` | `event_taxonomy` |  | `historical` | append-only event taxonomy for audit/logging |
+| `control_flags.maintenance_mode` | `system_flag` |  | `paused` | global maintenance policy flag |
+| `control_flags.pause_reason` | `provenance_text` |  | `paused` | pause explanation text; queue_paused is the state-bearing flag |
+| `control_flags.paused_by` | `provenance_text` |  | `paused` | pause actor audit field |
+| `control_flags.queue_paused` | `system_flag` |  | `paused` | global dispatch pause switch, not a per-project lifecycle |
+| `core_decisions.decision_key` | `type_discriminator` |  | `historical` | domain decision lookup key; not a lifecycle state |
+| `core_decisions.decision_type` | `type_discriminator` |  | `historical` | core decision kind; domain-specific payload owns details |
+| `core_events.event_type` | `event_taxonomy` |  | `historical` | Enoch core shadow/proposal event taxonomy |
+| `core_projection_cache.projection_version` | `projection_metadata` |  | `historical` | cache schema/version metadata |
+| `core_snapshots.snapshot_type` | `type_discriminator` |  | `historical` | snapshot/projection kind |
+| `idea_events.event_type` | `event_taxonomy` |  | `historical` | Supabase-native idea workbench event taxonomy |
+| `ideas.idea_status` | `canonical_lifecycle` | `ideas.idea_status` | `historical` | raw persisted lifecycle/detail state with explicit allowed values |
+| `operator_observations.status` | `projection_metadata` |  | `historical` | health/observation status, not work lifecycle |
+| `papers.paper_status` | `canonical_lifecycle` | `papers.paper_status` | `historical` | raw persisted lifecycle/detail state with explicit allowed values |
+| `papers.paper_type` | `type_discriminator` |  | `historical` | artifact kind such as arxiv draft; paper lifecycle lives in paper_status |
+| `project_decisions.artifact_path` | `provenance_text` |  | `historical` | decision artifact provenance path |
+| `project_decisions.decision_gate_state` | `canonical_lifecycle` | `project_decisions.decision_gate_state` | `historical` | raw persisted lifecycle/detail state with explicit allowed values |
+| `project_decisions.decision_summary` | `provenance_text` |  | `historical` | human-readable decision summary; actionability lives in decision_gate_state |
+| `project_decisions.decision_type` | `type_discriminator` |  | `historical` | decision record kind; paper polarity lives in decision_gate_state |
+| `projects.origin_idea_status` | `canonical_lifecycle` | `projects.origin_idea_status` | `historical` | raw persisted lifecycle/detail state with explicit allowed values |
+| `publication_automation_items.automation_status` | `canonical_lifecycle` | `publication_automation_items.automation_status` | `historical` | raw persisted lifecycle/detail state with explicit allowed values |
+| `publication_automation_items.decision_summary` | `provenance_text` |  | `historical` | automation decision summary; lifecycle lives in automation_status |
+| `queue_items.auto_continue` | `system_flag` |  | `running` | automation policy flag; lifecycle still comes from queue status |
+| `queue_items.blocked_reason` | `diagnostic_context` |  | `needs_operator` | blocker explanation text, not a finite state vocabulary |
+| `queue_items.last_error` | `diagnostic_context` |  | `needs_operator` | error explanation text, not a finite state vocabulary |
+| `queue_items.last_event_type` | `event_taxonomy` |  | `historical` | last callback/event taxonomy for evidence only |
+| `queue_items.last_result_summary` | `provenance_text` |  | `historical` | worker result summary/provenance text |
+| `queue_items.last_run_state` | `canonical_lifecycle` | `queue_items.last_run_state` | `historical` | raw persisted lifecycle/detail state with explicit allowed values |
+| `queue_items.manual_review_required` | `attention_flag` |  | `needs_operator` | explicit operator-attention boolean that decorates queue status |
+| `queue_items.next_action_hint` | `operator_hint` |  | `historical` | planner hint; paper actionability is still derived from decision gate and paper ledgers |
+| `queue_items.status` | `canonical_lifecycle` | `queue_items.status` | `historical` | raw persisted lifecycle/detail state with explicit allowed values |
+| `runs.current_activity` | `provenance_text` |  | `running` | free-form worker activity label |
+| `runs.dispatch_mode` | `type_discriminator` |  | `historical` | dispatch strategy/provenance, not lifecycle |
+| `runs.gate_state` | `canonical_lifecycle` | `runs.gate_state` | `historical` | raw persisted lifecycle/detail state with explicit allowed values |
+| `runs.state` | `canonical_lifecycle` | `runs.state` | `historical` | raw persisted lifecycle/detail state with explicit allowed values |
+
 ## Surface-by-surface audit
 
 ### `ideas.idea_status`

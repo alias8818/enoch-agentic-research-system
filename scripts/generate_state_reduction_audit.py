@@ -10,7 +10,12 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from omx_wake_gate.control_plane.state_contract import OPERATOR_LANE_DESCRIPTIONS, STATE_CONTRACT, STATE_REDUCTION_PLAN  # noqa: E402
+from omx_wake_gate.control_plane.state_contract import (  # noqa: E402
+    OPERATOR_LANE_DESCRIPTIONS,
+    STATE_CONTRACT,
+    STATE_REDUCTION_PLAN,
+    STATE_SURFACE_INVENTORY,
+)
 from scripts.validate_state_contract import validate  # noqa: E402
 
 
@@ -79,6 +84,29 @@ def render(*, live: dict[str, dict[str, int]]) -> str:
             "4. Publication readiness is `publication_draft` plus finalized publication automation package.",
             "5. Review/approval-like paper terms are compatibility/internal only; users see publication automation or artifact inspection.",
             "6. Idea/project source status is provenance. Runtime execution state lives in `queue_items`.",
+            "",
+            "## State-like surface inventory",
+            "",
+            "The schema also contains state-like flags, hints, event names, type discriminators, and provenance fields. "
+            "These are classified here so they do not get promoted into lifecycle states by accident.",
+            "",
+            "| Surface | Class | Contract surface | Operator lane | Reason |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
+    for surface, decision in sorted(STATE_SURFACE_INVENTORY.items()):
+        contract_surface = decision.get("contract_surface") or ""
+        lines.append(
+            "| `{}` | `{}` | {} | `{}` | {} |".format(
+                surface,
+                decision.get("class", ""),
+                f"`{contract_surface}`" if contract_surface else "",
+                decision.get("operator_lane", ""),
+                decision.get("reason", "").replace("|", "\\|"),
+            )
+        )
+    lines.extend(
+        [
             "",
             "## Surface-by-surface audit",
             "",
