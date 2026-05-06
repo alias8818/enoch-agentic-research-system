@@ -219,7 +219,7 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | `awaiting_wake` | 0 | `running` | `keep` |  | worker callback is expected |
 | `canceled` | 0 | `historical` | `keep` |  | terminal no-action state |
 | `cancelled` | 0 | `historical` | `alias` | `canceled` | British spelling alias |
-| `dispatch_accepted` | 3 | `running` | `legacy_internal` | `awaiting_wake or reconciled when superseded` | old dispatch bridge state |
+| `dispatch_accepted` | 0 | `running` | `legacy_internal` | `awaiting_wake or reconciled when superseded` | old dispatch bridge state |
 | `dispatch_error` | 0 | `needs_operator` | `keep` |  | dispatch failed |
 | `dispatching` | 0 | `running` | `keep` |  | dispatch request is in flight |
 | `gate_error` | 8 | `needs_operator` | `keep` |  | wake gate failed |
@@ -227,7 +227,7 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | `needs_review` | 0 | `needs_operator` | `migrate_after_freeze` | `gate_error` | legacy run attention wording |
 | `prepared` | 0 | `running` | `alias` | `dispatching` | pre-dispatch transient |
 | `question_pending` | 0 | `needs_operator` | `keep` |  | worker needs an answer |
-| `reconciled` | 0 | `historical` | `keep` |  | settled historical run |
+| `reconciled` | 3 | `historical` | `keep` |  | settled historical run |
 | `running` | 0 | `running` | `keep` |  | worker is active |
 | `session_finished_ready` | 0 | `historical` | `alias` | `wake_ready` | alternate delivery-complete callback |
 | `unknown` | 240 | `historical` | `legacy_internal` |  | imported run rows without reliable lifecycle evidence |
