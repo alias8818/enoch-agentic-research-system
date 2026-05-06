@@ -56,11 +56,11 @@ Operator-facing surfaces should lead with the operator lane, not the raw value.
 | `approved_for_corpus` | 0 | `published` | `legacy_internal` | `corpus import ledger` | old flattened public-import state |
 | `archived` | 0 | `historical` | `keep` |  | terminal no-action paper state |
 | `draft_generating` | 0 | `running` | `keep` |  | draft writer is active |
-| `draft_review` | 122 | `automate_publication` | `migrate_after_freeze` | `publication_draft` | legacy first-draft label; operator should see first draft or automation |
+| `draft_review` | 2 | `automate_publication` | `migrate_after_freeze` | `publication_draft` | legacy first-draft label; operator should see first draft or automation |
 | `eligible` | 0 | `write_paper` | `legacy_internal` | `draft_generating` | paper eligibility now lives in paper_eligibility/write_needed |
 | `finalized` | 0 | `ready_to_publish` | `legacy_internal` | `publication_draft + publication_automation.finalized` | old flattened paper readiness state |
 | `human_review_required` | 0 | `needs_operator` | `migrate_after_freeze` | `blocked` | manual paper review is not a normal workflow |
-| `publication_draft` | 374 | `automate_publication` | `keep` |  | publication readiness also requires finalized automation package |
+| `publication_draft` | 494 | `automate_publication` | `keep` |  | publication readiness also requires finalized automation package |
 | `publication_generating` | 0 | `running` | `keep` |  | publication rewrite/finalization is active |
 
 ### `project_decisions.decision_gate_state`
@@ -69,10 +69,10 @@ Operator-facing surfaces should lead with the operator lane, not the raw value.
 | --- | ---: | --- | --- | --- | --- |
 | `malformed` | 0 | `complete_no_paper` | `keep` |  | malformed decision is not writable |
 | `missing` | 0 | `complete_no_paper` | `keep` |  | missing decision is not writable |
-| `needs_review` | 51 | `complete_no_paper` | `migrate_after_freeze` | `unknown` | ambiguous decisions must not become paper work |
+| `needs_review` | 0 | `complete_no_paper` | `migrate_after_freeze` | `unknown` | ambiguous decisions must not become paper work |
 | `negative` | 63 | `complete_no_paper` | `keep` |  | not writable |
 | `positive` | 372 | `write_paper` | `keep` |  | only state allowed to create actionable write_needed |
-| `unknown` | 107 | `complete_no_paper` | `keep` |  | unknown decision is not writable |
+| `unknown` | 158 | `complete_no_paper` | `keep` |  | unknown decision is not writable |
 
 ### `projects.origin_idea_status`
 
@@ -113,21 +113,21 @@ Operator-facing surfaces should lead with the operator lane, not the raw value.
 | `dispatch_accepted` | 0 | `running` | `legacy_internal` | `awaiting_wake` | old dispatch bridge state |
 | `dispatch_error` | 0 | `needs_operator` | `keep` |  | dispatch failed |
 | `dispatching` | 0 | `running` | `keep` |  | dispatch request is in flight |
-| `gate_error` | 0 | `needs_operator` | `keep` |  | wake gate failed |
+| `gate_error` | 8 | `needs_operator` | `keep` |  | wake gate failed |
 | `gate_timeout` | 0 | `needs_operator` | `keep` |  | wake gate timed out |
 | `malformed` | 0 | `complete_no_paper` | `keep` |  | malformed decision is not writable |
 | `missing` | 0 | `complete_no_paper` | `keep` |  | missing decision is not writable |
-| `needs_review` | 8 | `needs_operator` | `migrate_after_freeze` | `gate_error` | legacy run attention wording |
+| `needs_review` | 0 | `needs_operator` | `migrate_after_freeze` | `gate_error` | legacy run attention wording |
 | `negative` | 0 | `complete_no_paper` | `keep` |  | not writable |
 | `positive` | 0 | `write_paper` | `keep` |  | only state allowed to create actionable write_needed |
 | `prepared` | 0 | `running` | `alias` | `dispatching` | pre-dispatch transient |
 | `question_pending` | 0 | `needs_operator` | `keep` |  | worker needs an answer |
 | `reconciled` | 0 | `historical` | `keep` |  | settled historical run |
 | `running` | 0 | `running` | `keep` |  | worker is active |
-| `session_finished_ready` | 1 | `historical` | `alias` | `wake_ready` | alternate delivery-complete callback |
+| `session_finished_ready` | 0 | `historical` | `alias` | `wake_ready` | alternate delivery-complete callback |
 | `unknown` | 0 | `historical` | `legacy_internal` |  | imported run rows without reliable lifecycle evidence |
 | `waiting_external_evidence` | 1 | `needs_operator` | `keep` |  | external/worker evidence is missing |
-| `wake_ready` | 474 | `historical` | `keep` |  | delivery signal only; not a paper-positive signal |
+| `wake_ready` | 475 | `historical` | `keep` |  | delivery signal only; not a paper-positive signal |
 
 ### `queue_items.status`
 
@@ -179,14 +179,14 @@ Operator-facing surfaces should lead with the operator lane, not the raw value.
 | `dispatch_accepted` | 3 | `running` | `legacy_internal` | `awaiting_wake` | old dispatch bridge state |
 | `dispatch_error` | 0 | `needs_operator` | `keep` |  | dispatch failed |
 | `dispatching` | 0 | `running` | `keep` |  | dispatch request is in flight |
-| `gate_error` | 0 | `needs_operator` | `keep` |  | wake gate failed |
+| `gate_error` | 8 | `needs_operator` | `keep` |  | wake gate failed |
 | `gate_timeout` | 0 | `needs_operator` | `keep` |  | wake gate timed out |
-| `needs_review` | 8 | `needs_operator` | `migrate_after_freeze` | `gate_error` | legacy run attention wording |
+| `needs_review` | 0 | `needs_operator` | `migrate_after_freeze` | `gate_error` | legacy run attention wording |
 | `prepared` | 0 | `running` | `alias` | `dispatching` | pre-dispatch transient |
 | `question_pending` | 0 | `needs_operator` | `keep` |  | worker needs an answer |
 | `reconciled` | 0 | `historical` | `keep` |  | settled historical run |
 | `running` | 0 | `running` | `keep` |  | worker is active |
-| `session_finished_ready` | 1 | `historical` | `alias` | `wake_ready` | alternate delivery-complete callback |
+| `session_finished_ready` | 0 | `historical` | `alias` | `wake_ready` | alternate delivery-complete callback |
 | `unknown` | 240 | `historical` | `legacy_internal` |  | imported run rows without reliable lifecycle evidence |
 | `waiting_external_evidence` | 1 | `needs_operator` | `keep` |  | external/worker evidence is missing |
-| `wake_ready` | 474 | `historical` | `keep` |  | delivery signal only; not a paper-positive signal |
+| `wake_ready` | 475 | `historical` | `keep` |  | delivery signal only; not a paper-positive signal |
