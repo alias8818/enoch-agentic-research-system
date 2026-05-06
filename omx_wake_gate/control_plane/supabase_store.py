@@ -703,28 +703,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
     def dispatch_next_dry_run(self, *, requested_by: str) -> tuple[str, dict[str, Any] | None, int | None, str]:
         flags = self.flags()
         if flags.queue_paused:
-            event_id, _ = self.append_event(
-                idempotency_key=f"dispatch-paused:{utc_now()}",
-                event_type="controller.dispatch_paused",
-                entity_type="control",
-                entity_id="queue",
-                payload={"requested_by": requested_by, "flags": flags.model_dump(mode="json")},
-            )
-            return "paused", None, event_id, flags.pause_reason or "queue paused"
+            return "paused", None, None, flags.pause_reason or "queue paused"
         active = self.active_items()
         if active:
             return "noop", None, None, "active GB10 lane already exists"
         candidate = self.next_dispatch_candidate()
         if not candidate:
             return "noop", None, None, "no queued candidate"
-        event_id, _ = self.append_event(
-            idempotency_key=f"dry-dispatch:{candidate['project_id']}:{utc_now()}",
-            event_type="controller.dry_run_dispatch",
-            entity_type="project",
-            entity_id=candidate["project_id"],
-            payload={"requested_by": requested_by, "candidate": candidate},
-        )
-        return "dry_run_dispatch", candidate, event_id, "dry-run dispatch selected candidate"
+        return "dry_run_dispatch", candidate, None, "dry-run dispatch selected candidate"
 
     def _paper_review_join_rows(self) -> list[dict[str, Any]]:
         return self._query(
@@ -831,8 +817,12 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
 
     def backfill_paper_reviews(self, request: PaperReviewBackfillRequest) -> tuple[bool, int, int, int, list[dict[str, Any]]]:
         audit_by_paper = _audit_rows(request.source_audit_path)
-        requested_paper_ids = {_text(paper_id) for paper_id in request.paper_ids if _text(paper_id)}
-        papers = [paper for paper in self.paper_rows() if not requested_paper_ids or _text(paper.get("paper_id")) in requested_paper_ids]
+        requested_paper_ids = sorted({_text(paper_id) for paper_id in request.paper_ids if _text(paper_id)})
+        if requested_paper_ids:
+            placeholders = ",".join(["%s"] * len(requested_paper_ids))
+            papers = self._paper_rows(f"where pa.paper_id in ({placeholders})", tuple(requested_paper_ids))
+        else:
+            papers = self.paper_rows()
         errors: list[dict[str, Any]] = []
         candidates: list[PaperReviewRecord] = []
         for paper in papers:

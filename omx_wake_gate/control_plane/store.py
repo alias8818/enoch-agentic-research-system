@@ -1638,16 +1638,14 @@ class ControlPlaneStore:
     def dispatch_next_dry_run(self, *, requested_by: str) -> tuple[str, dict[str, Any] | None, int | None, str]:
         flags = self.flags()
         if flags.queue_paused:
-            event_id, _ = self.append_event(idempotency_key=f"dispatch-paused:{utc_now()}", event_type="controller.dispatch_paused", entity_type="control", entity_id="queue", payload={"requested_by": requested_by, "flags": flags.model_dump(mode="json")})
-            return "paused", None, event_id, flags.pause_reason or "queue paused"
+            return "paused", None, None, flags.pause_reason or "queue paused"
         active = self.active_items()
         if active:
             return "noop", None, None, "active GB10 lane already exists"
         candidate = self.next_dispatch_candidate()
         if not candidate:
             return "noop", None, None, "no queued candidate"
-        event_id, _ = self.append_event(idempotency_key=f"dry-dispatch:{candidate['project_id']}:{utc_now()}", event_type="controller.dry_run_dispatch", entity_type="project", entity_id=candidate["project_id"], payload={"requested_by": requested_by, "candidate": candidate})
-        return "dry_run_dispatch", candidate, event_id, "dry-run dispatch selected candidate"
+        return "dry_run_dispatch", candidate, None, "dry-run dispatch selected candidate"
 
 
     def ingest_notion_ideas(self, request: NotionIntakeRequest) -> tuple[bool, int, int, int, list[dict[str, Any]], list[dict[str, Any]]]:

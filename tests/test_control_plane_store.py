@@ -33,10 +33,12 @@ class ControlPlaneStoreTests(unittest.TestCase):
             store.resume(resumed_by="test", maintenance_mode=False)
             self.assertFalse(store.flags().queue_paused)
             store.pause(reason="maintenance", paused_by="test", maintenance_mode=True)
+            before_events = len(store.recent_events(100))
             action, candidate, event_id, reason = store.dispatch_next_dry_run(requested_by="test")
             self.assertEqual(action, "paused")
             self.assertIsNone(candidate)
-            self.assertIsNotNone(event_id)
+            self.assertIsNone(event_id)
+            self.assertEqual(len(store.recent_events(100)), before_events)
             self.assertIn("maintenance", reason)
 
     def test_import_snapshot_is_idempotent_and_selects_candidate_after_resume(self) -> None:
@@ -61,9 +63,12 @@ class ControlPlaneStoreTests(unittest.TestCase):
             with self.assertRaises(IdempotencyConflict):
                 store.import_snapshot(payload.model_copy(update={"queue_rows": []}))
             store.resume(resumed_by="test", maintenance_mode=False)
-            action, candidate, _, _ = store.dispatch_next_dry_run(requested_by="test")
+            before_events = len(store.recent_events(100))
+            action, candidate, event_id, _ = store.dispatch_next_dry_run(requested_by="test")
             self.assertEqual(action, "dry_run_dispatch")
             self.assertEqual(candidate["project_id"], "idea-1")
+            self.assertIsNone(event_id)
+            self.assertEqual(len(store.recent_events(100)), before_events)
 
     def test_notion_intake_replay_does_not_rewrite_queue_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
