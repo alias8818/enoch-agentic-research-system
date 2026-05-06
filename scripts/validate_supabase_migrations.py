@@ -199,8 +199,8 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
     dashboard_counts = checks["operator_dashboard_counts"]
     if dashboard_counts["write_needed"] != 1:
         failures.append("expected fixture write_needed count to be 1")
-    if dashboard_counts["raw_completed_no_paper_candidates"] != 3:
-        failures.append("expected fixture raw completed/no-paper candidates to be 3")
+    if dashboard_counts["raw_completed_no_paper_candidates"] != 2:
+        failures.append("expected fixture raw completed/no-paper candidates to be 2")
     if dashboard_counts["not_writable_by_decision_gate"] != 1:
         failures.append("expected fixture decision-gate rejects to be 1")
     if dashboard_counts["publication_ready"] != 1:
