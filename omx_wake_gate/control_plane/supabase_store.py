@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from pathlib import Path
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -170,12 +171,28 @@ class SupabaseReadOnlyControlPlaneStore:
             if callable(close):
                 close()
 
+    @staticmethod
+    def _is_transient_connection_error(exc: Exception) -> bool:
+        text = f"{type(exc).__name__}: {exc}".lower()
+        return any(token in text for token in ("connection is lost", "connection to database closed", "edbhandlerexited", "server closed the connection"))
+
     def _query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
-        with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, tuple(params))
-                rows = cur.fetchall()
-        return [dict(row) for row in rows]
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                with self._connect() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(sql, tuple(params))
+                        rows = cur.fetchall()
+                return [dict(row) for row in rows]
+            except Exception as exc:
+                last_exc = exc
+                if attempt < 2 and self._is_transient_connection_error(exc):
+                    time.sleep(0.25 * (attempt + 1))
+                    continue
+                raise
+        assert last_exc is not None
+        raise last_exc
 
     def _one(self, sql: str, params: Sequence[Any] = ()) -> dict[str, Any] | None:
         rows = self._query(sql, params)
