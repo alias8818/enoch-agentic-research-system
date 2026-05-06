@@ -1426,8 +1426,12 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
                         values (%s,%s,%s,%s,%s,%s,%s,%s)
                         on conflict (project_id) do update set
-                          project_name=excluded.project_name, project_dir=excluded.project_dir, notion_page_url=excluded.notion_page_url,
-                          notion_page_id=excluded.notion_page_id, origin_idea_status=excluded.origin_idea_status, updated_at=excluded.updated_at
+                          project_name=excluded.project_name,
+                          project_dir=projects.project_dir,
+                          notion_page_url=coalesce(nullif(excluded.notion_page_url,''), projects.notion_page_url),
+                          notion_page_id=coalesce(nullif(excluded.notion_page_id,''), projects.notion_page_id),
+                          origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
+                          updated_at=excluded.updated_at
                         """,
                         (candidate["project_id"], candidate["project_name"], candidate["project_dir"], candidate["notion_page_url"], candidate["notion_page_id"], candidate["origin_idea_status"], now, now),
                     )
@@ -2009,9 +2013,12 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
                         values (%s,%s,%s,%s,%s,%s,%s,%s)
                         on conflict (project_id) do update set
-                          project_name=excluded.project_name, project_dir=excluded.project_dir,
-                          notion_page_url=excluded.notion_page_url, notion_page_id=excluded.notion_page_id,
-                          origin_idea_status=excluded.origin_idea_status, updated_at=excluded.updated_at
+                          project_name=excluded.project_name,
+                          project_dir=coalesce(nullif(projects.project_dir,''), excluded.project_dir),
+                          notion_page_url=coalesce(nullif(excluded.notion_page_url,''), projects.notion_page_url),
+                          notion_page_id=coalesce(nullif(excluded.notion_page_id,''), projects.notion_page_id),
+                          origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
+                          updated_at=excluded.updated_at
                         """,
                         (
                             project_id,

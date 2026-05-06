@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from omx_wake_gate.config import GateConfig
-from omx_wake_gate.control_plane.router import create_control_plane_router
+from omx_wake_gate.control_plane.router import _project_prompt, create_control_plane_router
 from omx_wake_gate.control_plane.store import ControlPlaneStore
 from omx_wake_gate.control_plane.models import WorkerPreflightCheck, WorkerPreflightResponse
 from omx_wake_gate.control_plane.worker_adapter import HttpResult
@@ -317,6 +317,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("/control/api/intake/ideas", response.text)
             self.assertIn("Supabase idea workbench", response.text)
             self.assertNotIn("Notion Intake", response.text)
+            self.assertNotIn(">Notion</a>", response.text)
+            self.assertIn(">Source</a>", response.text)
             self.assertIn("Recent activity", response.text)
             self.assertIn("System health", response.text)
             self.assertIn("All projects", response.text)
@@ -334,6 +336,17 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertNotIn("Recent event summaries", response.text)
             self.assertNotIn("source ${", response.text)
             self.assertNotIn("authority ${", response.text)
+
+    def test_project_prompt_uses_source_provenance_instead_of_notion_authority(self) -> None:
+        prompt = _project_prompt({
+            "project_id": "idea-source",
+            "project_name": "Source Prompt",
+            "notion_page_url": "https://source.example/idea-source",
+            "origin_idea_status": "testing",
+        })
+
+        self.assertIn("Source/provenance URL: https://source.example/idea-source", prompt)
+        self.assertNotIn("Notion URL:", prompt)
 
 
     def test_dashboard_status_contract_reports_config_and_missing_worker_observations(self) -> None:

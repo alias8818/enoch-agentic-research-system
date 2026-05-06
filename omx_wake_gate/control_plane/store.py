@@ -613,7 +613,15 @@ class ControlPlaneStore:
                     last_dispatch_at=_first_present(raw, "last_dispatch_at", "last_execution_update"), last_callback_at=raw.get("last_callback_at"), stale_after=raw.get("stale_after"), updated_at=_text(_first_present(raw, "updatedAt", "updated_at", "last_execution_update")) or utc_now(),
                 )
                 conn.execute(
-                    "INSERT OR REPLACE INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                    """INSERT INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+                    VALUES (?,?,?,?,?,?,?,?)
+                    ON CONFLICT(project_id) DO UPDATE SET
+                        project_name=excluded.project_name,
+                        project_dir=COALESCE(NULLIF(projects.project_dir,''), excluded.project_dir),
+                        notion_page_url=COALESCE(NULLIF(excluded.notion_page_url,''), projects.notion_page_url),
+                        notion_page_id=COALESCE(NULLIF(excluded.notion_page_id,''), projects.notion_page_id),
+                        origin_idea_status=COALESCE(NULLIF(excluded.origin_idea_status,''), projects.origin_idea_status),
+                        updated_at=excluded.updated_at""",
                     (project.project_id, project.project_name, project.project_dir, project.notion_page_url, project.notion_page_id, project.origin_idea_status, project.created_at, project.updated_at),
                 )
                 projects += 1
@@ -1723,7 +1731,15 @@ class ControlPlaneStore:
                     updated_at=now,
                 )
                 conn.execute(
-                    "INSERT OR REPLACE INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                    """INSERT INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+                    VALUES (?,?,?,?,?,?,?,?)
+                    ON CONFLICT(project_id) DO UPDATE SET
+                        project_name=excluded.project_name,
+                        project_dir=projects.project_dir,
+                        notion_page_url=COALESCE(NULLIF(excluded.notion_page_url,''), projects.notion_page_url),
+                        notion_page_id=COALESCE(NULLIF(excluded.notion_page_id,''), projects.notion_page_id),
+                        origin_idea_status=COALESCE(NULLIF(excluded.origin_idea_status,''), projects.origin_idea_status),
+                        updated_at=excluded.updated_at""",
                     (project.project_id, project.project_name, project.project_dir, project.notion_page_url, project.notion_page_id, project.origin_idea_status, project.created_at, project.updated_at),
                 )
                 if existed:
@@ -1823,7 +1839,13 @@ class ControlPlaneStore:
                     updated_at=now,
                 )
                 conn.execute(
-                    "INSERT OR REPLACE INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                    """INSERT INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+                    VALUES (?,?,?,?,?,?,?,?)
+                    ON CONFLICT(project_id) DO UPDATE SET
+                        project_name=excluded.project_name,
+                        project_dir=excluded.project_dir,
+                        origin_idea_status=excluded.origin_idea_status,
+                        updated_at=excluded.updated_at""",
                     (project.project_id, project.project_name, project.project_dir, "", "", project.origin_idea_status, project.created_at, project.updated_at),
                 )
                 if existed:

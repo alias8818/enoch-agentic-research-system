@@ -1,8 +1,8 @@
 # State simplification TODO
 
-Status: active next-phase backlog after the Supabase state-contract cleanup on 2026-05-06. State doctor command is implemented; corpus/publication/public-count reconciliation is clean across local corpus, GitHub public surfaces, and Hugging Face export.
+Status: active next-phase backlog after the Supabase state-contract cleanup on 2026-05-06. State doctor command is implemented; corpus/publication/public-count reconciliation is clean across local corpus, GitHub public surfaces, and Hugging Face export. Notion-runtime retirement is now guarded for primary UI wording and source-metadata overwrite safety.
 
-The current state model is coherent and live-clean. The next work is to finish the explicit transition map and continue retiring Notion-runtime assumptions.
+The current state model is coherent and live-clean. The next work is the final completion audit plus any remaining live deployment smoke for the Notion-runtime wording/metadata guard.
 
 ## 1. Operator dashboard polish
 
@@ -36,10 +36,10 @@ The current state model is coherent and live-clean. The next work is to finish t
 
 ## 4. Retire Notion assumptions
 
-- [ ] Make Supabase `ideas` the primary editable intake/workbench source of truth.
-- [ ] Keep Notion IDs/URLs as provenance only.
-- [ ] Rename primary UI/docs language away from Notion where it is no longer the runtime owner.
-- [ ] Audit import/re-ingest paths so source metadata cannot overwrite Supabase-owned runtime fields.
+- [x] Make Supabase `ideas` the primary editable intake/workbench source of truth.
+- [x] Keep Notion IDs/URLs as provenance only.
+- [x] Rename primary UI/docs language away from Notion where it is no longer the runtime owner.
+- [x] Audit import/re-ingest paths so source metadata cannot overwrite Supabase-owned runtime fields.
 
 ## 5. Add a state doctor command
 
@@ -61,7 +61,7 @@ The current state model is coherent and live-clean. The next work is to finish t
 2. Corpus/publication reconciliation. (done)
 3. Dashboard polish. (done)
 4. State transition map. (done)
-5. Notion-runtime retirement.
+5. Notion-runtime retirement. (code/tests done; final live smoke pending)
 
 ## Current known live baseline
 
@@ -136,3 +136,16 @@ Implemented on 2026-05-06:
 - Added `docs/state-transition-map.md` with the lifecycle `Idea -> Queue -> Run -> Decision -> Paper -> Publication -> Corpus`.
 - Documented source of truth, writer/owner, validation gate, invalid transitions, and operator lane for each transition.
 - Added `tests/test_state_transition_map.py` to lock decision-gate, publication-readiness, and operator-count invariants.
+
+## Notion-runtime retirement evidence
+
+Implemented on 2026-05-06:
+
+- Dashboard/source links now render as `Source` instead of `Notion`.
+- Worker project prompts now label retained URLs as `Source/provenance URL`.
+- SQLite and Supabase legacy Notion re-ingest paths preserve runtime-owned `project_dir` on conflict.
+- Supabase-native idea intake preserves existing source/provenance URLs instead of clearing them with blank Notion fields.
+- Snapshot imports retain existing provenance when incoming source URL/page ID fields are blank.
+- Regression evidence:
+  - `uv run pytest -q tests/test_control_plane_store.py::ControlPlaneStoreTests::test_notion_intake_preserves_existing_queue_routing_metadata tests/test_control_plane_store.py::ControlPlaneStoreTests::test_supabase_native_intake_preserves_existing_source_provenance tests/test_control_plane_store.py::ControlPlaneStoreTests::test_legacy_notion_reingest_preserves_runtime_project_dir tests/test_control_plane_router.py::ControlPlaneRouterTests::test_control_dashboard_html_is_served_without_token tests/test_control_plane_router.py::ControlPlaneRouterTests::test_project_prompt_uses_source_provenance_instead_of_notion_authority`
+  - `uv run pytest -q tests/test_supabase_runtime_cutover.py::test_supabase_legacy_notion_intake_preserves_runtime_project_dir`

@@ -1,4 +1,5 @@
 from typing import Any, Sequence
+import inspect
 
 from scripts.validate_supabase_runtime_cutover import compare
 
@@ -83,6 +84,13 @@ def test_supabase_runtime_store_exposes_dashboard_and_dispatch_methods() -> None
         "record_project_decision_gate",
     ):
         assert callable(getattr(store, method_name))
+
+
+def test_supabase_legacy_notion_intake_preserves_runtime_project_dir() -> None:
+    source = inspect.getsource(SupabaseControlPlaneStore.ingest_notion_ideas)
+
+    assert "project_dir=projects.project_dir" in source
+    assert "notion_page_url=coalesce(nullif(excluded.notion_page_url,''), projects.notion_page_url)" in source
 
 
 def test_project_decision_gate_state_classifies_mixed_as_unknown_not_writable() -> None:

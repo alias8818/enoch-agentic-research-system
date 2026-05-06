@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from omx_wake_gate.control_plane.models import (
+    IdeaIntakeRequest,
     ImportSnapshotRequest,
     NotionIntakeRequest,
     PaperReviewApproveFinalizationRequest,
@@ -145,6 +146,84 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(after["sandbox"], before["sandbox"])
             self.assertEqual(after["dispatch_priority"], 10)
             self.assertEqual(after["selection_rank"], 10)
+            self.assertEqual(after["project_dir"], before["project_dir"])
+
+    def test_supabase_native_intake_preserves_existing_source_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            project_id = "00000000000040008000000000000004"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="seed-native-preserve-provenance",
+                    queue_rows=[{
+                        "project_id": project_id,
+                        "project_name": "Preserve Provenance",
+                        "project_dir": "preserve-provenance",
+                        "status": "queued",
+                        "notion_page_url": "https://source.example/preserve-provenance",
+                        "notion_page_id": "source-page-id",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            before = store.queue_row(project_id)
+
+            inserted, created, updated, *_ = store.ingest_ideas(
+                IdeaIntakeRequest(
+                    idempotency_key="native-preserve-provenance",
+                    dry_run=False,
+                    ideas=[{
+                        "idea_id": project_id,
+                        "title": "Preserve Provenance Renamed",
+                        "idea_status": "exploring",
+                        "priority": "High",
+                    }],
+                )
+            )
+            after = store.queue_row(project_id)
+
+            self.assertTrue(inserted)
+            self.assertEqual((created, updated), (0, 1))
+            self.assertEqual(after["notion_page_url"], before["notion_page_url"])
+            self.assertEqual(after["notion_page_id"], before["notion_page_id"])
+            self.assertEqual(after["project_name"], "Preserve Provenance Renamed")
+
+    def test_legacy_notion_reingest_preserves_runtime_project_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            project_id = "00000000000040008000000000000005"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="seed-notion-preserve-project-dir",
+                    queue_rows=[{
+                        "project_id": project_id,
+                        "project_name": "Preserve Project Dir",
+                        "project_dir": "/runtime/projects/preserve-project-dir",
+                        "status": "queued",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            before = store.queue_row(project_id)
+
+            inserted, created, updated, *_ = store.ingest_notion_ideas(
+                NotionIntakeRequest(
+                    idempotency_key="notion-preserve-project-dir",
+                    dry_run=False,
+                    notion_rows=[{
+                        "id": "00000000-0000-4000-8000-000000000005",
+                        "property_idea": "Preserve Project Dir From Notion",
+                        "property_status": "testing",
+                        "url": "https://www.notion.so/Preserve-Project-Dir-00000000000040008000000000000005",
+                    }],
+                )
+            )
+            after = store.queue_row(project_id)
+
+            self.assertTrue(inserted)
+            self.assertEqual((created, updated), (0, 1))
+            self.assertEqual(after["project_dir"], before["project_dir"])
+            self.assertEqual(after["notion_page_url"], "https://www.notion.so/Preserve-Project-Dir-00000000000040008000000000000005")
 
     def test_notion_intake_preserves_active_queue_routing_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
