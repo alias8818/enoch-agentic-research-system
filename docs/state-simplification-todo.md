@@ -2,18 +2,18 @@
 
 Status: active next-phase backlog after the Supabase state-contract cleanup on 2026-05-06. State doctor command is implemented; corpus/publication/public-count reconciliation is clean across local corpus, GitHub public surfaces, and Hugging Face export.
 
-The current state model is coherent and live-clean. The next work is to make the operator experience even simpler: actions first, raw states only as drill-down evidence.
+The current state model is coherent and live-clean. The next work is to finish the explicit transition map and continue retiring Notion-runtime assumptions.
 
 ## 1. Operator dashboard polish
 
-- [ ] Rework overview cards around grade-school operator questions:
+- [x] Rework overview cards around grade-school operator questions:
   - What needs me?
   - What is running?
   - What can be written?
   - What can be published?
   - What is done / no paper?
-- [ ] Hide raw state/detail fields by default and keep them in debug/detail drawers only.
-- [ ] Keep paper cards tied to `paper_pipeline.write_needed`, `finalize_needed`, and `publish_ready`, not raw paper statuses.
+- [x] Hide raw state/detail fields by default and keep them in debug/detail drawers only.
+- [x] Keep paper cards tied to `paper_pipeline.write_needed`, `finalize_needed`, and `publish_ready`, not raw paper statuses.
 
 ## 2. State transition map
 
@@ -59,7 +59,7 @@ The current state model is coherent and live-clean. The next work is to make the
 
 1. State doctor command. (done)
 2. Corpus/publication reconciliation. (done)
-3. Dashboard polish.
+3. Dashboard polish. (done)
 4. State transition map.
 5. Notion-runtime retirement.
 
@@ -113,3 +113,17 @@ Last verified on 2026-05-06 after publishing `aliasocracy/enoch-ai-research-corp
 - `dataset_summary.artifact_count`: `495`
 - `dataset_summary.strict_claim_evidence_total_count`: `495`
 - `data/artifacts.jsonl` rows: `495`
+
+## Dashboard polish evidence
+
+Implemented on 2026-05-06:
+
+- Overview now starts with `What do I need to know?` cards:
+  - `What needs me?`
+  - `What is running?`
+  - `What can be written?`
+  - `What can be published?`
+  - `What is done / no paper?`
+- Raw completed/no-paper and decision-gate rejection counts moved into `Debug paper counts` drill-down.
+- Paper pipeline primary cards remain derived from `paper_pipeline.write_needed`, `paper_pipeline.finalize_needed`, and `paper_pipeline.publish_ready`.
+- Regression evidence: `uv run pytest -q tests/test_control_plane_operator_status.py tests/test_control_plane_router.py`.
