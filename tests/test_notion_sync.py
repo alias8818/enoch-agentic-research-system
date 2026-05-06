@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import unittest
+from urllib import error
 
 from omx_wake_gate.control_plane.notion_sync import (
     HttpResponse,
@@ -12,6 +13,7 @@ from omx_wake_gate.control_plane.notion_sync import (
     notion_update_properties,
     query_notion_database,
     run_sync,
+    _json_request,
 )
 
 
@@ -55,6 +57,38 @@ class FakeTransport:
 
 
 class NotionSyncTests(unittest.TestCase):
+    def test_json_request_retries_transient_url_errors(self) -> None:
+        calls = {"count": 0}
+
+        def opener(req, timeout):  # noqa: ANN001
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise error.URLError("timed out")
+
+            class Response:
+                status = 200
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_args):
+                    return None
+
+                def read(self):
+                    return b'{"ok": true}'
+
+            return Response()
+
+        from unittest import mock
+
+        with mock.patch("omx_wake_gate.control_plane.notion_sync.request.urlopen", opener), mock.patch(
+            "omx_wake_gate.control_plane.notion_sync.time.sleep", lambda _seconds: None
+        ), mock.patch.dict("os.environ", {"ENOCH_NOTION_HTTP_TIMEOUT_SEC": "1", "ENOCH_NOTION_HTTP_ATTEMPTS": "2"}):
+            response = _json_request("GET", "https://example.test", {}, None)
+
+        self.assertEqual(response.body, {"ok": True})
+        self.assertEqual(calls["count"], 2)
+
     def test_normalizes_notion_page_properties(self) -> None:
         row = normalize_notion_page({
             "id": "page-1",

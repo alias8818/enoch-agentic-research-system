@@ -63,6 +63,7 @@ print(json.dumps({"status": "warn", "payload": json.loads(os.environ["RESULT_JSO
 PY
 )"
     curl -fsS -X POST \
+      --max-time "${ENOCH_NOTION_OBSERVATION_TIMEOUT_SEC:-10}" \
       -H "Authorization: Bearer $CONTROL_TOKEN" \
       -H "Content-Type: application/json" \
       "$CONTROL_URL/control/api/intake/notion-observation" \
@@ -141,6 +142,7 @@ print(json.dumps({"status": "warn", "payload": json.loads(os.environ["RESULT_JSO
 PY2
 )"
 curl -fsS -X POST \
+  --max-time "${ENOCH_NOTION_OBSERVATION_TIMEOUT_SEC:-10}" \
   -H "Authorization: Bearer $CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
   "$CONTROL_URL/control/api/intake/notion-observation" \

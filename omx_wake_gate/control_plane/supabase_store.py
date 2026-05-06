@@ -482,6 +482,7 @@ class SupabaseReadOnlyControlPlaneStore:
         for row in rows:
             item = dict(row)
             item["payload"] = self._payload(item.pop("payload_json"))
+            item["created_at"] = str(item.get("created_at") or "")
             item.pop("payload_hash", None)
             out.append(item)
         return out

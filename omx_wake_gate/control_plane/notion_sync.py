@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 import sys
 from dataclasses import dataclass
+from socket import timeout as SocketTimeout
 from typing import Any, Callable
 from urllib import error, request
 
@@ -28,14 +30,26 @@ Transport = Callable[[str, str, dict[str, str], dict[str, Any] | None], HttpResp
 def _json_request(method: str, url: str, headers: dict[str, str], payload: dict[str, Any] | None) -> HttpResponse:
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     req = request.Request(url, data=data, method=method, headers=headers)
-    try:
-        with request.urlopen(req, timeout=30) as resp:
-            raw = resp.read().decode("utf-8")
-            return HttpResponse(status=resp.status, body=json.loads(raw) if raw else {})
-    except error.HTTPError as exc:  # pragma: no cover - exercised by integration use
-        raw = exc.read().decode("utf-8")
-        detail = raw or exc.reason
-        raise NotionSyncError(f"{method} {url} failed with {exc.code}: {detail}") from exc
+    timeout_seconds = float(os.environ.get("ENOCH_NOTION_HTTP_TIMEOUT_SEC", "60"))
+    max_attempts = max(1, int(os.environ.get("ENOCH_NOTION_HTTP_ATTEMPTS", "3")))
+    last_exc: BaseException | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with request.urlopen(req, timeout=timeout_seconds) as resp:
+                raw = resp.read().decode("utf-8")
+                return HttpResponse(status=resp.status, body=json.loads(raw) if raw else {})
+        except error.HTTPError as exc:  # pragma: no cover - exercised by integration use
+            raw = exc.read().decode("utf-8")
+            detail = raw or exc.reason
+            if exc.code < 500 or attempt >= max_attempts:
+                raise NotionSyncError(f"{method} {url} failed with {exc.code}: {detail}") from exc
+            last_exc = exc
+        except (TimeoutError, SocketTimeout, error.URLError) as exc:  # pragma: no cover - exercised by integration use
+            if attempt >= max_attempts:
+                raise NotionSyncError(f"{method} {url} failed after {attempt} attempts: {exc}") from exc
+            last_exc = exc
+        time.sleep(min(2 ** (attempt - 1), 5))
+    raise NotionSyncError(f"{method} {url} failed after {max_attempts} attempts: {last_exc}")
 
 
 def notion_headers(token: str) -> dict[str, str]:
