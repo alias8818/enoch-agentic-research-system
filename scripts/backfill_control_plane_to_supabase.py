@@ -120,7 +120,7 @@ def decision_gate_state(gate: dict[str, Any]) -> str:
     if "could not" in reason or "malformed" in reason:
         return "malformed"
     if any(token in decision or token in reason for token in ("needs_review", "inconclusive", "caveat", "conditional")):
-        return "needs_review"
+        return "unknown"
     if any(token in decision or token in reason for token in ("negative", "reject", "not positive", "nonpositive", "non_positive")):
         return "negative"
     return "unknown"

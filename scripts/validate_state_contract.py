@@ -77,7 +77,7 @@ def _validate_reduction_plan() -> list[str]:
                 failures.append(f"state reduction plan for {surface}.{value} has invalid disposition: {disposition!r}")
             if not lane:
                 failures.append(f"state reduction plan for {surface}.{value} missing operator_lane")
-            if disposition in {"alias", "migrate_after_freeze"} and not replacement and value not in {"needs_review"}:
+            if disposition in {"alias", "migrate_after_freeze"} and not replacement:
                 failures.append(f"state reduction plan for {surface}.{value} disposition={disposition} needs replacement")
     return failures
 

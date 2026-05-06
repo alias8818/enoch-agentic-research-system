@@ -81,7 +81,7 @@ def test_supabase_runtime_store_exposes_dashboard_and_dispatch_methods() -> None
         assert callable(getattr(store, method_name))
 
 
-def test_project_decision_gate_state_classifies_mixed_as_needs_review() -> None:
+def test_project_decision_gate_state_classifies_mixed_as_unknown_not_writable() -> None:
     gate = {
         "eligible": False,
         "reason": "project decision lacks positive draft signal",
@@ -91,7 +91,7 @@ def test_project_decision_gate_state_classifies_mixed_as_needs_review() -> None:
         ],
     }
 
-    assert _decision_gate_state(gate) == "needs_review"
+    assert _decision_gate_state(gate) == "unknown"
     assert _decision_summary(gate) == "continue (project decision lacks positive draft signal)"
 
 
