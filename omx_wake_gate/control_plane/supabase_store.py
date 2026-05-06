@@ -86,7 +86,24 @@ def _decision_gate_state(gate: dict[str, Any]) -> str:
 
 
 def _decision_summary(gate: dict[str, Any]) -> str:
-    return _text(gate.get("decision")) or _text(gate.get("reason"))
+    reason = _text(gate.get("reason"))
+    decision = _text(gate.get("decision"))
+    if not decision:
+        for item in gate.get("values") or []:
+            if isinstance(item, (list, tuple)) and len(item) >= 3 and _text(item[1]) in {
+                "project_decision",
+                "decision",
+                "verdict",
+                "outcome",
+                "recommendation",
+                "status",
+                "hypothesis_status",
+            }:
+                decision = _text(item[2])
+                break
+    if decision and reason:
+        return f"{decision} ({reason})"
+    return decision or reason
 
 
 class ReadOnlyStoreError(RuntimeError):
