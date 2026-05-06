@@ -21,6 +21,8 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
+from omx_wake_gate.enoch_core.logic import paper_draft_decision_gate
+
 HASH_RE = re.compile(r"^[a-f0-9]{64}$")
 DOMAIN_TABLES = (
     "operator_observations",
@@ -84,6 +86,73 @@ def execute_many(cur: Any, sql: str, params: Iterable[Sequence[Any]]) -> int:
     return count
 
 
+def decision_file_candidates(project: dict[str, Any], project_roots: Sequence[Path]) -> list[Path]:
+    candidates: list[Path] = []
+    project_dir = str(project.get("project_dir") or "").strip()
+    project_id = str(project.get("project_id") or "").strip()
+    names = [value for value in (project_dir, project_id) if value]
+    for name in names:
+        path = Path(name).expanduser()
+        if path.is_absolute():
+            candidates.append(path)
+    for root in project_roots:
+        expanded = root.expanduser()
+        for name in names:
+            if name:
+                candidates.append(expanded / name)
+    seen: set[str] = set()
+    result: list[Path] = []
+    for candidate in candidates:
+        key = str(candidate)
+        if key not in seen:
+            seen.add(key)
+            result.append(candidate)
+    return result
+
+
+def decision_gate_state(gate: dict[str, Any]) -> str:
+    if gate.get("eligible") is True:
+        return "positive"
+    reason = str(gate.get("reason") or "").lower()
+    decision = str(gate.get("decision") or "").lower()
+    if "missing" in reason:
+        return "missing"
+    if "could not" in reason or "malformed" in reason:
+        return "malformed"
+    if any(token in decision or token in reason for token in ("needs_review", "inconclusive", "caveat", "conditional")):
+        return "needs_review"
+    if any(token in decision or token in reason for token in ("negative", "reject", "not positive", "nonpositive", "non_positive")):
+        return "negative"
+    return "unknown"
+
+
+def load_project_decisions(projects: list[dict[str, Any]], queue_by_project: dict[str, dict[str, Any]], project_roots: Sequence[Path]) -> list[dict[str, Any]]:
+    decisions: list[dict[str, Any]] = []
+    if not project_roots:
+        return decisions
+    for project in projects:
+        project_id = str(project.get("project_id") or "")
+        if not project_id:
+            continue
+        queue_row = queue_by_project.get(project_id, {})
+        for root in decision_file_candidates(project, project_roots):
+            gate = paper_draft_decision_gate(root)
+            if gate.get("values") or gate.get("reason") != "missing project decision artifact":
+                payload = {"gate": gate, "project_root": str(root)}
+                decisions.append({
+                    "project_id": project_id,
+                    "run_id": str(queue_row.get("current_run_id") or "") or None,
+                    "decision_gate_state": decision_gate_state(gate),
+                    "decision_summary": str(gate.get("decision") or gate.get("reason") or ""),
+                    "artifact_path": str(root / ".omx" / "project_decision.json") if (root / ".omx" / "project_decision.json").exists() else str(root / "project_decision.json"),
+                    "payload_json": json_text(payload, {}),
+                    "payload_hash": stable_hash(payload),
+                    "decided_at": project.get("updated_at") or queue_row.get("updated_at"),
+                })
+                break
+    return decisions
+
+
 def import_sqlite_to_postgres(
     *,
     sqlite_path: Path,
@@ -91,6 +160,7 @@ def import_sqlite_to_postgres(
     apply: bool,
     reset_target: bool,
     observation_limit: int,
+    project_roots: Sequence[Path] = (),
 ) -> dict[str, Any]:
     if reset_target and not apply:
         raise ValueError("--reset-target requires --apply so dry-run cannot erase then roll back misleadingly")
@@ -132,6 +202,8 @@ def import_sqlite_to_postgres(
         sqlite_conn.close()
 
     run_ids = {str(row.get("run_id") or "") for row in run_rows if row.get("run_id")}
+    queue_by_project = {str(row.get("project_id") or ""): row for row in queue_rows}
+    decision_rows = load_project_decisions(project_rows, queue_by_project, project_roots)
 
     imported: dict[str, int] = {
         "projects": 0,
@@ -139,6 +211,7 @@ def import_sqlite_to_postgres(
         "runs": 0,
         "papers": 0,
         "publication_automation_items": 0,
+        "project_decisions": 0,
         "control_events": 0,
         "operator_observations": 0,
     }
@@ -294,6 +367,30 @@ def import_sqlite_to_postgres(
                 ),
             )
 
+            imported["project_decisions"] = execute_many(
+                cur,
+                """
+                insert into project_decisions(project_id, run_id, decision_type, decision_gate_state,
+                  decision_summary, artifact_path, payload_json, payload_hash, decided_at)
+                values (%s,%s,'project_outcome',%s,%s,%s,%s::jsonb,%s,%s)
+                on conflict (project_id, run_id, decision_type) do update set
+                  decision_gate_state=excluded.decision_gate_state,
+                  decision_summary=excluded.decision_summary,
+                  artifact_path=excluded.artifact_path,
+                  payload_json=excluded.payload_json,
+                  payload_hash=excluded.payload_hash,
+                  decided_at=excluded.decided_at
+                """,
+                (
+                    (
+                        row["project_id"], row["run_id"] if row["run_id"] in run_ids else None,
+                        row["decision_gate_state"], row["decision_summary"], row["artifact_path"],
+                        row["payload_json"], row["payload_hash"], row["decided_at"],
+                    )
+                    for row in decision_rows
+                ),
+            )
+
             imported["publication_automation_items"] = execute_many(
                 cur,
                 """
@@ -370,6 +467,7 @@ def import_sqlite_to_postgres(
                     union all select 'queue_items', count(*) from queue_items
                     union all select 'runs', count(*) from runs
                     union all select 'papers', count(*) from papers
+                    union all select 'project_decisions', count(*) from project_decisions
                     union all select 'publication_automation_items', count(*) from publication_automation_items
                     union all select 'control_events', count(*) from control_events
                     union all select 'operator_observations', count(*) from operator_observations
@@ -403,6 +501,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--apply", action="store_true", help="Commit the backfill transaction. Default is dry-run rollback.")
     parser.add_argument("--reset-target", action="store_true", help="Truncate target domain tables before import. Requires --apply.")
     parser.add_argument("--observation-limit", type=int, default=5000, help="Latest observations to import; 0 skips, -1 imports all. Default: 5000")
+    parser.add_argument("--project-root", action="append", type=Path, default=[], help="Base directory used to resolve project_dir/project_id decision artifacts; may be repeated")
     parser.add_argument("--output", type=Path, help="Optional JSON report path")
     return parser.parse_args(argv)
 
@@ -418,6 +517,7 @@ def main(argv: list[str] | None = None) -> int:
         apply=args.apply,
         reset_target=args.reset_target,
         observation_limit=args.observation_limit,
+        project_roots=args.project_root,
     )
     text = json.dumps(result, indent=2, sort_keys=True)
     if args.output:

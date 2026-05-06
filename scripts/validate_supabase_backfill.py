@@ -52,7 +52,7 @@ def pg_url(container: str) -> str:
     return f"postgresql://postgres:postgres@127.0.0.1:{port}/postgres"
 
 
-def sqlite_fixture(path: Path) -> None:
+def sqlite_fixture(path: Path, project_root: Path) -> None:
     ControlPlaneStore(path)
     with sqlite3.connect(path) as conn:
         conn.executescript(
@@ -75,12 +75,15 @@ def sqlite_fixture(path: Path) -> None:
             ("paused for Supabase migration", NOW, "validator", NOW),
         )
         projects = [
-            ("proj-final", "Finalized Paper"),
-            ("proj-approved", "Approved For Finalization"),
-            ("proj-rejected", "Rejected Paper"),
-            ("proj-negative", "Negative No Paper"),
+            ("proj-final", "Finalized Paper", "finalize_positive"),
+            ("proj-approved", "Approved For Finalization", "promising_continue"),
+            ("proj-rejected", "Rejected Paper", "negative_result"),
+            ("proj-negative", "Negative No Paper", "negative_result"),
         ]
-        for project_id, name in projects:
+        for project_id, name, decision in projects:
+            decision_dir = project_root / project_id / ".omx"
+            decision_dir.mkdir(parents=True, exist_ok=True)
+            (decision_dir / "project_decision.json").write_text(json.dumps({"decision": decision}) + "\n", encoding="utf-8")
             conn.execute(
                 """
                 insert into projects(project_id, project_name, project_dir, notion_page_url, notion_page_id,
@@ -153,7 +156,8 @@ def main() -> int:
     container = f"enoch-supabase-backfill-{secrets.token_hex(4)}"
     with tempfile.TemporaryDirectory() as tmp:
         sqlite_path = Path(tmp) / "control.sqlite3"
-        sqlite_fixture(sqlite_path)
+        project_root = Path(tmp) / "projects"
+        sqlite_fixture(sqlite_path, project_root)
         try:
             run([
                 "docker", "run", "--name", container, "-e", "POSTGRES_PASSWORD=postgres",
@@ -163,7 +167,7 @@ def main() -> int:
             apply_migrations(container)
             url = pg_url(container)
 
-            dry = import_sqlite_to_postgres(sqlite_path=sqlite_path, database_url=url, apply=False, reset_target=False, observation_limit=-1)
+            dry = import_sqlite_to_postgres(sqlite_path=sqlite_path, database_url=url, apply=False, reset_target=False, observation_limit=-1, project_roots=[project_root])
             import psycopg
             with psycopg.connect(url) as conn:
                 with conn.cursor() as cur:
@@ -172,7 +176,7 @@ def main() -> int:
             if persisted != 0:
                 raise AssertionError(f"dry-run persisted target rows: projects={persisted}")
 
-            applied = import_sqlite_to_postgres(sqlite_path=sqlite_path, database_url=url, apply=True, reset_target=True, observation_limit=-1)
+            applied = import_sqlite_to_postgres(sqlite_path=sqlite_path, database_url=url, apply=True, reset_target=True, observation_limit=-1, project_roots=[project_root])
             counts = applied["target_counts_in_transaction"]
             expected = {
                 "projects": 4,
@@ -180,6 +184,7 @@ def main() -> int:
                 "runs": 4,
                 "papers": 3,
                 "publication_automation_items": 3,
+                "project_decisions": 4,
                 "control_events": 1,
                 "operator_observations": 1,
             }
