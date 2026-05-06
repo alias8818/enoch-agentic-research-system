@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,7 +13,7 @@ from fastapi.testclient import TestClient
 from omx_wake_gate.config import GateConfig
 from omx_wake_gate.control_plane.router import _project_prompt, create_control_plane_router
 from omx_wake_gate.control_plane.store import ControlPlaneStore
-from omx_wake_gate.control_plane.models import WorkerPreflightCheck, WorkerPreflightResponse
+from omx_wake_gate.control_plane.models import ImportSnapshotRequest, PaperReviewBackfillRequest, WorkerPreflightCheck, WorkerPreflightResponse
 from omx_wake_gate.control_plane.worker_adapter import HttpResult
 
 
@@ -1452,6 +1453,53 @@ class ControlPlaneRouterTests(unittest.TestCase):
             event_types = {row["event_type"] for row in events}
             self.assertIn("paper_review.draft_rewritten", event_types)
             self.assertIn("paper_review.finalization_package_prepared", event_types)
+
+    def test_paper_review_rewrite_accepts_supabase_datetime_paper_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            paper_id = "router-rewrite-datetime:run-1:arxiv_draft"
+            audit_path = Path(tmp) / "audit.json"
+            audit_path.write_text(json.dumps({"papers": [{"paper_id": paper_id, "ready": True}]}), encoding="utf-8")
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="router-rewrite-datetime-import",
+                    paper_rows=[{
+                        "paper_id": paper_id,
+                        "project_id": "router-rewrite-datetime",
+                        "project_name": "Router Rewrite Datetime",
+                        "project_dir": "router-rewrite-datetime",
+                        "run_id": "run-1",
+                        "paper_status": "publication_draft",
+                        "draft_markdown_path": "papers/run-1/final_paper.md",
+                        "draft_latex_path": "papers/run-1/final_paper.tex",
+                        "evidence_bundle_path": "papers/run-1/evidence.json",
+                        "claim_ledger_path": "papers/run-1/claims.json",
+                        "manifest_path": "papers/run-1/manifest.json",
+                    }],
+                )
+            )
+            store.backfill_paper_reviews(PaperReviewBackfillRequest(idempotency_key="router-rewrite-datetime-backfill", source_audit_path=str(audit_path), dry_run=False))
+            original_paper_row = store.paper_row
+
+            def paper_row_with_datetimes(pid: str) -> dict | None:
+                row = original_paper_row(pid)
+                if row:
+                    row["generated_at"] = datetime(2026, 5, 6, 21, 4, 30, tzinfo=timezone.utc)
+                    row["updated_at"] = datetime(2026, 5, 6, 21, 4, 30, tzinfo=timezone.utc)
+                return row
+
+            with patch.object(store, "paper_row", side_effect=paper_row_with_datetimes):
+                response = client.post(f"/control/api/paper-reviews/{paper_id}/rewrite-draft", headers=headers, json={
+                    "idempotency_key": "router-rewrite-datetime-1",
+                    "requested_by": "alice",
+                    "force": True,
+                })
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["item"]["review_status"], "finalized")
 
     def test_paper_artifact_endpoint_resolves_relative_project_dir_under_configured_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

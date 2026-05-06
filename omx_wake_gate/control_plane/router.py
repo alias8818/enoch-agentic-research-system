@@ -810,6 +810,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             return sorted(rows, key=lambda row: int(row.get(key) or 0), reverse=reverse)
         return rows
 
+    def _paper_record_from_row(row: dict[str, Any]) -> PaperRecord:
+        data = dict(row)
+        for key in ("generated_at", "updated_at"):
+            value = data.get(key)
+            if isinstance(value, datetime):
+                data[key] = value.isoformat()
+        return PaperRecord.model_validate(data)
+
     def _paginate(rows: list[dict[str, Any]], *, page: int, page_size: int) -> tuple[list[dict[str, Any]], int, int]:
         safe_page = max(1, page)
         safe_size = max(1, min(page_size, 500))
@@ -1583,7 +1591,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         evidence_sync = _sync_remote_project_evidence(config, project_id=project_id, artifact_root=artifact_root, source_project_dir=source_project_dir if source_project_dir and source_project_dir.startswith("/") and not use_current_dir else "", source_run_id=str(paper.get("run_id") or ""))
         if config.paper_evidence_sync_enabled and not _local_paper_evidence_present(artifact_root):
             raise HTTPException(status_code=424, detail={"message": "paper rewrite requires synced project evidence", "evidence_sync": evidence_sync})
-        record = PaperRecord.model_validate(paper).model_copy(update={"paper_status": PaperStatus.PUBLICATION_DRAFT, "updated_at": utc_now()})
+        record = _paper_record_from_row(paper).model_copy(update={"paper_status": PaperStatus.PUBLICATION_DRAFT, "updated_at": utc_now()})
         candidate = {
             "project_id": project_id,
             "project_name": str((project or paper or item).get("project_name") or project_id),
