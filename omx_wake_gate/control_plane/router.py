@@ -521,14 +521,19 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         }, event_id, updated_candidate
 
     def state_response() -> ControlStateResponse:
-        rows = store.queue_rows()
-        paper_rows = store.paper_rows()
-        candidates = eligible_paper_draft_candidates(rows, paper_rows)
+        # Legacy /control/state must stay bounded and operator-safe. Paper-writing
+        # eligibility is exposed by /control/api/v1/overview.paper_pipeline, not
+        # mixed into the dispatch candidate slot here. This keeps the state
+        # endpoint focused on pause flags, queue counts, active work, and the
+        # next dispatchable queue row.
+        counts = store.queue_counts_sql() if hasattr(store, "queue_counts_sql") else store.status_counts()
+        paper_counts = store.paper_counts_sql() if hasattr(store, "paper_counts_sql") else {}
+        queue_total = counts.get("all", 0)
         return ControlStateResponse(
             flags=store.flags(),
-            counts={**store.status_counts(), "papers": len(paper_rows), "queue_total": len(rows)},
+            counts={**counts, "papers": int(paper_counts.get("all", 0)), "queue_total": int(queue_total)},
             active_items=store.active_items(),
-            next_candidate=draft_candidate_payload(candidates[0]) if candidates else store.next_dispatch_candidate(),
+            next_candidate=store.next_dispatch_candidate(),
             recent_events=store.recent_events(10),
         )
 

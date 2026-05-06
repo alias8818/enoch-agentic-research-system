@@ -154,6 +154,8 @@ class SupabaseReadOnlyControlPlaneStore:
         conn = self._connect_factory()
         try:
             with conn.cursor() as cur:
+                cur.execute("set statement_timeout to '45s'")
+                cur.execute("set idle_in_transaction_session_timeout to '30s'")
                 cur.execute("set search_path to enoch, public")
             yield conn
             conn.commit()

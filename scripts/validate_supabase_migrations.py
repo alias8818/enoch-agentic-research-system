@@ -19,6 +19,9 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from scripts.validate_state_contract import validate as validate_state_contract
 DEFAULT_IMAGE = "postgres:17-alpine"
 
 
@@ -285,7 +288,12 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         """,
     )
 
+    state_contract = validate_state_contract()
+    checks["state_contract"] = state_contract
+
     failures: list[str] = []
+    if not state_contract.get("ok"):
+        failures.append(f"state contract validation failed: {state_contract.get('failures')}")
     if checks["enoch_base_tables"] < 15:
         failures.append("expected at least 15 enoch base tables including Enoch core Supabase tables")
     if checks["enoch_views"] < 2:

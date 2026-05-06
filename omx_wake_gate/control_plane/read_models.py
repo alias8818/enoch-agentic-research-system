@@ -8,14 +8,17 @@ from typing import Any
 
 from omx_wake_gate.enoch_core.logic import draft_candidate_payload, eligible_paper_draft_candidates, paper_draft_decision_gate
 
-from .models import PaperStatus, QueueStatus, ReviewStatus, RunState
+from .models import PaperStatus, QueueStatus
+from .state_contract import (
+    ACTIVE_QUEUE_STATUSES,
+    ATTENTION_QUEUE_STATUSES,
+    DRAFT_PAPER_STATUSES,
+    PAPER_DRAFT_NEXT_ACTION,
+    PUBLICATION_READY_AUTOMATION_STATUSES,
+    WAKE_GATE_COMPLETION_STATES,
+)
 
-WAKE_GATE_COMPLETION_STATES = {RunState.WAKE_READY.value, RunState.SESSION_FINISHED_READY.value}
-PAPER_DRAFT_NEXT_ACTION = "draft_paper_or_select_next_project"
-ACTIVE_QUEUE_STATUSES = {QueueStatus.DISPATCHING.value, QueueStatus.RUNNING.value, QueueStatus.AWAITING_WAKE.value, QueueStatus.WAKE_RECEIVED.value, QueueStatus.RECONCILING.value}
-ATTENTION_QUEUE_STATUSES = {QueueStatus.BLOCKED.value, QueueStatus.NEEDS_REVIEW.value, QueueStatus.DISPATCH_ERROR.value}
-DRAFT_PAPER_STATUSES = {PaperStatus.DRAFT_REVIEW.value, PaperStatus.DRAFT_GENERATING.value, PaperStatus.PUBLICATION_GENERATING.value, PaperStatus.HUMAN_REVIEW_REQUIRED.value}
-READY_REVIEW_STATUSES = {ReviewStatus.FINALIZED.value}
+READY_REVIEW_STATUSES = PUBLICATION_READY_AUTOMATION_STATUSES
 # Paper review rows are an automation lane, not an operator-approval lane.
 # Queue blockers/questions still require operator attention; publication drafts should
 # flow through rewrite/finalization automatically unless explicitly rejected.

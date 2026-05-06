@@ -854,6 +854,11 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "idempotency_key": "run-callback-draft:wake_ready:test",
             })
             self.assertEqual(response.status_code, 200)
+            state_after_import = client.get("/control/state", headers=headers).json()
+            self.assertIsNone(state_after_import["next_candidate"])
+            self.assertEqual(state_after_import["counts"]["queue_total"], 1)
+            self.assertEqual(state_after_import["counts"]["papers"], 0)
+
             draft = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
             self.assertEqual(draft.status_code, 200)
             self.assertEqual(draft.json()["action"], "drafted")
