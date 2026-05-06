@@ -529,6 +529,9 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertIn("operators.ready_queue", html)
             self.assertIn("Publication drafts", html)
             self.assertNotIn("Publication-ready drafts", html)
+            self.assertIn("publication_draft:'Publication draft'", html)
+            self.assertIn("['publication_draft','archived']", html)
+            self.assertIn("['queued','claimed','blocked','finalized','deferred','rejected']", html)
 
 
 if __name__ == "__main__":
