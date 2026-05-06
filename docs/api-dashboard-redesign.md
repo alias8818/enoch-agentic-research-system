@@ -32,7 +32,7 @@ Keep command APIs stable and explicit:
 - dispatch-next;
 - worker-callback;
 - Supabase-native idea intake;
-- paper draft/review/finalization mutations;
+- paper draft/publication-automation/finalization mutations;
 - preflight/alerts.
 
 Add a bounded, versioned dashboard read API:
@@ -87,7 +87,7 @@ Primary navigation:
 1. **Overview** — Controller, GB10, Queue, Paper lane, Supabase intake, Memory, and one “needs attention” list.
 2. **Work Queue** — paginated projects with status, priority, last state, next action, and age.
 3. **GB10 / Wake Gate** — active lane, quiet-window/callback status, attention items, and bounded history.
-4. **Papers** — draft/review/finalized lanes and artifact status, with raw artifacts hidden by default.
+4. **Papers** — first-draft/publication-automation/finalized lanes and artifact status, with raw artifacts hidden by default.
 5. **Events** — bounded searchable audit log with summaries first and payloads expandable.
 6. **Observability** — memory trend, request latency, response sizes, route errors, and restart evidence.
 

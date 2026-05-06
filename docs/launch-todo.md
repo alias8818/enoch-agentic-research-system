@@ -52,12 +52,12 @@ Required follow-up:
 - [x] Update paper draft eligibility so completed wake-gate runs with `next_action_hint = draft_paper_or_select_next_project` and sufficient evidence/artifacts are draft candidates; keep the old `last_run_state = finalize_positive` path.
 - [x] Add automated paper recovery without starving drafts, then disable it by default: draft-next now requires explicit opt-in (`ENOCH_ENABLE_PAPER_DRAFT_NEXT=1`), the dedicated timer is not installed by default, and the queue pump leaves paper drafting off unless `queue_pump_paper_draft_enabled` is true.
 - [ ] Backfill paper drafts for completed no-paper projects produced after the LangGraph cutover, preserving evidence sync, claim ledger, manifest, and publication-policy metadata.
-- [x] Connect the publication/rewrite workflow to newly drafted papers, including targeted review backfill and GLM-5.1/Synthetic.new rewrite where configured.
+- [x] Connect the publication/rewrite workflow to newly drafted papers, including targeted publication-automation backfill and GLM-5.1/Synthetic.new rewrite where configured.
 - [x] Add regression tests proving a `worker_callback.wake_ready` completion becomes paper-draft eligible, existing papers prevent duplicate drafts, draft-only automation is opt-in and never dispatches, and the queue pump only drafts before dispatch when explicitly enabled.
 
 ## Follow-up quality work
 
-- [ ] Pick 10-15 strongest papers for deeper external-style review and summary cards.
+- [ ] Pick 10-15 strongest papers for deeper external-style inspection and summary cards.
 - [ ] Add per-paper “why this is interesting” summaries to the corpus index.
 - [ ] Add a reproducibility note explaining what artifacts are included and what private runtime state is intentionally excluded.
 - [ ] Track public feedback as GitHub issues and convert useful critiques into queue items.
