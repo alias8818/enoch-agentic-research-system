@@ -95,6 +95,8 @@ def _decision_summary_from_gate(gate: dict[str, Any] | None) -> str:
         return ""
     decision = _text(gate.get("decision"))
     reason = _text(gate.get("reason"))
+    if gate.get("source") == "supabase_project_decisions" and decision:
+        return decision
     if decision and reason:
         return f"{decision} ({reason})"
     return decision or reason
