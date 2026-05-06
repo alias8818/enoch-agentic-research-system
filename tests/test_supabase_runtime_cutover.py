@@ -12,6 +12,8 @@ def test_compare_accepts_matching_operator_counts_and_safe_pause() -> None:
         "flags": {"queue_paused": True, "maintenance_mode": True},
         "state_counts": {"queue_total": 482},
         "paper_counts": {"all": 496},
+        "enoch_core": {"store_backend": "sqlite", "db_path": "/tmp/enoch_core.sqlite3"},
+        "enoch_core": {"store_backend": "supabase", "db_path": "supabase"},
     }
     supabase = {
         "write_needed": 0,
@@ -19,7 +21,7 @@ def test_compare_accepts_matching_operator_counts_and_safe_pause() -> None:
         "not_writable_by_decision_gate": 215,
         "publication_ready": 371,
         "needs_attention": 9,
-        "table_counts": {"queue_items": 482, "papers": 496},
+        "table_counts": {"queue_items": 482, "papers": 496, "core_events": 0, "core_snapshots": 0},
     }
 
     result = compare(live, supabase)
@@ -57,6 +59,8 @@ def test_compare_rejects_mixed_ledgers_and_unpaused_runtime() -> None:
     assert any("queue_paused" in failure for failure in result.failures)
     assert any("queue_items count is lower" in failure for failure in result.failures)
     assert any("papers count does not match" in failure for failure in result.failures)
+    assert any("enoch-core store_backend" in failure for failure in result.failures)
+    assert any("Enoch core tables are missing" in failure for failure in result.failures)
 
 
 def test_supabase_runtime_store_exposes_dashboard_and_dispatch_methods() -> None:

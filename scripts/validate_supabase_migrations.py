@@ -190,6 +190,16 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
 
         insert into enoch.publication_automation_items(paper_id, automation_status, finalization_package_path) values
           ('paper-existing', 'finalized', 'package.json');
+
+        with inserted_event as (
+          insert into enoch.core_events(idempotency_key, event_type, source, payload_json, payload_hash)
+          values ('fixture-core-snapshot', 'n8n.queue_snapshot', 'migration-validator', '{"ok":true}'::jsonb, 'fixture-hash')
+          returning id
+        )
+        insert into enoch.core_snapshots(idempotency_key, snapshot_type, event_id, source, payload_json)
+        select 'fixture-core-snapshot', 'n8n_queue', id, 'migration-validator',
+               '{"idempotency_key":"fixture-core-snapshot","queue_rows":[{"project_id":"core-fixture"}],"paper_rows":[]}'::jsonb
+        from inserted_event;
         """,
     )
 
@@ -259,14 +269,25 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
               )
             )
             from enoch.ideas
+          ),
+          'enoch_core_contract', (
+            select jsonb_build_object(
+              'event_count', (select count(*) from enoch.core_events),
+              'snapshot_count', (select count(*) from enoch.core_snapshots),
+              'latest_project_id', (
+                select payload_json #>> '{queue_rows,0,project_id}'
+                from enoch.core_snapshots
+                where idempotency_key = 'fixture-core-snapshot'
+              )
+            )
           )
         );
         """,
     )
 
     failures: list[str] = []
-    if checks["enoch_base_tables"] < 11:
-        failures.append("expected at least 11 enoch base tables")
+    if checks["enoch_base_tables"] < 15:
+        failures.append("expected at least 15 enoch base tables including Enoch core Supabase tables")
     if checks["enoch_views"] < 2:
         failures.append("expected at least 2 enoch views")
     if checks["public_base_tables"] != 0:
@@ -299,6 +320,11 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         failures.append("native ideas migration did not backfill project-only rows")
     if native_ideas.get("workbench_rows") != 2:
         failures.append("idea_workbench must expose both native ideas fixture rows")
+    enoch_core = checks["enoch_core_contract"] or {}
+    if enoch_core.get("event_count") != 1 or enoch_core.get("snapshot_count") != 1:
+        failures.append("Enoch core Supabase tables must accept one shadow event and one snapshot")
+    if enoch_core.get("latest_project_id") != "core-fixture":
+        failures.append("Enoch core Supabase snapshot payload did not preserve queue rows")
 
     return {
         "ok": not failures,

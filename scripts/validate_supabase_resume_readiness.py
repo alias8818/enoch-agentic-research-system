@@ -85,6 +85,7 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
     health = _request("GET", f"{base}/control/health", token)
     state = _request("GET", f"{base}/control/state", token)
     overview = _request("GET", f"{base}/control/api/v1/overview", token)
+    core_health = _request("GET", f"{base}/enoch-core/health", token)
     ideas = _request("GET", f"{base}/control/api/intake/ideas", token)
     workbench = _request("GET", f"{base}/control/projections/ideas/workbench", token)
     legacy_intake = _request("GET", f"{base}/control/api/intake/notion", token)
@@ -107,6 +108,7 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
         ("health", health),
         ("state", state),
         ("overview", overview),
+        ("enoch-core health", core_health),
         ("ideas intake dashboard", ideas),
         ("ideas workbench", workbench),
         ("dispatch dry-run", dispatch_dry),
@@ -119,6 +121,8 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
 
     if health.status == 200 and health.body.get("store_backend") != "supabase":
         failures.append(f"health store_backend={health.body.get('store_backend')!r}, expected 'supabase'")
+    if core_health.status == 200 and core_health.body.get("store_backend") != "supabase":
+        failures.append(f"enoch-core store_backend={core_health.body.get('store_backend')!r}, expected 'supabase'")
     flags = state.body.get("flags") if isinstance(state.body, dict) else {}
     if not flags.get("queue_paused") or not flags.get("maintenance_mode"):
         failures.append(f"runtime is not safely paused for migration: flags={flags}")
@@ -163,6 +167,7 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
         "health": {"status": health.status, "body": health.body},
         "state_flags": flags,
         "paper_pipeline": pipeline,
+        "enoch_core": {"status": core_health.status, "store_backend": core_health.body.get("store_backend") if isinstance(core_health.body, dict) else "", "db_path": core_health.body.get("db_path") if isinstance(core_health.body, dict) else ""},
         "ideas": {"status": ideas.status, "authority": ideas.body.get("authority") if isinstance(ideas.body, dict) else ""},
         "workbench_rows": len(workbench.body.get("rows") or []) if isinstance(workbench.body, dict) else 0,
         "legacy": {"intake_status": legacy_intake.status, "projection_status": legacy_projection.status},

@@ -73,9 +73,12 @@ New deployments should use the Supabase-backed ideas API rather than Notion sync
 ```json
 {
   "control_plane_store_backend": "supabase",
+  "enoch_core_store_backend": "control_plane",
   "supabase_database_url": "set-from-root-only-env",
   "legacy_notion_api_enabled": false
 }
 ```
+
+`enoch_core_store_backend` defaults to `control_plane`, so `/enoch-core/*` shadow/proposal snapshots follow the control-plane backend: SQLite in local legacy configs, Supabase when `control_plane_store_backend` is `supabase` or `supabase_readonly`. Pin it to `sqlite` only for isolated tests.
 
 `legacy_notion_api_enabled` defaults to `false`. Leave it disabled unless you are deliberately running a one-off historical compatibility import in a quarantined environment. Live Notion tokens, database IDs, and sync timers are not part of the supported runtime path.

@@ -6,6 +6,7 @@ from typing import Callable
 from fastapi import APIRouter, Header, HTTPException, Query
 
 from ..config import GateConfig
+from ..control_plane.supabase_store import resolve_supabase_database_url
 from .logic import (
     draft_candidate_payload,
     eligible_paper_draft_candidates,
@@ -22,6 +23,7 @@ from .models import (
     SnapshotIngestResponse,
 )
 from .store import EnochCoreStore, IdempotencyConflict
+from .supabase_store import SupabaseEnochCoreStore
 
 RequireBearer = Callable[[str | None], None]
 
@@ -35,8 +37,16 @@ def _mode_from_env(default: EnochCoreMode = "shadow") -> EnochCoreMode:
 
 def create_enoch_core_router(config: GateConfig, require_bearer: RequireBearer) -> APIRouter:
     router = APIRouter(prefix="/enoch-core", tags=["enoch-core"])
-    db_path = config.expanded_state_dir / "enoch_core.sqlite3"
-    store = EnochCoreStore(db_path)
+    local_db_path = config.expanded_state_dir / "enoch_core.sqlite3"
+    backend = config.enoch_core_store_backend
+    if backend == "control_plane":
+        backend = "supabase" if config.control_plane_store_backend in {"supabase", "supabase_readonly"} else "sqlite"
+    if backend == "supabase":
+        store = SupabaseEnochCoreStore(resolve_supabase_database_url(config.supabase_database_url))
+        store_path = "supabase"
+    else:
+        store = EnochCoreStore(local_db_path)
+        store_path = str(local_db_path)
 
     def authorize(authorization: str | None) -> None:
         require_bearer(authorization)
@@ -50,7 +60,7 @@ def create_enoch_core_router(config: GateConfig, require_bearer: RequireBearer) 
     @router.get("/health", response_model=HealthResponse)
     def health(authorization: str | None = Header(default=None)) -> HealthResponse:
         authorize(authorization)
-        return HealthResponse(mode=current_mode(), db_path=str(db_path))
+        return HealthResponse(mode=current_mode(), db_path=store_path, store_backend=backend)
 
     @router.post("/snapshots/n8n-queue", response_model=SnapshotIngestResponse)
     def ingest_n8n_queue_snapshot(

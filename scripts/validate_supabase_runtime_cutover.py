@@ -75,6 +75,8 @@ def _supabase_counts(database_url: str) -> dict[str, Any]:
                   union all select 'project_decisions', count(*)::int from project_decisions
                   union all select 'publication_automation_items', count(*)::int from publication_automation_items
                   union all select 'control_events', count(*)::int from control_events
+                  union all select 'core_events', count(*)::int from core_events
+                  union all select 'core_snapshots', count(*)::int from core_snapshots
                 ) counts
                 """
             ).fetchone()["counts"]
@@ -87,6 +89,7 @@ def _live_counts(control_url: str, token: str) -> dict[str, Any]:
     base = control_url.rstrip("/")
     overview = _get_json(f"{base}/control/api/v1/overview", token)
     state = _get_json(f"{base}/control/state", token)
+    core_health = _get_json(f"{base}/enoch-core/health", token)
     pipeline = overview.get("paper_pipeline") or {}
     operator_counts = overview.get("operator_counts") or {}
     return {
@@ -99,6 +102,7 @@ def _live_counts(control_url: str, token: str) -> dict[str, Any]:
         "state_counts": state.get("counts") or {},
         "overview_counts": overview.get("counts") or {},
         "paper_counts": overview.get("paper_counts") or {},
+        "enoch_core": {"store_backend": core_health.get("store_backend"), "db_path": core_health.get("db_path")},
     }
 
 
@@ -112,11 +116,15 @@ def compare(live: dict[str, Any], supabase: dict[str, Any], *, require_safe_paus
         for key, expected in EXPECTED_SAFE_FLAGS.items():
             if bool(flags.get(key)) is not expected:
                 failures.append(f"live safety flag {key}={flags.get(key)!r}, expected {expected!r}")
+    if (live.get("enoch_core") or {}).get("store_backend") != "supabase":
+        failures.append(f"enoch-core store_backend={(live.get('enoch_core') or {}).get('store_backend')!r}, expected 'supabase'")
     table_counts = supabase.get("table_counts") or {}
     if int(table_counts.get("queue_items") or 0) < int((live.get("state_counts") or {}).get("queue_total") or 0):
         failures.append("supabase queue_items count is lower than live queue_total")
     if int(table_counts.get("papers") or 0) != int((live.get("paper_counts") or {}).get("all") or 0):
         failures.append("supabase papers count does not match live paper_counts.all")
+    if "core_events" not in table_counts or "core_snapshots" not in table_counts:
+        failures.append("Supabase Enoch core tables are missing from the runtime schema")
     return CutoverCheck(ok=not failures, failures=failures, live=live, supabase=supabase)
 
 

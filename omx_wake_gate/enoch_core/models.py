@@ -71,4 +71,5 @@ class HealthResponse(BaseModel):
     service: str = "enoch_core"
     mode: EnochCoreMode = "shadow"
     db_path: str
+    store_backend: str = "sqlite"
     timestamp: str = Field(default_factory=utc_now)

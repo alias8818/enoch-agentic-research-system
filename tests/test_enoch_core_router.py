@@ -108,3 +108,59 @@ class EnochCoreRouterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class EnochCoreSupabaseBackendRoutingTests(unittest.TestCase):
+    def test_control_plane_backend_can_route_enoch_core_to_supabase(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = GateConfig(
+                state_dir=tmp,
+                project_root=tmp,
+                dispatch_script_path=str(Path(tmp) / "dispatch.sh"),
+                omx_inbound_bearer_token="secret",
+                completion_callback_url="http://127.0.0.1/callback",
+                completion_callback_token="callback-token",
+                control_plane_store_backend="supabase",
+                supabase_database_url="postgresql://example.invalid/postgres",
+            )
+
+            class FakeStore:
+                def rebuild_queue_projection(self) -> dict[str, Any]:
+                    return {"source": "none", "queue_rows": [], "paper_rows": [], "captured_at": None}
+
+            def require_bearer(authorization: str | None) -> None:
+                if authorization != "Bearer secret":
+                    raise HTTPException(status_code=401, detail="invalid bearer token")
+
+            from unittest.mock import patch
+            with patch("omx_wake_gate.enoch_core.router.SupabaseEnochCoreStore", return_value=FakeStore()) as supabase_store:
+                router = create_enoch_core_router(config, require_bearer)
+                endpoints = {route.path: route.endpoint for route in router.routes}  # type: ignore[attr-defined]
+                response = endpoints["/enoch-core/health"](authorization="Bearer secret")
+
+            supabase_store.assert_called_once_with("postgresql://example.invalid/postgres")
+            self.assertEqual(response.store_backend, "supabase")
+            self.assertEqual(response.db_path, "supabase")
+
+    def test_enoch_core_backend_can_be_pinned_to_sqlite_during_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = GateConfig(
+                state_dir=tmp,
+                project_root=tmp,
+                dispatch_script_path=str(Path(tmp) / "dispatch.sh"),
+                omx_inbound_bearer_token="secret",
+                completion_callback_url="http://127.0.0.1/callback",
+                completion_callback_token="callback-token",
+                control_plane_store_backend="supabase",
+                enoch_core_store_backend="sqlite",
+                supabase_database_url="postgresql://example.invalid/postgres",
+            )
+
+            def require_bearer(authorization: str | None) -> None:
+                if authorization != "Bearer secret":
+                    raise HTTPException(status_code=401, detail="invalid bearer token")
+
+            router = create_enoch_core_router(config, require_bearer)
+            endpoints = {route.path: route.endpoint for route in router.routes}  # type: ignore[attr-defined]
+            response = endpoints["/enoch-core/health"](authorization="Bearer secret")
+            self.assertEqual(response.store_backend, "sqlite")
+            self.assertTrue(response.db_path.endswith("enoch_core.sqlite3"))

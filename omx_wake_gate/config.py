@@ -85,6 +85,7 @@ class GateConfig(BaseModel):
     route_observability_slow_ms: int = Field(default=1000, ge=0)
     route_observability_memory_warn_rss_mib: int = Field(default=0, ge=0)
     control_plane_store_backend: str = "sqlite"
+    enoch_core_store_backend: str = "control_plane"
     supabase_database_url: str = ""
     legacy_notion_api_enabled: bool = False
 
@@ -99,6 +100,8 @@ class GateConfig(BaseModel):
             self.completion_callback_timeout_sec = self.n8n_callback_timeout_sec
         if self.control_plane_store_backend not in {"sqlite", "supabase_readonly", "supabase"}:
             raise ValueError("control_plane_store_backend must be sqlite, supabase_readonly, or supabase")
+        if self.enoch_core_store_backend not in {"control_plane", "sqlite", "supabase"}:
+            raise ValueError("enoch_core_store_backend must be control_plane, sqlite, or supabase")
         if not self.completion_callback_url:
             raise ValueError("completion_callback_url is required")
         if not self.completion_callback_token:

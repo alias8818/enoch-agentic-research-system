@@ -2,13 +2,14 @@
 
 Status: active as of 2026-05-06.
 
-The control plane is expected to run with `control_plane_store_backend=supabase`. Notion is not an active runtime dependency; legacy Notion control-plane endpoints should return `410`, and Notion sync units should remain masked.
+The control plane is expected to run with `control_plane_store_backend=supabase`, and `/enoch-core/health` should report `store_backend: supabase` because its shadow/proposal snapshots now follow the Supabase control-plane backend. Notion is not an active runtime dependency; legacy Notion control-plane endpoints should return `410`, and Notion sync units should remain masked.
 
 ## Safety invariants
 
 Before resuming any work:
 
 - `/control/health` reports `store_backend: supabase`.
+- `/enoch-core/health` reports `store_backend: supabase` and `db_path: supabase`; `enoch_core.sqlite3` must not be the live shadow/proposal ledger.
 - `/control/state` reports `queue_paused=true` and `maintenance_mode=true` until the controlled drill starts.
 - `/control/api/intake/notion` returns `410`.
 - `/control/projections/notion/queue` returns `410`.
