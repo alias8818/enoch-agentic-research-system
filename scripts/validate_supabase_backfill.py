@@ -99,7 +99,8 @@ def sqlite_fixture(path: Path, project_root: Path) -> None:
                   last_run_state, last_event_type, next_action_hint, manual_review_required, blocked_reason,
                   last_error, last_result_summary, machine_target, model, sandbox, last_dispatch_at,
                   last_callback_at, stale_after, updated_at)
-                values (?, 'completed', 1, 5, 0, 0, 2, 0, 2, ?, 'session', '', '', '', 0, '', '', '',
+                values (?, 'completed', 1, 5, 0, 0, 2, 0, 2, ?, 'session',
+                  'wake_ready', '', 'draft_paper_or_select_next_project', 0, '', '', '',
                   'worker', 'gpt-5.5', 'danger-full-access', null, null, null, ?)
                 """,
                 (project_id, f"run-{project_id}", NOW),
@@ -194,8 +195,8 @@ def main() -> int:
             dashboard = applied["operator_dashboard_counts"]
             if dashboard.get("write_needed") != 0:
                 raise AssertionError(f"write_needed should remain 0, got {dashboard.get('write_needed')}")
-            if dashboard.get("publication_ready") != 2:
-                raise AssertionError(f"publication_ready should be 2, got {dashboard.get('publication_ready')}")
+            if dashboard.get("publication_ready") != 1:
+                raise AssertionError(f"publication_ready should be 1, got {dashboard.get('publication_ready')}")
             if dashboard.get("corpus_imported") != 0:
                 raise AssertionError(f"corpus_imported should be 0, got {dashboard.get('corpus_imported')}")
             if dashboard.get("raw_completed_no_paper_candidates") != 1:

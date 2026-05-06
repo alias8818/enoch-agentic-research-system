@@ -112,15 +112,15 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
     psql(
         container,
         """
-        insert into enoch.projects(project_id, project_name) values
-          ('fixture-positive', 'Fixture Positive'),
-          ('fixture-negative', 'Fixture Negative'),
-          ('fixture-existing-paper', 'Fixture Existing Paper');
+        insert into enoch.projects(project_id, project_name, project_dir) values
+          ('fixture-positive', 'Fixture Positive', 'fixture-positive'),
+          ('fixture-negative', 'Fixture Negative', 'fixture-negative'),
+          ('fixture-existing-paper', 'Fixture Existing Paper', 'fixture-existing-paper');
 
-        insert into enoch.queue_items(project_id, status, current_run_id) values
-          ('fixture-positive', 'run_complete_no_paper', 'run-positive'),
-          ('fixture-negative', 'run_complete_no_paper', 'run-negative'),
-          ('fixture-existing-paper', 'run_complete_no_paper', 'run-existing');
+        insert into enoch.queue_items(project_id, status, current_run_id, last_run_state, next_action_hint) values
+          ('fixture-positive', 'completed', 'run-positive', 'wake_ready', 'draft_paper_or_select_next_project'),
+          ('fixture-negative', 'completed', 'run-negative', 'wake_ready', 'draft_paper_or_select_next_project'),
+          ('fixture-existing-paper', 'completed', 'run-existing', 'wake_ready', 'draft_paper_or_select_next_project');
 
         insert into enoch.runs(run_id, project_id, state, idempotency_key) values
           ('run-positive', 'fixture-positive', 'wake_ready', 'fixture-run-positive'),
@@ -136,6 +136,9 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
 
         insert into enoch.papers(paper_id, project_id, run_id, paper_status) values
           ('paper-existing', 'fixture-existing-paper', 'run-existing', 'publication_draft');
+
+        insert into enoch.publication_automation_items(paper_id, automation_status, finalization_package_path) values
+          ('paper-existing', 'finalized', 'package.json');
         """,
     )
 
