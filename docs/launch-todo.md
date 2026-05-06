@@ -31,7 +31,7 @@ This checklist tracks the remaining work before the Enoch system, generated corp
 - [x] Link the code repo, corpus repo, and docs repo.
 - [x] Add sanitized screenshots to release docs from a clean demo/dashboard instance.
 - [x] Add an architecture diagram or visual explainer.
-- [ ] Add compact “why this matters” cards for the top highlighted papers.
+- [x] Add compact “why this matters” cards for the top highlighted papers; source is `site/highlights.json`, mirrored into the corpus `papers/highlights.json` and `papers/index.md`.
 
 ## Outreach package
 
@@ -57,9 +57,9 @@ Required follow-up:
 
 ## Follow-up quality work
 
-- [ ] Pick 10-15 strongest papers for deeper external-style inspection and summary cards.
-- [ ] Add per-paper “why this is interesting” summaries to the corpus index.
-- [ ] Add a reproducibility note explaining what artifacts are included and what private runtime state is intentionally excluded.
+- [x] Pick 10-15 strongest papers for deeper external-style inspection and summary cards; 13 launch highlights are recorded in `site/highlights.json` and the corpus highlight index.
+- [x] Add per-paper “why this is interesting” summaries to the corpus index; `enoch-ai-research-corpus/papers/index.md` now has a highlighted-artifacts section generated from `papers/highlights.json`.
+- [x] Add a reproducibility note explaining what artifacts are included and what private runtime state is intentionally excluded; see `enoch-ai-research-corpus/docs/reproducibility.md`.
 - [ ] Track public feedback as GitHub issues and convert useful critiques into queue items.
 
 ## Already completed packaging/security work
