@@ -9,6 +9,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
+from ..enoch_core.logic import paper_draft_decision_gate
 from ..enoch_core.store import IdempotencyConflict
 from ..models import utc_now
 from .models import (
@@ -64,6 +65,28 @@ from .store import (
 
 
 ConnectionFactory = Callable[[], Any]
+
+
+def _decision_gate_state(gate: dict[str, Any]) -> str:
+    if gate.get("eligible") is True:
+        return "positive"
+    reason = _text(gate.get("reason")).lower()
+    decision = _text(gate.get("decision")).lower()
+    values = " ".join(_text(item[-1]).lower() for item in gate.get("values") or [] if isinstance(item, (list, tuple)) and item)
+    haystack = " ".join([reason, decision, values])
+    if "missing" in reason:
+        return "missing"
+    if "could not" in reason or "malformed" in reason:
+        return "malformed"
+    if any(token in haystack for token in ("needs_review", "inconclusive", "caveat", "conditional", "mixed")):
+        return "needs_review"
+    if any(token in haystack for token in ("negative", "reject", "not positive", "nonpositive", "non_positive")):
+        return "negative"
+    return "unknown"
+
+
+def _decision_summary(gate: dict[str, Any]) -> str:
+    return _text(gate.get("decision")) or _text(gate.get("reason"))
 
 
 class ReadOnlyStoreError(RuntimeError):
@@ -1599,6 +1622,68 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             payload=event_payload,
         )
         return event_id, inserted, self.queue_row(project_id) or {}
+
+    def record_project_decision_gate(self, *, project_id: str, run_id: str = "", artifact_root: str | Path, decided_at: str | None = None) -> dict[str, Any]:
+        """Persist the local project decision artifact into Supabase.
+
+        Filesystem artifacts remain the worker's durable evidence bundle, but
+        Supabase owns the operator ledger after cutover. Missing artifacts are
+        not persisted as decisions; the paper_eligibility view already treats
+        absent rows as `missing` and non-writable.
+        """
+        project_id = _text(project_id)
+        if not project_id:
+            return {"ok": False, "persisted": False, "reason": "missing project_id"}
+        artifact_root_path = Path(artifact_root).expanduser()
+        gate = paper_draft_decision_gate(artifact_root_path)
+        if not gate.get("values") and gate.get("reason") == "missing project decision artifact":
+            return {"ok": True, "persisted": False, "reason": "missing project decision artifact", "gate": gate}
+        artifact_path = artifact_root_path / ".omx" / "project_decision.json"
+        if not artifact_path.exists():
+            artifact_path = artifact_root_path / "project_decision.json"
+        payload = {"gate": gate, "project_root": str(artifact_root_path)}
+        payload_json = _json(payload)
+        run_id_value = _text(run_id) or None
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                if run_id_value:
+                    found_run = cur.execute("select 1 from runs where run_id = %s", (run_id_value,)).fetchone()
+                    if not found_run:
+                        run_id_value = None
+                cur.execute(
+                    """
+                    insert into project_decisions(project_id, run_id, decision_type, decision_gate_state,
+                      decision_summary, artifact_path, payload_json, payload_hash, decided_at)
+                    values (%s,%s,'project_outcome',%s,%s,%s,%s::jsonb,%s,%s)
+                    on conflict (project_id, run_id, decision_type) do update set
+                      decision_gate_state=excluded.decision_gate_state,
+                      decision_summary=excluded.decision_summary,
+                      artifact_path=excluded.artifact_path,
+                      payload_json=excluded.payload_json,
+                      payload_hash=excluded.payload_hash,
+                      decided_at=excluded.decided_at,
+                      updated_at=now()
+                    """,
+                    (
+                        project_id,
+                        run_id_value,
+                        _decision_gate_state(gate),
+                        _decision_summary(gate),
+                        str(artifact_path),
+                        payload_json,
+                        _hash(payload),
+                        decided_at or utc_now(),
+                    ),
+                )
+        return {
+            "ok": True,
+            "persisted": True,
+            "project_id": project_id,
+            "run_id": run_id_value or "",
+            "decision_gate_state": _decision_gate_state(gate),
+            "decision_summary": _decision_summary(gate),
+            "artifact_path": str(artifact_path),
+        }
 
     def mark_queue_item_paused(self, *, project_id: str, reason: str, updated_by: str = "operator") -> bool:
         now = utc_now()

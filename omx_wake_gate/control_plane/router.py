@@ -930,6 +930,40 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             event_id, inserted, row = store.record_worker_callback(callback)
         except IdempotencyConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        decision_sync: dict[str, Any] | None = None
+        if callback.event_type in {"wake_ready", "session_finished_ready"} and row:
+            project_id = str(row.get("project_id") or callback.project_id or "").strip()
+            project_dir_text = str(row.get("project_dir") or project_id).strip()
+            root = config.expanded_project_root.resolve()
+            artifact_root = (root / project_id).resolve()
+            if project_dir_text:
+                candidate_root = Path(project_dir_text).expanduser()
+                if not candidate_root.is_absolute():
+                    artifact_root = (root / candidate_root).resolve()
+                else:
+                    try:
+                        candidate_root.resolve().relative_to(root)
+                        artifact_root = candidate_root.resolve()
+                    except ValueError:
+                        artifact_root = (root / project_id).resolve()
+            evidence_sync = _sync_remote_project_evidence(
+                config,
+                project_id=project_id,
+                artifact_root=artifact_root,
+                source_project_dir=project_dir_text if project_dir_text.startswith("/") else "",
+                source_run_id=str(callback.run_id or ""),
+            )
+            decision_sync = {"artifact_root": str(artifact_root), "evidence_sync": evidence_sync}
+            if hasattr(store, "record_project_decision_gate"):
+                decision_record = store.record_project_decision_gate(
+                    project_id=project_id,
+                    run_id=str(callback.run_id or ""),
+                    artifact_root=artifact_root,
+                )
+                decision_sync["decision_record"] = decision_record
+                if decision_record.get("persisted") and project_id:
+                    store.update_project_dir(project_id, str(artifact_root))
+                    row = store.queue_row(project_id) or row
         return {
             "ok": True,
             "accepted": True,
@@ -941,6 +975,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "event_id": event_id,
             "inserted_event": inserted,
             "queue_item": row,
+            "decision_sync": decision_sync,
             "controller_action": "record_worker_callback",
             "next_action_hint": row.get("next_action_hint") if row else "callback_recorded_no_queue_row",
         }

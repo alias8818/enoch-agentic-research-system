@@ -1,5 +1,5 @@
 from scripts.validate_supabase_runtime_cutover import compare
-from omx_wake_gate.control_plane.supabase_store import SupabaseControlPlaneStore
+from omx_wake_gate.control_plane.supabase_store import SupabaseControlPlaneStore, _decision_gate_state
 
 
 def test_compare_accepts_matching_operator_counts_and_safe_pause() -> None:
@@ -72,5 +72,19 @@ def test_supabase_runtime_store_exposes_dashboard_and_dispatch_methods() -> None
         "run_rows",
         "export_snapshot",
         "latest_dashboard_observations",
+        "record_project_decision_gate",
     ):
         assert callable(getattr(store, method_name))
+
+
+def test_project_decision_gate_state_classifies_mixed_as_needs_review() -> None:
+    gate = {
+        "eligible": False,
+        "reason": "project decision lacks positive draft signal",
+        "values": [
+            (".omx/project_decision.json", "project_decision", "continue"),
+            (".omx/project_decision.json", "hypothesis_status", "mixed"),
+        ],
+    }
+
+    assert _decision_gate_state(gate) == "needs_review"
