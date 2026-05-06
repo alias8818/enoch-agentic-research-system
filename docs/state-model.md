@@ -54,7 +54,7 @@ The canonical raw state contract is code-owned in `omx_wake_gate/control_plane/s
 | `publication_automation_items.automation_status` | Automated publication/finalization/package state. | Use automation language; legacy review-like values are compatibility/internal only. |
 | `project_decisions.decision_gate_state` | Paper-writing decision gate. | Only `positive` can derive `write_paper`. |
 
-Supabase constraints bound both primary state columns and detail/debug columns such as `queue_items.last_run_state` and `runs.gate_state`, so raw callback labels must be normalized before they enter persisted lifecycle columns.
+Supabase constraints bound both primary state columns and detail/debug columns such as `queue_items.last_run_state` and `runs.gate_state`, so raw callback labels must be normalized before they enter persisted lifecycle columns. Superseded legacy `dispatch_accepted` run rows should normalize to `reconciled`, while current dispatch bridge rows normalize to `awaiting_wake`.
 
 ## Non-lifecycle flags, config, and provenance
 

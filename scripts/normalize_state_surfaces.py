@@ -93,6 +93,30 @@ NORMALIZATION_STATEMENTS: tuple[dict[str, str], ...] = (
         "reason": "legacy run attention state collapses to gate_error",
     },
     {
+        "name": "superseded_dispatch_accepted_runs_to_reconciled",
+        "sql": """
+        update runs r
+        set state = 'reconciled', updated_at = now()
+        from queue_items q
+        where q.project_id = r.project_id
+          and r.state = 'dispatch_accepted'
+          and coalesce(q.current_run_id, '') <> r.run_id
+        """,
+        "reason": "old dispatch-accepted run rows superseded by a newer queue run are historical, not active work",
+    },
+    {
+        "name": "current_dispatch_accepted_runs_to_awaiting_wake",
+        "sql": """
+        update runs r
+        set state = 'awaiting_wake', updated_at = now()
+        from queue_items q
+        where q.project_id = r.project_id
+          and r.state = 'dispatch_accepted'
+          and q.current_run_id = r.run_id
+        """,
+        "reason": "current old dispatch-accepted bridge rows are waiting for callback",
+    },
+    {
         "name": "legacy_run_gate_needs_review_to_gate_error",
         "sql": """
         update runs
@@ -100,6 +124,15 @@ NORMALIZATION_STATEMENTS: tuple[dict[str, str], ...] = (
         where gate_state = 'needs_review'
         """,
         "reason": "legacy gate attention state collapses to gate_error",
+    },
+    {
+        "name": "legacy_run_gate_dispatch_accepted_to_awaiting_wake",
+        "sql": """
+        update runs
+        set gate_state = 'awaiting_wake', updated_at = now()
+        where gate_state = 'dispatch_accepted'
+        """,
+        "reason": "old dispatch bridge gate detail collapses to waiting for callback",
     },
     {
         "name": "run_session_finished_alias_to_wake_ready",

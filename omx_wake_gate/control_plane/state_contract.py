@@ -301,7 +301,7 @@ STATE_REDUCTION_PLAN: Final[dict[str, dict[str, dict[str, str]]]] = {
         "gate_error": _decision(OperatorLane.NEEDS_OPERATOR, "keep", reason="wake gate failed"),
         "reconciled": _decision(OperatorLane.HISTORICAL, "keep", reason="settled historical run"),
         "dispatch_error": _decision(OperatorLane.NEEDS_OPERATOR, "keep", reason="dispatch failed"),
-        "dispatch_accepted": _decision(OperatorLane.RUNNING, "legacy_internal", replacement="awaiting_wake", reason="old dispatch bridge state"),
+        "dispatch_accepted": _decision(OperatorLane.RUNNING, "legacy_internal", replacement="awaiting_wake or reconciled when superseded", reason="old dispatch bridge state"),
         "needs_review": _decision(OperatorLane.NEEDS_OPERATOR, "migrate_after_freeze", replacement="gate_error", reason="legacy run attention wording"),
         "waiting_external_evidence": _decision(OperatorLane.NEEDS_OPERATOR, "keep", reason="external/worker evidence is missing"),
         "unknown": _decision(OperatorLane.HISTORICAL, "legacy_internal", reason="imported run rows without reliable lifecycle evidence"),
