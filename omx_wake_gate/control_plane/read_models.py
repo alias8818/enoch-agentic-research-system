@@ -598,6 +598,10 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
     # no-paper rows with missing/negative/unknown decisions leak into the
     # operator-facing lane even though `paper_pipeline.write_needed` is 0.
     operator_counts[OperatorLane.WRITE_PAPER.value] = len(write_candidates)
+    if write_candidates:
+        operator_detail_counts["run_complete_draft_needed"] = len(write_candidates)
+    else:
+        operator_detail_counts.pop("run_complete_draft_needed", None)
     publication_ready_total = operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0) + operator_counts.get(OperatorLane.PUBLISHED.value, 0)
     paper_pipeline = {
         "write_needed": len(write_candidates),

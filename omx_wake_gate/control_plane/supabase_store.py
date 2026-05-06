@@ -164,8 +164,13 @@ class SupabaseReadOnlyControlPlaneStore:
             with conn.cursor() as cur:
                 cur.execute("set statement_timeout to '45s'")
                 cur.execute("set idle_in_transaction_session_timeout to '30s'")
-                cur.execute("set search_path to enoch, public")
             self._conn = conn
+        # Supabase pooler/transaction boundaries can reset session settings.
+        # Keep the persistent server-side connection, but assert the private
+        # schema on every checkout so subsequent dashboard reads do not drift
+        # back to `public`.
+        with conn.cursor() as cur:
+            cur.execute("set search_path to enoch, public")
         try:
             yield conn
             conn.commit()
@@ -826,12 +831,35 @@ class SupabaseReadOnlyControlPlaneStore:
                         raw_queue_rows = self._queue_rows_from_cursor(
                             cur,
                             """
-                            where q.status <> %s or q.next_action_hint = %s or q.manual_review_required = true
+                            where exists (
+                                select 1
+                                from paper_eligibility pe
+                                where pe.project_id = q.project_id
+                                  and pe.raw_write_candidate
+                            )
+                               or q.manual_review_required = true
+                               or q.status in (%s, %s, %s)
                             order by q.updated_at desc
                             """,
-                            (QueueStatus.CANCELED.value, "draft_paper_or_select_next_project"),
+                            (QueueStatus.BLOCKED.value, QueueStatus.NEEDS_REVIEW.value, QueueStatus.DISPATCH_ERROR.value),
                         )
-                        raw_paper_rows = self._paper_rows_from_cursor(cur, "order by pa.updated_at desc")
+                        raw_paper_rows = self._paper_rows_from_cursor(
+                            cur,
+                            """
+                            where
+                              (pa.paper_status = %s and rv.automation_status = %s and rv.finalization_package_path <> '' and ci.paper_id is null)
+                              or ci.paper_id is not null
+                              or pa.paper_status in (%s, %s, %s)
+                            order by pa.updated_at desc
+                            """,
+                            (
+                                PaperStatus.PUBLICATION_DRAFT.value,
+                                ReviewStatus.FINALIZED.value,
+                                PaperStatus.PUBLICATION_DRAFT.value,
+                                PaperStatus.DRAFT_REVIEW.value,
+                                PaperStatus.ARCHIVED.value,
+                            ),
+                        )
 
                         safe_event_limit = max(0, min(event_limit, 50))
                         if safe_event_limit:

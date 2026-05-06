@@ -296,7 +296,7 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertNotIn("run_complete_draft_needed", overview.get("operator_detail_counts", {}))
             self.assertEqual(overview["operator_counts"].get("needs_attention", 0), 0)
 
-    def test_overview_keeps_new_run_draft_needed_when_older_project_paper_exists(self) -> None:
+    def test_overview_suppresses_project_level_duplicate_draft_needed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
             headers = {"Authorization": f"Bearer {TOKEN}"}
@@ -324,7 +324,8 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertEqual(imported.status_code, 200, imported.text)
 
             overview = client.get("/control/api/v1/overview", headers=headers).json()
-            self.assertEqual(overview["operator_detail_counts"]["run_complete_draft_needed"], 1)
+            self.assertNotIn("run_complete_draft_needed", overview.get("operator_detail_counts", {}))
+            self.assertEqual(overview["paper_pipeline"]["write_needed"], 0)
             self.assertEqual(overview["operator_counts"].get("needs_attention", 0), 0)
 
     def test_overview_counts_unbackfilled_publication_drafts_and_suppresses_stale_queue_actions(self) -> None:
