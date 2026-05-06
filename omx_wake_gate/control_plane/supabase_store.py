@@ -491,6 +491,34 @@ class SupabaseReadOnlyControlPlaneStore:
             out.append(item)
         return out
 
+    def event_rows(self, limit: int = 100, *, entity_type: str = "", entity_id: str = "", event_type: str = "", search: str = "") -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if entity_type:
+            clauses.append("entity_type = %s")
+            params.append(entity_type)
+        if entity_id:
+            clauses.append("entity_id = %s")
+            params.append(entity_id)
+        if event_type:
+            clauses.append("event_type = %s")
+            params.append(event_type)
+        if search:
+            clauses.append("(event_type ilike %s or entity_id ilike %s or payload_json::text ilike %s)")
+            needle = f"%{search}%"
+            params.extend([needle, needle, needle])
+        where = f"where {' and '.join(clauses)}" if clauses else ""
+        params.append(max(1, min(limit, 1000)))
+        rows = self._query(f"select * from control_events {where} order by event_id desc limit %s", tuple(params))
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            item["payload"] = self._payload(item.pop("payload_json"))
+            item["created_at"] = str(item.get("created_at") or "")
+            item.pop("payload_hash", None)
+            out.append(item)
+        return out
+
     def project_row(self, project_id: str) -> dict[str, Any] | None:
         return self._one("select * from projects where project_id = %s", (project_id,))
 
