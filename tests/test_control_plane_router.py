@@ -1698,6 +1698,17 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 self.assertIn(ui_text, response.text)
             for removed_manual_review_text in ["Auto-pass checklist", "approve-finalization", "Paper Review Queue", "Review queue backfilled"]:
                 self.assertNotIn(removed_manual_review_text, response.text)
+            for removed_raw_state_label in [
+                "Needs Review",
+                "Wake Ready",
+                "Session Finished Ready",
+                "Draft Review",
+                "Approved For Finalization",
+                "Unreviewed",
+                "In Review",
+                "Changes Requested",
+            ]:
+                self.assertNotIn(removed_raw_state_label, response.text)
 
 
 if __name__ == "__main__":
