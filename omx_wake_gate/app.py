@@ -14,7 +14,7 @@ import time
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Query, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .callbacks import CallbackSender
 from .control_plane.router import create_control_plane_router
@@ -1546,9 +1546,9 @@ def _run_dashboard_item(
     }
 
 
-@app.get("/dashboard", response_class=HTMLResponse)
-def dashboard() -> HTMLResponse:
-    return HTMLResponse(DASHBOARD_HTML)
+@app.get("/dashboard", include_in_schema=False)
+def dashboard() -> RedirectResponse:
+    return RedirectResponse(url="/control/dashboard", status_code=307)
 
 
 @app.get("/favicon.ico", include_in_schema=False)
