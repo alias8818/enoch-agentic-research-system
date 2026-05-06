@@ -128,6 +128,43 @@ Raw tables, raw statuses, and legacy labels belong in detail/debug drawers, not 
 7. Notion/source idea status is provenance only now that Supabase owns the runtime ledger.
 8. New raw state strings or new state-like persisted columns require updating `state_contract.py`, the Supabase constraint migration when applicable, `scripts/validate_state_contract.py` coverage, this document, and the parent release wiki at `/home/jeremy/Desktop/projects/enoch-release/.omx/wiki/state-model-contract.md`.
 
+## State doctor
+
+Run the state doctor before answering live operator state/count questions or before changing dashboard/paper automation semantics:
+
+```bash
+uv run python scripts/state_doctor.py \
+  --database-url "$ENOCH_SUPABASE_DATABASE_URL" \
+  --control-url "$ENOCH_CONTROL_URL" \
+  --token-file /path/to/enoch-control-plane-token.txt \
+  --corpus ../enoch-ai-research-corpus \
+  --output path/to/state-doctor.json
+```
+
+The report combines the state contract, normalization dry-run, live reduction-drift rows, dashboard operator-count keys, paper-pipeline boundaries, control-plane health, and optional corpus reconciliation. It fails if:
+
+- a persisted state falls outside the contract;
+- normalization would still rewrite live rows;
+- alias or migrate-after-freeze rows remain live;
+- raw detail stages appear in primary `operator_counts`;
+- `paper_pipeline` no longer satisfies `raw_completed_no_paper_candidates = write_needed + not_writable_by_decision_gate`;
+- required paper-pipeline fields are missing;
+- `--corpus` is checked and finalized publication drafts are absent from the public corpus. Use `--warn-only-corpus` only for exploratory runs where known corpus backlog should not make the command nonzero.
+
+Legacy-internal rows such as provenance-only `unknown` values are warnings, not failures, until a later migration explicitly retires them.
+
+For a live state answer, record these evidence fields from the JSON report:
+
+| Evidence field | Clean value |
+| --- | --- |
+| `ok` | `true` |
+| `state_contract.ok` | `true` |
+| `normalization.total_rows` | `0` |
+| `live_reduction_drift.hard_rows` | empty |
+| `control_plane.overview.raw_detail_keys_in_operator_counts` | empty |
+| `control_plane.overview.paper_pipeline` | includes all required paper-count keys |
+| `corpus_reconciliation.importable_finalized_count` | `0` when `--corpus` is checked without `--warn-only-corpus` |
+
 ## Validation
 
 Run:

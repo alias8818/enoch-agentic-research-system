@@ -1,6 +1,6 @@
 # State simplification TODO
 
-Status: next-phase backlog after the Supabase state-contract cleanup on 2026-05-06.
+Status: active next-phase backlog after the Supabase state-contract cleanup on 2026-05-06. State doctor command is implemented; corpus/publication reconciliation is next.
 
 The current state model is coherent and live-clean. The next work is to make the operator experience even simpler: actions first, raw states only as drill-down evidence.
 
@@ -42,8 +42,8 @@ The current state model is coherent and live-clean. The next work is to make the
 
 ## 5. Add a state doctor command
 
-- [ ] Add one command/report that future agents run before answering state questions.
-- [ ] Include:
+- [x] Add one command/report that future agents run before answering state questions.
+- [x] Include:
   - state contract validation;
   - normalization dry-run row count;
   - nonzero legacy/alias/migrate-after-freeze rows;
@@ -51,13 +51,13 @@ The current state model is coherent and live-clean. The next work is to make the
   - publication-ready/imported/public counts;
   - dashboard operator-count keys;
   - live service health/smoke status.
-- [ ] Fail loudly on mixed ledgers, stale public counts, or raw detail stages in primary operator counts.
-- [ ] Document the command in `docs/state-model.md` and the parent wiki.
+- [x] Fail loudly on mixed ledgers, stale public counts, or raw detail stages in primary operator counts.
+- [x] Document the command in `docs/state-model.md` and the parent wiki.
 
 ## Preferred execution order
 
-1. State doctor command.
-2. Corpus/publication reconciliation.
+1. State doctor command. (done)
+2. Corpus/publication reconciliation. (next)
 3. Dashboard polish.
 4. State transition map.
 5. Notion-runtime retirement.
@@ -74,3 +74,33 @@ Last verified on 2026-05-06:
 - paper rows: `publication_draft = 494`, `archived = 2`, `all = 496`
 - state normalization dry-run: `0` rows
 - live state contract: OK
+- state doctor: state/dashboard checks OK; corpus reconciliation fails loudly because 120 finalized publication drafts are not yet represented in the local public corpus index
+
+## State doctor evidence
+
+Command shape for the live validation artifact:
+
+```bash
+uv run python scripts/state_doctor.py \
+  --database-url "$ENOCH_SUPABASE_DATABASE_URL" \
+  --control-url "$ENOCH_CONTROL_URL" \
+  --token-file /path/to/enoch-control-plane-token.txt \
+  --corpus ../enoch-ai-research-corpus \
+  --output path/to/state-doctor.json
+```
+
+Last observed state doctor result on 2026-05-06:
+
+- exit code: `1`
+- failure reason: corpus drift from finalized publication drafts not yet represented in the public corpus
+- `state_contract.ok`: OK
+- `normalization.total_rows`: `0`
+- `control_plane.overview`: OK
+- `paper_pipeline.write_needed`: `0`
+- `paper_pipeline.raw_completed_no_paper_candidates`: `220`
+- `paper_pipeline.not_writable_by_decision_gate`: `220`
+- `paper_pipeline.finalize_needed`: `0`
+- `paper_pipeline.publish_ready`: `491`
+- `corpus_reconciliation.live_finalized_publication_draft_count`: `491`
+- `corpus_reconciliation.public_corpus_count`: `375`
+- `corpus_reconciliation.importable_finalized_count`: `120`
