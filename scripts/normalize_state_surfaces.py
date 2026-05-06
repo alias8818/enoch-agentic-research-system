@@ -8,6 +8,18 @@ from typing import Any
 
 NORMALIZATION_STATEMENTS: tuple[dict[str, str], ...] = (
     {
+        "name": "rejected_draft_review_papers_to_archived",
+        "sql": """
+        update papers p
+        set paper_status = 'archived', updated_at = now()
+        from publication_automation_items a
+        where a.paper_id = p.paper_id
+          and p.paper_status = 'draft_review'
+          and a.automation_status = 'rejected'
+        """,
+        "reason": "rejected first-draft rows are terminal no-action paper artifacts, not first drafts awaiting automation",
+    },
+    {
         "name": "finalized_draft_review_papers_to_publication_draft",
         "sql": """
         update papers p

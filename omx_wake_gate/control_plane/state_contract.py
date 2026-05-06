@@ -313,7 +313,7 @@ STATE_REDUCTION_PLAN: Final[dict[str, dict[str, dict[str, str]]]] = {
     "papers.paper_status": {
         "eligible": _decision(OperatorLane.WRITE_PAPER, "legacy_internal", replacement="draft_generating", reason="paper eligibility now lives in paper_eligibility/write_needed"),
         "draft_generating": _decision(OperatorLane.RUNNING, "keep", reason="draft writer is active"),
-        "draft_review": _decision(OperatorLane.AUTOMATE_PUBLICATION, "migrate_after_freeze", replacement="publication_draft", reason="legacy first-draft label; operator should see first draft or automation"),
+        "draft_review": _decision(OperatorLane.AUTOMATE_PUBLICATION, "migrate_after_freeze", replacement="publication_draft or archived when automation rejected", reason="legacy first-draft label; operator should see first draft or automation"),
         "publication_generating": _decision(OperatorLane.RUNNING, "keep", reason="publication rewrite/finalization is active"),
         "publication_draft": _decision(OperatorLane.AUTOMATE_PUBLICATION, "keep", reason="publication readiness also requires finalized automation package"),
         "human_review_required": _decision(OperatorLane.NEEDS_OPERATOR, "migrate_after_freeze", replacement="blocked", reason="manual paper review is not a normal workflow"),
