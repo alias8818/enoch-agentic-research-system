@@ -1,10 +1,10 @@
 [Unit]
-Description=Run Enoch Notion sync periodically
+Description=OBSOLETE - Enoch legacy Notion sync disabled
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=10min
-AccuracySec=1min
+OnBootSec=365d
+OnUnitActiveSec=365d
+AccuracySec=1h
 Unit=enoch-notion-sync.service
 
 [Install]

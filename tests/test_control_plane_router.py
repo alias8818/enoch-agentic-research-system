@@ -180,7 +180,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 self.assertEqual(event_filtered.json()["page"]["filters"]["sort"], "type")
                 self.assertEqual(event_filtered.json()["page"]["filters"]["search"], "import")
 
-    def test_export_and_notion_projection_endpoints(self) -> None:
+    def test_export_and_native_ideas_projection_endpoints(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
             headers = {"Authorization": f"Bearer {TOKEN}"}
@@ -205,13 +205,12 @@ class ControlPlaneRouterTests(unittest.TestCase):
             })
             self.assertEqual(response.status_code, 200)
 
-            queue_projection = client.get("/control/projections/notion/queue", headers=headers)
-            self.assertEqual(queue_projection.status_code, 200)
-            self.assertEqual(queue_projection.json()["rows"][0]["queue_status"], "awaiting_wake")
+            ideas_projection = client.get("/control/projections/ideas/workbench", headers=headers)
+            self.assertEqual(ideas_projection.status_code, 200)
+            self.assertEqual(ideas_projection.json()["rows"][0]["queue_status"], "awaiting_wake")
 
-            papers_projection = client.get("/control/projections/notion/papers", headers=headers)
-            self.assertEqual(papers_projection.status_code, 200)
-            self.assertEqual(papers_projection.json()["counts"]["draft_review"], 1)
+            legacy_projection = client.get("/control/projections/notion/queue", headers=headers)
+            self.assertEqual(legacy_projection.status_code, 410)
 
             exported = client.get("/control/export/snapshot", headers=headers)
             self.assertEqual(exported.status_code, 200)
@@ -226,70 +225,26 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(paused.status_code, 200)
             self.assertFalse(paused.json()["active_items"])
 
-    def test_notion_intake_and_execution_update_projection(self) -> None:
+    def test_legacy_notion_intake_and_projection_are_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
             headers = {"Authorization": f"Bearer {TOKEN}"}
-            dry_run = client.post("/control/intake/notion-ideas", headers=headers, json={
-                "dry_run": True,
-                "notion_rows": [{
-                    "id": "00000000-0000-4000-8000-000000000001",
-                    "property_idea": "Dynamic Context Window Training",
-                    "property_status": "exploring",
-                    "property_priority": "High",
-                    "url": "https://www.notion.so/Dynamic-Context-Window-Training-00000000000040008000000000000001",
-                }],
-            })
-            self.assertEqual(dry_run.status_code, 200)
-            self.assertTrue(dry_run.json()["dry_run"])
-            self.assertEqual(dry_run.json()["created"], 0)
-            self.assertEqual(len(dry_run.json()["candidates"]), 1)
-
-            commit = client.post("/control/intake/notion-ideas", headers=headers, json={
-                "idempotency_key": "router-notion-intake-1",
-                "dry_run": False,
-                "notion_rows": [{
-                    "id": "00000000-0000-4000-8000-000000000001",
-                    "property_idea": "Dynamic Context Window Training",
-                    "property_status": "testing",
-                    "property_priority": "Medium",
-                    "url": "https://www.notion.so/Dynamic-Context-Window-Training-00000000000040008000000000000001",
-                }],
-            })
-            self.assertEqual(commit.status_code, 200)
-            self.assertEqual(commit.json()["created"], 1)
+            dry_run = client.post("/control/intake/notion-ideas", headers=headers, json={"dry_run": True, "notion_rows": []})
+            self.assertEqual(dry_run.status_code, 410)
+            self.assertIn("Supabase-native", dry_run.json()["detail"]["message"])
 
             projection = client.get("/control/projections/notion/execution-updates", headers=headers)
-            self.assertEqual(projection.status_code, 200)
-            self.assertEqual(projection.json()["counts"]["updates"], 1)
-            row = projection.json()["rows"][0]
-            self.assertEqual(row["page_id"], "00000000-0000-4000-8000-000000000001")
-            props = row["properties"]
-            self.assertEqual(props["Execution State"], "queued")
-            self.assertEqual(props["Current Run ID"], "")
-            self.assertEqual(props["OMX Project ID"], "00000000000040008000000000000001")
-            self.assertEqual(props["OMX Queue Status"], "queued")
+            self.assertEqual(projection.status_code, 410)
 
-    def test_notion_intake_defaults_to_configured_worker_target(self) -> None:
+    def test_legacy_notion_intake_defaults_disabled_even_with_configured_worker_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _config(tmp).model_copy(update={"worker_wake_gate_url": "http://192.168.1.77:8787"})
             client = _client_with_config(config)
             headers = {"Authorization": f"Bearer {TOKEN}"}
 
-            response = client.post("/control/intake/notion-ideas", headers=headers, json={
-                "idempotency_key": "router-notion-configured-worker",
-                "dry_run": False,
-                "notion_rows": [{
-                    "id": "00000000-0000-4000-8000-000000000077",
-                    "property_idea": "Configured Worker Target",
-                    "property_status": "exploring",
-                    "url": "https://www.notion.so/Configured-Worker-00000000000040008000000000000077",
-                }],
-            })
+            response = client.post("/control/intake/notion-ideas", headers=headers, json={"idempotency_key": "router-notion-configured-worker", "dry_run": False, "notion_rows": []})
 
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json()["created"], 1)
-            self.assertEqual(response.json()["candidates"][0]["machine_target"], "192.168.1.77")
+            self.assertEqual(response.status_code, 410)
 
     def test_supabase_native_ideas_intake_is_primary_dashboard_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -374,7 +329,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("worker_preflight", body["source_freshness"])
             self.assertTrue(body["source_freshness"]["worker_preflight"]["stale"])
             self.assertIn("live dispatch disabled", body["dispatch_blockers"])
-            self.assertIn("notion_sync", body["source_freshness"])
+            self.assertIn("idea_intake", body["source_freshness"])
             self.assertIn("snapshot_mirror", body["source_freshness"])
 
 
@@ -959,18 +914,18 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(project["project_dir"], original_dir)
             self.assertEqual(snapshot["paper_rows"], [])
 
-    def test_notion_observation_endpoint_refreshes_status_freshness(self) -> None:
+    def test_ideas_observation_endpoint_refreshes_status_freshness(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
             headers = {"Authorization": f"Bearer {TOKEN}"}
-            response = client.post("/control/api/intake/notion-observation", headers=headers, json={"status": "warn", "payload": {"reason": "missing credentials"}})
+            response = client.post("/control/api/intake/ideas-observation", headers=headers, json={"status": "warn", "payload": {"reason": "supabase intake smoke"}})
             self.assertEqual(response.status_code, 200)
             status = client.get("/control/api/status", headers=headers).json()
-            notion = status["source_freshness"]["notion_sync"]
-            self.assertFalse(notion["stale"])
-            self.assertEqual(notion["status"], "warn")
+            ideas = status["source_freshness"]["idea_intake"]
+            self.assertFalse(ideas["stale"])
+            self.assertEqual(ideas["status"], "warn")
 
-            missing = client.post("/control/api/intake/notion-observation", headers=headers, json={"status": "missing", "payload": {"reason": "legacy missing status"}})
+            missing = client.post("/control/api/intake/ideas-observation", headers=headers, json={"status": "missing", "payload": {"reason": "legacy missing status"}})
             self.assertEqual(missing.status_code, 200)
             self.assertEqual(missing.json()["observation"]["status"], "warn")
 
@@ -1060,18 +1015,17 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "manifest_path": "papers/run-api/manifest.json",
                 }],
             })
-            notion = client.post("/control/intake/notion-ideas", headers=headers, json={
-                "idempotency_key": "dashboard-api-notion",
+            ideas = client.post("/control/intake/ideas", headers=headers, json={
+                "idempotency_key": "dashboard-api-ideas",
                 "dry_run": False,
-                "notion_rows": [{
-                    "id": "11111111-2222-3333-4444-555555555555",
-                    "property_idea": "Notion Intake API",
-                    "property_status": "testing",
-                    "property_priority": "High",
-                    "url": "https://notion.example/intake",
-                }, {"property_status": "testing"}],
+                "ideas": [{
+                    "idea_id": "dashboard-api-idea",
+                    "title": "Ideas Intake API",
+                    "idea_status": "testing",
+                    "priority": "High",
+                }, {"idea_status": "testing"}],
             })
-            self.assertEqual(notion.status_code, 200)
+            self.assertEqual(ideas.status_code, 200)
 
             queued = client.get("/control/api/queues/queued?search=API&page_size=10", headers=headers)
             self.assertEqual(queued.status_code, 200)
@@ -1109,7 +1063,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertGreaterEqual(events.json()["page"]["total"], 1)
             self.assertIn("conflicts", events.json())
 
-            intake = client.get("/control/api/intake/notion", headers=headers)
+            intake = client.get("/control/api/intake/ideas", headers=headers)
             self.assertEqual(intake.status_code, 200)
             self.assertIsNotNone(intake.json()["latest_sync"])
             self.assertEqual(intake.json()["skipped_reasons"]["missing title"], 1)

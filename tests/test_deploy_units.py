@@ -17,12 +17,13 @@ def _load_queue_pump_module():
     return module
 
 
-def test_notion_sync_unit_is_credential_gated_and_non_dispatching() -> None:
+def test_legacy_notion_sync_unit_is_disabled_and_non_dispatching() -> None:
     service = (ROOT / "deploy" / "enoch-notion-sync.service").read_text(encoding="utf-8")
     script = (ROOT / "deploy" / "enoch_notion_sync.sh").read_text(encoding="utf-8")
-    assert "EnvironmentFile=-/etc/enoch/notion-sync.env" in service
-    assert "notion_sync" in script
-    assert "NOTION_TOKEN" in script
+    assert "OBSOLETE" in service
+    assert "legacy Notion sync has been removed from the runtime path" in script
+    assert "NOTION_TOKEN" not in script
+    assert "/control/intake/ideas" in script
     assert "/control/dispatch-next" not in service + script
     assert "192.168.1.77" not in service + script
 
@@ -134,8 +135,8 @@ def test_queue_pump_dispatches_when_no_draft_candidate_exists(tmp_path) -> None:
 
 def test_install_script_keeps_draft_units_opt_in() -> None:
     install = (ROOT / "scripts" / "install-control-plane.sh").read_text(encoding="utf-8")
-    for name in ["enoch-notion-sync.service", "enoch-notion-sync.timer"]:
-        assert name in install
+    assert "ENOCH_INSTALL_LEGACY_NOTION_UNITS:-0" in install
+    assert "Supabase-native /control/intake/ideas is the supported intake path" in install
     assert "ENOCH_INSTALL_PAPER_DRAFT_NEXT_UNITS:-0" in install
     assert "enoch-paper-draft-next.service" in install
     assert "enoch-paper-draft-next.timer" in install

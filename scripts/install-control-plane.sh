@@ -70,7 +70,6 @@ src, dst, prefix, config, user = sys.argv[1:]
 text = pathlib.Path(src).read_text()
 text = text.replace("/opt/enoch-agentic-research-system", prefix)
 text = text.replace("/etc/enoch/config.json", config)
-text = text.replace("/etc/enoch/notion-sync.env", str(pathlib.Path(config).with_name("notion-sync.env")))
 text = text.replace("User=enoch", f"User={user}")
 text = text.replace("Group=enoch", f"Group={user}")
 pathlib.Path(dst).write_text(text)
@@ -99,19 +98,23 @@ PY
   chown -R "$SERVICE_USER:$SERVICE_USER" "$STATE_DIR"
   write_unit "$PREFIX/deploy/omx-wake-gate.service" /etc/systemd/system/enoch-control-plane.service
   write_unit "$PREFIX/deploy/enoch-queue-alert-check.service" /etc/systemd/system/enoch-queue-alert-check.service
-  write_unit "$PREFIX/deploy/enoch-notion-sync.service" /etc/systemd/system/enoch-notion-sync.service
+  if [[ "${ENOCH_INSTALL_LEGACY_NOTION_UNITS:-0}" == "1" ]]; then
+    write_unit "$PREFIX/deploy/enoch-notion-sync.service" /etc/systemd/system/enoch-notion-sync.service
+  fi
   if [[ "${ENOCH_INSTALL_PAPER_DRAFT_NEXT_UNITS:-0}" == "1" ]]; then
     write_unit "$PREFIX/deploy/enoch-paper-draft-next.service" /etc/systemd/system/enoch-paper-draft-next.service
   fi
   cp "$PREFIX/deploy/enoch-queue-alert-check.timer" /etc/systemd/system/enoch-queue-alert-check.timer
-  cp "$PREFIX/deploy/enoch-notion-sync.timer" /etc/systemd/system/enoch-notion-sync.timer
+  if [[ "${ENOCH_INSTALL_LEGACY_NOTION_UNITS:-0}" == "1" ]]; then
+    cp "$PREFIX/deploy/enoch-notion-sync.timer" /etc/systemd/system/enoch-notion-sync.timer
+  fi
   if [[ "${ENOCH_INSTALL_PAPER_DRAFT_NEXT_UNITS:-0}" == "1" ]]; then
     cp "$PREFIX/deploy/enoch-paper-draft-next.timer" /etc/systemd/system/enoch-paper-draft-next.timer
   fi
   systemctl daemon-reload
   echo "Installed systemd units. Edit $CONFIG_DIR/config.json, then run:"
   echo "  sudo systemctl enable --now enoch-control-plane.service"
-  echo "  sudo systemctl enable --now enoch-notion-sync.timer         # optional Notion intake/projection sync"
+  echo "  Supabase-native /control/intake/ideas is the supported intake path; legacy Notion units are not installed by default."
   echo "  ENOCH_INSTALL_PAPER_DRAFT_NEXT_UNITS=1 sudo -E scripts/install-control-plane.sh  # install opt-in draft-only paper units"
   echo "  sudo systemctl edit enoch-paper-draft-next.service             # set ENOCH_ENABLE_PAPER_DRAFT_NEXT=1 before intentional drafting"
   echo "  sudo systemctl enable --now enoch-queue-alert-check.timer   # optional Pushover/queue alerts + dispatch pump"

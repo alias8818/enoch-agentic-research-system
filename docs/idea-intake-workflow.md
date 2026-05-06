@@ -11,7 +11,7 @@ External signals
   -> LLM research scout
   -> candidate idea cards
   -> scoring / weight matrix
-  -> Notion idea database
+  -> Supabase-native ideas workbench
   -> queue selection / dispatch planning
   -> Enoch control plane
   -> GB10 worker experiment
@@ -55,7 +55,7 @@ This made the idea pool machine-actionable instead of a pile of prose.
 
 ## Stage 3 — Weight matrix scoring
 
-Ideas were scored with a weight matrix in Notion. The goal was to turn subjective research instinct into a repeatable prioritization signal.
+Ideas are scored with explicit priority/ranking fields in the Supabase-native ideas workbench. The goal was to turn subjective research instinct into a repeatable prioritization signal.
 
 Typical scoring dimensions included:
 
@@ -72,11 +72,11 @@ Typical scoring dimensions included:
 
 The point was not to pretend the scores were objectively true. The point was to make priority explicit, auditable, and adjustable.
 
-## Stage 4 — Notion as intake database
+## Stage 4 — Supabase-native idea workbench
 
-Notion acted as the intake and triage database for ideas.
+Supabase now acts as the intake and triage database for ideas. Historical Notion identifiers may remain on imported rows as provenance, but they are no longer runtime authority.
 
-It provided:
+The workbench provides:
 
 - human-readable idea cards;
 - weighted prioritization fields;
@@ -87,9 +87,9 @@ It provided:
 
 Important distinction:
 
-> Notion was the intake/reference surface. It was not the core execution engine.
+> Supabase ideas are the editable intake ledger. The Enoch control plane remains the execution authority.
 
-The current release positions Notion as an upstream planning and metadata layer. The durable execution story lives in the Enoch control plane and wake-gate system.
+The current runtime does not require Notion sync to create, inspect, or dispatch idea candidates.
 
 ## Stage 5 — Queue handoff
 
@@ -125,7 +125,7 @@ After intake, Enoch handled execution concerns:
 The key architectural boundary is:
 
 ```text
-Notion/intake decides what may be worth running.
+Supabase ideas decide what may be worth running.
 Enoch control plane decides what is safe and true during execution.
 ```
 
@@ -147,18 +147,18 @@ That loop is the agentic system story.
 
 Recommended wording:
 
-> Enoch used an upstream LLM-assisted research-scouting process to review technical signals, propose candidate experiments, and score them in a Notion weight matrix. Notion acted as the intake and prioritization surface. The execution authority lived in the Enoch control plane, which handled dispatch safety, worker preflight, process/telemetry gating, evidence synchronization, and artifact generation.
+> Enoch uses an upstream LLM-assisted research-scouting process to review technical signals, propose candidate experiments, and store candidate records in a Supabase-native ideas workbench. Execution authority lives in the Enoch control plane, which handles dispatch safety, worker preflight, process/telemetry gating, evidence synchronization, and artifact generation.
 
 ## What should not be overclaimed
 
 - The intake scout did not guarantee novelty.
 - The weight matrix was a prioritization tool, not a proof of value.
-- Notion was not the execution engine.
+- Supabase ideas are not the execution engine; they are the intake ledger.
 - The generated papers remain AI-generated artifacts, not peer-reviewed human scholarship.
 
 ## Future improvements
 
-A cleaner future implementation would replace ad hoc intake with first-class graph nodes:
+A cleaner future implementation would make scouting and scoring first-class graph nodes:
 
 ```text
 ScoutSignals -> GenerateIdea -> ScoreIdea -> Deduplicate -> Human/Operator Triage -> QueueCandidate -> DispatchGraph

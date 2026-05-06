@@ -655,7 +655,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             ),
             "worker_preflight": _freshness_for_observation("worker_preflight", "cached explicit worker preflight evidence", preflight),
             "worker_dashboard_api": _freshness_for_observation("worker_dashboard_api", "cached GB10 runtime evidence", worker_dashboard),
-            "notion_sync": _freshness_for_observation("notion_sync", "Notion intake/review projection", observations.get("notion_sync")),
+            "idea_intake": _freshness_for_observation("idea_intake", "Supabase-native ideas intake", observations.get("idea_intake")),
             "snapshot_mirror": _freshness_for_observation("snapshot_mirror", "cached worker/intake mirror", observations.get("snapshot_mirror")),
         }
         warnings: list[DashboardFinding] = []
@@ -729,7 +729,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             dispatch_safe=dispatch_safe,
             dispatch_blockers=blockers,
             source_freshness=source_freshness,
-            observations={source: observations.get(source) for source in ("worker_preflight", "worker_dashboard_api", "notion_sync", "snapshot_mirror")},
+            observations={source: observations.get(source) for source in ("worker_preflight", "worker_dashboard_api", "idea_intake", "snapshot_mirror")},
             warnings=warnings,
             conflicts=conflicts,
             recent_events=recent_events,
@@ -841,9 +841,19 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
 
     def _intake_freshness() -> dict[str, DashboardFreshness]:
         return {
-            **_db_freshness("control-plane Notion projection tables/events"),
-            **_cached_observation_freshness("notion_sync", "latest Notion intake/sync observation"),
+            **_db_freshness("Supabase-native ideas workbench"),
+            **_cached_observation_freshness("idea_intake", "latest Supabase-native ideas intake observation"),
         }
+
+    def _require_legacy_notion_api_enabled() -> None:
+        if not config.legacy_notion_api_enabled:
+            raise HTTPException(
+                status_code=410,
+                detail={
+                    "message": "Legacy Notion control-plane APIs are disabled; use Supabase-native /control/intake/ideas and /control/api/intake/ideas.",
+                    "replacement": "/control/intake/ideas",
+                },
+            )
 
 
     @router.get("/dashboard", response_class=HTMLResponse)
@@ -1689,7 +1699,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         )
 
     def _dashboard_ideas_intake_response(*, legacy_notion_alias: bool = False) -> DashboardIntakeResponse:
-        latest = store.latest_dashboard_observation(source="idea_intake") or store.latest_dashboard_observation(source="notion_sync")
+        latest = store.latest_dashboard_observation(source="idea_intake")
         projection = store.idea_workbench_projection() if hasattr(store, "idea_workbench_projection") else store.queue_notion_projection()
         recent = store.event_rows(limit=20, event_type="ideas.intake")
         if not recent:
@@ -1725,6 +1735,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.get("/api/intake/notion", response_model=DashboardIntakeResponse)
     def dashboard_notion_intake(authorization: str | None = Header(default=None)) -> DashboardIntakeResponse:
         authorize(authorization)
+        _require_legacy_notion_api_enabled()
         return _dashboard_ideas_intake_response(legacy_notion_alias=True)
 
     @router.post("/pause", response_model=ControlStateResponse)
@@ -1765,6 +1776,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/intake/notion-ideas", response_model=NotionIntakeResponse)
     def intake_notion_ideas(payload: NotionIntakeRequest, authorization: str | None = Header(default=None)) -> NotionIntakeResponse:
         authorize(authorization)
+        _require_legacy_notion_api_enabled()
         if payload.default_machine_target == "worker.example":
             configured_worker = urlparse(config.worker_wake_gate_url).hostname or ""
             if configured_worker:
@@ -1824,11 +1836,26 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/api/intake/notion-observation")
     def record_notion_observation(payload: dict[str, Any], authorization: str | None = Header(default=None)) -> dict[str, Any]:
         authorize(authorization)
+        _require_legacy_notion_api_enabled()
         status = str(payload.get("status") or "ok")
         if status not in {"ok", "warn", "error", "unavailable"}:
             status = "warn"
         observation = store.upsert_dashboard_observation(
             source="notion_sync",
+            status=status,
+            ttl_seconds=int(payload.get("ttl_seconds") or 3600),
+            payload=payload.get("payload") if isinstance(payload.get("payload"), dict) else payload,
+        )
+        return {"ok": True, "observation": observation.model_dump(mode="json")}
+
+    @router.post("/api/intake/ideas-observation")
+    def record_ideas_observation(payload: dict[str, Any], authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        authorize(authorization)
+        status = str(payload.get("status") or "ok")
+        if status not in {"ok", "warn", "error", "unavailable"}:
+            status = "warn"
+        observation = store.upsert_dashboard_observation(
+            source="idea_intake",
             status=status,
             ttl_seconds=int(payload.get("ttl_seconds") or 3600),
             payload=payload.get("payload") if isinstance(payload.get("payload"), dict) else payload,
@@ -1896,6 +1923,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.get("/projections/notion/queue", response_model=ProjectionResponse)
     def notion_queue_projection(authorization: str | None = Header(default=None)) -> ProjectionResponse:
         authorize(authorization)
+        _require_legacy_notion_api_enabled()
         rows = store.queue_notion_projection()
         return ProjectionResponse(rows=rows, counts=store.status_counts())
 
@@ -1912,6 +1940,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.get("/projections/notion/papers", response_model=ProjectionResponse)
     def notion_papers_projection(authorization: str | None = Header(default=None)) -> ProjectionResponse:
         authorize(authorization)
+        _require_legacy_notion_api_enabled()
         rows = store.paper_notion_projection()
         counts: dict[str, int] = {}
         for row in rows:
@@ -1922,6 +1951,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.get("/projections/notion/execution-updates", response_model=ProjectionResponse)
     def notion_execution_updates_projection(authorization: str | None = Header(default=None)) -> ProjectionResponse:
         authorize(authorization)
+        _require_legacy_notion_api_enabled()
         rows = store.notion_execution_update_projection()
         return ProjectionResponse(rows=rows, counts={"updates": len(rows)})
 

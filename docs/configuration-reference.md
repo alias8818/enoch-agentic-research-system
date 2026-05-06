@@ -66,17 +66,16 @@ The middleware does not record request bodies, response bodies, query strings, o
 
 Early private prototypes used callback fields named after a workflow tool. The public config should use `completion_callback_*`. The aliases are still accepted for old local configs but should not appear in new examples.
 
-## Notion sync environment
+## Supabase-native idea intake
 
-Notion sync credentials are intentionally **not** stored in the public JSON config. Put them in an operator-owned environment file such as `/etc/enoch/notion-sync.env` or `/etc/omx-wake-gate/notion-sync.env`:
+New deployments should use the Supabase-backed ideas API rather than Notion sync. The relevant runtime settings are:
 
-```bash
-NOTION_TOKEN=replace-with-notion-token
-# Use either the parent database ID or the modern Notion data source ID.
-# NOTION_DATABASE_ID=replace-with-enoch-ideas-database-id
-NOTION_DATA_SOURCE_ID=replace-with-enoch-ideas-data-source-id
-# Optional write cap per timer run. Use a smaller value for gentler PATCH batches.
-# NOTION_SYNC_MAX_UPDATES=25
+```json
+{
+  "control_plane_store_backend": "supabase",
+  "supabase_database_url": "set-from-root-only-env",
+  "legacy_notion_api_enabled": false
+}
 ```
 
-The sync runner also accepts `ENOCH_CONTROL_TOKEN`; if omitted, the deployed helper reads `omx_inbound_bearer_token` from the local control-plane config. The public repository must not contain real Notion tokens, database secrets, or private host defaults.
+`legacy_notion_api_enabled` defaults to `false`. Leave it disabled unless you are deliberately running a one-off historical compatibility import in a quarantined environment. Live Notion tokens, database IDs, and sync timers are not part of the supported runtime path.

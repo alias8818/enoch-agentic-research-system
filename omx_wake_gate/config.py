@@ -86,6 +86,7 @@ class GateConfig(BaseModel):
     route_observability_memory_warn_rss_mib: int = Field(default=0, ge=0)
     control_plane_store_backend: str = "sqlite"
     supabase_database_url: str = ""
+    legacy_notion_api_enabled: bool = False
 
 
     @model_validator(mode="after")

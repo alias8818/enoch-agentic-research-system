@@ -23,7 +23,7 @@ Enoch treats those as control-plane problems, not model problems. It uses proces
 ```text
 LLM research scout
   -> structured idea cards
-  -> Notion scoring / weight matrix
+  -> Supabase-native ideas workbench
   -> queue candidate
   -> VM control plane
   -> worker preflight and dispatch safety checks
@@ -64,9 +64,9 @@ Enoch is the project-specific control plane and release package. It runs agent w
 
 ## Idea intake
 
-Ideas are sourced from an upstream LLM-assisted scouting process that reviews technical signals such as AI news, public research papers, systems discussions, and local hardware/runtime opportunities. Candidate ideas are framed as structured experiment cards, scored in a Notion weight matrix, and handed to Enoch as queue candidates.
+Ideas are sourced from an upstream LLM-assisted scouting process that reviews technical signals such as AI news, public research papers, systems discussions, and local hardware/runtime opportunities. Candidate ideas are framed as structured experiment cards and stored in the Supabase-native ideas workbench before they become Enoch queue candidates.
 
-Notion is best understood as an intake and prioritization surface. Runtime authority begins in the Enoch control plane.
+Supabase is now the canonical intake ledger. Legacy Notion IDs/URLs, when present, are historical provenance only and are not runtime authority.
 
 See [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md).
 
@@ -101,7 +101,7 @@ uv run pytest -q
 - [`docs/deployment-guide.md`](docs/deployment-guide.md) — full deployment guide
 - [`docs/configuration-reference.md`](docs/configuration-reference.md) — config field reference
 - [`docs/system-workflow.md`](docs/system-workflow.md) — architecture and control-plane boundaries
-- [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md) — LLM scouting, Notion scoring, and queue handoff
+- [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md) — LLM scouting, Supabase ideas, and queue handoff
 
 **Release context:**
 - [`docs/release/authorship-and-provenance.md`](docs/release/authorship-and-provenance.md) — how generated reports should be framed

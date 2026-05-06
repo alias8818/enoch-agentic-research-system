@@ -156,37 +156,26 @@ sudo OMX_WAKE_GATE_CONFIG=/etc/enoch/config.json /opt/enoch-agentic-research-sys
 ```
 
 
-## 7. Enable Notion sync and draft-only paper production
+## 7. Supabase-native ideas and draft-only paper production
 
-Notion is an operator-facing intake/projection surface. The control-plane SQLite database remains canonical, but a stale Notion database can confuse intake and idea selection. Configure Notion sync with an external env file; do not commit these credentials:
+Notion sync is obsolete in the current runtime. Idea intake should go through the Supabase-backed control-plane API:
 
 ```bash
-sudo install -m 0755 /opt/enoch-agentic-research-system/deploy/enoch_notion_sync.sh /opt/enoch-agentic-research-system/deploy/enoch_notion_sync.sh
-sudo tee /etc/enoch/notion-sync.env >/dev/null <<'EOF'
-NOTION_TOKEN=replace-with-notion-token
-# Use either NOTION_DATABASE_ID or NOTION_DATA_SOURCE_ID. Data source IDs
-# are preferred with the current Notion API when available.
-# NOTION_DATABASE_ID=replace-with-enoch-ideas-database-id
-NOTION_DATA_SOURCE_ID=replace-with-enoch-ideas-data-source-id
-NOTION_SYNC_MAX_UPDATES=25
-EOF
-sudo chmod 0600 /etc/enoch/notion-sync.env
-sudo cp /opt/enoch-agentic-research-system/deploy/enoch-notion-sync.service /etc/systemd/system/
-sudo cp /opt/enoch-agentic-research-system/deploy/enoch-notion-sync.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now enoch-notion-sync.timer
+curl -fsS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:8787/control/intake/ideas \
+  -d '{"dry_run": true, "ideas": [{"idea_id": "smoke-idea", "title": "Smoke Idea", "idea_status": "testing"}]}'
 ```
 
-The sync helper accepts a data-source-only configuration. A healthy run prints a compact summary like `notion_rows_read`, `intake_updated`, `intake_skipped`, `execution_projection_count`, and `notion_updates_applied_count`; it does not print secrets or full row payloads to journald.
-
-Run one sync manually and inspect freshness:
+Inspect the canonical ideas workbench:
 
 ```bash
-sudo systemctl start enoch-notion-sync.service
-sudo journalctl -u enoch-notion-sync.service -n 50 --no-pager
 curl -fsS -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:8787/control/api/status | python3 -m json.tool
+  http://127.0.0.1:8787/control/api/intake/ideas | python3 -m json.tool
 ```
+
+Legacy `enoch-notion-sync.*` units are not installed by default and the checked-in unit/script are inert compatibility stubs. Do not enable Notion sync for new deployments.
 
 Paper drafting is dispatch-independent, but it is intentionally disabled by default because it can spend model tokens. The one-shot script exits before reading credentials or calling the control plane unless `ENOCH_ENABLE_PAPER_DRAFT_NEXT=1` is set. Install the timer only when a human explicitly wants draft-only paper production:
 
