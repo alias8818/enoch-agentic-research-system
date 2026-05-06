@@ -47,5 +47,6 @@ Idea -> Queue -> Run -> Decision -> Paper -> Publication -> Corpus
 uv run pytest -q tests/test_state_transition_map.py tests/test_control_plane_operator_status.py tests/test_state_doctor.py
 uv run python scripts/state_doctor.py --database-url "$ENOCH_SUPABASE_DATABASE_URL" --control-url "$ENOCH_CONTROL_URL" --token-file /path/to/token --corpus ../enoch-ai-research-corpus
 python3 scripts/generate_ecosystem_manifest.py --corpus ../enoch-ai-research-corpus --docs ../enoch-docs --output /tmp/enoch-ecosystem.generated.json
+python3 scripts/sync_corpus_import_ledger.py --corpus ../enoch-ai-research-corpus --sql-output /tmp/enoch-sync-corpus-imports.sql
 python3 scripts/validate_public_release.py --system . --corpus ../enoch-ai-research-corpus --docs ../enoch-docs --profile ../alias8818.github.io --owner-profile ../alias8818 --generated-manifest /tmp/enoch-ecosystem.generated.json
 ```
