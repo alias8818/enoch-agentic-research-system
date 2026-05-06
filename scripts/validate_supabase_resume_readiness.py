@@ -99,7 +99,7 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
     )
     review_backfill_dry = _request(
         "POST",
-        f"{base}/control/api/paper-reviews/backfill",
+        f"{base}/control/api/publication-automation/backfill",
         token,
         {"dry_run": True, "requested_by": "supabase-resume-readiness", "paper_ids": ["__resume_readiness_noop__"]},
     )
@@ -113,7 +113,7 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
         ("ideas workbench", workbench),
         ("dispatch dry-run", dispatch_dry),
         ("ideas dry-run", idea_dry),
-        ("paper review backfill dry-run", review_backfill_dry),
+        ("publication automation backfill dry-run", review_backfill_dry),
     ):
         _check_status(failures, result, 200, label)
     _check_status(failures, legacy_intake, 410, "legacy Notion intake")
@@ -145,7 +145,7 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
     if idea_dry.status == 200 and (not idea_dry.body.get("dry_run") or idea_dry.body.get("created") not in (0, None)):
         failures.append(f"ideas dry-run was not side-effect-free: {idea_dry.body}")
     if review_backfill_dry.status == 200 and not review_backfill_dry.body.get("dry_run"):
-        failures.append(f"paper review backfill did not remain dry-run: {review_backfill_dry.body}")
+        failures.append(f"publication automation backfill did not remain dry-run: {review_backfill_dry.body}")
 
     timer_check: dict[str, Any] | None = None
     if args.ssh_host:

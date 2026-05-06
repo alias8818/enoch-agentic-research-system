@@ -44,7 +44,7 @@ def iter_review_rows(base_url: str, token: str, *, review_status: str, paper_sta
                 "include_rank_reasons": "false",
             }
         )
-        payload = request_json(base_url, token, f"/control/api/paper-reviews?{query}")
+        payload = request_json(base_url, token, f"/control/api/publication-automation?{query}")
         page_rows = list(payload.get("rows") or [])
         rows.extend(page_rows)
         page_meta = payload.get("page") or {}

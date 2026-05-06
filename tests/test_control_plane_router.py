@@ -1189,25 +1189,42 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(reviews.status_code, 200)
             body = reviews.json()
             self.assertEqual(body["source"], "control_api_paper_reviews")
+            self.assertEqual(body["page"]["queue"], "paper_reviews")
             self.assertEqual(body["page"]["total"], 242)
             self.assertEqual(len(body["rows"]), 242)
             self.assertEqual(body["counts"]["triage_ready"], 242)
             self.assertEqual(body["rows"][0]["paper_status"], "publication_draft")
             self.assertIn("rank_reasons", body["rows"][0])
 
-            filtered = client.get("/control/api/paper-reviews?page_size=500&paper_status=draft_review&search=idea-200", headers=headers)
+            automation = client.get("/control/api/publication-automation?page_size=500&include_rank_reasons=true", headers=headers)
+            self.assertEqual(automation.status_code, 200)
+            automation_body = automation.json()
+            self.assertEqual(automation_body["source"], "control_api_paper_reviews")
+            self.assertEqual(automation_body["page"]["queue"], "publication_automation")
+            self.assertEqual(automation_body["page"]["total"], 242)
+            self.assertEqual(automation_body["counts"], body["counts"])
+
+            filtered = client.get("/control/api/publication-automation?page_size=500&paper_status=draft_review&search=idea-200", headers=headers)
             self.assertEqual(filtered.status_code, 200)
             self.assertEqual(filtered.json()["page"]["total"], 1)
 
             detail_id = body["rows"][0]["paper_id"]
-            detail = client.get(f"/control/api/paper-reviews/{detail_id}", headers=headers)
+            detail = client.get(f"/control/api/publication-automation/{detail_id}", headers=headers)
             self.assertEqual(detail.status_code, 200)
             self.assertEqual(detail.json()["item"]["paper_id"], detail_id)
             self.assertEqual(detail.json()["paper"]["paper_id"], detail_id)
 
-            next_review = client.get("/control/api/paper-reviews/next?paper_status=publication_draft", headers=headers)
+            legacy_detail = client.get(f"/control/api/paper-reviews/{detail_id}", headers=headers)
+            self.assertEqual(legacy_detail.status_code, 200)
+            self.assertEqual(legacy_detail.json()["item"]["paper_id"], detail_id)
+
+            next_review = client.get("/control/api/publication-automation/next?paper_status=publication_draft", headers=headers)
             self.assertEqual(next_review.status_code, 200)
             self.assertEqual(next_review.json()["item"]["paper_id"], detail_id)
+
+            legacy_next = client.get("/control/api/paper-reviews/next?paper_status=publication_draft", headers=headers)
+            self.assertEqual(legacy_next.status_code, 200)
+            self.assertEqual(legacy_next.json()["item"]["paper_id"], detail_id)
 
             repeated = client.post("/control/api/paper-reviews/backfill", headers=headers, json={
                 "idempotency_key": "paper-review-router-backfill-second",
@@ -1673,13 +1690,13 @@ class ControlPlaneRouterTests(unittest.TestCase):
             client = _client(tmp)
             response = client.get("/control/dashboard")
             self.assertEqual(response.status_code, 200)
-            for path in ["/control/api/v1/overview", "/control/api/v1/queue", "/control/api/v1/projects/", "/control/api/v1/runs", "/control/api/v1/papers", "/control/api/v1/events", "/control/api/v1/observability/memory", "/control/api/paper-reviews", "/control/api/intake/ideas"]:
+            for path in ["/control/api/v1/overview", "/control/api/v1/queue", "/control/api/v1/projects/", "/control/api/v1/runs", "/control/api/v1/papers", "/control/api/v1/events", "/control/api/v1/observability/memory", "/control/api/publication-automation", "/control/api/intake/ideas"]:
                 self.assertIn(path, response.text)
-            for stale_path in ["/control/api/status?refresh_worker=true", "/control/api/queues/", "/control/api/events?page_size=200", "/control/api/papers?page_size=100", "['event_id','event_type','entity_type','entity_id','created_at','payload_summary']"]:
+            for stale_path in ["/control/api/status?refresh_worker=true", "/control/api/queues/", "/control/api/events?page_size=200", "/control/api/papers?page_size=100", "/control/api/paper-reviews", "#reviews", "#review:", "['event_id','event_type','entity_type','entity_id','created_at','payload_summary']"]:
                 self.assertNotIn(stale_path, response.text)
             for ui_text in ["Publication Automation", "Automated rewrite/finalization lane", "prepare finalization package", "Formatted control-plane events", "Search, filter, sort, and page", "Recently added", "Find projects", "Find papers", "Find runs", "Find events", "choose 200 per page"]:
                 self.assertIn(ui_text, response.text)
-            for removed_manual_review_text in ["Auto-pass checklist", "approve-finalization"]:
+            for removed_manual_review_text in ["Auto-pass checklist", "approve-finalization", "Paper Review Queue", "Review queue backfilled"]:
                 self.assertNotIn(removed_manual_review_text, response.text)
 
 

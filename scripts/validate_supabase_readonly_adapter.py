@@ -438,7 +438,7 @@ def main() -> int:
                 paper_ids=["paper-review-smoke"],
             ))
             if not review_inserted or review_created != 1 or review_updated != 0 or review_errors:
-                failures.append(f"paper review backfill mismatch: created={review_created} updated={review_updated} errors={review_errors}")
+                failures.append(f"publication automation backfill mismatch: created={review_created} updated={review_updated} errors={review_errors}")
             claim_event_id, claim_inserted, claimed_review = write_store.claim_paper_review(
                 "paper-review-smoke",
                 PaperReviewClaimRequest(
@@ -447,7 +447,7 @@ def main() -> int:
                 ),
             )
             if claim_event_id <= 0 or not claim_inserted or claimed_review.get("review_status") != "in_review":
-                failures.append("paper review claim did not persist in_review state")
+                failures.append("publication automation claim did not persist in_review state")
             checklist = write_store.paper_review_checklist("paper-review-smoke")
             for item in checklist.get("items", []):
                 if item.get("required"):
@@ -483,7 +483,7 @@ def main() -> int:
                 or approve_event_id_again != approve_event_id
                 or approved_review.get("review_status") != "approved_for_finalization"
             ):
-                failures.append("paper review approval did not persist idempotent approved_for_finalization state")
+                failures.append("publication automation packaging approval did not persist idempotent approved_for_finalization state")
             if not any(row.get("paper_id") == "paper-review-smoke" for row in write_store.paper_review_rows()):
                 failures.append("paper_review_rows missing smoke review row")
             artifact_root = Path(tmp) / "artifact-root"

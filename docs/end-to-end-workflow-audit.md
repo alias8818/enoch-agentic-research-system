@@ -41,7 +41,7 @@ flowchart TD
   R --> S[paper artifacts + paper.drafted event]
   S --> T[publication automation item]
   T --> V{automation/finalization lane}
-  V -->|rewrite draft| W[/control/api/paper-reviews/:id/rewrite-draft]
+  V -->|rewrite draft| W[/control/api/publication-automation/:id/rewrite-draft]
   W --> X[publication_draft + AI provenance policy]
   X --> Z[/prepare-finalization-package]
   Z --> AA[finalized package manifest; no submission side effects]

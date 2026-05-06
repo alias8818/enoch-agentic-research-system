@@ -107,7 +107,7 @@ def main() -> int:
                 paper_id = str((paper_draft.get("paper") or {}).get("paper_id") or "")
                 publication_rewrite = _post_json(
                     base_url,
-                    f"/control/api/paper-reviews/{quote(paper_id, safe='')}/rewrite-draft",
+                    f"/control/api/publication-automation/{quote(paper_id, safe='')}/rewrite-draft",
                     token,
                     {
                         "idempotency_key": f"paper-publication-pipeline:{paper_id or 'unknown'}",

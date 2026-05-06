@@ -40,7 +40,7 @@ def test_paper_draft_unit_is_opt_in_and_never_dispatches() -> None:
     assert "trap cleanup_curl_temp_files EXIT HUP INT TERM" in script
     assert 'curl -fsS -X POST' not in script
     assert "/control/papers/draft-next" in combined
-    assert "/control/api/paper-reviews/$paper_path/rewrite-draft" in script
+    assert "/control/api/publication-automation/$paper_path/rewrite-draft" in script
     assert "/control/dispatch-next" not in combined
     assert "192.168.1.77" not in combined
 
@@ -51,8 +51,8 @@ def test_paper_drain_is_bounded_opt_in_and_does_not_run_broad_rewrite_batches() 
     assert "ENOCH_PAPER_DRAIN_MAX_RUNS" in script
     assert "ENOCH_PAPER_DRAIN_FAIL_LIMIT" in script
     assert "/control/papers/draft-next" in script
-    assert "/control/api/paper-reviews/{encoded}/rewrite-draft" in script
-    assert "/control/api/paper-reviews/rewrite-batch" not in script
+    assert "/control/api/publication-automation/{encoded}/rewrite-draft" in script
+    assert "/control/api/publication-automation/rewrite-batch" not in script
     assert "/control/dispatch-next" not in script
     assert "192.168.1." not in script
 
@@ -97,14 +97,14 @@ def test_queue_pump_can_opt_into_drafting_before_dispatch(tmp_path, capsys) -> N
             return {"should_alert": False}
         if path == "/control/papers/draft-next":
             return {"action": "drafted", "paper": {"paper_id": "p:r:arxiv_draft"}}
-        if path == "/control/api/paper-reviews/p%3Ar%3Aarxiv_draft/rewrite-draft":
+        if path == "/control/api/publication-automation/p%3Ar%3Aarxiv_draft/rewrite-draft":
             return {"rewritten": 1, "failed": 0}
         raise AssertionError(f"unexpected post {path}")
 
     with patch.dict("os.environ", {"OMX_WAKE_GATE_CONFIG": str(config)}, clear=False), patch.object(pump, "_get_json", return_value={"dispatch_safe": True, "active_items": [], "next_candidate": {"project_id": "queued"}}), patch.object(pump, "_post_json", side_effect=fake_post):
         assert pump.main() == 0
     assert "/control/papers/draft-next" in [path for path, _payload in calls]
-    assert "/control/api/paper-reviews/p%3Ar%3Aarxiv_draft/rewrite-draft" in [path for path, _payload in calls]
+    assert "/control/api/publication-automation/p%3Ar%3Aarxiv_draft/rewrite-draft" in [path for path, _payload in calls]
     assert "/control/dispatch-next" not in [path for path, _payload in calls]
     assert json.loads(capsys.readouterr().out)["dispatch"]["reason"] == "paper drafted before dispatch"
 

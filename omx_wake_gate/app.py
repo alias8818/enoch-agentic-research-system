@@ -323,7 +323,7 @@ DASHBOARD_HTML = """
       <section class="grid layout" id="paperPanel" style="margin-top:16px; display:none">
         <div class="panel">
           <div class="panel-head">
-            <div class="panel-title"><span class="status-dot purple"></span><h2>Paper Review Queue</h2></div>
+            <div class="panel-title"><span class="status-dot purple"></span><h2>Paper Artifact Queue</h2></div>
             <span class="small" id="paperHint"></span>
           </div>
           <div class="panel-body">
@@ -340,7 +340,7 @@ DASHBOARD_HTML = """
         </div>
         <aside class="panel paper-review">
           <div class="panel-head"><h2>Paper Reader</h2><span class="small" id="paperSelectedHint">click a paper</span></div>
-          <div class="panel-body" id="paperReader"><div class="empty">Select a paper to review Markdown, LaTeX, claim audit, or evidence artifacts from the dashboard.</div></div>
+          <div class="panel-body" id="paperReader"><div class="empty">Select a paper to inspect Markdown, LaTeX, claim audit, or evidence artifacts from the dashboard.</div></div>
         </aside>
       </section>
     </section>
@@ -502,7 +502,7 @@ DASHBOARD_HTML = """
         metric("Projects Total", q.total, `${q.completed} done · ${q.yet} yet to do`),
         metric("Projects Active", q.active, `${q.queued} queued · snapshot ${age(q.queue.updated_at)}`),
         metric("Outcomes", `${q.positive}/${q.negative}`, "positive / negative final decisions"),
-        metric("Papers", p.total, `${p.reviewable} reviewable · ${p.publication} publication drafts`),
+        metric("Papers", p.total, `${p.reviewable} inspectable · ${p.publication} publication drafts`),
         metric("Queue Blocked", q.blocked, "blocked rows from intake/queue mirror"),
         metric("Wake Attention", attention, `${staleCallbacks} stale callbacks · ${callbackPending} pending`),
         metric("GPU / UMA", `${Number(t.gpu_pct||0).toFixed(1)}%`, `${t.memory_source === "nvml_dedicated" ? (t.vram_used_mib||0) + " MiB VRAM" : (t.uma_allocatable_mib||0) + " MiB allocatable"}`),
@@ -527,7 +527,7 @@ DASHBOARD_HTML = """
           <div class="count-row"><div class="count-label">Yet To Do</div><div class="count-value">${esc(q.yet)}</div></div>
           <div class="count-row"><div class="count-label">Active Now</div><div class="count-value">${esc(q.active)}</div></div>
           <div class="count-row"><div class="count-label">Queued</div><div class="count-value">${esc(q.queued)}</div></div>
-          <div class="count-row"><div class="count-label">Blocked / Review</div><div class="count-value">${esc(q.blocked)}</div></div>
+          <div class="count-row"><div class="count-label">Blocked / Attention</div><div class="count-value">${esc(q.blocked)}</div></div>
         </div>
         ${progress(q.completed, q.total)}`;
       document.getElementById("overviewOutcomes").innerHTML = `
@@ -540,12 +540,12 @@ DASHBOARD_HTML = """
         </div>`;
       document.getElementById("overviewPaperHint").textContent = `snapshot ${age(p.papers.updated_at)}`;
       document.getElementById("overviewPapers").innerHTML = `
-        <div class="summary-copy">${p.reviewable} papers have reviewable artifacts. ${p.publication} are publication drafts.</div>
+        <div class="summary-copy">${p.reviewable} papers have inspectable artifacts. ${p.publication} are publication drafts.</div>
         <div class="count-grid">
           <div class="count-row"><div class="count-label">Total Papers</div><div class="count-value">${esc(p.total)}</div></div>
-          <div class="count-row"><div class="count-label">Reviewable</div><div class="count-value">${esc(p.reviewable)}</div></div>
+          <div class="count-row"><div class="count-label">Inspectable</div><div class="count-value">${esc(p.reviewable)}</div></div>
           <div class="count-row"><div class="count-label">Publication Drafts</div><div class="count-value">${esc(p.publication)}</div></div>
-          <div class="count-row"><div class="count-label">Draft Review</div><div class="count-value">${esc(p.draftReview)}</div></div>
+          <div class="count-row"><div class="count-label">First Draft</div><div class="count-value">${esc(p.draftReview)}</div></div>
         </div>`;
     }
     function renderProjectQueuePage() {
@@ -580,8 +580,8 @@ DASHBOARD_HTML = """
       const p = paperStats();
       const q = queueStats();
       document.getElementById("paperCards").innerHTML = [
-        metric("Total Papers", p.total, `${p.reviewable} reviewable artifacts`),
-        metric("Publication Drafts", p.publication, "ready for final review lane"),
+        metric("Total Papers", p.total, `${p.reviewable} inspectable artifacts`),
+        metric("Publication Drafts", p.publication, "ready for automated finalization lane"),
         metric("Draft Candidates", Number(q.queue.draft_candidate_count || 0), "eligible positive projects"),
         metric("Polish Candidates", Number(q.queue.polish_candidate_count || 0), "eligible existing drafts"),
       ].join("");
@@ -691,7 +691,7 @@ DASHBOARD_HTML = """
       document.getElementById("paperEmpty").style.display = rows.length ? "none" : "block";
       document.getElementById("papers").innerHTML = rows.map(row => {
         const reviewPaths = paperPaths(row);
-        const note = compact(row.review_notes || row.last_error || "No review notes", 160);
+        const note = compact(row.review_notes || row.last_error || "No automation notes", 160);
         return `<tr class="${row.paper_id === selectedPaperId ? "selected" : ""}" data-paper="${esc(row.paper_id)}">
           <td>${pill(row.paper_status || "unknown", paperTone(row.paper_status))}<div class="small">${esc(row.paper_type || "paper")} · ${esc(row.model_used || "unknown model")}</div></td>
           <td><div class="project-name">${esc(row.project_name || row.project_id || "unknown")}</div><div class="small mono truncate">${esc(row.paper_id || "")}</div></td>
@@ -720,7 +720,7 @@ DASHBOARD_HTML = """
         reader.innerHTML = `
           ${kv("Artifact", `<span class="mono">${esc(data.path)}</span>`)}
           ${kv("Bytes", esc(data.bytes))}
-          <div class="review-actions"><button id="backToPaper">Back to paper</button><a target="_blank" rel="noopener" href="${esc(openUrl)}">Open full review</a></div>
+          <div class="review-actions"><button id="backToPaper">Back to paper</button><a target="_blank" rel="noopener" href="${esc(openUrl)}">Open full artifact</a></div>
           <details class="raw paper-preview" open><summary>Artifact content</summary><pre>${esc(data.content)}</pre></details>`;
         document.getElementById("backToPaper").onclick = () => { selectedPaperPath = null; renderPaperReader(); };
       } catch (err) {
@@ -737,7 +737,7 @@ DASHBOARD_HTML = """
       document.getElementById("paperSelectedHint").textContent = row.project_name || row.project_id || "selected";
       if (selectedPaperPath) { loadPaperArtifact(row.project_id, selectedPaperPath); return; }
       const paths = paperPaths(row);
-      const buttons = paths.map(([label, path]) => `<button data-paper-path="${esc(path)}">Review ${esc(label)}</button>`).join("");
+      const buttons = paths.map(([label, path]) => `<button data-paper-path="${esc(path)}">Inspect ${esc(label)}</button>`).join("");
       const notion = row.notion_page_url ? `<a target="_blank" rel="noopener" href="${esc(row.notion_page_url)}">Open Notion</a>` : "";
       reader.innerHTML = `
         ${kv("Paper", `<strong>${esc(row.project_name || row.project_id || "unknown")}</strong><div class="small mono">${esc(row.paper_id || "")}</div>`)}
@@ -745,8 +745,8 @@ DASHBOARD_HTML = """
         ${kv("Generated", `${fmtDate(row.generated_at)} · updated ${age(row.updated_at || row.generated_at)}`)}
         ${kv("Decision", `${esc(row.project_decision || "—")} · ${esc(row.hypothesis_status || "unknown")} · ${esc(row.evidence_strength || "unknown")} evidence`)}
         ${kv("Model", esc(row.model_used || "—"))}
-        ${kv("Review notes", esc(row.review_notes || row.last_error || "—"))}
-        <div class="section-title">Review artifacts</div>
+        ${kv("Automation notes", esc(row.review_notes || row.last_error || "—"))}
+        <div class="section-title">Artifact previews</div>
         <div class="review-actions">${buttons || `<span class="small">No artifact paths in snapshot.</span>`}${notion}</div>
         <div class="section-title">Paths</div>
         <div class="files">${paths.map(([label, path]) => `<span class="file mono">${esc(label)}: ${esc(path)}</span>`).join("")}</div>
@@ -1392,7 +1392,7 @@ def _dashboard_truth(
     elif stale_callback:
         lifecycle = "stale_callback_ready"
         status = "Stale callback"
-        detail = "Wake-gate reached callback-ready but has no delivered idempotency key; review or reconcile."
+        detail = "Wake-gate reached callback-ready but has no delivered idempotency key; inspect or reconcile."
         is_live = False
         needs_attention = True
     elif state in {GateState.WAKE_READY, GateState.FINISHED_READY} and not delivered:

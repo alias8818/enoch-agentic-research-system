@@ -66,10 +66,10 @@ import sys
 print(quote(sys.argv[1], safe=""))
 PY
 )"
-  rewrite_response="$(post_json "/control/api/paper-reviews/$paper_path/rewrite-draft" "{\"idempotency_key\":\"paper-publication-pipeline:$paper_id:$(date -u +%Y%m%dT%H%M%SZ)\",\"requested_by\":\"systemd:enoch-paper-draft-next\",\"force\":true}")"
+  rewrite_response="$(post_json "/control/api/publication-automation/$paper_path/rewrite-draft" "{\"idempotency_key\":\"paper-publication-pipeline:$paper_id:$(date -u +%Y%m%dT%H%M%SZ)\",\"requested_by\":\"systemd:enoch-paper-draft-next\",\"force\":true}")"
 fi
-rewrite_pending_drafts_response="$(post_json "/control/api/paper-reviews/rewrite-batch" "{\"idempotency_key\":\"paper-publication-pending-drafts:$(date -u +%Y%m%dT%H%M%SZ)\",\"requested_by\":\"systemd:enoch-paper-draft-next\",\"paper_status\":\"draft_review\",\"review_status\":\"\",\"limit\":20,\"force\":true,\"dry_run\":false,\"skip_rewritten\":false}")"
-rewrite_pending_publication_response="$(post_json "/control/api/paper-reviews/rewrite-batch" "{\"idempotency_key\":\"paper-publication-pending-publication:$(date -u +%Y%m%dT%H%M%SZ)\",\"requested_by\":\"systemd:enoch-paper-draft-next\",\"paper_status\":\"publication_draft\",\"review_status\":\"\",\"limit\":20,\"force\":true,\"dry_run\":false,\"skip_rewritten\":false}")"
+rewrite_pending_drafts_response="$(post_json "/control/api/publication-automation/rewrite-batch" "{\"idempotency_key\":\"paper-publication-pending-drafts:$(date -u +%Y%m%dT%H%M%SZ)\",\"requested_by\":\"systemd:enoch-paper-draft-next\",\"paper_status\":\"draft_review\",\"review_status\":\"\",\"limit\":20,\"force\":true,\"dry_run\":false,\"skip_rewritten\":false}")"
+rewrite_pending_publication_response="$(post_json "/control/api/publication-automation/rewrite-batch" "{\"idempotency_key\":\"paper-publication-pending-publication:$(date -u +%Y%m%dT%H%M%SZ)\",\"requested_by\":\"systemd:enoch-paper-draft-next\",\"paper_status\":\"publication_draft\",\"review_status\":\"\",\"limit\":20,\"force\":true,\"dry_run\":false,\"skip_rewritten\":false}")"
 python3 - "$draft_response" "$rewrite_response" "$rewrite_pending_drafts_response" "$rewrite_pending_publication_response" <<'PY'
 import json, sys
 print(json.dumps({

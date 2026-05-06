@@ -113,7 +113,7 @@ CONTROL_DASHBOARD_HTML = """
 </header>
 <main class="wrap"><div id="status" class="pill warn">Loading…</div><div id="app" class="banner warn">Loading dashboard cards…</div></main>
 <script>
-const pages=[['overview','Overview'],['projects','Projects'],['queue:active','Active'],['queue:queued','Queued'],['queue:blocked','Blocked'],['runs','Runs'],['papers','Papers'],['events','Events'],['reviews','Publication Automation'],['intake','Ideas'],['observability','Observability']];
+const pages=[['overview','Overview'],['projects','Projects'],['queue:active','Active'],['queue:queued','Queued'],['queue:blocked','Blocked'],['runs','Runs'],['papers','Papers'],['events','Events'],['automation','Publication Automation'],['intake','Ideas'],['observability','Observability']];
 const $=id=>document.getElementById(id); const AI_ACTOR='ai-publication-pipeline'; const AI_NOTE='AI-generated publication pipeline; operator claims no personal authorship credit.';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function token(){return localStorage.getItem('enochControlToken')||'';} function saveToken(){localStorage.setItem('enochControlToken',$('token').value.trim());route();}
@@ -130,11 +130,11 @@ function automationStatusLabel(s){const v=String(s||''); const map={unreviewed:'
 function shortId(value){const s=String(value||''); if(!s)return ''; if(s.length<=26)return esc(s); return `<span title="${esc(s)}">${esc(s.slice(0,10)+'…'+s.slice(-8))}</span>`;}
 function formatBytes(bytes){const n=Number(bytes||0); if(!n)return 'no payload'; if(n>1024*1024)return (n/1024/1024).toFixed(1)+' MB'; if(n>1024)return (n/1024).toFixed(1)+' KB'; return n+' B';}
 function formatTime(value){if(!value)return ''; const d=new Date(value); if(Number.isNaN(d.getTime()))return esc(value); return d.toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});}
-function eventLabel(type){const map={'notion.intake':'Legacy Notion import captured','ideas.intake':'Supabase ideas imported','paper_review.finalization_package_prepared':'Finalization package prepared','paper_review.draft_rewritten':'Draft rewritten','paper.drafted':'Paper draft created','paper_review.backfill':'Review queue backfilled','worker.callback':'Worker callback received','control.pause':'Queue paused','control.resume':'Queue resumed'}; return map[type]||titleCase(type);}
+function eventLabel(type){const map={'notion.intake':'Legacy Notion import captured','ideas.intake':'Supabase ideas imported','paper_review.finalization_package_prepared':'Finalization package prepared','paper_review.draft_rewritten':'Draft rewritten','paper.drafted':'Paper draft created','paper_review.backfill':'Publication automation backfilled','worker.callback':'Worker callback received','control.pause':'Queue paused','control.resume':'Queue resumed'}; return map[type]||titleCase(type);}
 function eventTone(type){const t=String(type||''); if(t.includes('error')||t.includes('failed'))return 'bad'; if(t.includes('blocked')||t.includes('pause'))return 'warn'; if(t.includes('draft')||t.includes('finalization')||t.includes('notion')||t.includes('ideas'))return 'info'; return 'good';}
 function payloadDigest(summary){const bytes=summary?.bytes||0; const keys=(summary?.keys||[]).filter(k=>!['notion_rows','paper','payload'].includes(k)).slice(0,4); return `<span class="pill">${esc(formatBytes(bytes))}</span>${keys.map(k=>`<span class="pill">${esc(titleCase(k))}</span>`).join('')}${bytes>1024*1024?'<span class="pill warn">large payload hidden</span>':''}`;}
 function activityCards(rows){return `<div class="activity-list">${(rows||[]).map(e=>`<div class="card tight"><div class="row"><strong class="${eventTone(e.event_type)}">${esc(eventLabel(e.event_type))}</strong><span class="pill">${esc(formatTime(e.created_at))}</span><span class="pill">${esc(titleCase(e.entity_type))}</span></div><div class="muted mono">${shortId(e.entity_id)}</div><div class="row">${payloadDigest(e.payload_summary||{})}</div></div>`).join('')||'<div class="card tight"><strong>No recent activity</strong><div class="muted">No control-plane events were returned for this view.</div></div>'}</div>`;}
-function cell(c,v,r){if(c==='project_id')return `${linkProject(v)}${r.project_name?`<div class="muted">${esc(r.project_name)}</div>`:''}`; if(c==='current_run_id'||c==='run_id')return linkRun(v); if(c==='paper_id')return linkPaper(v); if(c==='review')return r.paper_id?`<a href="#review:${encodeURIComponent(r.paper_id)}">Open ${esc(r.project_name||r.paper_id)}</a>`:''; if(c==='paper_title')return `<strong>${esc(r.project_name||r.paper_id||'Untitled')}</strong><div class="muted mono">${shortId(r.paper_id||'')}</div>`; if(c==='notion_page_url'&&v)return `<a href="${esc(v)}">Notion</a>`; if(c==='artifact_paths_present')return Object.entries(v||{}).map(([k,ok])=>`<span class="pill ${ok?'good':'warn'}">${esc(k.replace('_path','').replaceAll('_',' '))}: ${ok?'yes':'no'}</span>`).join(''); if(c==='payload_summary')return payloadDigest(v||{}); if(c==='paper_status')return `<span class="truncate ${statusClass(v)}">${esc(paperStatusLabel(v))}</span>`; if(c==='entity_id')return shortId(v); if(c==='created_at'||c==='updated_at'||c==='generated_at')return formatTime(v); if(typeof v==='boolean')return `<span class="pill ${v?'good':'warn'}">${v?'yes':'no'}</span>`; if(Array.isArray(v))return `<span class="truncate">${esc(v.join('; '))}</span>`; if(v&&typeof v==='object')return '<span class="muted">details hidden</span>'; return `<span class="truncate ${statusClass(v)}">${esc(v)}</span>`;}
+function cell(c,v,r){if(c==='project_id')return `${linkProject(v)}${r.project_name?`<div class="muted">${esc(r.project_name)}</div>`:''}`; if(c==='current_run_id'||c==='run_id')return linkRun(v); if(c==='paper_id')return linkPaper(v); if(c==='automation')return r.paper_id?`<a href="#automation:${encodeURIComponent(r.paper_id)}">Open ${esc(r.project_name||r.paper_id)}</a>`:''; if(c==='review')return r.paper_id?`<a href="#automation:${encodeURIComponent(r.paper_id)}">Open ${esc(r.project_name||r.paper_id)}</a>`:''; if(c==='paper_title')return `<strong>${esc(r.project_name||r.paper_id||'Untitled')}</strong><div class="muted mono">${shortId(r.paper_id||'')}</div>`; if(c==='notion_page_url'&&v)return `<a href="${esc(v)}">Notion</a>`; if(c==='artifact_paths_present')return Object.entries(v||{}).map(([k,ok])=>`<span class="pill ${ok?'good':'warn'}">${esc(k.replace('_path','').replaceAll('_',' '))}: ${ok?'yes':'no'}</span>`).join(''); if(c==='payload_summary')return payloadDigest(v||{}); if(c==='paper_status')return `<span class="truncate ${statusClass(v)}">${esc(paperStatusLabel(v))}</span>`; if(c==='entity_id')return shortId(v); if(c==='created_at'||c==='updated_at'||c==='generated_at')return formatTime(v); if(typeof v==='boolean')return `<span class="pill ${v?'good':'warn'}">${v?'yes':'no'}</span>`; if(Array.isArray(v))return `<span class="truncate">${esc(v.join('; '))}</span>`; if(v&&typeof v==='object')return '<span class="muted">details hidden</span>'; return `<span class="truncate ${statusClass(v)}">${esc(v)}</span>`;}
 function tableRows(rows,cols,empty='No rows match this view'){return `<table><thead><tr>${cols.map(c=>`<th>${esc(c.replaceAll('_',' '))}</th>`).join('')}</tr></thead><tbody>${(rows||[]).map(r=>`<tr>${cols.map(c=>`<td>${cell(c,r[c],r)}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="${cols.length}">${esc(empty)}</td></tr>`}</tbody></table>`;}
 function pageMeta(page,label='Showing'){return `<div class="muted">${esc(label)} ${esc(page?.returned??0)} items · ${page?.has_more?'more available':'end of list'}</div>`;}
 function paperPipelineCards(pipeline={},papers={}){const write=Number(pipeline.write_needed||0), finalize=Number(pipeline.finalize_needed||0), publish=Number(pipeline.publish_ready||0), raw=Number(pipeline.raw_completed_no_paper_candidates||0), blocked=Number(pipeline.not_writable_by_decision_gate||0), next=pipeline.next_write_candidate||null; const nextText=next?`Next: ${esc(next.project_name||next.project_id||'untitled')}`:(blocked?'No writable candidate; remaining no-paper rows are gate-rejected':'No live write candidate'); const blockedText=blocked?` · ${blocked} completed no-paper row${blocked===1?'':'s'} rejected by decision gate`:''; return `<section class="card"><h2>Paper pipeline</h2><div class="muted">Back-to-basics paper state: write only paper-positive runs, finalize the draft, then publish/import it. These are separate steps.</div><section class="grid">${card('1. Write papers',write,write?'warn':'good',`Actionable paper-positive runs with no live paper row. ${nextText}${blockedText}`)}${card('2. Finalize drafts',finalize,finalize?'warn':'good','Publication drafts missing automated finalization package')}${card('3. Publish/import',publish,publish?'good':'info','Finalized publication drafts ready for corpus import')}${card('Live paper rows',papers.all||0,'info',`${papers.publication_draft||0} publication-ready drafts · ${papers.draft_review||0} first-draft rows · ${raw} raw completed/no-paper candidates`)}</section></section>`;}
@@ -155,20 +155,20 @@ function applyEventFilters(){const params=new URLSearchParams(); const term=$('e
 async function eventsPage(){renderNav('events'); const params=new URLSearchParams(location.hash.split('?')[1]||''); const cursor=params.get('cursor')||'', pageSize=params.get('page_size')||'50', term=params.get('search')||'', entityType=params.get('entity_type')||'', entityId=params.get('entity_id')||'', eventType=params.get('event_type')||'', sort=params.get('sort')||'recent'; const qs=new URLSearchParams({page_size:pageSize,cursor,search:term,entity_type:entityType,entity_id:entityId,event_type:eventType,sort}); const data=await api('/control/api/v1/events?'+qs.toString()); const nextParams=new URLSearchParams(params); if(data.page.next_cursor)nextParams.set('cursor',data.page.next_cursor); $('status').className='pill info'; $('status').textContent=`Activity log · ${data.page.returned} shown`; $('app').className=''; $('app').innerHTML=`<section class="card"><h2>Activity log</h2><div class="muted">Human-readable event stream. Payload fields are summarized as chips; large payloads are not printed into the table.</div>${eventControls(params)}${pageMeta(data.page,'Showing latest')}${activityCards(data.rows||[])}<div class="toolbar">${cursor?`<button onclick="history.back()">Previous view</button>`:''}${data.page.has_more?`<button onclick="location.hash='events?${nextParams.toString()}'">Next page</button>`:''}</div></section>`;}
 async function observabilityPage(){renderNav('observability'); const [memory,health]=await Promise.all([api('/control/api/v1/observability/memory'),api('/control/api/v1/observability/health')]); $('status').className='pill '+(memory.memory_warn?'warn':'good'); $('status').textContent=`Observability · controller memory ${Number(memory.rss_mib||0).toFixed(0)} MiB`; $('app').className=''; $('app').innerHTML=`<section class="grid three">${card('Controller memory',Number(memory.rss_mib||0).toFixed(0),memory.memory_warn?'warn':'good','MiB RSS now')}${card('Peak memory',Number(memory.peak_rss_mib||0).toFixed(0),'info','MiB since process start')}${card('Route observations',health.route_observability_enabled?'On':'Off',health.route_observability_enabled?'good':'warn','Request timing and size sampling')}</section><section class="card"><h2>Diagnostics</h2><div class="muted">Technical route-observation evidence is collapsed here for debugging only.</div>${health.latest_route_observation?`<details><summary>Latest route observation JSONL</summary><pre>${esc(health.latest_route_observation)}</pre></details>`:'<span class="pill warn">No observation logged</span>'}${debugBlock('Memory details',memory)}${debugBlock('Health details',health)}</section>`;}
 async function intakePage(){renderNav('intake'); const data=await api('/control/api/intake/ideas'); $('status').className='pill info'; $('status').textContent='Supabase ideas'; $('app').className=''; $('app').innerHTML=`<section class="grid two"><div class="card"><h2>Supabase idea workbench</h2><div class="muted">Native idea rows are the editable intake ledger. Legacy Notion fields, when present, are provenance only.</div>${tableRows([data.latest_sync||{}],['source','status','observed_at','authority'])}${debugBlock('Latest intake JSON',data.latest_sync||{})}</div><div class="card"><h2>Skipped reasons</h2>${tableRows(Object.entries(data.skipped_reasons||{}).map(([reason,count])=>({reason,count})),['reason','count'])}</div></section><section class="card"><h2>Idea workbench</h2>${tableRows(data.queued_projection||[],['idea_id','title','idea_status','queue_status','next_action_hint','paper_status','source_kind','updated_at'])}</section>`;}
-async function reviewsPage(){renderNav('reviews'); const search=new URLSearchParams(location.hash.split('?')[1]||''); const term=search.get('search')||'', reviewStatus=search.get('review_status')||'', paperStatus=search.get('paper_status')||'', page=search.get('page')||'1', sort=search.get('sort')||'-rank_score', pageSize=search.get('page_size')||'100'; const qs=new URLSearchParams({page,page_size:pageSize,search:term,review_status:reviewStatus,paper_status:paperStatus,sort,include_rank_reasons:'true'}); const data=await api('/control/api/paper-reviews?'+qs.toString()); const rows=(data.rows||[]).map(r=>({...r,review:'Open',automation_state:automationStatusLabel(r.review_status),progress:`${(r.checklist_progress||{}).passed||0}/${(r.checklist_progress||{}).total||0}`,reasons:(r.rank_reasons||[]).slice(0,2).join('; ')})); $('status').className='pill info'; $('status').textContent=`automation queue · ${data.page.total} filtered · ${data.counts.all||0} total`; $('app').className=''; $('app').innerHTML=`<section class="card"><h2>Publication Automation Queue</h2><div class="muted">Automated rewrite/finalization lane · canonical /control/api/paper-reviews · page ${esc(data.page.page)} · returned ${esc(data.page.returned)} of ${esc(data.page.total)}</div><div class="row">${Object.entries(data.counts||{}).map(([k,v])=>`<span class="pill">${esc(k)} ${esc(v)}</span>`).join('')}</div><div id="batchStatus" class="banner info">GLM-5.1 batch idle. Click rewrite once; a 10-paper batch usually takes several minutes.</div><div class="toolbar"><button onclick="openNextReview()">Open next publication-ready</button><button id="rewriteBatchButton" onclick="rewriteBatchVisible()">Rewrite next 10 with GLM-5.1</button><input id="search" value="${esc(term)}" placeholder="search papers/projects"/><select id="review_status"><option value="">all automation states</option>${['triage_ready','unreviewed','in_review','changes_requested','blocked','approved_for_finalization','finalized','rejected'].map(v=>`<option value="${v}" ${reviewStatus===v?'selected':''}>${automationStatusLabel(v)}</option>`).join('')}</select><select id="paper_status"><option value="">all paper states</option>${['publication_draft','draft_review'].map(v=>`<option value="${v}" ${paperStatus===v?'selected':''}>${paperStatusLabel(v)}</option>`).join('')}</select><select id="reviewSort"><option value="-rank_score" ${sort==='-rank_score'?'selected':''}>Highest rank</option><option value="updated_at" ${sort==='updated_at'?'selected':''}>Recently updated</option><option value="review_status" ${sort==='review_status'?'selected':''}>Automation state</option><option value="paper_status" ${sort==='paper_status'?'selected':''}>Paper status</option></select><select id="reviewPageSize">${['25','50','100','200'].map(v=>`<option value="${v}" ${pageSize===v?'selected':''}>${v} per page</option>`).join('')}</select><button onclick="location.hash='reviews?search='+encodeURIComponent($('search').value)+'&review_status='+encodeURIComponent($('review_status').value)+'&paper_status='+encodeURIComponent($('paper_status').value)+'&sort='+encodeURIComponent($('reviewSort').value)+'&page_size='+encodeURIComponent($('reviewPageSize').value)">Apply</button></div>${tableRows(rows,['review','paper_title','rank_score','rank_bucket','automation_state','progress','paper_status','project_id','blocker','reasons','updated_at'])}${debugBlock('Automation queue JSON',data)}</section>`;}
-async function openNextReview(){const data=await api('/control/api/paper-reviews/next?paper_status=publication_draft'); location.hash='review:'+encodeURIComponent((data.item||{}).paper_id||data.paper_id);}
+async function reviewsPage(){renderNav('automation'); const search=new URLSearchParams(location.hash.split('?')[1]||''); const term=search.get('search')||'', reviewStatus=search.get('review_status')||'', paperStatus=search.get('paper_status')||'', page=search.get('page')||'1', sort=search.get('sort')||'-rank_score', pageSize=search.get('page_size')||'100'; const qs=new URLSearchParams({page,page_size:pageSize,search:term,review_status:reviewStatus,paper_status:paperStatus,sort,include_rank_reasons:'true'}); const data=await api('/control/api/publication-automation?'+qs.toString()); const rows=(data.rows||[]).map(r=>({...r,automation:'Open',automation_state:automationStatusLabel(r.review_status),progress:`${(r.checklist_progress||{}).passed||0}/${(r.checklist_progress||{}).total||0}`,reasons:(r.rank_reasons||[]).slice(0,2).join('; ')})); $('status').className='pill info'; $('status').textContent=`automation queue · ${data.page.total} filtered · ${data.counts.all||0} total`; $('app').className=''; $('app').innerHTML=`<section class="card"><h2>Publication Automation Queue</h2><div class="muted">Automated rewrite/finalization lane · canonical /control/api/publication-automation · page ${esc(data.page.page)} · returned ${esc(data.page.returned)} of ${esc(data.page.total)}</div><div class="row">${Object.entries(data.counts||{}).map(([k,v])=>`<span class="pill">${esc(k)} ${esc(v)}</span>`).join('')}</div><div id="batchStatus" class="banner info">GLM-5.1 batch idle. Click rewrite once; a 10-paper batch usually takes several minutes.</div><div class="toolbar"><button onclick="openNextReview()">Open next publication-ready</button><button id="rewriteBatchButton" onclick="rewriteBatchVisible()">Rewrite next 10 with GLM-5.1</button><input id="search" value="${esc(term)}" placeholder="search papers/projects"/><select id="review_status"><option value="">all automation states</option>${['triage_ready','unreviewed','in_review','changes_requested','blocked','approved_for_finalization','finalized','rejected'].map(v=>`<option value="${v}" ${reviewStatus===v?'selected':''}>${automationStatusLabel(v)}</option>`).join('')}</select><select id="paper_status"><option value="">all paper states</option>${['publication_draft','draft_review'].map(v=>`<option value="${v}" ${paperStatus===v?'selected':''}>${paperStatusLabel(v)}</option>`).join('')}</select><select id="reviewSort"><option value="-rank_score" ${sort==='-rank_score'?'selected':''}>Highest rank</option><option value="updated_at" ${sort==='updated_at'?'selected':''}>Recently updated</option><option value="review_status" ${sort==='review_status'?'selected':''}>Automation state</option><option value="paper_status" ${sort==='paper_status'?'selected':''}>Paper status</option></select><select id="reviewPageSize">${['25','50','100','200'].map(v=>`<option value="${v}" ${pageSize===v?'selected':''}>${v} per page</option>`).join('')}</select><button onclick="location.hash='automation?search='+encodeURIComponent($('search').value)+'&review_status='+encodeURIComponent($('review_status').value)+'&paper_status='+encodeURIComponent($('paper_status').value)+'&sort='+encodeURIComponent($('reviewSort').value)+'&page_size='+encodeURIComponent($('reviewPageSize').value)">Apply</button></div>${tableRows(rows,['automation','paper_title','rank_score','rank_bucket','automation_state','progress','paper_status','project_id','blocker','reasons','updated_at'])}${debugBlock('Automation queue JSON',data)}</section>`;}
+async function openNextReview(){const data=await api('/control/api/publication-automation/next?paper_status=publication_draft'); location.hash='automation:'+encodeURIComponent((data.item||{}).paper_id||data.paper_id);}
 function artifactButtons(id){return ['draft_markdown_path','draft_latex_path','evidence_bundle_path','claim_ledger_path','manifest_path'].map(k=>`<button onclick="previewArtifact('${esc(id)}','${k}')">Preview ${k.replace('_path','').replaceAll('_',' ')}</button>`).join(' ');}
 async function previewArtifact(id,field){const paperId=decodeURIComponent(id); const data=await api(`/control/api/papers/${encodeURIComponent(paperId)}/artifact/${field}`); $('artifactPreview').innerHTML=`<h2>${esc(data.project_name||'Paper')} · ${esc(field)}</h2><div class="muted">Raw artifact preview is an explicit debug action.</div><details open><summary>Artifact content</summary><pre>${esc(data.content||'')}</pre></details>`; $('artifactPreview').scrollIntoView({behavior:'smooth'});}
 function checklistRows(items){return `<table><thead><tr><th>Item</th><th>Required</th><th>Status</th><th>Note</th><th>Actions</th></tr></thead><tbody>${(items||[]).map(i=>`<tr><td>${esc(i.label||i.id)}</td><td>${i.required?'yes':'no'}</td><td>${esc(i.status)}</td><td>${esc(i.note||'')}</td><td><button onclick="setChecklist('${esc(i.id)}','pass')">Pass</button><button onclick="setChecklist('${esc(i.id)}','fail')">Fail</button><button onclick="setChecklist('${esc(i.id)}','accepted_risk')">Risk</button></td></tr>`).join('')}</tbody></table>`;}
-async function reviewDetail(id){renderNav('reviews'); const data=await api(`/control/api/paper-reviews/${id}`); const item=data.item||{}, checklist=data.checklist||{}; window.currentReviewId=id; $('status').className='pill info'; $('status').textContent=`automation · ${item.project_name||id} · ${automationStatusLabel(item.review_status)} · score ${item.rank_score??''}`; $('app').className=''; $('app').innerHTML=`<section class="grid two"><div class="card"><h2>${esc(item.project_name||'Untitled Paper')}</h2><div class="muted mono">Automation item ${esc(id)}</div><div class="row"><span class="pill">automation ${esc(automationStatusLabel(item.review_status))}</span><span class="pill">paper ${esc(paperStatusLabel(item.paper_status))}</span><span class="pill">rank ${esc(item.rank_score)}</span><span class="pill">checklist ${(item.checklist_progress||{}).passed||0}/${(item.checklist_progress||{}).total||0}</span></div><div class="toolbar"><button onclick="rewriteReviewDraft()">Rewrite/finalize now</button><button onclick="prepareFinalizationPackage(false)">prepare finalization package</button><button onclick="setReviewStatus('rejected')">Reject</button></div>${debugBlock('Automation item JSON',item)}</div><div class="card"><h2>Artifacts and rank reasons</h2><div class="toolbar">${artifactButtons(id)}</div><h3>Artifact path fields</h3>${tableRows(['draft_markdown_path','draft_latex_path','evidence_bundle_path','claim_ledger_path','manifest_path'].map(k=>({field:k,present:Boolean(item[k])})),['field','present'])}${debugBlock('Rank reasons',item.rank_reasons||[])}${debugBlock('Missing signals',item.missing_signals||[])}</div></section><section id="artifactPreview" class="card"><h2>Artifact preview</h2><div class="muted">Use the artifact preview buttons above for deliberate raw content access.</div></section><section class="card"><h2>automation checklist</h2>${checklistRows(checklist.items||[])}</section>`;}
-async function setChecklist(itemId,status){await postJson(`/control/api/paper-reviews/${window.currentReviewId}/checklist/${itemId}`,{idempotency_key:'dashboard-check:'+window.currentReviewId+':'+itemId+':'+Date.now(),requested_by:AI_ACTOR,status,note:AI_NOTE}); return reviewDetail(window.currentReviewId);}
-async function setReviewStatus(review_status){await postJson(`/control/api/paper-reviews/${window.currentReviewId}/status`,{idempotency_key:'dashboard-status:'+window.currentReviewId+':'+review_status+':'+Date.now(),requested_by:AI_ACTOR,review_status}); return reviewDetail(window.currentReviewId);}
-async function claimReview(){await postJson(`/control/api/paper-reviews/${window.currentReviewId}/claim`,{idempotency_key:'dashboard-claim:'+window.currentReviewId+':'+Date.now(),requested_by:AI_ACTOR,reviewer:AI_ACTOR,note:AI_NOTE,clear_blocker:true}); return reviewDetail(window.currentReviewId);}
-async function prepareFinalizationPackage(dry_run){const result=await postJson(`/control/api/paper-reviews/${window.currentReviewId}/prepare-finalization-package`,{idempotency_key:'dashboard-package:'+window.currentReviewId+':'+Date.now(),requested_by:AI_ACTOR,target_label:'ai-publication',dry_run}); alert((dry_run?'Dry-run':'Prepared')+' package: '+(result.package_path||'manifest preview')); return reviewDetail(window.currentReviewId);}
-async function rewriteReviewDraft(){const result=await postJson(`/control/api/paper-reviews/${window.currentReviewId}/rewrite-draft`,{idempotency_key:'dashboard-rewrite:'+window.currentReviewId+':'+Date.now(),requested_by:AI_ACTOR,force:true}); alert('Rewrite complete: '+(result.writer||{}).provider+' / '+((result.writer||{}).model||'')); return reviewDetail(window.currentReviewId);}
-async function rewriteBatchVisible(){const search=new URLSearchParams(location.hash.split('?')[1]||''); const button=$('rewriteBatchButton'), status=$('batchStatus'); if(button){button.disabled=true; button.textContent='GLM-5.1 batch running…';} if(status){status.className='banner warn'; status.textContent='GLM-5.1 rewrite running. Do not click again.';} const payload={idempotency_key:'dashboard-bulk-rewrite:'+Date.now(),requested_by:AI_ACTOR,paper_status:search.get('paper_status')||'publication_draft',review_status:search.get('review_status')||'',search:search.get('search')||'',limit:10,force:true,dry_run:false,skip_rewritten:true}; try{const result=await postJson('/control/api/paper-reviews/rewrite-batch',payload); if(status){status.className=result.failed?'banner warn':'banner good'; status.innerHTML=`<strong>Batch rewrite complete.</strong><div>${esc(result.rewritten)} rewritten · ${esc(result.failed)} failed · ${esc(result.matched)} matched.</div>${debugBlock('Batch rows',result.rows||[])}`;} return reviewsPage();}catch(e){if(status){status.className='banner critical'; status.textContent='Batch rewrite failed: '+e.message;} throw e;}finally{if(button){button.disabled=false; button.textContent='Rewrite next 10 with GLM-5.1';}}}
+async function reviewDetail(id){renderNav('automation'); const data=await api(`/control/api/publication-automation/${id}`); const item=data.item||{}, checklist=data.checklist||{}; window.currentReviewId=id; $('status').className='pill info'; $('status').textContent=`automation · ${item.project_name||id} · ${automationStatusLabel(item.review_status)} · score ${item.rank_score??''}`; $('app').className=''; $('app').innerHTML=`<section class="grid two"><div class="card"><h2>${esc(item.project_name||'Untitled Paper')}</h2><div class="muted mono">Automation item ${esc(id)}</div><div class="row"><span class="pill">automation ${esc(automationStatusLabel(item.review_status))}</span><span class="pill">paper ${esc(paperStatusLabel(item.paper_status))}</span><span class="pill">rank ${esc(item.rank_score)}</span><span class="pill">checklist ${(item.checklist_progress||{}).passed||0}/${(item.checklist_progress||{}).total||0}</span></div><div class="toolbar"><button onclick="rewriteReviewDraft()">Rewrite/finalize now</button><button onclick="prepareFinalizationPackage(false)">prepare finalization package</button><button onclick="setReviewStatus('rejected')">Reject</button></div>${debugBlock('Automation item JSON',item)}</div><div class="card"><h2>Artifacts and rank reasons</h2><div class="toolbar">${artifactButtons(id)}</div><h3>Artifact path fields</h3>${tableRows(['draft_markdown_path','draft_latex_path','evidence_bundle_path','claim_ledger_path','manifest_path'].map(k=>({field:k,present:Boolean(item[k])})),['field','present'])}${debugBlock('Rank reasons',item.rank_reasons||[])}${debugBlock('Missing signals',item.missing_signals||[])}</div></section><section id="artifactPreview" class="card"><h2>Artifact preview</h2><div class="muted">Use the artifact preview buttons above for deliberate raw content access.</div></section><section class="card"><h2>automation checklist</h2>${checklistRows(checklist.items||[])}</section>`;}
+async function setChecklist(itemId,status){await postJson(`/control/api/publication-automation/${window.currentReviewId}/checklist/${itemId}`,{idempotency_key:'dashboard-check:'+window.currentReviewId+':'+itemId+':'+Date.now(),requested_by:AI_ACTOR,status,note:AI_NOTE}); return reviewDetail(window.currentReviewId);}
+async function setReviewStatus(review_status){await postJson(`/control/api/publication-automation/${window.currentReviewId}/status`,{idempotency_key:'dashboard-status:'+window.currentReviewId+':'+review_status+':'+Date.now(),requested_by:AI_ACTOR,review_status}); return reviewDetail(window.currentReviewId);}
+async function claimReview(){await postJson(`/control/api/publication-automation/${window.currentReviewId}/claim`,{idempotency_key:'dashboard-claim:'+window.currentReviewId+':'+Date.now(),requested_by:AI_ACTOR,reviewer:AI_ACTOR,note:AI_NOTE,clear_blocker:true}); return reviewDetail(window.currentReviewId);}
+async function prepareFinalizationPackage(dry_run){const result=await postJson(`/control/api/publication-automation/${window.currentReviewId}/prepare-finalization-package`,{idempotency_key:'dashboard-package:'+window.currentReviewId+':'+Date.now(),requested_by:AI_ACTOR,target_label:'ai-publication',dry_run}); alert((dry_run?'Dry-run':'Prepared')+' package: '+(result.package_path||'manifest preview')); return reviewDetail(window.currentReviewId);}
+async function rewriteReviewDraft(){const result=await postJson(`/control/api/publication-automation/${window.currentReviewId}/rewrite-draft`,{idempotency_key:'dashboard-rewrite:'+window.currentReviewId+':'+Date.now(),requested_by:AI_ACTOR,force:true}); alert('Rewrite complete: '+(result.writer||{}).provider+' / '+((result.writer||{}).model||'')); return reviewDetail(window.currentReviewId);}
+async function rewriteBatchVisible(){const search=new URLSearchParams(location.hash.split('?')[1]||''); const button=$('rewriteBatchButton'), status=$('batchStatus'); if(button){button.disabled=true; button.textContent='GLM-5.1 batch running…';} if(status){status.className='banner warn'; status.textContent='GLM-5.1 rewrite running. Do not click again.';} const payload={idempotency_key:'dashboard-bulk-rewrite:'+Date.now(),requested_by:AI_ACTOR,paper_status:search.get('paper_status')||'publication_draft',review_status:search.get('review_status')||'',search:search.get('search')||'',limit:10,force:true,dry_run:false,skip_rewritten:true}; try{const result=await postJson('/control/api/publication-automation/rewrite-batch',payload); if(status){status.className=result.failed?'banner warn':'banner good'; status.innerHTML=`<strong>Batch rewrite complete.</strong><div>${esc(result.rewritten)} rewritten · ${esc(result.failed)} failed · ${esc(result.matched)} matched.</div>${debugBlock('Batch rows',result.rows||[])}`;} return reviewsPage();}catch(e){if(status){status.className='banner critical'; status.textContent='Batch rewrite failed: '+e.message;} throw e;}finally{if(button){button.disabled=false; button.textContent='Rewrite next 10 with GLM-5.1';}}}
 async function detail(kind,id){renderNav(kind==='project'?'queue:active':kind==='paper'?'papers':'runs'); const path=kind==='project'?`/control/api/v1/projects/${id}`:kind==='run'?`/control/api/v1/runs/${id}`:`/control/api/v1/papers/${id}`; const data=await api(path); $('status').className='pill info'; $('status').textContent=`${kind} detail`; const primary=data[kind]||data.project||data.paper||data.run||{}; $('app').className=''; $('app').innerHTML=`<section class="grid two"><div class="card"><h2>${esc(kind)} ${esc(id)}</h2>${tableRows([primary],Object.keys(primary).filter(k=>!['links'].includes(k)).slice(0,10))}</div><div class="card"><h2>Related records</h2>${data.runs?`<h3>Runs</h3>${tableRows(data.runs,['state','run_id','current_activity','updated_at'])}`:''}${data.papers?`<h3>Papers</h3>${tableRows(data.papers,['operator_stage_label','paper_id','run_id','artifact_paths_present','updated_at'])}`:''}${data.queue_item?`<h3>Queue</h3>${tableRows([data.queue_item],['operator_stage_label','project_decision_summary','project_id','current_run_id','operator_next_step','operator_explanation','updated_at'])}`:''}</div></section><section class="card"><h2>Related activity</h2>${activityCards(data.events||[])}</section>`;}
-async function route(){try{if(token())$('token').value=token(); const h=(location.hash||'#overview').slice(1); if(h==='projects'||h.startsWith('projects?')) return projectListPage('projects','all'); if(h.startsWith('queue:')) return queuePage((h.split(':')[1]||'active').split('?')[0]); if(h==='runs'||h.startsWith('runs?')) return runsPage(); if(h==='papers'||h.startsWith('papers?')) return papersPage(); if(h==='events'||h.startsWith('events?')) return eventsPage(); if(h==='reviews'||h.startsWith('reviews?')) return reviewsPage(); if(h==='intake') return intakePage(); if(h==='observability') return observabilityPage(); if(h.startsWith('project:')) return detail('project',encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('run:')) return detail('run',encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('paper:')) return detail('paper',encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('review:')) return reviewDetail(encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); return overviewPage();}catch(e){$('status').className='pill bad';$('status').textContent='Error';$('app').className='banner critical';$('app').textContent=e.message;}}
+async function route(){try{if(token())$('token').value=token(); const h=(location.hash||'#overview').slice(1); if(h==='projects'||h.startsWith('projects?')) return projectListPage('projects','all'); if(h.startsWith('queue:')) return queuePage((h.split(':')[1]||'active').split('?')[0]); if(h==='runs'||h.startsWith('runs?')) return runsPage(); if(h==='papers'||h.startsWith('papers?')) return papersPage(); if(h==='events'||h.startsWith('events?')) return eventsPage(); if(h==='automation'||h.startsWith('automation?')||h==='reviews'||h.startsWith('reviews?')) return reviewsPage(); if(h==='intake') return intakePage(); if(h==='observability') return observabilityPage(); if(h.startsWith('project:')) return detail('project',encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('run:')) return detail('run',encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('paper:')) return detail('paper',encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('automation:')) return reviewDetail(encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); if(h.startsWith('review:')) return reviewDetail(encodeURIComponent(decodeURIComponent(h.split(':')[1]||''))); return overviewPage();}catch(e){$('status').className='pill bad';$('status').textContent='Error';$('app').className='banner critical';$('app').textContent=e.message;}}
 function autoRefreshCurrentPage(){const h=(location.hash||'#overview').slice(1).split('?')[0]; if(h==='overview'||h==='observability') route();}
 window.addEventListener('hashchange',route); route(); setInterval(autoRefreshCurrentPage,15000);
 </script>
@@ -1356,6 +1356,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             conflicts=_detail_conflicts(active=active, worker_observations=observations),
         )
 
+    @router.post("/api/publication-automation/backfill", response_model=PaperReviewBackfillResponse)
     @router.post("/api/paper-reviews/backfill", response_model=PaperReviewBackfillResponse)
     def dashboard_paper_reviews_backfill(payload: PaperReviewBackfillRequest, authorization: str | None = Header(default=None)) -> PaperReviewBackfillResponse:
         authorize(authorization)
@@ -1364,6 +1365,58 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         except IdempotencyConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return PaperReviewBackfillResponse(dry_run=payload.dry_run, inserted_event=inserted, created=created, updated=updated, skipped=skipped, errors=errors)
+
+    def _dashboard_paper_reviews_response(
+        *,
+        authorization: str | None = Header(default=None),
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=50, ge=1, le=500),
+        review_status: str = "",
+        paper_status: str = "",
+        search: str = "",
+        sort: str = "-rank_score",
+        include_rank_reasons: bool = True,
+        queue_label: str = "publication_automation",
+    ) -> DashboardPaperReviewsResponse:
+        authorize(authorization)
+        rows = store.paper_review_rows(include_rank_reasons=include_rank_reasons)
+        all_counts = _review_counts(rows)
+        if review_status:
+            rows = [row for row in rows if str(row.get("review_status") or "") == review_status]
+        if paper_status:
+            rows = [row for row in rows if str(row.get("paper_status") or "") == paper_status]
+        rows = _sort_rows(_search_rows(rows, search), sort)
+        page_rows, safe_page, safe_size = _paginate(rows, page=page, page_size=page_size)
+        return DashboardPaperReviewsResponse(
+            page=DashboardPageMeta(page=safe_page, page_size=safe_size, total=len(rows), returned=len(page_rows), queue=queue_label, filters={"search": search, "review_status": review_status, "paper_status": paper_status, "include_rank_reasons": include_rank_reasons}, sort=sort),
+            counts=all_counts,
+            rows=page_rows,
+            source_freshness=_db_freshness("canonical publication automation queue read model"),
+            conflicts=[],
+        )
+
+    @router.get("/api/publication-automation", response_model=DashboardPaperReviewsResponse)
+    def dashboard_publication_automation(
+        authorization: str | None = Header(default=None),
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=50, ge=1, le=500),
+        review_status: str = "",
+        paper_status: str = "",
+        search: str = "",
+        sort: str = "-rank_score",
+        include_rank_reasons: bool = True,
+    ) -> DashboardPaperReviewsResponse:
+        return _dashboard_paper_reviews_response(
+            authorization=authorization,
+            page=page,
+            page_size=page_size,
+            review_status=review_status,
+            paper_status=paper_status,
+            search=search,
+            sort=sort,
+            include_rank_reasons=include_rank_reasons,
+            queue_label="publication_automation",
+        )
 
     @router.get("/api/paper-reviews", response_model=DashboardPaperReviewsResponse)
     def dashboard_paper_reviews(
@@ -1376,21 +1429,16 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         sort: str = "-rank_score",
         include_rank_reasons: bool = True,
     ) -> DashboardPaperReviewsResponse:
-        authorize(authorization)
-        rows = store.paper_review_rows(include_rank_reasons=include_rank_reasons)
-        all_counts = _review_counts(rows)
-        if review_status:
-            rows = [row for row in rows if str(row.get("review_status") or "") == review_status]
-        if paper_status:
-            rows = [row for row in rows if str(row.get("paper_status") or "") == paper_status]
-        rows = _sort_rows(_search_rows(rows, search), sort)
-        page_rows, safe_page, safe_size = _paginate(rows, page=page, page_size=page_size)
-        return DashboardPaperReviewsResponse(
-            page=DashboardPageMeta(page=safe_page, page_size=safe_size, total=len(rows), returned=len(page_rows), queue="paper_reviews", filters={"search": search, "review_status": review_status, "paper_status": paper_status, "include_rank_reasons": include_rank_reasons}, sort=sort),
-            counts=all_counts,
-            rows=page_rows,
-            source_freshness=_db_freshness("canonical publication automation queue read model"),
-            conflicts=[],
+        return _dashboard_paper_reviews_response(
+            authorization=authorization,
+            page=page,
+            page_size=page_size,
+            review_status=review_status,
+            paper_status=paper_status,
+            search=search,
+            sort=sort,
+            include_rank_reasons=include_rank_reasons,
+            queue_label="paper_reviews",
         )
 
     def _paper_review_detail_response(paper_id: str) -> DashboardPaperReviewDetailResponse:
@@ -1411,8 +1459,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             conflicts=[],
         )
 
-    @router.get("/api/paper-reviews/next", response_model=DashboardPaperReviewDetailResponse)
-    def dashboard_next_paper_review(
+    def _dashboard_next_paper_review_response(
+        *,
         authorization: str | None = Header(default=None),
         review_status: str = "",
         paper_status: str = "publication_draft",
@@ -1431,11 +1479,35 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             raise HTTPException(status_code=404, detail="no matching publication automation item")
         return _paper_review_detail_response(str(rows[0].get("paper_id") or ""))
 
+    @router.get("/api/publication-automation/next", response_model=DashboardPaperReviewDetailResponse)
+    def dashboard_next_publication_automation(
+        authorization: str | None = Header(default=None),
+        review_status: str = "",
+        paper_status: str = "publication_draft",
+        search: str = "",
+    ) -> DashboardPaperReviewDetailResponse:
+        return _dashboard_next_paper_review_response(authorization=authorization, review_status=review_status, paper_status=paper_status, search=search)
+
+    @router.get("/api/paper-reviews/next", response_model=DashboardPaperReviewDetailResponse)
+    def dashboard_next_paper_review(
+        authorization: str | None = Header(default=None),
+        review_status: str = "",
+        paper_status: str = "publication_draft",
+        search: str = "",
+    ) -> DashboardPaperReviewDetailResponse:
+        return _dashboard_next_paper_review_response(authorization=authorization, review_status=review_status, paper_status=paper_status, search=search)
+
+    @router.get("/api/publication-automation/{paper_id}", response_model=DashboardPaperReviewDetailResponse)
+    def dashboard_publication_automation_item(paper_id: str, authorization: str | None = Header(default=None)) -> DashboardPaperReviewDetailResponse:
+        authorize(authorization)
+        return _paper_review_detail_response(paper_id)
+
     @router.get("/api/paper-reviews/{paper_id}", response_model=DashboardPaperReviewDetailResponse)
     def dashboard_paper_review(paper_id: str, authorization: str | None = Header(default=None)) -> DashboardPaperReviewDetailResponse:
         authorize(authorization)
         return _paper_review_detail_response(paper_id)
 
+    @router.post("/api/publication-automation/{paper_id}/claim", response_model=PaperReviewMutationResponse)
     @router.post("/api/paper-reviews/{paper_id}/claim", response_model=PaperReviewMutationResponse)
     def dashboard_paper_review_claim(paper_id: str, payload: PaperReviewClaimRequest, authorization: str | None = Header(default=None)) -> PaperReviewMutationResponse:
         authorize(authorization)
@@ -1447,6 +1519,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return PaperReviewMutationResponse(inserted_event=inserted, event_id=event_id, item=item)
 
+    @router.post("/api/publication-automation/{paper_id}/checklist/{item_id}", response_model=PaperReviewMutationResponse)
     @router.post("/api/paper-reviews/{paper_id}/checklist/{item_id}", response_model=PaperReviewMutationResponse)
     def dashboard_paper_review_checklist(paper_id: str, item_id: str, payload: PaperReviewChecklistUpdateRequest, authorization: str | None = Header(default=None)) -> PaperReviewMutationResponse:
         authorize(authorization)
@@ -1458,6 +1531,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return PaperReviewMutationResponse(inserted_event=inserted, event_id=event_id, item=item)
 
+    @router.post("/api/publication-automation/{paper_id}/status", response_model=PaperReviewMutationResponse)
     @router.post("/api/paper-reviews/{paper_id}/status", response_model=PaperReviewMutationResponse)
     def dashboard_paper_review_status(paper_id: str, payload: PaperReviewStatusUpdateRequest, authorization: str | None = Header(default=None)) -> PaperReviewMutationResponse:
         authorize(authorization)
@@ -1469,6 +1543,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return PaperReviewMutationResponse(inserted_event=inserted, event_id=event_id, item=item)
 
+    @router.post("/api/publication-automation/{paper_id}/approve-finalization", response_model=PaperReviewMutationResponse)
     @router.post("/api/paper-reviews/{paper_id}/approve-finalization", response_model=PaperReviewMutationResponse)
     def dashboard_paper_review_approve_finalization(paper_id: str, payload: PaperReviewApproveFinalizationRequest, authorization: str | None = Header(default=None)) -> PaperReviewMutationResponse:
         authorize(authorization)
@@ -1570,6 +1645,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         }
         return PaperReviewRewriteDraftResponse(inserted_event=inserted, event_id=event_id, item=refreshed, paper=store.paper_row(paper_id), writer=writer_with_sync, artifact_root=str(artifact_root))
 
+    @router.post("/api/publication-automation/rewrite-batch", response_model=PaperReviewBulkRewriteResponse)
     @router.post("/api/paper-reviews/rewrite-batch", response_model=PaperReviewBulkRewriteResponse)
     def dashboard_paper_reviews_rewrite_batch(payload: PaperReviewBulkRewriteRequest, authorization: str | None = Header(default=None)) -> PaperReviewBulkRewriteResponse:
         authorize(authorization)
@@ -1606,11 +1682,13 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 out_rows.append({"paper_id": pid, "project_name": row.get("project_name"), "ok": False, "error": f"{type(exc).__name__}: {exc}"})
         return PaperReviewBulkRewriteResponse(dry_run=False, matched=matched, processed=len(selected), rewritten=rewritten, failed=failed, rows=out_rows)
 
+    @router.post("/api/publication-automation/{paper_id}/rewrite-draft", response_model=PaperReviewRewriteDraftResponse)
     @router.post("/api/paper-reviews/{paper_id}/rewrite-draft", response_model=PaperReviewRewriteDraftResponse)
     def dashboard_paper_review_rewrite_draft(paper_id: str, payload: PaperReviewRewriteDraftRequest, authorization: str | None = Header(default=None)) -> PaperReviewRewriteDraftResponse:
         authorize(authorization)
         return _rewrite_paper_review_draft(paper_id, payload)
 
+    @router.post("/api/publication-automation/{paper_id}/prepare-finalization-package", response_model=PaperReviewFinalizationPackageResponse)
     @router.post("/api/paper-reviews/{paper_id}/prepare-finalization-package", response_model=PaperReviewFinalizationPackageResponse)
     def dashboard_paper_review_prepare_finalization_package(paper_id: str, payload: PaperReviewPrepareFinalizationRequest, authorization: str | None = Header(default=None)) -> PaperReviewFinalizationPackageResponse:
         authorize(authorization)

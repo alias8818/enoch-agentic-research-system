@@ -133,7 +133,7 @@ def main() -> int:
         if rewrite_new and paper_id:
             encoded = urllib.parse.quote(paper_id, safe="")
             rewrite_status, rewrite = client.post(
-                f"/control/api/paper-reviews/{encoded}/rewrite-draft",
+                f"/control/api/publication-automation/{encoded}/rewrite-draft",
                 {
                     "idempotency_key": f"paper-drain:{paper_id}:{int(time.time())}",
                     "requested_by": requested_by,
