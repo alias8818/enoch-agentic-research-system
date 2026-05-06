@@ -97,9 +97,9 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | Raw value | Live rows | Operator lane | Disposition | Replacement | Reason |
 | --- | ---: | --- | --- | --- | --- |
 | `approved_for_corpus` | 0 | `published` | `legacy_internal` | `corpus import ledger` | old flattened public-import state |
-| `archived` | 0 | `historical` | `keep` |  | terminal no-action paper state |
+| `archived` | 2 | `historical` | `keep` |  | terminal no-action paper state |
 | `draft_generating` | 0 | `running` | `keep` |  | draft writer is active |
-| `draft_review` | 2 | `automate_publication` | `migrate_after_freeze` | `publication_draft or archived when automation rejected` | legacy first-draft label; operator should see first draft or automation |
+| `draft_review` | 0 | `automate_publication` | `migrate_after_freeze` | `publication_draft or archived when automation rejected` | legacy first-draft label; operator should see first draft or automation |
 | `eligible` | 0 | `write_paper` | `legacy_internal` | `draft_generating` | paper eligibility now lives in paper_eligibility/write_needed |
 | `finalized` | 0 | `ready_to_publish` | `legacy_internal` | `publication_draft + publication_automation.finalized` | old flattened paper readiness state |
 | `human_review_required` | 0 | `needs_operator` | `migrate_after_freeze` | `blocked` | manual paper review is not a normal workflow |
