@@ -38,6 +38,87 @@ REQUIRED_PAPER_PIPELINE_KEYS = {
 }
 HARD_DRIFT_DISPOSITIONS = {"alias", "migrate_after_freeze"}
 WARNING_DRIFT_DISPOSITIONS = {"legacy_internal"}
+ACTIVE_QUEUE_STATUSES = ("dispatching", "running", "awaiting_wake", "wake_received", "reconciling")
+ATTENTION_QUEUE_STATUSES = ("blocked", "needs_review", "dispatch_error")
+
+
+def _legacy_runtime_context(database_url: str) -> dict[str, Any]:
+    """Classify legacy/internal residue by runtime attachment.
+
+    The state-reduction plan deliberately allows a small set of imported
+    historical values (for example `runs.state=unknown` and blank
+    `runs.gate_state`). This context check makes that warning deterministic:
+    historical residue is tolerable, but the same residue attached to an active
+    worker lane is runtime drift and should fail the doctor.
+    """
+
+    import psycopg
+
+    active_statuses = ", ".join(f"'{status}'" for status in ACTIVE_QUEUE_STATUSES)
+    attention_statuses = ", ".join(f"'{status}'" for status in ATTENTION_QUEUE_STATUSES)
+    queries = {
+        "ideas.idea_status.unknown": f"""
+            select count(*) total,
+                   count(*) filter (where q.project_id is not null) with_queue,
+                   count(*) filter (where q.status in ({active_statuses})) active_queue,
+                   count(*) filter (where q.status in ({attention_statuses})) attention_queue,
+                   min(i.updated_at)::text oldest_updated_at,
+                   max(i.updated_at)::text newest_updated_at
+            from ideas i
+            left join queue_items q on q.project_id = i.idea_id
+            where coalesce(i.idea_status, '') = 'unknown'
+        """,
+        "projects.origin_idea_status.unknown": f"""
+            select count(*) total,
+                   count(*) filter (where q.project_id is not null) with_queue,
+                   count(*) filter (where q.status in ({active_statuses})) active_queue,
+                   count(*) filter (where q.status in ({attention_statuses})) attention_queue,
+                   count(*) filter (where exists (select 1 from papers p where p.project_id = pr.project_id)) with_paper,
+                   min(pr.updated_at)::text oldest_updated_at,
+                   max(pr.updated_at)::text newest_updated_at
+            from projects pr
+            left join queue_items q on q.project_id = pr.project_id
+            where coalesce(pr.origin_idea_status, '') = 'unknown'
+        """,
+        "runs.state.unknown": f"""
+            select count(*) total,
+                   count(*) filter (where q.current_run_id = r.run_id) current_queue_run,
+                   count(*) filter (where q.current_run_id = r.run_id and q.status in ({active_statuses})) active_queue,
+                   count(*) filter (where q.current_run_id = r.run_id and q.status in ({attention_statuses})) attention_queue,
+                   count(*) filter (where exists (select 1 from papers p where p.run_id = r.run_id)) with_paper,
+                   min(r.updated_at)::text oldest_updated_at,
+                   max(r.updated_at)::text newest_updated_at
+            from runs r
+            left join queue_items q on q.project_id = r.project_id
+            where coalesce(r.state, '') = 'unknown'
+        """,
+        "runs.gate_state.blank": f"""
+            select count(*) total,
+                   count(*) filter (where q.current_run_id = r.run_id) current_queue_run,
+                   count(*) filter (where q.current_run_id = r.run_id and q.status in ({active_statuses})) active_queue,
+                   count(*) filter (where q.current_run_id = r.run_id and q.status in ({attention_statuses})) attention_queue,
+                   count(*) filter (where exists (select 1 from papers p where p.run_id = r.run_id)) with_paper,
+                   min(r.updated_at)::text oldest_updated_at,
+                   max(r.updated_at)::text newest_updated_at
+            from runs r
+            left join queue_items q on q.project_id = r.project_id
+            where coalesce(r.gate_state, '') = ''
+        """,
+    }
+    surfaces: dict[str, Any] = {}
+    active_drift: list[dict[str, Any]] = []
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute("set search_path to enoch, public")
+            for surface, sql in queries.items():
+                cur.execute(sql)
+                row = dict(cur.fetchone() or {})
+                row = {key: (int(value) if key.endswith(("total", "queue", "run", "paper")) else value) for key, value in row.items()}
+                row["classification"] = "active_runtime_drift" if int(row.get("active_queue") or 0) else "historical_or_attention_residue"
+                surfaces[surface] = row
+                if row["classification"] == "active_runtime_drift":
+                    active_drift.append({"surface": surface, "active_queue": int(row.get("active_queue") or 0), "total": int(row.get("total") or 0)})
+    return {"checked": True, "surfaces": surfaces, "active_runtime_drift": active_drift}
 
 
 def _json_request(base_url: str, token: str, path: str, *, timeout: int = 60) -> dict[str, Any]:
@@ -194,6 +275,12 @@ def evaluate_report(report: dict[str, Any], *, require_corpus_synced: bool = Fal
             "legacy internal rows remain: {surface}.{value} has {rows} row(s)".format(**row)
         )
 
+    legacy_context = report.get("legacy_runtime_context") or {}
+    for row in legacy_context.get("active_runtime_drift") or []:
+        failures.append(
+            "legacy/internal state attached to active runtime lane: {surface} has {active_queue} active row(s) out of {total}".format(**row)
+        )
+
     control = report.get("control_plane") or {}
     if control.get("checked"):
         if not control.get("overview_ok"):
@@ -237,6 +324,7 @@ def run_doctor(
         "state_contract": {},
         "normalization": {"checked": False},
         "live_reduction_drift": {"hard_rows": [], "warning_rows": [], "by_surface": {}},
+        "legacy_runtime_context": {"checked": False, "surfaces": {}, "active_runtime_drift": []},
         "control_plane": {"checked": False},
     }
 
@@ -250,6 +338,7 @@ def run_doctor(
         normalization = normalize(database_url, apply=False)
         report["normalization"] = {"checked": True, **normalization}
         report["live_reduction_drift"] = _live_reduction_drift(state_contract.get("live_distincts") or {})
+        report["legacy_runtime_context"] = _legacy_runtime_context(database_url)
 
     if control_url and token:
         report["control_plane"] = {"checked": True, **_control_audit(control_url=control_url, token=token)}
@@ -294,6 +383,20 @@ def _print_human(report: dict[str, Any]) -> None:
             )
         )
         print(f"  operator_count keys: {', '.join(overview.get('operator_count_keys') or [])}")
+    legacy_context = report.get("legacy_runtime_context") or {}
+    if legacy_context.get("checked"):
+        active = legacy_context.get("active_runtime_drift") or []
+        print(f"  legacy runtime context: {'OK' if not active else 'FAIL'} ({len(active)} active drift surface(s))")
+        for surface, row in sorted((legacy_context.get("surfaces") or {}).items()):
+            print(
+                "    {surface}: total={total} active_queue={active_queue} attention_queue={attention_queue} classification={classification}".format(
+                    surface=surface,
+                    total=row.get("total", 0),
+                    active_queue=row.get("active_queue", 0),
+                    attention_queue=row.get("attention_queue", 0),
+                    classification=row.get("classification", "unknown"),
+                )
+            )
     corpus = report.get("corpus_reconciliation") or {}
     if corpus:
         if corpus.get("checked"):

@@ -2,7 +2,7 @@
 
 Status: active next-phase backlog after the Supabase state-contract cleanup on 2026-05-06. State doctor command is implemented; corpus/publication/public-count reconciliation is clean across local corpus, GitHub public surfaces, and Hugging Face export. Notion-runtime retirement is now guarded for primary UI wording and source-metadata overwrite safety.
 
-The current state model is coherent and live-clean. The next work is the final completion audit plus any remaining live deployment smoke for the Notion-runtime wording/metadata guard.
+The current state model is coherent and live-clean. The remaining legacy/unknown rows have been classified as historical or attention-lane residue, not active runtime drift.
 
 ## 1. Operator dashboard polish
 
@@ -105,6 +105,19 @@ Last observed state doctor result on 2026-05-06:
 - `corpus_reconciliation.live_finalized_publication_draft_count`: `491`
 - `corpus_reconciliation.public_corpus_count`: `495`
 - `corpus_reconciliation.importable_finalized_count`: `0`
+
+## Legacy/unknown row classification
+
+Implemented on 2026-05-06:
+
+- `scripts/state_doctor.py` now separates legacy/internal residue from active runtime drift.
+- Legacy rows still warn, but the doctor fails if a legacy/internal state attaches to an active queue lane (`dispatching`, `running`, `awaiting_wake`, `wake_received`, or `reconciling`).
+- Last live classification:
+  - `ideas.idea_status.unknown`: `12` total, `0` active queue rows, `9` attention queue rows.
+  - `projects.origin_idea_status.unknown`: `132` total, `0` active queue rows, `9` attention queue rows.
+  - `runs.state.unknown`: `240` total, `0` current queue rows, `0` active queue rows, `240` paper-linked historical rows.
+  - `runs.gate_state.blank`: `722` total, `479` current queue runs, `0` active queue rows, `9` attention queue rows, `494` paper-linked rows.
+- Interpretation: remaining unknown/blank rows are not active worker-lane state. They are provenance gaps, blocked historical rows, completed rows, or imported publication-era records.
 
 ## Hugging Face evidence
 

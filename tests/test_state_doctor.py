@@ -65,6 +65,7 @@ def test_evaluate_report_treats_legacy_internal_rows_as_warning_only() -> None:
                 }
             ],
         },
+        "legacy_runtime_context": {"checked": True, "active_runtime_drift": []},
         "control_plane": {"checked": False},
     }
 
@@ -72,3 +73,38 @@ def test_evaluate_report_treats_legacy_internal_rows_as_warning_only() -> None:
 
     assert evaluation["failures"] == []
     assert "legacy internal rows remain: runs.state.unknown has 2 row(s)" in evaluation["warnings"]
+
+
+def test_evaluate_report_fails_legacy_internal_rows_on_active_runtime_lane() -> None:
+    report = {
+        "state_contract": {"ok": True, "failures": []},
+        "normalization": {"checked": True, "total_rows": 0},
+        "live_reduction_drift": {
+            "hard_rows": [],
+            "warning_rows": [
+                {
+                    "surface": "runs.gate_state",
+                    "value": "",
+                    "rows": 4,
+                    "disposition": "legacy_internal",
+                }
+            ],
+        },
+        "legacy_runtime_context": {
+            "checked": True,
+            "active_runtime_drift": [
+                {
+                    "surface": "runs.gate_state.blank",
+                    "active_queue": 1,
+                    "total": 4,
+                }
+            ],
+        },
+        "control_plane": {"checked": False},
+    }
+
+    evaluation = evaluate_report(report)
+
+    assert evaluation["failures"] == [
+        "legacy/internal state attached to active runtime lane: runs.gate_state.blank has 1 active row(s) out of 4"
+    ]
