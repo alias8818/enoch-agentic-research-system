@@ -314,6 +314,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if os.environ.get("ENOCH_ENABLE_LEGACY_NOTION_SYNC", "0").lower() not in {"1", "true", "yes", "on"}:
+        print(json.dumps({"ok": True, "action": "disabled", "reason": "legacy Notion sync has been removed from the runtime path; use Supabase-native ideas via /control/intake/ideas"}, indent=2, sort_keys=True))
+        return 0
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

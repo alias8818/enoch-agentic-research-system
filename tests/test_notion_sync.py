@@ -13,6 +13,7 @@ from omx_wake_gate.control_plane.notion_sync import (
     notion_update_properties,
     query_notion_database,
     run_sync,
+    main,
     _json_request,
 )
 
@@ -57,6 +58,13 @@ class FakeTransport:
 
 
 class NotionSyncTests(unittest.TestCase):
+
+    def test_cli_main_is_disabled_unless_legacy_sync_is_explicitly_enabled(self) -> None:
+        from unittest import mock
+
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(main([]), 0)
+
     def test_json_request_retries_transient_url_errors(self) -> None:
         calls = {"count": 0}
 

@@ -4,6 +4,8 @@ Date: 2026-05-03
 
 Scope: Notion intake through queue dispatch, wake callback decisions, branch/discard/paper drafting, paper review/rewrite, and publication packaging. This audit uses the context snapshot `.omx/context/end-to-end-workflow-audit-20260503T081947Z.md` and preserves public-repo constraints: no private LAN defaults, secrets, or retired private workflow material.
 
+> Superseded runtime note (2026-05-06): Notion is no longer the active intake/runtime ledger. Supabase-native `enoch.ideas` / `enoch.idea_workbench` and `/control/intake/ideas` are the supported paths. The Notion flow below is retained only as historical audit context; live Notion API/projection routes are disabled by default and the checked-in Notion sync unit/script are inert compatibility stubs.
+
 ## Executive summary
 
 The released workflow has a coherent control-plane spine: Notion rows are normalized into queue candidates, dispatch is paused/preflight/single-lane guarded, wake callbacks map worker outcomes into durable queue states, positive research outcomes can draft papers only when evidence and decision gates pass, publication rewrites preserve provenance policy, and finalization packaging requires review approval plus readable artifacts.
