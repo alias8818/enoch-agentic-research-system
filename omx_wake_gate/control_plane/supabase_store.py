@@ -341,6 +341,22 @@ class SupabaseReadOnlyControlPlaneStore:
                 order by pa.updated_at desc
                 limit 1
               ) as related_finalization_package_path,
+              (
+                select d.decision_gate_state
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as decision_gate_state,
+              (
+                select d.decision_summary
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as decision_summary,
               p.created_at as project_created_at,
               p.updated_at as project_updated_at
             from queue_items q

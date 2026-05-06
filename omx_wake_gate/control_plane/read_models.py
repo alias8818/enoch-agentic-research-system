@@ -100,6 +100,29 @@ def _decision_summary_from_gate(gate: dict[str, Any] | None) -> str:
     return decision or reason
 
 
+def _paper_draft_gate_from_row_decision(row: dict[str, Any]) -> dict[str, Any] | None:
+    state = _text(row.get("decision_gate_state"))
+    if not state:
+        return None
+    summary = _text(row.get("decision_summary"))
+    if state == "positive":
+        return {"eligible": True, "reason": "project decision is positive", "decision": summary or state, "values": [], "source": "supabase_project_decisions"}
+    reason_by_state = {
+        "negative": "project decision is not positive",
+        "needs_review": "project decision is not positive",
+        "missing": "missing project decision artifact",
+        "malformed": "project decision artifact could not be read",
+        "unknown": "project decision lacks positive draft signal",
+    }
+    return {
+        "eligible": False,
+        "reason": reason_by_state.get(state, "project decision lacks positive draft signal"),
+        "decision": summary,
+        "values": [],
+        "source": "supabase_project_decisions",
+    }
+
+
 def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     """Translate raw control-plane state into a deterministic operator stage.
 
@@ -182,7 +205,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
             explanation="The idea is queued and not currently running.",
         )
     if queue_status == "completed" and last_run_state in WAKE_GATE_COMPLETION_STATES and next_action == PAPER_DRAFT_NEXT_ACTION:
-        gate = _paper_draft_gate_for_row(row)
+        gate = _paper_draft_gate_from_row_decision(row) or _paper_draft_gate_for_row(row)
         decision_summary = _decision_summary_from_gate(gate)
         if gate is None or not bool(gate.get("eligible")):
             return _stage(
@@ -446,7 +469,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
     write_candidates: list[dict[str, Any]] = []
     gate_rejected: list[dict[str, Any]] = []
     for candidate in raw_write_candidates:
-        gate = _paper_draft_gate_for_row(candidate)
+        gate = _paper_draft_gate_from_row_decision(candidate) or _paper_draft_gate_for_row(candidate)
         if gate is None or not bool(gate.get("eligible")):
             gate_rejected.append({
                 "project_id": candidate.get("project_id", ""),
