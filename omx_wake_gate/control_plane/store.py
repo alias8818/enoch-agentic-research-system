@@ -631,10 +631,8 @@ class ControlPlaneStore:
                 counts["all"] = counts.get("all", 0) + count
                 if status in ACTIVE_STATUSES:
                     counts["active"] = counts.get("active", 0) + count
-                if status == QueueStatus.QUEUED.value:
-                    counts["queued"] = counts.get("queued", 0) + count
-                if status == QueueStatus.PAUSED.value:
-                    counts["paused"] = counts.get("paused", 0) + count
+                # The status bucket key already records queued/paused counts.
+                # Do not add the same row count twice under the same public key.
                 if status in {QueueStatus.COMPLETED.value, QueueStatus.CANCELED.value}:
                     counts["completed"] = counts.get("completed", 0) + count
             manual_blocked = conn.execute(

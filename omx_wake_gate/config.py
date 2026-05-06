@@ -96,8 +96,8 @@ class GateConfig(BaseModel):
             self.completion_callback_token = self.n8n_bearer_token
         if self.completion_callback_timeout_sec == 120 and self.n8n_callback_timeout_sec != 120:
             self.completion_callback_timeout_sec = self.n8n_callback_timeout_sec
-        if self.control_plane_store_backend not in {"sqlite", "supabase_readonly"}:
-            raise ValueError("control_plane_store_backend must be sqlite or supabase_readonly")
+        if self.control_plane_store_backend not in {"sqlite", "supabase_readonly", "supabase"}:
+            raise ValueError("control_plane_store_backend must be sqlite, supabase_readonly, or supabase")
         if not self.completion_callback_url:
             raise ValueError("completion_callback_url is required")
         if not self.completion_callback_token:

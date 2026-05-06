@@ -1,14 +1,27 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
+from ..enoch_core.store import IdempotencyConflict
 from ..models import utc_now
-from .models import ControlFlags, DashboardObservationRecord
-from .store import ACTIVE_STATUSES, QueueStatus, _int, _text
+from .models import ControlFlags, DashboardObservationRecord, ImportSnapshotRequest, PaperRecord, PaperStatus
+from .store import (
+    ACTIVE_STATUSES,
+    QueueStatus,
+    _bool,
+    _first_present,
+    _hash,
+    _int,
+    _json,
+    _notion_page_id_from_url,
+    _snapshot_rows,
+    _text,
+)
 
 
 ConnectionFactory = Callable[[], Any]
@@ -29,7 +42,7 @@ class SupabaseReadOnlyControlPlaneStore:
     def __init__(self, database_url: str, *, connect: ConnectionFactory | None = None) -> None:
         self.database_url = database_url.strip()
         if not self.database_url:
-            raise ValueError("supabase_database_url is required for supabase_readonly backend")
+            raise ValueError("supabase_database_url is required for supabase backends")
         self._connect_factory = connect or self._psycopg_connect
 
     def _psycopg_connect(self) -> Any:
@@ -107,10 +120,8 @@ class SupabaseReadOnlyControlPlaneStore:
             counts["all"] = counts.get("all", 0) + count
             if status in ACTIVE_STATUSES:
                 counts["active"] = counts.get("active", 0) + count
-            if status == QueueStatus.QUEUED.value:
-                counts["queued"] = counts.get("queued", 0) + count
-            if status == QueueStatus.PAUSED.value:
-                counts["paused"] = counts.get("paused", 0) + count
+            # The status bucket key already records queued/paused counts.
+            # Do not add the same row count twice under the same public key.
             if status in {QueueStatus.COMPLETED.value, QueueStatus.CANCELED.value}:
                 counts["completed"] = counts.get("completed", 0) + count
         blocked = self._one(
@@ -465,6 +476,296 @@ class SupabaseReadOnlyControlPlaneStore:
             "paper_rows": self.paper_rows(),
             "events": self.recent_events(event_limit),
         }
+
+
+class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
+    """Write-capable Postgres adapter for the private `enoch` control-plane schema.
+
+    This intentionally starts with the shared control-plane write primitives
+    needed for migration cutover safety and dashboard parity. Unimplemented
+    high-risk workflow writes remain absent rather than silently falling back to
+    SQLite semantics.
+    """
+
+    def append_event(self, *, idempotency_key: str, event_type: str, entity_type: str, entity_id: str, payload: dict[str, Any]) -> tuple[int, bool]:
+        payload_json = _json(payload)
+        payload_hash = _hash(payload)
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                row = cur.execute(
+                    "select event_id, payload_hash from control_events where idempotency_key = %s",
+                    (idempotency_key,),
+                ).fetchone()
+                if row:
+                    if row["payload_hash"] != payload_hash:
+                        raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different payload")
+                    return int(row["event_id"]), False
+                inserted = cur.execute(
+                    """
+                    insert into control_events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at)
+                    values (%s,%s,%s,%s,%s::jsonb,%s,%s)
+                    returning event_id
+                    """,
+                    (idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash, utc_now()),
+                ).fetchone()
+                return int(inserted["event_id"]), True
+
+    def pause(self, *, reason: str, paused_by: str, maintenance_mode: bool) -> tuple[ControlFlags, int]:
+        now = utc_now()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update control_flags
+                    set queue_paused=true, maintenance_mode=%s, pause_reason=%s, paused_at=%s, paused_by=%s, updated_at=%s
+                    where singleton=true
+                    """,
+                    (maintenance_mode, reason, now, paused_by, now),
+                )
+        flags = self.flags()
+        event_id, _ = self.append_event(
+            idempotency_key=f"pause:{now}",
+            event_type="control.pause",
+            entity_type="control",
+            entity_id="queue",
+            payload=flags.model_dump(mode="json"),
+        )
+        return flags, event_id
+
+    def resume(self, *, resumed_by: str, maintenance_mode: bool) -> tuple[ControlFlags, int]:
+        now = utc_now()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update control_flags
+                    set queue_paused=false, maintenance_mode=%s, pause_reason='', paused_at=null, paused_by=%s, updated_at=%s
+                    where singleton=true
+                    """,
+                    (maintenance_mode, resumed_by, now),
+                )
+        flags = self.flags()
+        event_id, _ = self.append_event(
+            idempotency_key=f"resume:{now}",
+            event_type="control.resume",
+            entity_type="control",
+            entity_id="queue",
+            payload=flags.model_dump(mode="json"),
+        )
+        return flags, event_id
+
+    def upsert_dashboard_observation(
+        self,
+        *,
+        source: str,
+        scope: str = "global",
+        observed_at: str | None = None,
+        ttl_seconds: int = 300,
+        status: str = "ok",
+        payload: dict[str, Any] | None = None,
+    ) -> DashboardObservationRecord:
+        now = utc_now()
+        payload_dict = payload or {}
+        payload_json = _json(payload_dict)
+        payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+        observed = observed_at or now
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                row = cur.execute(
+                    """
+                    insert into operator_observations(source,scope,observed_at,ttl_seconds,status,payload_json,payload_hash,created_at)
+                    values (%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
+                    returning observation_id
+                    """,
+                    (source, scope, observed, ttl_seconds, status, payload_json, payload_hash, now),
+                ).fetchone()
+        return DashboardObservationRecord(
+            observation_id=int(row["observation_id"]),
+            source=source,
+            scope=scope,
+            observed_at=observed,
+            ttl_seconds=ttl_seconds,
+            status=status,
+            payload=payload_dict,
+            payload_hash=payload_hash,
+            created_at=now,
+        )
+
+    def mark_queue_item_paused(self, *, project_id: str, reason: str, updated_by: str = "operator") -> bool:
+        now = utc_now()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                result = cur.execute(
+                    """
+                    update queue_items
+                    set status=%s, next_action_hint=%s, last_result_summary=%s, updated_at=%s
+                    where project_id=%s
+                    """,
+                    (QueueStatus.PAUSED.value, "maintenance_cutover_reconcile", reason, now, project_id),
+                )
+                if result.rowcount < 1:
+                    return False
+        self.append_event(
+            idempotency_key=f"queue-item-paused:{project_id}:{now}",
+            event_type="queue.item_paused",
+            entity_type="project",
+            entity_id=project_id,
+            payload={"reason": reason, "updated_by": updated_by},
+        )
+        return True
+
+    def update_project_dir(self, project_id: str, project_dir: str) -> None:
+        now = utc_now()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update projects set project_dir=%s, updated_at=%s where project_id=%s",
+                    (_text(project_dir), now, project_id),
+                )
+
+    def upsert_paper(self, paper: PaperRecord) -> None:
+        status = paper.paper_status.value if hasattr(paper.paper_status, "value") else str(paper.paper_status)
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    insert into papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
+                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    on conflict (paper_id) do update set
+                      project_id=excluded.project_id, run_id=excluded.run_id, paper_type=excluded.paper_type,
+                      paper_status=excluded.paper_status, draft_markdown_path=excluded.draft_markdown_path,
+                      draft_latex_path=excluded.draft_latex_path, evidence_bundle_path=excluded.evidence_bundle_path,
+                      claim_ledger_path=excluded.claim_ledger_path, manifest_path=excluded.manifest_path,
+                      generated_at=excluded.generated_at, updated_at=excluded.updated_at
+                    """,
+                    (
+                        paper.paper_id, paper.project_id, _text(paper.run_id) or None, paper.paper_type, status,
+                        paper.draft_markdown_path, paper.draft_latex_path, paper.evidence_bundle_path,
+                        paper.claim_ledger_path, paper.manifest_path, paper.generated_at, paper.updated_at,
+                    ),
+                )
+
+    def import_snapshot(self, request: ImportSnapshotRequest) -> tuple[bool, int, int, int]:
+        queue_rows = [*request.queue_rows, *_snapshot_rows(request.queue_snapshot)]
+        paper_rows = [*request.paper_rows, *_snapshot_rows(request.paper_snapshot, paper=True)]
+        event_payload = request.model_dump(mode="json")
+        event_payload["normalized_queue_row_count"] = len(queue_rows)
+        event_payload["normalized_paper_row_count"] = len(paper_rows)
+        _, inserted = self.append_event(
+            idempotency_key=request.idempotency_key,
+            event_type="legacy.import_snapshot",
+            entity_type="snapshot",
+            entity_id=request.source,
+            payload=event_payload,
+        )
+        projects = queue_items = papers = 0
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                for raw in queue_rows:
+                    project_id = _text(raw.get("project_id"))
+                    if not project_id:
+                        continue
+                    status_value = _text(_first_present(raw, "status", "queue_status")) or QueueStatus.QUEUED.value
+                    if status_value not in QueueStatus._value2member_map_:
+                        status_value = QueueStatus.QUEUED.value
+                    created_at = _text(_first_present(raw, "createdAt", "created_at")) or utc_now()
+                    updated_at = _text(_first_present(raw, "updatedAt", "updated_at", "last_execution_update")) or utc_now()
+                    cur.execute(
+                        """
+                        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+                        values (%s,%s,%s,%s,%s,%s,%s,%s)
+                        on conflict (project_id) do update set
+                          project_name=excluded.project_name, project_dir=excluded.project_dir,
+                          notion_page_url=excluded.notion_page_url, notion_page_id=excluded.notion_page_id,
+                          origin_idea_status=excluded.origin_idea_status, updated_at=excluded.updated_at
+                        """,
+                        (
+                            project_id,
+                            _text(_first_present(raw, "project_name", "name", "title")) or project_id,
+                            _text(_first_present(raw, "project_dir", "project_path")),
+                            _text(_first_present(raw, "notion_page_url", "url")),
+                            _text(_first_present(raw, "notion_page_id", "page_id", "id"))
+                            or _notion_page_id_from_url(_text(_first_present(raw, "notion_page_url", "url"))),
+                            _text(_first_present(raw, "origin_idea_status", "idea_status")),
+                            created_at,
+                            updated_at,
+                        ),
+                    )
+                    projects += 1
+                    cur.execute(
+                        """
+                        insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+                        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        on conflict (project_id) do update set
+                          status=excluded.status, selection_rank=excluded.selection_rank, dispatch_priority=excluded.dispatch_priority,
+                          auto_continue=excluded.auto_continue, continue_count=excluded.continue_count, max_continues=excluded.max_continues,
+                          retry_count=excluded.retry_count, max_retries=excluded.max_retries, current_run_id=excluded.current_run_id,
+                          current_session_id=excluded.current_session_id, last_run_state=excluded.last_run_state, last_event_type=excluded.last_event_type,
+                          next_action_hint=excluded.next_action_hint, manual_review_required=excluded.manual_review_required, blocked_reason=excluded.blocked_reason,
+                          last_error=excluded.last_error, last_result_summary=excluded.last_result_summary, machine_target=excluded.machine_target,
+                          model=excluded.model, sandbox=excluded.sandbox, last_dispatch_at=excluded.last_dispatch_at,
+                          last_callback_at=excluded.last_callback_at, stale_after=excluded.stale_after, updated_at=excluded.updated_at
+                        """,
+                        (
+                            project_id, status_value, _int(_first_present(raw, "selection_rank", "rank"), 50),
+                            _int(_first_present(raw, "dispatch_priority", "priority"), 50),
+                            _bool(_first_present(raw, "auto_continue", "autoContinue")),
+                            _int(_first_present(raw, "continue_count", "continueCount"), 0),
+                            _int(_first_present(raw, "max_continues", "maxContinues"), 0),
+                            _int(_first_present(raw, "retry_count", "retryCount"), 0),
+                            _int(_first_present(raw, "max_retries", "maxRetries"), 2),
+                            _text(raw.get("current_run_id")), _text(raw.get("current_session_id")),
+                            _text(raw.get("last_run_state")), _text(raw.get("last_event_type")),
+                            _text(raw.get("next_action_hint")) or "controller_review", _bool(raw.get("manual_review_required")),
+                            _text(raw.get("blocked_reason")), _text(raw.get("last_error")), _text(raw.get("last_result_summary")),
+                            _text(raw.get("machine_target")) or "worker.example", _text(raw.get("model")) or "gpt-5.5",
+                            _text(raw.get("sandbox")) or "danger-full-access", _first_present(raw, "last_dispatch_at", "last_execution_update"),
+                            raw.get("last_callback_at"), raw.get("stale_after"), updated_at,
+                        ),
+                    )
+                    queue_items += 1
+                for raw in paper_rows:
+                    paper_id = _text(raw.get("paper_id"))
+                    project_id = _text(raw.get("project_id"))
+                    if not paper_id or not project_id:
+                        continue
+                    cur.execute(
+                        """
+                        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+                        values (%s,%s,%s,%s,%s,%s,%s,%s)
+                        on conflict (project_id) do nothing
+                        """,
+                        (
+                            project_id, _text(raw.get("project_name")) or project_id, _text(raw.get("project_dir")),
+                            _text(raw.get("notion_page_url")),
+                            _text(raw.get("notion_page_id")) or _notion_page_id_from_url(_text(raw.get("notion_page_url"))),
+                            "", utc_now(), utc_now(),
+                        ),
+                    )
+                    status = _text(raw.get("paper_status")) or PaperStatus.DRAFT_REVIEW.value
+                    if status not in PaperStatus._value2member_map_:
+                        status = PaperStatus.DRAFT_REVIEW.value
+                    cur.execute(
+                        """
+                        insert into papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
+                        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        on conflict (paper_id) do update set
+                          project_id=excluded.project_id, run_id=excluded.run_id, paper_type=excluded.paper_type,
+                          paper_status=excluded.paper_status, draft_markdown_path=excluded.draft_markdown_path,
+                          draft_latex_path=excluded.draft_latex_path, evidence_bundle_path=excluded.evidence_bundle_path,
+                          claim_ledger_path=excluded.claim_ledger_path, manifest_path=excluded.manifest_path,
+                          generated_at=excluded.generated_at, updated_at=excluded.updated_at
+                        """,
+                        (
+                            paper_id, project_id, _text(raw.get("run_id")) or None, _text(raw.get("paper_type")) or "arxiv_draft", status,
+                            _text(raw.get("draft_markdown_path")), _text(raw.get("draft_latex_path")),
+                            _text(raw.get("evidence_bundle_path")), _text(raw.get("claim_ledger_path")),
+                            _text(raw.get("manifest_path")), _text(raw.get("generated_at")) or utc_now(),
+                            _text(raw.get("updated_at")) or utc_now(),
+                        ),
+                    )
+                    papers += 1
+        return inserted, projects, queue_items, papers
 
 
 def resolve_supabase_database_url(configured_url: str) -> str:

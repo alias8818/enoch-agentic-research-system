@@ -22,7 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from omx_wake_gate.control_plane.store import ControlPlaneStore  # noqa: E402
-from omx_wake_gate.control_plane.supabase_store import SupabaseReadOnlyControlPlaneStore  # noqa: E402
+from omx_wake_gate.control_plane.models import ImportSnapshotRequest, PaperRecord, PaperStatus  # noqa: E402
+from omx_wake_gate.control_plane.supabase_store import ReadOnlyStoreError, SupabaseControlPlaneStore, SupabaseReadOnlyControlPlaneStore  # noqa: E402
 
 IMAGE = "postgres:17-alpine"
 NOW = "2026-05-05T23:55:00Z"
@@ -273,10 +274,87 @@ def main() -> int:
             if sqlite_store.latest_dashboard_observation(source="worker_preflight").payload != pg_store.latest_dashboard_observation(source="worker_preflight").payload:  # type: ignore[union-attr]
                 failures.append("latest_dashboard_observation payload mismatch")
 
+            try:
+                pg_store.pause(reason="should fail", paused_by="validator", maintenance_mode=True)
+                failures.append("read-only store accepted pause")
+            except ReadOnlyStoreError:
+                pass
+
+            write_store = SupabaseControlPlaneStore(url)
+            event_id, inserted = write_store.append_event(
+                idempotency_key="write-smoke-event",
+                event_type="fixture.write_smoke",
+                entity_type="validator",
+                entity_id="write-smoke",
+                payload={"ok": True},
+            )
+            event_id_again, inserted_again = write_store.append_event(
+                idempotency_key="write-smoke-event",
+                event_type="fixture.write_smoke",
+                entity_type="validator",
+                entity_id="write-smoke",
+                payload={"ok": True},
+            )
+            if not inserted or inserted_again or event_id != event_id_again:
+                failures.append("append_event idempotency mismatch")
+            paused_flags, pause_event_id = write_store.pause(reason="validator pause", paused_by="validator", maintenance_mode=True)
+            if not paused_flags.queue_paused or pause_event_id <= 0:
+                failures.append("pause did not persist queue_paused")
+            resumed_flags, resume_event_id = write_store.resume(resumed_by="validator", maintenance_mode=True)
+            if resumed_flags.queue_paused or not resumed_flags.maintenance_mode or resume_event_id <= 0:
+                failures.append("resume did not persist expected flags")
+            observation = write_store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                payload={"write": True},
+            )
+            if observation.observation_id <= 0 or write_store.latest_dashboard_observation(source="worker_preflight") is None:
+                failures.append("upsert_dashboard_observation did not persist")
+            if not write_store.mark_queue_item_paused(project_id="proj-1", reason="validator item pause", updated_by="validator"):
+                failures.append("mark_queue_item_paused returned false")
+            if write_store.queue_row("proj-1")["status"] != "paused":  # type: ignore[index]
+                failures.append("mark_queue_item_paused did not update queue status")
+            write_store.update_project_dir("proj-1", "updated-dir")
+            if write_store.project_row("proj-1")["project_dir"] != "updated-dir":  # type: ignore[index]
+                failures.append("update_project_dir did not persist")
+            write_store.upsert_paper(PaperRecord(
+                paper_id="paper-write-smoke",
+                project_id="proj-1",
+                run_id="run-1",
+                paper_status=PaperStatus.DRAFT_REVIEW,
+                draft_markdown_path="write.md",
+            ))
+            if write_store.paper_row("paper-write-smoke") is None:
+                failures.append("upsert_paper did not persist")
+            inserted_snapshot, projects, queue_items, papers = write_store.import_snapshot(ImportSnapshotRequest(
+                idempotency_key="write-smoke-import",
+                source="validator",
+                queue_rows=[{
+                    "project_id": "proj-import",
+                    "project_name": "Imported Project",
+                    "status": "queued",
+                    "current_run_id": "run-import",
+                    "next_action_hint": "select_next",
+                }],
+                paper_rows=[{
+                    "paper_id": "paper-import",
+                    "project_id": "proj-import",
+                    "run_id": "",
+                    "paper_status": "draft_review",
+                }],
+            ))
+            if not inserted_snapshot or (projects, queue_items, papers) != (1, 1, 1):
+                failures.append("import_snapshot counts mismatch")
+            if write_store.queue_row("proj-import") is None or write_store.paper_row("paper-import") is None:
+                failures.append("import_snapshot did not persist imported rows")
+            final_queue_counts = write_store.queue_counts_sql()
+            if final_queue_counts.get("queued") != 1 or final_queue_counts.get("paused") != 1:
+                failures.append(f"queue_counts_sql bucket mismatch after writes: {final_queue_counts}")
+
             report: dict[str, Any] = {
                 "ok": not failures,
                 "failures": failures,
-                "queue_counts": pg_store.queue_counts_sql(),
+                "queue_counts": write_store.queue_counts_sql(),
                 "paper_counts": pg_store.paper_counts_sql(),
                 "queue_row": comparable(pg_store.queue_rows()[0], queue_keys),
                 "paper_row": comparable(pg_store.paper_rows()[0], paper_keys),
