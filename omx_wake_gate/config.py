@@ -84,6 +84,8 @@ class GateConfig(BaseModel):
     route_observability_log_path: str = ""
     route_observability_slow_ms: int = Field(default=1000, ge=0)
     route_observability_memory_warn_rss_mib: int = Field(default=0, ge=0)
+    control_plane_store_backend: str = "sqlite"
+    supabase_database_url: str = ""
 
 
     @model_validator(mode="after")
@@ -94,6 +96,8 @@ class GateConfig(BaseModel):
             self.completion_callback_token = self.n8n_bearer_token
         if self.completion_callback_timeout_sec == 120 and self.n8n_callback_timeout_sec != 120:
             self.completion_callback_timeout_sec = self.n8n_callback_timeout_sec
+        if self.control_plane_store_backend not in {"sqlite", "supabase_readonly"}:
+            raise ValueError("control_plane_store_backend must be sqlite or supabase_readonly")
         if not self.completion_callback_url:
             raise ValueError("completion_callback_url is required")
         if not self.completion_callback_token:

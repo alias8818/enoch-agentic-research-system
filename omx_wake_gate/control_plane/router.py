@@ -69,6 +69,7 @@ from .alerts import evaluate_and_notify_queue_alerts
 from .graphs import build_dispatch_graph
 from . import read_models
 from .store import ControlPlaneStore
+from .supabase_store import SupabaseReadOnlyControlPlaneStore, resolve_supabase_database_url
 from .worker_adapter import post_worker_json, run_worker_preflight
 
 RequireBearer = Callable[[str | None], None]
@@ -435,7 +436,10 @@ def _write_deterministic_paper(config: GateConfig, candidate: dict, paper: Paper
 
 def create_control_plane_router(config: GateConfig, require_bearer: RequireBearer) -> APIRouter:
     router = APIRouter(prefix="/control", tags=["control-plane"])
-    store = ControlPlaneStore(config.expanded_state_dir / "control_plane.sqlite3")
+    if config.control_plane_store_backend == "supabase_readonly":
+        store = SupabaseReadOnlyControlPlaneStore(resolve_supabase_database_url(config.supabase_database_url))
+    else:
+        store = ControlPlaneStore(config.expanded_state_dir / "control_plane.sqlite3")
 
     def authorize(authorization: str | None) -> None:
         require_bearer(authorization)

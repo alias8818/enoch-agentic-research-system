@@ -62,5 +62,7 @@
   "route_observability_enabled": false,
   "route_observability_log_path": "",
   "route_observability_slow_ms": 1000,
-  "route_observability_memory_warn_rss_mib": 0
+  "route_observability_memory_warn_rss_mib": 0,
+  "control_plane_store_backend": "sqlite",
+  "supabase_database_url": ""
 }
