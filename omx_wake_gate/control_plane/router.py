@@ -863,7 +863,9 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.get("/health")
     def health(authorization: str | None = Header(default=None)) -> dict:
         authorize(authorization)
-        return {"ok": True, "service": "enoch-langgraph-control-plane", "db_path": str(store.path), "timestamp": utc_now()}
+        backend = config.control_plane_store_backend
+        db_path = str(getattr(store, "path", backend))
+        return {"ok": True, "service": "enoch-langgraph-control-plane", "db_path": db_path, "store_backend": backend, "timestamp": utc_now()}
 
     @router.get("/state", response_model=ControlStateResponse)
     def get_state(authorization: str | None = Header(default=None)) -> ControlStateResponse:

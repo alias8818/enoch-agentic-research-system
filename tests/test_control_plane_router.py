@@ -59,6 +59,29 @@ def _client_with_config(config: GateConfig) -> TestClient:
 
 
 class ControlPlaneRouterTests(unittest.TestCase):
+
+    def test_health_supports_supabase_backend_without_sqlite_path(self) -> None:
+        class FakeSupabaseStore:
+            pass
+
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            omx_inbound_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+        with patch("omx_wake_gate.control_plane.router.SupabaseControlPlaneStore", return_value=FakeSupabaseStore()):
+            client = _client_with_config(config)
+            response = client.get("/control/health", headers={"Authorization": f"Bearer {TOKEN}"})
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["store_backend"], "supabase")
+        self.assertEqual(body["db_path"], "supabase")
+
     def test_pause_import_dry_run_and_draft(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "projects" / "idea-positive"
