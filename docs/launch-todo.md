@@ -38,9 +38,9 @@ This checklist tracks the remaining work before the Enoch system, generated corp
 - [x] Draft long-form launch announcement.
 - [x] Draft short social/thread copy.
 - [x] Draft GitHub repo descriptions and pinned-repo blurbs.
-- [ ] Create final launch post using live public URLs.
-- [ ] Prepare 3-5 screenshots/cards for highlighted projects.
-- [ ] Choose launch order: GitHub, personal site/blog, Hacker News/Reddit, LinkedIn/X, and relevant AI/dev communities.
+- [x] Create final launch post using live public URLs; see `docs/outreach/launch-announcement.md`.
+- [x] Prepare 3-5 screenshots/cards for highlighted projects; use sanitized dashboard images plus `site/highlights.json` card text.
+- [x] Choose launch order: GitHub/source surfaces first, then personal site/blog, social, and dev communities; see `docs/outreach/launch-announcement.md`.
 
 
 ## Operational TODO: reconnect new-run paper production

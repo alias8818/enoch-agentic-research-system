@@ -69,3 +69,20 @@ Docs repo:
 4. “What Enoch does: queue, preflight, pause, wake gate, evidence sync, claim ledgers, paper writer, packaging/provenance lint checks—operated through Codex/OMX, with oh-my-codex credited as orchestration infrastructure.”
 5. “Some highlighted artifacts: Evidence-Bound Proof Synthesizer, Resource-Bounded Agent Kernel, DFlash GB10 throughput, Value-per-Joule Broker, and Memory Pressure Admission Gate.”
 6. “What I want feedback on: control-plane design, evidence schema, generated-paper framing, and which experiments deserve real replication.”
+
+
+## Launch order
+
+1. GitHub repos and launch site are the source-of-truth surfaces.
+2. Personal site/blog post should use the longer announcement and link code, corpus, docs, and the launch site.
+3. X/LinkedIn should use the short launch post plus one screenshot/card from `site/highlights.json` or the sanitized dashboard images.
+4. Hacker News/Reddit/dev communities should emphasize the control-plane and evidence-bound corpus, not claims of peer-reviewed papers.
+5. Convert substantive feedback into GitHub issues before changing pipeline behavior or public claims.
+
+## Screenshot/card candidates
+
+- `enoch-docs/images/dashboard-active-queue.png` — operator dashboard state.
+- `enoch-docs/images/dashboard-paper-reviews.png` — publication automation/detail view.
+- `enoch-docs/images/dashboard-papers.png` — generated artifact paths and ledgers.
+- `enoch-docs/images/dashboard-queued-queue.png` — queue/intake view.
+- `site/highlights.json` — text cards for the highlighted artifacts.
