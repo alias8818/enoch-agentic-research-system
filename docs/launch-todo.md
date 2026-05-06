@@ -45,13 +45,13 @@ This checklist tracks the remaining work before the Enoch system, generated corp
 
 ## Operational TODO: reconnect new-run paper production
 
-Live check on 2026-05-02 showed that the LangGraph-era idea execution path is progressing, but new completed runs are not automatically becoming new paper rows. The control plane had hundreds of completed `wake_ready` runs with `next_action_hint = draft_paper_or_select_next_project`, while the paper table was still capped at the imported/rewrite-era 242 rows and had no `paper.drafted` events.
+Status on 2026-05-06: done for the live Supabase control plane. The earlier 2026-05-02 gap was repaired, the positive/actionable backfill was drained, and the remaining completed no-paper rows are decision-gate rejected rather than papers to write. Live readiness evidence reported `write_needed = 0`, `raw_completed_no_paper_candidates = 220`, `not_writable_by_decision_gate = 220`, `publish_ready = 0`, and `published_imported = 492`.
 
 Required follow-up:
 
 - [x] Update paper draft eligibility so completed wake-gate runs with `next_action_hint = draft_paper_or_select_next_project` and sufficient evidence/artifacts are draft candidates; keep the old `last_run_state = finalize_positive` path.
 - [x] Add automated paper recovery without starving drafts, then disable it by default: draft-next now requires explicit opt-in (`ENOCH_ENABLE_PAPER_DRAFT_NEXT=1`), the dedicated timer is not installed by default, and the queue pump leaves paper drafting off unless `queue_pump_paper_draft_enabled` is true.
-- [ ] Backfill paper drafts for completed no-paper projects produced after the LangGraph cutover, preserving evidence sync, claim ledger, manifest, and publication-policy metadata.
+- [x] Backfill paper drafts for completed paper-positive projects produced after the LangGraph cutover, preserving evidence sync, claim ledger, manifest, and publication-policy metadata; remaining completed no-paper rows are decision-gate rejected and are not writable.
 - [x] Connect the publication/rewrite workflow to newly drafted papers, including targeted publication-automation backfill and GLM-5.1/Synthetic.new rewrite where configured.
 - [x] Add regression tests proving a `worker_callback.wake_ready` completion becomes paper-draft eligible, existing papers prevent duplicate drafts, draft-only automation is opt-in and never dispatches, and the queue pump only drafts before dispatch when explicitly enabled.
 
