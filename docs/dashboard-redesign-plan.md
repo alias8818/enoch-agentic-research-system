@@ -18,15 +18,14 @@ Primary navigation:
 
 1. **Overview** — operator cards, paper pipeline, active lane, health, recent events.
 2. **Projects** — searchable project index and project detail drill-down.
-3. **Corpus Import** — ledger-backed publish/import readiness and imported-publication counts.
-4. **Active / Queued / Blocked** — queue-focused slices.
+3. **Active / Queued / Blocked** — queue-focused slices.
 4. **Runs** — run list and run detail.
 5. **Papers** — paper list and paper detail.
-6. **Corpus Import** — finalized draft import gap and corpus ledger reconciliation.
+6. **Corpus Import** — finalized draft import gap, ledger-backed publish/import readiness, and imported-publication counts.
 7. **Events** — bounded event log with payload summaries by default.
-7. **Publication automation** — explicit rewrite/finalization lane; no human-approval framing.
-8. **Ideas** — Supabase-native intake/workbench status; Notion is provenance only.
-9. **Observability** — route/memory/worker freshness and debug health.
+8. **Publication automation** — explicit rewrite/finalization lane; no human-approval framing.
+9. **Ideas** — Supabase-native intake/workbench status; Notion is provenance only.
+10. **Observability** — route/memory/worker freshness and debug health.
 
 ## Visual direction
 
