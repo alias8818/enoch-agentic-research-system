@@ -9,7 +9,7 @@ Supabase owns the runtime ledger. The control plane keeps detailed raw states fo
 Trust these surfaces in this order:
 
 1. **Dashboard operator lanes** for current action: what needs attention, what is running, what can be written, what can be finalized, what is ready to publish, and what is already imported.
-2. **`operator_counts`, `operator_detail_counts`, and paper pipeline definitions** for aggregate counts. Do not replace them with ad hoc raw-status counts.
+2. **`operator_counts`, `operator_detail_counts`, paper pipeline definitions, and investigation pipeline definitions** for aggregate counts. Do not replace them with ad hoc raw-status counts.
 3. **Raw state surfaces** only when debugging a row. Raw values explain evidence; they are not the user workflow.
 4. **`docs/state-reduction-audit.md`** for the generated raw-value disposition table. Do not hand-edit that audit unless regenerating it from `state_contract.py`.
 
@@ -25,6 +25,7 @@ The dashboard and assistant should answer simple questions with these lanes:
 | `running` | Work is dispatching, running, writing, finalizing, or waiting for wake callback. | Wait. |
 | `needs_operator` | A blocker, worker question, dispatch/gate failure, manual-action flag, or automation blocker exists. | Resolve the blocker/question. |
 | `complete_no_paper` | Worker delivery is complete, but the paper decision gate is not actionable-positive. | Select the next project. |
+| `followup_investigation` | Worker delivery is no-paper, but the decision artifact recommends a specific bounded adjacent test. | Launch a follow-up only if the next investigation is still worth worker time. |
 | `write_paper` | A completed run has no live paper row and passes the positive paper decision gate. | Run bounded/explicit paper drafting only. |
 | `automate_publication` | A paper exists and still needs automated rewrite/finalization/package work. | Let automation finalize or inspect artifacts if automation failed. |
 | `ready_to_publish` | A publication draft has a finalized automation package and no corpus-import ledger row. | Import/sync to public corpus. |
@@ -42,6 +43,7 @@ Operator-facing labels must stay grade-school simple even when raw keys remain s
 | `ready_queue` | Ready |
 | `needs_operator` / `blocked_needs_operator` | Needs Attention |
 | `complete_no_paper` / `run_complete_no_paper` | Done / No Paper |
+| `followup_investigation` / `followup_candidate` | Investigate Next |
 | `write_paper` / `run_complete_draft_needed` | Write Paper |
 | `automate_publication` / `finalization_needed` | Finalize Draft |
 | `ready_to_publish` | Publish / Import |
@@ -56,6 +58,7 @@ Count fields follow the same split:
 - `operator_counts` groups rows by canonical operator lane and keeps `operator_stage`/`operator_lane` vocabulary user-facing.
 - `operator_detail_counts` groups rows by compatibility/detail stage for drill-down metrics and legacy counters.
 - `paper_pipeline.write_needed`, `paper_pipeline.finalize_needed`, and `paper_pipeline.publish_ready` are the preferred actionable paper-work counters. `publish_ready` means finalized drafts missing a corpus-import ledger row, not all historical finalized drafts. `paper_pipeline.publication_ready_total` and `paper_pipeline.published_imported` are informational reconciliation counts.
+- `investigation_pipeline.followup_needed` is the preferred actionable adjacent-investigation counter. It is separate from paper writing: a follow-up candidate is no-paper until its own independent run later produces a positive paper decision.
 
 ## Canonical lifecycle state surfaces
 
@@ -70,6 +73,7 @@ The canonical raw state contract is code-owned in `omx_wake_gate/control_plane/s
 | `papers.paper_status` | Paper artifact generation state. | A draft row is not publication-ready until automation finalization succeeds. |
 | `publication_automation_items.automation_status` | Automated publication/finalization/package state. | Use automation language; legacy review-like values are compatibility/internal only. |
 | `project_decisions.decision_gate_state` | Paper-writing decision gate. | Only `positive` can derive `write_paper`. |
+| `project_decisions.followup_*` | Optional bounded adjacent-investigation metadata from worker decisions. | Can derive `followup_investigation`; never derives `write_paper`. |
 
 Supabase constraints bound both primary state columns and detail/debug columns such as `queue_items.last_run_state` and `runs.gate_state`, so raw callback labels must be normalized before they enter persisted lifecycle columns. Superseded legacy `dispatch_accepted` run rows should normalize to `reconciled`, while current dispatch bridge rows normalize to `awaiting_wake`.
 
@@ -111,6 +115,16 @@ Near-synonyms such as `partial_viable`, `promising_synthetic_positive`, `promisi
 
 `negative`, `missing`, `malformed`, `unknown`, and ambiguous legacy decision values map to `complete_no_paper`. Raw completed/no-paper rows that fail the gate are informational, not a backlog of papers to write.
 
+## Follow-up investigation gate
+
+Follow-up branching is intentionally a separate lane from paper writing:
+
+- A follow-up can be shown only when a completed no-paper row has `followup_recommended = true` in the parsed project decision artifact.
+- The worker must provide concrete adjacent-test metadata: `followup_type`, title, hypothesis, required evidence, success threshold, and stop condition.
+- The control plane queues a new project only through an explicit bounded launch action (`max_followup_depth` defaults to `2`).
+- Follow-up launch creates queued investigation work; it does not create a paper, mark the parent positive, or bypass the paper decision gate.
+- Hard negatives, weak speculation, missing evidence, and ordinary incremental tweaks should leave `followup_recommended = false`.
+
 ## Publication automation
 
 Publication is a separate automation lane after a paper exists:
@@ -132,6 +146,7 @@ The dashboard should lead with operator questions:
 - **What needs my attention?** `needs_operator` / `needs_attention`.
 - **What is running or queued?** `running` and `ready_queue`.
 - **What paper work is actionable?** `write_needed`, not raw completed/no-paper candidates.
+- **What needs another investigation?** `investigation_pipeline.followup_needed`, not raw negative rows.
 - **What needs automated finalization?** `finalize_needed` / `publication_automation_pending`.
 - **What is ready to publish?** finalized publication drafts that are missing a corpus-import ledger row.
 - **What is already published?** corpus import ledger.
@@ -144,10 +159,11 @@ Raw tables, raw statuses, and legacy labels belong in detail/debug drawers, not 
 2. Raw completed/no-paper candidates are informational and must not be presented as papers to write.
 3. Negative, missing, malformed, unknown, or ambiguous project decisions are not writable.
 4. `wake_ready` means worker delivery completed; it does not mean the result was positive.
-5. Finalization readiness means `publication_draft` plus finalized automation package, not a draft row by itself; actionable publication/import readiness additionally requires no corpus-import ledger row.
-6. Human/operator paper approval is not a normal workflow state. Use automated finalization/package wording.
-7. Notion/source idea status is provenance only now that Supabase owns the runtime ledger.
-8. New raw state strings or new state-like persisted columns require updating `state_contract.py`, the Supabase constraint migration when applicable, `scripts/validate_state_contract.py` coverage, this document, and the parent release wiki at `/home/jeremy/Desktop/projects/enoch-release/.omx/wiki/state-model-contract.md`.
+5. Follow-up recommendations are adjacent-investigation work only; they do not make a parent run writable.
+6. Finalization readiness means `publication_draft` plus finalized automation package, not a draft row by itself; actionable publication/import readiness additionally requires no corpus-import ledger row.
+7. Human/operator paper approval is not a normal workflow state. Use automated finalization/package wording.
+8. Notion/source idea status is provenance only now that Supabase owns the runtime ledger.
+9. New raw state strings or new state-like persisted columns require updating `state_contract.py`, the Supabase constraint migration when applicable, `scripts/validate_state_contract.py` coverage, this document, and the parent release wiki at `/home/jeremy/Desktop/projects/enoch-release/.omx/wiki/state-model-contract.md`.
 
 ## State doctor
 
@@ -170,6 +186,7 @@ The report combines the state contract, normalization dry-run, live reduction-dr
 - raw detail stages appear in primary `operator_counts`;
 - `paper_pipeline` no longer satisfies `raw_completed_no_paper_candidates = write_needed + not_writable_by_decision_gate`;
 - required paper-pipeline fields are missing;
+- required investigation-pipeline fields are missing;
 - `--corpus` is checked and finalized publication drafts are absent from the public corpus. Use `--warn-only-corpus` only for exploratory runs where known corpus backlog should not make the command nonzero.
 
 Legacy-internal rows such as provenance-only `unknown` values remain visible in `legacy_runtime_context`. They are not warnings when the doctor can classify them as `historical_or_attention_residue` with `active_queue = 0`; they become failures if attached to active runtime work, and they remain warnings only when unclassified.
@@ -184,6 +201,7 @@ For a live state answer, record these evidence fields from the JSON report:
 | `live_reduction_drift.hard_rows` | empty |
 | `control_plane.overview.raw_detail_keys_in_operator_counts` | empty |
 | `control_plane.overview.paper_pipeline` | includes all required paper-count keys |
+| `control_plane.overview.investigation_pipeline` | includes `followup_needed` and `max_followup_depth` |
 | `corpus_reconciliation.importable_finalized_count` | `0` when `--corpus` is checked without `--warn-only-corpus` |
 
 ## Validation

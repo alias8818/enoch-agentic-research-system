@@ -11,6 +11,7 @@ def test_transition_map_documents_every_lifecycle_edge() -> None:
         "Idea -> Queue",
         "Queue -> Run",
         "Run -> Decision",
+        "Decision -> Follow-up Investigation",
         "Decision -> Paper",
         "Paper -> Publication",
         "Publication -> Corpus",
@@ -43,6 +44,20 @@ def test_transition_map_matches_decision_gate_operator_invariants() -> None:
         assert row["operator_stage"] == "complete_no_paper"
         assert row["operator_detail_stage"] == "run_complete_no_paper"
         assert row["operator_attention"] is False
+
+    followup = operator_stage_for_record(
+        {
+            **base,
+            "decision_gate_state": "negative",
+            "followup_recommended": True,
+            "followup_title": "Adjacent bounded test",
+            "followup_hypothesis": "A narrower condition could still work.",
+        }
+    )
+    assert followup["operator_stage"] == "followup_investigation"
+    assert followup["operator_detail_stage"] == "followup_candidate"
+    assert followup["operator_attention"] is False
+    assert followup["paper_draft_eligible"] is False
 
 
 def test_transition_map_matches_publication_readiness_invariants() -> None:

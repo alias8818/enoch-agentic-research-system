@@ -199,6 +199,13 @@ class ProjectDecision(BaseModel):
     stop_reason: str = ""
     branch_project_name: str | None = None
     branch_reason: str | None = None
+    followup_recommended: bool = False
+    followup_type: Literal["", "deepen", "branch", "retry"] = ""
+    followup_title: str = ""
+    followup_hypothesis: str = ""
+    followup_required_evidence: list[str] = Field(default_factory=list)
+    followup_success_threshold: str = ""
+    followup_stop_condition: str = ""
     decision_source: str = ""
     source_path: str | None = None
     updated_at: str = Field(default_factory=utc_now)

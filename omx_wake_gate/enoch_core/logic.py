@@ -95,6 +95,48 @@ def _paper_decision_json_values(artifact_root: str | Path) -> list[tuple[str, st
     return values
 
 
+
+def project_decision_payload(artifact_root: str | Path) -> dict[str, Any]:
+    """Return the first parseable project decision JSON payload for follow-up metadata."""
+
+    root = Path(artifact_root)
+    for relative in PAPER_DECISION_FILES:
+        path = root / relative
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def followup_candidate_from_decision_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize optional follow-up metadata from a worker decision artifact."""
+
+    if not isinstance(payload, dict):
+        return {"followup_recommended": False}
+    raw_type = _normal(payload.get("followup_type"))
+    followup_type = raw_type if raw_type in {"deepen", "branch", "retry"} else ""
+    required = payload.get("followup_required_evidence")
+    if isinstance(required, str):
+        required_evidence = [item.strip() for item in re.split(r"[\n;]+", required) if item.strip()]
+    elif isinstance(required, list):
+        required_evidence = [text(item) for item in required if text(item)]
+    else:
+        required_evidence = []
+    return {
+        "followup_recommended": truthy(payload.get("followup_recommended")),
+        "followup_type": followup_type,
+        "followup_title": text(payload.get("followup_title")),
+        "followup_hypothesis": text(payload.get("followup_hypothesis")),
+        "followup_required_evidence": required_evidence,
+        "followup_success_threshold": text(payload.get("followup_success_threshold")),
+        "followup_stop_condition": text(payload.get("followup_stop_condition")),
+    }
+
 def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
     """Return whether local project decision artifacts support paper drafting.
 

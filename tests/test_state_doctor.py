@@ -13,6 +13,7 @@ def test_dashboard_audit_rejects_detail_keys_in_operator_counts() -> None:
                 "finalize_needed": 0,
                 "publish_ready": 0,
             },
+            "investigation_pipeline": {"followup_needed": 0, "max_followup_depth": 2},
         }
     )
 
@@ -32,11 +33,32 @@ def test_dashboard_audit_enforces_positive_only_pipeline_boundary() -> None:
                 "finalize_needed": 0,
                 "publish_ready": 491,
             },
+            "investigation_pipeline": {"followup_needed": 0, "max_followup_depth": 2},
         }
     )
 
     assert not audit["ok"]
     assert audit["paper_pipeline_inconsistent"] is True
+
+
+def test_dashboard_audit_requires_investigation_pipeline_boundary() -> None:
+    audit = _dashboard_audit(
+        {
+            "operator_counts": {"write_paper": 0, "needs_attention": 0},
+            "operator_detail_counts": {},
+            "paper_pipeline": {
+                "write_needed": 0,
+                "raw_completed_no_paper_candidates": 220,
+                "not_writable_by_decision_gate": 220,
+                "finalize_needed": 0,
+                "publish_ready": 0,
+            },
+            "investigation_pipeline": {"followup_needed": 0},
+        }
+    )
+
+    assert not audit["ok"]
+    assert audit["missing_investigation_pipeline_keys"] == ["max_followup_depth"]
 
 
 def test_reduction_drift_hard_fails_alias_and_migrate_after_freeze_rows() -> None:

@@ -5,7 +5,7 @@ Status: active operator contract as of 2026-05-07.
 This is the grade-school lifecycle map for ideas, projects, runs, papers, publication, and corpus import. It is intentionally smaller than the raw database vocabulary. Raw states remain compatibility/detail evidence; operator lanes answer what a human or agent should do next.
 
 ```text
-Idea -> Queue -> Run -> Decision -> Paper -> Publication -> Corpus
+Idea -> Queue -> Run -> Decision -> [Follow-up Investigation] or Paper -> Publication -> Corpus
 ```
 
 ## Transition table
@@ -15,10 +15,11 @@ Idea -> Queue -> Run -> Decision -> Paper -> Publication -> Corpus
 | 1 | Idea -> Queue | `ideas` and `queue_items` in Supabase | Supabase idea importer / queue projection | Queue row has stable `project_id`, title, priority, machine/model/sandbox policy | Notion/source metadata overwriting Supabase-owned runtime fields | `ready_queue` or `paused` |
 | 2 | Queue -> Run | `queue_items.current_run_id`, `runs` | Control-plane dispatch path | Queue is not paused, worker preflight passes, dispatch writes a run id | Dispatch while maintenance/paused or without fresh worker evidence | `running` |
 | 3 | Run -> Decision | `runs`, project-local `.omx/project_decision.json`, `project_decisions` | Worker callback reconciliation | Wake/callback delivery is recorded and decision artifact is parsed/synced | Treating `wake_ready`, `completed`, or `session_finished_ready` as positive by itself | `complete_no_paper` until a positive decision gate exists |
-| 4 | Decision -> Paper | `project_decisions.decision_gate_state` plus paper ledger absence | Explicit bounded paper drafting | Decision gate is `positive` and no live paper row exists for the project/run | Negative, missing, malformed, unknown, ambiguous, or already-papered work becoming writable | `write_paper` only when positive/actionable |
-| 5 | Paper -> Publication | `papers.paper_status`, `publication_automation_items` | Publication automation / finalizer | Draft exists and automation produces a finalization package | Human approval/review vocabulary as the normal path | `automate_publication` |
-| 6 | Publication -> Corpus | `publication_automation_items.finalized` plus `corpus_imports` ledger | Corpus import script and public release validator | Publication draft has finalized package; public corpus index includes sanitized artifact by source fingerprint; Supabase ledger records the import | Counting all finalized rows as actionable publish/import work | `ready_to_publish` only while missing corpus import, then `published`/public corpus evidence |
-| 7 | Corpus -> Public release/HF | `papers/index.json`, `quality/*`, `site/ecosystem.json`, HF `dataset_summary.json` | Public release bundle push and HF export | Generated manifest and public release validation pass; HF JSONL row count matches | Hand-edited public counts or stale GitHub/HF metadata | Public/corpus count, not active operator work |
+| 4 | Decision -> Follow-up Investigation | `project_decisions.followup_*` plus queue depth cap | Explicit bounded follow-up launch | Parent is no-paper; decision artifact recommends a concrete adjacent test; `followup_depth < max_followup_depth` | Treating follow-up metadata as paper-positive or auto-chaining indefinitely | `followup_investigation` / `Investigate Next` |
+| 5 | Decision -> Paper | `project_decisions.decision_gate_state` plus paper ledger absence | Explicit bounded paper drafting | Decision gate is `positive` and no live paper row exists for the project/run | Negative, missing, malformed, unknown, ambiguous, follow-up-only, or already-papered work becoming writable | `write_paper` only when positive/actionable |
+| 6 | Paper -> Publication | `papers.paper_status`, `publication_automation_items` | Publication automation / finalizer | Draft exists and automation produces a finalization package | Human approval/review vocabulary as the normal path | `automate_publication` |
+| 7 | Publication -> Corpus | `publication_automation_items.finalized` plus `corpus_imports` ledger | Corpus import script and public release validator | Publication draft has finalized package; public corpus index includes sanitized artifact by source fingerprint; Supabase ledger records the import | Counting all finalized rows as actionable publish/import work | `ready_to_publish` only while missing corpus import, then `published`/public corpus evidence |
+| 8 | Corpus -> Public release/HF | `papers/index.json`, `quality/*`, `site/ecosystem.json`, HF `dataset_summary.json` | Public release bundle push and HF export | Generated manifest and public release validation pass; HF JSONL row count matches | Hand-edited public counts or stale GitHub/HF metadata | Public/corpus count, not active operator work |
 
 ## Hard invariants
 
@@ -26,10 +27,12 @@ Idea -> Queue -> Run -> Decision -> Paper -> Publication -> Corpus
 2. Positive-ish near-synonyms such as `partial_viable`, `promising_synthetic_positive`, `promising_continue`, `viable`, or `proceed` are not writable decisions.
 3. `complete_no_paper` is the correct operator lane for negative, missing, malformed, unknown, or ambiguous decisions.
 4. `wake_ready` and `session_finished_ready` mean worker delivery, not outcome polarity.
-5. `publication_draft` alone is not public; corpus import is separate from finalization.
-6. `paper_pipeline.raw_completed_no_paper_candidates` is informational only; it must equal `write_needed + not_writable_by_decision_gate`.
-7. Dashboard `operator_counts` may contain canonical operator lanes and aggregate keys only; detail stages belong in `operator_detail_counts` or debug drill-downs.
-8. Public counts come from `papers/index.json` through `generate_ecosystem_manifest.py` and `validate_public_release.py`, then the Hugging Face export must match the same count.
+5. A follow-up recommendation is no-paper adjacent-investigation work; it does not make the parent run writable.
+6. Follow-up chains are explicitly bounded; default cap is depth 2.
+7. `publication_draft` alone is not public; corpus import is separate from finalization.
+8. `paper_pipeline.raw_completed_no_paper_candidates` is informational only; it must equal `write_needed + not_writable_by_decision_gate`.
+9. Dashboard `operator_counts` may contain canonical operator lanes and aggregate keys only; detail stages belong in `operator_detail_counts` or debug drill-downs.
+10. Public counts come from `papers/index.json` through `generate_ecosystem_manifest.py` and `validate_public_release.py`, then the Hugging Face export must match the same count.
 
 ## Operator question mapping
 
@@ -38,6 +41,7 @@ Idea -> Queue -> Run -> Decision -> Paper -> Publication -> Corpus
 | What needs me? | `operator_counts.needs_attention` and `needs_operator` rows | Raw `needs_review` strings |
 | What is running? | `counts.active`, `operator_counts.running`, active rows | Stale historical `runs.state` values |
 | What can be written? | `paper_pipeline.write_needed` | Raw completed/no-paper candidates |
+| What needs another investigation? | `investigation_pipeline.followup_needed` | Negative/no-paper rows without concrete follow-up metadata |
 | What can be finalized? | `paper_pipeline.finalize_needed` | Draft row existence alone |
 | What can be published/imported? | `paper_pipeline.publish_ready` / `missing_from_corpus` | `publication_draft` count or all finalized rows |
 | What is already public? | `paper_pipeline.published_imported`, `corpus_imports`, public corpus `papers/index.json`, `site/ecosystem.json`, HF `dataset_summary.json` | Control-plane paper row count |

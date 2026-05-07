@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
-from ..enoch_core.logic import paper_draft_decision_gate
+from ..enoch_core.logic import followup_candidate_from_decision_payload, paper_draft_decision_gate, project_decision_payload
 from ..enoch_core.store import IdempotencyConflict
 from ..models import utc_now
 from .models import (
@@ -86,6 +86,21 @@ def _decision_gate_state(gate: dict[str, Any]) -> str:
     if any(token in haystack for token in ("needs_review", "inconclusive", "caveat", "conditional", "mixed")):
         return "unknown"
     return "unknown"
+
+
+def _stable_followup_id(parent_project_id: str, title: str, hypothesis: str) -> str:
+    seed = f"{parent_project_id}:{title}:{hypothesis}"
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:10]
+    slug = _slug_id(title or f"followup-{parent_project_id}")[:58].strip("-") or "followup"
+    return f"{slug}-{digest}"[:80]
+
+
+def _followup_depth_from_payload(payload: dict[str, Any]) -> int:
+    source = payload.get("source_payload_json") if isinstance(payload.get("source_payload_json"), dict) else payload
+    try:
+        return int(source.get("followup_depth") or source.get("parent_followup_depth") or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _decision_summary(gate: dict[str, Any]) -> str:
@@ -428,6 +443,70 @@ class SupabaseReadOnlyControlPlaneStore:
                 order by d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as decision_summary,
+              (
+                select d.followup_recommended
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as followup_recommended,
+              (
+                select d.followup_type
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as followup_type,
+              (
+                select d.followup_title
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as followup_title,
+              (
+                select d.followup_hypothesis
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as followup_hypothesis,
+              (
+                select d.followup_required_evidence
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as followup_required_evidence,
+              (
+                select d.followup_success_threshold
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as followup_success_threshold,
+              (
+                select d.followup_stop_condition
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as followup_stop_condition,
+              (
+                select d.followup_depth
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as followup_depth,
               p.created_at as project_created_at,
               p.updated_at as project_updated_at
             from queue_items q
@@ -860,7 +939,15 @@ class SupabaseReadOnlyControlPlaneStore:
                               ''::text as related_artifact_slug,
                               ''::text as related_source_record_fingerprint,
                               coalesce(pe.decision_gate_state, '') as decision_gate_state,
-                              coalesce(pe.decision_summary, '') as decision_summary
+                              coalesce(pe.decision_summary, '') as decision_summary,
+                              coalesce(pe.followup_recommended, false) as followup_recommended,
+                              coalesce(pe.followup_type, '') as followup_type,
+                              coalesce(pe.followup_title, '') as followup_title,
+                              coalesce(pe.followup_hypothesis, '') as followup_hypothesis,
+                              coalesce(pe.followup_required_evidence, '[]'::jsonb) as followup_required_evidence,
+                              coalesce(pe.followup_success_threshold, '') as followup_success_threshold,
+                              coalesce(pe.followup_stop_condition, '') as followup_stop_condition,
+                              coalesce(pe.followup_depth, 0) as followup_depth
                             from queue_items q
                             join projects p using(project_id)
                             left join paper_eligibility pe on pe.project_id = q.project_id
@@ -868,7 +955,7 @@ class SupabaseReadOnlyControlPlaneStore:
                                 select 1
                                 from paper_eligibility candidate
                                 where candidate.project_id = q.project_id
-                                  and candidate.raw_write_candidate
+                                  and (candidate.raw_write_candidate or candidate.followup_recommended)
                             )
                                or q.manual_review_required = true
                                or q.status in (%s, %s, %s)
@@ -2223,7 +2310,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         artifact_path = artifact_root_path / ".omx" / "project_decision.json"
         if not artifact_path.exists():
             artifact_path = artifact_root_path / "project_decision.json"
-        payload = {"gate": gate, "project_root": str(artifact_root_path)}
+        decision_payload = project_decision_payload(artifact_root_path)
+        followup = followup_candidate_from_decision_payload(decision_payload)
+        payload = {"gate": gate, "project_root": str(artifact_root_path), "project_decision": decision_payload}
         payload_json = _json(payload)
         run_id_value = _text(run_id) or None
         with self._connect() as conn:
@@ -2235,8 +2324,10 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 cur.execute(
                     """
                     insert into project_decisions(project_id, run_id, decision_type, decision_gate_state,
-                      decision_summary, artifact_path, payload_json, payload_hash, decided_at)
-                    values (%s,%s,'project_outcome',%s,%s,%s,%s::jsonb,%s,%s)
+                      decision_summary, artifact_path, payload_json, payload_hash, decided_at,
+                      followup_recommended, followup_type, followup_title, followup_hypothesis,
+                      followup_required_evidence, followup_success_threshold, followup_stop_condition, followup_depth)
+                    values (%s,%s,'project_outcome',%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s)
                     on conflict (project_id, run_id, decision_type) do update set
                       decision_gate_state=excluded.decision_gate_state,
                       decision_summary=excluded.decision_summary,
@@ -2244,6 +2335,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                       payload_json=excluded.payload_json,
                       payload_hash=excluded.payload_hash,
                       decided_at=excluded.decided_at,
+                      followup_recommended=excluded.followup_recommended,
+                      followup_type=excluded.followup_type,
+                      followup_title=excluded.followup_title,
+                      followup_hypothesis=excluded.followup_hypothesis,
+                      followup_required_evidence=excluded.followup_required_evidence,
+                      followup_success_threshold=excluded.followup_success_threshold,
+                      followup_stop_condition=excluded.followup_stop_condition,
+                      followup_depth=excluded.followup_depth,
                       updated_at=now()
                     """,
                     (
@@ -2255,6 +2354,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         payload_json,
                         _hash(payload),
                         decided_at or utc_now(),
+                        bool(followup.get("followup_recommended")),
+                        _text(followup.get("followup_type")),
+                        _text(followup.get("followup_title")),
+                        _text(followup.get("followup_hypothesis")),
+                        _json(followup.get("followup_required_evidence") or []),
+                        _text(followup.get("followup_success_threshold")),
+                        _text(followup.get("followup_stop_condition")),
+                        _followup_depth_from_payload(decision_payload),
                     ),
                 )
         return {
@@ -2265,7 +2372,98 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "decision_gate_state": _decision_gate_state(gate),
             "decision_summary": _decision_summary(gate),
             "artifact_path": str(artifact_path),
+            **followup,
         }
+
+    def next_followup_candidate(self, *, project_id: str = "", max_followup_depth: int = 2) -> dict[str, Any] | None:
+        clauses = [
+            "q.status = %s",
+            "q.manual_review_required = false",
+            "coalesce(pe.followup_recommended, false) = true",
+            "coalesce(pe.followup_depth, 0) < %s",
+            "not coalesce(pe.has_live_paper_row, false)",
+        ]
+        params: list[Any] = [QueueStatus.COMPLETED.value, max_followup_depth]
+        if project_id:
+            clauses.append("q.project_id = %s")
+            params.append(project_id)
+        rows = self._queue_rows(
+            "left join paper_eligibility pe on pe.project_id = q.project_id "
+            + "where "
+            + " and ".join(clauses)
+            + " order by q.updated_at desc limit 1",
+            params,
+        )
+        return rows[0] if rows else None
+
+    def launch_followup_candidate(self, *, project_id: str = "", dry_run: bool = True, requested_by: str = "operator", max_followup_depth: int = 2) -> dict[str, Any]:
+        candidate = self.next_followup_candidate(project_id=project_id, max_followup_depth=max_followup_depth)
+        if not candidate:
+            return {"ok": True, "action": "noop", "reason": "no follow-up candidate", "candidate": None, "followup": None}
+        title = _text(candidate.get("followup_title")) or f"Follow-up: {_text(candidate.get('project_name')) or _text(candidate.get('project_id'))}"
+        hypothesis = _text(candidate.get("followup_hypothesis")) or _text(candidate.get("operator_explanation"))
+        parent_id = _text(candidate.get("project_id"))
+        followup_id = _stable_followup_id(parent_id, title, hypothesis)
+        depth = _int(candidate.get("followup_depth"), 0) + 1
+        followup_payload = {
+            "idea_id": followup_id,
+            "title": title,
+            "parent_project_id": parent_id,
+            "parent_run_id": _text(candidate.get("current_run_id")),
+            "followup_depth": depth,
+            "followup_type": _text(candidate.get("followup_type")),
+            "followup_hypothesis": hypothesis,
+            "followup_required_evidence": candidate.get("followup_required_evidence") or [],
+            "followup_success_threshold": _text(candidate.get("followup_success_threshold")),
+            "followup_stop_condition": _text(candidate.get("followup_stop_condition")),
+        }
+        if dry_run:
+            return {"ok": True, "action": "dry_run_followup", "reason": "follow-up candidate selected; no row inserted", "candidate": candidate, "followup": followup_payload}
+        now = utc_now()
+        event_id = None
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    insert into ideas(
+                      idea_id, title, idea_status, category, priority, source_kind, description, implementation,
+                      baseline_to_beat, kill_condition, expected_token_budget, confidence, feasibility, leverage,
+                      machine_target, model, sandbox, selection_rank, dispatch_priority, source_payload_json, created_at, updated_at
+                    ) values (%s,%s,'testing','follow-up','High','followup_branch',%s,%s,%s,%s,'medium','medium','medium','high',%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
+                    on conflict (idea_id) do nothing
+                    """,
+                    (
+                        followup_id, title, hypothesis,
+                        "Bounded follow-up investigation generated from prior no-paper evidence; do not write a paper unless this run independently becomes paper-positive.",
+                        _text(candidate.get("project_name")), _text(candidate.get("followup_stop_condition")),
+                        _text(candidate.get("machine_target")), _text(candidate.get("model")), _text(candidate.get("sandbox")),
+                        _int(candidate.get("selection_rank"), 50), _int(candidate.get("dispatch_priority"), 50), _json(followup_payload), now, now,
+                    ),
+                )
+                cur.execute(
+                    """
+                    insert into projects(project_id, project_name, project_dir, notion_page_url, notion_page_id, origin_idea_status, created_at, updated_at)
+                    values (%s,%s,%s,'','','testing',%s,%s)
+                    on conflict (project_id) do nothing
+                    """,
+                    (followup_id, title, followup_id, now, now),
+                )
+                cur.execute(
+                    """
+                    insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+                    values (%s,'queued',%s,%s,true,0,0,0,2,'','','','','controller_review',false,'','','',%s,%s,%s,null,null,null,%s)
+                    on conflict (project_id) do nothing
+                    """,
+                    (followup_id, _int(candidate.get("selection_rank"), 50), _int(candidate.get("dispatch_priority"), 50), _text(candidate.get("machine_target")), _text(candidate.get("model")), _text(candidate.get("sandbox")), now),
+                )
+        event_id, _inserted = self.append_event(
+            idempotency_key=f"followup.launch:{parent_id}:{followup_id}",
+            event_type="followup.launch",
+            entity_type="project",
+            entity_id=parent_id,
+            payload={"requested_by": requested_by, "candidate": {"project_id": parent_id}, "followup": followup_payload},
+        )
+        return {"ok": True, "action": "followup_queued", "reason": "bounded follow-up queued", "candidate": candidate, "followup": followup_payload, "event_id": event_id}
 
     def mark_queue_item_paused(self, *, project_id: str, reason: str, updated_by: str = "operator") -> bool:
         now = utc_now()

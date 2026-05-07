@@ -406,6 +406,22 @@ class DispatchNextRequest(BaseModel):
     force_preflight: bool = True
 
 
+class FollowupLaunchRequest(BaseModel):
+    dry_run: bool = True
+    requested_by: str = "operator"
+    project_id: str = ""
+    max_followup_depth: int = Field(default=2, ge=0, le=5)
+
+
+class FollowupLaunchResponse(BaseModel):
+    ok: bool
+    action: Literal["noop", "dry_run_followup", "followup_queued"]
+    reason: str
+    candidate: dict[str, Any] | None = None
+    followup: dict[str, Any] | None = None
+    event_id: int | None = None
+
+
 class LiveDispatchResult(BaseModel):
     run_id: str
     project_id: str

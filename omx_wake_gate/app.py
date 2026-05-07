@@ -1035,6 +1035,17 @@ def _coerce_project_decision(raw: dict[str, Any], source: str, source_path: Path
     if evidence_strength not in {"weak", "moderate", "strong"}:
         evidence_strength = "moderate"
 
+    raw_followup_type = str(raw.get("followup_type") or "").strip().lower().replace("-", "_")
+    if raw_followup_type not in {"", "deepen", "branch", "retry"}:
+        raw_followup_type = ""
+    raw_required = raw.get("followup_required_evidence")
+    if isinstance(raw_required, list):
+        followup_required_evidence = [str(item).strip() for item in raw_required if str(item).strip()]
+    elif isinstance(raw_required, str):
+        followup_required_evidence = [item.strip() for item in raw_required.replace(";", "\n").splitlines() if item.strip()]
+    else:
+        followup_required_evidence = []
+
     return ProjectDecision(
         project_decision=action,
         hypothesis_status=hypothesis_status,
@@ -1046,6 +1057,13 @@ def _coerce_project_decision(raw: dict[str, Any], source: str, source_path: Path
         stop_reason=str(raw.get("stop_reason") or "").strip(),
         branch_project_name=str(raw.get("branch_project_name") or "").strip() or None,
         branch_reason=str(raw.get("branch_reason") or "").strip() or None,
+        followup_recommended=bool(raw.get("followup_recommended", False)),
+        followup_type=raw_followup_type,
+        followup_title=str(raw.get("followup_title") or "").strip(),
+        followup_hypothesis=str(raw.get("followup_hypothesis") or "").strip(),
+        followup_required_evidence=followup_required_evidence,
+        followup_success_threshold=str(raw.get("followup_success_threshold") or "").strip(),
+        followup_stop_condition=str(raw.get("followup_stop_condition") or "").strip(),
         decision_source=source,
         source_path=source_path.as_posix() if source_path else None,
         updated_at=str(raw.get("updated_at") or raw.get("generated_at") or raw.get("prepared_at") or utc_now()),

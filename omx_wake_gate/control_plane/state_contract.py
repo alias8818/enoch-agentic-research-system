@@ -16,6 +16,7 @@ class OperatorLane(str, Enum):
     READY_QUEUE = "ready_queue"
     NEEDS_OPERATOR = "needs_operator"
     COMPLETE_NO_PAPER = "complete_no_paper"
+    FOLLOWUP_INVESTIGATION = "followup_investigation"
     WRITE_PAPER = "write_paper"
     AUTOMATE_PUBLICATION = "automate_publication"
     READY_TO_PUBLISH = "ready_to_publish"
@@ -29,6 +30,7 @@ OPERATOR_LANE_DESCRIPTIONS: Final[dict[str, str]] = {
     OperatorLane.READY_QUEUE.value: "Work is eligible to dispatch when pause policy allows it.",
     OperatorLane.NEEDS_OPERATOR.value: "A blocker, dispatch/gate failure, or worker question needs explicit operator action.",
     OperatorLane.COMPLETE_NO_PAPER.value: "Worker delivery is complete, but the paper decision gate is not actionable-positive.",
+    OperatorLane.FOLLOWUP_INVESTIGATION.value: "Worker delivery is complete and evidence supports an adjacent bounded investigation, not a paper yet.",
     OperatorLane.WRITE_PAPER.value: "A positive completed run has no paper yet and can be drafted by explicit bounded automation.",
     OperatorLane.AUTOMATE_PUBLICATION.value: "A paper artifact exists and should flow through automated rewrite/finalization/package steps.",
     OperatorLane.READY_TO_PUBLISH.value: "A publication draft has a finalized automation package and no corpus-import ledger row.",

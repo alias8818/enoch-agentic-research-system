@@ -53,6 +53,7 @@ class OperatorStatusTests(unittest.TestCase):
             ({"status": "awaiting_wake"}, "running", "running", False),
             ({"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project"}, "complete_no_paper", "run_complete_no_paper", False),
             ({"status": "completed", "last_run_state": "session_finished_ready", "next_action_hint": "select_next_project"}, "complete_no_paper", "run_complete_no_paper", False),
+            ({"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project", "decision_summary": "finalize_negative", "followup_recommended": True, "followup_title": "Adjacent test"}, "followup_investigation", "followup_candidate", False),
             ({"paper_id": "paper-1", "paper_status": "draft_review"}, "automate_publication", "draft_created", False),
             ({"paper_id": "paper-2", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json"}, "ready_to_publish", "ready_to_publish", False),
             ({"paper_id": "paper-imported", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json", "corpus_imported": True}, "published", "published", False),
@@ -79,6 +80,7 @@ class OperatorStatusTests(unittest.TestCase):
             "ready_queue": "Ready",
             "needs_operator": "Needs Attention",
             "complete_no_paper": "Done / No Paper",
+            "followup_investigation": "Investigate Next",
             "write_paper": "Write Paper",
             "automate_publication": "Finalize Draft",
             "ready_to_publish": "Publish / Import",
@@ -92,6 +94,7 @@ class OperatorStatusTests(unittest.TestCase):
             {"status": "queued"},
             {"status": "blocked"},
             {"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project"},
+            {"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project", "followup_recommended": True, "followup_title": "Adjacent test"},
             {"paper_id": "paper-1", "paper_status": "publication_draft"},
             {"paper_id": "paper-2", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json"},
             {"paper_id": "paper-imported", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json", "corpus_imported": True},
@@ -643,6 +646,7 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertIn("What needs me?", html)
             self.assertIn("What is running?", html)
             self.assertIn("What can be written?", html)
+            self.assertIn("Needs another investigation?", html)
             self.assertIn("What can be published?", html)
             self.assertIn("What is done / no paper?", html)
             self.assertIn("Raw states stay in drill-down/debug views", html)
@@ -651,8 +655,10 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertIn("1. Write papers", html)
             self.assertIn("2. Finalize drafts", html)
             self.assertIn("3. Publish/import", html)
-            self.assertIn("operatorQuestionCards(counts={},operators={},pipeline={})", html)
-            self.assertIn("workState(counts,operators={},pipeline={})", html)
+            self.assertIn("Investigation follow-ups", html)
+            self.assertIn("Launch follow-up", html)
+            self.assertIn("operatorQuestionCards(counts={},operators={},pipeline={},investigation={})", html)
+            self.assertIn("workState(counts,operators={},pipeline={},investigation={})", html)
             self.assertIn("project_decision_summary", html)
             self.assertIn("['operator_stage_label','project_id','run_id','related_paper_id','operator_next_step','updated_at']", html)
             self.assertIn("operators.ready_queue", html)

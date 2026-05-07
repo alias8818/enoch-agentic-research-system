@@ -10,7 +10,9 @@ from omx_wake_gate.enoch_core.logic import (
     draft_candidate_payload,
     eligible_paper_draft_candidates,
     eligible_paper_polish_candidates,
+    followup_candidate_from_decision_payload,
     paper_draft_decision_gate,
+    project_decision_payload,
     queue_projection,
     validate_branch_queued,
 )
@@ -81,6 +83,30 @@ class EnochCoreLogicTests(unittest.TestCase):
                 (root / ".omx" / "project_decision.json").write_text(json.dumps({"decision": decision}) + "\n", encoding="utf-8")
                 gate = paper_draft_decision_gate(root)
                 self.assertFalse(gate["eligible"], decision)
+
+    def test_project_decision_payload_and_followup_metadata_are_separate_from_paper_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".omx").mkdir()
+            payload = {
+                "project_decision": "finalize_negative",
+                "hypothesis_status": "mixed",
+                "followup_recommended": True,
+                "followup_type": "branch",
+                "followup_title": "Test the adjacent runtime path",
+                "followup_hypothesis": "A narrower runtime path may pass where the broad path failed.",
+                "followup_required_evidence": ["runtime trace", "baseline comparison"],
+                "followup_success_threshold": "beats baseline on two seeds",
+                "followup_stop_condition": "stop if runtime trace reproduces the same failure",
+            }
+            (root / ".omx" / "project_decision.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+            self.assertEqual(project_decision_payload(root)["project_decision"], "finalize_negative")
+            followup = followup_candidate_from_decision_payload(project_decision_payload(root))
+            self.assertTrue(followup["followup_recommended"])
+            self.assertEqual(followup["followup_type"], "branch")
+            self.assertEqual(followup["followup_required_evidence"], ["runtime trace", "baseline comparison"])
+            self.assertFalse(paper_draft_decision_gate(root)["eligible"])
 
     def test_wake_ready_negative_decision_artifacts_fail_paper_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

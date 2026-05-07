@@ -1793,8 +1793,12 @@ if __name__ == "__main__":
 def test_project_prompt_includes_canonical_decision_contract() -> None:
     prompt = _project_prompt({"project_id": "p1", "project_name": "Example"})
     assert '"project_decision": "finalize_positive | finalize_negative | needs_review | blocked | continue | branch_new_project"' in prompt
+    assert '"followup_recommended": false' in prompt
+    assert '"followup_type": ""' in prompt
     assert "Do not invent" in prompt
     assert "partial_viable" in prompt
     assert "promising_synthetic_positive" in prompt
     assert "negative_result" in prompt
     assert "Use `finalize_positive` only when the evidence supports writing a paper now." in prompt
+    assert "Follow-up fields are optional adjacent-investigation metadata; they never make this run paper-positive." in prompt
+    assert "controller will cap follow-ups at depth 2" in prompt

@@ -1721,6 +1721,53 @@ class ControlPlaneStore:
         candidates.sort(key=lambda row: (_int(row.get("dispatch_priority"), 9999), _int(row.get("selection_rank"), 9999), _text(row.get("updated_at"))))
         return candidates[0] if candidates else None
 
+    def next_followup_candidate(self, *, project_id: str = "", max_followup_depth: int = 2) -> dict[str, Any] | None:
+        rows = self.operator_queue_rows_sql()
+        candidates = [
+            row for row in rows
+            if _bool(row.get("followup_recommended"))
+            and _text(row.get("status")) == QueueStatus.COMPLETED.value
+            and not _bool(row.get("manual_review_required"))
+            and _int(row.get("followup_depth"), 0) < max_followup_depth
+            and (not project_id or _text(row.get("project_id")) == project_id)
+        ]
+        candidates.sort(key=lambda row: _text(row.get("updated_at")), reverse=True)
+        return candidates[0] if candidates else None
+
+    def launch_followup_candidate(self, *, project_id: str = "", dry_run: bool = True, requested_by: str = "operator", max_followup_depth: int = 2) -> dict[str, Any]:
+        candidate = self.next_followup_candidate(project_id=project_id, max_followup_depth=max_followup_depth)
+        if not candidate:
+            return {"ok": True, "action": "noop", "reason": "no follow-up candidate", "candidate": None, "followup": None}
+        title = _text(candidate.get("followup_title")) or f"Follow-up: {_text(candidate.get('project_name')) or _text(candidate.get('project_id'))}"
+        seed = f"{_text(candidate.get('project_id'))}:{title}:{_text(candidate.get('followup_hypothesis'))}"
+        followup_id = f"{_slug_id(title)[:58]}-{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:10]}"[:80]
+        followup = {
+            "idea_id": followup_id,
+            "title": title,
+            "parent_project_id": _text(candidate.get("project_id")),
+            "parent_run_id": _text(candidate.get("current_run_id")),
+            "followup_depth": _int(candidate.get("followup_depth"), 0) + 1,
+            "followup_type": _text(candidate.get("followup_type")),
+            "followup_hypothesis": _text(candidate.get("followup_hypothesis")),
+            "followup_required_evidence": candidate.get("followup_required_evidence") or [],
+            "followup_success_threshold": _text(candidate.get("followup_success_threshold")),
+            "followup_stop_condition": _text(candidate.get("followup_stop_condition")),
+        }
+        if dry_run:
+            return {"ok": True, "action": "dry_run_followup", "reason": "follow-up candidate selected; no row inserted", "candidate": candidate, "followup": followup}
+        now = utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                (followup_id, title, followup_id, "", "", "testing", now, now),
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (followup_id, QueueStatus.QUEUED.value, _int(candidate.get("selection_rank"), 50), _int(candidate.get("dispatch_priority"), 50), 1, 0, 0, 0, 2, "", "", "", "", "controller_review", 0, "", "", "", _text(candidate.get("machine_target")), _text(candidate.get("model")), _text(candidate.get("sandbox")), None, None, None, now),
+            )
+        event_id, _ = self.append_event(idempotency_key=f"followup.launch:{followup['parent_project_id']}:{followup_id}", event_type="followup.launch", entity_type="project", entity_id=followup["parent_project_id"], payload={"requested_by": requested_by, "followup": followup})
+        return {"ok": True, "action": "followup_queued", "reason": "bounded follow-up queued", "candidate": candidate, "followup": followup, "event_id": event_id}
+
     def dispatch_next_dry_run(self, *, requested_by: str) -> tuple[str, dict[str, Any] | None, int | None, str]:
         flags = self.flags()
         if flags.queue_paused:

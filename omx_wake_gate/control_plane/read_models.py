@@ -31,6 +31,7 @@ OPERATOR_LANE_LABELS: dict[str, str] = {
     OperatorLane.READY_QUEUE.value: "Ready",
     OperatorLane.NEEDS_OPERATOR.value: "Needs Attention",
     OperatorLane.COMPLETE_NO_PAPER.value: "Done / No Paper",
+    OperatorLane.FOLLOWUP_INVESTIGATION.value: "Investigate Next",
     OperatorLane.WRITE_PAPER.value: "Write Paper",
     OperatorLane.AUTOMATE_PUBLICATION.value: "Finalize Draft",
     OperatorLane.READY_TO_PUBLISH.value: "Publish / Import",
@@ -47,6 +48,7 @@ OPERATOR_DETAIL_LABELS: dict[str, str] = {
     "ready_to_publish": "Publish / Import",
     "finalization_needed": "Finalize Draft",
     "draft_created": "Draft Exists",
+    "followup_candidate": "Investigate Next",
     "running": "Running",
     "idea_queued": "Ready",
     "run_complete_draft_needed": "Write Paper",
@@ -162,6 +164,43 @@ def _decision_summary_from_gate(gate: dict[str, Any] | None) -> str:
     if decision and reason:
         return f"{decision} ({reason})"
     return decision or reason
+
+
+def _truthy(value: Any) -> bool:
+    if value is True or value == 1:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    return False
+
+
+def _listish(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [_text(item) for item in value if _text(item)]
+    if isinstance(value, str):
+        return [item.strip() for item in value.replace(";", "\n").splitlines() if item.strip()]
+    return []
+
+
+def _followup_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    try:
+        depth = int(row.get("followup_depth") or 0)
+    except (TypeError, ValueError):
+        depth = 0
+    return {
+        "followup_recommended": _truthy(row.get("followup_recommended")),
+        "followup_type": _text(row.get("followup_type")),
+        "followup_title": _text(row.get("followup_title")),
+        "followup_hypothesis": _text(row.get("followup_hypothesis")),
+        "followup_required_evidence": _listish(row.get("followup_required_evidence")),
+        "followup_success_threshold": _text(row.get("followup_success_threshold")),
+        "followup_stop_condition": _text(row.get("followup_stop_condition")),
+        "followup_depth": depth,
+    }
+
+
+def _is_followup_candidate(row: dict[str, Any]) -> bool:
+    return _truthy(row.get("followup_recommended")) and _text(row.get("status") or row.get("queue_status")) == "completed" and not _truthy(row.get("manual_review_required"))
 
 
 def _paper_draft_gate_from_row_decision(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -298,6 +337,20 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
         gate = _paper_draft_gate_from_row_decision(row) or _paper_draft_gate_for_row(row)
         decision_summary = _decision_summary_from_gate(gate)
         if gate is None or not bool(gate.get("eligible")):
+            if _is_followup_candidate(row):
+                followup = _followup_from_row(row)
+                return _stage(
+                    "followup_candidate",
+                    lane=OperatorLane.FOLLOWUP_INVESTIGATION,
+                    tone="info",
+                    attention=False,
+                    next_step="Launch a bounded follow-up investigation if this adjacent test is still worth spending worker time on.",
+                    explanation=f"Worker delivery is complete and not paper-positive ({decision_summary or 'not eligible'}), but the decision artifact recommends a specific next investigation.",
+                    paper_draft_eligible=False if gate is not None else None,
+                    project_decision_summary=decision_summary,
+                    project_decision_gate=gate,
+                    **followup,
+                )
             return _stage(
                 "run_complete_no_paper",
                 lane=OperatorLane.COMPLETE_NO_PAPER,
@@ -321,6 +374,17 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
             project_decision_gate=gate,
         )
     if queue_status == "completed" or last_run_state in WAKE_GATE_COMPLETION_STATES:
+        if not has_paper and _is_followup_candidate(row):
+            followup = _followup_from_row(row)
+            return _stage(
+                "followup_candidate",
+                lane=OperatorLane.FOLLOWUP_INVESTIGATION,
+                tone="info",
+                attention=False,
+                next_step="Launch a bounded follow-up investigation if this adjacent test is still worth spending worker time on.",
+                explanation="The prior run is complete and no-paper, but its decision artifact recommends a specific next investigation.",
+                **followup,
+            )
         return _stage(
             "run_complete_no_paper",
             lane=OperatorLane.COMPLETE_NO_PAPER,
@@ -401,6 +465,16 @@ def summarize_queue_row(row: dict[str, Any]) -> dict[str, Any]:
         "next_action_hint": row.get("next_action_hint", ""),
         "manual_review_required": bool(row.get("manual_review_required")),
         "blocked_reason": row.get("blocked_reason", ""),
+        "decision_gate_state": row.get("decision_gate_state", ""),
+        "decision_summary": row.get("decision_summary", ""),
+        "followup_recommended": row.get("followup_recommended", False),
+        "followup_type": row.get("followup_type", ""),
+        "followup_title": row.get("followup_title", ""),
+        "followup_hypothesis": row.get("followup_hypothesis", ""),
+        "followup_required_evidence": row.get("followup_required_evidence", []),
+        "followup_success_threshold": row.get("followup_success_threshold", ""),
+        "followup_stop_condition": row.get("followup_stop_condition", ""),
+        "followup_depth": row.get("followup_depth", 0),
         "project_dir": row.get("project_dir", ""),
         "related_paper_id": row.get("related_paper_id", ""),
         "related_paper_status": row.get("related_paper_status", ""),
@@ -480,6 +554,7 @@ OPERATOR_STAGE_PRECEDENCE = {
     "finalization_needed": 75,
     "draft_created": 70,
     "run_complete_draft_needed": 60,
+    "followup_candidate": 55,
     "running": 50,
     "idea_queued": 40,
     "run_complete_no_paper": 30,
@@ -492,6 +567,7 @@ OPERATOR_LANE_PRECEDENCE = {
     OperatorLane.AUTOMATE_PUBLICATION.value: 80,
     OperatorLane.WRITE_PAPER.value: 70,
     OperatorLane.RUNNING.value: 60,
+    OperatorLane.FOLLOWUP_INVESTIGATION.value: 55,
     OperatorLane.READY_QUEUE.value: 50,
     OperatorLane.COMPLETE_NO_PAPER.value: 40,
     OperatorLane.PAUSED.value: 30,
@@ -637,7 +713,17 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         operator_detail_counts["run_complete_draft_needed"] = len(write_candidates)
     else:
         operator_detail_counts.pop("run_complete_draft_needed", None)
+    followup_rows = [row for row in queue_rows if _text(row.get("operator_detail_stage")) == "followup_candidate"]
     publication_ready_total = operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0) + operator_counts.get(OperatorLane.PUBLISHED.value, 0)
+    investigation_pipeline = {
+        "followup_needed": len(followup_rows),
+        "max_followup_depth": 2,
+        "next_followup_candidate": followup_rows[0] if followup_rows else None,
+        "definitions": {
+            "followup_needed": "completed no-paper rows whose decision artifact recommends a bounded adjacent investigation",
+            "max_followup_depth": "default safety cap for automatic follow-up branch creation",
+        },
+    }
     paper_pipeline = {
         "write_needed": len(write_candidates),
         "raw_completed_no_paper_candidates": len(raw_write_candidates),
@@ -673,6 +759,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         "operator_counts": operator_counts,
         "operator_detail_counts": operator_detail_counts,
         "paper_pipeline": paper_pipeline,
+        "investigation_pipeline": investigation_pipeline,
         "operator_model": {
             "source": "control_plane.read_models.operator_stage_for_record",
             "raw_state_note": "wake_ready/session_finished_ready are worker-delivery callbacks; paper polarity comes from decision artifacts and publication automation/finalization state.",

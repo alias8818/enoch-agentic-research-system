@@ -36,6 +36,10 @@ REQUIRED_PAPER_PIPELINE_KEYS = {
     "finalize_needed",
     "publish_ready",
 }
+REQUIRED_INVESTIGATION_PIPELINE_KEYS = {
+    "followup_needed",
+    "max_followup_depth",
+}
 HARD_DRIFT_DISPOSITIONS = {"alias", "migrate_after_freeze"}
 WARNING_DRIFT_DISPOSITIONS = {"legacy_internal"}
 ACTIVE_QUEUE_STATUSES = ("dispatching", "running", "awaiting_wake", "wake_received", "reconciling")
@@ -189,12 +193,14 @@ def _dashboard_audit(overview: dict[str, Any]) -> dict[str, Any]:
     raw_detail_keys = sorted(set(operator_counts) - allowed_operator_count_keys)
     pipeline = dict(overview.get("paper_pipeline") or {})
     missing_pipeline_keys = sorted(REQUIRED_PAPER_PIPELINE_KEYS - set(pipeline))
+    investigation_pipeline = dict(overview.get("investigation_pipeline") or {})
+    missing_investigation_keys = sorted(REQUIRED_INVESTIGATION_PIPELINE_KEYS - set(investigation_pipeline))
     write_needed = int(pipeline.get("write_needed") or 0)
     raw_candidates = int(pipeline.get("raw_completed_no_paper_candidates") or 0)
     gate_rejected = int(pipeline.get("not_writable_by_decision_gate") or 0)
     pipeline_inconsistent = raw_candidates < write_needed or raw_candidates - write_needed != gate_rejected
     return {
-        "ok": not raw_detail_keys and not missing_pipeline_keys and not pipeline_inconsistent,
+        "ok": not raw_detail_keys and not missing_pipeline_keys and not missing_investigation_keys and not pipeline_inconsistent,
         "operator_count_keys": sorted(operator_counts),
         "raw_detail_keys_in_operator_counts": raw_detail_keys,
         "operator_detail_count_keys": sorted(detail_counts),
@@ -202,6 +208,9 @@ def _dashboard_audit(overview: dict[str, Any]) -> dict[str, Any]:
         "paper_pipeline_definitions": pipeline.get("definitions") or {},
         "missing_paper_pipeline_keys": missing_pipeline_keys,
         "paper_pipeline_inconsistent": pipeline_inconsistent,
+        "investigation_pipeline": {key: investigation_pipeline.get(key) for key in sorted(REQUIRED_INVESTIGATION_PIPELINE_KEYS)},
+        "investigation_pipeline_definitions": investigation_pipeline.get("definitions") or {},
+        "missing_investigation_pipeline_keys": missing_investigation_keys,
         "paper_counts": overview.get("paper_counts") or {},
         "counts": overview.get("counts") or {},
     }
@@ -308,6 +317,8 @@ def evaluate_report(report: dict[str, Any], *, require_corpus_synced: bool = Fal
             failures.append(f"raw/detail stage leaked into operator_counts: {key}")
         if overview.get("missing_paper_pipeline_keys"):
             failures.append(f"paper_pipeline missing keys: {overview['missing_paper_pipeline_keys']}")
+        if overview.get("missing_investigation_pipeline_keys"):
+            failures.append(f"investigation_pipeline missing keys: {overview['missing_investigation_pipeline_keys']}")
         if overview.get("paper_pipeline_inconsistent"):
             failures.append("paper_pipeline counts are inconsistent: raw candidates must equal write_needed + gate rejected")
         if not control.get("health_ok"):
@@ -398,6 +409,12 @@ def _print_human(report: dict[str, Any]) -> None:
             "  paper pipeline: write_needed={write_needed} raw_completed_no_paper_candidates={raw_completed_no_paper_candidates} "
             "not_writable_by_decision_gate={not_writable_by_decision_gate} finalize_needed={finalize_needed} publish_ready={publish_ready}".format(
                 **{key: pipeline.get(key, '?') for key in REQUIRED_PAPER_PIPELINE_KEYS}
+            )
+        )
+        investigation = overview.get("investigation_pipeline") or {}
+        print(
+            "  investigation pipeline: followup_needed={followup_needed} max_followup_depth={max_followup_depth}".format(
+                **{key: investigation.get(key, "?") for key in REQUIRED_INVESTIGATION_PIPELINE_KEYS}
             )
         )
         print(f"  operator_count keys: {', '.join(overview.get('operator_count_keys') or [])}")
