@@ -659,6 +659,8 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertIn("Launch follow-up", html)
             self.assertIn("operatorQuestionCards(counts={},operators={},pipeline={},investigation={})", html)
             self.assertIn("workState(counts,operators={},pipeline={},investigation={})", html)
+            self.assertIn("const previousCommandPanel=hasOverview?$('commandPanel')?.outerHTML||'':''", html)
+            self.assertIn("${previousCommandPanel||operatorCommandPanel(counts)}", html)
             self.assertIn("project_decision_summary", html)
             self.assertIn("['operator_stage_label','project_id','run_id','related_paper_id','operator_next_step','updated_at']", html)
             self.assertIn("operators.ready_queue", html)
