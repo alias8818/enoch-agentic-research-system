@@ -163,6 +163,19 @@ def test_project_decision_gate_state_classifies_mixed_as_unknown_not_writable() 
     assert _decision_summary(gate) == "continue (project decision lacks positive draft signal)"
 
 
+def test_project_decision_gate_state_classifies_finalize_negative_with_mixed_as_negative() -> None:
+    gate = {
+        "eligible": False,
+        "reason": "project decision is not positive",
+        "decision": "finalize_negative",
+        "values": [
+            (".omx/project_decision.json", "project_decision", "finalize_negative"),
+            (".omx/project_decision.json", "hypothesis_status", "mixed"),
+        ],
+    }
+
+    assert _decision_gate_state(gate) == "negative"
+
 def test_project_decision_summary_prefers_status_over_long_recommendation() -> None:
     gate = {
         "eligible": False,

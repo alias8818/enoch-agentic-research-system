@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 import tempfile
 from pathlib import Path
@@ -64,13 +65,22 @@ class EnochCoreLogicTests(unittest.TestCase):
         self.assertEqual(payload["run_id"], "run-legacy")
         self.assertEqual(payload["draft_payload"]["run_id"], "run-legacy")
 
-    def test_wake_ready_positive_decision_artifacts_pass_paper_gate(self) -> None:
+    def test_wake_ready_canonical_positive_decision_artifacts_pass_paper_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".omx").mkdir()
-            (root / ".omx" / "project_decision.json").write_text('{"decision":"promising_continue"}\n', encoding="utf-8")
+            (root / ".omx" / "project_decision.json").write_text('{"decision":"finalize_positive"}\n', encoding="utf-8")
             gate = paper_draft_decision_gate(root)
             self.assertTrue(gate["eligible"])
+
+    def test_paper_draft_gate_rejects_positive_near_synonyms(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".omx").mkdir()
+            for decision in ("promising_continue", "partial_viable", "promising_synthetic_positive", "proceed"):
+                (root / ".omx" / "project_decision.json").write_text(json.dumps({"decision": decision}) + "\n", encoding="utf-8")
+                gate = paper_draft_decision_gate(root)
+                self.assertFalse(gate["eligible"], decision)
 
     def test_wake_ready_negative_decision_artifacts_fail_paper_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

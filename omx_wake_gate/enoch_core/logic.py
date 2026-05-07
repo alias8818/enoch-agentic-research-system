@@ -16,12 +16,12 @@ EXCLUDED_DRAFT_NAME_FRAGMENT = (
     "human rater",
     "reviewer noise",
 )
+# Keep this intentionally narrow. Near-synonyms such as
+# ``partial_viable`` or ``promising_synthetic_positive`` are useful research
+# notes, but they are not canonical paper-positive decisions. They must not
+# create operator-visible ``write_needed`` work.
 PAPER_DRAFT_POSITIVE_DECISION_TOKENS = (
     "finalize_positive",
-    "positive",
-    "promising",
-    "viable",
-    "proceed",
 )
 PAPER_DRAFT_SUPPORTED_TOKENS = ("supported",)
 PAPER_DRAFT_BLOCKED_DECISION_TOKENS = (
