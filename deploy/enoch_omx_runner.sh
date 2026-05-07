@@ -68,6 +68,12 @@ cd "$PROJECT_DIR"
 # instead of the stale /usr/bin/codex fallback.
 export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/bin:$PATH"
 
+# Project workers run under quota-constrained unattended dispatch. Avoid the
+# Spark-backed `omx explore` helper unless an operator explicitly opts it in;
+# regular Codex/tool inspection still works and prevents failed exploratory
+# subcalls from burning worker time when the Spark lane is exhausted.
+export USE_OMX_EXPLORE_CMD="${USE_OMX_EXPLORE_CMD:-0}"
+
 common_args=(
   "--notify-temp"
   "--custom" "$OMX_NOTIFY_GATEWAY_NAME"

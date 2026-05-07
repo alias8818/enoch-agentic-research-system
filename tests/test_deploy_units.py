@@ -140,3 +140,9 @@ def test_install_script_keeps_draft_units_opt_in() -> None:
     assert "ENOCH_INSTALL_PAPER_DRAFT_NEXT_UNITS:-0" in install
     assert "enoch-paper-draft-next.service" in install
     assert "enoch-paper-draft-next.timer" in install
+
+
+def test_worker_runner_disables_spark_backed_explore_by_default() -> None:
+    script = (ROOT / "deploy" / "enoch_omx_runner.sh").read_text(encoding="utf-8")
+    assert 'export USE_OMX_EXPLORE_CMD="${USE_OMX_EXPLORE_CMD:-0}"' in script
+    assert script.index('export USE_OMX_EXPLORE_CMD=') < script.index('exec "$OMX_BIN" exec')
