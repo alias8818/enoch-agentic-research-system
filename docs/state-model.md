@@ -1,6 +1,6 @@
 # Enoch state model contract
 
-Status: active migration contract as of 2026-05-06.
+Status: active migration contract as of 2026-05-07.
 
 Supabase owns the runtime ledger. The control plane keeps detailed raw states for callbacks, backfills, provenance, and audit, but users and agents should reason from a small deterministic operator model. See [`docs/state-transition-map.md`](state-transition-map.md) for the lifecycle transition map and [`docs/state-vocabulary-reduction-plan.md`](state-vocabulary-reduction-plan.md) for the small target vocabulary plus raw-state cleanup mapping.
 
@@ -105,6 +105,9 @@ Common examples:
 - The worker delivery must be complete.
 - There must be no live paper row for that project/run.
 - The current project decision gate must be `positive`.
+- A new project-local decision artifact becomes `positive` only from exact canonical `finalize_positive`, except the explicit compatibility path where `continue` is paired with exact supported evidence in a supporting field.
+
+Near-synonyms such as `partial_viable`, `promising_synthetic_positive`, `promising_continue`, `viable`, or `proceed` are research notes, not operator state. They must map to `complete_no_paper` unless a later canonical decision artifact is produced.
 
 `negative`, `missing`, `malformed`, `unknown`, and ambiguous legacy decision values map to `complete_no_paper`. Raw completed/no-paper rows that fail the gate are informational, not a backlog of papers to write.
 

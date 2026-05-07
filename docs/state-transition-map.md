@@ -1,6 +1,6 @@
 # Enoch state transition map
 
-Status: active operator contract as of 2026-05-06.
+Status: active operator contract as of 2026-05-07.
 
 This is the grade-school lifecycle map for ideas, projects, runs, papers, publication, and corpus import. It is intentionally smaller than the raw database vocabulary. Raw states remain compatibility/detail evidence; operator lanes answer what a human or agent should do next.
 
@@ -22,13 +22,14 @@ Idea -> Queue -> Run -> Decision -> Paper -> Publication -> Corpus
 
 ## Hard invariants
 
-1. `write_paper` requires a positive project decision gate and no existing live paper row.
-2. `complete_no_paper` is the correct operator lane for negative, missing, malformed, unknown, or ambiguous decisions.
-3. `wake_ready` and `session_finished_ready` mean worker delivery, not outcome polarity.
-4. `publication_draft` alone is not public; corpus import is separate from finalization.
-5. `paper_pipeline.raw_completed_no_paper_candidates` is informational only; it must equal `write_needed + not_writable_by_decision_gate`.
-6. Dashboard `operator_counts` may contain canonical operator lanes and aggregate keys only; detail stages belong in `operator_detail_counts` or debug drill-downs.
-7. Public counts come from `papers/index.json` through `generate_ecosystem_manifest.py` and `validate_public_release.py`, then the Hugging Face export must match the same count.
+1. `write_paper` requires a positive project decision gate and no existing live paper row. New local decisions reach that gate through exact `finalize_positive` only, except the explicit `continue` + supported-evidence compatibility path.
+2. Positive-ish near-synonyms such as `partial_viable`, `promising_synthetic_positive`, `promising_continue`, `viable`, or `proceed` are not writable decisions.
+3. `complete_no_paper` is the correct operator lane for negative, missing, malformed, unknown, or ambiguous decisions.
+4. `wake_ready` and `session_finished_ready` mean worker delivery, not outcome polarity.
+5. `publication_draft` alone is not public; corpus import is separate from finalization.
+6. `paper_pipeline.raw_completed_no_paper_candidates` is informational only; it must equal `write_needed + not_writable_by_decision_gate`.
+7. Dashboard `operator_counts` may contain canonical operator lanes and aggregate keys only; detail stages belong in `operator_detail_counts` or debug drill-downs.
+8. Public counts come from `papers/index.json` through `generate_ecosystem_manifest.py` and `validate_public_release.py`, then the Hugging Face export must match the same count.
 
 ## Operator question mapping
 
