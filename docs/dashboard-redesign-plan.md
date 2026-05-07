@@ -18,10 +18,12 @@ Primary navigation:
 
 1. **Overview** — operator cards, paper pipeline, active lane, health, recent events.
 2. **Projects** — searchable project index and project detail drill-down.
-3. **Active / Queued / Blocked** — queue-focused slices.
+3. **Corpus Import** — ledger-backed publish/import readiness and imported-publication counts.
+4. **Active / Queued / Blocked** — queue-focused slices.
 4. **Runs** — run list and run detail.
 5. **Papers** — paper list and paper detail.
-6. **Events** — bounded event log with payload summaries by default.
+6. **Corpus Import** — finalized draft import gap and corpus ledger reconciliation.
+7. **Events** — bounded event log with payload summaries by default.
 7. **Publication automation** — explicit rewrite/finalization lane; no human-approval framing.
 8. **Ideas** — Supabase-native intake/workbench status; Notion is provenance only.
 9. **Observability** — route/memory/worker freshness and debug health.
@@ -82,6 +84,7 @@ The first shipped slice is the redesigned shell and overview experience:
 
 - Extract the inline dashboard into static assets or a small frontend package if the UI keeps growing.
 - Add dedicated project/run/paper detail layouts instead of generic detail sections.
+- Expand the corpus import view with direct links to public corpus artifacts and release-validator evidence.
 - Add keyboard shortcut help and saved filters.
 - Add screenshot-based visual regression for the dashboard shell.
 
