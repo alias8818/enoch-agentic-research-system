@@ -45,7 +45,7 @@ Representative warmed timings from the control VM after deployment:
 
 `/control/api/v1/overview` now uses the same batched Supabase connection, derives active/queued/blocked counts from one status query, and narrows the overview ledger inputs to rows that can affect operator-visible decisions: paper eligibility candidates, explicit needs-attention queue rows, finalized/imported publication rows, and draft/archive paper rows. The Python read model still owns the final gate-aware semantics so raw completed/no-paper rows cannot become actionable paper work.
 
-Browser-side routing now renders the primary overview before secondary health checks, aborts stale in-flight requests when the operator changes tabs, and keeps late overview responses from overwriting the newly selected page. The Supabase ideas page also uses a batched read path and omits the large latest-intake payload by default instead of fetching it and hiding it later.
+Browser-side routing now renders the primary overview before secondary health checks, aborts stale in-flight requests when the operator changes tabs, and keeps late overview responses from overwriting the newly selected page. Overview auto-refresh preserves the existing card DOM while the bounded overview request is in flight, showing only the topbar status as `Refreshing overview…`; the right-side content is not replaced by the loading card after the first render. The Supabase ideas page also uses a batched read path and omits the large latest-intake payload by default instead of fetching it and hiding it later.
 
 ## Next performance lane
 
