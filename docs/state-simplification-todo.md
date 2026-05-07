@@ -244,3 +244,39 @@ Implemented after the operator-label patch:
 - Live Supabase state doctor with the production database URL reported `normalization dry-run rows: 0`, so no safe cleanup rows needed migration. Provenance/audit residue remains visible but classified as inactive historical/attention residue.
 - Live control overview remains gate-aware: `write_needed = 0`, `raw_completed_no_paper_candidates = 220`, `not_writable_by_decision_gate = 220`, `finalize_needed = 0`, and `publish_ready = 0`.
 - Local corpus reconciliation reported `finalized_publication_drafts = 492`, `public_corpus = 496`, and `importable = 0`; this confirms no finalized publication draft is missing from the public corpus ledger view.
+
+## 2026-05-07 blocked-row attention cleanup
+
+Live cleanup completed as an unfreeze prerequisite.
+
+The 9 `Needs Attention` queue rows were inspected and were all old irreducible external/human-evidence gaps, not current worker failures and not paper-writing work. Examples included required human gold labels, real human-authored traces, private API credentials, real Notion resources, or external callbacks.
+
+Resolution applied through the audited `/control/queue/mark-paused` endpoint:
+
+- all 9 rows moved from `blocked` to `paused`;
+- blocker explanations preserved as row evidence;
+- `queue.item_paused` control events recorded;
+- rows remain non-dispatchable until the project scope is intentionally revised.
+
+Live evidence after cleanup:
+
+```text
+queue counts: all=495, active=0, queued=0, blocked=0, paused=9, completed=486
+blocked queue page: returned=0
+operator_counts.needs_attention=0
+paper_pipeline.write_needed=0
+paper_pipeline.raw_completed_no_paper_candidates=228
+paper_pipeline.not_writable_by_decision_gate=228
+paper_pipeline.finalize_needed=0
+paper_pipeline.publish_ready=0
+state_doctor: ok=true, failures=[], warnings=[]
+normalize_state_surfaces: total_rows=0
+```
+
+Historical/debug state disposition after cleanup:
+
+- `ideas.idea_status.unknown`: still historical/provenance only; `active_queue=0`, `attention_queue=0`.
+- `projects.origin_idea_status.unknown`: still historical/provenance only; `active_queue=0`, `attention_queue=0`.
+- `runs.state.unknown`: paper-linked historical import residue; `current_queue_run=0`, `active_queue=0`, `attention_queue=0`.
+- blank `runs.gate_state`: historical/detail residue; `active_queue=0`, `attention_queue=0`.
+- blank `queue_items.last_run_state`: `total=0`.

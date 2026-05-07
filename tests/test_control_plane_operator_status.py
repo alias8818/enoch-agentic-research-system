@@ -62,6 +62,7 @@ class OperatorStatusTests(unittest.TestCase):
             ({"paper_id": "paper-3", "paper_status": "publication_draft", "review_status": "unreviewed"}, "automate_publication", "finalization_needed", False),
             ({"status": "blocked"}, "needs_operator", "blocked_needs_operator", True),
             ({"status": "paused"}, "paused", "paused_work", False),
+            ({"status": "canceled"}, "historical", "historical", False),
         ]
         for row, lane, detail_stage, attention in cases:
             with self.subTest(row=row):

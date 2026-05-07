@@ -204,6 +204,15 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     has_paper = bool(_text(row.get("paper_id") or row.get("related_paper_id")) or paper_status)
     manual_review = bool(row.get("manual_review_required"))
 
+    if queue_status == QueueStatus.CANCELED.value and not manual_review:
+        return _stage(
+            "historical",
+            lane=OperatorLane.HISTORICAL,
+            tone="muted",
+            attention=False,
+            next_step="No action is needed for this terminal queue record.",
+            explanation="Canceled queue work is terminal historical evidence, not current operator work.",
+        )
     if queue_status in ATTENTION_QUEUE_STATUSES or manual_review:
         return _stage(
             "blocked_needs_operator",
