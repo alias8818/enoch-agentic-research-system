@@ -108,3 +108,49 @@ def test_evaluate_report_fails_legacy_internal_rows_on_active_runtime_lane() -> 
     assert evaluation["failures"] == [
         "legacy/internal state attached to active runtime lane: runs.gate_state.blank has 1 active row(s) out of 4"
     ]
+
+
+def test_evaluate_report_suppresses_classified_historical_residue_noise() -> None:
+    report = {
+        "state_contract": {"ok": True, "failures": []},
+        "normalization": {"checked": True, "total_rows": 0},
+        "live_reduction_drift": {
+            "hard_rows": [],
+            "warning_rows": [
+                {
+                    "surface": "runs.gate_state",
+                    "value": "",
+                    "rows": 722,
+                    "disposition": "legacy_internal",
+                },
+                {
+                    "surface": "runs.state",
+                    "value": "unknown",
+                    "rows": 240,
+                    "disposition": "legacy_internal",
+                },
+            ],
+        },
+        "legacy_runtime_context": {
+            "checked": True,
+            "surfaces": {
+                "runs.gate_state.blank": {
+                    "classification": "historical_or_attention_residue",
+                    "active_queue": 0,
+                    "total": 722,
+                },
+                "runs.state.unknown": {
+                    "classification": "historical_or_attention_residue",
+                    "active_queue": 0,
+                    "total": 240,
+                },
+            },
+            "active_runtime_drift": [],
+        },
+        "control_plane": {"checked": False},
+    }
+
+    evaluation = evaluate_report(report)
+
+    assert evaluation["failures"] == []
+    assert not any("legacy internal rows remain" in item for item in evaluation["warnings"])

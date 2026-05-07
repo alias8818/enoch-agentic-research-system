@@ -111,7 +111,7 @@ Last observed state doctor result on 2026-05-06:
 Implemented on 2026-05-06:
 
 - `scripts/state_doctor.py` now separates legacy/internal residue from active runtime drift.
-- Legacy rows still warn, but the doctor fails if a legacy/internal state attaches to an active queue lane (`dispatching`, `running`, `awaiting_wake`, `wake_received`, or `reconciling`).
+- Classified legacy rows stay visible in `legacy_runtime_context` without WARN noise when `active_queue = 0`; the doctor fails if a legacy/internal state attaches to an active queue lane (`dispatching`, `running`, `awaiting_wake`, `wake_received`, or `reconciling`).
 - Last live classification:
   - `ideas.idea_status.unknown`: `12` total, `0` active queue rows, `9` attention queue rows.
   - `projects.origin_idea_status.unknown`: `132` total, `0` active queue rows, `9` attention queue rows.
@@ -205,8 +205,18 @@ Implemented after the state-model audit:
 - Compatibility/detail keys can still exist for API/debug stability, but labels must not show raw phrases such as `Run Complete Draft Needed`, `Wake Ready`, `Draft Review`, `Approved`, or `Review` as first-screen workflow language.
 - Live authenticated overview after deploy reports: `write_needed = 0`, `raw_completed_no_paper_candidates = 220`, `not_writable_by_decision_gate = 220`, `finalize_needed = 0`, `publish_ready = 0`, `published_imported = 492`, `publication_ready_total = 492`.
 - Live blocked queue rows label as `Needs Attention` / `Needs Attention` while retaining raw keys `needs_operator` / `blocked_needs_operator` for drill-down/debug.
-- State doctor after deploy: `ok = true`, state contract OK, normalization dry-run rows `0`, corpus reconciliation importable finalized count `0`; remaining legacy-internal rows are warning-only historical/attention residue.
+- State doctor after deploy: `ok = true`, state contract OK, normalization dry-run rows `0`, corpus reconciliation importable finalized count `0`; remaining legacy-internal rows are classified as historical/attention residue instead of WARN noise when `active_queue = 0`.
 - Regression evidence: `uv run pytest -q tests/test_control_plane_operator_status.py tests/test_state_contract.py tests/test_state_transition_map.py tests/test_state_doctor.py tests/test_control_plane_router.py` passed with `72 passed, 13 subtests passed`.
+
+
+## 2026-05-06 state doctor residue-noise correction
+
+Implemented after the operator-label patch:
+
+- State doctor now keeps expected legacy/internal residue visible in `legacy_runtime_context` but suppresses `WARN legacy internal rows remain` when the residue is classified as `historical_or_attention_residue` and has `active_queue = 0`.
+- Active runtime attachment is still a hard failure through `legacy_runtime_context.active_runtime_drift`; unclassified legacy/internal rows still warn.
+- Live read-only SQL samples showed `runs.state = unknown` is no-queue imported paper provenance, while blank `runs.gate_state` is completed/blocked/historical residue with zero active runtime rows.
+- Live state doctor evidence after the patch: `ok = true`, failures `[]`, warnings `[]`, normalization dry-run rows `0`, `write_needed = 0`, `publish_ready = 0`, `raw_completed_no_paper_candidates = 220`, `not_writable_by_decision_gate = 220`.
 
 ## 2026-05-06 corpus import count correction
 

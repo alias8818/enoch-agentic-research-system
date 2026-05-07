@@ -169,7 +169,7 @@ The report combines the state contract, normalization dry-run, live reduction-dr
 - required paper-pipeline fields are missing;
 - `--corpus` is checked and finalized publication drafts are absent from the public corpus. Use `--warn-only-corpus` only for exploratory runs where known corpus backlog should not make the command nonzero.
 
-Legacy-internal rows such as provenance-only `unknown` values are warnings, not failures, until a later migration explicitly retires them.
+Legacy-internal rows such as provenance-only `unknown` values remain visible in `legacy_runtime_context`. They are not warnings when the doctor can classify them as `historical_or_attention_residue` with `active_queue = 0`; they become failures if attached to active runtime work, and they remain warnings only when unclassified.
 
 For a live state answer, record these evidence fields from the JSON report:
 

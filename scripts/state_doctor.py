@@ -265,17 +265,25 @@ def evaluate_report(report: dict[str, Any], *, require_corpus_synced: bool = Fal
     elif not normalization.get("checked"):
         warnings.append("normalization dry-run skipped because no database URL was supplied")
 
+    legacy_context = report.get("legacy_runtime_context") or {}
+    legacy_surfaces = legacy_context.get("surfaces") or {}
+
     drift = report.get("live_reduction_drift") or {}
     for row in drift.get("hard_rows") or []:
         failures.append(
             "live reduction drift: {surface}.{value} has {rows} row(s) with disposition {disposition}".format(**row)
         )
     for row in drift.get("warning_rows") or []:
+        surface = str(row.get("surface") or "")
+        value = str(row.get("value") or "")
+        context_key = f"{surface}.{value if value else 'blank'}"
+        context = legacy_surfaces.get(context_key) or {}
+        if context.get("classification") == "historical_or_attention_residue" and not int(context.get("active_queue") or 0):
+            continue
         warnings.append(
             "legacy internal rows remain: {surface}.{value} has {rows} row(s)".format(**row)
         )
 
-    legacy_context = report.get("legacy_runtime_context") or {}
     for row in legacy_context.get("active_runtime_drift") or []:
         failures.append(
             "legacy/internal state attached to active runtime lane: {surface} has {active_queue} active row(s) out of {total}".format(**row)
