@@ -149,8 +149,26 @@ def fetch_github_repo_metadata(repo: str) -> dict:
             "User-Agent": "enoch-public-release-validator/1.0",
         },
     )
-    with urlopen(req, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urlopen(req, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        if exc.code != 403:
+            raise
+        # Public unauthenticated GitHub REST calls are rate-limited aggressively.
+        # Prefer the authenticated gh CLI fallback so the release validator remains
+        # deterministic on developer machines and CI runners that already have gh
+        # credentials configured.
+        result = subprocess.run(
+            ["gh", "api", f"repos/{repo}"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise exc
+        return json.loads(result.stdout)
 
 
 def check_github_metadata(artifact_count: int, failures: list[str]) -> None:
