@@ -119,6 +119,16 @@ Implemented on 2026-05-06:
   - `runs.gate_state.blank`: `722` total, `479` current queue runs, `0` active queue rows, `9` attention queue rows, `494` paper-linked rows.
 - Interpretation: remaining unknown/blank rows are not active worker-lane state. They are provenance gaps, blocked historical rows, completed rows, or imported publication-era records.
 
+
+## 2026-05-07 state vocabulary reduction plan
+
+Implemented as the next unfreeze prerequisite:
+
+- Added `docs/state-vocabulary-reduction-plan.md`, generated from `STATE_REDUCTION_PLAN`, with final small state sets for Ideas, Projects, Runs, and Papers.
+- Added a migration-safe mapping table that marks each raw state value as `keep`, `alias`, `migrate`, or `retire` and records whether it is safe to auto-migrate.
+- Added `scripts/generate_state_vocabulary_plan.py` so the plan can be regenerated from the code-owned state contract instead of hand-maintained tables.
+- Added regression coverage to ensure every raw state contract value has a final-state mapping and cleanup action.
+
 ## Hugging Face evidence
 
 Last verified on 2026-05-06 after publishing `aliasocracy/enoch-ai-research-corpus`:
