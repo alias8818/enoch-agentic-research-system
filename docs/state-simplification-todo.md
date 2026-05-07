@@ -280,3 +280,47 @@ Historical/debug state disposition after cleanup:
 - `runs.state.unknown`: paper-linked historical import residue; `current_queue_run=0`, `active_queue=0`, `attention_queue=0`.
 - blank `runs.gate_state`: historical/detail residue; `active_queue=0`, `attention_queue=0`.
 - blank `queue_items.last_run_state`: `total=0`.
+
+## 2026-05-07 controlled 3-idea unfreeze evidence
+
+After batch policy and attention cleanup, a controlled 3-idea Supabase-native batch was run to verify the state model under real load.
+
+Batch source: `codex_next_batch_20260507`.
+
+Dispatch policy used:
+
+- `/control/intake/ideas` dry-run before apply;
+- exactly 3 created rows;
+- one live dispatch at a time;
+- `/control/dispatch-next` dry-run before each live dispatch;
+- queue re-paused after the third callback settled.
+
+Results:
+
+| Project | Final queue label | Canonical decision | Paper effect |
+| --- | --- | --- | --- |
+| `sampling-stable-kv-reserve-20260507` | Done / No Paper | `finalize_negative` | no paper row created |
+| `delta-state-anchor-router-20260507` | Done / No Paper | `finalize_negative` | no paper row created |
+| `qjl-error-check-kv-spec-drafter-20260507` | Done / No Paper | `finalize_negative` | no paper row created |
+
+Final live evidence after re-pausing:
+
+```text
+queue_paused=true
+maintenance_mode=true
+active=0
+queued=0
+blocked=0
+paused=9
+completed=489
+operator_counts.needs_attention=0
+paper_pipeline.write_needed=0
+paper_pipeline.raw_completed_no_paper_candidates=231
+paper_pipeline.not_writable_by_decision_gate=231
+paper_pipeline.finalize_needed=0
+paper_pipeline.publish_ready=0
+state_doctor: ok=true, failures=[], warnings=[]
+normalize_state_surfaces: total_rows=0
+```
+
+Interpretation: the canonical decision gate held under real batch load. All three negative/non-paper results stayed out of `write_needed`; no unattended paper drafting occurred.
