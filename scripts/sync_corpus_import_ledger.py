@@ -30,6 +30,15 @@ class PublicCorpusRecord:
     public_manifest_path: str
 
 
+@dataclass(frozen=True)
+class MatchedCorpusRecord:
+    paper_id: str
+    source_record_fingerprint: str
+    artifact_slug: str
+    public_artifact_id: str
+    public_manifest_path: str
+
+
 def source_fingerprint(paper_id: str) -> str:
     return hashlib.sha256(paper_id.encode("utf-8")).hexdigest()[:16]
 
@@ -68,6 +77,28 @@ def _connect(database_url: str) -> Any:
     return psycopg.connect(database_url, row_factory=dict_row)
 
 
+def match_public_records_to_live_papers(paper_ids: list[str], records: list[PublicCorpusRecord]) -> list[MatchedCorpusRecord]:
+    records_by_fingerprint = {record.source_record_fingerprint: record for record in records}
+    matched: list[MatchedCorpusRecord] = []
+    seen: set[str] = set()
+    for paper_id in paper_ids:
+        fingerprint = source_fingerprint(paper_id)
+        record = records_by_fingerprint.get(fingerprint)
+        if not record or paper_id in seen:
+            continue
+        matched.append(
+            MatchedCorpusRecord(
+                paper_id=paper_id,
+                source_record_fingerprint=record.source_record_fingerprint,
+                artifact_slug=record.artifact_slug,
+                public_artifact_id=record.public_artifact_id,
+                public_manifest_path=record.public_manifest_path,
+            )
+        )
+        seen.add(paper_id)
+    return matched
+
+
 def sync_records(
     *,
     database_url: str,
@@ -82,9 +113,13 @@ def sync_records(
         try:
             with conn.cursor() as cur:
                 cur.execute("set search_path to enoch, public")
+                cur.execute("select paper_id from enoch.papers")
+                live_paper_ids = [str(row["paper_id"] or "") for row in cur.fetchall()]
+                matched_records = match_public_records_to_live_papers(live_paper_ids, records)
                 cur.execute(
                     """
                     create temp table tmp_public_index(
+                      paper_id text,
                       source_record_fingerprint text,
                       artifact_slug text,
                       public_artifact_id text,
@@ -95,17 +130,18 @@ def sync_records(
                 cur.executemany(
                     """
                     insert into tmp_public_index(
-                      source_record_fingerprint, artifact_slug, public_artifact_id, public_manifest_path
-                    ) values (%s, %s, %s, %s)
+                      paper_id, source_record_fingerprint, artifact_slug, public_artifact_id, public_manifest_path
+                    ) values (%s, %s, %s, %s, %s)
                     """,
                     [
                         (
+                            record.paper_id,
                             record.source_record_fingerprint,
                             record.artifact_slug,
                             record.public_artifact_id,
                             record.public_manifest_path,
                         )
-                        for record in records
+                        for record in matched_records
                     ],
                 )
                 cur.execute(
@@ -125,7 +161,7 @@ def sync_records(
                         %s::text as hf_dataset_url
                       from enoch.papers p
                       join tmp_public_index pi
-                        on pi.source_record_fingerprint = left(encode(extensions.digest(p.paper_id, 'sha256'), 'hex'), 16)
+                        on pi.paper_id = p.paper_id
                     )
                     insert into enoch.corpus_imports(
                       paper_id, corpus_repo, artifact_slug, commit_sha, manifest_path, manifest_hash,
@@ -154,12 +190,13 @@ def sync_records(
                 cur.execute(
                     """
                     select
-                      (select count(*) from tmp_public_index) as public_index_rows,
+                      %s::integer as public_index_rows,
+                      (select count(*) from tmp_public_index) as matched_public_index_rows,
                       (
                         select count(*)
                         from enoch.papers p
                         join tmp_public_index pi
-                          on pi.source_record_fingerprint = left(encode(extensions.digest(p.paper_id, 'sha256'), 'hex'), 16)
+                          on pi.paper_id = p.paper_id
                       ) as matched_live_papers,
                       (select count(*) from enoch.corpus_imports) as corpus_imports_total,
                       odc.publication_ready,
@@ -167,7 +204,8 @@ def sync_records(
                       odc.corpus_imported,
                       odc.hf_dataset_synced
                     from enoch.operator_dashboard_counts odc
-                    """
+                    """,
+                    (len(records),),
                 )
                 summary = dict(cur.fetchone() or {})
                 summary["changed_rows"] = int(changed or 0)
@@ -219,6 +257,7 @@ create temp table tmp_public_index(
   public_artifact_id text,
   public_manifest_path text
 ) on commit drop;
+-- SQL output mode requires pgcrypto access because it cannot prefetch live paper IDs in Python.
 insert into tmp_public_index(source_record_fingerprint, artifact_slug, public_artifact_id, public_manifest_path)
 values
     {values};

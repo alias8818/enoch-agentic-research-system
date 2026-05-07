@@ -429,11 +429,12 @@ class DispatchNextResponse(BaseModel):
 class DraftNextRequest(BaseModel):
     force: bool = False
     requested_by: str = "operator"
+    dry_run: bool = False
 
 
 class DraftNextResponse(BaseModel):
     ok: bool
-    action: Literal["noop", "drafted"]
+    action: Literal["noop", "dry_run_draft", "drafted"]
     reason: str
     paper: PaperRecord | None = None
     candidate: dict[str, Any] | None = None

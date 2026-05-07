@@ -346,7 +346,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
                 requested_by="test",
             )
             self.assertEqual(row["status"], "awaiting_wake")
-            self.assertEqual(row["last_run_state"], "dispatch_accepted")
+            self.assertEqual(row["last_run_state"], "awaiting_wake")
             self.assertEqual(row["last_error"], "")
             self.assertEqual(row["last_result_summary"], "")
 

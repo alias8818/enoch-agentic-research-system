@@ -95,6 +95,18 @@ NORMALIZATION_STATEMENTS: tuple[dict[str, str], ...] = (
         """,
         "reason": "session_finished_ready is a delivery-complete alias of wake_ready",
     },
+
+    {
+        "name": "current_queue_last_run_dispatch_accepted_to_awaiting_wake",
+        "sql": """
+        update queue_items
+        set last_run_state = 'awaiting_wake', updated_at = now()
+        where status = 'awaiting_wake'
+          and coalesce(current_run_id, '') <> ''
+          and last_run_state = 'dispatch_accepted'
+        """,
+        "reason": "current queue dispatch bridge detail should match the awaiting_wake operator state",
+    },
     {
         "name": "legacy_run_needs_review_to_gate_error",
         "sql": """

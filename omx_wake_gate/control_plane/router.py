@@ -2228,6 +2228,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     })
                     continue
             paper = _paper_record_from_candidate(candidate, force=payload.force)
+            if payload.dry_run:
+                return DraftNextResponse(
+                    ok=True,
+                    action="dry_run_draft",
+                    reason="eligible paper-positive candidate found; dry_run prevented artifact writes",
+                    paper=paper,
+                    candidate=draft_candidate_payload(candidate),
+                )
             candidate_for_write = {**candidate, "project_dir": evidence.get("artifact_root") or candidate.get("project_dir")}
             writer = write_paper_artifacts(config, candidate_for_write, paper, force=payload.force)
             writer = {**writer, "evidence_sync": evidence.get("evidence_sync"), "artifact_root": evidence.get("artifact_root"), "decision_gate": decision_gate}

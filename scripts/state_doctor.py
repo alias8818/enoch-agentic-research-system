@@ -104,6 +104,16 @@ def _legacy_runtime_context(database_url: str) -> dict[str, Any]:
             left join queue_items q on q.project_id = r.project_id
             where coalesce(r.gate_state, '') = ''
         """,
+        "queue_items.last_run_state.blank": f"""
+            select count(*) total,
+                   count(*) filter (where q.status = 'queued' and coalesce(q.current_run_id, '') = '') queued_without_run,
+                   count(*) filter (where q.status in ({active_statuses})) active_queue,
+                   count(*) filter (where q.status in ({attention_statuses})) attention_queue,
+                   min(q.updated_at)::text oldest_updated_at,
+                   max(q.updated_at)::text newest_updated_at
+            from queue_items q
+            where coalesce(q.last_run_state, '') = ''
+        """,
     }
     surfaces: dict[str, Any] = {}
     active_drift: list[dict[str, Any]] = []

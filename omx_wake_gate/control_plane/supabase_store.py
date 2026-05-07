@@ -2103,7 +2103,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     where project_id=%s
                     """,
                     (
-                        QueueStatus.AWAITING_WAKE.value, run_id, session_id, "dispatch_accepted",
+                        QueueStatus.AWAITING_WAKE.value, run_id, session_id, QueueStatus.AWAITING_WAKE.value,
                         "live_dispatch", "await_callback", "", "", now, now, project_id,
                     ),
                 )

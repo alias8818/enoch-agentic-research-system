@@ -364,7 +364,7 @@ def main() -> int:
                 dispatch_payload={"target": "validator"},
                 requested_by="validator",
             )
-            if dispatch_event_id <= 0 or dispatched.get("status") != "awaiting_wake":
+            if dispatch_event_id <= 0 or dispatched.get("status") != "awaiting_wake" or dispatched.get("last_run_state") != "awaiting_wake":
                 failures.append("mark_dispatch_started did not persist awaiting_wake state")
             callback_payload = {
                 "run_id": "run-live-smoke",

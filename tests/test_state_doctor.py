@@ -154,3 +154,39 @@ def test_evaluate_report_suppresses_classified_historical_residue_noise() -> Non
 
     assert evaluation["failures"] == []
     assert not any("legacy internal rows remain" in item for item in evaluation["warnings"])
+
+
+def test_state_doctor_allows_queued_item_without_last_run_state() -> None:
+    report = {
+        "state_contract": {"ok": True, "failures": []},
+        "normalization": {"checked": True, "total_rows": 0},
+        "live_reduction_drift": {
+            "hard_rows": [],
+            "warning_rows": [
+                {
+                    "surface": "queue_items.last_run_state",
+                    "value": "",
+                    "rows": 1,
+                    "disposition": "legacy_internal",
+                },
+            ],
+        },
+        "legacy_runtime_context": {
+            "checked": True,
+            "surfaces": {
+                "queue_items.last_run_state.blank": {
+                    "classification": "historical_or_attention_residue",
+                    "active_queue": 0,
+                    "queued_without_run": 1,
+                    "total": 1,
+                },
+            },
+            "active_runtime_drift": [],
+        },
+        "control_plane": {"checked": False},
+    }
+
+    evaluation = evaluate_report(report)
+
+    assert evaluation["failures"] == []
+    assert not any("legacy internal rows remain" in item for item in evaluation["warnings"])

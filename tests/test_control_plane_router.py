@@ -112,6 +112,12 @@ class ControlPlaneRouterTests(unittest.TestCase):
             paused_dispatch = client.post("/control/dispatch-next", headers=headers, json={"dry_run": True})
             self.assertEqual(paused_dispatch.json()["action"], "paused")
 
+            dry_draft = client.post("/control/papers/draft-next", headers=headers, json={"force": True, "dry_run": True})
+            self.assertEqual(dry_draft.status_code, 200)
+            dry_body = dry_draft.json()
+            self.assertEqual(dry_body["action"], "dry_run_draft")
+            self.assertFalse((project_dir / dry_body["paper"]["draft_markdown_path"]).exists())
+
             draft = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
             self.assertEqual(draft.status_code, 200)
             body = draft.json()
@@ -136,7 +142,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "dispatch_priority": idx,
                     "selection_rank": idx,
                     "current_run_id": f"run-{idx}",
-                    "last_run_state": "dispatch_accepted",
+                    "last_run_state": "awaiting_wake" if idx == 0 else "",
                     "next_action_hint": "await_callback" if idx == 0 else "controller_review",
                 })
                 paper_rows.append({

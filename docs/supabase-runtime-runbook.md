@@ -63,3 +63,21 @@ Do not unpause just to test empty dispatch. Add or import a Supabase-native idea
 - Do not re-enable Notion sync.
 - Do not re-enable paper or queue timers before the one-dispatch drill passes.
 - Do not use dashboard clicks as the first resume proof; use the scripted drill so the evidence is bounded and repeatable.
+
+## Controlled drill evidence from 2026-05-07
+
+The first post-cutover drill used one Supabase-native idea and one dispatch only:
+
+- idea: `controlled-lifecycle-drill-20260507T084447Z`
+- project: `controlled-lifecycle-drill-20260507t084447z`
+- run: `controlled-lifecycle-drill-20260507t084447z-20260507T084644940726+0000`
+- public corpus artifact: `enoch-paper-0497`, slug `controlled-supabase-lifecycle-drill`
+
+The drill exposed four trust-relevant defects that are now part of the regression surface:
+
+1. A queued item with no run yet produced noisy `last_run_state` warnings in `state_doctor`.
+2. Dispatch-start still wrote the legacy internal surface `dispatch_accepted` instead of the operator-safe `awaiting_wake`.
+3. `/control/papers/draft-next` ignored `dry_run` and could write a paper during a preview call.
+4. Supabase corpus ledger sync used `extensions.digest(...)`, which is not callable by the runtime database user.
+
+After fixes and corpus ledger sync, `state_doctor` reported `overall: OK`, `write_needed=0`, `finalize_needed=0`, `publish_ready=0`, and `importable=0` with the public corpus count at `497`.
