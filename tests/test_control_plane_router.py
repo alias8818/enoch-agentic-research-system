@@ -322,6 +322,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn(">Source</a>", response.text)
             self.assertIn("Recent activity", response.text)
             self.assertIn("System health", response.text)
+            self.assertIn("Loading overview", response.text)
+            self.assertIn("Secondary health checks load after the primary cards render", response.text)
+            self.assertIn("AbortController", response.text)
             self.assertIn("All projects", response.text)
             self.assertIn("Recently added", response.text)
             self.assertIn("Recently updated", response.text)
@@ -1734,6 +1737,11 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             for path in ["/control/api/v1/overview", "/control/api/v1/queue", "/control/api/v1/projects/", "/control/api/v1/runs", "/control/api/v1/papers", "/control/api/v1/events", "/control/api/v1/observability/memory", "/control/api/publication-automation", "/control/api/intake/ideas"]:
                 self.assertIn(path, response.text)
+            overview_pos = response.text.find("/control/api/v1/overview")
+            memory_pos = response.text.find("/control/api/v1/observability/memory")
+            self.assertGreater(memory_pos, overview_pos)
+            self.assertNotIn("Promise.all([api('/control/api/v1/overview", response.text)
+            self.assertIn("if(e.name==='AbortError')return", response.text)
             for stale_path in ["/control/api/status?refresh_worker=true", "/control/api/queues/", "/control/api/events?page_size=200", "/control/api/papers?page_size=100", "/control/api/paper-reviews", "#reviews", "#review:", "['event_id','event_type','entity_type','entity_id','created_at','payload_summary']"]:
                 self.assertNotIn(stale_path, response.text)
             for ui_text in ["Publication Automation", "Automated rewrite/finalization lane", "prepare finalization package", "Formatted control-plane events", "Search, filter, sort, and page", "Recently added", "Find projects", "Find papers", "Find runs", "Find events", "choose 200 per page"]:

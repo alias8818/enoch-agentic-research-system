@@ -16,6 +16,7 @@ The implementation follows the Supabase/Postgres performance guidance that index
 ## Changes made
 
 - Reused a guarded server-side Postgres connection inside `SupabaseControlPlaneStore` so repeated dashboard reads do not pay connection setup every time.
+- Aborted stale browser requests on tab changes and loaded secondary overview health checks after primary operator cards render.
 - Moved `queue_page`, `paper_page`, and `run_page` filtering/sorting/pagination into SQL with `limit page_size + 1` instead of fetching all rows and slicing in Python.
 - Added read-model indexes for common dashboard orderings:
   - `queue_items(updated_at desc, project_id desc)`
@@ -39,10 +40,13 @@ Representative warmed timings from the control VM after deployment:
 | `/control/api/v1/events` | 0.94 s | 0.23 s |
 | `/control/api/publication-automation` | 1.55 s | 0.38 s |
 | `/control/api/intake/ideas` | 5.56 s / 1.1 MB | 1.13 s / 58 KB |
-| `/control/api/v1/overview` | ~1-2 s, broad ledger inputs | 1.2-1.4 s warmed, gate-aware counts preserved |
+| `/control/api/v1/overview` | ~1-2 s, broad ledger inputs | ~1.0-1.1 s warmed, gate-aware counts preserved |
+| `/control/api/intake/ideas` | 1.5 s default after payload bounding | ~0.55-0.62 s warmed, no large observation payload fetch |
 
-`/control/api/v1/overview` now uses the same batched Supabase connection and narrows the overview ledger inputs to rows that can affect operator-visible decisions: paper eligibility candidates, explicit needs-attention queue rows, finalized/imported publication rows, and draft/archive paper rows. The Python read model still owns the final gate-aware semantics so raw completed/no-paper rows cannot become actionable paper work.
+`/control/api/v1/overview` now uses the same batched Supabase connection, derives active/queued/blocked counts from one status query, and narrows the overview ledger inputs to rows that can affect operator-visible decisions: paper eligibility candidates, explicit needs-attention queue rows, finalized/imported publication rows, and draft/archive paper rows. The Python read model still owns the final gate-aware semantics so raw completed/no-paper rows cannot become actionable paper work.
+
+Browser-side routing now renders the primary overview before secondary health checks, aborts stale in-flight requests when the operator changes tabs, and keeps late overview responses from overwriting the newly selected page. The Supabase ideas page also uses a batched read path and omits the large latest-intake payload by default instead of fetching it and hiding it later.
 
 ## Next performance lane
 
-The next safe improvement is browser-side: make each dashboard tab lazy-load its own bounded endpoint instead of waiting for every secondary panel after the overview. If overview needs to go lower than ~1s, use a Postgres RPC/materialized read model only after proving exact parity for `operator_counts`, `operator_detail_counts`, `paper_pipeline`, bounded active items, and bounded recent events. Do not replace the overview with raw SQL counts unless the result is proven to preserve the current decision-gated semantics.
+Remaining bottlenecks are now the intentionally rich list rows, especially project/queue rows with related paper fields. The next safe improvement is a dedicated lightweight list-row projection for queue/project pages, but only if operators still feel page transitions are too slow. If overview needs to go lower than ~1s, use a Postgres RPC/materialized read model only after proving exact parity for `operator_counts`, `operator_detail_counts`, `paper_pipeline`, bounded active items, and bounded recent events. Do not replace the overview with raw SQL counts unless the result is proven to preserve the current decision-gated semantics.

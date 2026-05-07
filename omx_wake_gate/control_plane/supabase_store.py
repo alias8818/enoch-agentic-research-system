@@ -782,29 +782,31 @@ class SupabaseReadOnlyControlPlaneStore:
                 with self._connect() as conn:
                     with conn.cursor() as cur:
                         counts: dict[str, int] = {}
-                        for row in self._cursor_rows(cur, "select status, count(*) as count from queue_items group by status"):
+                        blocked_count = 0
+                        for row in self._cursor_rows(
+                            cur,
+                            """
+                            select
+                              status,
+                              count(*) as count,
+                              (
+                                select count(*)
+                                from queue_items
+                                where manual_review_required = true or status in (%s, %s, %s)
+                              ) as blocked_count
+                            from queue_items
+                            group by status
+                            """,
+                            (QueueStatus.BLOCKED.value, QueueStatus.NEEDS_REVIEW.value, QueueStatus.DISPATCH_ERROR.value),
+                        ):
                             status = _text(row["status"]) or "unknown"
                             count = int(row["count"] or 0)
                             counts[status] = count
                             counts["all"] = counts.get("all", 0) + count
-                        active = self._cursor_rows(
-                            cur,
-                            "select count(*) as count from queue_items where status = any(%s)",
-                            (sorted(ACTIVE_STATUSES),),
-                        )
-                        counts["active"] = int((active[0] if active else {}).get("count") or 0)
-                        queued = self._cursor_rows(cur, "select count(*) as count from queue_items where status = %s", (QueueStatus.QUEUED.value,))
-                        counts["queued"] = int((queued[0] if queued else {}).get("count") or 0)
-                        blocked = self._cursor_rows(
-                            cur,
-                            """
-                            select count(*) as count
-                            from queue_items
-                            where manual_review_required = true or status in (%s, %s, %s)
-                            """,
-                            (QueueStatus.BLOCKED.value, QueueStatus.NEEDS_REVIEW.value, QueueStatus.DISPATCH_ERROR.value),
-                        )
-                        counts["blocked"] = int((blocked[0] if blocked else {}).get("count") or 0)
+                            blocked_count = int(row.get("blocked_count") or 0)
+                        counts["active"] = sum(counts.get(status, 0) for status in ACTIVE_STATUSES)
+                        counts["queued"] = counts.get(QueueStatus.QUEUED.value, 0)
+                        counts["blocked"] = blocked_count
                         for key in ("all", "active", "queued", "blocked", "paused", "completed"):
                             counts.setdefault(key, 0)
 
@@ -828,14 +830,45 @@ class SupabaseReadOnlyControlPlaneStore:
                             "where q.status = %s order by q.dispatch_priority asc, q.updated_at desc limit 1",
                             (QueueStatus.QUEUED.value,),
                         )
-                        raw_queue_rows = self._queue_rows_from_cursor(
+                        raw_queue_rows = self._cursor_rows(
                             cur,
                             """
+                            select
+                              q.project_id,
+                              p.project_name,
+                              q.status,
+                              q.dispatch_priority,
+                              q.selection_rank,
+                              q.current_run_id,
+                              q.current_session_id,
+                              q.last_run_state,
+                              q.next_action_hint,
+                              q.manual_review_required,
+                              q.blocked_reason,
+                              q.last_result_summary,
+                              q.last_callback_at,
+                              q.last_dispatch_at,
+                              q.updated_at,
+                              p.project_dir,
+                              p.notion_page_url,
+                              ''::text as related_paper_id,
+                              ''::text as related_paper_status,
+                              ''::text as related_review_status,
+                              ''::text as related_finalization_package_path,
+                              false as related_corpus_imported,
+                              ''::text as related_corpus_import_id,
+                              ''::text as related_artifact_slug,
+                              ''::text as related_source_record_fingerprint,
+                              coalesce(pe.decision_gate_state, '') as decision_gate_state,
+                              coalesce(pe.decision_summary, '') as decision_summary
+                            from queue_items q
+                            join projects p using(project_id)
+                            left join paper_eligibility pe on pe.project_id = q.project_id
                             where exists (
                                 select 1
-                                from paper_eligibility pe
-                                where pe.project_id = q.project_id
-                                  and pe.raw_write_candidate
+                                from paper_eligibility candidate
+                                where candidate.project_id = q.project_id
+                                  and candidate.raw_write_candidate
                             )
                                or q.manual_review_required = true
                                or q.status in (%s, %s, %s)
@@ -973,6 +1006,104 @@ class SupabaseReadOnlyControlPlaneStore:
             out.append(item)
         return out
 
+    def dashboard_ideas_intake_parts(self, *, page_size: int = 50, include_latest_payload: bool = False) -> dict[str, Any]:
+        safe_limit = max(1, min(page_size, 500))
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                if include_latest_payload:
+                    latest_rows = self._cursor_rows(
+                        cur,
+                        """
+                        select *
+                        from operator_observations
+                        where source = %s and scope = %s
+                        order by observed_at desc, observation_id desc
+                        limit 1
+                        """,
+                        ("idea_intake", "global"),
+                    )
+                    latest = self._observation_from_row(latest_rows[0]) if latest_rows else None
+                else:
+                    latest_rows = self._cursor_rows(
+                        cur,
+                        """
+                        select observation_id, source, scope, observed_at, ttl_seconds, status, payload_hash, created_at
+                        from operator_observations
+                        where source = %s and scope = %s
+                        order by observed_at desc, observation_id desc
+                        limit 1
+                        """,
+                        ("idea_intake", "global"),
+                    )
+                    latest = None
+                    if latest_rows:
+                        row = latest_rows[0]
+                        latest = DashboardObservationRecord(
+                            observation_id=int(row["observation_id"]),
+                            source=row["source"],
+                            scope=row["scope"],
+                            observed_at=str(row["observed_at"]),
+                            ttl_seconds=int(row["ttl_seconds"]),
+                            status=row["status"],
+                            payload={"payload_omitted": True, "payload_bytes": None, "skipped_row_count": None, "skipped_reasons": {}},
+                            payload_hash=row["payload_hash"],
+                            created_at=str(row["created_at"]),
+                        )
+                projection = self._cursor_rows(
+                    cur,
+                    """
+                    select idea_id, title, idea_status, category, priority, source_kind,
+                           source_external_id, source_external_url, machine_target, model, sandbox,
+                           selection_rank, dispatch_priority, project_id, queue_status,
+                           current_run_id, last_run_state, next_action_hint, manual_review_required,
+                           queue_updated_at, paper_id, paper_status, created_at, updated_at
+                    from idea_workbench
+                    order by updated_at desc, idea_id asc
+                    limit %s
+                    """,
+                    (safe_limit,),
+                )
+                recent_rows = self._cursor_rows(
+                    cur,
+                    """
+                    select *
+                    from control_events
+                    where event_type = %s
+                    order by event_id desc
+                    limit %s
+                    """,
+                    ("ideas.intake", 20),
+                )
+                if not recent_rows:
+                    recent_rows = self._cursor_rows(
+                        cur,
+                        """
+                        select *
+                        from control_events
+                        where event_type = %s
+                        order by event_id desc
+                        limit %s
+                        """,
+                        ("notion.intake", 20),
+                    )
+                recent = []
+                for row in recent_rows:
+                    item = dict(row)
+                    item["payload"] = self._payload(item.pop("payload_json"))
+                    item["created_at"] = str(item.get("created_at") or "")
+                    item.pop("payload_hash", None)
+                    recent.append(item)
+                status_counts = {
+                    _text(row["status"]) or "unknown": int(row["count"] or 0)
+                    for row in self._cursor_rows(cur, "select status, count(*) as count from queue_items group by status")
+                }
+        return {
+            "latest_sync": latest,
+            "queued_projection": projection,
+            "recent_events": recent,
+            "projection_counts": status_counts,
+        }
+
     def project_row(self, project_id: str) -> dict[str, Any] | None:
         return self._one("select * from projects where project_id = %s", (project_id,))
 
@@ -1004,6 +1135,49 @@ class SupabaseReadOnlyControlPlaneStore:
             (source, scope),
         )
         return self._observation_from_row(row) if row else None
+
+    def latest_dashboard_observation_summary(
+        self,
+        *,
+        source: str,
+        scope: str = "global",
+    ) -> DashboardObservationRecord | None:
+        row = self._one(
+            """
+            select
+              observation_id,
+              source,
+              scope,
+              observed_at,
+              ttl_seconds,
+              status,
+              payload_hash,
+              created_at
+            from operator_observations
+            where source = %s and scope = %s
+            order by observed_at desc, observation_id desc
+            limit 1
+            """,
+            (source, scope),
+        )
+        if not row:
+            return None
+        return DashboardObservationRecord(
+            observation_id=int(row["observation_id"]),
+            source=row["source"],
+            scope=row["scope"],
+            observed_at=str(row["observed_at"]),
+            ttl_seconds=int(row["ttl_seconds"]),
+            status=row["status"],
+            payload={
+                "payload_omitted": True,
+                "payload_bytes": None,
+                "skipped_row_count": None,
+                "skipped_reasons": {},
+            },
+            payload_hash=row["payload_hash"],
+            created_at=str(row["created_at"]),
+        )
 
     def latest_dashboard_observations(self, *, scope: str = "global") -> dict[str, DashboardObservationRecord]:
         rows = self._query(

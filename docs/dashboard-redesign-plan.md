@@ -84,3 +84,10 @@ The first shipped slice is the redesigned shell and overview experience:
 - Add dedicated project/run/paper detail layouts instead of generic detail sections.
 - Add keyboard shortcut help and saved filters.
 - Add screenshot-based visual regression for the dashboard shell.
+
+## Performance slices
+
+- The dashboard shell loads the bounded overview read model first and renders the primary operator cards before secondary observability/health calls complete.
+- Route changes abort stale in-flight dashboard fetches so old overview responses cannot overwrite the newly selected tab and do not continue consuming backend work after navigation.
+- Secondary tabs use their own bounded endpoints on demand; the shell does not call legacy `/control/api/status?refresh_worker=true` or broad unbounded list endpoints during initial render.
+- The Supabase ideas page uses a batched read path and omits the large latest-intake payload by default.
