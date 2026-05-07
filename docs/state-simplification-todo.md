@@ -71,8 +71,8 @@ Last verified on 2026-05-06 before corpus-import ledger-backed dashboard semanti
 - `raw_completed_no_paper_candidates = 220`
 - `not_writable_by_decision_gate = 220`
 - `finalize_needed = 0`
-- `publish_ready = 491` under the old finalized-total semantics
-- paper rows: `publication_draft = 494`, `archived = 2`, `all = 496`
+- `publish_ready = 0` under the ledger-backed corpus-import semantics
+- paper rows: `publication_draft` rows are informational; corpus import work is derived from finalized package evidence plus the `corpus_imports` ledger
 - state normalization dry-run: `0` rows
 - live state contract: OK
 - state doctor: OK; corpus reconciliation reports 0 importable finalized publication drafts after local corpus import
@@ -90,7 +90,7 @@ uv run python scripts/state_doctor.py \
   --output path/to/state-doctor.json
 ```
 
-Last observed state doctor result on 2026-05-06:
+Last observed state doctor result on 2026-05-07:
 
 - exit code: `0`
 - failure reason: none
@@ -101,9 +101,9 @@ Last observed state doctor result on 2026-05-06:
 - `paper_pipeline.raw_completed_no_paper_candidates`: `220`
 - `paper_pipeline.not_writable_by_decision_gate`: `220`
 - `paper_pipeline.finalize_needed`: `0`
-- `paper_pipeline.publish_ready`: `491` under the old finalized-total semantics
-- `corpus_reconciliation.live_finalized_publication_draft_count`: `491`
-- `corpus_reconciliation.public_corpus_count`: `495`
+- `paper_pipeline.publish_ready`: `0`
+- `corpus_reconciliation.live_finalized_publication_draft_count`: `492`
+- `corpus_reconciliation.public_corpus_count`: `496`
 - `corpus_reconciliation.importable_finalized_count`: `0`
 
 ## Legacy/unknown row classification
@@ -131,11 +131,14 @@ Implemented as the next unfreeze prerequisite:
 
 ## Hugging Face evidence
 
-Last verified on 2026-05-06 after publishing `aliasocracy/enoch-ai-research-corpus`:
+Superseded 2026-05-06 snapshot: the dataset previously reported the pre-import artifact count. The current public release count is now `496`; public docs and release metadata should use the generated ecosystem manifest and release validators rather than hand-maintained counts.
 
-- `dataset_summary.artifact_count`: `495`
-- `dataset_summary.strict_claim_evidence_total_count`: `495`
-- `data/artifacts.jsonl` rows: `495`
+Current 2026-05-07 validation evidence:
+
+- generated ecosystem manifest: `artifact_count = 496`
+- generated ecosystem manifest: `packaging_provenance_pass_count = 496`
+- generated ecosystem manifest: `strict_claim_evidence_pass_count = 3`
+- public release validator: `PASS`
 
 ## Dashboard polish evidence
 
@@ -233,3 +236,11 @@ Implemented after the operator-label patch:
 - Dashboard publish/import work is being corrected to be ledger-backed: `publish_ready` / `missing_from_corpus` means finalized drafts without a `corpus_imports` row.
 - Historical finalized drafts already represented in the corpus move to `published_imported` / `published` and should not appear as actionable import work.
 - Public release count drift was fixed by updating GitHub metadata for `alias8818/enoch-ai-research-corpus` to `496`; `validate_public_release.py` passed afterward.
+
+## 2026-05-07 public docs and Supabase cleanup confirmation
+
+- Public Mintlify docs were checked for stale artifact-count references and review/approval wording in operator-facing paper paths. The remaining raw `review_status`, `draft_review`, `human_review_required`, `approved_for_finalization`, and `approve-finalization` mentions are framed as compatibility/detail API fields or legacy path names, not the operator workflow.
+- Docs validation passed with `node scripts/validate-docs.mjs`: 17 MDX files and 16 `docs.json` navigation entries validated.
+- Live Supabase state doctor with the production database URL reported `normalization dry-run rows: 0`, so no safe cleanup rows needed migration. Provenance/audit residue remains visible but classified as inactive historical/attention residue.
+- Live control overview remains gate-aware: `write_needed = 0`, `raw_completed_no_paper_candidates = 220`, `not_writable_by_decision_gate = 220`, `finalize_needed = 0`, and `publish_ready = 0`.
+- Local corpus reconciliation reported `finalized_publication_drafts = 492`, `public_corpus = 496`, and `importable = 0`; this confirms no finalized publication draft is missing from the public corpus ledger view.
