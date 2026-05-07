@@ -474,6 +474,22 @@ DASHBOARD_HTML = """
       if (value.includes("branch") || value.includes("callback")) return cls.purple;
       return cls.info;
     }
+    function labelFor(value) {
+      const key = String(value || "");
+      const map = {
+        finalize_positive: "Paper-positive",
+        finalize_negative: "No paper",
+        needs_review: "Needs attention",
+        wake_ready: "Worker delivered",
+        session_finished_ready: "Worker delivered",
+        draft_review: "First draft",
+        ready_for_review: "First draft",
+        publication_draft: "Publication draft",
+        approved_for_corpus: "Published",
+        approved_for_finalization: "Ready to package",
+      };
+      return map[key] || key;
+    }
     function countRows(counts, preferred=[]) {
       const entries = [];
       const used = new Set();
@@ -481,7 +497,7 @@ DASHBOARD_HTML = """
         if (counts?.[key] !== undefined) { entries.push([key, counts[key]]); used.add(key); }
       });
       Object.keys(counts || {}).sort().forEach(key => { if (!used.has(key)) entries.push([key, counts[key]]); });
-      return entries.length ? `<div class="count-grid">${entries.map(([key, value]) => `<div class="count-row"><div>${pill(key, toneForLabel(key))}</div><div class="count-value">${esc(value)}</div></div>`).join("")}</div>` : `<div class="empty">No count data posted yet.</div>`;
+      return entries.length ? `<div class="count-grid">${entries.map(([key, value]) => `<div class="count-row"><div>${pill(labelFor(key), toneForLabel(key))}</div><div class="count-value">${esc(value)}</div></div>`).join("")}</div>` : `<div class="empty">No count data posted yet.</div>`;
     }
     function progress(value, total) {
       const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((value / total) * 100))) : 0;
@@ -501,7 +517,7 @@ DASHBOARD_HTML = """
       document.getElementById("cards").innerHTML = [
         metric("Projects Total", q.total, `${q.completed} done · ${q.yet} yet to do`),
         metric("Projects Active", q.active, `${q.queued} queued · snapshot ${age(q.queue.updated_at)}`),
-        metric("Outcomes", `${q.positive}/${q.negative}`, "positive / negative final decisions"),
+        metric("Outcomes", `${q.positive}/${q.negative}`, "paper-positive / no-paper decisions"),
         metric("Papers", p.total, `${p.reviewable} inspectable · ${p.publication} publication drafts`),
         metric("Queue Blocked", q.blocked, "blocked rows from intake/queue mirror"),
         metric("Wake Attention", attention, `${staleCallbacks} stale callbacks · ${callbackPending} pending`),
@@ -531,12 +547,12 @@ DASHBOARD_HTML = """
         </div>
         ${progress(q.completed, q.total)}`;
       document.getElementById("overviewOutcomes").innerHTML = `
-        <div class="summary-copy">Outcome counts come from the queue row's last run state, not from wake-gate historical files.</div>
+        <div class="summary-copy">Outcome counts come from decision-gated queue state, not from wake-gate delivery callbacks.</div>
         <div class="count-grid">
-          <div class="count-row"><div>${pill("finalize_positive", cls.good)}</div><div class="count-value">${esc(q.positive)}</div></div>
-          <div class="count-row"><div>${pill("finalize_negative", cls.bad)}</div><div class="count-value">${esc(q.negative)}</div></div>
+          <div class="count-row"><div>${pill("Paper-positive", cls.good)}</div><div class="count-value">${esc(q.positive)}</div></div>
+          <div class="count-row"><div>${pill("No paper", cls.bad)}</div><div class="count-value">${esc(q.negative)}</div></div>
           <div class="count-row"><div>${pill("branch", cls.purple)}</div><div class="count-value">${esc(q.branch)}</div></div>
-          <div class="count-row"><div>${pill("blocked", cls.bad)}</div><div class="count-value">${esc(q.blocked)}</div></div>
+          <div class="count-row"><div>${pill("Needs attention", cls.bad)}</div><div class="count-value">${esc(q.blocked)}</div></div>
         </div>`;
       document.getElementById("overviewPaperHint").textContent = `snapshot ${age(p.papers.updated_at)}`;
       document.getElementById("overviewPapers").innerHTML = `
@@ -553,7 +569,7 @@ DASHBOARD_HTML = """
       document.getElementById("projectCards").innerHTML = [
         metric("Total", q.total, `${q.completed} completed`),
         metric("Yet To Do", q.yet, `${q.queued} queued · ${q.active} active`),
-        metric("Positive / Negative", `${q.positive}/${q.negative}`, "finalized outcomes"),
+        metric("Paper-positive / No paper", `${q.positive}/${q.negative}`, "decision-gated outcomes"),
         metric("Blocked", q.blocked, "needs operator or queue repair"),
       ].join("");
       document.getElementById("projectStatusHint").textContent = `${Object.keys(q.status).length} statuses · snapshot ${age(q.queue.updated_at)}`;
@@ -569,9 +585,9 @@ DASHBOARD_HTML = """
         <table>
           <thead><tr><th>Status</th><th>Project</th><th>Run State</th><th>Updated</th></tr></thead>
           <tbody>${rows.map(row => `<tr>
-            <td>${pill(row.queue_status || "unknown", toneForLabel(row.queue_status))}</td>
+            <td>${pill(labelFor(row.queue_status || "unknown"), toneForLabel(row.queue_status))}</td>
             <td><div class="project-name">${esc(row.project_name || row.project_id || "unknown")}</div><div class="small mono truncate">${esc(row.project_id || "")}</div></td>
-            <td>${pill(row.last_run_state || "unknown", toneForLabel(row.last_run_state))}<div class="small">${esc(compact(row.next_action_hint || row.last_result_summary || row.blocked_reason || "", 140))}</div></td>
+            <td>${pill(labelFor(row.last_run_state || "unknown"), toneForLabel(row.last_run_state))}<div class="small">${esc(compact(row.next_action_hint || row.last_result_summary || row.blocked_reason || "", 140))}</div></td>
             <td><div>${fmtDate(row.updated_at || row.created_at)}</div><div class="small">${age(row.updated_at || row.created_at)}</div></td>
           </tr>`).join("")}</tbody>
         </table>`;

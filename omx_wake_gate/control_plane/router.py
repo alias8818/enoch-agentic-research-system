@@ -431,6 +431,33 @@ Turn this idea into a concrete, evidence-backed research result. Work autonomous
 - Swap is intentionally disabled on GB10; use MemAvailable/UMA telemetry and earlyoom posture, not swap availability, for memory judgment.
 - Leave durable artifacts: run_notes.md, commands/log paths, metrics, and a final .omx/project_decision.json.
 - If final scientific closure truly needs human/private/external evidence, state that precisely and stop with a needs_review/blocker decision.
+
+## Required final decision artifact
+Write `.omx/project_decision.json` with these exact enum values. Do not invent
+near-synonyms such as `partial_viable`, `promising_synthetic_positive`, or
+`negative_result`.
+
+Required JSON shape:
+```json
+{{
+  "project_decision": "finalize_positive | finalize_negative | needs_review | blocked | continue | branch_new_project",
+  "hypothesis_status": "supported | unsupported | mixed | inconclusive",
+  "confidence": "low | medium | high",
+  "evidence_strength": "weak | moderate | strong",
+  "novelty_progress": true,
+  "results_changed": true,
+  "recommended_next_action": "one concrete next action or stop rationale",
+  "stop_reason": ""
+}}
+```
+
+Decision rules:
+- Use `finalize_positive` only when the evidence supports writing a paper now.
+- Use `finalize_negative` when the result is negative, non-viable, or not worth a paper.
+- Use `needs_review` only for a real ambiguity or required external/private evidence.
+- Use `blocked` only for an execution blocker that prevented a valid test.
+- Use `continue` only when more autonomous work should run before paper/no-paper closure.
+- Use `branch_new_project` only when this run found a distinct follow-up idea.
 """
 
 def _paper_record_from_candidate(candidate: dict, *, force: bool = False) -> PaperRecord:

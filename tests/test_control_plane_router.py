@@ -1778,3 +1778,12 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+def test_project_prompt_includes_canonical_decision_contract() -> None:
+    prompt = _project_prompt({"project_id": "p1", "project_name": "Example"})
+    assert '"project_decision": "finalize_positive | finalize_negative | needs_review | blocked | continue | branch_new_project"' in prompt
+    assert "Do not invent" in prompt
+    assert "partial_viable" in prompt
+    assert "promising_synthetic_positive" in prompt
+    assert "negative_result" in prompt
+    assert "Use `finalize_positive` only when the evidence supports writing a paper now." in prompt
