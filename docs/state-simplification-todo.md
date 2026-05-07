@@ -196,6 +196,18 @@ Evidence from `/tmp/enoch-supabase-resume-readiness.json`:
 - Paper pipeline is gate-aware: `write_needed = 0`, `publish_ready = 0`, `missing_from_corpus = 0`, `published_imported = 492`, `publication_ready_total = 492`, `raw_completed_no_paper_candidates = 220`, `not_writable_by_decision_gate = 220`.
 
 
+## 2026-05-06 operator label simplification evidence
+
+Implemented after the state-model audit:
+
+- `operator_stage_label` and `operator_detail_stage_label` now use an explicit grade-school vocabulary map instead of title-casing raw/detail state keys.
+- Primary labels are: `Running`, `Ready`, `Needs Attention`, `Done / No Paper`, `Write Paper`, `Finalize Draft`, `Publish / Import`, `Published`, `Paused`, and `Historical`.
+- Compatibility/detail keys can still exist for API/debug stability, but labels must not show raw phrases such as `Run Complete Draft Needed`, `Wake Ready`, `Draft Review`, `Approved`, or `Review` as first-screen workflow language.
+- Live authenticated overview after deploy reports: `write_needed = 0`, `raw_completed_no_paper_candidates = 220`, `not_writable_by_decision_gate = 220`, `finalize_needed = 0`, `publish_ready = 0`, `published_imported = 492`, `publication_ready_total = 492`.
+- Live blocked queue rows label as `Needs Attention` / `Needs Attention` while retaining raw keys `needs_operator` / `blocked_needs_operator` for drill-down/debug.
+- State doctor after deploy: `ok = true`, state contract OK, normalization dry-run rows `0`, corpus reconciliation importable finalized count `0`; remaining legacy-internal rows are warning-only historical/attention residue.
+- Regression evidence: `uv run pytest -q tests/test_control_plane_operator_status.py tests/test_state_contract.py tests/test_state_transition_map.py tests/test_state_doctor.py tests/test_control_plane_router.py` passed with `72 passed, 13 subtests passed`.
+
 ## 2026-05-06 corpus import count correction
 
 - Dashboard publish/import work is being corrected to be ledger-backed: `publish_ready` / `missing_from_corpus` means finalized drafts without a `corpus_imports` row.

@@ -34,6 +34,23 @@ The dashboard and assistant should answer simple questions with these lanes:
 
 These lanes are derived, not directly stored as the lifecycle source of truth. In v1 dashboard/API rows, `operator_stage` and `operator_lane` are the canonical lane names above. More specific compatibility detail, such as `run_complete_draft_needed` or `finalization_needed`, belongs in `operator_detail_stage` and should be treated as drill-down context rather than the primary workflow vocabulary.
 
+Operator-facing labels must stay grade-school simple even when raw keys remain stable API/debug fields:
+
+| Operator/debug key | User-facing label |
+| --- | --- |
+| `running` | Running |
+| `ready_queue` | Ready |
+| `needs_operator` / `blocked_needs_operator` | Needs Attention |
+| `complete_no_paper` / `run_complete_no_paper` | Done / No Paper |
+| `write_paper` / `run_complete_draft_needed` | Write Paper |
+| `automate_publication` / `finalization_needed` | Finalize Draft |
+| `ready_to_publish` | Publish / Import |
+| `published` | Published |
+| `paused` | Paused |
+| `historical` | Historical |
+
+Do not show raw compatibility phrases such as `Run Complete Draft Needed`, `Wake Ready`, `Draft Review`, `Approved`, or `Review` as primary operator labels. They are implementation/debug evidence only.
+
 Count fields follow the same split:
 
 - `operator_counts` groups rows by canonical operator lane and keeps `operator_stage`/`operator_lane` vocabulary user-facing.

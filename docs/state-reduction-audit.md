@@ -21,7 +21,7 @@ Operator-facing surfaces should lead with the operator lane, not the raw value.
 | `complete_no_paper` | Worker delivery is complete, but the paper decision gate is not actionable-positive. |
 | `write_paper` | A positive completed run has no paper yet and can be drafted by explicit bounded automation. |
 | `automate_publication` | A paper artifact exists and should flow through automated rewrite/finalization/package steps. |
-| `ready_to_publish` | A publication draft has a finalized automation package and is ready for corpus import. |
+| `ready_to_publish` | A publication draft has a finalized automation package and no corpus-import ledger row. |
 | `published` | The paper is represented by a public/corpus import ledger. |
 | `paused` | Work is intentionally held by maintenance or policy. |
 | `historical` | Terminal, provenance, debug, or imported evidence that is not current operator work. |
@@ -86,7 +86,7 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | --- | ---: | --- | --- | --- | --- |
 | `deprecated` | 109 | `historical` | `keep` |  | source/provenance status only |
 | `discarded` | 115 | `historical` | `keep` |  | source/provenance status only |
-| `exploring` | 355 | `ready_queue` | `keep` |  | included by default intake policy |
+| `exploring` | 356 | `ready_queue` | `keep` |  | included by default intake policy |
 | `parked` | 51 | `historical` | `keep` |  | source/provenance status only |
 | `testing` | 117 | `ready_queue` | `keep` |  | included by default intake policy |
 | `unknown` | 12 | `historical` | `legacy_internal` |  | source/provenance status only |
@@ -103,7 +103,7 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | `eligible` | 0 | `write_paper` | `legacy_internal` | `draft_generating` | paper eligibility now lives in paper_eligibility/write_needed |
 | `finalized` | 0 | `ready_to_publish` | `legacy_internal` | `publication_draft + publication_automation.finalized` | old flattened paper readiness state |
 | `human_review_required` | 0 | `needs_operator` | `migrate_after_freeze` | `blocked` | manual paper review is not a normal workflow |
-| `publication_draft` | 494 | `automate_publication` | `keep` |  | publication readiness also requires finalized automation package |
+| `publication_draft` | 495 | `automate_publication` | `keep` |  | publication readiness also requires finalized automation package |
 | `publication_generating` | 0 | `running` | `keep` |  | publication rewrite/finalization is active |
 
 ### `project_decisions.decision_gate_state`
@@ -114,8 +114,8 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | `missing` | 0 | `complete_no_paper` | `keep` |  | missing decision is not writable |
 | `needs_review` | 0 | `complete_no_paper` | `migrate_after_freeze` | `unknown` | ambiguous decisions must not become paper work |
 | `negative` | 63 | `complete_no_paper` | `keep` |  | not writable |
-| `positive` | 372 | `write_paper` | `keep` |  | only state allowed to create actionable write_needed |
-| `unknown` | 158 | `complete_no_paper` | `keep` |  | unknown decision is not writable |
+| `positive` | 375 | `write_paper` | `keep` |  | only state allowed to create actionable write_needed |
+| `unknown` | 156 | `complete_no_paper` | `keep` |  | unknown decision is not writable |
 
 ### `projects.origin_idea_status`
 
@@ -123,7 +123,7 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | --- | ---: | --- | --- | --- | --- |
 | `deprecated` | 0 | `historical` | `keep` |  | source/provenance status only |
 | `discarded` | 0 | `historical` | `keep` |  | source/provenance status only |
-| `exploring` | 356 | `ready_queue` | `keep` |  | included by default intake policy |
+| `exploring` | 357 | `ready_queue` | `keep` |  | included by default intake policy |
 | `parked` | 0 | `historical` | `keep` |  | source/provenance status only |
 | `testing` | 118 | `ready_queue` | `keep` |  | included by default intake policy |
 | `unknown` | 132 | `historical` | `legacy_internal` |  | source/provenance status only |
@@ -138,7 +138,7 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | `changes_requested` | 0 | `needs_operator` | `migrate_after_freeze` | `blocked` | legacy paper-review correction state |
 | `claimed` | 0 | `automate_publication` | `keep` |  | automation actor has claimed the item |
 | `deferred` | 0 | `historical` | `keep` |  | intentionally skipped automation item |
-| `finalized` | 491 | `ready_to_publish` | `keep` |  | finalization package is ready |
+| `finalized` | 492 | `ready_to_publish` | `keep` |  | finalization package is ready |
 | `in_review` | 0 | `automate_publication` | `migrate_after_freeze` | `claimed` | legacy paper-review running state |
 | `queued` | 0 | `automate_publication` | `keep` |  | automation work is queued |
 | `rejected` | 5 | `historical` | `keep` |  | terminal non-publication automation state |
@@ -170,7 +170,7 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | `session_finished_ready` | 0 | `historical` | `alias` | `wake_ready` | alternate delivery-complete callback |
 | `unknown` | 0 | `historical` | `legacy_internal` |  | imported run rows without reliable lifecycle evidence |
 | `waiting_external_evidence` | 1 | `needs_operator` | `keep` |  | external/worker evidence is missing |
-| `wake_ready` | 475 | `historical` | `keep` |  | delivery signal only; not a paper-positive signal |
+| `wake_ready` | 476 | `historical` | `keep` |  | delivery signal only; not a paper-positive signal |
 
 ### `queue_items.status`
 
@@ -179,7 +179,7 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | `awaiting_wake` | 0 | `running` | `keep` |  | worker callback is expected |
 | `blocked` | 9 | `needs_operator` | `keep` |  | explicit blocker |
 | `canceled` | 0 | `historical` | `keep` |  | terminal no-action state |
-| `completed` | 475 | `complete_no_paper` | `keep` |  | paper action is derived from project decision and paper ledgers |
+| `completed` | 476 | `complete_no_paper` | `keep` |  | paper action is derived from project decision and paper ledgers |
 | `dispatch_error` | 0 | `needs_operator` | `keep` |  | dispatch failed and needs inspection |
 | `dispatching` | 0 | `running` | `keep` |  | dispatch request is in flight |
 | `needs_review` | 0 | `needs_operator` | `migrate_after_freeze` | `blocked` | legacy queue attention wording |
@@ -210,7 +210,7 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | `session_finished_ready` | 0 | `historical` | `alias` | `wake_ready` | alternate delivery-complete callback |
 | `unknown` | 0 | `historical` | `legacy_internal` |  | imported run rows without reliable lifecycle evidence |
 | `waiting_external_evidence` | 0 | `needs_operator` | `keep` |  | external/worker evidence is missing |
-| `wake_ready` | 5 | `historical` | `keep` |  | delivery signal only; not a paper-positive signal |
+| `wake_ready` | 6 | `historical` | `keep` |  | delivery signal only; not a paper-positive signal |
 
 ### `runs.state`
 
@@ -232,4 +232,4 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | `session_finished_ready` | 0 | `historical` | `alias` | `wake_ready` | alternate delivery-complete callback |
 | `unknown` | 240 | `historical` | `legacy_internal` |  | imported run rows without reliable lifecycle evidence |
 | `waiting_external_evidence` | 1 | `needs_operator` | `keep` |  | external/worker evidence is missing |
-| `wake_ready` | 475 | `historical` | `keep` |  | delivery signal only; not a paper-positive signal |
+| `wake_ready` | 476 | `historical` | `keep` |  | delivery signal only; not a paper-positive signal |

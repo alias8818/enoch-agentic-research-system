@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from omx_wake_gate.config import GateConfig
-from omx_wake_gate.control_plane.read_models import operator_stage_for_record, paper_source_fingerprint
+from omx_wake_gate.control_plane.read_models import OPERATOR_DETAIL_LABELS, OPERATOR_LANE_LABELS, operator_stage_for_record, paper_source_fingerprint
 from omx_wake_gate.control_plane.state_contract import OperatorLane
 from omx_wake_gate.control_plane.store import REVIEW_CHECKLIST_DEFINITION
 from omx_wake_gate.control_plane.router import create_control_plane_router
@@ -71,6 +71,38 @@ class OperatorStatusTests(unittest.TestCase):
                 self.assertEqual(translated["operator_lane"], lane)
                 self.assertEqual(translated["operator_detail_stage"], detail_stage)
                 self.assertIs(translated["operator_attention"], attention)
+
+    def test_operator_labels_use_grade_school_vocabulary(self) -> None:
+        expected_lane_labels = {
+            "running": "Running",
+            "ready_queue": "Ready",
+            "needs_operator": "Needs Attention",
+            "complete_no_paper": "Done / No Paper",
+            "write_paper": "Write Paper",
+            "automate_publication": "Finalize Draft",
+            "ready_to_publish": "Publish / Import",
+            "published": "Published",
+            "paused": "Paused",
+            "historical": "Historical",
+        }
+        self.assertEqual(OPERATOR_LANE_LABELS, expected_lane_labels)
+        risky_words = ("Review", "Approved", "Wake", "Session", "Draft Needed", "Run Complete")
+        for row in (
+            {"status": "queued"},
+            {"status": "blocked"},
+            {"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project"},
+            {"paper_id": "paper-1", "paper_status": "publication_draft"},
+            {"paper_id": "paper-2", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json"},
+            {"paper_id": "paper-imported", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json", "corpus_imported": True},
+        ):
+            translated = operator_stage_for_record(row)
+            labels = (translated["operator_stage_label"], translated["operator_detail_stage_label"])
+            for label in labels:
+                for word in risky_words:
+                    self.assertNotIn(word, label)
+        for raw_detail, label in OPERATOR_DETAIL_LABELS.items():
+            if "_" in raw_detail:
+                self.assertNotIn(raw_detail.replace("_", " ").title(), label)
 
     def test_v1_endpoints_expose_operator_status_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

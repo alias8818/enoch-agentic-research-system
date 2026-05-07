@@ -26,6 +26,32 @@ READY_REVIEW_STATUSES = PUBLICATION_READY_AUTOMATION_STATUSES
 # flow through rewrite/finalization automatically unless explicitly rejected.
 ATTENTION_REVIEW_STATUSES: set[str] = set()
 
+OPERATOR_LANE_LABELS: dict[str, str] = {
+    OperatorLane.RUNNING.value: "Running",
+    OperatorLane.READY_QUEUE.value: "Ready",
+    OperatorLane.NEEDS_OPERATOR.value: "Needs Attention",
+    OperatorLane.COMPLETE_NO_PAPER.value: "Done / No Paper",
+    OperatorLane.WRITE_PAPER.value: "Write Paper",
+    OperatorLane.AUTOMATE_PUBLICATION.value: "Finalize Draft",
+    OperatorLane.READY_TO_PUBLISH.value: "Publish / Import",
+    OperatorLane.PUBLISHED.value: "Published",
+    OperatorLane.PAUSED.value: "Paused",
+    OperatorLane.HISTORICAL.value: "Historical",
+}
+
+OPERATOR_DETAIL_LABELS: dict[str, str] = {
+    "blocked_needs_operator": "Needs Attention",
+    "paused_work": "Paused",
+    "run_complete_no_paper": "Done / No Paper",
+    "published": "Published",
+    "ready_to_publish": "Publish / Import",
+    "finalization_needed": "Finalize Draft",
+    "draft_created": "Draft Exists",
+    "running": "Running",
+    "idea_queued": "Ready",
+    "run_complete_draft_needed": "Write Paper",
+}
+
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
@@ -62,10 +88,10 @@ def _stage(
 ) -> dict[str, Any]:
     stage = {
         "operator_stage": lane.value,
-        "operator_stage_label": lane.value.replace("_", " ").title(),
+        "operator_stage_label": OPERATOR_LANE_LABELS.get(lane.value, lane.value.replace("_", " ").title()),
         "operator_lane": lane.value,
         "operator_detail_stage": detail_label,
-        "operator_detail_stage_label": detail_label.replace("_", " ").title(),
+        "operator_detail_stage_label": OPERATOR_DETAIL_LABELS.get(detail_label, detail_label.replace("_", " ").title()),
         "operator_tone": tone,
         "operator_attention": attention,
         "operator_next_step": next_step,
@@ -617,7 +643,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         "definitions": {
             "write_needed": "completed runs with no live paper row that currently pass the paper-positive decision gate",
             "raw_completed_no_paper_candidates": "completed no-paper rows before checking local project decision artifacts",
-            "not_writable_by_decision_gate": "completed no-paper rows rejected by local project decision artifacts as negative, needs-review, or otherwise non-positive",
+            "not_writable_by_decision_gate": "completed no-paper rows rejected by local project decision artifacts as negative, ambiguous, or otherwise non-positive",
             "finalize_needed": "publication drafts missing automated finalization package",
             "publish_ready": "finalized publication drafts that are missing a corpus-import ledger row",
             "missing_from_corpus": "same as publish_ready; actionable corpus import work only",
@@ -640,7 +666,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         "paper_pipeline": paper_pipeline,
         "operator_model": {
             "source": "control_plane.read_models.operator_stage_for_record",
-            "raw_state_note": "wake_ready/session_finished_ready are worker-delivery callbacks; paper polarity comes from decision artifacts and paper review/finalization state.",
+            "raw_state_note": "wake_ready/session_finished_ready are worker-delivery callbacks; paper polarity comes from decision artifacts and publication automation/finalization state.",
         },
         "active_items": active,
         "next_candidate": summarize_queue_row(next_candidate) if next_candidate else None,
