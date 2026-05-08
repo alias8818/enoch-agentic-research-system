@@ -36,14 +36,18 @@ fetch('highlights.json')
   .then((data) => {
     cards.innerHTML = data.featured.map((item) => `
       <article class="card">
-        <span class="tag">${esc(item.category)}</span>
-        <h3>${esc(item.title)}</h3>
-        <p>${esc(item.why_it_matters)}</p>
-        <p class="result"><strong>Reported result:</strong> ${esc(item.result)}</p>
-        <p><strong>Bounded by:</strong> ${esc(item.bounds)}</p>
-        <p><strong>Gate scope:</strong> ${esc(item.gate_scope || 'packaging/provenance')} lint; strict claim/evidence audit is separate; not peer-reviewed or independently replicated unless the artifact says so.</p>
-        ${item.falsification_prompt ? `<p><strong>Falsification prompt:</strong> ${esc(item.falsification_prompt)}</p>` : ''}
-        <div class="meta"><span>${esc(item.public_id)}</span><a href="${corpusBase + encodeURI(item.paper_path)}">Read artifact</a></div>
+        <div class="card-main">
+          <div class="card-kicker"><span class="tag">${esc(item.category)}</span><span>${esc(item.public_id)}</span></div>
+          <h3>${esc(item.title)}</h3>
+          <p>${esc(item.why_it_matters)}</p>
+        </div>
+        <div class="card-proof">
+          <p class="result"><strong>Reported result:</strong> ${esc(item.result)}</p>
+          <p><strong>Bounded by:</strong> ${esc(item.bounds)}</p>
+          <p><strong>Gate:</strong> ${esc(item.gate_scope || 'packaging/provenance')} lint; strict claim/evidence audit is separate.</p>
+          ${item.falsification_prompt ? `<p><strong>Falsify:</strong> ${esc(item.falsification_prompt)}</p>` : ''}
+          <a class="artifact-link" href="${corpusBase + encodeURI(item.paper_path)}">Read artifact →</a>
+        </div>
       </article>`).join('');
   })
   .catch(() => {
