@@ -17,7 +17,7 @@ function renderManifest(manifest) {
   artifactCount.textContent = total.toLocaleString();
   gatePassCount.textContent = `${Number(manifest.packaging_provenance_pass_count).toLocaleString()}/${total.toLocaleString()}`;
   strictAuditCount.textContent = `${strictPass.toLocaleString()}/${strictTotal.toLocaleString()}`;
-  manifestNote.innerHTML = `The ${strictPass.toLocaleString()}/${strictTotal.toLocaleString()} number is intentional. I built the strict audit gate that fails ${strictBlocked.toLocaleString()} of my own system's ${strictTotal.toLocaleString()} canonical outputs, and I headline it here because the gate is the product. <a href="#strict-pass-examples">See the ${strictPass.toLocaleString()} that pass →</a>`;
+  manifestNote.innerHTML = `Strict audit passes ${strictPass.toLocaleString()}/${strictTotal.toLocaleString()}; ${strictBlocked.toLocaleString()} failed claims stay visible because the gate is the product. <a href="#strict-pass-examples">See the ${strictPass.toLocaleString()} that pass →</a>`;
 }
 
 fetch('ecosystem.json', {cache: 'no-cache'})
