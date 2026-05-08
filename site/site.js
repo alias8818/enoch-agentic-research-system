@@ -10,10 +10,14 @@ function renderManifest(manifest) {
   if (!manifest || !Number.isFinite(Number(manifest.artifact_count)) || !Number.isFinite(Number(manifest.packaging_provenance_pass_count)) || !Number.isFinite(Number(manifest.strict_claim_evidence_pass_count))) {
     throw new Error('manifest missing required counts');
   }
-  artifactCount.textContent = Number(manifest.artifact_count).toLocaleString();
-  gatePassCount.textContent = `${Number(manifest.packaging_provenance_pass_count).toLocaleString()}/${Number(manifest.artifact_count).toLocaleString()}`;
-  strictAuditCount.textContent = `${Number(manifest.strict_claim_evidence_pass_count).toLocaleString()}/${Number(manifest.strict_claim_evidence_total_count || manifest.artifact_count).toLocaleString()}`;
-  manifestNote.textContent = `Lint gate: ${manifest.gate_name || 'packaging_provenance_gate'} ${manifest.gate_version || ''}. Strict audit: ${manifest.strict_claim_evidence_gate_status || 'blocked_audit_gaps'}. Not validated: scientific correctness, peer review, or independent replication.`;
+  const total = Number(manifest.artifact_count);
+  const strictPass = Number(manifest.strict_claim_evidence_pass_count);
+  const strictTotal = Number(manifest.strict_claim_evidence_total_count || manifest.artifact_count);
+  const strictBlocked = Math.max(strictTotal - strictPass, 0);
+  artifactCount.textContent = total.toLocaleString();
+  gatePassCount.textContent = `${Number(manifest.packaging_provenance_pass_count).toLocaleString()}/${total.toLocaleString()}`;
+  strictAuditCount.textContent = `${strictPass.toLocaleString()}/${strictTotal.toLocaleString()}`;
+  manifestNote.innerHTML = `The ${strictPass.toLocaleString()}/${strictTotal.toLocaleString()} number is intentional. I built the strict audit gate that fails ${strictBlocked.toLocaleString()} of my own system's ${strictTotal.toLocaleString()} canonical outputs, and I headline it here because the gate is the product. <a href="#strict-pass-examples">See the ${strictPass.toLocaleString()} that pass →</a>`;
 }
 
 fetch('ecosystem.json', {cache: 'no-cache'})
