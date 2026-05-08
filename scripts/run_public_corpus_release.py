@@ -141,12 +141,39 @@ def build_steps(args: argparse.Namespace) -> list[Step]:
         if args.ledger_database_url:
             sync_cmd.extend(["--database-url", args.ledger_database_url, "--apply"])
             steps.append(Step("sync Supabase corpus_imports", sync_cmd, system))
+            steps.append(
+                Step(
+                    "validate Supabase corpus_imports",
+                    [
+                        sys.executable,
+                        "scripts/validate_corpus_import_ledger.py",
+                        "--corpus",
+                        str(corpus),
+                        "--db-url",
+                        args.ledger_database_url,
+                    ],
+                    system,
+                )
+            )
         else:
             sql_path = Path(args.ledger_sql_output)
             sync_cmd.extend(["--sql-output", str(sql_path)])
             steps.append(Step("render Supabase corpus_imports sync SQL", sync_cmd, system))
             if args.ledger_use_linked:
                 steps.append(Step("apply Supabase corpus_imports sync SQL", ["supabase", "db", "query", "--linked", "-f", str(sql_path)], system))
+                steps.append(
+                    Step(
+                        "validate Supabase corpus_imports",
+                        [
+                            sys.executable,
+                            "scripts/validate_corpus_import_ledger.py",
+                            "--corpus",
+                            str(corpus),
+                            "--linked",
+                        ],
+                        system,
+                    )
+                )
             else:
                 steps.append(Step("manual Supabase corpus_imports sync required", ["echo", f"Run: supabase db query --linked -f {sql_path}"], system))
 

@@ -1,7 +1,13 @@
 import json
 from pathlib import Path
 
-from scripts.sync_corpus_import_ledger import load_public_records, match_public_records_to_live_papers, render_supabase_cli_sql, source_fingerprint
+from scripts.sync_corpus_import_ledger import (
+    load_public_records,
+    match_public_records_to_live_papers,
+    render_supabase_cli_sql,
+    source_fingerprint,
+)
+from scripts.validate_corpus_import_ledger import render_validation_sql, validate_metrics
 
 
 def test_source_fingerprint_matches_public_corpus_contract() -> None:
@@ -91,3 +97,36 @@ def test_match_public_records_to_live_papers_uses_python_fingerprint() -> None:
     assert len(matched) == 1
     assert matched[0].paper_id == paper_id
     assert matched[0].artifact_slug == "paper-one"
+
+
+def test_validate_corpus_import_ledger_sql_checks_stale_and_missing(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus"
+    (corpus / "papers").mkdir(parents=True)
+    (corpus / "papers" / "index.json").write_text(
+        json.dumps({"papers": [{"source_record_fingerprint": "fp1", "slug": "paper-one", "public_id": "id"}]}),
+        encoding="utf-8",
+    )
+
+    sql = render_validation_sql(corpus=corpus)
+
+    assert "stale_corpus_imports" in sql
+    assert "missing_public_records" in sql
+    assert "dashboard_corpus_imported" in sql
+    assert "corpus_imports_total" in sql
+
+
+def test_validate_corpus_import_ledger_metrics_fail_on_drift() -> None:
+    failures = validate_metrics(
+        {
+            "public_index_rows": 376,
+            "corpus_imports_total": 493,
+            "dashboard_corpus_imported": 493,
+            "stale_corpus_imports": 117,
+            "missing_public_records": 1,
+        }
+    )
+
+    assert "corpus_imports_total 493 != public_index_rows 376" in failures
+    assert "dashboard_corpus_imported 493 != public_index_rows 376" in failures
+    assert "stale_corpus_imports 117 != 0" in failures
+    assert "missing_public_records 1 != 0" in failures

@@ -122,6 +122,17 @@ def sync_corpus_import_ledger(system: Repo, corpus: Repo, *, database_url: str, 
             ],
             cwd=system.path,
         )
+        run(
+            [
+                sys.executable,
+                "scripts/validate_corpus_import_ledger.py",
+                "--corpus",
+                str(corpus.path),
+                "--db-url",
+                database_url,
+            ],
+            cwd=system.path,
+        )
         return
     if not use_linked:
         raise SystemExit("--sync-corpus-ledger requires --ledger-database-url/ENOCH_SUPABASE_DATABASE_URL or --ledger-use-linked")
@@ -140,6 +151,16 @@ def sync_corpus_import_ledger(system: Repo, corpus: Repo, *, database_url: str, 
             cwd=system.path,
         )
         run(["supabase", "db", "query", "--linked", "-f", str(sql_path)], cwd=system.path)
+        run(
+            [
+                sys.executable,
+                "scripts/validate_corpus_import_ledger.py",
+                "--corpus",
+                str(corpus.path),
+                "--linked",
+            ],
+            cwd=system.path,
+        )
 
 def run_local_release_checks(system: Repo, corpus: Repo, docs: Repo, profile_site: Repo, owner_profile: Repo) -> None:
     with tempfile.TemporaryDirectory(prefix="enoch-release-") as tmp:

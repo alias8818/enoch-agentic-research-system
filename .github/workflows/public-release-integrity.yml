@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  ENOCH_SUPABASE_DATABASE_URL: ${{ secrets.ENOCH_SUPABASE_DATABASE_URL }}
+
 jobs:
   public-release-integrity:
     name: public-release-integrity
@@ -46,3 +49,17 @@ jobs:
         working-directory: enoch-agentic-research-system
         run: |
           python3 scripts/validate_public_release.py --system . --corpus ../enoch-ai-research-corpus --docs ../enoch-docs --profile ../alias8818.github.io --owner-profile ../alias8818 --generated-manifest /tmp/enoch-ecosystem.generated.json
+      - name: Render Supabase corpus import ledger validation SQL
+        working-directory: enoch-agentic-research-system
+        run: |
+          python3 scripts/validate_corpus_import_ledger.py --corpus ../enoch-ai-research-corpus --sql-output /tmp/enoch-corpus-ledger-validate.sql
+      - name: Set up Supabase CLI for live corpus ledger drift check
+        if: ${{ env.ENOCH_SUPABASE_DATABASE_URL != '' }}
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.98.1
+      - name: Validate live Supabase corpus import ledger
+        if: ${{ env.ENOCH_SUPABASE_DATABASE_URL != '' }}
+        working-directory: enoch-agentic-research-system
+        run: |
+          python3 scripts/validate_corpus_import_ledger.py --corpus ../enoch-ai-research-corpus
