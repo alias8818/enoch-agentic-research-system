@@ -40,3 +40,5 @@ def test_release_plan_with_agentic_publish_lanes(tmp_path: Path) -> None:
     assert "reconcile control-plane papers" in names
     assert "render Supabase corpus_imports sync SQL" in names
     assert "apply Supabase corpus_imports sync SQL" in names
+    sync_step = next(step for step in build_steps(args) if step.name == "render Supabase corpus_imports sync SQL")
+    assert "--prune-stale" in sync_step.cmd

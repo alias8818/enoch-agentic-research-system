@@ -49,6 +49,26 @@ def test_render_supabase_cli_sql_escapes_values(tmp_path: Path) -> None:
     assert "operator_dashboard_counts" in sql
 
 
+def test_render_supabase_cli_sql_can_prune_stale_rows_and_roll_back(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus"
+    (corpus / "papers").mkdir(parents=True)
+    (corpus / "papers" / "index.json").write_text(
+        json.dumps({"papers": [{"source_record_fingerprint": "fp1", "slug": "paper-one", "public_id": "id"}]}),
+        encoding="utf-8",
+    )
+    records = load_public_records(corpus)
+
+    sql = render_supabase_cli_sql(records, prune_stale=True, rollback=True)
+
+    assert sql.startswith("begin;\n")
+    assert "delete from enoch.corpus_imports ci" in sql
+    assert "not exists (" in sql
+    assert "tmp_pruned_rows" in sql
+    assert "stale_corpus_imports" in sql
+    assert "missing_public_records" in sql
+    assert sql.rstrip().endswith("rollback;")
+
+
 def test_match_public_records_to_live_papers_uses_python_fingerprint() -> None:
     paper_id = "paper-1"
     records = [

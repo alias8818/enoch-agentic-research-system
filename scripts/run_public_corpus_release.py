@@ -137,7 +137,7 @@ def build_steps(args: argparse.Namespace) -> list[Step]:
         steps.append(Step("reconcile control-plane papers", reconcile_cmd, system, env={"ENOCH_CONTROL_TOKEN": token}))
 
     if args.sync_corpus_ledger:
-        sync_cmd = [sys.executable, "scripts/sync_corpus_import_ledger.py", "--corpus", str(corpus)]
+        sync_cmd = [sys.executable, "scripts/sync_corpus_import_ledger.py", "--corpus", str(corpus), "--prune-stale"]
         if args.ledger_database_url:
             sync_cmd.extend(["--database-url", args.ledger_database_url, "--apply"])
             steps.append(Step("sync Supabase corpus_imports", sync_cmd, system))
