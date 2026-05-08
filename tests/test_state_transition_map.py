@@ -59,6 +59,25 @@ def test_transition_map_matches_decision_gate_operator_invariants() -> None:
     assert followup["operator_attention"] is False
     assert followup["paper_draft_eligible"] is False
 
+    followup_row = {
+        **base,
+        "decision_gate_state": "negative",
+        "followup_recommended": True,
+        "followup_title": "Adjacent bounded test",
+        "followup_hypothesis": "A narrower condition could still work.",
+    }
+    launched_followup = operator_stage_for_record({**followup_row, "followup_launched": True})
+    assert launched_followup["operator_stage"] == "complete_no_paper"
+    assert launched_followup["operator_detail_stage"] == "run_complete_no_paper"
+
+    capped_followup = operator_stage_for_record({**followup_row, "followup_depth": 2})
+    assert capped_followup["operator_stage"] == "complete_no_paper"
+    assert capped_followup["operator_detail_stage"] == "run_complete_no_paper"
+
+    source_capped_followup = operator_stage_for_record({**followup_row, "followup_depth": 1, "source_followup_depth": 2})
+    assert source_capped_followup["operator_stage"] == "complete_no_paper"
+    assert source_capped_followup["operator_detail_stage"] == "run_complete_no_paper"
+
 
 def test_transition_map_matches_publication_readiness_invariants() -> None:
     draft_only = operator_stage_for_record({"paper_id": "p1", "paper_status": "publication_draft"})

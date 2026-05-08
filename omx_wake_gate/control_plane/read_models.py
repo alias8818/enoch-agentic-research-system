@@ -184,7 +184,7 @@ def _listish(value: Any) -> list[str]:
 
 def _followup_from_row(row: dict[str, Any]) -> dict[str, Any]:
     try:
-        depth = int(row.get("followup_depth") or 0)
+        depth = max(int(row.get("followup_depth") or 0), int(row.get("source_followup_depth") or 0))
     except (TypeError, ValueError):
         depth = 0
     return {
@@ -200,7 +200,17 @@ def _followup_from_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _is_followup_candidate(row: dict[str, Any]) -> bool:
-    return _truthy(row.get("followup_recommended")) and _text(row.get("status") or row.get("queue_status")) == "completed" and not _truthy(row.get("manual_review_required"))
+    try:
+        depth = max(int(row.get("followup_depth") or 0), int(row.get("source_followup_depth") or 0))
+    except (TypeError, ValueError):
+        depth = 0
+    return (
+        _truthy(row.get("followup_recommended"))
+        and _text(row.get("status") or row.get("queue_status")) == "completed"
+        and not _truthy(row.get("manual_review_required"))
+        and not _truthy(row.get("followup_launched"))
+        and depth < 2
+    )
 
 
 def _paper_draft_gate_from_row_decision(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -475,6 +485,8 @@ def summarize_queue_row(row: dict[str, Any]) -> dict[str, Any]:
         "followup_success_threshold": row.get("followup_success_threshold", ""),
         "followup_stop_condition": row.get("followup_stop_condition", ""),
         "followup_depth": row.get("followup_depth", 0),
+        "source_followup_depth": row.get("source_followup_depth", 0),
+        "followup_launched": row.get("followup_launched", False),
         "project_dir": row.get("project_dir", ""),
         "related_paper_id": row.get("related_paper_id", ""),
         "related_paper_status": row.get("related_paper_status", ""),

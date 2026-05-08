@@ -687,6 +687,7 @@ class ControlPlaneStore:
                     (SELECT ci.artifact_slug FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_artifact_slug,
                     (SELECT ci.source_record_fingerprint FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_source_record_fingerprint,
                     (SELECT CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_imported,
+                    EXISTS (SELECT 1 FROM events ev WHERE ev.event_type = 'followup.launch' AND ev.entity_type = 'project' AND ev.entity_id = q.project_id) AS followup_launched,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)
@@ -790,6 +791,7 @@ class ControlPlaneStore:
                     (SELECT ci.artifact_slug FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_artifact_slug,
                     (SELECT ci.source_record_fingerprint FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_source_record_fingerprint,
                     (SELECT CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_imported,
+                    EXISTS (SELECT 1 FROM events ev WHERE ev.event_type = 'followup.launch' AND ev.entity_type = 'project' AND ev.entity_id = q.project_id) AS followup_launched,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)
@@ -1532,6 +1534,7 @@ class ControlPlaneStore:
                     (SELECT ci.artifact_slug FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_artifact_slug,
                     (SELECT ci.source_record_fingerprint FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_source_record_fingerprint,
                     (SELECT CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_imported,
+                    EXISTS (SELECT 1 FROM events ev WHERE ev.event_type = 'followup.launch' AND ev.entity_type = 'project' AND ev.entity_id = q.project_id) AS followup_launched,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)
@@ -1729,6 +1732,7 @@ class ControlPlaneStore:
             and _text(row.get("status")) == QueueStatus.COMPLETED.value
             and not _bool(row.get("manual_review_required"))
             and _int(row.get("followup_depth"), 0) < max_followup_depth
+            and not _bool(row.get("followup_launched"))
             and (not project_id or _text(row.get("project_id")) == project_id)
         ]
         candidates.sort(key=lambda row: _text(row.get("updated_at")), reverse=True)

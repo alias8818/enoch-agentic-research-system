@@ -95,12 +95,20 @@ def _stable_followup_id(parent_project_id: str, title: str, hypothesis: str) -> 
     return f"{slug}-{digest}"[:80]
 
 
-def _followup_depth_from_payload(payload: dict[str, Any]) -> int:
+def _followup_depth_from_payload(payload: dict[str, Any] | None) -> int:
+    if not isinstance(payload, dict):
+        return 0
     source = payload.get("source_payload_json") if isinstance(payload.get("source_payload_json"), dict) else payload
     try:
         return int(source.get("followup_depth") or source.get("parent_followup_depth") or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _enforced_followup_depth(decision_payload: dict[str, Any], *lineage_payloads: dict[str, Any] | None) -> int:
+    """Never let worker output reset controller-owned follow-up lineage depth."""
+
+    return max([_followup_depth_from_payload(decision_payload), *[_followup_depth_from_payload(payload) for payload in lineage_payloads]])
 
 
 def _decision_summary(gate: dict[str, Any]) -> str:
@@ -507,10 +515,27 @@ class SupabaseReadOnlyControlPlaneStore:
                 order by d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as followup_depth,
+              exists (
+                select 1
+                from control_events ev
+                where ev.event_type = 'followup.launch'
+                  and ev.entity_type = 'project'
+                  and ev.entity_id = q.project_id
+              ) as followup_launched,
+              i.source_kind as idea_source_kind,
+              coalesce(i.source_payload_json, '{{}}'::jsonb) as idea_source_payload_json,
+              case
+                when coalesce(i.source_payload_json->>'followup_depth', '') ~ '^[0-9]+$'
+                then (i.source_payload_json->>'followup_depth')::integer
+                when coalesce(i.source_payload_json->>'parent_followup_depth', '') ~ '^[0-9]+$'
+                then (i.source_payload_json->>'parent_followup_depth')::integer
+                else 0
+              end as source_followup_depth,
               p.created_at as project_created_at,
               p.updated_at as project_updated_at
             from queue_items q
             join projects p using(project_id)
+            left join ideas i on i.idea_id = q.project_id
             {suffix}
             """
 
@@ -947,10 +972,25 @@ class SupabaseReadOnlyControlPlaneStore:
                               coalesce(pe.followup_required_evidence, '[]'::jsonb) as followup_required_evidence,
                               coalesce(pe.followup_success_threshold, '') as followup_success_threshold,
                               coalesce(pe.followup_stop_condition, '') as followup_stop_condition,
-                              coalesce(pe.followup_depth, 0) as followup_depth
+                              coalesce(pe.followup_depth, 0) as followup_depth,
+                              case
+                                when coalesce(i.source_payload_json->>'followup_depth', '') ~ '^[0-9]+$'
+                                then (i.source_payload_json->>'followup_depth')::integer
+                                when coalesce(i.source_payload_json->>'parent_followup_depth', '') ~ '^[0-9]+$'
+                                then (i.source_payload_json->>'parent_followup_depth')::integer
+                                else 0
+                              end as source_followup_depth,
+                              exists (
+                                select 1
+                                from control_events ev
+                                where ev.event_type = 'followup.launch'
+                                  and ev.entity_type = 'project'
+                                  and ev.entity_id = q.project_id
+                              ) as followup_launched
                             from queue_items q
                             join projects p using(project_id)
                             left join paper_eligibility pe on pe.project_id = q.project_id
+                            left join ideas i on i.idea_id = q.project_id
                             where exists (
                                 select 1
                                 from paper_eligibility candidate
@@ -2312,11 +2352,26 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             artifact_path = artifact_root_path / "project_decision.json"
         decision_payload = project_decision_payload(artifact_root_path)
         followup = followup_candidate_from_decision_payload(decision_payload)
-        payload = {"gate": gate, "project_root": str(artifact_root_path), "project_decision": decision_payload}
-        payload_json = _json(payload)
         run_id_value = _text(run_id) or None
+        idea_source_payload: dict[str, Any] = {}
         with self._connect() as conn:
             with conn.cursor() as cur:
+                source_row = cur.execute("select source_payload_json from ideas where idea_id = %s", (project_id,)).fetchone()
+                if source_row:
+                    raw_source = source_row[0] if not isinstance(source_row, dict) else source_row.get("source_payload_json")
+                    if isinstance(raw_source, dict):
+                        idea_source_payload = raw_source
+                    elif isinstance(raw_source, str):
+                        idea_source_payload = _json_dict(raw_source)
+                followup_depth = _enforced_followup_depth(decision_payload, {"source_payload_json": idea_source_payload})
+                payload = {
+                    "gate": gate,
+                    "project_root": str(artifact_root_path),
+                    "project_decision": decision_payload,
+                    "idea_source_payload_json": idea_source_payload,
+                    "enforced_followup_depth": followup_depth,
+                }
+                payload_json = _json(payload)
                 if run_id_value:
                     found_run = cur.execute("select 1 from runs where run_id = %s", (run_id_value,)).fetchone()
                     if not found_run:
@@ -2361,7 +2416,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         _json(followup.get("followup_required_evidence") or []),
                         _text(followup.get("followup_success_threshold")),
                         _text(followup.get("followup_stop_condition")),
-                        _followup_depth_from_payload(decision_payload),
+                        followup_depth,
                     ),
                 )
         return {
@@ -2373,6 +2428,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "decision_summary": _decision_summary(gate),
             "artifact_path": str(artifact_path),
             **followup,
+            "followup_depth": followup_depth,
         }
 
     def next_followup_candidate(self, *, project_id: str = "", max_followup_depth: int = 2) -> dict[str, Any] | None:
@@ -2380,8 +2436,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "q.status = %s",
             "q.manual_review_required = false",
             "coalesce(pe.followup_recommended, false) = true",
-            "coalesce(pe.followup_depth, 0) < %s",
+            "greatest(coalesce(pe.followup_depth, 0), case when coalesce(i.source_payload_json->>'followup_depth', '') ~ '^[0-9]+$' then (i.source_payload_json->>'followup_depth')::integer when coalesce(i.source_payload_json->>'parent_followup_depth', '') ~ '^[0-9]+$' then (i.source_payload_json->>'parent_followup_depth')::integer else 0 end) < %s",
             "not coalesce(pe.has_live_paper_row, false)",
+            "not exists (select 1 from control_events ev where ev.event_type = 'followup.launch' and ev.entity_type = 'project' and ev.entity_id = q.project_id)",
         ]
         params: list[Any] = [QueueStatus.COMPLETED.value, max_followup_depth]
         if project_id:

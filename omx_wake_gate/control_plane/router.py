@@ -435,6 +435,8 @@ You are running under the Enoch LangGraph hard-cutover controller.
 Project ID: {candidate.get('project_id') or ''}
 Source/provenance URL: {candidate.get('notion_page_url') or ''}
 Origin status: {candidate.get('origin_idea_status') or ''}
+Controller source kind: {candidate.get('idea_source_kind') or ''}
+Controller follow-up depth: {candidate.get('source_followup_depth') if candidate.get('source_followup_depth') is not None else candidate.get('followup_depth', 0)}
 
 ## Mission
 Turn this idea into a concrete, evidence-backed research result. Work autonomously inside the project directory. Prefer install/build/run/verify over blocking on missing ordinary dependencies. If the idea is not viable, produce a clear negative result with evidence.
@@ -486,7 +488,9 @@ Follow-up rules:
 - Set `followup_recommended: true` only when this run is no-paper but produced specific evidence for a bounded adjacent test.
 - Leave `followup_recommended` false for hard negatives, weak speculation, missing evidence, or ordinary incremental tweaks.
 - When recommending follow-up, set `followup_type` to `deepen`, `branch`, or `retry`, and provide a concrete title, hypothesis, required evidence, success threshold, and stop condition.
-- Do not chain indefinitely; preserve/increment `followup_depth` when present, and assume the controller will cap follow-ups at depth 2.
+- If the controller prompt/source metadata says this is a follow-up and provides `Controller follow-up depth`, copy that exact integer into `followup_depth`; do not reset it to 1.
+- If the current/controller follow-up depth is 2 or greater, set `followup_recommended: false` unless explicit controller instructions say otherwise; explain the cap in `recommended_next_action`.
+- Do not chain indefinitely; preserve controller lineage depth, and assume the controller will cap follow-ups at depth 2.
 """
 
 def _paper_record_from_candidate(candidate: dict, *, force: bool = False) -> PaperRecord:
