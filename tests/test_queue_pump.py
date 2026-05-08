@@ -35,8 +35,12 @@ class QueuePumpTests(unittest.TestCase):
                 return {"should_alert": False, "sent": False, "alerts_enabled": True}
             if path == "/control/papers/draft-next":
                 return {"action": "noop", "reason": "no eligible completed paper-draft candidate without paper remains"}
+            if path == "/control/api/v1/followups/launch-next":
+                if payload.get("dry_run"):
+                    return {"action": "dry_run_followup", "followup": {"idea_id": "followup-idea"}}
+                return {"action": "followup_queued", "followup": {"idea_id": "followup-idea"}}
             if path == "/control/dispatch-next":
-                return {"action": "live_dispatch", "candidate": {"project_id": "queued-idea"}}
+                return {"action": "live_dispatch", "candidate": {"project_id": payload.get("project_id", "queued-idea")}}
             raise AssertionError(path)
 
         with patch.object(queue_pump, "_load_config", return_value={"listen_host": "127.0.0.1", "listen_port": 8787, "omx_inbound_bearer_token": "t", "queue_pump_enabled": True}), \
@@ -72,6 +76,83 @@ class QueuePumpTests(unittest.TestCase):
         self.assertNotIn("/control/papers/draft-next", calls)
         self.assertNotIn("/control/dispatch-next", calls)
         self.assertEqual(output["dispatch"]["reason"], "no queued candidate")
+        self.assertEqual(output["followup_launch"]["reason"], "queue pump follow-up launch disabled")
+
+    def test_queue_pump_can_launch_one_followup_when_idle_and_enabled(self) -> None:
+        status = {
+            "flags": {"queue_paused": False, "maintenance_mode": False},
+            "dispatch_safe": False,
+            "dispatch_blockers": ["no queued dispatch candidate"],
+            "active_items": [],
+            "next_candidate": None,
+            "conflicts": [],
+        }
+        calls: list[tuple[str, dict]] = []
+
+        def fake_post(base_url: str, path: str, token: str, payload: dict, *, timeout: int = 30) -> dict:
+            calls.append((path, payload))
+            if path == "/control/api/preflight":
+                return {"ok": True, "checks": []}
+            if path == "/control/api/alerts/queue-check":
+                return {"should_alert": False, "sent": False, "alerts_enabled": True}
+            if path == "/control/api/v1/followups/launch-next":
+                if payload.get("dry_run"):
+                    return {"action": "dry_run_followup", "followup": {"idea_id": "followup-idea"}}
+                return {"action": "followup_queued", "followup": {"idea_id": "followup-idea"}}
+            if path == "/control/dispatch-next":
+                return {"action": "live_dispatch", "candidate": {"project_id": "followup-idea"}}
+            raise AssertionError(path)
+
+        with patch.object(
+            queue_pump,
+            "_load_config",
+            return_value={
+                "listen_host": "127.0.0.1",
+                "listen_port": 8787,
+                "omx_inbound_bearer_token": "t",
+                "queue_pump_enabled": True,
+                "queue_pump_followup_launch_enabled": True,
+            },
+        ), patch.object(queue_pump, "_post_json", side_effect=fake_post), patch.object(queue_pump, "_get_json", return_value=status):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = queue_pump.main()
+
+        output = json.loads(out.getvalue())
+        paths = [path for path, _payload in calls]
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            [path for path in paths if path == "/control/api/v1/followups/launch-next"],
+            ["/control/api/v1/followups/launch-next", "/control/api/v1/followups/launch-next"],
+        )
+        self.assertTrue(calls[2][1]["dry_run"])
+        self.assertFalse(calls[3][1]["dry_run"])
+        self.assertIn("/control/dispatch-next", paths)
+        self.assertEqual(output["followup_dry_run"]["action"], "dry_run_followup")
+        self.assertEqual(output["followup_launch"]["action"], "followup_queued")
+        self.assertEqual(output["dispatch"]["action"], "live_dispatch")
+
+    def test_queue_pump_does_not_launch_followup_when_queued_candidate_exists(self) -> None:
+        code, output, calls = self._run_main()
+        self.assertEqual(code, 0)
+        self.assertNotIn("/control/api/v1/followups/launch-next", calls)
+        self.assertEqual(output["followup_launch"]["reason"], "queued candidate already present")
+
+    def test_queue_pump_does_not_launch_followup_when_active_lane_exists(self) -> None:
+        status = {
+            "flags": {"queue_paused": False, "maintenance_mode": False},
+            "dispatch_safe": True,
+            "dispatch_blockers": [],
+            "active_items": [{"project_id": "running"}],
+            "next_candidate": None,
+            "conflicts": [],
+        }
+        code, output, calls = self._run_main(status=status)
+        self.assertEqual(code, 0)
+        self.assertNotIn("/control/api/v1/followups/launch-next", calls)
+        self.assertNotIn("/control/dispatch-next", calls)
+        self.assertEqual(output["followup_launch"]["reason"], "active worker lane present")
+        self.assertEqual(output["dispatch"]["reason"], "active worker lane present")
 
 
 if __name__ == "__main__":

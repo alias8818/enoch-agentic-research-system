@@ -205,7 +205,7 @@ sudo systemctl disable --now enoch-paper-draft-next.timer enoch-paper-draft-next
 sudo systemctl mask --now enoch-paper-draft-next.timer enoch-paper-draft-next.service
 ```
 
-By default, the queue alert pump is execution-only: it dispatches the next queued project when the control plane is idle and dispatch-safe, and it does not draft papers. To restore the older draft-before-dispatch compatibility behavior, set `"queue_pump_paper_draft_enabled": true`; if `/control/papers/draft-next` drafts a paper, that timer tick skips `/control/dispatch-next` so publication writing catches up before another idea is launched.
+By default, the queue alert pump is execution-only: it dispatches the next queued project when the control plane is idle and dispatch-safe, and it does not draft papers. It also does not launch follow-up investigations unless `"queue_pump_followup_launch_enabled": true` is set. With that flag enabled, an idle pump tick with no queued candidate dry-runs `/control/api/v1/followups/launch-next`, queues one bounded follow-up if selected, then dispatches it through `/control/dispatch-next`. To restore the older draft-before-dispatch compatibility behavior, set `"queue_pump_paper_draft_enabled": true`; if `/control/papers/draft-next` drafts a paper, that timer tick skips `/control/dispatch-next` so publication writing catches up before another idea is launched.
 
 If dispatch must remain disabled, leave `enoch-queue-alert-check.timer` disabled. Re-enable that timer only when the worker lane is healthy and dispatch should resume.
 

@@ -50,6 +50,7 @@
   "queue_alert_cooldown_sec": 1800,
   "queue_alert_hang_after_sec": 3600,
   "queue_pump_enabled": false,
+  "queue_pump_followup_launch_enabled": false,
   "queue_pump_paper_draft_enabled": false,
   "paper_writer_provider": "deterministic",
   "paper_writer_base_url": "https://api.synthetic.new/openai/v1",
