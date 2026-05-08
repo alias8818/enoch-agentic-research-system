@@ -31,9 +31,12 @@ DOC_FILES = [
     "guides/paper-artifacts.mdx",
 ]
 OWNER_PROFILE_FILES = ["README.md"]
+PERSONAL_SITE_FILES = ["index.html", "writing/index.html", "writing/ai-research-failure-rate.html"]
 HISTORIC_STALE_COUNT = re.compile(r"\b120\b|120/120")
-COUNT_PHRASE = re.compile(r"\b(\d{2,5})\b\s+(AI-generated artifacts indexed|AI-generated research artifacts|generated research artifacts|indexed artifacts|artifacts)", re.I)
-PASS_PHRASE = re.compile(r"\b(\d{2,5})\s*/\s*(\d{2,5})\b\s+(pass packaging/provenance|packaging/provenance passed|pass count|quality)", re.I)
+COUNT_PHRASE = re.compile(r"\b(\d{2,5})\b\s+(AI-generated artifacts indexed|AI-generated research artifacts|generated research artifacts|indexed artifacts|canonical AI-generated papers|canonical artifacts|canonical outputs|artifacts)", re.I)
+PASS_PHRASE = re.compile(r"\b(\d{2,5})\s*/\s*(\d{2,5})\b\s+(pass packaging/provenance|pass packaging and provenance|packaging/provenance passed|pass count|quality)", re.I)
+OF_PASS_PHRASE = re.compile(r"\b(\d{2,5})\s+of\s+(\d{2,5})\s+pass(?:es)?\s+(?:the\s+)?packaging(?:/| and )provenance", re.I)
+STRICT_FAIL_PHRASE = re.compile(r"\b(?:fails?|flags|rejects)\s+(\d{1,5})\s+of\s+(?:its own\s+|its\s+|the\s+)?(\d{2,5})\s+(?:canonical\s+)?outputs", re.I)
 FULL_AUDIT_CLAIM = re.compile(r"fully auditable|deeply auditable", re.I)
 QUALITY_WORDING = re.compile(r"quality (?:gates?|scans?|checks?)", re.I)
 GITHUB_REPO_METADATA = [
@@ -73,8 +76,28 @@ def check_counts(paths: list[Path], artifact_count: int, pass_count: int, failur
                 fail(f"artifact count drift in {path}:{line_for(text, match.start())}: {value} != {artifact_count}", failures)
         for match in PASS_PHRASE.finditer(text):
             left, right = int(match.group(1)), int(match.group(2))
-            if (left, right) != (pass_count, artifact_count):
+            phrase = match.group(3).lower()
+            if "packaging" in phrase and (left, right) != (pass_count, artifact_count):
                 fail(f"packaging/provenance pass count drift in {path}:{line_for(text, match.start())}: {left}/{right} != {pass_count}/{artifact_count}", failures)
+        for match in OF_PASS_PHRASE.finditer(text):
+            left, right = int(match.group(1)), int(match.group(2))
+            if (left, right) != (pass_count, artifact_count):
+                fail(f"packaging/provenance pass count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {pass_count} of {artifact_count}", failures)
+
+
+def check_strict_public_counts(paths: list[Path], artifact_count: int, strict_pass_count: int, failures: list[str]) -> None:
+    strict_fail_count = artifact_count - strict_pass_count
+    for path in paths:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for match in PASS_PHRASE.finditer(text):
+            left, right = int(match.group(1)), int(match.group(2))
+            phrase = match.group(3).lower()
+            if "packaging" not in phrase and (left, right) != (strict_pass_count, artifact_count):
+                fail(f"strict audit pass count drift in {path}:{line_for(text, match.start())}: {left}/{right} != {strict_pass_count}/{artifact_count}", failures)
+        for match in STRICT_FAIL_PHRASE.finditer(text):
+            left, right = int(match.group(1)), int(match.group(2))
+            if (left, right) != (strict_fail_count, artifact_count):
+                fail(f"strict audit fail count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {strict_fail_count} of {artifact_count}", failures)
 
 
 def check_quality_scope(paths: list[Path], failures: list[str]) -> None:
@@ -203,6 +226,7 @@ def main() -> int:
     parser.add_argument("--docs", type=Path, required=True)
     parser.add_argument("--profile", type=Path, required=True)
     parser.add_argument("--owner-profile", type=Path, default=None)
+    parser.add_argument("--personal-site", type=Path, default=None)
     parser.add_argument("--generated-manifest", type=Path, default=None, help="Optional freshly generated manifest to compare against committed site/ecosystem.json")
     parser.add_argument("--skip-github-metadata", action="store_true", help="Skip live GitHub repository About/description checks for offline validation")
     args = parser.parse_args()
@@ -212,6 +236,7 @@ def main() -> int:
     docs = args.docs.resolve()
     profile = args.profile.resolve()
     owner_profile = args.owner_profile.resolve() if args.owner_profile else None
+    personal_site = args.personal_site.resolve() if args.personal_site else None
     failures: list[str] = []
 
     manifest = load_json(system / "site" / "ecosystem.json")
@@ -236,9 +261,17 @@ def main() -> int:
     public_paths = existing(system, PUBLIC_FILES) + existing(profile, PROFILE_FILES) + existing(docs, DOC_FILES)
     if owner_profile:
         public_paths += existing(owner_profile, OWNER_PROFILE_FILES)
+    if personal_site:
+        public_paths += existing(personal_site, PERSONAL_SITE_FILES)
     public_paths += existing(corpus, ["README.md", "quality/quality_report.md", "quality/packaging_provenance_report.md"])
 
     check_counts(public_paths, int(manifest["artifact_count"]), int(manifest["packaging_provenance_pass_count"]), failures)
+    check_strict_public_counts(
+        public_paths,
+        int(manifest["artifact_count"]),
+        int(manifest.get("strict_claim_evidence_pass_count") or 0),
+        failures,
+    )
     check_quality_scope(public_paths, failures)
     check_required_copy(public_paths, failures)
     corpus_trust_validator = corpus / "scripts" / "validate_public_trust_surfaces.py"

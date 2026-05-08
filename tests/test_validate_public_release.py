@@ -64,3 +64,28 @@ def test_github_metadata_fetch_falls_back_to_authenticated_gh_on_rate_limit(monk
     metadata = validate_public_release.fetch_github_repo_metadata("alias8818/enoch-ai-research-corpus")
 
     assert metadata["description"].startswith("497 AI-generated research artifacts")
+
+
+def test_public_count_checks_reject_personal_site_stale_canonical_count(tmp_path) -> None:
+    page = tmp_path / "index.html"
+    page.write_text(
+        "<p>497 canonical AI-generated papers</p>"
+        "<p>497 of 497 pass packaging and provenance lint.</p>",
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_counts([page], artifact_count=376, pass_count=376, failures=failures)
+
+    assert any("artifact count drift" in failure for failure in failures)
+    assert any("packaging/provenance pass count drift" in failure for failure in failures)
+
+
+def test_strict_public_count_checks_reject_personal_site_stale_fail_rate(tmp_path) -> None:
+    page = tmp_path / "index.html"
+    page.write_text("<p>My audit gate flags 494 of its own 497 outputs.</p>", encoding="utf-8")
+    failures: list[str] = []
+
+    validate_public_release.check_strict_public_counts([page], artifact_count=376, strict_pass_count=3, failures=failures)
+
+    assert failures == [f"strict audit fail count drift in {page}:1: 494 of 497 != 373 of 376"]

@@ -162,7 +162,7 @@ def sync_corpus_import_ledger(system: Repo, corpus: Repo, *, database_url: str, 
             cwd=system.path,
         )
 
-def run_local_release_checks(system: Repo, corpus: Repo, docs: Repo, profile_site: Repo, owner_profile: Repo) -> None:
+def run_local_release_checks(system: Repo, corpus: Repo, docs: Repo, profile_site: Repo, owner_profile: Repo, personal_site: Repo) -> None:
     with tempfile.TemporaryDirectory(prefix="enoch-release-") as tmp:
         generated = Path(tmp) / "ecosystem.generated.json"
         run([
@@ -188,6 +188,8 @@ def run_local_release_checks(system: Repo, corpus: Repo, docs: Repo, profile_sit
             str(profile_site.path),
             "--owner-profile",
             str(owner_profile.path),
+            "--personal-site",
+            str(personal_site.path),
             "--generated-manifest",
             str(generated),
         ], cwd=system.path)
@@ -248,8 +250,9 @@ def main() -> int:
     docs = Repo("docs", root / "enoch-docs")
     owner_profile = Repo("owner_profile", root / "alias8818")
     profile_site = Repo("profile_site", root / "alias8818.github.io")
+    personal_site = Repo("personal_site", root / "jeremyblankenship.dev")
     corpus = Repo("corpus", root / "enoch-ai-research-corpus", workflow="Public release integrity")
-    ordered_dependencies = [system, docs, owner_profile, profile_site]
+    ordered_dependencies = [system, docs, owner_profile, profile_site, personal_site]
     all_repos = [*ordered_dependencies, corpus]
 
     for repo in all_repos:
@@ -260,7 +263,7 @@ def main() -> int:
             require_clean(repo)
         require_not_behind(repo)
 
-    run_local_release_checks(system, corpus, docs, profile_site, owner_profile)
+    run_local_release_checks(system, corpus, docs, profile_site, owner_profile, personal_site)
     if args.sync_corpus_ledger:
         sync_corpus_import_ledger(
             system,

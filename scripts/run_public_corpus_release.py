@@ -44,6 +44,7 @@ def build_steps(args: argparse.Namespace) -> list[Step]:
     docs = root / "enoch-docs"
     profile_site = root / "alias8818.github.io"
     owner_profile = root / "alias8818"
+    personal_site = root / "jeremyblankenship.dev"
     hf_export = root / "hf-enoch-ai-research-corpus"
     generated_manifest = Path(args.generated_manifest)
     token = args.token or os.environ.get("ENOCH_CONTROL_TOKEN") or os.environ.get("ENOCH_CONTROL_PLANE_TOKEN") or ""
@@ -107,6 +108,8 @@ def build_steps(args: argparse.Namespace) -> list[Step]:
                     str(profile_site),
                     "--owner-profile",
                     str(owner_profile),
+                    "--personal-site",
+                    str(personal_site),
                     "--generated-manifest",
                     str(generated_manifest),
                 ],
