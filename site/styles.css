@@ -26,6 +26,8 @@ h2 { font-size: clamp(2rem, 4vw, 4rem); line-height: .95; letter-spacing: -.04em
 .button.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #08101d; border: 0; }
 .stat-card { display: grid; gap: 1rem; padding: 1rem; border: 1px solid var(--line); background: rgba(16,22,36,.72); backdrop-filter: blur(16px); border-radius: 28px; }
 .stat-card div { padding: 1.1rem; background: var(--panel-2); border-radius: 20px; border: 1px solid var(--line); }
+.stat-card .stat-link { color: inherit; text-decoration: none; display: inline-block; border-bottom: 1px dashed currentColor; transition: border-color 0.2s ease; }
+.stat-card .stat-link:hover { border-bottom-color: transparent; opacity: 0.85; }
 .stat { display: block; font-size: 2.1rem; font-weight: 900; color: var(--good); }
 .section { padding: clamp(3rem, 6vw, 6rem) clamp(1rem, 6vw, 6rem); border-bottom: 1px solid var(--line); }
 .split { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 3rem; }

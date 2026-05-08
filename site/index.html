@@ -13,7 +13,7 @@
   <meta name="enoch-build-sha" content="__GITHUB_SHA__" />
   <meta name="enoch-corpus-count" content="497" />
   <meta name="enoch-packaging-provenance-pass-count" content="497" />
-  <meta name="enoch-strict-claim-evidence-pass-count" content="2" />
+  <meta name="enoch-strict-claim-evidence-pass-count" content="3" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -42,8 +42,12 @@
         <img class="hero-visual" src="assets/enoch-hero-generated.png" alt="Generated Enoch hero graphic showing a control plane coordinating worker nodes and artifact bundles" />
         <div><span class="stat" id="artifactCount">497</span><span>AI-generated artifacts indexed</span></div>
         <div><span class="stat" id="gatePassCount">497/497</span><span>pass packaging/provenance lint</span></div>
-        <div><span class="stat" id="strictAuditCount">3/497</span><span>pass strict claim/evidence audit</span></div>
-        <p class="manifest-note" id="manifestNote">Static fallback counts are conservative. The public ecosystem manifest refreshes these values and reports current audit gaps.</p>
+        <div>
+          <a class="stat-link" href="#strict-pass-examples">
+            <span class="stat" id="strictAuditCount">3/497</span><span>pass strict claim/evidence audit →</span>
+          </a>
+        </div>
+        <p class="manifest-note" id="manifestNote">The 3/497 number is intentional. I built the strict audit gate that fails 494 of my own system's 497 outputs, and I headline it here because the gate is the product. <a href="#strict-pass-examples">See the 3 that pass →</a></p>
       </aside>
     </section>
   </header>
@@ -55,7 +59,7 @@
         <h2>A reliability layer for long-running autonomous work.</h2>
       </div>
       <div class="copy">
-        <p>Enoch is a replacement for a scattered local automation stack. It owns queue state, pause/maintenance controls, worker preflight, single-lane safety, process/telemetry truth, evidence sync, paper rewriting, and dashboard status, built around FastAPI/LangGraph-era control-plane boundaries and operated with Codex/OMX automation.</p>
+        <p>Enoch owns queue state, pause and maintenance controls, worker preflight, single-lane GPU safety, process and telemetry completion truth, evidence sync, artifact rewriting, and dashboard status. Built on FastAPI with a hard state contract; developed in collaboration with Codex.</p>
         <p>The generated papers are released as AI-generated research artifacts. The human operator built and operated the surrounding Enoch system; OMX/oh-my-codex is credited as orchestration infrastructure, not as the owner or author of the generated paper prose, arguments, or experimental results.</p>
         <p>New here? Start with <a href="https://solo-09d10f60.mintlify.app/">Enoch Docs</a> for the quickstart, deployment guide, configuration reference, API notes, and provenance caveats.</p>
       </div>
@@ -102,6 +106,36 @@ scripts/proof-local.sh</code></pre>
           <li><a href="https://github.com/alias8818/enoch-ai-research-corpus/blob/main/papers/vllm-attention-sink-retention-3b-continuous-serving-stress-campaign/claim_ledger.json">Open the claim ledger</a>.</li>
           <li>Read the limitations and strict audit report before treating any generated claim as evidence-backed.</li>
         </ol>
+      </div>
+    </section>
+
+    <section id="strict-pass-examples" class="section split">
+      <div>
+        <p class="eyebrow">The 3 that pass</p>
+        <h2>Strict-audit-passing artifacts.</h2>
+      </div>
+      <div class="copy">
+        <p>Every artifact below clears the strict gate: non-empty claim ledgers, every claim linked to an evidence reference, and every referenced result file either publicly present or explicitly declared unavailable with a hash and public surrogate. These are the three the release stands behind.</p>
+        <ul>
+          <li>
+            <a href="https://github.com/alias8818/enoch-ai-research-corpus/tree/main/papers/vllm-attention-sink-retention-3b-continuous-serving-stress-campaign">
+              vLLM Attention-Sink Retention — 3B continuous-serving stress campaign
+            </a>
+            — the same artifact featured in "Inspect one end to end" above.
+          </li>
+          <li>
+            <a href="https://github.com/alias8818/enoch-ai-research-corpus/tree/main/papers/ssa-mamba-retrieval-bridge-content-routed-ssm-memory-for-million-token-evidence">
+              SSA-Mamba Retrieval Bridge — content-routed SSM memory for million-token evidence
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/alias8818/enoch-ai-research-corpus/tree/main/papers/gb10-dense-router-retrofit-strict-audit-bundle">
+              GB10 Dense Router Retrofit — strict-audit bundle
+            </a>
+            — a worked example of what a passing audit looks like end to end, including the surrogate-hash path for declared-unavailable result files.
+          </li>
+        </ul>
+        <p>For the other 494, read <a href="https://github.com/alias8818/enoch-ai-research-corpus/blob/main/quality/claim_evidence_audit.md">the strict audit report</a>. It names exactly which artifacts are blocked, why, and how many references are missing per artifact.</p>
       </div>
     </section>
 
