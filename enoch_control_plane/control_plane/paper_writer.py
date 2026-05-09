@@ -169,7 +169,7 @@ Requirements:
 - Include a clear AI provenance / no-human-credit note near the top: this draft was AI-generated from automated research artifacts, the operator claims no personal authorship credit for the writing or results beyond releasing the artifact, and readers should treat it as an unreviewed AI-generated research artifact. Do not require a human reviewer in the note.
 
 Project metadata:
-{json.dumps(candidate, indent=2, sort_keys=True)}
+{json.dumps(candidate, indent=2, sort_keys=True, default=str)}
 
 Paper id: {paper.paper_id}
 

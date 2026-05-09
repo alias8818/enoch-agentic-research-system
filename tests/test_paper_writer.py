@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -79,6 +80,30 @@ class PaperWriterTests(unittest.TestCase):
             self.assertIn("Do not require a human reviewer", prompt)
             self.assertNotIn("Mark missing external references as TODO", prompt)
             self.assertIn("# Model Draft", (project / "papers/run/paper.md").read_text())
+
+    def test_synthetic_writer_serializes_datetime_candidate_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            cfg = self._config(tmp, paper_writer_provider="synthetic.new", paper_writer_api_key="test-key", paper_writer_fallback_enabled=False)
+
+            class FakeResponse:
+                status = 200
+                def __enter__(self): return self
+                def __exit__(self, *args): return False
+                def read(self): return b'{"id":"cmpl-test","choices":[{"message":{"content":"# Model Draft\\n\\nEvidence-grounded."}}]}'
+
+            candidate = {
+                "project_id": "idea",
+                "project_name": "Idea",
+                "project_dir": "idea",
+                "paper_review_item": {"updated_at": datetime(2026, 5, 9, tzinfo=timezone.utc)},
+            }
+            with patch("enoch_control_plane.control_plane.paper_writer.request.urlopen", return_value=FakeResponse()) as urlopen:
+                meta = write_paper_artifacts(cfg, candidate, self._paper(), force=True)
+            self.assertFalse(meta["fallback_used"])
+            payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+            self.assertIn("2026-05-09", payload["messages"][1]["content"])
 
     def test_synthetic_writer_falls_back_without_key_when_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
