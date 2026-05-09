@@ -204,10 +204,33 @@ req = urllib.request.Request(
     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
     method="POST",
 )
+def mark_local_worker_state_delivered(idempotency_key):
+    import os, pathlib, time
+    state_dir = os.environ.get("ENOCH_WORKER_STATE_DIR", "").strip()
+    if not state_dir:
+        return
+    path = pathlib.Path(state_dir).expanduser() / "runs" / f"{run_id}.json"
+    for _ in range(40):
+        if path.exists():
+            break
+        time.sleep(0.25)
+    if not path.exists():
+        print(f"worker state record not found for callback mark: {path}", file=sys.stderr)
+        return
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+        record["gate_state"] = gate_state
+        record["last_idempotency_key"] = idempotency_key
+        record["updated_at"] = ended_at
+        path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    except Exception as exc:
+        print(f"worker state callback mark failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+
 try:
     with urllib.request.urlopen(req, timeout=float(timeout)) as resp:
         body = resp.read().decode("utf-8", errors="replace")
         print(body)
+        mark_local_worker_state_delivered(payload["idempotency_key"])
 except urllib.error.HTTPError as exc:
     body = exc.read().decode("utf-8", errors="replace")
     print(body, file=sys.stderr)

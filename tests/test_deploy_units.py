@@ -225,3 +225,13 @@ def test_codex_dispatch_resolves_runner_relative_to_deploy_script() -> None:
     assert 'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' in script
     assert 'RUNNER_SCRIPT="${ENOCH_CODEX_RUNNER_SCRIPT:-$SCRIPT_DIR/enoch_codex_runner.sh}"' in script
     assert '$HOME/projects/enoch-agentic-research-system/deploy/enoch_codex_runner.sh' not in script
+
+
+def test_codex_runner_marks_local_worker_state_after_callback() -> None:
+    runner = (ROOT / "deploy" / "enoch_codex_runner.sh").read_text(encoding="utf-8")
+    app = (ROOT / "omx_wake_gate" / "app.py").read_text(encoding="utf-8")
+    assert '"ENOCH_WORKER_STATE_DIR": str(config.expanded_state_dir)' in app
+    assert 'def mark_local_worker_state_delivered(idempotency_key):' in runner
+    assert 'pathlib.Path(state_dir).expanduser() / "runs" / f"{run_id}.json"' in runner
+    assert 'record["last_idempotency_key"] = idempotency_key' in runner
+    assert 'mark_local_worker_state_delivered(payload["idempotency_key"])' in runner

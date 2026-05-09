@@ -2200,6 +2200,7 @@ async def dispatch_run(
             "ENOCH_COMPLETION_CALLBACK_URL": config.completion_callback_url,
             "ENOCH_COMPLETION_CALLBACK_TOKEN": config.completion_callback_token,
             "ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC": str(config.completion_callback_timeout_sec),
+            "ENOCH_WORKER_STATE_DIR": str(config.expanded_state_dir),
         })
         result = await asyncio.to_thread(
             subprocess.run,
