@@ -606,18 +606,20 @@ class ControlPlaneRouterTests(unittest.TestCase):
         }
         with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
              patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
-             patch("scripts.research_provider_generate.generate_provider_candidates", return_value={"ok": True, "provider_response_id": "cmpl-test", "candidates": [generated_candidate]}):
+             patch("scripts.research_provider_generate.generate_provider_candidates", return_value={"ok": True, "provider_response_id": "cmpl-test", "candidates": [generated_candidate]}) as generate:
             client = _client_with_config(config)
             response = client.post(
                 "/control/api/research/generate-provider-batch",
                 headers={"Authorization": f"Bearer {TOKEN}"},
-                json={"dry_run": False, "max_candidates": 1, "requested_by": "pytest"},
+                json={"dry_run": False, "max_candidates": 1, "generation_max_tokens": 9000, "requested_by": "pytest"},
             )
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertTrue(body["ok"])
         self.assertEqual(body["action"], "provider_generate_candidates")
+        self.assertEqual(body["generation_max_tokens"], 9000)
+        self.assertEqual(generate.call_args.kwargs["max_tokens"], 9000)
         self.assertFalse(body["queue_admitted"])
         self.assertFalse(body["dispatch_started"])
         self.assertEqual(body["queued_count"], 0)

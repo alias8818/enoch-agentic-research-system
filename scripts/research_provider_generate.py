@@ -22,6 +22,7 @@ from scripts import research_facility_scan
 
 DEFAULT_OPENAI_BASE_URL = "https://api.synthetic.new/openai/v1"
 DEFAULT_MODEL = "hf:zai-org/GLM-5.1"
+DEFAULT_MAX_TOKENS = 8000
 PROMPT_VERSION = "research_provider_generate_v1"
 
 TOPIC_SPREAD = [
@@ -135,7 +136,7 @@ def call_openai_compatible_chat(
     prompt: str,
     api_key: str = "",
     temperature: float = 0.8,
-    max_tokens: int = 2500,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
     timeout: int = 120,
 ) -> dict[str, Any]:
     payload = {
@@ -240,6 +241,7 @@ def generate_provider_candidates(
     temperature: float = 0.8,
     seed: str = "",
     timeout: int = 120,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
     default_machine: str = "192.168.1.77",
     default_model: str = "gpt-5.5",
     default_sandbox: str = "danger-full-access",
@@ -254,6 +256,7 @@ def generate_provider_candidates(
         api_key=api_key,
         temperature=temperature,
         timeout=timeout,
+        max_tokens=max_tokens,
     )
     candidates = candidates_from_provider_response(
         provider_payload,
@@ -271,6 +274,7 @@ def generate_provider_candidates(
         "ok": True,
         "provider": "synthetic.new",
         "provider_model": model,
+        "max_tokens": max_tokens,
         "candidate_count": len(candidates),
         "prompt_version": PROMPT_VERSION,
         "generated_at": utc_now(),
@@ -290,6 +294,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--seed", default="")
     parser.add_argument("--timeout", type=int, default=120)
+    parser.add_argument("--max-tokens", type=int, default=int(os.environ.get("ENOCH_RESEARCH_PROVIDER_MAX_TOKENS", DEFAULT_MAX_TOKENS)))
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
 
@@ -303,6 +308,7 @@ def main(argv: list[str] | None = None) -> int:
         temperature=args.temperature,
         seed=args.seed,
         timeout=args.timeout,
+        max_tokens=args.max_tokens,
     )
     text = json.dumps(payload, indent=2, sort_keys=True)
     if args.output:

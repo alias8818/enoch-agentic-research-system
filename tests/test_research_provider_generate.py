@@ -132,5 +132,6 @@ def test_provider_generate_calls_openai_compatible_endpoint_without_local_auth_w
     payload = json.loads(request.data.decode("utf-8"))
     assert payload["model"] == "hf:zai-org/GLM-5.1"
     assert payload["temperature"] == 0.7
+    assert payload["max_tokens"] == research_provider_generate.DEFAULT_MAX_TOKENS
     assert payload["response_format"] == {"type": "json_object"}
     assert "Never return an empty candidates array" in payload["messages"][1]["content"]
