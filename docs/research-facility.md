@@ -149,6 +149,7 @@ The dashboard follows the same split:
 - `Generate smoke batch` dry-runs first, then writes only Research Facility source/candidate/admission/lineage rows.
 - `Generate provider batch` dry-runs a provider quota preflight first. The live action spends one provider request, then writes only Research Facility source/candidate/admission/lineage rows.
 - `Promote selected candidate` dry-runs first, then promotes exactly one already-admitted candidate into `enoch.ideas`, `enoch.projects`, and `enoch.queue_items`.
+- `Run bounded cycle` is the first policy-gated automation layer. It requires an explicit live `enabled` flag, checks provider budget, can spend one provider request, can promote up to one admitted candidate, and can optionally dispatch at most one selected queued item while preserving the global queue pause.
 - Neither dashboard action dispatches worker execution. Dispatch remains a separate operator command.
 
 The provider-backed endpoint is:
@@ -165,6 +166,30 @@ It is fail-closed:
 4. live-run at most the requested bounded candidate count;
 5. score candidates through the deterministic planner;
 6. persist only Research Facility ledgers with `queue_admitted = false`.
+
+The bounded-cycle endpoint is:
+
+```text
+POST /control/api/research/run-cycle
+```
+
+Default policy:
+
+```json
+{
+  "enabled": false,
+  "max_provider_requests_per_run": 1,
+  "max_promotions_per_run": 1,
+  "max_dispatches_per_run": 0,
+  "allowed_models": ["hf:moonshotai/Kimi-K2.6", "hf:zai-org/GLM-5.1"],
+  "min_admission_score": 72,
+  "require_budget_ok": true,
+  "stop_if_queue_active": true,
+  "stop_if_dashboard_attention": true
+}
+```
+
+Live calls must set `enabled: true`; dry-runs do not spend provider requests or write rows. The endpoint records a `research.run_cycle.*` control event for blocked, dry-run, and live outcomes. It does not unpause the broad queue and does not write or finalize papers.
 
 ## Admission behavior
 

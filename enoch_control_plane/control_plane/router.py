@@ -228,9 +228,10 @@ async function intakePage(){renderNav('intake'); const data=await api('/control/
 async function checkProviderBudget(){const el=$('providerBudgetStatus'); if(el){el.className='banner warn'; el.textContent='Checking provider budget…';} try{const result=await api('/control/api/research/provider-budget?estimated_requests=1&reserve_requests=2'); const tone=result.ok?'good':'warn'; if(el){el.className='banner '+tone; el.innerHTML=`<strong>Provider budget ${result.ok?'ok':'not ready'}</strong><div>Remaining credits ${esc(result.remaining_credits??'unknown')} · rolling remaining ${esc(result.rolling_remaining??'unknown')}</div><div class="muted">${(result.failures||[]).length?esc((result.failures||[]).join('; ')):'No budget failures reported.'}</div>${debugBlock('Provider budget details',result)}`;} }catch(e){if(el){el.className='banner critical'; el.textContent='Provider budget check failed: '+e.message;}}}
 async function generateProviderCandidateBatch(){const el=$('researchProviderGenerateStatus'); if(el){el.className='banner warn'; el.textContent='Checking provider quota before generation…';} const topic=($('researchProviderTopic')?.value||'').trim(); const model=($('researchProviderModel')?.value||'').trim(); const dry=await postJson('/control/api/research/generate-provider-batch',{dry_run:true,max_candidates:2,topic,model,temperature:0.6,generation_max_tokens:8000,generation_attempts:2,requested_by:'dashboard'}); if(el){el.className=dry.ok?'banner good':'banner warn'; el.innerHTML=`<strong>Provider generation preflight ${dry.ok?'passed':'blocked'}.</strong><div>${esc((dry.budget||{}).remaining_credits??'unknown')} credits · rolling ${esc((dry.budget||{}).rolling_remaining??'unknown')} · no provider request spent.</div>${debugBlock('Provider dry-run details',dry)}`;} if(!dry.ok)return; if(!confirm(`Spend one provider request to generate up to ${dry.max_candidates||2} candidates?\n\nThis writes Research Facility ledgers only. It will not queue or dispatch work.`))return; if(el){el.className='banner warn'; el.textContent='Calling provider and writing candidate/admission ledgers only…';} const live=await postJson('/control/api/research/generate-provider-batch',{dry_run:false,max_candidates:2,topic,model,temperature:0.6,generation_max_tokens:8000,generation_attempts:2,requested_by:'dashboard'}); if(el){el.className=live.ok?'banner good':'banner warn'; el.innerHTML=`<strong>Provider generation ${live.ok?'complete':'blocked'}.</strong><div>${esc(live.candidate_count||0)} candidates · admitted ${esc(live.admitted_count||0)} · review ${esc(live.needs_review_count||0)} · queued ${esc(live.queued_count||0)}.</div>${debugBlock('Provider live details',live)}`;} return researchPage();}
 async function generateResearchSmokeBatch(){const el=$('researchGenerateStatus'); if(el){el.className='banner warn'; el.textContent='Dry-running candidate generation…';} const dry=await postJson('/control/api/research/generate-batch',{dry_run:true,max_candidates:3,requested_by:'dashboard'}); if(el){el.className=dry.ok?'banner good':'banner warn'; el.innerHTML=`<strong>Dry-run generated ${esc(dry.candidate_count||0)} candidates.</strong><div>${esc(dry.admitted_count||0)} admitted · ${esc(dry.needs_review_count||0)} need review · ${esc(dry.rejected_count||0)} rejected. No ledger rows written.</div>${debugBlock('Dry-run generation details',dry)}`;} if(!dry.ok||!Number(dry.candidate_count||0))return; if(!confirm(`Write ${dry.candidate_count} generated candidates to Research Facility ledgers only? This will not queue or dispatch work.`))return; if(el){el.className='banner warn'; el.textContent='Writing candidate/admission ledgers…';} const live=await postJson('/control/api/research/generate-batch',{dry_run:false,max_candidates:3,requested_by:'dashboard'}); if(el){el.className=live.ok?'banner good':'banner warn'; el.innerHTML=`<strong>Research ledger write ${live.ok?'complete':'not complete'}.</strong><div>${esc(live.candidate_count||0)} candidates · ${esc(live.ledger_result?.admissions_inserted??0)} new admission rows · queued ${esc(live.queued_count||0)}.</div>${debugBlock('Live generation details',live)}`;} return researchPage();}
+async function runResearchCycle(dryRun){const el=$('researchAutopilotStatus'); const dispatch=Boolean($('researchCycleDispatch')?.checked); if(el){el.className='banner warn'; el.textContent=dryRun?'Dry-running bounded research cycle…':'Running one bounded research cycle…';} if(!dryRun&&!confirm(`Run one bounded Research Facility cycle?\n\nThis may spend one provider request and promote one admitted candidate.${dispatch?' It may also dispatch exactly one queued candidate while preserving the global queue pause.':' It will not dispatch work.'}`))return; const payload={enabled:!dryRun,dry_run:dryRun,max_provider_requests_per_run:1,max_promotions_per_run:1,max_dispatches_per_run:dispatch?1:0,model:($('researchProviderModel')?.value||'').trim(),topic:($('researchProviderTopic')?.value||'').trim(),generation_max_tokens:8000,generation_attempts:2,temperature:0.6,requested_by:'dashboard'}; const result=await postJson('/control/api/research/run-cycle',payload); if(el){el.className=result.ok?'banner good':'banner warn'; el.innerHTML=`<strong>Bounded research cycle ${result.ok?'complete':'stopped'}.</strong><div>${esc(result.generated_count||0)} generated · ${esc(result.promoted_count||0)} promoted · ${esc(result.dispatched_count||0)} dispatched · queued ${esc(result.queued_count||0)}.</div><div class="muted">${esc(result.reason||'Policy-gated cycle finished.')}</div>${debugBlock('Research autopilot details',result)}`;} return researchPage();}
 function selectResearchCandidate(candidateId){const input=$('researchCandidateId'); if(input)input.value=candidateId; const el=$('researchPromoteStatus'); if(el){el.className='banner info'; el.innerHTML=`Selected admitted candidate <span class="mono">${esc(candidateId)}</span>. Next step: dry-run promotion.`;} }
 async function promoteResearchCandidate(){const el=$('researchPromoteStatus'), candidateId=($('researchCandidateId')?.value||'').trim(); if(!candidateId){if(el){el.className='banner warn'; el.textContent='Enter an admitted candidate id before promotion.';} return;} if(el){el.className='banner warn'; el.textContent='Dry-running candidate promotion…';} const dry=await postJson('/control/api/research/promote-candidate',{candidate_id:candidateId,dry_run:true,requested_by:'dashboard'}); if(dry.action!=='dry_run_promote_candidate'){if(el){el.className='banner warn'; el.innerHTML=`<strong>Promotion blocked.</strong><div>${esc(dry.reason||'Candidate is not promotable.')}</div>${debugBlock('Dry-run promotion details',dry)}`;} return;} if(el){el.className='banner good'; el.innerHTML=`<strong>Dry-run promotion passed.</strong><div>${esc(dry.title||candidateId)} can be promoted to queued idea/project rows. No dispatch will run.</div>${debugBlock('Dry-run promotion details',dry)}`;} if(!confirm(`Promote this admitted Research Facility candidate into the idea/project queue?\n\n${candidateId}\n\nThis will not dispatch work.`))return; if(el){el.className='banner warn'; el.textContent='Writing promotion ledgers and queued idea/project rows…';} const live=await postJson('/control/api/research/promote-candidate',{candidate_id:candidateId,dry_run:false,requested_by:'dashboard'}); if(el){el.className=live.ok?'banner good':'banner warn'; el.innerHTML=`<strong>Promotion ${live.ok?'complete':'blocked'}.</strong><div>${esc(live.reason||live.action||'')}</div>${debugBlock('Live promotion details',live)}`;} return researchPage();}
-async function researchPage(){renderNav('research'); const data=await api('/control/api/research/facility?page_size=100'); const rows=data.rows||[], counts=data.counts||{}; const admittedCandidates=rows.filter(r=>r.admission_decision==='admitted'&&!r.admitted_idea_id); const admitted=rows.filter(r=>r.admission_decision==='admitted').length, queued=rows.filter(r=>r.admitted_idea_id).length; $('status').className='pill info'; $('status').textContent=`Research Facility · ${rows.length} candidates`; $('app').className=''; $('app').innerHTML=`<section class="card"><h2>Research Facility</h2><div class="muted">Idea-generation smoke surface. It shows candidate/admission ledgers and provider budget. It does not queue, dispatch, or write papers automatically.</div><section class="grid">${card('Generated candidates',rows.length,'info','Rows in the Research Facility workbench')}${card('Admitted ideas',admitted,admitted?'good':'muted','Candidates admitted by the scoring gate')}${card('Queued ideas',queued,queued?'info':'muted','Admitted candidates promoted to idea/project queue rows')}${card('Provider budget','Manual check','info','Checks Synthetic quota through the proxy-safe provider path')}</section><div class="toolbar"><button onclick="checkProviderBudget()">Check provider budget</button><button onclick="generateResearchSmokeBatch()">Generate smoke batch</button></div><div id="providerBudgetStatus" class="banner info">Provider budget has not been checked in this browser session.</div><div id="researchGenerateStatus" class="banner info">Candidate generation has not been run in this browser session. Dry-run happens first; live write only records Research Facility ledgers.</div><h3>Provider-backed generation</h3><div class="muted">Provider generation checks quota first, spends only after confirmation, writes Research Facility ledgers only, and never queues or dispatches work.</div><div class="toolbar"><input id="researchProviderTopic" placeholder="optional topic focus"/><input id="researchProviderModel" placeholder="optional provider model"/><button onclick="generateProviderCandidateBatch()">Generate provider batch</button></div><div id="researchProviderGenerateStatus" class="banner info">Provider-backed generation has not been run in this browser session.</div><h3>Admitted candidates → Dry-run promote → Promote selected candidate</h3><div class="muted">This is the explicit boundary between generation and queue work. Select an admitted candidate, dry-run promotion, then confirm the live promotion. Promotion creates queued idea/project rows only; it does not dispatch work.</div>${tableRows(admittedCandidates.map(r=>({...r,candidate_action:r.candidate_id})),['candidate_action','candidate_id','title','total_score','provider_model','updated_at'],'No unpromoted admitted candidates') }<div class="toolbar"><input id="researchCandidateId" placeholder="admitted candidate id"/><button onclick="promoteResearchCandidate()">Dry-run promote selected</button></div><div id="researchPromoteStatus" class="banner info">No candidate promotion has been attempted in this browser session.</div><h3>Ledger authority</h3>${tableRows([{authority:data.authority||'Research Facility ledgers: sources, candidates, admissions, lineage'}],['authority'])}<h3>Candidate/admission counts</h3>${tableRows(Object.entries(counts).map(([status,count])=>({status,count})),['status','count'],'No candidate counts yet')}<h3>Recent candidate rows</h3>${tableRows(rows,['candidate_id','title','status','admission_decision','total_score','admitted_idea_id','updated_at'],'No Research Facility candidates yet')}${debugBlock('Research Facility JSON',data)}</section>`;}
+async function researchPage(){renderNav('research'); const data=await api('/control/api/research/facility?page_size=100'); const rows=data.rows||[], counts=data.counts||{}; const admittedCandidates=rows.filter(r=>r.admission_decision==='admitted'&&!r.admitted_idea_id); const admitted=rows.filter(r=>r.admission_decision==='admitted').length, queued=rows.filter(r=>r.admitted_idea_id).length; $('status').className='pill info'; $('status').textContent=`Research Facility · ${rows.length} candidates`; $('app').className=''; $('app').innerHTML=`<section class="card"><h2>Research Facility</h2><div class="muted">Idea-generation smoke surface. It shows candidate/admission ledgers and provider budget. It does not queue, dispatch, or write papers automatically.</div><section class="grid">${card('Generated candidates',rows.length,'info','Rows in the Research Facility workbench')}${card('Admitted ideas',admitted,admitted?'good':'muted','Candidates admitted by the scoring gate')}${card('Queued ideas',queued,queued?'info':'muted','Admitted candidates promoted to idea/project queue rows')}${card('Provider budget','Manual check','info','Checks Synthetic quota through the proxy-safe provider path')}</section><div class="toolbar"><button onclick="checkProviderBudget()">Check provider budget</button><button onclick="generateResearchSmokeBatch()">Generate smoke batch</button></div><div id="providerBudgetStatus" class="banner info">Provider budget has not been checked in this browser session.</div><div id="researchGenerateStatus" class="banner info">Candidate generation has not been run in this browser session. Dry-run happens first; live write only records Research Facility ledgers.</div><h3>Provider-backed generation</h3><div class="muted">Provider generation checks quota first, spends only after confirmation, writes Research Facility ledgers only, and never queues or dispatches work.</div><div class="toolbar"><input id="researchProviderTopic" placeholder="optional topic focus"/><input id="researchProviderModel" placeholder="optional provider model"/><button onclick="generateProviderCandidateBatch()">Generate provider batch</button></div><div id="researchProviderGenerateStatus" class="banner info">Provider-backed generation has not been run in this browser session.</div><h3>Research Autopilot</h3><div class="muted">Runs one bounded cycle only: quota check, optional provider generation, ledger admission, promote up to one admitted candidate, and optional one-item dispatch. It never unpauses the broad queue and never writes papers.</div><div class="toolbar"><label class="pill"><input id="researchCycleDispatch" type="checkbox"/> allow one explicit dispatch</label><button onclick="runResearchCycle(true)">Dry-run bounded cycle</button><button onclick="runResearchCycle(false)">Run one bounded cycle</button></div><div id="researchAutopilotStatus" class="banner info">Research Autopilot is disabled until you explicitly run a dry-run or one bounded cycle.</div><h3>Admitted candidates → Dry-run promote → Promote selected candidate</h3><div class="muted">This is the explicit boundary between generation and queue work. Select an admitted candidate, dry-run promotion, then confirm the live promotion. Promotion creates queued idea/project rows only; it does not dispatch work.</div>${tableRows(admittedCandidates.map(r=>({...r,candidate_action:r.candidate_id})),['candidate_action','candidate_id','title','total_score','provider_model','updated_at'],'No unpromoted admitted candidates') }<div class="toolbar"><input id="researchCandidateId" placeholder="admitted candidate id"/><button onclick="promoteResearchCandidate()">Dry-run promote selected</button></div><div id="researchPromoteStatus" class="banner info">No candidate promotion has been attempted in this browser session.</div><h3>Ledger authority</h3>${tableRows([{authority:data.authority||'Research Facility ledgers: sources, candidates, admissions, lineage'}],['authority'])}<h3>Candidate/admission counts</h3>${tableRows(Object.entries(counts).map(([status,count])=>({status,count})),['status','count'],'No candidate counts yet')}<h3>Recent candidate rows</h3>${tableRows(rows,['candidate_id','title','status','admission_decision','total_score','admitted_idea_id','updated_at'],'No Research Facility candidates yet')}${debugBlock('Research Facility JSON',data)}</section>`;}
 async function reviewsPage(){renderNav('automation'); const search=new URLSearchParams(location.hash.split('?')[1]||''); const term=search.get('search')||'', reviewStatus=search.get('review_status')||'', paperStatus=search.get('paper_status')||'', page=search.get('page')||'1', sort=search.get('sort')||'-rank_score', pageSize=search.get('page_size')||'100'; const qs=new URLSearchParams({page,page_size:pageSize,search:term,review_status:reviewStatus,paper_status:paperStatus,sort,include_rank_reasons:'true'}); const data=await api('/control/api/publication-automation?'+qs.toString()); const rows=(data.rows||[]).map(r=>({...r,automation:'Open',automation_state:automationStatusLabel(r.review_status),progress:`${(r.checklist_progress||{}).passed||0}/${(r.checklist_progress||{}).total||0}`,reasons:(r.rank_reasons||[]).slice(0,2).join('; ')})); $('status').className='pill info'; $('status').textContent=`automation queue · ${data.page.total} filtered · ${data.counts.all||0} total`; $('app').className=''; $('app').innerHTML=`<section class="card"><h2>Publication Automation Queue</h2><div class="muted">Automated rewrite/finalization lane · canonical /control/api/publication-automation · page ${esc(data.page.page)} · returned ${esc(data.page.returned)} of ${esc(data.page.total)}</div><div class="row">${Object.entries(data.counts||{}).map(([k,v])=>`<span class="pill">${esc(k)} ${esc(v)}</span>`).join('')}</div><div id="batchStatus" class="banner info">GLM-5.1 batch idle. Click rewrite once; a 10-paper batch usually takes several minutes.</div><div class="toolbar"><button onclick="openNextReview()">Open next publication-ready</button><button id="rewriteBatchButton" onclick="rewriteBatchVisible()">Rewrite next 10 with GLM-5.1</button><input id="search" value="${esc(term)}" placeholder="search papers/projects"/><select id="review_status"><option value="">all automation states</option>${['queued','claimed','blocked','finalized','deferred','rejected'].map(v=>`<option value="${v}" ${reviewStatus===v?'selected':''}>${automationStatusLabel(v)}</option>`).join('')}</select><select id="paper_status"><option value="">all paper states</option>${['publication_draft','archived'].map(v=>`<option value="${v}" ${paperStatus===v?'selected':''}>${paperStatusLabel(v)}</option>`).join('')}</select><select id="reviewSort"><option value="-rank_score" ${sort==='-rank_score'?'selected':''}>Highest rank</option><option value="updated_at" ${sort==='updated_at'?'selected':''}>Recently updated</option><option value="review_status" ${sort==='review_status'?'selected':''}>Automation state</option><option value="paper_status" ${sort==='paper_status'?'selected':''}>Paper status</option></select><select id="reviewPageSize">${['25','50','100','200'].map(v=>`<option value="${v}" ${pageSize===v?'selected':''}>${v} per page</option>`).join('')}</select><button onclick="location.hash='automation?search='+encodeURIComponent($('search').value)+'&review_status='+encodeURIComponent($('review_status').value)+'&paper_status='+encodeURIComponent($('paper_status').value)+'&sort='+encodeURIComponent($('reviewSort').value)+'&page_size='+encodeURIComponent($('reviewPageSize').value)">Apply</button></div>${tableRows(rows,['automation','paper_title','rank_score','rank_bucket','automation_state','progress','paper_status','project_id','blocker','reasons','updated_at'])}${debugBlock('Automation queue JSON',data)}</section>`;}
 async function openNextReview(){const data=await api('/control/api/publication-automation/next?paper_status=publication_draft'); location.hash='automation:'+encodeURIComponent((data.item||{}).paper_id||data.paper_id);}
 function artifactButtons(id){return ['draft_markdown_path','draft_latex_path','evidence_bundle_path','claim_ledger_path','manifest_path'].map(k=>`<button onclick="previewArtifact('${esc(id)}','${k}')">Preview ${k.replace('_path','').replaceAll('_',' ')}</button>`).join(' ');}
@@ -2454,6 +2455,230 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         response["attempts_used"] = generated.get("attempts_used", 1)
         response["plans"] = [plan.to_json() for plan in plans]
         response["ledger_result"] = store.record_research_facility_plans(plans, requested_by=requested_by, queue_admitted=False)
+        return response
+
+    @router.post("/api/research/run-cycle")
+    def dashboard_research_run_cycle(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Run one bounded Research Facility cycle.
+
+        This is intentionally a small automation step:
+        provider quota check -> optional generation/admission ledgers -> explicit
+        promotion of admitted candidates -> optional single dispatch.  It never
+        unpauses the broad queue and it never writes papers.
+        """
+
+        authorize(authorization)
+        from argparse import Namespace
+        from scripts import research_facility, research_provider_budget, research_provider_generate
+
+        if not hasattr(store, "research_facility_workbench_projection") or not hasattr(store, "record_research_facility_plans") or not hasattr(store, "promote_research_candidate"):
+            raise HTTPException(status_code=501, detail="Research Facility run-cycle requires the Supabase control-plane store")
+
+        body = payload or {}
+        dry_run = bool(body.get("dry_run", True))
+        enabled = bool(body.get("enabled", False))
+        requested_by = str(body.get("requested_by") or "dashboard")[:80]
+        allowed_models = body.get("allowed_models") if isinstance(body.get("allowed_models"), list) else ["hf:moonshotai/Kimi-K2.6", "hf:zai-org/GLM-5.1"]
+        provider_model = str(body.get("model") or os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL") or "hf:zai-org/GLM-5.1").strip()
+        if provider_model not in allowed_models:
+            return {
+                "ok": False,
+                "action": "research_cycle_blocked",
+                "dry_run": dry_run,
+                "reason": f"provider model {provider_model!r} is not in the allowed model list",
+                "allowed_models": allowed_models,
+                "queue_admitted": False,
+                "dispatch_started": False,
+            }
+        max_provider_requests = max(0, min(int(body.get("max_provider_requests_per_run") or 1), 3))
+        max_promotions = max(0, min(int(body.get("max_promotions_per_run") or 1), 3))
+        max_dispatches = max(0, min(int(body.get("max_dispatches_per_run") or 0), 1))
+        min_admission_score = max(0.0, min(float(body.get("min_admission_score") or body.get("admit_threshold") or 72.0), 100.0))
+        max_candidates = max(1, min(int(body.get("max_candidates") or 2), 5))
+        topic = str(body.get("topic") or "").strip()
+        temperature = max(0.0, min(float(body.get("temperature") or 0.6), 1.5))
+        seed = str(body.get("seed") or utc_now()).strip()
+        provider_base_url = os.environ.get("ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz").rstrip("/")
+        provider_openai_base_url = os.environ.get("ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL", f"{provider_base_url}/openai/v1").rstrip("/")
+        generation_timeout = max(10, min(int(body.get("generation_timeout") or 240), 300))
+        generation_max_tokens = max(1000, min(int(body.get("generation_max_tokens") or os.environ.get("ENOCH_RESEARCH_PROVIDER_MAX_TOKENS") or 8000), 16000))
+        generation_attempts = max(1, min(int(body.get("generation_attempts") or os.environ.get("ENOCH_RESEARCH_PROVIDER_ATTEMPTS") or 2), 3))
+
+        active = store.active_items()
+        counts = store.status_counts()
+        blocked_count = int(counts.get("blocked") or 0)
+        stop_reasons: list[str] = []
+        if active:
+            stop_reasons.append("active worker lane already exists")
+        if blocked_count and bool(body.get("stop_if_dashboard_attention", True)):
+            stop_reasons.append(f"{blocked_count} blocked item(s) need attention")
+        if not dry_run and not enabled:
+            stop_reasons.append("live run-cycle requires enabled=true")
+
+        estimated_requests = max_provider_requests
+        budget: dict[str, Any]
+        try:
+            quota_payload = research_provider_budget.fetch_json(f"{provider_base_url}/v2/quotas", api_key="", timeout=max(1, min(int(body.get("budget_timeout") or 20), 60)))
+            budget = research_provider_budget.synthetic_budget_status(
+                quota_payload,
+                min_remaining_credits=float(body.get("min_remaining_credits") or 5.0),
+                min_rolling_remaining=int(body.get("min_rolling_remaining") or 10),
+                estimated_requests=estimated_requests,
+                reserve_requests=max(1, int(body.get("reserve_requests") or 2)),
+            )
+        except Exception as exc:  # noqa: BLE001 - fail closed if budget cannot be checked
+            budget = {
+                "ok": False,
+                "provider": "synthetic",
+                "checked_at": utc_now(),
+                "estimated_requests": estimated_requests,
+                "reserve_requests": max(1, int(body.get("reserve_requests") or 2)),
+                "failures": [f"provider budget check failed: {exc}"],
+            }
+        if not budget.get("ok") and max_provider_requests:
+            stop_reasons.append("; ".join(str(item) for item in budget.get("failures") or ["provider budget unavailable"]))
+
+        def promotable_rows() -> list[dict[str, Any]]:
+            rows = list(store.research_facility_workbench_projection(limit=100))
+            candidates = [
+                row for row in rows
+                if str(row.get("admission_decision") or "") == "admitted"
+                and not str(row.get("admitted_idea_id") or "").strip()
+                and float(row.get("total_score") or 0) >= min_admission_score
+            ]
+            return sorted(candidates, key=lambda r: float(r.get("total_score") or 0), reverse=True)
+
+        initial_promotable = promotable_rows()
+        response: dict[str, Any] = {
+            "ok": not stop_reasons,
+            "action": "dry_run_research_cycle" if dry_run else "research_cycle",
+            "dry_run": dry_run,
+            "enabled": enabled,
+            "queue_admitted": False,
+            "dispatch_started": False,
+            "provider": "synthetic.new",
+            "provider_model": provider_model,
+            "allowed_models": allowed_models,
+            "policy": {
+                "max_provider_requests_per_run": max_provider_requests,
+                "max_promotions_per_run": max_promotions,
+                "max_dispatches_per_run": max_dispatches,
+                "min_admission_score": min_admission_score,
+                "require_budget_ok": True,
+                "stop_if_queue_active": True,
+                "stop_if_dashboard_attention": bool(body.get("stop_if_dashboard_attention", True)),
+            },
+            "budget": {key: budget.get(key) for key in {
+                "ok", "provider", "checked_at", "estimated_requests", "reserve_requests", "remaining_credits",
+                "min_remaining_credits", "rolling_remaining", "rolling_max", "rolling_limited",
+                "rolling_next_tick_at", "weekly_next_regen_at", "weekly_next_regen_credits",
+                "subscription_remaining", "subscription_renews_at", "failures",
+            } if key in budget},
+            "initial_promotable_count": len(initial_promotable),
+            "planned_promotions": [row.get("candidate_id") for row in initial_promotable[:max_promotions]],
+            "generated_count": 0,
+            "promoted_count": 0,
+            "dispatched_count": 0,
+            "queued_count": 0,
+            "stages": [],
+        }
+        if stop_reasons:
+            response["reason"] = "; ".join(stop_reasons)
+            if hasattr(store, "append_event"):
+                store.append_event(
+                    idempotency_key=f"research-cycle:{'dry' if dry_run else 'live'}:{requested_by}:{utc_now()}",
+                    event_type="research.run_cycle.blocked",
+                    entity_type="research",
+                    entity_id="run-cycle",
+                    payload=response,
+                )
+            return response
+        if dry_run:
+            response["reason"] = "dry-run only; provider was not called and no ledgers, queue rows, dispatches, or papers were written"
+            response["would_generate"] = max_provider_requests > 0
+            response["would_promote_up_to"] = max_promotions
+            response["would_dispatch_up_to"] = max_dispatches
+            if hasattr(store, "append_event"):
+                store.append_event(
+                    idempotency_key=f"research-cycle:dry:{requested_by}:{utc_now()}",
+                    event_type="research.run_cycle.dry_run",
+                    entity_type="research",
+                    entity_id="run-cycle",
+                    payload=response,
+                )
+            return response
+
+        generated_plans = []
+        if max_provider_requests:
+            generated = research_provider_generate.generate_provider_candidates(
+                base_url=provider_openai_base_url,
+                model=provider_model,
+                api_key="",
+                max_candidates=max_candidates,
+                topic=topic,
+                temperature=temperature,
+                seed=seed,
+                timeout=generation_timeout,
+                max_tokens=generation_max_tokens,
+                attempts=generation_attempts,
+                default_machine=os.environ.get("ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"),
+                default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
+                default_sandbox=os.environ.get("ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"),
+            )
+            generated_plans = research_facility.plan_candidates(
+                generated.get("candidates") or [],
+                Namespace(
+                    default_machine=os.environ.get("ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"),
+                    default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
+                    default_sandbox=os.environ.get("ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"),
+                    admit_threshold=min_admission_score,
+                    review_threshold=float(body.get("review_threshold") or 58.0),
+                    history=[],
+                ),
+            )
+            ledger_result = store.record_research_facility_plans(generated_plans, requested_by=requested_by, queue_admitted=False)
+            response["generated_count"] = len(generated_plans)
+            response["provider_response_id"] = generated.get("provider_response_id", "")
+            response["attempts_used"] = generated.get("attempts_used", 1)
+            response["ledger_result"] = ledger_result
+            response["stages"].append({"stage": "provider_generation", "ok": True, "candidate_count": len(generated_plans), "ledger_result": ledger_result})
+
+        promoted: list[dict[str, Any]] = []
+        for row in promotable_rows()[:max_promotions]:
+            result = store.promote_research_candidate(str(row.get("candidate_id")), requested_by=requested_by, dry_run=False)
+            promoted.append(result)
+        response["promotions"] = promoted
+        response["promoted_count"] = sum(1 for item in promoted if item.get("ok") and not item.get("already_promoted"))
+        response["queued_count"] = sum(int(item.get("queued_count") or 0) for item in promoted)
+        response["stages"].append({"stage": "promotion", "ok": True, "promoted_count": response["promoted_count"], "queued_count": response["queued_count"]})
+
+        if max_dispatches and promoted:
+            active_after_promotion = store.active_items()
+            if active_after_promotion:
+                response["stages"].append({"stage": "dispatch", "ok": False, "reason": "active worker lane exists after promotion"})
+            else:
+                project_id = str(promoted[0].get("idea_id") or promoted[0].get("candidate_id") or "").strip()
+                candidate = store.queue_row(project_id)
+                if candidate and str(candidate.get("status") or "") == "queued":
+                    live, event_id, updated_candidate = _live_dispatch(candidate, requested_by, force_preflight=True, allow_paused=True)
+                    response["dispatch_started"] = True
+                    response["dispatched_count"] = 1
+                    response["dispatch"] = {"event_id": event_id, "candidate": updated_candidate, "live": live}
+                    response["stages"].append({"stage": "dispatch", "ok": True, "project_id": project_id, "event_id": event_id})
+                else:
+                    response["stages"].append({"stage": "dispatch", "ok": False, "reason": "promoted candidate was not queued", "project_id": project_id})
+        response["reason"] = "bounded research cycle completed; broad queue pause preserved and no papers were written"
+        if hasattr(store, "append_event"):
+            store.append_event(
+                idempotency_key=f"research-cycle:live:{requested_by}:{utc_now()}",
+                event_type="research.run_cycle.live",
+                entity_type="research",
+                entity_id="run-cycle",
+                payload=response,
+            )
         return response
 
     @router.post("/api/research/promote-candidate")

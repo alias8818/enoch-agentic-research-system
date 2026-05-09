@@ -339,6 +339,11 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("generateProviderCandidateBatch", response.text)
             self.assertIn("/control/api/research/generate-provider-batch", response.text)
             self.assertIn("writes Research Facility ledgers only", response.text)
+            self.assertIn("Research Autopilot", response.text)
+            self.assertIn("Dry-run bounded cycle", response.text)
+            self.assertIn("Run one bounded cycle", response.text)
+            self.assertIn("/control/api/research/run-cycle", response.text)
+            self.assertIn("runResearchCycle", response.text)
             self.assertIn("Promote selected candidate", response.text)
             self.assertIn("Admitted candidates", response.text)
             self.assertIn("Dry-run promote selected", response.text)
@@ -713,6 +718,171 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(body["candidate_count"], 0)
         self.assertEqual(body["queued_count"], 0)
         self.assertFalse(body["dispatch_started"])
+
+    def test_research_facility_run_cycle_dry_run_checks_budget_without_spend_or_writes(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.events = []
+
+            def active_items(self) -> list[dict[str, str]]:
+                return []
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 0, "active": 0}
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                return [{"candidate_id": "candidate-ready", "admission_decision": "admitted", "admitted_idea_id": "", "total_score": "80.00"}]
+
+            def record_research_facility_plans(self, *_args, **_kwargs):  # pragma: no cover - dry-run must not write
+                raise AssertionError("dry-run should not write ledgers")
+
+            def promote_research_candidate(self, *_args, **_kwargs):  # pragma: no cover - dry-run must not promote
+                raise AssertionError("dry-run should not promote")
+
+            def append_event(self, **kwargs):
+                self.events.append(kwargs)
+                return 1, True
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+             patch("scripts.research_provider_generate.generate_provider_candidates") as generate:
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={"dry_run": True, "requested_by": "pytest"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["action"], "dry_run_research_cycle")
+        self.assertEqual(body["planned_promotions"], ["candidate-ready"])
+        self.assertTrue(body["would_generate"])
+        self.assertFalse(body["dispatch_started"])
+        self.assertEqual(body["queued_count"], 0)
+        generate.assert_not_called()
+        self.assertEqual(fake_store.events[0]["event_type"], "research.run_cycle.dry_run")
+
+    def test_research_facility_run_cycle_live_generates_and_promotes_without_dispatch(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.events = []
+                self.recorded = []
+                self.promoted = []
+                self.generated_available = False
+
+            def active_items(self) -> list[dict[str, str]]:
+                return []
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 0, "active": 0}
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                if not self.generated_available:
+                    return []
+                return [{"candidate_id": "generated-candidate", "admission_decision": "admitted", "admitted_idea_id": "", "total_score": "82.00"}]
+
+            def record_research_facility_plans(self, plans, *, requested_by: str, queue_admitted: bool = False) -> dict[str, int]:
+                self.generated_available = True
+                self.recorded.append((plans, requested_by, queue_admitted))
+                return {"sources_upserted": 1, "candidates_upserted": len(plans), "admissions_inserted": len(plans), "lineage_inserted": 1}
+
+            def promote_research_candidate(self, candidate_id: str, *, requested_by: str, dry_run: bool = True) -> dict[str, object]:
+                self.promoted.append((candidate_id, requested_by, dry_run))
+                return {"ok": True, "action": "promote_candidate", "candidate_id": candidate_id, "idea_id": candidate_id, "queued_count": 1, "dispatch_started": False}
+
+            def append_event(self, **kwargs):
+                self.events.append(kwargs)
+                return 1, True
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        generated_candidate = {
+            "title": "Generated Candidate",
+            "generation_mode": "moonshot",
+            "category": "quantization",
+            "priority": "High",
+            "source_kind": "internal_generated",
+            "source_ids": ["provider-source"],
+            "source_urls": ["enoch://provider/test"],
+            "source_records": [{"source_id": "provider-source", "source_kind": "internal_generated", "title": "provider", "url": "enoch://provider/test"}],
+            "hypothesis": "A bounded local quantization experiment can reduce VRAM with measured quality tradeoffs.",
+            "mechanism": "Use learned residual quantization and compare against int4 baselines.",
+            "description": "Provider generated candidate.",
+            "implementation": "Run a small local benchmark and record metrics, failure cases, and decision artifact.",
+            "baseline_to_beat": "Uniform int4 quantization.",
+            "success_threshold": "Beat int4 memory at comparable quality.",
+            "kill_condition": "Stop if quality collapses or runtime exceeds baseline by 2x.",
+            "accessibility_delta": "Could reduce local VRAM requirements.",
+            "expected_artifacts": ["run_notes.md", "metrics.json", "failure_cases.json", ".enoch/project_decision.json"],
+            "required_evidence": ["baseline comparison", "metrics table", "failure cases", "decision artifact"],
+            "likely_failure_modes": ["quality collapse", "runtime overhead"],
+            "estimated_runtime_class": "medium",
+            "expected_token_budget": "medium",
+            "machine_target": "192.168.1.77",
+            "model": "gpt-5.5",
+            "sandbox": "danger-full-access",
+            "novelty_score": 8,
+            "feasibility_score": 7,
+            "accessibility_score": 8,
+            "falsifiability_score": 8,
+            "novelty_comparison": "Different from generic quantization because it tests residual allocation under a hard VRAM cap.",
+            "risk_notes": "May not transfer to larger models.",
+        }
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+             patch("scripts.research_provider_generate.generate_provider_candidates", return_value={"ok": True, "provider_response_id": "cmpl-cycle", "attempts_used": 1, "candidates": [generated_candidate]}) as generate:
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={"dry_run": False, "enabled": True, "max_dispatches_per_run": 0, "requested_by": "pytest"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["action"], "research_cycle")
+        self.assertEqual(body["generated_count"], 1)
+        self.assertEqual(body["promoted_count"], 1)
+        self.assertEqual(body["queued_count"], 1)
+        self.assertEqual(body["dispatched_count"], 0)
+        self.assertFalse(body["dispatch_started"])
+        self.assertEqual(len(fake_store.recorded), 1)
+        self.assertEqual(fake_store.promoted[0], ("generated-candidate", "pytest", False))
+        self.assertEqual(fake_store.events[0]["event_type"], "research.run_cycle.live")
+        self.assertEqual(generate.call_args.kwargs["attempts"], 2)
 
     def test_research_facility_promote_candidate_requires_candidate_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
