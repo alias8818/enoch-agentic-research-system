@@ -242,3 +242,10 @@ def test_codex_runner_sets_gb10_path_before_resolving_codex_binary() -> None:
     assert 'export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/bin:$PATH"' in script
     assert 'CODEX_BIN="${CODEX_BIN:-$(command -v codex || true)}"' in script
     assert script.index('export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/bin:$PATH"') < script.index('CODEX_BIN="${CODEX_BIN:-$(command -v codex || true)}"')
+
+
+def test_enoch_worker_skill_uses_codex_description_frontmatter() -> None:
+    skill = (ROOT / "codex-skills" / "enoch-worker" / "SKILL.md").read_text(encoding="utf-8")
+    header = skill.split("---", 2)[1]
+    assert "description:" in header
+    assert "summary:" not in header

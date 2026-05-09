@@ -1,6 +1,6 @@
 ---
 name: enoch-worker
-summary: Use when running an Enoch autonomous research project on a worker machine. Explains the expected artifacts, decision schema, negative/positive paper gate, follow-up rules, and operator-safety boundaries for Codex-native Enoch runs.
+description: Use when running an Enoch autonomous research project on a worker machine. Explains the expected artifacts, decision schema, negative/positive paper gate, follow-up rules, and operator-safety boundaries for Codex-native Enoch runs.
 ---
 
 # Enoch Worker Skill
