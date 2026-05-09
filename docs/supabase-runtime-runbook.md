@@ -93,3 +93,53 @@ After the controlled drill and corpus import ledger reached a clean state, the c
 - `state_doctor`: `overall: OK`, `write_needed=0`, `finalize_needed=0`, `publish_ready=0`, `importable=0`
 
 This is an execution-only unfreeze. Paper drafting remains explicit/decision-gated and is not timer-driven.
+
+## exe.dev local-Postgres migration evidence from 2026-05-09
+
+The runtime control plane and database were moved off Supabase Cloud to `enoch-core.exe.xyz` to stop cloud egress growth from dashboard/status polling.
+
+Current intended topology:
+
+- `enoch-core.exe.xyz` / Tailscale `100.98.147.24`
+  - Postgres 17 on `127.0.0.1:5432`, database `enoch_control`, private schema `enoch`.
+  - `enoch-control-plane.service` serving FastAPI/Uvicorn on `0.0.0.0:8787`.
+  - `enoch-queue-alert-check.timer` enabled; queue remains paused until explicitly resumed.
+  - `enoch-postgres-backup.timer` creates local compressed custom-format dumps under `/var/backups/enoch-postgres` with 7-day retention.
+- GB10 worker / Tailscale `100.92.44.26`
+  - Worker execution only.
+  - Project artifacts stay under `/home/jeremy/projects/enoch_testing_ground/projects` on the GB10 USB storage.
+  - Worker callback URL now targets `http://100.98.147.24:8787/control/api/worker-callback`.
+- Former `.166` control-plane host
+  - `enoch-control-plane.service` and `enoch-queue-alert-check.timer` disabled/inactive after parity checks.
+
+Cutover verification commands used:
+
+```bash
+# New control plane status over Tailscale.
+curl -H "Authorization: Bearer $ENOCH_CONTROL_PLANE_TOKEN" \
+  http://100.98.147.24:8787/control/api/status
+
+# New overview parity.
+curl -H "Authorization: Bearer $ENOCH_CONTROL_PLANE_TOKEN" \
+  'http://100.98.147.24:8787/control/api/v1/overview?active_limit=5&event_limit=5'
+
+# Worker preflight from new control plane to GB10.
+curl -X POST -H "Authorization: Bearer $ENOCH_CONTROL_PLANE_TOKEN" \
+  -H 'Content-Type: application/json' \
+  http://100.98.147.24:8787/control/api/preflight \
+  -d '{"wake_gate_url":"http://100.92.44.26:8787","bearer_token":"<worker-token>","require_paused":false,"strict":false}'
+```
+
+Observed parity at cutover:
+
+- `counts`: `completed=608`, `all=617`, `paused=9`, `active=0`, `queued=0`, `blocked=0`, `papers=500`.
+- `operator_counts`: `complete_no_paper=468`, `followup_investigation=6`, `published=376`, `needs_attention=0`, `ready_to_publish=0`, `write_paper=0`.
+- `paper_pipeline`: `write_needed=0`, `finalize_needed=0`, `publish_ready=0`, `published_imported=376`, `raw_completed_no_paper_candidates=350`, `not_writable_by_decision_gate=350`.
+- Queue remained paused: `dispatch_blockers=["queue paused"]`.
+- Queue timer smoke on `enoch-core` skipped dispatch because the queue was paused and worker preflight passed.
+
+Operational notes:
+
+- Use `http://100.98.147.24:8787/control/dashboard` for direct Tailscale access.
+- `https://enoch-core.exe.xyz/` is configured as a private exe.dev proxy to port `8787`; exe.dev authentication may be required before the application bearer token is evaluated.
+- Do not point dashboard/API traffic back at Supabase Cloud unless intentionally rolling back.
