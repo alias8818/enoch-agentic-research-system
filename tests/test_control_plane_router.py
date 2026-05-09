@@ -334,6 +334,11 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("generateResearchSmokeBatch", response.text)
             self.assertIn("/control/api/research/generate-batch", response.text)
             self.assertIn("This will not queue or dispatch work", response.text)
+            self.assertIn("Provider-backed generation", response.text)
+            self.assertIn("Generate provider batch", response.text)
+            self.assertIn("generateProviderCandidateBatch", response.text)
+            self.assertIn("/control/api/research/generate-provider-batch", response.text)
+            self.assertIn("writes Research Facility ledgers only", response.text)
             self.assertIn("Promote selected candidate", response.text)
             self.assertIn("promoteResearchCandidate", response.text)
             self.assertIn("researchCandidateId", response.text)
@@ -490,6 +495,138 @@ class ControlPlaneRouterTests(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 501)
             self.assertIn("Supabase control-plane store", response.text)
+
+    def test_research_facility_provider_generate_dry_run_checks_budget_without_provider_spend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            quota = {
+                "subscription": {"limit": 2500, "requests": 0},
+                "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+                "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+            }
+
+            with patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+                 patch("scripts.research_provider_generate.generate_provider_candidates") as generate:
+                response = client.post(
+                    "/control/api/research/generate-provider-batch",
+                    headers=headers,
+                    json={"dry_run": True, "max_candidates": 2, "requested_by": "pytest"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertTrue(body["ok"])
+            self.assertEqual(body["action"], "dry_run_provider_generate_candidates")
+            self.assertFalse(body["queue_admitted"])
+            self.assertFalse(body["dispatch_started"])
+            self.assertEqual(body["queued_count"], 0)
+            self.assertIn("budget", body)
+            generate.assert_not_called()
+
+    def test_research_facility_provider_generate_fails_closed_when_budget_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+
+            with patch("scripts.research_provider_budget.fetch_json", side_effect=RuntimeError("quota down")), \
+                 patch("scripts.research_provider_generate.generate_provider_candidates") as generate:
+                response = client.post(
+                    "/control/api/research/generate-provider-batch",
+                    headers=headers,
+                    json={"dry_run": False, "max_candidates": 1, "requested_by": "pytest"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertFalse(body["ok"])
+            self.assertEqual(body["action"], "provider_generation_blocked")
+            self.assertIn("quota down", body["reason"])
+            generate.assert_not_called()
+
+    def test_research_facility_provider_generate_live_writes_ledgers_only_with_supabase_store(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.recorded = []
+
+            def research_facility_workbench_projection(self, *, limit: int = 200) -> list[dict[str, str]]:
+                return []
+
+            def record_research_facility_plans(self, plans, *, requested_by: str, queue_admitted: bool = False) -> dict[str, int]:
+                self.recorded.append((plans, requested_by, queue_admitted))
+                return {"sources_upserted": 1, "candidates_upserted": len(plans), "admissions_inserted": len(plans), "lineage_inserted": 1}
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        generated_candidate = {
+            "title": "Provider Candidate",
+            "generation_mode": "moonshot",
+            "category": "distributed-training",
+            "priority": "High",
+            "source_kind": "internal_generated",
+            "source_ids": ["provider-source"],
+            "source_urls": ["enoch://provider/test"],
+            "source_records": [{"source_id": "provider-source", "source_kind": "internal_generated", "title": "provider", "url": "enoch://provider/test"}],
+            "hypothesis": "A bounded volunteer-training audit can reject stale updates under low communication.",
+            "mechanism": "Use random gradient-slice probes before aggregation.",
+            "description": "Provider generated candidate.",
+            "implementation": "Simulate workers and injected adversaries, then compare against unchecked DiLoCo.",
+            "baseline_to_beat": "Unchecked DiLoCo and FedAvg.",
+            "success_threshold": "Detect at least 80 percent of stale updates with under 10 percent false positives.",
+            "kill_condition": "Stop if probes miss replay attacks or communication overhead exceeds 1.5x.",
+            "accessibility_delta": "Could make home volunteer training safer.",
+            "expected_artifacts": ["run_notes.md", "metrics.json", "failure_cases.json", ".enoch/project_decision.json"],
+            "required_evidence": ["baseline comparison", "metrics table", "failure cases", "decision artifact"],
+            "likely_failure_modes": ["overhead too high", "adversaries evade probes", "false positives"],
+            "estimated_runtime_class": "medium",
+            "expected_token_budget": "medium",
+            "machine_target": "192.168.1.77",
+            "model": "gpt-5.5",
+            "sandbox": "danger-full-access",
+            "novelty_score": 8,
+            "feasibility_score": 7,
+            "accessibility_score": 8,
+            "falsifiability_score": 8,
+            "novelty_comparison": "Different from generic distributed training because it audits stale updates with low-bandwidth probes.",
+            "risk_notes": "Simulation may not transfer to real volunteer nodes.",
+        }
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+             patch("scripts.research_provider_generate.generate_provider_candidates", return_value={"ok": True, "provider_response_id": "cmpl-test", "candidates": [generated_candidate]}):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/generate-provider-batch",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={"dry_run": False, "max_candidates": 1, "requested_by": "pytest"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["action"], "provider_generate_candidates")
+        self.assertFalse(body["queue_admitted"])
+        self.assertFalse(body["dispatch_started"])
+        self.assertEqual(body["queued_count"], 0)
+        self.assertEqual(body["candidate_count"], 1)
+        self.assertEqual(body["provider_response_id"], "cmpl-test")
+        self.assertEqual(len(fake_store.recorded), 1)
+        _, requested_by, queue_admitted = fake_store.recorded[0]
+        self.assertEqual(requested_by, "pytest")
+        self.assertFalse(queue_admitted)
 
     def test_research_facility_promote_candidate_requires_candidate_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

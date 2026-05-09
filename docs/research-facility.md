@@ -147,8 +147,24 @@ This keeps source scanning, candidate generation, history comparison, admission,
 The dashboard follows the same split:
 
 - `Generate smoke batch` dry-runs first, then writes only Research Facility source/candidate/admission/lineage rows.
+- `Generate provider batch` dry-runs a provider quota preflight first. The live action spends one provider request, then writes only Research Facility source/candidate/admission/lineage rows.
 - `Promote selected candidate` dry-runs first, then promotes exactly one already-admitted candidate into `enoch.ideas`, `enoch.projects`, and `enoch.queue_items`.
 - Neither dashboard action dispatches worker execution. Dispatch remains a separate operator command.
+
+The provider-backed endpoint is:
+
+```text
+POST /control/api/research/generate-provider-batch
+```
+
+It is fail-closed:
+
+1. query provider quota through the configured proxy;
+2. refuse generation if remaining credit/rolling request reserve is too low;
+3. dry-run without spending a provider request;
+4. live-run at most the requested bounded candidate count;
+5. score candidates through the deterministic planner;
+6. persist only Research Facility ledgers with `queue_admitted = false`.
 
 ## Admission behavior
 
