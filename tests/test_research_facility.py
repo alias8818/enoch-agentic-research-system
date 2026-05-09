@@ -144,6 +144,7 @@ def test_research_facility_runtime_methods_are_present() -> None:
 
     assert ControlPlaneStore(Path(":memory:")).research_facility_workbench_projection() == []
     assert callable(getattr(SupabaseControlPlaneStore("postgresql://example.invalid/postgres", connect=lambda: None), "research_facility_workbench_projection"))
+    assert callable(getattr(SupabaseControlPlaneStore("postgresql://example.invalid/postgres", connect=lambda: None), "promote_research_candidate"))
 
 
 def test_research_facility_emits_full_source_records_when_present() -> None:

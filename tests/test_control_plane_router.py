@@ -334,6 +334,11 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("generateResearchSmokeBatch", response.text)
             self.assertIn("/control/api/research/generate-batch", response.text)
             self.assertIn("This will not queue or dispatch work", response.text)
+            self.assertIn("Promote selected candidate", response.text)
+            self.assertIn("promoteResearchCandidate", response.text)
+            self.assertIn("researchCandidateId", response.text)
+            self.assertIn("/control/api/research/promote-candidate", response.text)
+            self.assertIn("It does not dispatch work", response.text)
             self.assertIn("Commands", response.text)
             self.assertIn("Pause queue", response.text)
             self.assertIn("Resume queue", response.text)
@@ -485,6 +490,72 @@ class ControlPlaneRouterTests(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 501)
             self.assertIn("Supabase control-plane store", response.text)
+
+    def test_research_facility_promote_candidate_requires_candidate_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            response = client.post(
+                "/control/api/research/promote-candidate",
+                headers=headers,
+                json={"dry_run": True, "requested_by": "pytest"},
+            )
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("candidate_id is required", response.text)
+
+    def test_research_facility_promote_candidate_requires_supabase_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            response = client.post(
+                "/control/api/research/promote-candidate",
+                headers=headers,
+                json={"candidate_id": "candidate-a", "dry_run": True, "requested_by": "pytest"},
+            )
+            self.assertEqual(response.status_code, 501)
+            self.assertIn("promotion requires the Supabase control-plane store", response.text)
+
+    def test_research_facility_promote_candidate_calls_supabase_store_dry_run_first(self) -> None:
+        class FakeSupabaseStore:
+            def research_facility_workbench_projection(self, *, limit: int = 200) -> list[dict[str, str]]:
+                return []
+
+            def promote_research_candidate(self, candidate_id: str, *, requested_by: str, dry_run: bool = True) -> dict[str, object]:
+                return {
+                    "ok": True,
+                    "action": "dry_run_promote_candidate",
+                    "dry_run": dry_run,
+                    "candidate_id": candidate_id,
+                    "requested_by": requested_by,
+                    "queued_count": 0,
+                    "dispatch_started": False,
+                }
+
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=FakeSupabaseStore()):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/promote-candidate",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={"candidate_id": "candidate-a", "dry_run": True, "requested_by": "pytest"},
+            )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["action"], "dry_run_promote_candidate")
+        self.assertTrue(body["dry_run"])
+        self.assertEqual(body["candidate_id"], "candidate-a")
+        self.assertEqual(body["requested_by"], "pytest")
+        self.assertEqual(body["queued_count"], 0)
+        self.assertFalse(body["dispatch_started"])
 
     def test_project_prompt_uses_source_provenance_instead_of_notion_authority(self) -> None:
         prompt = _project_prompt({
