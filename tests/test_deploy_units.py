@@ -218,3 +218,10 @@ def test_codex_runner_disables_spark_backed_explore_by_default() -> None:
     assert 'omx exec' not in script
     assert 'codex exec' in script or 'CODEX_BIN' in script
     assert script.index('export USE_OMX_EXPLORE_CMD=') < script.index('"${cmd[@]}"')
+
+
+def test_codex_dispatch_resolves_runner_relative_to_deploy_script() -> None:
+    script = (ROOT / "deploy" / "enoch_codex_dispatch.sh").read_text(encoding="utf-8")
+    assert 'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' in script
+    assert 'RUNNER_SCRIPT="${ENOCH_CODEX_RUNNER_SCRIPT:-$SCRIPT_DIR/enoch_codex_runner.sh}"' in script
+    assert '$HOME/projects/enoch-agentic-research-system/deploy/enoch_codex_runner.sh' not in script

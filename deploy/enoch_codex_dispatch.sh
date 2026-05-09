@@ -60,7 +60,8 @@ if [[ -z "$LOG_DIR" ]]; then
 fi
 mkdir -p "$LOG_DIR"
 
-RUNNER_SCRIPT="${ENOCH_CODEX_RUNNER_SCRIPT:-$HOME/projects/enoch-agentic-research-system/deploy/enoch_codex_runner.sh}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNNER_SCRIPT="${ENOCH_CODEX_RUNNER_SCRIPT:-$SCRIPT_DIR/enoch_codex_runner.sh}"
 if [[ -n "$RUNNER_SCRIPT_OVERRIDE" ]]; then
   RUNNER_SCRIPT="$RUNNER_SCRIPT_OVERRIDE"
 fi
