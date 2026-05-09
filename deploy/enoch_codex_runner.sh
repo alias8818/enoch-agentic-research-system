@@ -42,12 +42,6 @@ case "$MODE" in
   *) echo "invalid --mode: $MODE" >&2; exit 2 ;;
 esac
 
-CODEX_BIN="${CODEX_BIN:-$(command -v codex || true)}"
-if [[ -z "$CODEX_BIN" ]]; then
-  echo "codex binary not found in PATH" >&2
-  exit 127
-fi
-
 mkdir -p "$PROJECT_DIR/.enoch/logs" "$PROJECT_DIR/.enoch/state" "$PROJECT_DIR/.omx/logs" "$PROJECT_DIR/.omx/state"
 cd "$PROJECT_DIR"
 
@@ -58,6 +52,12 @@ export ENOCH_LAUNCH_ROOT_PID="$$"
 export ENOCH_LAUNCH_PGID="$(ps -o pgid= -p $$ | tr -d ' ')"
 export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/bin:$PATH"
 export USE_OMX_EXPLORE_CMD="${USE_OMX_EXPLORE_CMD:-0}"
+
+CODEX_BIN="${CODEX_BIN:-$(command -v codex || true)}"
+if [[ -z "$CODEX_BIN" ]]; then
+  echo "codex binary not found in PATH" >&2
+  exit 127
+fi
 
 JSON_LOG="$PROJECT_DIR/.enoch/logs/${RUN_ID}.codex.jsonl"
 LAST_MESSAGE="$PROJECT_DIR/.enoch/last_message.md"

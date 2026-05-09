@@ -235,3 +235,10 @@ def test_codex_runner_marks_local_worker_state_after_callback() -> None:
     assert 'pathlib.Path(state_dir).expanduser() / "runs" / f"{run_id}.json"' in runner
     assert 'record["last_idempotency_key"] = idempotency_key' in runner
     assert 'mark_local_worker_state_delivered(payload["idempotency_key"])' in runner
+
+
+def test_codex_runner_sets_gb10_path_before_resolving_codex_binary() -> None:
+    script = (ROOT / "deploy" / "enoch_codex_runner.sh").read_text(encoding="utf-8")
+    assert 'export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/bin:$PATH"' in script
+    assert 'CODEX_BIN="${CODEX_BIN:-$(command -v codex || true)}"' in script
+    assert script.index('export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/bin:$PATH"') < script.index('CODEX_BIN="${CODEX_BIN:-$(command -v codex || true)}"')
