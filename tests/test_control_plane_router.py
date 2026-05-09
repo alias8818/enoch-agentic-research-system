@@ -322,6 +322,14 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("Work is idle", response.text)
             self.assertIn("Needs attention", response.text)
             self.assertIn("/control/api/intake/ideas", response.text)
+            self.assertIn("Research Facility", response.text)
+            self.assertIn("/control/api/research/facility", response.text)
+            self.assertIn("/control/api/research/provider-budget", response.text)
+            self.assertIn("Check provider budget", response.text)
+            self.assertIn("Generated candidates", response.text)
+            self.assertIn("Admitted ideas", response.text)
+            self.assertIn("Queued ideas", response.text)
+            self.assertIn("checkProviderBudget", response.text)
             self.assertIn("Commands", response.text)
             self.assertIn("Pause queue", response.text)
             self.assertIn("Resume queue", response.text)
@@ -378,6 +386,66 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertNotIn("Recent event summaries", response.text)
             self.assertNotIn("source ${", response.text)
             self.assertNotIn("authority ${", response.text)
+
+    def test_research_facility_provider_budget_sanitizes_success(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            quota = {
+                "subscription": {"limit": 2500, "requests": 1, "renewsAt": "2026-05-10T00:00:00Z"},
+                "weeklyTokenLimit": {"remainingCredits": "$119.77", "nextRegenAt": "2026-05-09T15:31:04Z"},
+                "rollingFiveHourLimit": {"remaining": 2499, "max": 2500, "limited": False},
+                "secret_echo": "synthetic-key-should-not-leak",
+            }
+
+            with patch("scripts.research_provider_budget.fetch_json", return_value=quota) as fetch:
+                response = client.get(
+                    "/control/api/research/provider-budget?estimated_requests=1&reserve_requests=2",
+                    headers=headers,
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertTrue(body["ok"])
+            self.assertEqual(body["auth_mode"], "exe_http_proxy")
+            self.assertEqual(body["remaining_credits"], 119.77)
+            self.assertEqual(body["rolling_remaining"], 2499)
+            self.assertEqual(body["failures"], [])
+            self.assertIsNone(body["payload_json"])
+            self.assertNotIn("secret_echo", response.text)
+            self.assertNotIn("synthetic-key-should-not-leak", response.text)
+            self.assertNotIn("Authorization", response.text)
+            fetch.assert_called_once()
+            _, kwargs = fetch.call_args
+            self.assertEqual(kwargs["api_key"], "")
+
+    def test_research_facility_provider_budget_fails_safely_without_secret(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+
+            with patch("scripts.research_provider_budget.fetch_json", side_effect=RuntimeError("quota unavailable")):
+                response = client.get("/control/api/research/provider-budget", headers=headers)
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertFalse(body["ok"])
+            self.assertEqual(body["auth_mode"], "exe_http_proxy")
+            self.assertIn("provider budget check failed", body["failures"][0])
+            self.assertNotIn("api_key", response.text.lower())
+            self.assertNotIn("bearer", response.text.lower())
+
+    def test_research_facility_api_returns_ledger_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            response = client.get("/control/api/research/facility", headers=headers)
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertTrue(body["ok"])
+            self.assertIn("Research Facility ledgers", body["authority"])
+            self.assertEqual(body["rows"], [])
+            self.assertEqual(body["counts"], {})
 
     def test_project_prompt_uses_source_provenance_instead_of_notion_authority(self) -> None:
         prompt = _project_prompt({
