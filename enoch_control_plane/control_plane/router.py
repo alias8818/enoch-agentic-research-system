@@ -11,6 +11,7 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse
 
 from ..config import GateConfig
@@ -2609,7 +2610,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     event_type="research.run_cycle.blocked",
                     entity_type="research",
                     entity_id="run-cycle",
-                    payload=response,
+                    payload=jsonable_encoder(response),
                 )
             return response
         if dry_run:
@@ -2626,7 +2627,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     event_type="research.run_cycle.dry_run",
                     entity_type="research",
                     entity_id="run-cycle",
-                    payload=response,
+                    payload=jsonable_encoder(response),
                 )
             return response
 
@@ -2778,7 +2779,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 event_type="research.run_cycle.live",
                 entity_type="research",
                 entity_id="run-cycle",
-                payload=response,
+                payload=jsonable_encoder(response),
             )
         return response
 
