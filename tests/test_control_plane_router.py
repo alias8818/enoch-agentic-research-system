@@ -611,7 +611,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             response = client.post(
                 "/control/api/research/generate-provider-batch",
                 headers={"Authorization": f"Bearer {TOKEN}"},
-                json={"dry_run": False, "max_candidates": 1, "generation_max_tokens": 9000, "requested_by": "pytest"},
+                json={"dry_run": False, "max_candidates": 1, "generation_max_tokens": 9000, "generation_attempts": 3, "requested_by": "pytest"},
             )
 
         self.assertEqual(response.status_code, 200)
@@ -619,7 +619,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertEqual(body["action"], "provider_generate_candidates")
         self.assertEqual(body["generation_max_tokens"], 9000)
+        self.assertEqual(body["generation_attempts"], 3)
         self.assertEqual(generate.call_args.kwargs["max_tokens"], 9000)
+        self.assertEqual(generate.call_args.kwargs["attempts"], 3)
         self.assertFalse(body["queue_admitted"])
         self.assertFalse(body["dispatch_started"])
         self.assertEqual(body["queued_count"], 0)

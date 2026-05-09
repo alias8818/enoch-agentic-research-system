@@ -242,39 +242,58 @@ def generate_provider_candidates(
     seed: str = "",
     timeout: int = 120,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    attempts: int = 1,
     default_machine: str = "192.168.1.77",
     default_model: str = "gpt-5.5",
     default_sandbox: str = "danger-full-access",
 ) -> dict[str, Any]:
     max_candidates = max(1, min(int(max_candidates), 10))
     seed = seed or utc_now()
-    prompt = build_generation_prompt(max_candidates=max_candidates, topic=topic, model=model, temperature=temperature, seed=seed)
-    provider_payload = call_openai_compatible_chat(
-        base_url=base_url,
-        model=model,
-        prompt=prompt,
-        api_key=api_key,
-        temperature=temperature,
-        timeout=timeout,
-        max_tokens=max_tokens,
-    )
-    candidates = candidates_from_provider_response(
-        provider_payload,
-        provider="synthetic.new",
-        provider_model=model,
-        prompt=prompt,
-        topic=topic,
-        temperature=temperature,
-        seed=seed,
-        default_machine=default_machine,
-        default_model=default_model,
-        default_sandbox=default_sandbox,
-    )
+    attempts = max(1, min(int(attempts), 3))
+    last_error: Exception | None = None
+    provider_payload: dict[str, Any] = {}
+    candidates: list[dict[str, Any]] = []
+    attempt_used = 0
+    prompt = ""
+    for attempt in range(1, attempts + 1):
+        attempt_used = attempt
+        attempt_seed = seed if attempt == 1 else f"{seed}:retry-{attempt}"
+        prompt = build_generation_prompt(max_candidates=max_candidates, topic=topic, model=model, temperature=temperature, seed=attempt_seed)
+        provider_payload = call_openai_compatible_chat(
+            base_url=base_url,
+            model=model,
+            prompt=prompt,
+            api_key=api_key,
+            temperature=temperature,
+            timeout=timeout,
+            max_tokens=max_tokens,
+        )
+        try:
+            candidates = candidates_from_provider_response(
+                provider_payload,
+                provider="synthetic.new",
+                provider_model=model,
+                prompt=prompt,
+                topic=topic,
+                temperature=temperature,
+                seed=attempt_seed,
+                default_machine=default_machine,
+                default_model=default_model,
+                default_sandbox=default_sandbox,
+            )
+            break
+        except Exception as exc:
+            last_error = exc
+            if attempt == attempts:
+                raise ValueError(f"provider returned no usable candidate JSON after {attempts} attempt(s): {exc}") from exc
+
     return {
         "ok": True,
         "provider": "synthetic.new",
         "provider_model": model,
         "max_tokens": max_tokens,
+        "attempts_requested": attempts,
+        "attempts_used": attempt_used,
         "candidate_count": len(candidates),
         "prompt_version": PROMPT_VERSION,
         "generated_at": utc_now(),
@@ -295,6 +314,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", default="")
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--max-tokens", type=int, default=int(os.environ.get("ENOCH_RESEARCH_PROVIDER_MAX_TOKENS", DEFAULT_MAX_TOKENS)))
+    parser.add_argument("--attempts", type=int, default=int(os.environ.get("ENOCH_RESEARCH_PROVIDER_ATTEMPTS", "1")))
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
 
@@ -309,6 +329,7 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
         timeout=args.timeout,
         max_tokens=args.max_tokens,
+        attempts=args.attempts,
     )
     text = json.dumps(payload, indent=2, sort_keys=True)
     if args.output:

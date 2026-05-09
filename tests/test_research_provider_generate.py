@@ -135,3 +135,41 @@ def test_provider_generate_calls_openai_compatible_endpoint_without_local_auth_w
     assert payload["max_tokens"] == research_provider_generate.DEFAULT_MAX_TOKENS
     assert payload["response_format"] == {"type": "json_object"}
     assert "Never return an empty candidates array" in payload["messages"][1]["content"]
+
+
+def test_provider_generate_retries_malformed_json_before_succeeding() -> None:
+    class FakeResponse:
+        calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            FakeResponse.calls += 1
+            if FakeResponse.calls == 1:
+                payload = {
+                    "id": "cmpl-bad",
+                    "choices": [{"message": {"content": '{"candidates":[{"title":"broken"'}}],
+                }
+            else:
+                payload = _provider_payload()
+            return json.dumps(payload).encode("utf-8")
+
+    with patch("scripts.research_provider_generate.urllib.request.urlopen", return_value=FakeResponse()):
+        result = research_provider_generate.generate_provider_candidates(
+            base_url="https://synthetic.int.exe.xyz/openai/v1",
+            model="hf:moonshotai/Kimi-K2.6",
+            api_key="",
+            max_candidates=1,
+            topic="quantization",
+            temperature=0.3,
+            seed="seed-retry",
+            attempts=2,
+        )
+
+    assert result["candidate_count"] == 1
+    assert result["attempts_requested"] == 2
+    assert result["attempts_used"] == 2
