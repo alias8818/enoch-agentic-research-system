@@ -1134,6 +1134,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(dispatch.status_code, 409)
             self.assertIn("worker preflight failed", dispatch.text)
             self.assertIn("force_preflight_ignored", dispatch.text)
+            state = client.get("/control/state", headers=headers).json()
+            self.assertEqual(state["counts"]["queued"], 1)
+            self.assertEqual(state["counts"].get("dispatching", 0), 0)
 
 
 

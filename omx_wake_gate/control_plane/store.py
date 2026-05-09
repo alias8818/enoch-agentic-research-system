@@ -1824,6 +1824,79 @@ class ControlPlaneStore:
             return "noop", None, None, "no queued candidate"
         return "dry_run_dispatch", candidate, None, "dry-run dispatch selected candidate"
 
+    def claim_dispatch_candidate(self, *, project_id: str, run_id: str, requested_by: str) -> dict[str, Any] | None:
+        """Atomically reserve a queued project before worker-side dispatch."""
+        now = utc_now()
+        active_placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
+        with self._connect() as conn:
+            cur = conn.execute(
+                f"""UPDATE queue_items
+                SET status=?, current_run_id=?, current_session_id=?, last_run_state=?,
+                    last_event_type=?, next_action_hint=?, last_error=?, last_result_summary=?,
+                    last_dispatch_at=?, updated_at=?
+                WHERE project_id=?
+                  AND status=?
+                  AND manual_review_required=0
+                  AND NOT EXISTS (
+                    SELECT 1 FROM queue_items active
+                    WHERE active.status IN ({active_placeholders})
+                  )""",
+                (
+                    QueueStatus.DISPATCHING.value,
+                    run_id,
+                    "",
+                    QueueStatus.DISPATCHING.value,
+                    "dispatch_claimed",
+                    "prepare_worker_dispatch",
+                    "",
+                    "",
+                    now,
+                    now,
+                    project_id,
+                    QueueStatus.QUEUED.value,
+                    *sorted(ACTIVE_STATUSES),
+                ),
+            )
+            claimed = cur.rowcount == 1
+        if not claimed:
+            return None
+        self.append_event(
+            idempotency_key=f"dispatch-claim:{run_id}",
+            event_type="controller.dispatch_claimed",
+            entity_type="project",
+            entity_id=project_id,
+            payload={"requested_by": requested_by, "run_id": run_id},
+        )
+        return self.queue_row(project_id)
+
+    def release_dispatch_claim(self, *, project_id: str, run_id: str, reason: str) -> dict[str, Any]:
+        now = utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                """UPDATE queue_items
+                SET status=?, current_run_id='', current_session_id='', last_run_state='',
+                    last_event_type=?, next_action_hint=?, last_error=?, updated_at=?
+                WHERE project_id=? AND current_run_id=? AND status=?""",
+                (
+                    QueueStatus.QUEUED.value,
+                    "dispatch_claim_released",
+                    "controller_review",
+                    reason,
+                    now,
+                    project_id,
+                    run_id,
+                    QueueStatus.DISPATCHING.value,
+                ),
+            )
+        self.append_event(
+            idempotency_key=f"dispatch-claim-release:{run_id}",
+            event_type="controller.dispatch_claim_released",
+            entity_type="project",
+            entity_id=project_id,
+            payload={"run_id": run_id, "reason": reason},
+        )
+        return self.queue_row(project_id) or {}
+
 
     def ingest_notion_ideas(self, request: NotionIntakeRequest) -> tuple[bool, int, int, int, list[dict[str, Any]], list[dict[str, Any]]]:
         include_statuses = {item.strip().lower() for item in request.include_statuses if item.strip()}

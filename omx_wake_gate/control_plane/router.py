@@ -708,6 +708,15 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             raise HTTPException(status_code=409, detail="control plane must be resumed and out of maintenance mode before live dispatch")
         if not config.worker_wake_gate_bearer_token:
             raise HTTPException(status_code=500, detail="worker wake-gate bearer token is not configured")
+        project_id = str(candidate.get("project_id") or "").strip()
+        if not project_id:
+            raise HTTPException(status_code=400, detail="candidate lacks project_id")
+        project_dir = _safe_slug(str(candidate.get("project_dir") or project_id), project_id)
+        run_id = _live_run_id(project_id)
+        claim = store.claim_dispatch_candidate(project_id=project_id, run_id=run_id, requested_by=requested_by)
+        if not claim:
+            raise HTTPException(status_code=409, detail="dispatch candidate was already claimed or is no longer queued")
+        candidate = claim
         # Live dispatch is never allowed to bypass fresh worker evidence.  The
         # request field remains for API compatibility, but the control plane
         # always performs the non-mutating worker preflight before prepare/dispatch.
@@ -722,12 +731,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         )
         _record_preflight_observations(preflight)
         if not preflight.ok:
+            store.release_dispatch_claim(project_id=project_id, run_id=run_id, reason="worker preflight failed")
             raise HTTPException(status_code=409, detail={"message": "worker preflight failed", "preflight": preflight.model_dump(mode="json"), "force_preflight_ignored": not force_preflight})
-        project_id = str(candidate.get("project_id") or "").strip()
-        if not project_id:
-            raise HTTPException(status_code=400, detail="candidate lacks project_id")
-        project_dir = _safe_slug(str(candidate.get("project_dir") or project_id), project_id)
-        run_id = _live_run_id(project_id)
         prompt_file = f"{project_dir}/prompts/initial.md"
         resume_prompt_file = f"{project_dir}/prompts/resume.md"
         prepare_payload = {
@@ -745,6 +750,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         }
         prepare = post_worker_json(config.worker_wake_gate_url, "/prepare-project", config.worker_wake_gate_bearer_token, prepare_payload)
         if not prepare.ok:
+            store.release_dispatch_claim(project_id=project_id, run_id=run_id, reason="worker prepare-project failed")
             raise HTTPException(status_code=502, detail={"message": "worker prepare-project failed", "status": prepare.status, "error": prepare.error, "body": prepare.body})
         dispatch_payload = {
             "run_id": run_id,
@@ -758,6 +764,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         }
         dispatch = post_worker_json(config.worker_wake_gate_url, "/dispatch", config.worker_wake_gate_bearer_token, dispatch_payload)
         if not dispatch.ok:
+            store.release_dispatch_claim(project_id=project_id, run_id=run_id, reason="worker dispatch failed")
             raise HTTPException(status_code=502, detail={"message": "worker dispatch failed", "status": dispatch.status, "error": dispatch.error, "body": dispatch.body})
         body = dispatch.body or {}
         session_id = str(((body.get("dispatch") or {}) if isinstance(body.get("dispatch"), dict) else {}).get("session_id") or "")

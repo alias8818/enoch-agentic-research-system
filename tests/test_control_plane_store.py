@@ -350,6 +350,39 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(row["last_error"], "")
             self.assertEqual(row["last_result_summary"], "")
 
+    def test_dispatch_claim_prevents_second_dispatch_before_worker_call(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="import-claim-row",
+                    queue_rows=[{
+                        "project_id": "idea-claim",
+                        "project_name": "Claim Project",
+                        "project_dir": "idea-claim",
+                        "status": "queued",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            store.resume(resumed_by="test", maintenance_mode=False)
+
+            first = store.claim_dispatch_candidate(project_id="idea-claim", run_id="run-claim-1", requested_by="pump-a")
+            second = store.claim_dispatch_candidate(project_id="idea-claim", run_id="run-claim-2", requested_by="pump-b")
+
+            self.assertIsNotNone(first)
+            self.assertIsNone(second)
+            row = store.queue_row("idea-claim")
+            self.assertEqual(row["status"], "dispatching")
+            self.assertEqual(row["current_run_id"], "run-claim-1")
+            self.assertIsNone(store.next_dispatch_candidate())
+
+            released = store.release_dispatch_claim(project_id="idea-claim", run_id="run-claim-1", reason="worker preflight failed")
+            self.assertEqual(released["status"], "queued")
+            self.assertEqual(released["current_run_id"], "")
+            self.assertEqual(released["last_error"], "worker preflight failed")
+            self.assertEqual(store.next_dispatch_candidate()["project_id"], "idea-claim")
+
 
     def test_session_started_callback_keeps_queue_item_active(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

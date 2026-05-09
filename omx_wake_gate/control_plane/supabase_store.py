@@ -1424,6 +1424,84 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 ).fetchone()
                 return int(inserted["event_id"]), True
 
+    def claim_dispatch_candidate(self, *, project_id: str, run_id: str, requested_by: str) -> dict[str, Any] | None:
+        now = utc_now()
+        active_placeholders = ",".join(["%s"] * len(ACTIVE_STATUSES))
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    update queue_items
+                    set status=%s, current_run_id=%s, current_session_id=%s, last_run_state=%s,
+                        last_event_type=%s, next_action_hint=%s, last_error=%s, last_result_summary=%s,
+                        last_dispatch_at=%s, updated_at=%s
+                    where project_id=%s
+                      and status=%s
+                      and manual_review_required=false
+                      and not exists (
+                        select 1 from queue_items active
+                        where active.status in ({active_placeholders})
+                      )
+                    """,
+                    (
+                        QueueStatus.DISPATCHING.value,
+                        run_id,
+                        "",
+                        QueueStatus.DISPATCHING.value,
+                        "dispatch_claimed",
+                        "prepare_worker_dispatch",
+                        "",
+                        "",
+                        now,
+                        now,
+                        project_id,
+                        QueueStatus.QUEUED.value,
+                        *sorted(ACTIVE_STATUSES),
+                    ),
+                )
+                claimed = cur.rowcount == 1
+        if not claimed:
+            return None
+        self.append_event(
+            idempotency_key=f"dispatch-claim:{run_id}",
+            event_type="controller.dispatch_claimed",
+            entity_type="project",
+            entity_id=project_id,
+            payload={"requested_by": requested_by, "run_id": run_id},
+        )
+        return self.queue_row(project_id)
+
+    def release_dispatch_claim(self, *, project_id: str, run_id: str, reason: str) -> dict[str, Any]:
+        now = utc_now()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update queue_items
+                    set status=%s, current_run_id='', current_session_id='', last_run_state='',
+                        last_event_type=%s, next_action_hint=%s, last_error=%s, updated_at=%s
+                    where project_id=%s and current_run_id=%s and status=%s
+                    """,
+                    (
+                        QueueStatus.QUEUED.value,
+                        "dispatch_claim_released",
+                        "controller_review",
+                        reason,
+                        now,
+                        project_id,
+                        run_id,
+                        QueueStatus.DISPATCHING.value,
+                    ),
+                )
+        self.append_event(
+            idempotency_key=f"dispatch-claim-release:{run_id}",
+            event_type="controller.dispatch_claim_released",
+            entity_type="project",
+            entity_id=project_id,
+            payload={"run_id": run_id, "reason": reason},
+        )
+        return self.queue_row(project_id) or {}
+
     def pause(self, *, reason: str, paused_by: str, maintenance_mode: bool) -> tuple[ControlFlags, int]:
         now = utc_now()
         with self._connect() as conn:
