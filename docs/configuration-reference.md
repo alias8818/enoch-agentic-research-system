@@ -1,12 +1,12 @@
 # Configuration reference
 
-Primary config is a JSON file loaded from `OMX_WAKE_GATE_CONFIG`.
+Primary config is a JSON file loaded from `ENOCH_CONFIG`.
 
 ## Required fields
 
 | Field | Purpose |
 |---|---|
-| `omx_inbound_bearer_token` | Authenticates dashboard/control API calls and OMX event posts. |
+| `control_api_bearer_token` | Authenticates dashboard, control API, worker dispatch, and callback calls. |
 | `completion_callback_url` | URL called when a wake-gated run is complete. |
 | `completion_callback_token` | Bearer token used for completion callback delivery. |
 | `state_dir` | Local durable service state directory. |

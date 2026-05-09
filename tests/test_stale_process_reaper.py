@@ -23,10 +23,10 @@ class _StaticTelemetry:
 class StaleProcessReaperTests(unittest.TestCase):
     def _config(self, project_root: str) -> GateConfig:
         return GateConfig(
-            state_dir="/tmp/omx-wake-gate-test",
+            state_dir="/tmp/enoch-worker-gate-test",
             project_root=project_root,
-            dispatch_script_path="/tmp/omx-wake-gate-test/dispatch.sh",
-            omx_inbound_bearer_token="secret",
+            dispatch_script_path="/tmp/enoch-worker-gate-test/dispatch.sh",
+            control_api_bearer_token="secret",
             completion_callback_url="http://127.0.0.1/callback",
             completion_callback_token="callback-token",
             stale_project_process_grace_sec=0,

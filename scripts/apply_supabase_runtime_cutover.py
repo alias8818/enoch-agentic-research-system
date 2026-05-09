@@ -31,8 +31,8 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CONFIG = Path("/etc/omx-wake-gate/config.json")
-DEFAULT_ENV = Path("/etc/omx-wake-gate/supabase.env")
+DEFAULT_CONFIG = Path("/etc/enoch/config.json")
+DEFAULT_ENV = Path("/etc/enoch/postgres.env")
 DEFAULT_SERVICE = "enoch-control-plane.service"
 DEFAULT_CONTROL_URL = "http://127.0.0.1:8787"
 

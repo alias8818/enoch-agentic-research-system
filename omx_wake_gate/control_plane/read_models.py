@@ -104,7 +104,7 @@ def _stage(
 
 
 def _configured_project_root() -> str:
-    config_path = os.environ.get("OMX_WAKE_GATE_CONFIG", "/etc/omx-wake-gate/config.json")
+    config_path = os.environ.get("ENOCH_CONFIG") or os.environ.get("OMX_WAKE_GATE_CONFIG", "/etc/enoch/config.json")
     try:
         with open(config_path, encoding="utf-8") as handle:
             payload = json.load(handle)

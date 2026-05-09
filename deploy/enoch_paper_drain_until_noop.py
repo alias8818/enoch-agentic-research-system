@@ -40,10 +40,10 @@ def load_token() -> str:
     token_file = os.environ.get("ENOCH_CONTROL_TOKEN_FILE", "").strip()
     if token_file:
         return Path(token_file).expanduser().read_text(encoding="utf-8").strip()
-    config_path = Path(os.environ.get("OMX_WAKE_GATE_CONFIG", "/etc/omx-wake-gate/config.json")).expanduser()
+    config_path = Path(os.environ.get("ENOCH_CONFIG") or os.environ.get("OMX_WAKE_GATE_CONFIG", "/etc/enoch/config.json")).expanduser()
     if config_path.exists():
         data = json.loads(config_path.read_text(encoding="utf-8"))
-        token = str(data.get("omx_inbound_bearer_token") or "").strip()
+        token = str(data.get("control_api_bearer_token") or "").strip()
         if token:
             return token
     fallback = Path.home() / "enoch-control-plane-token.txt"

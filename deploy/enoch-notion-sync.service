@@ -6,6 +6,6 @@ Wants=enoch-control-plane.service network-online.target
 [Service]
 Type=oneshot
 Environment=ENOCH_INSTALL_DIR=/opt/enoch-agentic-research-system
-Environment=OMX_WAKE_GATE_CONFIG=/etc/enoch/config.json
+Environment=ENOCH_CONFIG=/etc/enoch/config.json
 WorkingDirectory=/opt/enoch-agentic-research-system
 ExecStart=/opt/enoch-agentic-research-system/deploy/enoch_notion_sync.sh

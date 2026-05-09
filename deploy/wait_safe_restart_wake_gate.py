@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Wait for a safe wake-gate restart window, then restart the user service.
 
-This intentionally restarts only ``omx-wake-gate.service``. It does not reboot
+This intentionally restarts only ``enoch-worker-gate.service``. It does not reboot
 the host. Safe means the dashboard truth sources show no live gate work and the
-process table has no project-owned OMX/Codex execution still running.
+process table has no project-owned Codex execution still running.
 """
 
 from __future__ import annotations
@@ -21,14 +21,14 @@ from typing import Any
 
 ACTIVE_QUEUE_STATUSES = {"dispatching", "awaiting_wake", "running"}
 LIVE_LIFECYCLES = {"active", "settling", "question_pending", "callback_pending", "stale_callback_ready"}
-PROJECT_PROCESS_MARKERS = ("/projects/idea-", "codex exec", "omx exec")
+PROJECT_PROCESS_MARKERS = ("/projects/idea-", "codex exec", "codex exec")
 
 
 def load_token(config_path: Path) -> str:
     data = json.loads(config_path.expanduser().read_text(encoding="utf-8"))
-    token = str(data.get("omx_inbound_bearer_token") or "").strip()
+    token = str(data.get("control_api_bearer_token") or "").strip()
     if not token:
-        raise SystemExit(f"missing omx_inbound_bearer_token in {config_path}")
+        raise SystemExit(f"missing control_api_bearer_token in {config_path}")
     return token
 
 
@@ -55,7 +55,7 @@ def project_exec_processes(project_root: str) -> list[str]:
     for line in result.stdout.splitlines():
         if "wait_safe_restart_wake_gate.py" in line:
             continue
-        if project_root and project_root in line and ("codex exec" in line or "omx exec" in line):
+        if project_root and project_root in line and ("codex exec" in line or "codex exec" in line):
             matches.append(line.strip())
             continue
         if all(marker in line for marker in PROJECT_PROCESS_MARKERS):
@@ -100,7 +100,7 @@ def safe_report(data: dict[str, Any], project_processes: list[str]) -> tuple[boo
         reasons.append(f"live run rows={len(live_runs)} ({', '.join(labels)})")
 
     if project_processes:
-        reasons.append(f"project OMX/Codex processes={len(project_processes)}")
+        reasons.append(f"project Codex processes={len(project_processes)}")
 
     return not reasons, reasons
 
@@ -131,12 +131,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--config",
-        default="~/enoch/config/omx-wake-gate.json",
-        help="wake-gate config path containing omx_inbound_bearer_token",
+        default="~/enoch/config/enoch-worker-gate.json",
+        help="wake-gate config path containing control_api_bearer_token",
     )
     parser.add_argument("--api-url", default="http://127.0.0.1:8787/dashboard/api?limit=20&event_limit=5")
     parser.add_argument("--project-root", default="~/enoch/projects")
-    parser.add_argument("--service", default="omx-wake-gate.service")
+    parser.add_argument("--service", default="enoch-worker-gate.service")
     parser.add_argument("--interval-sec", type=float, default=30)
     parser.add_argument("--request-timeout-sec", type=float, default=8)
     parser.add_argument("--verify-timeout-sec", type=float, default=60)

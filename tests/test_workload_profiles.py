@@ -64,10 +64,10 @@ class WorkloadProfileTests(unittest.TestCase):
 
     def test_inference_eval_profile_is_stricter_than_training(self) -> None:
         config = GateConfig(
-            state_dir="/tmp/omx-wake-gate-test",
-            project_root="/tmp/omx-wake-gate-test",
-            dispatch_script_path="/tmp/omx-wake-gate-test/dispatch.sh",
-            omx_inbound_bearer_token="secret",
+            state_dir="/tmp/enoch-worker-gate-test",
+            project_root="/tmp/enoch-worker-gate-test",
+            dispatch_script_path="/tmp/enoch-worker-gate-test/dispatch.sh",
+            control_api_bearer_token="secret",
             sample_interval_sec=60,
             completion_callback_url="http://127.0.0.1/callback",
             completion_callback_token="callback-token",
@@ -119,10 +119,10 @@ class WorkloadProfileTests(unittest.TestCase):
 
     def test_wake_decision_profile_evidence_contains_resolved_thresholds(self) -> None:
         config = GateConfig(
-            state_dir="/tmp/omx-wake-gate-test",
-            project_root="/tmp/omx-wake-gate-test",
-            dispatch_script_path="/tmp/omx-wake-gate-test/dispatch.sh",
-            omx_inbound_bearer_token="secret",
+            state_dir="/tmp/enoch-worker-gate-test",
+            project_root="/tmp/enoch-worker-gate-test",
+            dispatch_script_path="/tmp/enoch-worker-gate-test/dispatch.sh",
+            control_api_bearer_token="secret",
             completion_callback_url="http://127.0.0.1/callback",
             completion_callback_token="callback-token",
         )
@@ -146,10 +146,10 @@ class WorkloadProfileTests(unittest.TestCase):
 
     def test_uma_pressure_above_baseline_does_not_wedge_quiet_gate(self) -> None:
         config = GateConfig(
-            state_dir="/tmp/omx-wake-gate-test",
-            project_root="/tmp/omx-wake-gate-test",
-            dispatch_script_path="/tmp/omx-wake-gate-test/dispatch.sh",
-            omx_inbound_bearer_token="secret",
+            state_dir="/tmp/enoch-worker-gate-test",
+            project_root="/tmp/enoch-worker-gate-test",
+            dispatch_script_path="/tmp/enoch-worker-gate-test/dispatch.sh",
+            control_api_bearer_token="secret",
             sample_interval_sec=60,
             completion_callback_url="http://127.0.0.1/callback",
             completion_callback_token="callback-token",

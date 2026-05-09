@@ -33,7 +33,7 @@ def _client(tmp: str) -> TestClient:
         state_dir=str(Path(tmp) / "state"),
         project_root=str(root),
         dispatch_script_path=str(Path(tmp) / "dispatch.sh"),
-        omx_inbound_bearer_token=TOKEN,
+        control_api_bearer_token=TOKEN,
         completion_callback_url="http://example.invalid/callback",
         completion_callback_token="unused",
     )
@@ -572,7 +572,7 @@ class OperatorStatusTests(unittest.TestCase):
             )
             config_path = Path(tmp) / "config.json"
             config_path.write_text(f'{{"project_root": "{Path(tmp) / "projects"}"}}\n', encoding="utf-8")
-            with patch.dict("os.environ", {"OMX_WAKE_GATE_CONFIG": str(config_path)}):
+            with patch.dict("os.environ", {"ENOCH_CONFIG": str(config_path)}):
                 imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
                     "idempotency_key": "operator-fallback-import",
                     "queue_rows": [{
@@ -610,7 +610,7 @@ class OperatorStatusTests(unittest.TestCase):
             headers = {"Authorization": f"Bearer {TOKEN}"}
             config_path = Path(tmp) / "config.json"
             config_path.write_text(f'{{"project_root": "{Path(tmp) / "projects"}"}}\n', encoding="utf-8")
-            with patch.dict("os.environ", {"OMX_WAKE_GATE_CONFIG": str(config_path)}):
+            with patch.dict("os.environ", {"ENOCH_CONFIG": str(config_path)}):
                 imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
                     "idempotency_key": "operator-missing-decision-import",
                     "queue_rows": [{

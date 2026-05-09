@@ -32,7 +32,7 @@ Expected result: `ok: true` with `store_backend=supabase`, Notion `410`, and dis
 If running directly on the control-plane host, omit `--ssh-host` and verify timers with local `systemctl`:
 
 ```bash
-cd /opt/omx-wake-gate
+cd /opt/enoch-agentic-research-system
 ENOCH_CONTROL_PLANE_TOKEN="$(cat /root/enoch-control-plane-token.txt)" \
 .venv/bin/python scripts/supabase_controlled_resume_drill.py \
   --control-url http://127.0.0.1:8787
@@ -87,7 +87,7 @@ After fixes and corpus ledger sync, `state_doctor` reported `overall: OK`, `writ
 After the controlled drill and corpus import ledger reached a clean state, the control plane was resumed for wider batch execution while keeping paper drafting and Notion sync disabled:
 
 - `/control/state`: `queue_paused=false`, `maintenance_mode=false`, `paused_by=completion-audit-unfreeze`
-- `/etc/omx-wake-gate/config.json`: `queue_pump_enabled=true`, `queue_pump_paper_draft_enabled=false`, `live_dispatch_enabled=true`
+- `/etc/enoch/config.json`: `queue_pump_enabled=true`, `queue_pump_paper_draft_enabled=false`, `live_dispatch_enabled=true`
 - systemd: `enoch-queue-alert-check.timer` enabled/active; `enoch-paper-draft-next.timer` disabled/inactive; Notion sync units masked/inactive
 - manual `enoch-queue-alert-check.service` smoke exited successfully and skipped dispatch because no queued candidate existed
 - `state_doctor`: `overall: OK`, `write_needed=0`, `finalize_needed=0`, `publish_ready=0`, `importable=0`

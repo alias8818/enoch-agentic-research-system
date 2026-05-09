@@ -43,7 +43,7 @@ class QueuePumpTests(unittest.TestCase):
                 return {"action": "live_dispatch", "candidate": {"project_id": payload.get("project_id", "queued-idea")}}
             raise AssertionError(path)
 
-        with patch.object(queue_pump, "_load_config", return_value={"listen_host": "127.0.0.1", "listen_port": 8787, "omx_inbound_bearer_token": "t", "queue_pump_enabled": True}), \
+        with patch.object(queue_pump, "_load_config", return_value={"listen_host": "127.0.0.1", "listen_port": 8787, "control_api_bearer_token": "t", "queue_pump_enabled": True}), \
              patch.object(queue_pump, "_post_json", side_effect=fake_post), \
              patch.object(queue_pump, "_get_json", return_value=status):
             out = io.StringIO()
@@ -109,7 +109,7 @@ class QueuePumpTests(unittest.TestCase):
             return_value={
                 "listen_host": "127.0.0.1",
                 "listen_port": 8787,
-                "omx_inbound_bearer_token": "t",
+                "control_api_bearer_token": "t",
                 "queue_pump_enabled": True,
                 "queue_pump_followup_launch_enabled": True,
             },

@@ -23,21 +23,21 @@ p=pathlib.Path('.local/config/config.json')
 data=json.loads(p.read_text())
 data['state_dir']=str(pathlib.Path('.local/state').resolve())
 data['project_root']=str(pathlib.Path('.local/projects').resolve())
-data['dispatch_script_path']=str(pathlib.Path('deploy/enoch_omx_dispatch.sh').resolve())
-data['omx_inbound_bearer_token']=secrets.token_urlsafe(32)
+data['dispatch_script_path']=str(pathlib.Path('deploy/enoch_codex_dispatch.sh').resolve())
+data['control_api_bearer_token']=secrets.token_urlsafe(32)
 data['completion_callback_token']=secrets.token_urlsafe(32)
-data['completion_callback_url']='http://127.0.0.1:8787/omx/event'
+data['completion_callback_url']='http://127.0.0.1:8787/control/api/worker-callback'
 data['worker_wake_gate_url']='http://127.0.0.1:8787'
-data['worker_wake_gate_bearer_token']=data['omx_inbound_bearer_token']
+data['worker_wake_gate_bearer_token']=data['control_api_bearer_token']
 p.write_text(json.dumps(data, indent=2)+"\n")
-print('token:', data['omx_inbound_bearer_token'])
+print('token:', data['control_api_bearer_token'])
 PY
 ```
 
 ## 3. Run the API
 
 ```bash
-export OMX_WAKE_GATE_CONFIG=$PWD/.local/config/config.json
+export ENOCH_CONFIG=$PWD/.local/config/config.json
 uv run uvicorn omx_wake_gate.app:app --host 127.0.0.1 --port 8787
 ```
 
@@ -60,7 +60,7 @@ Paste the generated token when prompted. The redesigned console starts on bounde
 In another shell:
 
 ```bash
-export OMX_WAKE_GATE_CONFIG=$PWD/.local/config/config.json
+export ENOCH_CONFIG=$PWD/.local/config/config.json
 scripts/smoke-test-local.sh
 ```
 

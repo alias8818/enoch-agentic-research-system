@@ -37,7 +37,7 @@ def test_dispatch_resolves_prompt_file_under_project_root(tmp_path, monkeypatch)
             state_dir=str(tmp_path / "state"),
             project_root=str(tmp_path),
             dispatch_script_path=str(script),
-            omx_inbound_bearer_token="secret",
+            control_api_bearer_token="secret",
             completion_callback_url="http://127.0.0.1/callback",
             completion_callback_token="callback-token",
         ),

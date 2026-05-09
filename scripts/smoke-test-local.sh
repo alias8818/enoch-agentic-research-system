@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONFIG="${OMX_WAKE_GATE_CONFIG:-}"
+CONFIG="${ENOCH_CONFIG:-}"
 BASE_URL="${ENOCH_BASE_URL:-http://127.0.0.1:8787}"
 CURL_TIMEOUT_ARGS=(--connect-timeout "${ENOCH_CURL_CONNECT_TIMEOUT:-3}" --max-time "${ENOCH_CURL_MAX_TIME:-30}")
 STATUS_ENDPOINT="${ENOCH_STATUS_ENDPOINT:-/control/api/v1/overview?active_limit=5&event_limit=5}"
@@ -11,12 +11,12 @@ TOKEN="${ENOCH_CONTROL_TOKEN:-}"
 if [[ -n "$CONFIG" && -z "$TOKEN" ]]; then
   TOKEN="$(python3 - <<'PY' "$CONFIG"
 import json, sys
-print(json.load(open(sys.argv[1]))['omx_inbound_bearer_token'])
+print(json.load(open(sys.argv[1]))['control_api_bearer_token'])
 PY
 )"
 fi
 if [[ -z "$TOKEN" ]]; then
-  echo "Set ENOCH_CONTROL_TOKEN or OMX_WAKE_GATE_CONFIG" >&2
+  echo "Set ENOCH_CONTROL_TOKEN or ENOCH_CONFIG" >&2
   exit 2
 fi
 

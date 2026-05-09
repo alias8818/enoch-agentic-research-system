@@ -3,12 +3,12 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-usage: enoch_omx_dispatch.sh --run-id ID --project-dir DIR --prompt-file FILE [options]
+usage: enoch_codex_dispatch.sh --run-id ID --project-dir DIR --prompt-file FILE [options]
 
 options:
   --project-id ID
   --mode exec|resume   (default: exec)
-  --session-id ID      (required for --mode resume unless using --last)
+  --session-id ID      (optional resume/session hint)
   --last               (resume the most recent session)
   --model MODEL
   --reasoning-effort low|medium|high|xhigh   (default: medium)
@@ -56,16 +56,14 @@ if [[ -z "$RUN_ID" || -z "$PROJECT_DIR" || -z "$PROMPT_FILE" ]]; then
 fi
 
 if [[ -z "$LOG_DIR" ]]; then
-  LOG_DIR="$PROJECT_DIR/.omx/logs/enoch"
+  LOG_DIR="$PROJECT_DIR/.enoch/logs/worker"
 fi
+mkdir -p "$LOG_DIR"
+
+RUNNER_SCRIPT="${ENOCH_CODEX_RUNNER_SCRIPT:-$HOME/projects/enoch-agentic-research-system/deploy/enoch_codex_runner.sh}"
 if [[ -n "$RUNNER_SCRIPT_OVERRIDE" ]]; then
   RUNNER_SCRIPT="$RUNNER_SCRIPT_OVERRIDE"
 fi
-
-mkdir -p "$LOG_DIR"
-
-OMX_BIN="${OMX_BIN:-$HOME/.nvm/versions/node/v22.22.1/bin/omx}"
-RUNNER_SCRIPT="${OMX_RUNNER_SCRIPT:-$HOME/projects/enoch-agentic-research-system/deploy/enoch_omx_runner.sh}"
 
 STDOUT_LOG="$LOG_DIR/${RUN_ID}.stdout.log"
 STDERR_LOG="$LOG_DIR/${RUN_ID}.stderr.log"
@@ -78,7 +76,6 @@ cmd=("$RUNNER_SCRIPT"
   "--mode" "$MODE"
   "--reasoning-effort" "$REASONING_EFFORT"
   "--sandbox" "$SANDBOX"
-  "--omx-bin" "$OMX_BIN"
 )
 
 if [[ -n "$SESSION_ID" ]]; then
@@ -96,5 +93,5 @@ PID=$!
 PGID="$(ps -o pgid= -p "$PID" | tr -d ' ')"
 
 cat <<EOF
-{"run_id":"$RUN_ID","project_id":"$PROJECT_ID","project_dir":"$PROJECT_DIR","pid":$PID,"pgid":$PGID,"stdout_log":"$STDOUT_LOG","stderr_log":"$STDERR_LOG"}
+{"runner":"codex","run_id":"$RUN_ID","project_id":"$PROJECT_ID","project_dir":"$PROJECT_DIR","pid":$PID,"pgid":$PGID,"stdout_log":"$STDOUT_LOG","stderr_log":"$STDERR_LOG"}
 EOF

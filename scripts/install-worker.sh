@@ -30,6 +30,7 @@ cd "$ROOT"
 uv venv --python /usr/bin/python3 .venv
 uv pip install --python .venv/bin/python -e .
 uv run pytest -q
+"$ROOT/scripts/install-codex-enoch-worker-skill.sh"
 mkdir -p "$CONFIG_DIR" "$STATE_DIR/projects" "$STATE_DIR/state"
 if [[ ! -f "$CONFIG_DIR/config.json" ]]; then
   cp config.example.json "$CONFIG_DIR/config.json"
@@ -39,8 +40,8 @@ p=pathlib.Path('$CONFIG_DIR/config.json')
 data=json.loads(p.read_text())
 data['state_dir']='$STATE_DIR/state'
 data['project_root']='$STATE_DIR/projects'
-data['dispatch_script_path']='$ROOT/deploy/enoch_omx_dispatch.sh'
-data['completion_callback_url']='http://127.0.0.1:8787/omx/event'
+data['dispatch_script_path']='$ROOT/deploy/enoch_codex_dispatch.sh'
+data['completion_callback_url']='http://127.0.0.1:8787/control/api/worker-callback'
 p.write_text(json.dumps(data, indent=2)+"\n")
 PY
 fi
@@ -49,5 +50,5 @@ Worker dependency install complete.
 
 Edit: $CONFIG_DIR/config.json
 Run worker wake gate:
-  OMX_WAKE_GATE_CONFIG=$CONFIG_DIR/config.json uv run uvicorn omx_wake_gate.app:app --host 0.0.0.0 --port 8787
+  ENOCH_CONFIG=$CONFIG_DIR/config.json uv run uvicorn omx_wake_gate.app:app --host 0.0.0.0 --port 8787
 EOF2

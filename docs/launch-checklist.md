@@ -12,7 +12,7 @@ Use this as the final go/no-go checklist immediately before changing the code, c
 - [x] License is present.
 - [x] Private career/application notes are excluded from the public repositories.
 - [x] Live secrets, local state DBs, production logs, private LAN endpoints, and generated private runtime state are excluded from public artifacts.
-- [x] Credits identify key enabling systems accurately, including LangGraph and oh-my-codex/OMX.
+- [x] Credits identify key enabling systems accurately, including LangGraph and Codex CLI.
 
 ## Verification to run before flipping public
 

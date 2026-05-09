@@ -32,14 +32,14 @@ PY
 )"
 
 mkdir -p "$CONFIG_DIR" "$STATE_DIR" "$PROJECTS_DIR" "$BIN_DIR"
-cat > "$BIN_DIR/enoch_omx_dispatch.sh" <<'SHIM'
+cat > "$BIN_DIR/enoch_codex_dispatch.sh" <<'SHIM'
 #!/usr/bin/env bash
 set -euo pipefail
 echo "proof-local dispatch shim: dry-run safe"
 SHIM
-chmod +x "$BIN_DIR/enoch_omx_dispatch.sh"
+chmod +x "$BIN_DIR/enoch_codex_dispatch.sh"
 
-python3 - <<'PY' "$ROOT/config.example.json" "$CONFIG_PATH" "$STATE_DIR" "$PROJECTS_DIR" "$BIN_DIR/enoch_omx_dispatch.sh" "$TOKEN" "$CALLBACK_TOKEN" "$PORT"
+python3 - <<'PY' "$ROOT/config.example.json" "$CONFIG_PATH" "$STATE_DIR" "$PROJECTS_DIR" "$BIN_DIR/enoch_codex_dispatch.sh" "$TOKEN" "$CALLBACK_TOKEN" "$PORT"
 import json, sys
 from pathlib import Path
 src, dst, state_dir, projects_dir, dispatch_script, token, callback_token, port = sys.argv[1:]
@@ -50,7 +50,7 @@ config.update({
     "state_dir": state_dir,
     "project_root": projects_dir,
     "dispatch_script_path": dispatch_script,
-    "omx_inbound_bearer_token": token,
+    "control_api_bearer_token": token,
     "completion_callback_url": f"http://127.0.0.1:{port}/healthz",
     "completion_callback_token": callback_token,
     "worker_wake_gate_url": f"http://127.0.0.1:{port}",
@@ -78,7 +78,7 @@ cleanup() {
 trap cleanup EXIT
 
 : > "$LOG_PATH"
-OMX_WAKE_GATE_CONFIG="$CONFIG_PATH" uv run uvicorn omx_wake_gate.app:app --host "$HOST" --port "$PORT" >"$LOG_PATH" 2>&1 &
+ENOCH_CONFIG="$CONFIG_PATH" uv run uvicorn omx_wake_gate.app:app --host "$HOST" --port "$PORT" >"$LOG_PATH" 2>&1 &
 SERVER_PID=$!
 
 for _ in $(seq 1 60); do

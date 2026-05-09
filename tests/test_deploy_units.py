@@ -35,7 +35,7 @@ def test_paper_draft_unit_is_opt_in_and_never_dispatches() -> None:
     assert "Environment=ENOCH_ENABLE_PAPER_DRAFT_NEXT=0" in service
     assert "ENOCH_ENABLE_PAPER_DRAFT_NEXT:-0" in script
     assert "paper draft automation disabled" in script
-    assert script.index("paper draft automation disabled") < script.index("omx_inbound_bearer_token")
+    assert script.index("paper draft automation disabled") < script.index("control_api_bearer_token")
     assert "curl --config" in script
     assert "trap cleanup_curl_temp_files EXIT HUP INT TERM" in script
     assert 'curl -fsS -X POST' not in script
@@ -61,7 +61,7 @@ def test_queue_pump_dispatches_without_paper_draft_by_default(tmp_path, capsys) 
     pump = _load_queue_pump_module()
 
     config = tmp_path / "config.json"
-    config.write_text(json.dumps({"omx_inbound_bearer_token": "token", "queue_pump_enabled": True}), encoding="utf-8")
+    config.write_text(json.dumps({"control_api_bearer_token": "token", "queue_pump_enabled": True}), encoding="utf-8")
     calls: list[tuple[str, dict]] = []
 
     def fake_post(base_url: str, path: str, token: str, payload: dict, *, timeout: int = 30) -> dict:
@@ -74,7 +74,7 @@ def test_queue_pump_dispatches_without_paper_draft_by_default(tmp_path, capsys) 
             return {"action": "dispatched", "project_id": "queued"}
         raise AssertionError(f"unexpected post {path}")
 
-    with patch.dict("os.environ", {"OMX_WAKE_GATE_CONFIG": str(config)}, clear=False), patch.object(pump, "_get_json", return_value={"dispatch_safe": True, "active_items": [], "next_candidate": {"project_id": "queued"}}), patch.object(pump, "_post_json", side_effect=fake_post):
+    with patch.dict("os.environ", {"ENOCH_CONFIG": str(config)}, clear=False), patch.object(pump, "_get_json", return_value={"dispatch_safe": True, "active_items": [], "next_candidate": {"project_id": "queued"}}), patch.object(pump, "_post_json", side_effect=fake_post):
         assert pump.main() == 0
     assert "/control/papers/draft-next" not in [path for path, _payload in calls]
     assert "/control/dispatch-next" in [path for path, _payload in calls]
@@ -87,7 +87,7 @@ def test_queue_pump_can_opt_into_drafting_before_dispatch(tmp_path, capsys) -> N
     pump = _load_queue_pump_module()
 
     config = tmp_path / "config.json"
-    config.write_text(json.dumps({"omx_inbound_bearer_token": "token", "queue_pump_enabled": True, "queue_pump_paper_draft_enabled": True}), encoding="utf-8")
+    config.write_text(json.dumps({"control_api_bearer_token": "token", "queue_pump_enabled": True, "queue_pump_paper_draft_enabled": True}), encoding="utf-8")
     calls: list[tuple[str, dict]] = []
 
     def fake_post(base_url: str, path: str, token: str, payload: dict, *, timeout: int = 30) -> dict:
@@ -102,7 +102,7 @@ def test_queue_pump_can_opt_into_drafting_before_dispatch(tmp_path, capsys) -> N
             return {"rewritten": 1, "failed": 0}
         raise AssertionError(f"unexpected post {path}")
 
-    with patch.dict("os.environ", {"OMX_WAKE_GATE_CONFIG": str(config)}, clear=False), patch.object(pump, "_get_json", return_value={"dispatch_safe": True, "active_items": [], "next_candidate": {"project_id": "queued"}}), patch.object(pump, "_post_json", side_effect=fake_post):
+    with patch.dict("os.environ", {"ENOCH_CONFIG": str(config)}, clear=False), patch.object(pump, "_get_json", return_value={"dispatch_safe": True, "active_items": [], "next_candidate": {"project_id": "queued"}}), patch.object(pump, "_post_json", side_effect=fake_post):
         assert pump.main() == 0
     assert "/control/papers/draft-next" in [path for path, _payload in calls]
     assert "/control/api/publication-automation/p%3Ar%3Aarxiv_draft/rewrite-draft" in [path for path, _payload in calls]
@@ -114,7 +114,7 @@ def test_queue_pump_dispatches_when_no_draft_candidate_exists(tmp_path) -> None:
     pump = _load_queue_pump_module()
 
     config = tmp_path / "config.json"
-    config.write_text(json.dumps({"omx_inbound_bearer_token": "token", "queue_pump_enabled": True, "queue_pump_paper_draft_enabled": True}), encoding="utf-8")
+    config.write_text(json.dumps({"control_api_bearer_token": "token", "queue_pump_enabled": True, "queue_pump_paper_draft_enabled": True}), encoding="utf-8")
     calls: list[str] = []
 
     def fake_post(base_url: str, path: str, token: str, payload: dict, *, timeout: int = 30) -> dict:
@@ -129,7 +129,7 @@ def test_queue_pump_dispatches_when_no_draft_candidate_exists(tmp_path) -> None:
             return {"action": "dispatched", "project_id": "queued"}
         raise AssertionError(f"unexpected post {path}")
 
-    with patch.dict("os.environ", {"OMX_WAKE_GATE_CONFIG": str(config)}, clear=False), patch.object(pump, "_get_json", return_value={"dispatch_safe": True, "active_items": [], "next_candidate": {"project_id": "queued"}}), patch.object(pump, "_post_json", side_effect=fake_post):
+    with patch.dict("os.environ", {"ENOCH_CONFIG": str(config)}, clear=False), patch.object(pump, "_get_json", return_value={"dispatch_safe": True, "active_items": [], "next_candidate": {"project_id": "queued"}}), patch.object(pump, "_post_json", side_effect=fake_post):
         assert pump.main() == 0
     assert calls.index("/control/papers/draft-next") < calls.index("/control/dispatch-next")
 
@@ -141,7 +141,7 @@ def test_queue_pump_followup_launch_is_opt_in_and_dispatches_one_candidate(tmp_p
     config.write_text(
         json.dumps(
             {
-                "omx_inbound_bearer_token": "token",
+                "control_api_bearer_token": "token",
                 "queue_pump_enabled": True,
                 "queue_pump_followup_launch_enabled": True,
             }
@@ -162,7 +162,7 @@ def test_queue_pump_followup_launch_is_opt_in_and_dispatches_one_candidate(tmp_p
             return {"action": "dispatched", "project_id": "followup"}
         raise AssertionError(f"unexpected post {path}")
 
-    with patch.dict("os.environ", {"OMX_WAKE_GATE_CONFIG": str(config)}, clear=False), patch.object(pump, "_get_json", return_value={"dispatch_safe": False, "dispatch_blockers": ["no queued dispatch candidate"], "active_items": [], "next_candidate": None}), patch.object(pump, "_post_json", side_effect=fake_post):
+    with patch.dict("os.environ", {"ENOCH_CONFIG": str(config)}, clear=False), patch.object(pump, "_get_json", return_value={"dispatch_safe": False, "dispatch_blockers": ["no queued dispatch candidate"], "active_items": [], "next_candidate": None}), patch.object(pump, "_post_json", side_effect=fake_post):
         assert pump.main() == 0
 
     paths = [path for path, _payload in calls]
@@ -182,7 +182,7 @@ def test_queue_pump_followup_launch_stays_disabled_by_default(tmp_path, capsys) 
     pump = _load_queue_pump_module()
 
     config = tmp_path / "config.json"
-    config.write_text(json.dumps({"omx_inbound_bearer_token": "token", "queue_pump_enabled": True}), encoding="utf-8")
+    config.write_text(json.dumps({"control_api_bearer_token": "token", "queue_pump_enabled": True}), encoding="utf-8")
     calls: list[tuple[str, dict]] = []
 
     def fake_post(base_url: str, path: str, token: str, payload: dict, *, timeout: int = 30) -> dict:
@@ -193,7 +193,7 @@ def test_queue_pump_followup_launch_stays_disabled_by_default(tmp_path, capsys) 
             return {"should_alert": False}
         raise AssertionError(f"unexpected post {path}")
 
-    with patch.dict("os.environ", {"OMX_WAKE_GATE_CONFIG": str(config)}, clear=False), patch.object(pump, "_get_json", return_value={"dispatch_safe": True, "active_items": [], "next_candidate": None}), patch.object(pump, "_post_json", side_effect=fake_post):
+    with patch.dict("os.environ", {"ENOCH_CONFIG": str(config)}, clear=False), patch.object(pump, "_get_json", return_value={"dispatch_safe": True, "active_items": [], "next_candidate": None}), patch.object(pump, "_post_json", side_effect=fake_post):
         assert pump.main() == 0
 
     assert "/control/api/v1/followups/launch-next" not in [path for path, _payload in calls]
@@ -212,7 +212,9 @@ def test_install_script_keeps_draft_units_opt_in() -> None:
     assert "enoch-paper-draft-next.timer" in install
 
 
-def test_worker_runner_disables_spark_backed_explore_by_default() -> None:
-    script = (ROOT / "deploy" / "enoch_omx_runner.sh").read_text(encoding="utf-8")
+def test_codex_runner_disables_spark_backed_explore_by_default() -> None:
+    script = (ROOT / "deploy" / "enoch_codex_runner.sh").read_text(encoding="utf-8")
     assert 'export USE_OMX_EXPLORE_CMD="${USE_OMX_EXPLORE_CMD:-0}"' in script
-    assert script.index('export USE_OMX_EXPLORE_CMD=') < script.index('exec "$OMX_BIN" exec')
+    assert 'omx exec' not in script
+    assert 'codex exec' in script or 'CODEX_BIN' in script
+    assert script.index('export USE_OMX_EXPLORE_CMD=') < script.index('"${cmd[@]}"')

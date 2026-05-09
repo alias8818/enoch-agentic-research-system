@@ -3,7 +3,7 @@
 This guide describes a two-machine Enoch deployment that mirrors the reference setup:
 
 - **Control VM** — hosts the FastAPI control plane, dashboard, Supabase-backed queue state, publication automation APIs, alert timer, and corpus/export tooling.
-- **Worker machine** — hosts the wake gate used by OMX/Codex runs, tracks process trees and telemetry, and stores project workspaces and evidence.
+- **Worker machine** — hosts the wake gate used by Codex runs, tracks process trees and telemetry, and stores project workspaces and evidence.
 
 A single-machine development deployment is also possible: run both services on localhost and set `worker_wake_gate_url` to the same host.
 
@@ -23,7 +23,7 @@ Install on the worker:
 - Python 3.11+
 - `uv`
 - `git`
-- OMX/Codex CLI stack used for agent execution
+- Codex CLI stack used for agent execution
 - optional NVIDIA telemetry libraries for GPU visibility
 
 ## 2. Clone and install
@@ -66,8 +66,8 @@ Minimum required fields:
   "listen_port": 8787,
   "state_dir": "/var/lib/enoch-control-plane/state",
   "project_root": "/var/lib/enoch-control-plane/projects",
-  "dispatch_script_path": "/opt/enoch-agentic-research-system/deploy/enoch_omx_dispatch.sh",
-  "omx_inbound_bearer_token": "generate-a-long-random-token",
+  "dispatch_script_path": "/opt/enoch-agentic-research-system/deploy/enoch_codex_dispatch.sh",
+  "control_api_bearer_token": "generate-a-long-random-token",
   "completion_callback_url": "https://automation.example.com/webhook/omx-wake-ready",
   "completion_callback_token": "generate-a-long-random-token",
   "worker_wake_gate_url": "http://worker.example:8787",
@@ -92,7 +92,7 @@ The helper script can install dependencies and write a worker-focused example co
 scripts/install-worker.sh
 ```
 
-The worker can run the same app with a worker-focused config. For a minimal local worker, copy `config.example.json`, set `state_dir`, `project_root`, and `omx_inbound_bearer_token`, then run the service on port `8787`.
+The worker can run the same app with a worker-focused config. For a minimal local worker, copy `config.example.json`, set `state_dir`, `project_root`, and `control_api_bearer_token`, then run the service on port `8787`.
 
 The control VM uses:
 
@@ -103,7 +103,7 @@ The control VM uses:
 ## 5. Install systemd service on the control VM
 
 ```bash
-sudo cp /opt/enoch-agentic-research-system/deploy/omx-wake-gate.service /etc/systemd/system/enoch-control-plane.service
+sudo cp /opt/enoch-agentic-research-system/deploy/enoch-worker-gate.service /etc/systemd/system/enoch-control-plane.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now enoch-control-plane.service
 sudo systemctl status enoch-control-plane.service
@@ -121,7 +121,7 @@ Open the dashboard:
 http://<control-vm>:8787/dashboard
 ```
 
-Use `omx_inbound_bearer_token` as the dashboard/API token. The legacy wake-gate dashboard remains at `/dashboard`; the redesigned operator console is:
+Use `control_api_bearer_token` as the dashboard/API token. The legacy wake-gate dashboard remains at `/dashboard`; the redesigned operator console is:
 
 ```text
 http://<control-vm>:8787/control/dashboard
@@ -158,7 +158,7 @@ systemctl list-timers enoch-queue-alert-check.timer
 Manual alert/preflight check:
 
 ```bash
-sudo OMX_WAKE_GATE_CONFIG=/etc/enoch/config.json /opt/enoch-agentic-research-system/deploy/enoch_queue_alert_check.py
+sudo ENOCH_CONFIG=/etc/enoch/config.json /opt/enoch-agentic-research-system/deploy/enoch_queue_alert_check.py
 ```
 
 
@@ -216,7 +216,7 @@ TOKEN=$(python3 - <<'PY'
 import json
 from pathlib import Path
 
-print(json.loads(Path('/etc/enoch/config.json').read_text(encoding='utf-8'))['omx_inbound_bearer_token'])
+print(json.loads(Path('/etc/enoch/config.json').read_text(encoding='utf-8'))['control_api_bearer_token'])
 PY
 )
 
@@ -291,3 +291,13 @@ This repository does not include:
 - production logs.
 
 Those are intentionally excluded. Use the examples and docs to recreate a clean deployment.
+
+## Codex-native worker skill
+
+Worker installs should include the Enoch Codex skill so GB10-side Codex runs understand the artifact and decision contract without relying on OMX wrapper context:
+
+```bash
+scripts/install-codex-enoch-worker-skill.sh
+```
+
+The skill installs to `$CODEX_HOME/skills/enoch-worker/SKILL.md` and documents the required `run_notes.md`, `.omx/project_decision.json` compatibility path, positive/negative paper gate, follow-up rules, and GB10 smoke-first expectations.

@@ -21,7 +21,7 @@ This checklist tracks the remaining work before the Enoch system, generated corp
 - [x] Confirm final repo/site/docs URLs are present in README, launch site copy, and announcement drafts.
 - [x] Verify the credits section names the tooling accurately:
   - Enoch control plane built on LangGraph-backed orchestration/state flow.
-  - Development and launch operations assisted by oh-my-codex/OMX: <https://github.com/Yeachan-Heo/oh-my-codex>.
+  - Development and launch operations assisted by Codex CLI: <https://github.com/Yeachan-Heo/Codex CLI>.
 
 ## Site / story polish
 

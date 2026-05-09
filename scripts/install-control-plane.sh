@@ -91,12 +91,12 @@ p=pathlib.Path('$CONFIG_DIR/config.json')
 data=json.loads(p.read_text())
 data['state_dir']='$STATE_DIR/state'
 data['project_root']='$STATE_DIR/projects'
-data['dispatch_script_path']='$PREFIX/deploy/enoch_omx_dispatch.sh'
+data['dispatch_script_path']='$PREFIX/deploy/enoch_codex_dispatch.sh'
 p.write_text(json.dumps(data, indent=2)+"\n")
 PY
   fi
   chown -R "$SERVICE_USER:$SERVICE_USER" "$STATE_DIR"
-  write_unit "$PREFIX/deploy/omx-wake-gate.service" /etc/systemd/system/enoch-control-plane.service
+  write_unit "$PREFIX/deploy/enoch-worker-gate.service" /etc/systemd/system/enoch-control-plane.service
   write_unit "$PREFIX/deploy/enoch-queue-alert-check.service" /etc/systemd/system/enoch-queue-alert-check.service
   if [[ "${ENOCH_INSTALL_LEGACY_NOTION_UNITS:-0}" == "1" ]]; then
     write_unit "$PREFIX/deploy/enoch-notion-sync.service" /etc/systemd/system/enoch-notion-sync.service

@@ -1,11 +1,11 @@
 {
   "listen_host": "0.0.0.0",
   "listen_port": 8787,
-  "state_dir": "~/.local/state/omx-wake-gate",
+  "state_dir": "~/.local/state/enoch-worker-gate",
   "project_root": "~/enoch/projects",
-  "dispatch_script_path": "~/enoch/bin/enoch_omx_dispatch.sh",
+  "dispatch_script_path": "~/enoch/bin/enoch_codex_dispatch.sh",
   "dispatch_timeout_sec": 30,
-  "omx_inbound_bearer_token": "replace-with-local-omx-hook-token",
+  "control_api_bearer_token": "replace-with-local-control-api-token",
   "sample_interval_sec": 5,
   "default_workload_class": "inference_eval",
   "idle_sustain_sec": 180,
@@ -40,7 +40,7 @@
     "vllm",
     "sglang"
   ],
-  "completion_callback_url": "https://automation.example.com/webhook/omx-wake-ready",
+  "completion_callback_url": "https://automation.example.com/webhook/enoch-worker-callback",
   "completion_callback_token": "replace-with-callback-token",
   "log_events": true,
   "pushover_alerts_enabled": false,

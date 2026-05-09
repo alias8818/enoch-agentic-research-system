@@ -5,7 +5,7 @@ Wants=enoch-control-plane.service
 
 [Service]
 Type=oneshot
-Environment=OMX_WAKE_GATE_CONFIG=/etc/enoch/config.json
+Environment=ENOCH_CONFIG=/etc/enoch/config.json
 Environment=ENOCH_ENABLE_PAPER_DRAFT_NEXT=0
 WorkingDirectory=/opt/enoch-agentic-research-system
 ExecStart=/opt/enoch-agentic-research-system/deploy/enoch_paper_draft_next.sh

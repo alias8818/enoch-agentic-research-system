@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-CONFIG_PATH="${OMX_WAKE_GATE_CONFIG:-/etc/enoch/config.json}"
+CONFIG_PATH="${ENOCH_CONFIG:-${OMX_WAKE_GATE_CONFIG:-/etc/enoch/config.json}}"
 CONTROL_URL="${ENOCH_CONTROL_URL:-http://127.0.0.1:8787}"
 CONTROL_TOKEN="${ENOCH_CONTROL_TOKEN:-}"
 ENABLE_PAPER_DRAFT_NEXT="${ENOCH_ENABLE_PAPER_DRAFT_NEXT:-0}"
@@ -12,7 +12,7 @@ if [[ -z "$CONTROL_TOKEN" && -r "$CONFIG_PATH" ]]; then
   CONTROL_TOKEN="$(python3 - "$CONFIG_PATH" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as fh:
-    print(json.load(fh).get("omx_inbound_bearer_token", ""))
+    data=json.load(fh); print(data.get("control_api_bearer_token") or data.get("omx_inbound_bearer_token", ""))
 PY
 )"
 fi

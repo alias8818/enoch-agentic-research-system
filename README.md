@@ -60,7 +60,7 @@ The docs source lives in [`alias8818/enoch-docs`](https://github.com/alias8818/e
 
 ## Runtime and upstream tooling
 
-Enoch is the project-specific control plane and release package. It runs agent work through Codex/OMX automation, including [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex) orchestration for local agent execution. OMX is part of the operating substrate; generated research artifacts are produced by Enoch runs and the artifact writer, not by OMX as an owning publisher.
+Enoch is the project-specific control plane and release package. It runs agent work through Codex-native automation using the Codex CLI as the worker execution substrate. Generated research artifacts are produced by Enoch runs and the artifact writer.
 
 ## Idea intake
 

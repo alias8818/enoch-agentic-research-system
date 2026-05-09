@@ -26,7 +26,6 @@ from .models import (
     DispatchRequest,
     GateCallback,
     GateState,
-    OmxEvent,
     PaperArtifactReadRequest,
     PaperArtifactRequest,
     PrepareProjectRequest,
@@ -43,7 +42,7 @@ from .telemetry import TelemetryCollector
 
 
 def load_config(path: Path | None = None) -> GateConfig:
-    env_path = os.environ.get("OMX_WAKE_GATE_CONFIG")
+    env_path = os.environ.get("ENOCH_CONFIG") or os.environ.get("OMX_WAKE_GATE_CONFIG")
     config_path = path or (
         Path(env_path).expanduser()
         if env_path
@@ -58,7 +57,7 @@ store = StateStore(config.expanded_state_dir)
 telemetry = TelemetryCollector()
 gate = WakeGate(config, ProcessTracker(config.expanded_project_root), telemetry)
 sender = CallbackSender(config)
-app = FastAPI(title="omx_wake_gate", version="0.1.0")
+app = FastAPI(title="enoch_worker_gate", version="0.1.0")
 if config.route_observability_enabled:
     route_observation_path = (
         Path(config.route_observability_log_path).expanduser()
@@ -860,11 +859,11 @@ DASHBOARD_HTML = """
 
 @app.get("/healthz")
 def healthz() -> dict:
-    return {"ok": True, "service": "omx_wake_gate", "timestamp": utc_now()}
+    return {"ok": True, "service": "enoch_worker_gate", "timestamp": utc_now()}
 
 
 def _require_local_bearer(authorization: str | None) -> None:
-    expected = f"Bearer {config.omx_inbound_bearer_token}"
+    expected = f"Bearer {config.control_api_bearer_token}"
     if authorization != expected:
         raise HTTPException(status_code=401, detail="invalid bearer token")
 
@@ -1294,7 +1293,7 @@ def _activity_from_processes(processes: list[ProcessInfo], gate_state: str | Non
     preferred: ProcessInfo | None = None
     for process in processes:
         cmd = process.cmdline
-        if any(marker in cmd for marker in ("notify-fallback", "notify-hook", "/bin/omx exec", "/usr/bin/codex exec")):
+        if any(marker in cmd for marker in ("notify-fallback", "notify-hook", "/bin/codex exec", "/usr/bin/codex exec")):
             continue
         if cmd.strip() in {"-bash", "bash", "-sh", "sh", "-zsh", "zsh", "fish", "-fish", "jq"} or cmd.startswith("tail -f "):
             continue
@@ -1917,7 +1916,7 @@ def dashboard_api(
     return {
         "timestamp": utc_now(),
         "service": {
-            "name": "omx_wake_gate",
+            "name": "enoch_worker_gate",
             "listen_host": config.listen_host,
             "listen_port": config.listen_port,
             "state_dir": config.expanded_state_dir.as_posix(),
@@ -2196,6 +2195,12 @@ async def dispatch_run(
         cmd.extend(["--log-dir", request.log_dir])
 
     try:
+        env = os.environ.copy()
+        env.update({
+            "ENOCH_COMPLETION_CALLBACK_URL": config.completion_callback_url,
+            "ENOCH_COMPLETION_CALLBACK_TOKEN": config.completion_callback_token,
+            "ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC": str(config.completion_callback_timeout_sec),
+        })
         result = await asyncio.to_thread(
             subprocess.run,
             cmd,
@@ -2203,6 +2208,7 @@ async def dispatch_run(
             text=True,
             check=False,
             timeout=config.dispatch_timeout_sec,
+            env=env,
         )
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(status_code=504, detail=f"dispatch timed out after {config.dispatch_timeout_sec}s") from exc
@@ -2423,64 +2429,3 @@ async def _shutdown_tasks() -> None:
         except asyncio.CancelledError:
             pass
         reconcile_task = None
-
-
-@app.post("/omx/event")
-async def omx_event(event: OmxEvent, authorization: str | None = Header(default=None)) -> dict:
-    _require_local_bearer(authorization)
-    store.append_event(event.model_dump())
-    record = store.load_run(event.run_id) or RunRecord(
-        run_id=event.run_id,
-        session_id=event.session_id,
-        project_id=event.project_id,
-        project_name=event.project_name,
-    )
-    record.project_dir = record.project_dir or (str((config.expanded_project_root / event.project_id).resolve()) if event.project_id else record.project_dir)
-    record = _assign_record_workload_profile(record)
-    record = gate.apply_event(record, event)
-    baseline_sample = telemetry.sample()
-    if record.baseline_vram_mib is None or (baseline_sample.memory_source == "uma_meminfo" and record.baseline_vram_mib == 0):
-        record.baseline_vram_mib = baseline_sample.vram_used_mib
-
-    store.save_run(record)
-    callback = None
-    if event.event.value in {"session-idle", "session-end"}:
-        _ensure_evaluator(event.run_id)
-    elif event.event.value == "ask-user-question":
-        callback = GateCallback(
-            event_type="question_pending",
-            run_id=record.run_id,
-            session_id=record.session_id,
-            project_id=record.project_id,
-            project_name=record.project_name,
-            source_event=event.event.value,
-            gate_state=record.gate_state.value,
-            idle_seen_at=record.idle_seen_at,
-            process_tracking=gate.process_tracker.snapshot(record, []),
-            telemetry={},
-            reason="operator_input_required",
-            idempotency_key=f"{record.run_id}:question_pending:{event.timestamp}",
-        )
-        ok, detail = await _deliver_callback(callback)
-        store.append_event(
-            {
-                "kind": "callback_attempt",
-                "run_id": record.run_id,
-                "event_type": callback.event_type,
-                "ok": ok,
-                "detail": detail,
-                "timestamp": utc_now(),
-            }
-        )
-        if ok:
-            record.last_idempotency_key = callback.idempotency_key
-            store.save_run(record)
-
-    return {
-        "accepted": True,
-        "run_id": record.run_id,
-        "gate_state": record.gate_state.value,
-        "callback_ready": callback is not None,
-        "callback_preview": None if callback is None else callback.model_dump(),
-        "evaluator_active": event.run_id in evaluation_tasks,
-    }

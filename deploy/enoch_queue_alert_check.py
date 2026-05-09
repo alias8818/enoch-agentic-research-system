@@ -11,7 +11,7 @@ from urllib import error, request
 
 
 def _load_config() -> dict:
-    path = Path(os.environ.get("OMX_WAKE_GATE_CONFIG", "/etc/omx-wake-gate/config.json"))
+    path = Path(os.environ.get("ENOCH_CONFIG") or os.environ.get("OMX_WAKE_GATE_CONFIG", "/etc/enoch/config.json"))
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -66,9 +66,9 @@ def _only_no_candidate_blocker(status: dict) -> bool:
 
 def main() -> int:
     config = _load_config()
-    token = str(config.get("omx_inbound_bearer_token") or "")
+    token = str(config.get("control_api_bearer_token") or config.get("omx_inbound_bearer_token") or "")
     if not token:
-        print("omx_inbound_bearer_token is not configured", file=sys.stderr)
+        print("control_api_bearer_token is not configured", file=sys.stderr)
         return 2
     base_url = _base_url(config)
     preflight_payload = {

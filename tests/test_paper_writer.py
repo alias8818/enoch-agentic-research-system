@@ -19,7 +19,7 @@ class PaperWriterTests(unittest.TestCase):
             "state_dir": str(Path(tmp) / "state"),
             "project_root": str(root),
             "dispatch_script_path": str(Path(tmp) / "dispatch.sh"),
-            "omx_inbound_bearer_token": "token",
+            "control_api_bearer_token": "token",
             "completion_callback_url": "http://example.invalid/callback",
             "completion_callback_token": "unused",
         }

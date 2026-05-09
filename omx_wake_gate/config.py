@@ -24,11 +24,13 @@ class GateThresholdProfile(BaseModel):
 class GateConfig(BaseModel):
     listen_host: str = "0.0.0.0"
     listen_port: int = 8787
-    state_dir: str = "~/.local/state/omx-wake-gate"
+    state_dir: str = "~/.local/state/enoch-worker-gate"
     project_root: str = "~/enoch/projects"
-    dispatch_script_path: str = "~/enoch/bin/enoch_omx_dispatch.sh"
+    dispatch_script_path: str = "~/enoch/bin/enoch_codex_dispatch.sh"
     dispatch_timeout_sec: int = Field(default=30, ge=5)
-    omx_inbound_bearer_token: str
+    control_api_bearer_token: str = ""
+    # Deprecated compatibility alias. Prefer control_api_bearer_token in new configs.
+    omx_inbound_bearer_token: str = ""
     sample_interval_sec: int = Field(default=5, ge=1)
     default_workload_class: WorkloadClass = WorkloadClass.INFERENCE_EVAL
     idle_sustain_sec: int = Field(default=180, ge=30)
@@ -98,6 +100,10 @@ class GateConfig(BaseModel):
             self.completion_callback_token = self.n8n_bearer_token
         if self.completion_callback_timeout_sec == 120 and self.n8n_callback_timeout_sec != 120:
             self.completion_callback_timeout_sec = self.n8n_callback_timeout_sec
+        if not self.control_api_bearer_token and self.omx_inbound_bearer_token:
+            self.control_api_bearer_token = self.omx_inbound_bearer_token
+        if not self.omx_inbound_bearer_token and self.control_api_bearer_token:
+            self.omx_inbound_bearer_token = self.control_api_bearer_token
         if self.control_plane_store_backend not in {"sqlite", "supabase_readonly", "supabase"}:
             raise ValueError("control_plane_store_backend must be sqlite, supabase_readonly, or supabase")
         if self.enoch_core_store_backend not in {"control_plane", "sqlite", "supabase"}:
@@ -106,6 +112,8 @@ class GateConfig(BaseModel):
             raise ValueError("completion_callback_url is required")
         if not self.completion_callback_token:
             raise ValueError("completion_callback_token is required")
+        if not self.control_api_bearer_token:
+            raise ValueError("control_api_bearer_token is required")
         return self
 
     @property

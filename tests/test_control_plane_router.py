@@ -27,7 +27,7 @@ def _config(tmp: str) -> GateConfig:
         state_dir=str(Path(tmp) / "state"),
         project_root=str(root),
         dispatch_script_path=str(Path(tmp) / "dispatch.sh"),
-        omx_inbound_bearer_token=TOKEN,
+        control_api_bearer_token=TOKEN,
         completion_callback_url="http://example.invalid/callback",
         completion_callback_token="unused",
     )
@@ -69,7 +69,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             state_dir="/tmp/unused",
             project_root="/tmp/unused-projects",
             dispatch_script_path="/tmp/dispatch.sh",
-            omx_inbound_bearer_token=TOKEN,
+            control_api_bearer_token=TOKEN,
             completion_callback_url="http://example.invalid/callback",
             completion_callback_token="unused",
             control_plane_store_backend="supabase",
