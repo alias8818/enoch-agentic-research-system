@@ -11,7 +11,7 @@ from urllib import error, request
 
 
 def _load_config() -> dict:
-    path = Path(os.environ.get("ENOCH_CONFIG") or os.environ.get("ENOCH_CONTROL_PLANE_CONFIG", "/etc/enoch/config.json"))
+    path = Path(os.environ.get("ENOCH_CONFIG") or os.environ.get("ENOCH_CONTROL_PLANE_CONFIG", "/etc/enoch-control-plane/config.json"))
     return json.loads(path.read_text(encoding="utf-8"))
 
 

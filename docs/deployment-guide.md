@@ -31,10 +31,10 @@ Install on the worker:
 On each machine:
 
 ```bash
-sudo mkdir -p /opt/enoch-agentic-research-system
-sudo chown "$USER":"$USER" /opt/enoch-agentic-research-system
-git clone https://github.com/alias8818/enoch-agentic-research-system.git /opt/enoch-agentic-research-system
-cd /opt/enoch-agentic-research-system
+sudo mkdir -p /opt/enoch-control-plane
+sudo chown "$USER":"$USER" /opt/enoch-control-plane
+git clone https://github.com/alias8818/enoch-agentic-research-system.git /opt/enoch-control-plane
+cd /opt/enoch-control-plane
 uv venv --python /usr/bin/python3 .venv
 uv pip install --python .venv/bin/python -e .
 uv run pytest -q
@@ -53,9 +53,9 @@ sudo scripts/install-control-plane.sh
 If you prefer manual setup, create config and state directories:
 
 ```bash
-sudo mkdir -p /etc/enoch /var/lib/enoch-control-plane
-sudo cp /opt/enoch-agentic-research-system/config.example.json /etc/enoch/config.json
-sudo editor /etc/enoch/config.json
+sudo mkdir -p /etc/enoch-control-plane /var/lib/enoch-control-plane
+sudo cp /opt/enoch-control-plane/config.example.json /etc/enoch-control-plane/config.json
+sudo editor /etc/enoch-control-plane/config.json
 ```
 
 Minimum required fields:
@@ -66,7 +66,7 @@ Minimum required fields:
   "listen_port": 8787,
   "state_dir": "/var/lib/enoch-control-plane/state",
   "project_root": "/var/lib/enoch-control-plane/projects",
-  "dispatch_script_path": "/opt/enoch-agentic-research-system/deploy/enoch_codex_dispatch.sh",
+  "dispatch_script_path": "/opt/enoch-control-plane/deploy/enoch_codex_dispatch.sh",
   "control_api_bearer_token": "generate-a-long-random-token",
   "completion_callback_url": "https://automation.example.com/webhook/enoch-control-plane-wake-ready",
   "completion_callback_token": "generate-a-long-random-token",
@@ -103,7 +103,7 @@ The control VM uses:
 ## 5. Install systemd service on the control VM
 
 ```bash
-sudo cp /opt/enoch-agentic-research-system/deploy/enoch-worker-gate.service /etc/systemd/system/enoch-control-plane.service
+sudo cp /opt/enoch-control-plane/deploy/enoch-worker-gate.service /etc/systemd/system/enoch-control-plane.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now enoch-control-plane.service
 sudo systemctl status enoch-control-plane.service
@@ -133,7 +133,7 @@ The redesigned `/control/dashboard` shell uses bounded `/control/api/v1/*` read 
 
 Pushover is optional but recommended for queue hang/stoppage alerting.
 
-In `/etc/enoch/config.json`:
+In `/etc/enoch-control-plane/config.json`:
 
 ```json
 {
@@ -148,8 +148,8 @@ In `/etc/enoch/config.json`:
 Install the timer:
 
 ```bash
-sudo cp /opt/enoch-agentic-research-system/deploy/enoch-queue-alert-check.service /etc/systemd/system/
-sudo cp /opt/enoch-agentic-research-system/deploy/enoch-queue-alert-check.timer /etc/systemd/system/
+sudo cp /opt/enoch-control-plane/deploy/enoch-queue-alert-check.service /etc/systemd/system/
+sudo cp /opt/enoch-control-plane/deploy/enoch-queue-alert-check.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now enoch-queue-alert-check.timer
 systemctl list-timers enoch-queue-alert-check.timer
@@ -158,7 +158,7 @@ systemctl list-timers enoch-queue-alert-check.timer
 Manual alert/preflight check:
 
 ```bash
-sudo ENOCH_CONFIG=/etc/enoch/config.json /opt/enoch-agentic-research-system/deploy/enoch_queue_alert_check.py
+sudo ENOCH_CONFIG=/etc/enoch-control-plane/config.json /opt/enoch-control-plane/deploy/enoch_queue_alert_check.py
 ```
 
 
@@ -186,7 +186,7 @@ Legacy `enoch-notion-sync.*` units are not installed by default and the checked-
 Paper drafting is dispatch-independent, but it is intentionally disabled by default because it can spend model tokens. The one-shot script exits before reading credentials or calling the control plane unless `ENOCH_ENABLE_PAPER_DRAFT_NEXT=1` is set. Install the timer only when a human explicitly wants draft-only paper production:
 
 ```bash
-cd /opt/enoch-agentic-research-system
+cd /opt/enoch-control-plane
 ENOCH_INSTALL_PAPER_DRAFT_NEXT_UNITS=1 sudo -E scripts/install-control-plane.sh
 sudo systemctl edit enoch-paper-draft-next.service
 # Add:
@@ -216,7 +216,7 @@ TOKEN=$(python3 - <<'PY'
 import json
 from pathlib import Path
 
-print(json.loads(Path('/etc/enoch/config.json').read_text(encoding='utf-8'))['control_api_bearer_token'])
+print(json.loads(Path('/etc/enoch-control-plane/config.json').read_text(encoding='utf-8'))['control_api_bearer_token'])
 PY
 )
 

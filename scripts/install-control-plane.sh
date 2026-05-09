@@ -3,15 +3,15 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-usage: scripts/install-control-plane.sh [--prefix /opt/enoch-agentic-research-system] [--config-dir /etc/enoch] [--state-dir /var/lib/enoch-control-plane] [--user enoch]
+usage: scripts/install-control-plane.sh [--prefix /opt/enoch-control-plane] [--config-dir /etc/enoch-control-plane] [--state-dir /var/lib/enoch-control-plane] [--user enoch]
 
 Installs Python dependencies, creates config/state directories, and optionally installs systemd units when run with sudo/root privileges.
 It never writes real secrets. Edit the generated config before starting live dispatch.
 USAGE
 }
 
-PREFIX="/opt/enoch-agentic-research-system"
-CONFIG_DIR="/etc/enoch"
+PREFIX="/opt/enoch-control-plane"
+CONFIG_DIR="/etc/enoch-control-plane"
 STATE_DIR="/var/lib/enoch-control-plane"
 SERVICE_USER="enoch"
 
@@ -68,8 +68,8 @@ write_unit() {
 import pathlib, sys
 src, dst, prefix, config, user = sys.argv[1:]
 text = pathlib.Path(src).read_text()
-text = text.replace("/opt/enoch-agentic-research-system", prefix)
-text = text.replace("/etc/enoch/config.json", config)
+text = text.replace("/opt/enoch-control-plane", prefix)
+text = text.replace("/etc/enoch-control-plane/config.json", config)
 text = text.replace("User=enoch", f"User={user}")
 text = text.replace("Group=enoch", f"Group={user}")
 pathlib.Path(dst).write_text(text)

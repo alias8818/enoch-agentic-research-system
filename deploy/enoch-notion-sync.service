@@ -5,7 +5,7 @@ Wants=enoch-control-plane.service network-online.target
 
 [Service]
 Type=oneshot
-Environment=ENOCH_INSTALL_DIR=/opt/enoch-agentic-research-system
-Environment=ENOCH_CONFIG=/etc/enoch/config.json
-WorkingDirectory=/opt/enoch-agentic-research-system
-ExecStart=/opt/enoch-agentic-research-system/deploy/enoch_notion_sync.sh
+Environment=ENOCH_INSTALL_DIR=/opt/enoch-control-plane
+Environment=ENOCH_CONFIG=/etc/enoch-control-plane/config.json
+WorkingDirectory=/opt/enoch-control-plane
+ExecStart=/opt/enoch-control-plane/deploy/enoch_notion_sync.sh

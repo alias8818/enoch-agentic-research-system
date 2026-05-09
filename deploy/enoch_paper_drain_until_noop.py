@@ -40,7 +40,7 @@ def load_token() -> str:
     token_file = os.environ.get("ENOCH_CONTROL_TOKEN_FILE", "").strip()
     if token_file:
         return Path(token_file).expanduser().read_text(encoding="utf-8").strip()
-    config_path = Path(os.environ.get("ENOCH_CONFIG") or os.environ.get("ENOCH_CONTROL_PLANE_CONFIG", "/etc/enoch/config.json")).expanduser()
+    config_path = Path(os.environ.get("ENOCH_CONFIG") or os.environ.get("ENOCH_CONTROL_PLANE_CONFIG", "/etc/enoch-control-plane/config.json")).expanduser()
     if config_path.exists():
         data = json.loads(config_path.read_text(encoding="utf-8"))
         token = str(data.get("control_api_bearer_token") or "").strip()
