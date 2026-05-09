@@ -2329,6 +2329,161 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 ).fetchall()
         return [dict(row) for row in rows]
 
+    def record_research_facility_plans(self, plans: Sequence[Any], *, requested_by: str, queue_admitted: bool = False) -> dict[str, Any]:
+        """Persist Research Facility candidate/admission ledgers.
+
+        This method intentionally does not queue admitted ideas unless
+        ``queue_admitted`` is explicitly enabled by a later, bounded promotion
+        path.  The dashboard generation smoke uses it only for source,
+        candidate, admission, and lineage ledgers.
+        """
+
+        if queue_admitted:
+            raise ValueError("queue_admitted promotion is not supported by this ledger-only writer")
+        counters = {
+            "sources_upserted": 0,
+            "candidates_upserted": 0,
+            "admissions_inserted": 0,
+            "lineage_inserted": 0,
+        }
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                for plan in plans:
+                    plan_json = plan.to_json() if hasattr(plan, "to_json") else dict(plan)
+                    candidate = dict(plan_json.get("candidate") or {})
+                    candidate_id = str(candidate.get("candidate_id") or "").strip()
+                    if not candidate_id:
+                        continue
+                    for source in candidate.get("source_records") or []:
+                        if not isinstance(source, dict):
+                            continue
+                        source_id = str(source.get("source_id") or "").strip()
+                        if not source_id:
+                            continue
+                        cur.execute(
+                            """
+                            insert into research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash)
+                            values (%s,%s,%s,%s,%s,nullif(%s,'')::timestamptz,%s,%s::jsonb,%s)
+                            on conflict (source_id) do update set
+                              title=excluded.title,
+                              url=excluded.url,
+                              summary=excluded.summary,
+                              payload_json=excluded.payload_json,
+                              content_hash=excluded.content_hash,
+                              updated_at=now()
+                            """,
+                            (
+                                source_id,
+                                str(source.get("source_kind") or candidate.get("source_kind") or "other"),
+                                str(source.get("title") or candidate.get("title") or ""),
+                                str(source.get("url") or ""),
+                                str(source.get("external_id") or ""),
+                                str(source.get("retrieved_at") or ""),
+                                str(source.get("summary") or ""),
+                                self._json_text(source.get("payload_json") or {}),
+                                str(source.get("content_hash") or ""),
+                            ),
+                        )
+                        counters["sources_upserted"] += 1
+                    cur.execute(
+                        """
+                        insert into research_candidates(
+                          candidate_id,generation_mode,status,title,category,priority,source_kind,source_ids,source_urls,
+                          parent_project_id,parent_run_id,hypothesis,mechanism,description,implementation,baseline_to_beat,
+                          success_threshold,kill_condition,accessibility_delta,expected_artifacts,required_evidence,likely_failure_modes,
+                          estimated_runtime_class,expected_token_budget,machine_target,model,sandbox,novelty_score,feasibility_score,
+                          accessibility_score,falsifiability_score,total_score,score_breakdown,dedupe_key,similar_prior_projects,
+                          novelty_comparison,risk_notes,rejection_reason,provider,provider_model,prompt_version,generated_by,raw_candidate_json
+                        ) values (
+                          %s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,
+                          %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s::jsonb
+                        )
+                        on conflict (candidate_id) do update set
+                          status=excluded.status,
+                          total_score=excluded.total_score,
+                          score_breakdown=excluded.score_breakdown,
+                          raw_candidate_json=excluded.raw_candidate_json,
+                          updated_at=now()
+                        """,
+                        (
+                            candidate_id,
+                            str(candidate.get("generation_mode") or "manual_import"),
+                            str(candidate.get("status") or "generated"),
+                            str(candidate.get("title") or candidate_id),
+                            str(candidate.get("category") or ""),
+                            str(candidate.get("priority") or ""),
+                            str(candidate.get("source_kind") or ""),
+                            self._json_text(candidate.get("source_ids") or []),
+                            self._json_text(candidate.get("source_urls") or []),
+                            str(candidate.get("parent_project_id") or ""),
+                            str(candidate.get("parent_run_id") or ""),
+                            str(candidate.get("hypothesis") or ""),
+                            str(candidate.get("mechanism") or ""),
+                            str(candidate.get("description") or ""),
+                            str(candidate.get("implementation") or ""),
+                            str(candidate.get("baseline_to_beat") or ""),
+                            str(candidate.get("success_threshold") or ""),
+                            str(candidate.get("kill_condition") or ""),
+                            str(candidate.get("accessibility_delta") or ""),
+                            self._json_text(candidate.get("expected_artifacts") or []),
+                            self._json_text(candidate.get("required_evidence") or []),
+                            self._json_text(candidate.get("likely_failure_modes") or []),
+                            str(candidate.get("estimated_runtime_class") or ""),
+                            str(candidate.get("expected_token_budget") or ""),
+                            str(candidate.get("machine_target") or ""),
+                            str(candidate.get("model") or ""),
+                            str(candidate.get("sandbox") or ""),
+                            float(candidate.get("novelty_score") or 0),
+                            float(candidate.get("feasibility_score") or 0),
+                            float(candidate.get("accessibility_score") or 0),
+                            float(candidate.get("falsifiability_score") or 0),
+                            float(candidate.get("total_score") or 0),
+                            self._json_text(candidate.get("score_breakdown") or {}),
+                            str(candidate.get("dedupe_key") or candidate_id),
+                            self._json_text(candidate.get("similar_prior_projects") or []),
+                            str(candidate.get("novelty_comparison") or ""),
+                            str(candidate.get("risk_notes") or ""),
+                            str(plan_json.get("admission_reason") if plan_json.get("admission_decision") == "rejected" else ""),
+                            str(candidate.get("provider") or ""),
+                            str(candidate.get("provider_model") or ""),
+                            str(candidate.get("prompt_version") or ""),
+                            str(candidate.get("generated_by") or ""),
+                            self._json_text(candidate.get("raw_candidate_json") or candidate),
+                        ),
+                    )
+                    counters["candidates_upserted"] += 1
+                    for source_id in candidate.get("source_ids") or []:
+                        cur.execute(
+                            """
+                            insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
+                            select 'source', %s, 'candidate', %s, 'generated_from', %s::jsonb
+                            where not exists (
+                              select 1 from research_lineage
+                              where source_type='source' and source_id=%s and target_type='candidate' and target_id=%s and relation_type='generated_from'
+                            )
+                            """,
+                            (str(source_id), candidate_id, self._json_text({"source_ids": candidate.get("source_ids") or []}), str(source_id), candidate_id),
+                        )
+                        counters["lineage_inserted"] += int(cur.rowcount or 0)
+                    idempotency_key = f"research-admission:{candidate_id}:{plan_json.get('admission_decision')}"
+                    cur.execute(
+                        """
+                        insert into research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key)
+                        values (%s,%s,%s,%s::jsonb,null,%s,%s)
+                        on conflict (idempotency_key) do nothing
+                        """,
+                        (
+                            candidate_id,
+                            str(plan_json.get("admission_decision") or "needs_review"),
+                            str(plan_json.get("admission_reason") or ""),
+                            self._json_text(plan_json.get("score_breakdown") or {}),
+                            requested_by,
+                            idempotency_key,
+                        ),
+                    )
+                    counters["admissions_inserted"] += int(cur.rowcount or 0)
+        return counters
+
     def paper_notion_projection(self) -> list[dict[str, Any]]:
         return [{
             "paper_id": paper.get("paper_id") or "",

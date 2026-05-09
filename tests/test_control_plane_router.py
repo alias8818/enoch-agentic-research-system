@@ -330,6 +330,10 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("Admitted ideas", response.text)
             self.assertIn("Queued ideas", response.text)
             self.assertIn("checkProviderBudget", response.text)
+            self.assertIn("Generate smoke batch", response.text)
+            self.assertIn("generateResearchSmokeBatch", response.text)
+            self.assertIn("/control/api/research/generate-batch", response.text)
+            self.assertIn("This will not queue or dispatch work", response.text)
             self.assertIn("Commands", response.text)
             self.assertIn("Pause queue", response.text)
             self.assertIn("Resume queue", response.text)
@@ -446,6 +450,41 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("Research Facility ledgers", body["authority"])
             self.assertEqual(body["rows"], [])
             self.assertEqual(body["counts"], {})
+
+    def test_research_facility_generate_batch_dry_run_does_not_queue_or_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            response = client.post(
+                "/control/api/research/generate-batch",
+                headers=headers,
+                json={"dry_run": True, "max_candidates": 2, "requested_by": "pytest"},
+            )
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertTrue(body["ok"])
+            self.assertEqual(body["action"], "dry_run_generate_candidates")
+            self.assertTrue(body["dry_run"])
+            self.assertFalse(body["queue_admitted"])
+            self.assertEqual(body["candidate_count"], 2)
+            self.assertEqual(body["queued_count"], 0)
+            self.assertIn("plans", body)
+            self.assertNotIn("ledger_result", body)
+            state = client.get("/control/state", headers=headers).json()
+            self.assertEqual(state["counts"].get("queued", 0), 0)
+            self.assertEqual(state["counts"].get("active", 0), 0)
+
+    def test_research_facility_generate_batch_live_requires_supabase_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            response = client.post(
+                "/control/api/research/generate-batch",
+                headers=headers,
+                json={"dry_run": False, "max_candidates": 1, "requested_by": "pytest"},
+            )
+            self.assertEqual(response.status_code, 501)
+            self.assertIn("Supabase control-plane store", response.text)
 
     def test_project_prompt_uses_source_provenance_instead_of_notion_authority(self) -> None:
         prompt = _project_prompt({

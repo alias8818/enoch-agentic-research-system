@@ -9,7 +9,7 @@ import subprocess
 from typing import Any, Callable
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse
 
 from ..config import GateConfig
@@ -226,7 +226,8 @@ async function eventsPage(){renderNav('events'); const params=new URLSearchParam
 async function observabilityPage(){renderNav('observability'); const [memory,health]=await Promise.all([api('/control/api/v1/observability/memory'),api('/control/api/v1/observability/health')]); $('status').className='pill '+(memory.memory_warn?'warn':'good'); $('status').textContent=`Observability · controller memory ${Number(memory.rss_mib||0).toFixed(0)} MiB`; $('app').className=''; $('app').innerHTML=`<section class="grid three">${card('Controller memory',Number(memory.rss_mib||0).toFixed(0),memory.memory_warn?'warn':'good','MiB RSS now')}${card('Peak memory',Number(memory.peak_rss_mib||0).toFixed(0),'info','MiB since process start')}${card('Route observations',health.route_observability_enabled?'On':'Off',health.route_observability_enabled?'good':'warn','Request timing and size sampling')}</section><section class="card"><h2>Diagnostics</h2><div class="muted">Technical route-observation evidence is collapsed here for debugging only.</div>${health.latest_route_observation?`<details><summary>Latest route observation JSONL</summary><pre>${esc(health.latest_route_observation)}</pre></details>`:'<span class="pill warn">No observation logged</span>'}${debugBlock('Memory details',memory)}${debugBlock('Health details',health)}</section>`;}
 async function intakePage(){renderNav('intake'); const data=await api('/control/api/intake/ideas'); $('status').className='pill info'; $('status').textContent='Supabase ideas'; $('app').className=''; $('app').innerHTML=`<section class="grid two"><div class="card"><h2>Supabase idea workbench</h2><div class="muted">Native idea rows are the editable intake ledger. Legacy Notion fields, when present, are provenance only.</div>${tableRows([data.latest_sync||{}],['source','status','observed_at','authority'])}${debugBlock('Latest intake JSON',data.latest_sync||{})}</div><div class="card"><h2>Skipped reasons</h2>${tableRows(Object.entries(data.skipped_reasons||{}).map(([reason,count])=>({reason,count})),['reason','count'])}</div></section><section class="card"><h2>Idea workbench</h2>${tableRows(data.queued_projection||[],['idea_id','title','idea_status','queue_status','next_action_hint','paper_status','source_kind','updated_at'])}</section>`;}
 async function checkProviderBudget(){const el=$('providerBudgetStatus'); if(el){el.className='banner warn'; el.textContent='Checking provider budget…';} try{const result=await api('/control/api/research/provider-budget?estimated_requests=1&reserve_requests=2'); const tone=result.ok?'good':'warn'; if(el){el.className='banner '+tone; el.innerHTML=`<strong>Provider budget ${result.ok?'ok':'not ready'}</strong><div>Remaining credits ${esc(result.remaining_credits??'unknown')} · rolling remaining ${esc(result.rolling_remaining??'unknown')}</div><div class="muted">${(result.failures||[]).length?esc((result.failures||[]).join('; ')):'No budget failures reported.'}</div>${debugBlock('Provider budget details',result)}`;} }catch(e){if(el){el.className='banner critical'; el.textContent='Provider budget check failed: '+e.message;}}}
-async function researchPage(){renderNav('research'); const data=await api('/control/api/research/facility?page_size=100'); const rows=data.rows||[], counts=data.counts||{}; const admitted=rows.filter(r=>r.admission_decision==='admitted').length, queued=rows.filter(r=>r.admitted_idea_id).length; $('status').className='pill info'; $('status').textContent=`Research Facility · ${rows.length} candidates`; $('app').className=''; $('app').innerHTML=`<section class="card"><h2>Research Facility</h2><div class="muted">Idea-generation smoke surface. It shows candidate/admission ledgers and provider budget. It does not generate, queue, dispatch, or write papers automatically.</div><section class="grid">${card('Generated candidates',rows.length,'info','Rows in the Research Facility workbench')}${card('Admitted ideas',admitted,admitted?'good':'muted','Candidates admitted by the scoring gate')}${card('Queued ideas',queued,queued?'info':'muted','Admitted candidates promoted to idea/project queue rows')}${card('Provider budget','Manual check','info','Checks Synthetic quota through the proxy-safe provider path')}</section><div class="toolbar"><button onclick="checkProviderBudget()">Check provider budget</button></div><div id="providerBudgetStatus" class="banner info">Provider budget has not been checked in this browser session.</div><h3>Ledger authority</h3>${tableRows([{authority:data.authority||'Research Facility ledgers: sources, candidates, admissions, lineage'}],['authority'])}<h3>Candidate/admission counts</h3>${tableRows(Object.entries(counts).map(([status,count])=>({status,count})),['status','count'],'No candidate counts yet')}<h3>Recent candidate rows</h3>${tableRows(rows,['candidate_id','title','status','admission_decision','total_score','admitted_idea_id','updated_at'],'No Research Facility candidates yet')}${debugBlock('Research Facility JSON',data)}</section>`;}
+async function generateResearchSmokeBatch(){const el=$('researchGenerateStatus'); if(el){el.className='banner warn'; el.textContent='Dry-running candidate generation…';} const dry=await postJson('/control/api/research/generate-batch',{dry_run:true,max_candidates:3,requested_by:'dashboard'}); if(el){el.className=dry.ok?'banner good':'banner warn'; el.innerHTML=`<strong>Dry-run generated ${esc(dry.candidate_count||0)} candidates.</strong><div>${esc(dry.admitted_count||0)} admitted · ${esc(dry.needs_review_count||0)} need review · ${esc(dry.rejected_count||0)} rejected. No ledger rows written.</div>${debugBlock('Dry-run generation details',dry)}`;} if(!dry.ok||!Number(dry.candidate_count||0))return; if(!confirm(`Write ${dry.candidate_count} generated candidates to Research Facility ledgers only? This will not queue or dispatch work.`))return; if(el){el.className='banner warn'; el.textContent='Writing candidate/admission ledgers…';} const live=await postJson('/control/api/research/generate-batch',{dry_run:false,max_candidates:3,requested_by:'dashboard'}); if(el){el.className=live.ok?'banner good':'banner warn'; el.innerHTML=`<strong>Research ledger write ${live.ok?'complete':'not complete'}.</strong><div>${esc(live.candidate_count||0)} candidates · ${esc(live.ledger_result?.admissions_inserted??0)} new admission rows · queued ${esc(live.queued_count||0)}.</div>${debugBlock('Live generation details',live)}`;} return researchPage();}
+async function researchPage(){renderNav('research'); const data=await api('/control/api/research/facility?page_size=100'); const rows=data.rows||[], counts=data.counts||{}; const admitted=rows.filter(r=>r.admission_decision==='admitted').length, queued=rows.filter(r=>r.admitted_idea_id).length; $('status').className='pill info'; $('status').textContent=`Research Facility · ${rows.length} candidates`; $('app').className=''; $('app').innerHTML=`<section class="card"><h2>Research Facility</h2><div class="muted">Idea-generation smoke surface. It shows candidate/admission ledgers and provider budget. It does not queue, dispatch, or write papers automatically.</div><section class="grid">${card('Generated candidates',rows.length,'info','Rows in the Research Facility workbench')}${card('Admitted ideas',admitted,admitted?'good':'muted','Candidates admitted by the scoring gate')}${card('Queued ideas',queued,queued?'info':'muted','Admitted candidates promoted to idea/project queue rows')}${card('Provider budget','Manual check','info','Checks Synthetic quota through the proxy-safe provider path')}</section><div class="toolbar"><button onclick="checkProviderBudget()">Check provider budget</button><button onclick="generateResearchSmokeBatch()">Generate smoke batch</button></div><div id="providerBudgetStatus" class="banner info">Provider budget has not been checked in this browser session.</div><div id="researchGenerateStatus" class="banner info">Candidate generation has not been run in this browser session. Dry-run happens first; live write only records Research Facility ledgers.</div><h3>Ledger authority</h3>${tableRows([{authority:data.authority||'Research Facility ledgers: sources, candidates, admissions, lineage'}],['authority'])}<h3>Candidate/admission counts</h3>${tableRows(Object.entries(counts).map(([status,count])=>({status,count})),['status','count'],'No candidate counts yet')}<h3>Recent candidate rows</h3>${tableRows(rows,['candidate_id','title','status','admission_decision','total_score','admitted_idea_id','updated_at'],'No Research Facility candidates yet')}${debugBlock('Research Facility JSON',data)}</section>`;}
 async function reviewsPage(){renderNav('automation'); const search=new URLSearchParams(location.hash.split('?')[1]||''); const term=search.get('search')||'', reviewStatus=search.get('review_status')||'', paperStatus=search.get('paper_status')||'', page=search.get('page')||'1', sort=search.get('sort')||'-rank_score', pageSize=search.get('page_size')||'100'; const qs=new URLSearchParams({page,page_size:pageSize,search:term,review_status:reviewStatus,paper_status:paperStatus,sort,include_rank_reasons:'true'}); const data=await api('/control/api/publication-automation?'+qs.toString()); const rows=(data.rows||[]).map(r=>({...r,automation:'Open',automation_state:automationStatusLabel(r.review_status),progress:`${(r.checklist_progress||{}).passed||0}/${(r.checklist_progress||{}).total||0}`,reasons:(r.rank_reasons||[]).slice(0,2).join('; ')})); $('status').className='pill info'; $('status').textContent=`automation queue · ${data.page.total} filtered · ${data.counts.all||0} total`; $('app').className=''; $('app').innerHTML=`<section class="card"><h2>Publication Automation Queue</h2><div class="muted">Automated rewrite/finalization lane · canonical /control/api/publication-automation · page ${esc(data.page.page)} · returned ${esc(data.page.returned)} of ${esc(data.page.total)}</div><div class="row">${Object.entries(data.counts||{}).map(([k,v])=>`<span class="pill">${esc(k)} ${esc(v)}</span>`).join('')}</div><div id="batchStatus" class="banner info">GLM-5.1 batch idle. Click rewrite once; a 10-paper batch usually takes several minutes.</div><div class="toolbar"><button onclick="openNextReview()">Open next publication-ready</button><button id="rewriteBatchButton" onclick="rewriteBatchVisible()">Rewrite next 10 with GLM-5.1</button><input id="search" value="${esc(term)}" placeholder="search papers/projects"/><select id="review_status"><option value="">all automation states</option>${['queued','claimed','blocked','finalized','deferred','rejected'].map(v=>`<option value="${v}" ${reviewStatus===v?'selected':''}>${automationStatusLabel(v)}</option>`).join('')}</select><select id="paper_status"><option value="">all paper states</option>${['publication_draft','archived'].map(v=>`<option value="${v}" ${paperStatus===v?'selected':''}>${paperStatusLabel(v)}</option>`).join('')}</select><select id="reviewSort"><option value="-rank_score" ${sort==='-rank_score'?'selected':''}>Highest rank</option><option value="updated_at" ${sort==='updated_at'?'selected':''}>Recently updated</option><option value="review_status" ${sort==='review_status'?'selected':''}>Automation state</option><option value="paper_status" ${sort==='paper_status'?'selected':''}>Paper status</option></select><select id="reviewPageSize">${['25','50','100','200'].map(v=>`<option value="${v}" ${pageSize===v?'selected':''}>${v} per page</option>`).join('')}</select><button onclick="location.hash='automation?search='+encodeURIComponent($('search').value)+'&review_status='+encodeURIComponent($('review_status').value)+'&paper_status='+encodeURIComponent($('paper_status').value)+'&sort='+encodeURIComponent($('reviewSort').value)+'&page_size='+encodeURIComponent($('reviewPageSize').value)">Apply</button></div>${tableRows(rows,['automation','paper_title','rank_score','rank_bucket','automation_state','progress','paper_status','project_id','blocker','reasons','updated_at'])}${debugBlock('Automation queue JSON',data)}</section>`;}
 async function openNextReview(){const data=await api('/control/api/publication-automation/next?paper_status=publication_draft'); location.hash='automation:'+encodeURIComponent((data.item||{}).paper_id||data.paper_id);}
 function artifactButtons(id){return ['draft_markdown_path','draft_latex_path','evidence_bundle_path','claim_ledger_path','manifest_path'].map(k=>`<button onclick="previewArtifact('${esc(id)}','${k}')">Preview ${k.replace('_path','').replaceAll('_',' ')}</button>`).join(' ');}
@@ -2222,6 +2223,86 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "counts": counts,
             "page": {"page_size": page_size, "returned": len(rows)},
         }
+
+    @router.post("/api/research/generate-batch")
+    def dashboard_research_generate_batch(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        authorize(authorization)
+        from argparse import Namespace
+        from scripts import research_facility, research_facility_scan
+
+        body = payload or {}
+        dry_run = bool(body.get("dry_run", True))
+        max_candidates = max(1, min(int(body.get("max_candidates") or 3), 10))
+        requested_by = str(body.get("requested_by") or "dashboard")[:80]
+        source_specs = [
+            {
+                "title": "Provider-budget-aware idea generation scheduler",
+                "summary": "Test whether local idea generation should check provider quota, rolling budget, and queue state before spending inference requests on new research candidates.",
+                "url": "enoch://research-facility/smoke/provider-budget-scheduler",
+            },
+            {
+                "title": "Counterexample-first candidate admission gate",
+                "summary": "Test whether candidate ideas should carry explicit falsification probes before admission, reducing shallow incremental work and preventing positive-only framing.",
+                "url": "enoch://research-facility/smoke/counterexample-admission-gate",
+            },
+            {
+                "title": "Queue-safe candidate promotion ledger",
+                "summary": "Test whether generated candidates can be promoted to queued projects only through an auditable ledger that preserves dry-run evidence and prevents accidental dispatch.",
+                "url": "enoch://research-facility/smoke/queue-safe-promotion-ledger",
+            },
+        ][:max_candidates]
+        records = [
+            research_facility_scan.SourceRecord.from_parts(
+                source_kind="internal_generated",
+                title=spec["title"],
+                url=spec["url"],
+                summary=spec["summary"],
+                payload_json={"smoke_test": True, "requested_by": requested_by},
+            )
+            for spec in source_specs
+        ]
+        candidates = [
+            research_facility_scan.candidate_from_source(
+                record,
+                default_machine=os.environ.get("ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"),
+                default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
+                default_sandbox=os.environ.get("ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"),
+            )
+            for record in records
+        ]
+        plans = research_facility.plan_candidates(
+            candidates,
+            Namespace(
+                default_machine=os.environ.get("ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"),
+                default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
+                default_sandbox=os.environ.get("ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"),
+                admit_threshold=float(body.get("admit_threshold") or 72.0),
+                review_threshold=float(body.get("review_threshold") or 58.0),
+                history=[],
+            ),
+        )
+        plan_json = [plan.to_json() for plan in plans]
+        response = {
+            "ok": True,
+            "action": "dry_run_generate_candidates" if dry_run else "generate_candidates",
+            "dry_run": dry_run,
+            "queue_admitted": False,
+            "candidate_count": len(plans),
+            "admitted_count": sum(1 for plan in plans if plan.admission_decision == "admitted"),
+            "needs_review_count": sum(1 for plan in plans if plan.admission_decision == "needs_review"),
+            "rejected_count": sum(1 for plan in plans if plan.admission_decision == "rejected"),
+            "queued_count": 0,
+            "plans": plan_json,
+        }
+        if dry_run:
+            return response
+        if not hasattr(store, "record_research_facility_plans"):
+            raise HTTPException(status_code=501, detail="Research Facility ledger writes require the Supabase control-plane store")
+        response["ledger_result"] = store.record_research_facility_plans(plans, requested_by=requested_by, queue_admitted=False)
+        return response
 
     @router.get("/api/research/provider-budget")
     def dashboard_research_provider_budget(
