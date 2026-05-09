@@ -96,11 +96,14 @@ The output contains both `sources` and `candidates`. Pass the same file into the
 
 ```bash
 python scripts/research_facility.py /tmp/research-source-batch.json \
+  --history-json prior-enoch-history.json \
   --output /tmp/research-plan.json \
   --emit-sql /tmp/research-ledgers.sql
 ```
 
-This keeps source scanning, candidate generation, admission, and queue promotion as separate steps.
+For live/local Postgres checks, provide `--database-url` from the service environment instead of exporting secrets into command history. The planner queries prior `ideas`, `projects`, `project_decisions`, and `research_candidates` to mark exact duplicates as `merged` and require a novelty comparison for similar prior work.
+
+This keeps source scanning, candidate generation, history comparison, admission, and queue promotion as separate steps.
 
 ## Admission behavior
 

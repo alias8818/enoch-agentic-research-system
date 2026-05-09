@@ -146,3 +146,52 @@ def test_research_facility_emits_full_source_records_when_present() -> None:
     assert "Source summary" in sql
     assert "arxiv-abc" in sql
     assert "'source', 'arxiv-abc', 'candidate'" in sql
+
+
+def test_research_facility_merges_exact_history_duplicates() -> None:
+    candidate = _strong_candidate()
+    row = research_facility.normalize_candidate(candidate, default_machine="192.168.1.77", default_model="gpt-5.5", default_sandbox="danger-full-access")
+    args = _args(history=[{"project_id": "prior-project", "title": row["title"], "dedupe_key": row["dedupe_key"], "decision_gate_state": "negative"}])
+
+    plan = research_facility.plan_candidates([candidate], args)[0]
+
+    assert plan.admission_decision == "merged"
+    assert plan.candidate["status"] == "merged"
+    assert plan.candidate["similar_prior_projects"][0]["project_id"] == "prior-project"
+
+
+def test_research_facility_requires_novelty_comparison_for_similar_history() -> None:
+    candidate = _strong_candidate(novelty_comparison="")
+    args = _args(
+        history=[
+            {
+                "project_id": "prior-similar-negative",
+                "title": "SSM Anchor Memory Variant",
+                "mechanism": "Store SSM state summaries and exact anchors, then retrieve with query-conditioned scoring.",
+                "baseline_to_beat": "Vector RAG and periodic exact-anchor baselines.",
+                "decision_gate_state": "negative",
+            }
+        ]
+    )
+
+    plan = research_facility.plan_candidates([candidate], args)[0]
+
+    assert plan.admission_decision == "rejected"
+    assert "similar_prior_projects requires novelty_comparison" in plan.hard_failures
+    assert plan.candidate["similar_prior_projects"]
+
+
+def test_research_facility_cli_loads_history_json(tmp_path: Path) -> None:
+    candidate_path = tmp_path / "ideas.json"
+    history_path = tmp_path / "history.json"
+    output = tmp_path / "plan.json"
+    candidate = _strong_candidate()
+    row = research_facility.normalize_candidate(candidate, default_machine="192.168.1.77", default_model="gpt-5.5", default_sandbox="danger-full-access")
+    candidate_path.write_text(json.dumps([candidate]), encoding="utf-8")
+    history_path.write_text(json.dumps([{"project_id": "prior-project", "title": row["title"], "dedupe_key": row["dedupe_key"]}]), encoding="utf-8")
+
+    assert research_facility.main([str(candidate_path), "--history-json", str(history_path), "--output", str(output)]) == 0
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["history_count"] == 1
+    assert payload["plans"][0]["admission_decision"] == "merged"

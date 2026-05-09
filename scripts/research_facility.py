@@ -16,7 +16,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 GENERATION_MODES = {
     "fresh_grounded",
@@ -121,6 +121,80 @@ def stable_dedupe_key(row: dict[str, Any]) -> str:
 def _json_obj(row: dict[str, Any], key: str, default: Any) -> Any:
     value = row.get(key, default)
     return default if value is None else value
+
+
+def token_set(value: str) -> set[str]:
+    stop = {"the", "and", "with", "for", "from", "into", "using", "that", "this", "local", "probe"}
+    return {token for token in re.findall(r"[a-z0-9]+", value.lower()) if token not in stop and len(token) > 2}
+
+
+def jaccard(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
+
+
+def load_history(path: Path | None) -> list[dict[str, Any]]:
+    if path is None:
+        return []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(data, dict):
+        data = data.get("history") or data.get("rows") or data.get("projects") or []
+    return [row for row in data if isinstance(row, dict)]
+
+
+def fetch_history_from_database(database_url: str, *, limit: int = 1000) -> list[dict[str, Any]]:
+    if not database_url:
+        return []
+    import psycopg
+    from psycopg.rows import dict_row
+
+    query = """
+        select
+          coalesce(i.idea_id, p.project_id, c.candidate_id) as project_id,
+          coalesce(i.title, p.project_name, c.title, '') as title,
+          coalesce(c.dedupe_key, '') as dedupe_key,
+          coalesce(pd.decision_gate_state, '') as decision_gate_state,
+          coalesce(pd.decision_summary, '') as decision_summary,
+          coalesce(c.novelty_comparison, '') as novelty_comparison
+        from enoch.projects p
+        full join enoch.ideas i on i.idea_id = p.project_id
+        full join enoch.research_candidates c on c.candidate_id = coalesce(i.idea_id, p.project_id)
+        left join lateral (
+          select decision_gate_state, decision_summary
+          from enoch.project_decisions pd
+          where pd.project_id = coalesce(i.idea_id, p.project_id, c.candidate_id)
+          order by pd.decided_at desc, pd.decision_id desc
+          limit 1
+        ) pd on true
+        order by coalesce(i.updated_at, p.updated_at, c.updated_at) desc nulls last
+        limit %s
+    """
+    with psycopg.connect(database_url, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute("set search_path to enoch, public")
+            cur.execute(query, (max(1, min(limit, 10000)),))
+            return [dict(row) for row in cur.fetchall()]
+
+
+def compare_history(row: dict[str, Any], history: Sequence[dict[str, Any]], *, similarity_threshold: float = 0.52) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    exact: list[dict[str, Any]] = []
+    similar: list[dict[str, Any]] = []
+    candidate_tokens = token_set(" ".join([row.get("title", ""), row.get("mechanism", ""), row.get("baseline_to_beat", "")]))
+    for prior in history:
+        prior_id = _as_text(prior.get("project_id") or prior.get("idea_id") or prior.get("candidate_id"))
+        if not prior_id or prior_id == row.get("candidate_id"):
+            continue
+        prior_dedupe = _as_text(prior.get("dedupe_key"))
+        prior_title = _as_text(prior.get("title") or prior.get("project_name"))
+        prior_tokens = token_set(" ".join([prior_title, _as_text(prior.get("mechanism")), _as_text(prior.get("baseline_to_beat"))]))
+        similarity = 1.0 if prior_dedupe and prior_dedupe == row.get("dedupe_key") else jaccard(candidate_tokens, prior_tokens)
+        if similarity >= 0.98 or slugify(prior_title) == slugify(row.get("title", "")):
+            exact.append({"project_id": prior_id, "title": prior_title, "decision_gate_state": _as_text(prior.get("decision_gate_state")), "similarity": round(similarity, 3)})
+        elif similarity >= similarity_threshold:
+            similar.append({"project_id": prior_id, "title": prior_title, "decision_gate_state": _as_text(prior.get("decision_gate_state")), "similarity": round(similarity, 3)})
+    similar.sort(key=lambda item: item["similarity"], reverse=True)
+    return exact, similar[:5]
 
 
 @dataclass
@@ -381,6 +455,7 @@ def emit_sql(plans: list[CandidatePlan], *, requested_by: str, queue_admitted: b
 def plan_candidates(candidates: list[dict[str, Any]], args: argparse.Namespace) -> list[CandidatePlan]:
     seen: dict[str, str] = {}
     plans: list[CandidatePlan] = []
+    history = list(getattr(args, "history", []) or [])
     for raw in candidates:
         row = normalize_candidate(
             raw,
@@ -388,6 +463,9 @@ def plan_candidates(candidates: list[dict[str, Any]], args: argparse.Namespace) 
             default_model=args.default_model,
             default_sandbox=args.default_sandbox,
         )
+        exact_history, similar_history = compare_history(row, history) if history else ([], [])
+        if similar_history and not row["similar_prior_projects"]:
+            row["similar_prior_projects"] = similar_history
         plan = evaluate_candidate(row, admit_threshold=args.admit_threshold, review_threshold=args.review_threshold)
         previous = seen.get(row["dedupe_key"])
         if previous:
@@ -395,6 +473,11 @@ def plan_candidates(candidates: list[dict[str, Any]], args: argparse.Namespace) 
             plan.admission_reason = f"duplicate dedupe_key also used by {previous}"
             plan.hard_failures.append(plan.admission_reason)
             row["status"] = "rejected"
+        elif exact_history:
+            plan.admission_decision = "merged"
+            plan.admission_reason = f"merged with historical duplicate {exact_history[0]['project_id']}"
+            row["status"] = "merged"
+            row["similar_prior_projects"] = exact_history
         else:
             seen[row["dedupe_key"]] = row["candidate_id"]
         plans.append(plan)
@@ -413,7 +496,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--default-machine", default="192.168.1.77")
     parser.add_argument("--default-model", default="gpt-5.5")
     parser.add_argument("--default-sandbox", default="danger-full-access")
+    parser.add_argument("--history-json", type=Path, help="optional prior idea/project/run history JSON for dedupe and novelty comparison")
+    parser.add_argument("--database-url", default="", help="optional Postgres URL to query prior Enoch ideas/projects/decisions for dedupe")
+    parser.add_argument("--history-limit", type=int, default=1000)
     args = parser.parse_args(argv)
+    history = load_history(args.history_json)
+    if args.database_url:
+        history.extend(fetch_history_from_database(args.database_url, limit=args.history_limit))
+    args.history = history
 
     candidates = load_candidates(args.input)
     plans = plan_candidates(candidates, args)
@@ -421,6 +511,7 @@ def main(argv: list[str] | None = None) -> int:
         "ok": True,
         "input": str(args.input),
         "candidate_count": len(plans),
+        "history_count": len(history),
         "admitted_count": sum(1 for plan in plans if plan.admission_decision == "admitted"),
         "needs_review_count": sum(1 for plan in plans if plan.admission_decision == "needs_review"),
         "rejected_count": sum(1 for plan in plans if plan.admission_decision == "rejected"),
