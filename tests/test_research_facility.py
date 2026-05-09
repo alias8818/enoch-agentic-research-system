@@ -113,6 +113,31 @@ def test_research_facility_cli_extracts_json_from_markdown(tmp_path: Path) -> No
     assert payload["admitted_count"] == 1
 
 
+def test_research_facility_cli_keeps_empty_scanner_batch_empty(tmp_path: Path) -> None:
+    source = tmp_path / "empty_scan.json"
+    source.write_text(
+        json.dumps(
+            {
+                "ok": False,
+                "source_count": 0,
+                "candidate_count": 0,
+                "errors": [{"source": "arxiv:test", "error": "rate limited"}],
+                "sources": [],
+                "candidates": [],
+            }
+        )
+    )
+    output = tmp_path / "plan.json"
+
+    assert research_facility.main([str(source), "--output", str(output)]) == 0
+
+    payload = json.loads(output.read_text())
+    assert payload["candidate_count"] == 0
+    assert payload["admitted_count"] == 0
+    assert payload["rejected_count"] == 0
+    assert payload["plans"] == []
+
+
 def test_research_facility_runtime_methods_are_present() -> None:
     from enoch_control_plane.control_plane.store import ControlPlaneStore
     from enoch_control_plane.control_plane.supabase_store import SupabaseControlPlaneStore

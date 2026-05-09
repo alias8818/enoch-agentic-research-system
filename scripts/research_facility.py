@@ -344,7 +344,12 @@ def load_candidates(path: Path) -> list[dict[str, Any]]:
             raise SystemExit(f"{path}: no JSON array/object found")
         data = json.loads(match.group(1))
     if isinstance(data, dict):
-        data = data.get("candidates") or data.get("ideas") or [data]
+        if "candidates" in data:
+            data = data.get("candidates") or []
+        elif "ideas" in data:
+            data = data.get("ideas") or []
+        else:
+            data = [data]
     if not isinstance(data, list):
         raise SystemExit(f"{path}: expected JSON list or object")
     return [item for item in data if isinstance(item, dict)]
