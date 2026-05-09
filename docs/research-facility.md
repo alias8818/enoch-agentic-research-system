@@ -92,10 +92,11 @@ Preferred production path on exe.dev is an HTTP Proxy integration so the key doe
 
 ```bash
 ssh exe.dev
-integrations add http-proxy --name synthetic --target https://api.synthetic.new --bearer "$SYNTHETIC_API_KEY" --attach vm:enoch-core
+integrations add http-proxy --name=synthetic --target=https://api.synthetic.new --bearer=<paste-synthetic-api-key> --attach vm:enoch-core
+integrations list
 ```
 
-Then run the preflight from the VM without local auth:
+Do not export or store the Synthetic key on `enoch-core`. After the integration is attached, the VM calls the internal proxy URL and exe.dev injects the Authorization header. Then run the preflight from the VM without local auth:
 
 ```bash
 python scripts/research_provider_budget.py \
