@@ -847,7 +847,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             detail="stale cached observation" if stale else "fresh cached observation",
         )
 
-    def _worker_observations_need_refresh(observations: dict[str, DashboardObservationRecord], active: list[dict]) -> bool:
+    def _worker_observations_need_refresh(observations: dict[str, DashboardObservationRecord | None], active: list[dict]) -> bool:
         for source in ("worker_preflight", "worker_dashboard_api"):
             observation = observations.get(source)
             if observation is None or _is_stale(observation.observed_at, observation.ttl_seconds):
@@ -864,11 +864,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 return True
         return False
 
-    def _refresh_worker_observations_if_needed(observations: dict[str, DashboardObservationRecord], active: list[dict]) -> dict[str, DashboardObservationRecord]:
+    def _refresh_worker_observations_if_needed(observations: dict[str, DashboardObservationRecord | None], active: list[dict]) -> dict[str, DashboardObservationRecord]:
         if not _worker_observations_need_refresh(observations, active):
-            return observations
+            return {key: value for key, value in observations.items() if value is not None}
         if not config.live_dispatch_enabled or not config.worker_wake_gate_url or not config.worker_wake_gate_bearer_token:
-            return observations
+            return {key: value for key, value in observations.items() if value is not None}
         preflight = run_worker_preflight(
             WorkerPreflightRequest(
                 wake_gate_url=config.worker_wake_gate_url,
@@ -896,7 +896,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "idea_intake": _latest_dashboard_observation_metadata("idea_intake"),
             "snapshot_mirror": _latest_dashboard_observation_metadata("snapshot_mirror"),
         }
-        if refresh_worker:
+        if refresh_worker or _worker_observations_need_refresh(observations, active):
             refreshed = _refresh_worker_observations_if_needed(dict(observations), active)
             observations = {
                 "worker_preflight": refreshed.get("worker_preflight"),

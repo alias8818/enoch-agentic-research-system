@@ -430,7 +430,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertNotIn("candidates", body["recent_events"][0]["payload"])
 
 
-    def test_dashboard_status_blocks_dispatch_without_fresh_worker_evidence(self) -> None:
+    def test_dashboard_status_blocks_dispatch_when_worker_refresh_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client_with_config(_live_config(tmp))
             headers = {"Authorization": f"Bearer {TOKEN}"}
@@ -445,14 +445,27 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 }],
             })
             client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
-            status = client.get("/control/api/status", headers=headers).json()
+            response = WorkerPreflightResponse(
+                ok=False,
+                target="http://worker.example",
+                summary="worker preflight failed",
+                checks=[
+                    WorkerPreflightCheck(name="wake_gate_healthz", ok=False, detail="down", data={}),
+                    WorkerPreflightCheck(name="wake_gate_dashboard_api", ok=False, detail="dashboard unavailable", data={}),
+                ],
+            )
+            with patch("omx_wake_gate.control_plane.router.run_worker_preflight", return_value=response) as preflight:
+                status = client.get("/control/api/status", headers=headers).json()
+
+            preflight.assert_called_once()
             self.assertFalse(status["dispatch_safe"])
-            self.assertIn("worker_preflight stale or missing", status["dispatch_blockers"])
-            self.assertIn("worker_dashboard_api stale or missing", status["dispatch_blockers"])
-            self.assertTrue(status["source_freshness"]["worker_preflight"]["stale"])
+            self.assertIn("worker_preflight not ok", status["dispatch_blockers"])
+            self.assertIn("worker_dashboard_api not ok", status["dispatch_blockers"])
+            self.assertIn("worker health check failed", status["dispatch_blockers"])
+            self.assertFalse(status["source_freshness"]["worker_preflight"]["stale"])
 
 
-    def test_dashboard_status_refreshes_stale_worker_evidence_when_requested(self) -> None:
+    def test_dashboard_status_auto_refreshes_stale_worker_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client_with_config(_live_config(tmp))
             headers = {"Authorization": f"Bearer {TOKEN}"}
@@ -505,7 +518,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 ],
             )
             with patch("omx_wake_gate.control_plane.router.run_worker_preflight", return_value=response) as preflight:
-                status = client.get("/control/api/status?refresh_worker=true", headers=headers).json()
+                status = client.get("/control/api/status", headers=headers).json()
 
             preflight.assert_called_once()
             self.assertFalse(status["source_freshness"]["worker_preflight"]["stale"])
@@ -552,7 +565,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 ],
             )
             with patch("omx_wake_gate.control_plane.router.run_worker_preflight", return_value=response) as preflight:
-                status = client.get("/control/api/status?refresh_worker=true", headers=headers).json()
+                status = client.get("/control/api/status", headers=headers).json()
 
             preflight.assert_called_once()
             self.assertEqual(status["warnings"], [])
@@ -560,7 +573,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(status["dispatch_blockers"], ["no queued dispatch candidate"])
 
 
-    def test_dashboard_status_without_refresh_preserves_dispatch_safety_for_stale_worker_evidence(self) -> None:
+    def test_dashboard_status_auto_refreshes_stale_worker_evidence_before_dispatch_decision(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client_with_config(_live_config(tmp))
             headers = {"Authorization": f"Bearer {TOKEN}"}
@@ -575,12 +588,24 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 }],
             })
             client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
-            with patch("omx_wake_gate.control_plane.router.run_worker_preflight") as preflight:
+            response = WorkerPreflightResponse(
+                ok=True,
+                target="http://worker.example",
+                summary="worker idle",
+                checks=[
+                    WorkerPreflightCheck(name="wake_gate_healthz", ok=True, detail="ok", data={}),
+                    WorkerPreflightCheck(name="wake_gate_dashboard_api", ok=True, detail="dashboard API reachable", data={"body": {"totals": {"active_or_waiting": 0, "live": 0}}}),
+                    WorkerPreflightCheck(name="worker_no_live_runs", ok=True, detail="active_or_waiting=0, live=0", data={"active_or_waiting": 0, "live": 0}),
+                ],
+            )
+            with patch("omx_wake_gate.control_plane.router.run_worker_preflight", return_value=response) as preflight:
                 status = client.get("/control/api/status", headers=headers).json()
 
-            preflight.assert_not_called()
-            self.assertIn("worker_preflight stale or missing", status["dispatch_blockers"])
-            self.assertIn("worker_dashboard_api stale or missing", status["dispatch_blockers"])
+            preflight.assert_called_once()
+            self.assertTrue(status["dispatch_safe"])
+            self.assertEqual(status["dispatch_blockers"], [])
+            self.assertFalse(status["source_freshness"]["worker_preflight"]["stale"])
+            self.assertFalse(status["source_freshness"]["worker_dashboard_api"]["stale"])
 
 
     def test_dashboard_status_blocks_dispatch_when_fresh_worker_evidence_is_bad(self) -> None:
