@@ -42,7 +42,7 @@ from .telemetry import TelemetryCollector
 
 
 def load_config(path: Path | None = None) -> GateConfig:
-    env_path = os.environ.get("ENOCH_CONFIG") or os.environ.get("OMX_WAKE_GATE_CONFIG")
+    env_path = os.environ.get("ENOCH_CONFIG") or os.environ.get("ENOCH_CONTROL_PLANE_CONFIG")
     config_path = path or (
         Path(env_path).expanduser()
         if env_path
@@ -80,7 +80,7 @@ DASHBOARD_HTML = """
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>OMX Operations Console</title>
+  <title>Enoch Control Plane</title>
   <style>
     :root {
       color-scheme: dark;
@@ -237,10 +237,10 @@ DASHBOARD_HTML = """
   <header>
     <div class="wrap topbar">
       <div class="brand">
-        <div class="logo">Ω</div>
+        <div class="logo">E</div>
         <div>
-          <h1>OMX Operations Console</h1>
-          <div class="subtitle" id="subtitle">Wake-gate runs, quiet windows, callbacks, and active Codex work.</div>
+          <h1>Enoch Control Plane</h1>
+          <div class="subtitle" id="subtitle">Research queue, worker health, callbacks, and active Codex work.</div>
         </div>
       </div>
       <div class="actions">
@@ -388,7 +388,7 @@ DASHBOARD_HTML = """
     let currentPage = "overview";
     let auto = true;
     let timer = null;
-    const tokenKey = "omx-dashboard-token";
+    const tokenKey = "enoch-control-plane-token";
     const cls = {good:"good", warn:"warn", bad:"bad", info:"info", purple:"purple"};
 
     const token = () => localStorage.getItem(tokenKey) || "";
@@ -524,7 +524,7 @@ DASHBOARD_HTML = """
       ].join("");
       const primary = runs.find(r => r.is_live || r.needs_attention) || runs[0];
       const sig = primary ? signal(primary) : null;
-      document.getElementById("heroTitle").textContent = q.blocked ? `Queue attention: ${q.blocked} blocked rows` : primary ? `${live ? "Live lane" : attention ? "Attention" : "Inactive"}: ${primary.project_name || primary.project_id}` : "No wake-gate runs found";
+      document.getElementById("heroTitle").textContent = q.blocked ? `Queue attention: ${q.blocked} blocked rows` : primary ? `${live ? "Live lane" : attention ? "Attention" : "Inactive"}: ${primary.project_name || primary.project_id}` : "No worker runs found";
       document.getElementById("heroCopy").textContent = q.blocked ? `Queue mirror reports blocked work. Wake-gate process lane is ${live ? "active" : "inactive"}.` : primary ? `${sig.label}: ${sig.copy}. Raw gate state: ${primary.gate_state || "unknown"}.` : "The API is reachable but returned no runs for the current state directory.";
       document.getElementById("subtitle").textContent = `${snapshot.service?.project_root || "project root"} · ${snapshot.service?.state_dir || "state dir"}`;
       document.getElementById("serviceInfo").textContent = `sample ${snapshot.service?.sample_interval_sec || "?"}s`;
@@ -546,7 +546,7 @@ DASHBOARD_HTML = """
         </div>
         ${progress(q.completed, q.total)}`;
       document.getElementById("overviewOutcomes").innerHTML = `
-        <div class="summary-copy">Outcome counts come from decision-gated queue state, not from wake-gate delivery callbacks.</div>
+        <div class="summary-copy">Outcome counts come from decision-gated queue state, not from worker delivery callbacks.</div>
         <div class="count-grid">
           <div class="count-row"><div>${pill("Paper-positive", cls.good)}</div><div class="count-value">${esc(q.positive)}</div></div>
           <div class="count-row"><div>${pill("No paper", cls.bad)}</div><div class="count-value">${esc(q.negative)}</div></div>
@@ -658,7 +658,7 @@ DASHBOARD_HTML = """
         : activeCount ? `<div class="empty">Queue reports ${activeCount} active rows; snapshot did not include row details.</div>` : "";
       const blockedHtml = blocked.length ? blocked.map(row => rowCard(row, cls.bad, "blocked")).join("") : `<div class="empty">No blocked row details.</div>`;
       document.getElementById("queueAttention").innerHTML = `
-        <div class="note">This is the intake/queue mirror, not wake-gate runfile history. These rows should match the operator-facing queue state.</div>
+        <div class="note">This is the intake/queue mirror, not worker runfile history. These rows should match the operator-facing queue state.</div>
         ${activeCount ? `<div class="section-title">Queue active</div>${activeHtml}` : ""}
         <div class="section-title">Blocked queue rows</div>
         ${blockedHtml}`;
@@ -908,9 +908,12 @@ def _normalize_prepare_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
 
 
 def _load_project_metadata(project_dir: Path) -> dict[str, Any]:
-    path = project_dir / ".omx" / "project.json"
+    path = project_dir / ".enoch" / "project.json"
     if not path.exists():
-        return {}
+        legacy_path = project_dir / ".omx" / "project.json"
+        if not legacy_path.exists():
+            return {}
+        path = legacy_path
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -926,7 +929,7 @@ def _resolve_workload_profile_for_project_dir(project_dir: Path) -> tuple[str, A
     if metadata is not None and not isinstance(metadata, dict):
         raise HTTPException(
             status_code=500,
-            detail=f"project metadata 'metadata' field must be an object: {project_dir / '.omx' / 'project.json'}",
+            detail=f"project metadata 'metadata' field must be an object: {project_dir / '.enoch' / 'project.json'}",
         )
     try:
         return config.resolve_workload_profile((metadata or {}).get("workload_class"))
@@ -1124,12 +1127,12 @@ def _load_project_decision(
     *,
     include_summary_fallback: bool = True,
 ) -> tuple[ProjectDecision | None, str | None]:
-    explicit_path = project_dir / ".omx" / "project_decision.json"
-    if explicit_path.exists():
-        try:
-            return _coerce_project_decision(_safe_read_json(explicit_path), "codex_turn", explicit_path), None
-        except ValueError as exc:
-            return None, str(exc)
+    for explicit_path in (project_dir / ".enoch" / "project_decision.json", project_dir / ".omx" / "project_decision.json"):
+        if explicit_path.exists():
+            try:
+                return _coerce_project_decision(_safe_read_json(explicit_path), "codex_turn", explicit_path), None
+            except ValueError as exc:
+                return None, str(exc)
 
     if not include_summary_fallback:
         return None, None
@@ -1177,8 +1180,10 @@ def _recent_files(
     ignored_roots = {
         ("results",),
         ("artifacts",),
-        (".omx", "state"),
-        (".omx", "logs"),
+        (".enoch", "state"),
+        (".enoch", "logs"),
+        (".omx", "state"),  # legacy compatibility
+        (".omx", "logs"),  # legacy compatibility
     }
     collected: list[tuple[float, str]] = []
     scanned = 0
@@ -1269,9 +1274,12 @@ def _tail_jsonl(path: Path, limit: int = 80) -> list[str]:
 
 
 def _latest_session(project_dir: Path) -> SessionHistoryEntry | None:
-    history_path = project_dir / ".omx" / "logs" / "session-history.jsonl"
+    history_path = project_dir / ".enoch" / "logs" / "session-history.jsonl"
     if not history_path.exists():
-        return None
+        legacy_history_path = project_dir / ".omx" / "logs" / "session-history.jsonl"
+        if not legacy_history_path.exists():
+            return None
+        history_path = legacy_history_path
     latest: dict[str, Any] | None = None
     try:
         for line in history_path.read_text(encoding="utf-8", errors="ignore").splitlines():
@@ -2039,13 +2047,13 @@ async def prepare_project(
     )
 
     project_dir.mkdir(parents=True, exist_ok=True)
-    (project_dir / ".omx").mkdir(parents=True, exist_ok=True)
+    (project_dir / ".enoch").mkdir(parents=True, exist_ok=True)
 
     _write_text(prompt_file, request.prompt_text, request.overwrite)
     if resume_prompt_file and request.resume_prompt_text is not None:
         _write_text(resume_prompt_file, request.resume_prompt_text, request.overwrite)
 
-    metadata_path = project_dir / ".omx" / "project.json"
+    metadata_path = project_dir / ".enoch" / "project.json"
     metadata_payload = {
         "run_id": request.run_id,
         "project_id": request.project_id,

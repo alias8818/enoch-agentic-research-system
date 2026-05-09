@@ -14,8 +14,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from omx_wake_gate.control_plane.store import ControlPlaneStore
-from omx_wake_gate.models import utc_now
+from enoch_control_plane.control_plane.store import ControlPlaneStore
+from enoch_control_plane.models import utc_now
 
 
 def text(value: Any) -> str:

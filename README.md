@@ -2,7 +2,7 @@
 
 ![Enoch — Agentic Research Control Plane](site/assets/social-card.svg)
 
-Enoch is an agentic research control plane: it queues ideas, gates dispatch, supervises local AI runs, preserves evidence, and packages AI-generated research artifacts with provenance instead of pretending autonomous work is just a script.
+Enoch Control Plane is an agentic research control plane: it queues ideas, gates dispatch, supervises local AI runs, preserves evidence, and packages AI-generated research artifacts with provenance instead of pretending autonomous work is just a script.
 
 ## The problem
 
@@ -14,7 +14,7 @@ Long-running autonomous AI work fails in ways ordinary scripts do not:
 - evidence scatters across machines and run folders;
 - generated reports overstate results when claim boundaries aren't preserved.
 
-Enoch treats those as control-plane problems, not model problems. It uses process tracking, CPU/GPU quiet-window telemetry, idempotent APIs, stale-state reconciliation, a professional operator dashboard, evidence bundles, and claim ledgers to make autonomous work observable and auditable.
+Enoch Control Plane treats those as control-plane problems, not model problems. It uses process tracking, CPU/GPU quiet-window telemetry, idempotent APIs, stale-state reconciliation, a professional operator dashboard, evidence bundles, and claim ledgers to make autonomous work observable and auditable.
 
 > Agentic AI systems need control planes. A model can propose and execute work, but a separate system should decide what is queued, what is safe to dispatch, whether work is actually done, and what evidence supports the final artifact.
 
@@ -61,7 +61,7 @@ The docs source lives in [`alias8818/enoch-docs`](https://github.com/alias8818/e
 
 ## Runtime and upstream tooling
 
-Enoch is the project-specific control plane and release package. It runs agent work through Codex-native automation using the Codex CLI as the worker execution substrate. Generated research artifacts are produced by Enoch runs and the artifact writer.
+Enoch Control Plane is the project-specific control plane and release package. It runs agent work through Codex-native automation using the Codex CLI as the worker execution substrate. Generated research artifacts are produced by Enoch runs and the artifact writer.
 
 ## Idea intake
 
@@ -79,7 +79,7 @@ For a full deployment (control VM, worker machine, systemd service, dashboard/AP
 
 For individual config fields, start from `config.example.json` and see [`docs/configuration-reference.md`](docs/configuration-reference.md). Required values:
 
-- inbound API bearer token
+- control API bearer token
 - completion callback URL/token
 - project root and dispatch script path
 - worker URL/token
@@ -91,7 +91,12 @@ Never commit live config files or credentials.
 
 ```bash
 uv run pytest -q
+python scripts/validate_versioning.py
 ```
+
+## Versioning and release notes
+
+The runtime follows semantic versioning. Keep `VERSION`, `pyproject.toml`, and [`CHANGELOG.md`](CHANGELOG.md) in sync for every release. See [`docs/release/release-plan.md`](docs/release/release-plan.md).
 
 ## Documentation
 
@@ -109,6 +114,7 @@ uv run pytest -q
 - [`docs/research-facility.md`](docs/research-facility.md) — source/candidate/admission/lineage ledgers and admission guardrails
 
 **Release context:**
+- [`CHANGELOG.md`](CHANGELOG.md) — runtime version history and compatibility notes
 - [`docs/release/authorship-and-provenance.md`](docs/release/authorship-and-provenance.md) — how generated reports should be framed
 - [`docs/featured-paper-selection.md`](docs/featured-paper-selection.md) — rationale for the launch highlight set
 - [`docs/outreach/launch-announcement.md`](docs/outreach/launch-announcement.md) — draft launch copy and repo descriptions

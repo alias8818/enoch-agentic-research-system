@@ -38,7 +38,7 @@ PY
 
 ```bash
 export ENOCH_CONFIG=$PWD/.local/config/config.json
-uv run uvicorn omx_wake_gate.app:app --host 127.0.0.1 --port 8787
+uv run uvicorn enoch_control_plane.app:app --host 127.0.0.1 --port 8787
 ```
 
 Open:

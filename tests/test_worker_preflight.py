@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from omx_wake_gate.control_plane.models import ControlFlags, WorkerPreflightRequest
-from omx_wake_gate.control_plane.worker_adapter import HttpResult, post_worker_json, run_worker_preflight
+from enoch_control_plane.control_plane.models import ControlFlags, WorkerPreflightRequest
+from enoch_control_plane.control_plane.worker_adapter import HttpResult, post_worker_json, run_worker_preflight
 
 
 class FakeWorkerTransport:

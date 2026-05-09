@@ -99,7 +99,7 @@ def _candidate_context(config: GateConfig, candidate: dict[str, Any], paper: Pap
     # when legacy paper reviews are rewritten on the VM. Do not omit them: the
     # paper writer must not infer “untested” merely because the VM-local
     # publication folder was freshly generated.
-    for rel in ("run_notes.md", ".omx/project_decision.json", ".omx/metrics.json", "logs/main_run.log"):
+    for rel in ("run_notes.md", ".enoch/project_decision.json", ".enoch/metrics.json", ".omx/project_decision.json", ".omx/metrics.json", "logs/main_run.log"):
         add_file(rel, limit=24000)
 
     # Source paper artifacts from the original research run. These usually carry

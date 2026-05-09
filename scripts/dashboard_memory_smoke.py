@@ -118,7 +118,7 @@ def main() -> int:
     parser.add_argument("--output", default="")
     args = parser.parse_args()
 
-    token = os.environ.get(args.token_env) or os.environ.get("OMX_INBOUND_BEARER_TOKEN", "")
+    token = os.environ.get(args.token_env) or os.environ.get("ENOCH_CONTROL_PLANE_TOKEN", "") or os.environ.get("OMX_INBOUND_BEARER_TOKEN", "")
     endpoints = args.endpoints or DEFAULT_ENDPOINTS
     samples: list[Sample] = []
     for _ in range(max(1, args.iterations)):

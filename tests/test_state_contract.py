@@ -1,5 +1,5 @@
-from omx_wake_gate.control_plane.models import PaperStatus, QueueStatus, ReviewStatus, RunState
-from omx_wake_gate.control_plane.state_contract import (
+from enoch_control_plane.control_plane.models import PaperStatus, QueueStatus, ReviewStatus, RunState
+from enoch_control_plane.control_plane.state_contract import (
     PAPER_STATUSES,
     PUBLICATION_AUTOMATION_STATUSES,
     QUEUE_STATUSES,

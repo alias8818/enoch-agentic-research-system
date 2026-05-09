@@ -34,7 +34,7 @@ class GateState(str, Enum):
     ERROR = "error"
 
 
-class OmxEvent(BaseModel):
+class ControlPlaneEvent(BaseModel):
     event: SourceEvent
     run_id: str
     session_id: str
@@ -46,6 +46,10 @@ class OmxEvent(BaseModel):
     timestamp: str = Field(default_factory=utc_now)
     tmux_session: str | None = None
     message: str | None = None
+
+
+# Deprecated compatibility alias for legacy /omx/event payload handling.
+OmxEvent = ControlPlaneEvent
 
 
 class ProcessSnapshot(BaseModel):

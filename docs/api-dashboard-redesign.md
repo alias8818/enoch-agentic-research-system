@@ -12,11 +12,11 @@ The redesign target is:
 - clear command/read separation;
 - a professional dashboard organized around operator tasks;
 - memory and response-size observability;
-- a migration path that does not break dispatch, wake callbacks, paper production, or Supabase-native idea intake.
+- a migration path that does not break dispatch, worker callbacks, paper production, or Supabase-native idea intake.
 
 ## Current risk surfaces
 
-- `omx_wake_gate/app.py` serves the wake-gate dashboard and `/dashboard/api` from a large monolithic FastAPI module.
+- `enoch_control_plane/app.py` serves the legacy worker dashboard and `/dashboard/api` from a large monolithic FastAPI module.
 - `/dashboard/api` calls `store.list_runs()`, computes truth for all run records, sorts all records, samples telemetry, reads queue and paper snapshots, and returns recent events.
 - `/dashboard/api/run/{run_id}` loads one run but still calls `store.list_runs()` to calculate supersession state.
 - `StateStore.list_runs()` parses every `state/runs/*.json` file.
@@ -61,7 +61,7 @@ Rules:
 ## Proposed module boundaries
 
 ```text
-omx_wake_gate/
+enoch_control_plane/
   app.py                         # app factory and router mounting only
   dashboard/
     router.py                    # HTML shell and dashboard API facade
@@ -72,7 +72,7 @@ omx_wake_gate/
     router.py                    # canonical command/read APIs
     read_models.py               # SQL-backed bounded projections
     store.py                     # mutations and low-level queries
-  wake_gate/
+  worker_gate/
     router.py                    # wake-gate run/event API
     read_models.py               # bounded run projections
   observability/
@@ -107,13 +107,13 @@ UX principles:
 
 - Add a memory smoke script for dashboard/control endpoints. Initial tool: `scripts/dashboard_memory_smoke.py`.
 - Measure RSS before and after repeated calls to current dashboard endpoints.
-- Add route timing and response-size middleware behind a config flag. Initial module: `omx_wake_gate.observability.RouteObservationMiddleware`.
+- Add route timing and response-size middleware behind a config flag. Initial module: `enoch_control_plane.observability.RouteObservationMiddleware`.
 - Document route ownership and data growth risks.
 
 ### Phase 1: Bounded read models
 
 - Add SQL-backed bounded queries for queue, papers, events, active rows, and counts. Initial methods are in `ControlPlaneStore.queue_page`, `paper_page`, `run_page`, `event_page`, `active_items_sql`, and SQL count helpers.
-- Add a wake-gate run index so list views do not parse every run JSON file. The first v1 run list is bounded from the control-plane SQL run table; the file-backed wake-gate index remains a follow-up for `/dashboard/api` replacement.
+- Add a worker-run index so list views do not parse every run JSON file. The first v1 run list is bounded from the control-plane SQL run table; the file-backed worker-run index remains a follow-up for `/dashboard/api` replacement.
 - Add `/control/api/v1/*` read-model endpoints. Initial endpoints cover overview, lanes, queue, runs, projects, papers, events, and observability health/memory.
 - Lock these endpoints with unit and API tests. Initial regression asserts v1 routes do not call legacy full-list `queue_rows`, `paper_rows`, or `event_rows`.
 
@@ -132,7 +132,7 @@ UX principles:
 
 ### Phase 4: Retention and memory hardening
 
-- Add retention/rotation for wake-gate events and historical run projections.
+- Add retention/rotation for worker events and historical run projections.
 - Add controller memory guardrails after bounded endpoints are proven.
 - Add scheduled or CI memory regression checks with large fixtures.
 

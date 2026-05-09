@@ -9,10 +9,10 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from omx_wake_gate.config import GateConfig
-from omx_wake_gate.gate import WakeGate
-from omx_wake_gate.models import GateState, ProcessInfo, RunRecord, TelemetrySample
-from omx_wake_gate.process_tracker import ProcessTracker
+from enoch_control_plane.config import GateConfig
+from enoch_control_plane.gate import WakeGate
+from enoch_control_plane.models import GateState, ProcessInfo, RunRecord, TelemetrySample
+from enoch_control_plane.process_tracker import ProcessTracker
 
 
 class _StaticTelemetry:
@@ -142,7 +142,7 @@ class StaleProcessReaperTests(unittest.TestCase):
         record = RunRecord(run_id="run", session_id="session", root_pid=999_999_999)
         candidate = ProcessInfo(pid=123456, elapsed_sec=999, create_time=1000.0, cmdline="python smoke.py")
         with patch.object(tracker, "stale_reap_candidates", return_value=[candidate]), patch(
-            "omx_wake_gate.process_tracker.os.kill", side_effect=PermissionError
+            "enoch_control_plane.process_tracker.os.kill", side_effect=PermissionError
         ):
             self.assertEqual(
                 tracker.reap_stale_project_processes(
@@ -176,8 +176,8 @@ class StaleProcessReaperTests(unittest.TestCase):
             signaled.append((pid, sig))
 
         with patch.object(tracker, "stale_reap_candidates", return_value=[candidate]), patch(
-            "omx_wake_gate.process_tracker.os.kill", side_effect=_kill
-        ), patch("omx_wake_gate.process_tracker.psutil.Process", return_value=_ReusedProcess()):
+            "enoch_control_plane.process_tracker.os.kill", side_effect=_kill
+        ), patch("enoch_control_plane.process_tracker.psutil.Process", return_value=_ReusedProcess()):
             self.assertEqual(
                 tracker.reap_stale_project_processes(
                     record,
@@ -209,8 +209,8 @@ class StaleProcessReaperTests(unittest.TestCase):
         proc.create_time = _raise_no_such  # type: ignore[method-assign]
 
         with patch.object(tracker, "stale_reap_candidates", return_value=[candidate]), patch(
-            "omx_wake_gate.process_tracker.os.kill"
-        ), patch("omx_wake_gate.process_tracker.psutil.Process", return_value=proc):
+            "enoch_control_plane.process_tracker.os.kill"
+        ), patch("enoch_control_plane.process_tracker.psutil.Process", return_value=proc):
             self.assertEqual(
                 tracker.reap_stale_project_processes(
                     record,
@@ -245,8 +245,8 @@ class StaleProcessReaperTests(unittest.TestCase):
                 raise ProcessLookupError
 
         with patch.object(tracker, "stale_reap_candidates", return_value=[candidate]), patch(
-            "omx_wake_gate.process_tracker.os.kill", side_effect=_kill
-        ), patch("omx_wake_gate.process_tracker.psutil.Process", return_value=_OriginalProcess()):
+            "enoch_control_plane.process_tracker.os.kill", side_effect=_kill
+        ), patch("enoch_control_plane.process_tracker.psutil.Process", return_value=_OriginalProcess()):
             self.assertEqual(
                 tracker.reap_stale_project_processes(
                     record,

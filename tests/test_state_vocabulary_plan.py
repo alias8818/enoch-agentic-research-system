@@ -1,5 +1,5 @@
 from scripts.generate_state_vocabulary_plan import DOMAIN_TARGETS, cleanup_action, final_state_for, iter_mapping_rows, render
-from omx_wake_gate.control_plane.state_contract import STATE_REDUCTION_PLAN
+from enoch_control_plane.control_plane.state_contract import STATE_REDUCTION_PLAN
 
 
 def test_state_vocabulary_plan_covers_every_raw_state_contract_value() -> None:

@@ -41,7 +41,7 @@ I’m also releasing a corpus of 376 canonical generated research artifacts from
 
 What I hope is useful to others:
 
-- a concrete pattern for supervising long-running local agent work with Enoch, LangGraph-era state boundaries, and OMX orchestration;
+- a concrete pattern for supervising long-running local agent work with Enoch Control Plane, LangGraph-era state boundaries, and Codex-local orchestration;
 - a wake-gate model for deciding when autonomous work is actually done;
 - queue reconciliation and pause/maintenance controls;
 - evidence-bounded writing rather than free-floating LLM summaries;

@@ -246,7 +246,7 @@ window.addEventListener('hashchange',route); route(); setInterval(autoRefreshCur
 
 
 def _local_high_signal_evidence_present(project_dir: Path) -> bool:
-    return (project_dir / "run_notes.md").is_file() and (project_dir / ".omx" / "project_decision.json").is_file()
+    return (project_dir / "run_notes.md").is_file() and any((project_dir / rel).is_file() for rel in (".enoch/project_decision.json", ".omx/project_decision.json"))
 
 
 def _local_paper_evidence_present(project_dir: Path) -> bool:
@@ -267,6 +267,8 @@ def _sync_worker_http_evidence(config: GateConfig, *, project_id: str, artifact_
     base_run = source_run_id.removesuffix("-publication") if source_run_id else ""
     paths = [
         "run_notes.md",
+        ".enoch/project_decision.json",
+        ".enoch/metrics.json",
         ".omx/project_decision.json",
         ".omx/metrics.json",
         "results/hot_cold_sim_results.json",
@@ -338,6 +340,8 @@ def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifa
     # while preserving the artifacts the paper writer needs for claim grounding.
     include_paths = [
         "run_notes.md",
+        ".enoch/project_decision.json",
+        ".enoch/metrics.json",
         ".omx/project_decision.json",
         ".omx/metrics.json",
         "papers",
@@ -585,11 +589,11 @@ Turn this idea into a concrete, evidence-backed research result. Work autonomous
 - Do not require human input for installable, downloadable, compilable, or locally runnable dependencies.
 - For GB10 work, start with a small smoke test, then calibrate throughput/utilization before any long run.
 - Swap is intentionally disabled on GB10; use MemAvailable/UMA telemetry and earlyoom posture, not swap availability, for memory judgment.
-- Leave durable artifacts: run_notes.md, commands/log paths, metrics, and a final .omx/project_decision.json.
+- Leave durable artifacts: run_notes.md, commands/log paths, metrics, and a final .enoch/project_decision.json.
 - If final scientific closure truly needs human/private/external evidence, state that precisely and stop with a needs_review/blocker decision.
 
 ## Required final decision artifact
-Write `.omx/project_decision.json` with these exact enum values. Do not invent
+Write `.enoch/project_decision.json` with these exact enum values. Do not invent
 near-synonyms such as `partial_viable`, `promising_synthetic_positive`, or
 `negative_result`.
 

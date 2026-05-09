@@ -153,6 +153,39 @@ wheels = [
 ]
 
 [[package]]
+name = "enoch-control-plane"
+version = "0.2.0"
+source = { editable = "." }
+dependencies = [
+    { name = "fastapi" },
+    { name = "langgraph" },
+    { name = "psutil" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "pydantic" },
+    { name = "pynvml" },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.116.0,<1.0.0" },
+    { name = "langgraph", specifier = ">=1.1.10" },
+    { name = "psutil", specifier = ">=7.0.0,<8.0.0" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4.0" },
+    { name = "pydantic", specifier = ">=2.11.0,<3.0.0" },
+    { name = "pynvml", specifier = ">=12.0.0,<14.0.0" },
+    { name = "uvicorn", specifier = ">=0.35.0,<1.0.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.0.3" }]
+
+[[package]]
 name = "fastapi"
 version = "0.136.1"
 source = { registry = "https://pypi.org/simple" }
@@ -360,39 +393,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/d2/4d/6f017814ed5ac28e0
 wheels = [
     { url = "https://files.pythonhosted.org/packages/db/24/552ebea28f0570b9e65e62b50287a273804c9f997cc1c2dcd4e2d64b9e7d/nvidia_ml_py-12.575.51-py3-none-any.whl", hash = "sha256:eb8641800d98ce40a22f479873f34b482e214a7e80349c63be51c3919845446e", size = 47547, upload-time = "2025-05-06T20:46:36.457Z" },
 ]
-
-[[package]]
-name = "omx-wake-gate"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "fastapi" },
-    { name = "langgraph" },
-    { name = "psutil" },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "pydantic" },
-    { name = "pynvml" },
-    { name = "uvicorn" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", specifier = ">=0.116.0,<1.0.0" },
-    { name = "langgraph", specifier = ">=1.1.10" },
-    { name = "psutil", specifier = ">=7.0.0,<8.0.0" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4.0" },
-    { name = "pydantic", specifier = ">=2.11.0,<3.0.0" },
-    { name = "pynvml", specifier = ">=12.0.0,<14.0.0" },
-    { name = "uvicorn", specifier = ">=0.35.0,<1.0.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=9.0.3" }]
 
 [[package]]
 name = "orjson"

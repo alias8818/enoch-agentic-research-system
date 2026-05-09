@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.backfill_control_plane_to_supabase import import_sqlite_to_postgres  # noqa: E402
-from omx_wake_gate.control_plane.store import ControlPlaneStore  # noqa: E402
+from enoch_control_plane.control_plane.store import ControlPlaneStore  # noqa: E402
 
 IMAGE = "postgres:17-alpine"
 NOW = "2026-05-06T10:30:00Z"

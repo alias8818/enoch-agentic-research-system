@@ -12,7 +12,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
-from omx_wake_gate.control_plane.state_contract import STATE_REDUCTION_PLAN
+from enoch_control_plane.control_plane.state_contract import STATE_REDUCTION_PLAN
 
 ACTION_BY_DISPOSITION = {
     "keep": "keep",

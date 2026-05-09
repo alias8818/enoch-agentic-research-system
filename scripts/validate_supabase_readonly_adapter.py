@@ -21,8 +21,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omx_wake_gate.control_plane.store import ControlPlaneStore  # noqa: E402
-from omx_wake_gate.control_plane.models import (  # noqa: E402
+from enoch_control_plane.control_plane.store import ControlPlaneStore  # noqa: E402
+from enoch_control_plane.control_plane.models import (  # noqa: E402
     ImportSnapshotRequest,
     NotionIntakeRequest,
     PaperRecord,
@@ -33,7 +33,7 @@ from omx_wake_gate.control_plane.models import (  # noqa: E402
     PaperReviewPrepareFinalizationRequest,
     PaperStatus,
 )
-from omx_wake_gate.control_plane.supabase_store import ReadOnlyStoreError, SupabaseControlPlaneStore, SupabaseReadOnlyControlPlaneStore  # noqa: E402
+from enoch_control_plane.control_plane.supabase_store import ReadOnlyStoreError, SupabaseControlPlaneStore, SupabaseReadOnlyControlPlaneStore  # noqa: E402
 
 IMAGE = "postgres:17-alpine"
 NOW = "2026-05-05T23:55:00Z"

@@ -42,7 +42,7 @@ MODE_BY_CATEGORY = {
     "agent-reliability": "implementation_gap",
 }
 
-DEFAULT_ARTIFACTS = ["run_notes.md", "metrics.json", "baseline_report.json", "failure_cases.json", ".omx/project_decision.json"]
+DEFAULT_ARTIFACTS = ["run_notes.md", "metrics.json", "baseline_report.json", "failure_cases.json", ".enoch/project_decision.json"]
 DEFAULT_EVIDENCE = ["source-grounded baseline", "metrics table", "ablation or control", "failure cases", "decision artifact"]
 
 

@@ -51,6 +51,7 @@ export ENOCH_PROJECT_DIR="$PROJECT_DIR"
 export ENOCH_LAUNCH_ROOT_PID="$$"
 export ENOCH_LAUNCH_PGID="$(ps -o pgid= -p $$ | tr -d ' ')"
 export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/bin:$PATH"
+# Upstream Codex still recognizes this variable; keep disabled by default to avoid legacy OMX wrappers.
 export USE_OMX_EXPLORE_CMD="${USE_OMX_EXPLORE_CMD:-0}"
 
 CODEX_BIN="${CODEX_BIN:-$(command -v codex || true)}"
@@ -145,8 +146,8 @@ print(session_id)
 PY
 SESSION_ID_EFFECTIVE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("session_id", ""))' "$SESSION_FILE")"
 
-# Historical artifact readers still expect .omx. Keep the decision file path compatible
-# until the paper/decision readers are renamed in a separate storage migration.
+# Legacy artifact readers may still inspect .omx. Keep the decision file path compatible
+# while the canonical worker output moves to .enoch.
 if [[ -f "$PROJECT_DIR/.enoch/project_decision.json" && ! -f "$PROJECT_DIR/.omx/project_decision.json" ]]; then
   cp "$PROJECT_DIR/.enoch/project_decision.json" "$PROJECT_DIR/.omx/project_decision.json"
 fi

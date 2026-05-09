@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from omx_wake_gate.telemetry import _uma_memory_from_meminfo
+from enoch_control_plane.telemetry import _uma_memory_from_meminfo
 
 
 class UmaTelemetryTests(unittest.TestCase):

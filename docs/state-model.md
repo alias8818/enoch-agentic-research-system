@@ -62,7 +62,7 @@ Count fields follow the same split:
 
 ## Canonical lifecycle state surfaces
 
-The canonical raw state contract is code-owned in `omx_wake_gate/control_plane/state_contract.py` and schema-owned in the Supabase constraint migrations. These are the lifecycle-bearing state surfaces:
+The canonical raw state contract is code-owned in `enoch_control_plane/control_plane/state_contract.py` and schema-owned in the Supabase constraint migrations. These are the lifecycle-bearing state surfaces:
 
 | Surface | Lifecycle role | Operator rule |
 | --- | --- | --- |
@@ -165,7 +165,7 @@ Raw tables, raw statuses, and legacy labels belong in detail/debug drawers, not 
 6. Finalization readiness means `publication_draft` plus finalized automation package, not a draft row by itself; actionable publication/import readiness additionally requires no corpus-import ledger row.
 7. Human/operator paper approval is not a normal workflow state. Use automated finalization/package wording.
 8. Notion/source idea status is provenance only now that Supabase owns the runtime ledger.
-9. New raw state strings or new state-like persisted columns require updating `state_contract.py`, the Supabase constraint migration when applicable, `scripts/validate_state_contract.py` coverage, this document, and the parent release wiki at `/home/jeremy/Desktop/projects/enoch-release/.omx/wiki/state-model-contract.md`.
+9. New raw state strings or new state-like persisted columns require updating `state_contract.py`, the Supabase constraint migration when applicable, `scripts/validate_state_contract.py` coverage, this document, and `docs/state-model.md`, and public docs.
 
 ## State doctor
 

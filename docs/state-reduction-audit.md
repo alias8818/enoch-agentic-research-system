@@ -1,6 +1,6 @@
 # State reduction audit
 
-Status: generated from `omx_wake_gate/control_plane/state_contract.py`.
+Status: generated from `enoch_control_plane/control_plane/state_contract.py`.
 
 This audit is the bridge from the broad compatibility contract to the small user/operator model. Every raw persisted state is classified as one of:
 

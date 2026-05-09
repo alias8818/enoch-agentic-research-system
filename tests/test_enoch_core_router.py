@@ -7,9 +7,9 @@ from typing import Any, Callable
 
 from fastapi import HTTPException
 
-from omx_wake_gate.config import GateConfig
-from omx_wake_gate.enoch_core.models import QueueSnapshotRequest
-from omx_wake_gate.enoch_core.router import create_enoch_core_router
+from enoch_control_plane.config import GateConfig
+from enoch_control_plane.enoch_core.models import QueueSnapshotRequest
+from enoch_control_plane.enoch_core.router import create_enoch_core_router
 
 
 class EnochCoreRouterTests(unittest.TestCase):
@@ -132,7 +132,7 @@ class EnochCoreSupabaseBackendRoutingTests(unittest.TestCase):
                     raise HTTPException(status_code=401, detail="invalid bearer token")
 
             from unittest.mock import patch
-            with patch("omx_wake_gate.enoch_core.router.SupabaseEnochCoreStore", return_value=FakeStore()) as supabase_store:
+            with patch("enoch_control_plane.enoch_core.router.SupabaseEnochCoreStore", return_value=FakeStore()) as supabase_store:
                 router = create_enoch_core_router(config, require_bearer)
                 endpoints = {route.path: route.endpoint for route in router.routes}  # type: ignore[attr-defined]
                 response = endpoints["/enoch-core/health"](authorization="Bearer secret")

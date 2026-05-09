@@ -5,7 +5,7 @@ import json
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from omx_wake_gate.observability import RouteObservationMiddleware, current_rss_mib, peak_rss_mib
+from enoch_control_plane.observability import RouteObservationMiddleware, current_rss_mib, peak_rss_mib
 from scripts.dashboard_memory_smoke import Sample, summarize
 
 

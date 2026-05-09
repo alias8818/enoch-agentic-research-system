@@ -45,7 +45,7 @@ SHALLOW_INCREMENT_PATTERNS = (
     r"just\s+try\s+different\s+(?:batch|learning rate|temperature|rank)",
     r"minor\s+hyperparameter",
 )
-DEFAULT_ARTIFACTS = ["run_notes.md", "metrics.json", "failure_cases.json", ".omx/project_decision.json"]
+DEFAULT_ARTIFACTS = ["run_notes.md", "metrics.json", "failure_cases.json", ".enoch/project_decision.json"]
 DEFAULT_EVIDENCE = ["baseline comparison", "metrics table", "failure cases", "decision artifact"]
 
 

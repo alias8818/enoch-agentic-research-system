@@ -9,11 +9,11 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from omx_wake_gate.config import GateConfig
-from omx_wake_gate.control_plane.read_models import OPERATOR_DETAIL_LABELS, OPERATOR_LANE_LABELS, operator_stage_for_record, paper_source_fingerprint
-from omx_wake_gate.control_plane.state_contract import OperatorLane
-from omx_wake_gate.control_plane.store import REVIEW_CHECKLIST_DEFINITION
-from omx_wake_gate.control_plane.router import create_control_plane_router
+from enoch_control_plane.config import GateConfig
+from enoch_control_plane.control_plane.read_models import OPERATOR_DETAIL_LABELS, OPERATOR_LANE_LABELS, operator_stage_for_record, paper_source_fingerprint
+from enoch_control_plane.control_plane.state_contract import OperatorLane
+from enoch_control_plane.control_plane.store import REVIEW_CHECKLIST_DEFINITION
+from enoch_control_plane.control_plane.router import create_control_plane_router
 
 
 TOKEN = "test-token"

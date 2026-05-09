@@ -10,7 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from omx_wake_gate.models import utc_now
+from enoch_control_plane.models import utc_now
 
 
 def peak_rss_mib() -> float:

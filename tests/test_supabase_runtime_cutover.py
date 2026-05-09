@@ -3,8 +3,8 @@ import inspect
 
 from scripts.validate_supabase_runtime_cutover import compare
 
-from omx_wake_gate.control_plane import read_models
-from omx_wake_gate.control_plane.supabase_store import SupabaseControlPlaneStore, _decision_gate_state, _decision_summary
+from enoch_control_plane.control_plane import read_models
+from enoch_control_plane.control_plane.supabase_store import SupabaseControlPlaneStore, _decision_gate_state, _decision_summary
 
 
 def test_compare_accepts_matching_operator_counts_and_safe_pause() -> None:

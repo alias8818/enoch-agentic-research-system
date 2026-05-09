@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from omx_wake_gate.enoch_core.store import EnochCoreStore, IdempotencyConflict
+from enoch_control_plane.enoch_core.store import EnochCoreStore, IdempotencyConflict
 
 
 class EnochCoreStoreTests(unittest.TestCase):

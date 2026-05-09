@@ -10,7 +10,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from omx_wake_gate.control_plane.state_contract import (  # noqa: E402
+from enoch_control_plane.control_plane.state_contract import (  # noqa: E402
     OPERATOR_LANE_DESCRIPTIONS,
     STATE_CONTRACT,
     STATE_REDUCTION_PLAN,
@@ -54,7 +54,7 @@ def render(*, live: dict[str, dict[str, int]]) -> str:
     lines: list[str] = [
         "# State reduction audit",
         "",
-        "Status: generated from `omx_wake_gate/control_plane/state_contract.py`.",
+        "Status: generated from `enoch_control_plane/control_plane/state_contract.py`.",
         "",
         "This audit is the bridge from the broad compatibility contract to the small user/operator model. "
         "Every raw persisted state is classified as one of:",

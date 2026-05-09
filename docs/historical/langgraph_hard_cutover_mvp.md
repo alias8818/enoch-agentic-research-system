@@ -15,10 +15,10 @@ The control plane defaults to `queue_paused=true` so creating the VM or starting
 
 ## Implemented in this slice
 
-- `omx_wake_gate.control_plane.models`: canonical records for projects, queue items, runs, papers, events, and pause/resume controls.
-- `omx_wake_gate.control_plane.store`: SQLite canonical store with WAL, idempotent import events, pause/resume, dry-run dispatch selection, paper upsert, raw wake-gate snapshot normalization, export snapshots, Notion idea intake normalization, and Notion projection rows.
-- `omx_wake_gate.control_plane.graphs`: MVP LangGraph dispatch graph with pause gate, single-lane gate, candidate selection, and dry-run eventing.
-- `omx_wake_gate.control_plane.router`: `/control/*` API for health, state, pause, resume, legacy import, Notion intake, queue/paper reads, dry-run dispatch, deterministic paper draft-next, canonical export, and Notion projection reads.
+- `enoch_control_plane.control_plane.models`: canonical records for projects, queue items, runs, papers, events, and pause/resume controls.
+- `enoch_control_plane.control_plane.store`: SQLite canonical store with WAL, idempotent import events, pause/resume, dry-run dispatch selection, paper upsert, raw wake-gate snapshot normalization, export snapshots, Notion idea intake normalization, and Notion projection rows.
+- `enoch_control_plane.control_plane.graphs`: MVP LangGraph dispatch graph with pause gate, single-lane gate, candidate selection, and dry-run eventing.
+- `enoch_control_plane.control_plane.router`: `/control/*` API for health, state, pause, resume, legacy import, Notion intake, queue/paper reads, dry-run dispatch, deterministic paper draft-next, canonical export, and Notion projection reads.
 
 ## MVP endpoints
 
@@ -54,7 +54,7 @@ All endpoints use the existing wake-gate bearer token.
 Current verification:
 
 ```bash
-cd omx_wake_gate
+cd enoch_control_plane
 .venv/bin/pytest -q
 ```
 
@@ -88,7 +88,7 @@ The GB10 worker is intentionally operated with swap disabled and `earlyoom` enab
 The sync runner is dependency-free and dry-run-first:
 
 ```bash
-python -m omx_wake_gate.control_plane.notion_sync \
+python -m enoch_control_plane.control_plane.notion_sync \
   --control-url http://control-vm.example:8787 \
   --control-token "$ENOCH_CONTROL_TOKEN" \
   --notion-token "$NOTION_TOKEN" \

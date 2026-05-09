@@ -58,7 +58,7 @@ Use control-plane dry-run dispatch before live dispatch when introducing a new s
 
 ## Required project decision labels
 
-Workers must emit exact canonical decision values in `.omx/project_decision.json`:
+Workers must emit exact canonical decision values in `.enoch/project_decision.json`; `.omx/project_decision.json` remains a legacy compatibility path for old artifacts:
 
 ```json
 {

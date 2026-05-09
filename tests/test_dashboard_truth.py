@@ -3,13 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import unittest
 
-from omx_wake_gate.app import (
+from enoch_control_plane.app import (
     _build_queue_snapshot,
     _dashboard_truth,
     _is_superseded_record,
     _latest_runs_by_project,
 )
-from omx_wake_gate.models import GateState, ProcessInfo, RunRecord
+from enoch_control_plane.models import GateState, ProcessInfo, RunRecord
 
 
 _NOW = datetime.now(timezone.utc)

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from omx_wake_gate.enoch_core.logic import draft_candidate_payload, eligible_paper_draft_candidates, paper_draft_decision_gate
+from enoch_control_plane.enoch_core.logic import draft_candidate_payload, eligible_paper_draft_candidates, paper_draft_decision_gate
 
 from .models import PaperStatus, QueueStatus
 from .state_contract import (
@@ -104,7 +104,7 @@ def _stage(
 
 
 def _configured_project_root() -> str:
-    config_path = os.environ.get("ENOCH_CONFIG") or os.environ.get("OMX_WAKE_GATE_CONFIG", "/etc/enoch/config.json")
+    config_path = os.environ.get("ENOCH_CONFIG") or os.environ.get("ENOCH_CONTROL_PLANE_CONFIG", "/etc/enoch/config.json")
     try:
         with open(config_path, encoding="utf-8") as handle:
             payload = json.load(handle)

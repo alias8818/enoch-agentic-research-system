@@ -10,11 +10,11 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from omx_wake_gate.config import GateConfig
-from omx_wake_gate.control_plane.router import _project_prompt, create_control_plane_router
-from omx_wake_gate.control_plane.store import ControlPlaneStore
-from omx_wake_gate.control_plane.models import ImportSnapshotRequest, PaperReviewBackfillRequest, WorkerPreflightCheck, WorkerPreflightResponse
-from omx_wake_gate.control_plane.worker_adapter import HttpResult
+from enoch_control_plane.config import GateConfig
+from enoch_control_plane.control_plane.router import _project_prompt, create_control_plane_router
+from enoch_control_plane.control_plane.store import ControlPlaneStore
+from enoch_control_plane.control_plane.models import ImportSnapshotRequest, PaperReviewBackfillRequest, WorkerPreflightCheck, WorkerPreflightResponse
+from enoch_control_plane.control_plane.worker_adapter import HttpResult
 
 
 TOKEN = "test-token"
@@ -75,7 +75,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             control_plane_store_backend="supabase",
             supabase_database_url="postgresql://example.invalid/postgres",
         )
-        with patch("omx_wake_gate.control_plane.router.SupabaseControlPlaneStore", return_value=FakeSupabaseStore()):
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=FakeSupabaseStore()):
             client = _client_with_config(config)
             response = client.get("/control/health", headers={"Authorization": f"Bearer {TOKEN}"})
         self.assertEqual(response.status_code, 200)
@@ -454,7 +454,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     WorkerPreflightCheck(name="wake_gate_dashboard_api", ok=False, detail="dashboard unavailable", data={}),
                 ],
             )
-            with patch("omx_wake_gate.control_plane.router.run_worker_preflight", return_value=response) as preflight:
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=response) as preflight:
                 status = client.get("/control/api/status", headers=headers).json()
 
             preflight.assert_called_once()
@@ -517,7 +517,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     ),
                 ],
             )
-            with patch("omx_wake_gate.control_plane.router.run_worker_preflight", return_value=response) as preflight:
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=response) as preflight:
                 status = client.get("/control/api/status", headers=headers).json()
 
             preflight.assert_called_once()
@@ -564,7 +564,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     WorkerPreflightCheck(name="worker_no_live_runs", ok=True, detail="active_or_waiting=0, live=0", data={"active_or_waiting": 0, "live": 0}),
                 ],
             )
-            with patch("omx_wake_gate.control_plane.router.run_worker_preflight", return_value=response) as preflight:
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=response) as preflight:
                 status = client.get("/control/api/status", headers=headers).json()
 
             preflight.assert_called_once()
@@ -598,7 +598,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     WorkerPreflightCheck(name="worker_no_live_runs", ok=True, detail="active_or_waiting=0, live=0", data={"active_or_waiting": 0, "live": 0}),
                 ],
             )
-            with patch("omx_wake_gate.control_plane.router.run_worker_preflight", return_value=response) as preflight:
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=response) as preflight:
                 status = client.get("/control/api/status", headers=headers).json()
 
             preflight.assert_called_once()
@@ -1059,7 +1059,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "paper_rows": [],
             })
             self.assertEqual(response.status_code, 200)
-            with patch("omx_wake_gate.control_plane.router.write_paper_artifacts", side_effect=RuntimeError("writer exploded")):
+            with patch("enoch_control_plane.control_plane.router.write_paper_artifacts", side_effect=RuntimeError("writer exploded")):
                 with self.assertRaisesRegex(RuntimeError, "writer exploded"):
                     client.post("/control/papers/draft-next", headers=headers, json={"force": True})
             snapshot = client.get("/control/export/snapshot", headers=headers).json()
@@ -1672,7 +1672,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 }],
             })
             client.post("/control/api/paper-reviews/backfill", headers=headers, json={"idempotency_key": "router-rewrite-fail-backfill", "dry_run": False})
-            with patch("omx_wake_gate.control_plane.router.write_paper_artifacts", side_effect=RuntimeError("rewrite writer exploded")):
+            with patch("enoch_control_plane.control_plane.router.write_paper_artifacts", side_effect=RuntimeError("rewrite writer exploded")):
                 with self.assertRaisesRegex(RuntimeError, "rewrite writer exploded"):
                     client.post(f"/control/api/paper-reviews/{paper_id}/rewrite-draft", headers=headers, json={
                         "idempotency_key": "router-rewrite-fail-1",
@@ -1719,7 +1719,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     return HttpResult(ok=True, status=200, body={"files": [{"path": requested, "content": "{\"claims\":[\"measured\"]}"}]})
                 return HttpResult(ok=False, status=404, body=None, error=f"missing {requested}")
 
-            with patch("omx_wake_gate.control_plane.router.post_worker_json", side_effect=fake_worker_post):
+            with patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_worker_post):
                 response = client.post(f"/control/api/paper-reviews/{paper_id}/rewrite-draft", headers=headers, json={
                     "idempotency_key": "router-sync-rewrite",
                     "requested_by": "alice",

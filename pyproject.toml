@@ -1,7 +1,7 @@
 [project]
-name = "omx-wake-gate"
-version = "0.1.0"
-description = "LangGraph-era agentic research control plane and wake-gate reliability system"
+name = "enoch-control-plane"
+version = "0.2.0"
+description = "Enoch Control Plane for auditable agentic research automation"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.116.0,<1.0.0",
@@ -19,7 +19,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["omx_wake_gate*"]
+include = ["enoch_control_plane*"]
 
 [dependency-groups]
 dev = [

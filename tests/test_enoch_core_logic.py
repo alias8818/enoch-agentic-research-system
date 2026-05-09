@@ -5,7 +5,7 @@ import unittest
 import tempfile
 from pathlib import Path
 
-from omx_wake_gate.enoch_core.logic import (
+from enoch_control_plane.enoch_core.logic import (
     assert_single_active_lane,
     draft_candidate_payload,
     eligible_paper_draft_candidates,
@@ -68,6 +68,14 @@ class EnochCoreLogicTests(unittest.TestCase):
         self.assertEqual(payload["draft_payload"]["run_id"], "run-legacy")
 
     def test_wake_ready_canonical_positive_decision_artifacts_pass_paper_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".enoch").mkdir()
+            (root / ".enoch" / "project_decision.json").write_text('{"decision":"finalize_positive"}\n', encoding="utf-8")
+            gate = paper_draft_decision_gate(root)
+            self.assertTrue(gate["eligible"])
+
+    def test_legacy_omx_positive_decision_artifacts_remain_supported(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".omx").mkdir()

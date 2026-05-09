@@ -68,7 +68,7 @@ Minimum required fields:
   "project_root": "/var/lib/enoch-control-plane/projects",
   "dispatch_script_path": "/opt/enoch-agentic-research-system/deploy/enoch_codex_dispatch.sh",
   "control_api_bearer_token": "generate-a-long-random-token",
-  "completion_callback_url": "https://automation.example.com/webhook/omx-wake-ready",
+  "completion_callback_url": "https://automation.example.com/webhook/enoch-control-plane-wake-ready",
   "completion_callback_token": "generate-a-long-random-token",
   "worker_wake_gate_url": "http://worker.example:8787",
   "worker_wake_gate_bearer_token": "worker-api-token"
@@ -294,10 +294,10 @@ Those are intentionally excluded. Use the examples and docs to recreate a clean 
 
 ## Codex-native worker skill
 
-Worker installs should include the Enoch Codex skill so GB10-side Codex runs understand the artifact and decision contract without relying on OMX wrapper context:
+Worker installs should include the Enoch Codex skill so GB10-side Codex runs understand the artifact and decision contract without relying on legacy wrapper context:
 
 ```bash
 scripts/install-codex-enoch-worker-skill.sh
 ```
 
-The skill installs to `$CODEX_HOME/skills/enoch-worker/SKILL.md` and documents the required `run_notes.md`, `.omx/project_decision.json` compatibility path, positive/negative paper gate, follow-up rules, and GB10 smoke-first expectations.
+The skill installs to `$CODEX_HOME/skills/enoch-worker/SKILL.md` and documents the required `run_notes.md`, preferred `.enoch/project_decision.json` path, legacy `.omx/project_decision.json` compatibility path, positive/negative paper gate, follow-up rules, and GB10 smoke-first expectations.

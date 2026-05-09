@@ -37,7 +37,7 @@ PAPER_DRAFT_BLOCKED_DECISION_TOKENS = (
     "proceed_with_caveats",
     "conditional_go_pilot",
 )
-PAPER_DECISION_FILES = (".omx/project_decision.json", "project_decision.json")
+PAPER_DECISION_FILES = (".enoch/project_decision.json", ".omx/project_decision.json", "project_decision.json")
 PAPER_PRIMARY_DECISION_FIELDS = (
     "project_decision",
     "decision",
@@ -140,7 +140,7 @@ def followup_candidate_from_decision_payload(payload: dict[str, Any]) -> dict[st
 def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
     """Return whether local project decision artifacts support paper drafting.
 
-    The wake-gate callback state only says the worker is done and the controller
+    The worker callback state only says the worker is done and the controller
     may either draft or move on. The actual draft/no-draft polarity lives in the
     project decision artifact. Keep this intentionally conservative for primary
     decision fields so negative, needs-review, and caveat-only outcomes do not

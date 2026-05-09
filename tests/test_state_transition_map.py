@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from omx_wake_gate.control_plane.read_models import operator_counts_from_rows, operator_stage_for_record
+from enoch_control_plane.control_plane.read_models import operator_counts_from_rows, operator_stage_for_record
 
 DOC = Path("docs/state-transition-map.md")
 

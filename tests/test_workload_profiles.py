@@ -7,14 +7,14 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from omx_wake_gate.app import (
+from enoch_control_plane.app import (
     _normalize_prepare_metadata,
     _resolve_workload_profile_for_project_dir,
     _wake_decision_profile_evidence,
 )
-from omx_wake_gate.config import GateConfig
-from omx_wake_gate.gate import WakeGate
-from omx_wake_gate.models import GateState, ProcessSnapshot, RunRecord, TelemetrySample
+from enoch_control_plane.config import GateConfig
+from enoch_control_plane.gate import WakeGate
+from enoch_control_plane.models import GateState, ProcessSnapshot, RunRecord, TelemetrySample
 
 
 class _StaticTelemetry:
@@ -51,7 +51,7 @@ class WorkloadProfileTests(unittest.TestCase):
     def test_project_metadata_resolution_uses_explicit_training_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp)
-            metadata_dir = project_dir / ".omx"
+            metadata_dir = project_dir / ".enoch"
             metadata_dir.mkdir(parents=True, exist_ok=True)
             (metadata_dir / "project.json").write_text(
                 json.dumps({"metadata": {"workload_class": "training"}}),

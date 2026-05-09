@@ -5,7 +5,7 @@ import json
 import unittest
 from urllib import error
 
-from omx_wake_gate.control_plane.notion_sync import (
+from enoch_control_plane.control_plane.notion_sync import (
     HttpResponse,
     NotionSyncError,
     apply_execution_updates,
@@ -49,10 +49,10 @@ class FakeTransport:
         if url.endswith("/control/projections/notion/execution-updates"):
             return HttpResponse(status=200, body={"ok": True, "rows": [{"page_id": "page-1", "project_id": "p1", "properties": {"Execution State": "queued", "Current Run ID": "", "Next Action": "controller_review", "Blocked Reason": "", "Last Execution Update": "2026-04-28T00:00:00Z", "Execution Summary": ""}}]})
         if url.endswith("/pages/page-1") and method == "GET":
-            return HttpResponse(status=200, body={"object": "page", "id": "page-1", "properties": {"Execution State": {}, "Current Run ID": {}, "Next Action": {}, "Blocked Reason": {}, "Last Execution Update": {}, "Execution Summary": {}, "OMX Project ID": {}}})
+            return HttpResponse(status=200, body={"object": "page", "id": "page-1", "properties": {"Execution State": {}, "Current Run ID": {}, "Next Action": {}, "Blocked Reason": {}, "Last Execution Update": {}, "Execution Summary": {}, "Enoch Project ID": {}}})
         if url.endswith("/pages/page-1") and method == "PATCH":
             assert payload is not None
-            assert "OMX Queue Status" not in payload["properties"]
+            assert "Enoch Queue Status" not in payload["properties"]
             return HttpResponse(status=200, body={"object": "page", "id": "page-1"})
         raise AssertionError(f"unexpected request {method} {url}")
 
@@ -89,8 +89,8 @@ class NotionSyncTests(unittest.TestCase):
 
         from unittest import mock
 
-        with mock.patch("omx_wake_gate.control_plane.notion_sync.request.urlopen", opener), mock.patch(
-            "omx_wake_gate.control_plane.notion_sync.time.sleep", lambda _seconds: None
+        with mock.patch("enoch_control_plane.control_plane.notion_sync.request.urlopen", opener), mock.patch(
+            "enoch_control_plane.control_plane.notion_sync.time.sleep", lambda _seconds: None
         ), mock.patch.dict("os.environ", {"ENOCH_NOTION_HTTP_TIMEOUT_SEC": "1", "ENOCH_NOTION_HTTP_ATTEMPTS": "2"}):
             response = _json_request("GET", "https://example.test", {}, None)
 
@@ -118,14 +118,14 @@ class NotionSyncTests(unittest.TestCase):
         self.assertEqual([call[0] for call in transport.calls], ["GET", "POST"])
 
     def test_update_payload_uses_safe_notion_property_shapes(self) -> None:
-        payload = notion_update_properties({"properties": {"Execution State": "queued", "Current Run ID": "run-1", "Next Action": "x", "Blocked Reason": "", "Last Execution Update": "2026-04-28T00:00:00Z", "Execution Summary": "summary", "OMX Project ID": "idea-1", "OMX Queue Status": "queued", "OMX Manual Review Required": "__YES__", "OMX Dispatch Priority": 7, "OMX Paper Updated At": "2026-04-28T01:00:00Z"}})
+        payload = notion_update_properties({"properties": {"Execution State": "queued", "Current Run ID": "run-1", "Next Action": "x", "Blocked Reason": "", "Last Execution Update": "2026-04-28T00:00:00Z", "Execution Summary": "summary", "Enoch Project ID": "idea-1", "Enoch Queue Status": "queued", "Enoch Manual Review Required": "__YES__", "Enoch Dispatch Priority": 7, "Enoch Paper Updated At": "2026-04-28T01:00:00Z"}})
         self.assertEqual(payload["Execution State"], {"select": {"name": "queued"}})
         self.assertEqual(payload["Current Run ID"]["rich_text"][0]["text"]["content"], "run-1")
         self.assertEqual(payload["Last Execution Update"], {"date": {"start": "2026-04-28T00:00:00Z"}})
-        self.assertEqual(payload["OMX Project ID"]["rich_text"][0]["text"]["content"], "idea-1")
-        self.assertEqual(payload["OMX Manual Review Required"], {"checkbox": True})
-        self.assertEqual(payload["OMX Dispatch Priority"], {"number": 7})
-        self.assertEqual(payload["OMX Paper Updated At"], {"date": {"start": "2026-04-28T01:00:00Z"}})
+        self.assertEqual(payload["Enoch Project ID"]["rich_text"][0]["text"]["content"], "idea-1")
+        self.assertEqual(payload["Enoch Manual Review Required"], {"checkbox": True})
+        self.assertEqual(payload["Enoch Dispatch Priority"], {"number": 7})
+        self.assertEqual(payload["Enoch Paper Updated At"], {"date": {"start": "2026-04-28T01:00:00Z"}})
 
     def test_apply_execution_updates_requires_explicit_page_id(self) -> None:
         transport = FakeTransport()
@@ -136,7 +136,7 @@ class NotionSyncTests(unittest.TestCase):
         patched = transport.calls[-1][3]["properties"]
         self.assertIn("Execution State", patched)
         self.assertIn("Current Run ID", patched)
-        self.assertNotIn("OMX Queue Status", patched)
+        self.assertNotIn("Enoch Queue Status", patched)
 
     def test_apply_execution_updates_skips_when_page_has_no_supported_properties(self) -> None:
         def transport(method: str, url: str, headers: dict, payload: dict | None) -> HttpResponse:
@@ -271,7 +271,7 @@ class NotionSyncTests(unittest.TestCase):
         self.assertEqual(methods, ["GET", "POST", "POST", "GET", "GET", "PATCH"])
         patched = transport.calls[-1][3]["properties"]
         self.assertIn("Execution State", patched)
-        self.assertNotIn("OMX Queue Status", patched)
+        self.assertNotIn("Enoch Queue Status", patched)
 
 
 if __name__ == "__main__":

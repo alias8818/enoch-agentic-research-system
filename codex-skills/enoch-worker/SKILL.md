@@ -20,8 +20,8 @@ Work autonomously inside the project directory.
 Required artifacts:
 
 - `run_notes.md` — concise report with commands, logs, metrics, interpretation, limitations, and final decision.
-- `.omx/project_decision.json` — compatibility path currently consumed by Enoch's decision gate.
-- Optional `.enoch/project_decision.json` — preferred native path when available; keep it consistent with `.omx/project_decision.json` during transition.
+- `.enoch/project_decision.json` — preferred native decision path consumed by Enoch Control Plane.
+- `.omx/project_decision.json` — legacy compatibility path for existing readers; keep it consistent with `.enoch/project_decision.json` during transition.
 - Metric/result files under `results/` when an experiment runs.
 - Logs under `logs/` for non-trivial commands.
 
@@ -29,7 +29,7 @@ Do not wait for human input for ordinary installable/downloadable/runnable depen
 
 ## Decision schema
 
-Write `.omx/project_decision.json` with this exact shape and enum vocabulary:
+Write `.enoch/project_decision.json` with this exact shape and enum vocabulary, and mirror it to `.omx/project_decision.json` when compatibility is required:
 
 ```json
 {

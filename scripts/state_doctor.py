@@ -19,7 +19,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from omx_wake_gate.control_plane.state_contract import OperatorLane, STATE_REDUCTION_PLAN  # noqa: E402
+from enoch_control_plane.control_plane.state_contract import OperatorLane, STATE_REDUCTION_PLAN  # noqa: E402
 from scripts.normalize_state_surfaces import normalize  # noqa: E402
 from scripts.reconcile_paper_ledgers import (  # noqa: E402
     classify_finalized_rows,

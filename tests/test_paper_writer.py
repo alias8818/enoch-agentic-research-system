@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from omx_wake_gate.config import GateConfig
-from omx_wake_gate.control_plane.models import PaperRecord
-from omx_wake_gate.control_plane.paper_writer import write_paper_artifacts
+from enoch_control_plane.config import GateConfig
+from enoch_control_plane.control_plane.models import PaperRecord
+from enoch_control_plane.control_plane.paper_writer import write_paper_artifacts
 
 
 class PaperWriterTests(unittest.TestCase):
@@ -66,7 +66,7 @@ class PaperWriterTests(unittest.TestCase):
             evidence_path = project / "papers/run/evidence.json"
             evidence_path.parent.mkdir(parents=True, exist_ok=True)
             evidence_path.write_text("{\"real\": true}\n", encoding="utf-8")
-            with patch("omx_wake_gate.control_plane.paper_writer.request.urlopen", return_value=FakeResponse()) as urlopen:
+            with patch("enoch_control_plane.control_plane.paper_writer.request.urlopen", return_value=FakeResponse()) as urlopen:
                 meta = write_paper_artifacts(cfg, {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"}, self._paper(), force=True)
             self.assertEqual(evidence_path.read_text(encoding="utf-8"), "{\"real\": true}\n")
             self.assertEqual(meta["provider"], "synthetic.new")

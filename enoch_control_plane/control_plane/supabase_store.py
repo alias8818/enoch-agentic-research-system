@@ -2248,24 +2248,24 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     "Blocked Reason": blocked_reason,
                     "Last Execution Update": merged.get("updated_at") or utc_now(),
                     "Execution Summary": merged.get("last_result_summary") or "",
-                    "OMX Project ID": merged.get("project_id") or "",
-                    "OMX Queue Status": merged.get("status") or "",
-                    "OMX Last Run State": merged.get("last_run_state") or "",
-                    "OMX Last Event Type": merged.get("last_event_type") or "",
-                    "OMX Next Action Hint": merged.get("next_action_hint") or "",
-                    "OMX Project Dir": merged.get("project_dir") or "",
-                    "OMX Current Session ID": merged.get("current_session_id") or "",
-                    "OMX Last Result Summary": merged.get("last_result_summary") or "",
-                    "OMX Last Error": merged.get("last_error") or "",
-                    "OMX Manual Review Required": "__YES__" if merged.get("manual_review_required") else "__NO__",
-                    "OMX Dispatch Priority": merged.get("dispatch_priority") or 0,
-                    "OMX Selection Rank": merged.get("selection_rank") or 0,
-                    "OMX Paper ID": merged.get("paper_id") or "",
-                    "OMX Paper Status": merged.get("paper_status") or "",
-                    "OMX Paper Type": merged.get("paper_type") or "",
-                    "OMX Paper Markdown Path": merged.get("draft_markdown_path") or "",
-                    "OMX Paper Updated At": merged.get("paper_updated_at") or "",
-                    "OMX Paper Updated At ISO": merged.get("paper_updated_at") or "",
+                    "Enoch Project ID": merged.get("project_id") or "",
+                    "Enoch Queue Status": merged.get("status") or "",
+                    "Enoch Last Run State": merged.get("last_run_state") or "",
+                    "Enoch Last Event Type": merged.get("last_event_type") or "",
+                    "Enoch Next Action Hint": merged.get("next_action_hint") or "",
+                    "Enoch Project Dir": merged.get("project_dir") or "",
+                    "Enoch Current Session ID": merged.get("current_session_id") or "",
+                    "Enoch Last Result Summary": merged.get("last_result_summary") or "",
+                    "Enoch Last Error": merged.get("last_error") or "",
+                    "Enoch Manual Review Required": "__YES__" if merged.get("manual_review_required") else "__NO__",
+                    "Enoch Dispatch Priority": merged.get("dispatch_priority") or 0,
+                    "Enoch Selection Rank": merged.get("selection_rank") or 0,
+                    "Enoch Paper ID": merged.get("paper_id") or "",
+                    "Enoch Paper Status": merged.get("paper_status") or "",
+                    "Enoch Paper Type": merged.get("paper_type") or "",
+                    "Enoch Paper Markdown Path": merged.get("draft_markdown_path") or "",
+                    "Enoch Paper Updated At": merged.get("paper_updated_at") or "",
+                    "Enoch Paper Updated At ISO": merged.get("paper_updated_at") or "",
                 },
             })
         return rows
@@ -2496,7 +2496,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         gate = paper_draft_decision_gate(artifact_root_path)
         if not gate.get("values") and gate.get("reason") == "missing project decision artifact":
             return {"ok": True, "persisted": False, "reason": "missing project decision artifact", "gate": gate}
-        artifact_path = artifact_root_path / ".omx" / "project_decision.json"
+        artifact_path = artifact_root_path / ".enoch" / "project_decision.json"
+        if not artifact_path.exists():
+            artifact_path = artifact_root_path / ".omx" / "project_decision.json"
         if not artifact_path.exists():
             artifact_path = artifact_root_path / "project_decision.json"
         decision_payload = project_decision_payload(artifact_root_path)

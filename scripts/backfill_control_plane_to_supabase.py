@@ -21,7 +21,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
-from omx_wake_gate.enoch_core.logic import paper_draft_decision_gate
+from enoch_control_plane.enoch_core.logic import paper_draft_decision_gate
 
 HASH_RE = re.compile(r"^[a-f0-9]{64}$")
 DOMAIN_TABLES = (
@@ -144,7 +144,7 @@ def load_project_decisions(projects: list[dict[str, Any]], queue_by_project: dic
                     "run_id": str(queue_row.get("current_run_id") or "") or None,
                     "decision_gate_state": decision_gate_state(gate),
                     "decision_summary": str(gate.get("decision") or gate.get("reason") or ""),
-                    "artifact_path": str(root / ".omx" / "project_decision.json") if (root / ".omx" / "project_decision.json").exists() else str(root / "project_decision.json"),
+                    "artifact_path": str(root / ".enoch" / "project_decision.json") if (root / ".enoch" / "project_decision.json").exists() else (str(root / ".omx" / "project_decision.json") if (root / ".omx" / "project_decision.json").exists() else str(root / "project_decision.json")),
                     "payload_json": json_text(payload, {}),
                     "payload_hash": stable_hash(payload),
                     "decided_at": project.get("updated_at") or queue_row.get("updated_at"),

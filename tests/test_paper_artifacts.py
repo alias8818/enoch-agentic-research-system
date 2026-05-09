@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from omx_wake_gate.app import _resolve_project_relative_path, _write_text
+from enoch_control_plane.app import _resolve_project_relative_path, _write_text
 
 
 class PaperArtifactPathTests(unittest.TestCase):

@@ -3,10 +3,10 @@ from __future__ import annotations
 import subprocess
 import asyncio
 
-from omx_wake_gate import app as appmod
-from omx_wake_gate.config import GateConfig
-from omx_wake_gate.models import DispatchRequest, TelemetrySample
-from omx_wake_gate.state_store import StateStore
+from enoch_control_plane import app as appmod
+from enoch_control_plane.config import GateConfig
+from enoch_control_plane.models import DispatchRequest, TelemetrySample
+from enoch_control_plane.state_store import StateStore
 
 
 class _StaticTelemetry:

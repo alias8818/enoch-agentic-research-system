@@ -50,5 +50,5 @@ Worker dependency install complete.
 
 Edit: $CONFIG_DIR/config.json
 Run worker wake gate:
-  ENOCH_CONFIG=$CONFIG_DIR/config.json uv run uvicorn omx_wake_gate.app:app --host 0.0.0.0 --port 8787
+  ENOCH_CONFIG=$CONFIG_DIR/config.json uv run uvicorn enoch_control_plane.app:app --host 0.0.0.0 --port 8787
 EOF2

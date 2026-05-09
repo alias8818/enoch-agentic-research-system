@@ -5,7 +5,7 @@ from statistics import mean
 from typing import Any
 
 from .config import GateConfig
-from .models import GateCallback, GateState, OmxEvent, RunRecord, utc_now
+from .models import ControlPlaneEvent, GateCallback, GateState, RunRecord, utc_now
 from .process_tracker import ProcessTracker
 from .telemetry import TelemetryCollector
 
@@ -30,7 +30,7 @@ class WakeGate:
         self.process_tracker = process_tracker
         self.telemetry = telemetry
 
-    def apply_event(self, record: RunRecord, event: OmxEvent) -> RunRecord:
+    def apply_event(self, record: RunRecord, event: ControlPlaneEvent) -> RunRecord:
         new_session_start = (
             event.event.value == "session-start"
             and bool(record.session_id)

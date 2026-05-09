@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from omx_wake_gate.control_plane.models import (
+from enoch_control_plane.control_plane.models import (
     IdeaIntakeRequest,
     ImportSnapshotRequest,
     NotionIntakeRequest,
@@ -16,8 +16,8 @@ from omx_wake_gate.control_plane.models import (
     PaperReviewPrepareFinalizationRequest,
     PaperReviewStatusUpdateRequest,
 )
-from omx_wake_gate.control_plane.store import ControlPlaneStore
-from omx_wake_gate.enoch_core.store import IdempotencyConflict
+from enoch_control_plane.control_plane.store import ControlPlaneStore
+from enoch_control_plane.enoch_core.store import IdempotencyConflict
 
 
 class ControlPlaneStoreTests(unittest.TestCase):

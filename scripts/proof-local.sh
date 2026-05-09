@@ -78,7 +78,7 @@ cleanup() {
 trap cleanup EXIT
 
 : > "$LOG_PATH"
-ENOCH_CONFIG="$CONFIG_PATH" uv run uvicorn omx_wake_gate.app:app --host "$HOST" --port "$PORT" >"$LOG_PATH" 2>&1 &
+ENOCH_CONFIG="$CONFIG_PATH" uv run uvicorn enoch_control_plane.app:app --host "$HOST" --port "$PORT" >"$LOG_PATH" 2>&1 &
 SERVER_PID=$!
 
 for _ in $(seq 1 60); do

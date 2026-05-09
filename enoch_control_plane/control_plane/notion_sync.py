@@ -171,17 +171,17 @@ def notion_update_properties(row: dict[str, Any]) -> dict[str, Any]:
         "Execution Summary": _rich_text(str(props.get("Execution Summary") or "")),
     }
     text_fields = [
-        "OMX Project ID", "OMX Queue Status", "OMX Last Run State", "OMX Last Event Type",
-        "OMX Next Action Hint", "OMX Project Dir", "OMX Current Session ID",
-        "OMX Last Result Summary", "OMX Last Error", "OMX Paper ID", "OMX Paper Status",
-        "OMX Paper Type", "OMX Paper Markdown Path", "OMX Paper Updated At ISO",
+        "Enoch Project ID", "Enoch Queue Status", "Enoch Last Run State", "Enoch Last Event Type",
+        "Enoch Next Action Hint", "Enoch Project Dir", "Enoch Current Session ID",
+        "Enoch Last Result Summary", "Enoch Last Error", "Enoch Paper ID", "Enoch Paper Status",
+        "Enoch Paper Type", "Enoch Paper Markdown Path", "Enoch Paper Updated At ISO",
     ]
     for field in text_fields:
         payload[field] = _rich_text(str(props.get(field) or ""))
-    for field in ("OMX Dispatch Priority", "OMX Selection Rank"):
+    for field in ("Enoch Dispatch Priority", "Enoch Selection Rank"):
         payload[field] = _number(props.get(field))
-    payload["OMX Manual Review Required"] = _checkbox(props.get("OMX Manual Review Required"))
-    payload["OMX Paper Updated At"] = _date(str(props.get("OMX Paper Updated At") or ""))
+    payload["Enoch Manual Review Required"] = _checkbox(props.get("Enoch Manual Review Required"))
+    payload["Enoch Paper Updated At"] = _date(str(props.get("Enoch Paper Updated At") or ""))
     return payload
 
 

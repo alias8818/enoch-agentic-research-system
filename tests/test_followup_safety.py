@@ -1,5 +1,5 @@
-from omx_wake_gate.control_plane.router import _project_prompt
-from omx_wake_gate.control_plane.supabase_store import _enforced_followup_depth
+from enoch_control_plane.control_plane.router import _project_prompt
+from enoch_control_plane.control_plane.supabase_store import _enforced_followup_depth
 
 
 def test_followup_depth_uses_controller_lineage_over_worker_reset() -> None:
