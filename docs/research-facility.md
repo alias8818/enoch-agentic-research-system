@@ -76,7 +76,7 @@ The deterministic planner in `scripts/research_facility.py` rejects candidates t
 
 ## Provider budget preflight
 
-Provider-backed generation must check quota before spending. Synthetic is supported through `scripts/research_provider_budget.py`; it reads the API key from `SYNTHETIC_API_KEY` and does not print the key.
+Provider-backed generation must check quota before spending. Synthetic is supported through `scripts/research_provider_budget.py`. The simplest path reads the API key from `SYNTHETIC_API_KEY` and does not print the key:
 
 ```bash
 python scripts/research_provider_budget.py \
@@ -85,6 +85,25 @@ python scripts/research_provider_budget.py \
   --reserve-requests 4 \
   --min-remaining-credits 5 \
   --min-rolling-remaining 10 \
+  --output /tmp/synthetic-budget.json
+```
+
+Preferred production path on exe.dev is an HTTP Proxy integration so the key does not live on `enoch-core` at all. Create/attach the integration from the exe.dev shell, using the current CLI help if flags differ:
+
+```bash
+ssh exe.dev
+integrations add http-proxy --name synthetic --target https://api.synthetic.new --bearer "$SYNTHETIC_API_KEY" --attach vm:enoch-core
+```
+
+Then run the preflight from the VM without local auth:
+
+```bash
+python scripts/research_provider_budget.py \
+  --provider synthetic \
+  --base-url http://synthetic.int.exe.xyz \
+  --no-auth \
+  --estimated-requests 4 \
+  --reserve-requests 4 \
   --output /tmp/synthetic-budget.json
 ```
 

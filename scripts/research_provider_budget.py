@@ -17,15 +17,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-SYNTHETIC_QUOTAS_URL = "https://api.synthetic.new/v2/quotas"
+SYNTHETIC_BASE_URL = "https://api.synthetic.new"
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def fetch_json(url: str, *, api_key: str, timeout: int) -> dict[str, Any]:
-    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}", "User-Agent": "EnochResearchFacility/0.1"})
+def fetch_json(url: str, *, api_key: str = "", timeout: int) -> dict[str, Any]:
+    headers = {"User-Agent": "EnochResearchFacility/0.1"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
@@ -83,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--provider", choices=["synthetic"], default="synthetic")
     parser.add_argument("--api-key-env", default="SYNTHETIC_API_KEY")
+    parser.add_argument("--base-url", default=os.environ.get("SYNTHETIC_BASE_URL", SYNTHETIC_BASE_URL), help="Synthetic API base URL; can be an exe.dev HTTP proxy such as http://synthetic.int.exe.xyz")
+    parser.add_argument("--no-auth", action="store_true", help="do not attach Authorization; use when an exe.dev HTTP proxy injects the header")
     parser.add_argument("--estimated-requests", type=int, default=2)
     parser.add_argument("--reserve-requests", type=int, default=2)
     parser.add_argument("--min-remaining-credits", type=float, default=5.0)
@@ -96,15 +101,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.input_json:
         payload = json.loads(args.input_json.read_text(encoding="utf-8"))
     else:
-        api_key = os.environ.get(args.api_key_env, "")
-        if not api_key:
-            result = {"ok": False, "provider": args.provider, "checked_at": utc_now(), "failures": [f"missing API key env {args.api_key_env}"]}
+        api_key = "" if args.no_auth else os.environ.get(args.api_key_env, "")
+        base_url = str(args.base_url).rstrip("/")
+        quotas_url = f"{base_url}/v2/quotas"
+        if not api_key and not args.no_auth:
+            result = {
+                "ok": False,
+                "provider": args.provider,
+                "checked_at": utc_now(),
+                "base_url": base_url,
+                "auth_mode": "env_bearer",
+                "failures": [f"missing API key env {args.api_key_env}"],
+            }
             text = json.dumps(result, indent=2, sort_keys=True)
             if args.output:
                 args.output.write_text(text + "\n", encoding="utf-8")
             print(text)
             return 0 if args.allow_missing_key else 2
-        payload = fetch_json(SYNTHETIC_QUOTAS_URL, api_key=api_key, timeout=args.timeout)
+        payload = fetch_json(quotas_url, api_key=api_key, timeout=args.timeout)
 
     result = synthetic_budget_status(
         payload,
@@ -113,6 +127,9 @@ def main(argv: list[str] | None = None) -> int:
         estimated_requests=args.estimated_requests,
         reserve_requests=args.reserve_requests,
     )
+    if not args.input_json:
+        result["base_url"] = str(args.base_url).rstrip("/")
+        result["auth_mode"] = "exe_http_proxy" if args.no_auth else "env_bearer"
     text = json.dumps(result, indent=2, sort_keys=True)
     if args.output:
         args.output.write_text(text + "\n", encoding="utf-8")

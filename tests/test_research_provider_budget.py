@@ -78,3 +78,29 @@ def test_budget_cli_missing_key_can_emit_json_without_secret(monkeypatch, capsys
     output = capsys.readouterr().out
     assert "SYNTHETIC_API_KEY" in output
     assert "syn_" not in output
+
+
+def test_budget_cli_can_use_exedev_proxy_without_local_api_key(monkeypatch, tmp_path: Path) -> None:
+    output = tmp_path / "budget.json"
+    calls: list[tuple[str, str]] = []
+
+    def fake_fetch(url: str, *, api_key: str = "", timeout: int) -> dict:
+        calls.append((url, api_key))
+        return SYNTHETIC_QUOTA
+
+    monkeypatch.delenv("SYNTHETIC_API_KEY", raising=False)
+    monkeypatch.setattr(research_provider_budget, "fetch_json", fake_fetch)
+
+    assert research_provider_budget.main([
+        "--base-url",
+        "http://synthetic.int.exe.xyz",
+        "--no-auth",
+        "--output",
+        str(output),
+    ]) == 0
+
+    result = json.loads(output.read_text(encoding="utf-8"))
+    assert calls == [("http://synthetic.int.exe.xyz/v2/quotas", "")]
+    assert result["ok"] is True
+    assert result["auth_mode"] == "exe_http_proxy"
+    assert result["base_url"] == "http://synthetic.int.exe.xyz"
