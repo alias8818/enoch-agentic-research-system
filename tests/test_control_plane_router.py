@@ -404,6 +404,31 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("idea_intake", body["source_freshness"])
             self.assertIn("snapshot_mirror", body["source_freshness"])
 
+    def test_dashboard_status_omits_large_non_worker_observation_and_event_payloads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            large_payload = {"candidates": [{"description": "x" * 100_000}], "skipped_rows": []}
+            store.upsert_dashboard_observation(source="idea_intake", status="ok", payload=large_payload)
+            store.append_event(
+                idempotency_key="large-status-event",
+                event_type="ideas.intake",
+                entity_type="snapshot",
+                entity_id="idea_intake",
+                payload=large_payload,
+            )
+
+            status = client.get("/control/api/status", headers=headers)
+            self.assertEqual(status.status_code, 200)
+            body = status.json()
+            intake_observation = body["observations"]["idea_intake"]
+            self.assertIsNotNone(intake_observation)
+            self.assertEqual(intake_observation["payload"]["payload_omitted"], True)
+            self.assertNotIn("candidates", intake_observation["payload"])
+            self.assertEqual(body["recent_events"][0]["payload"]["payload_omitted"], True)
+            self.assertNotIn("candidates", body["recent_events"][0]["payload"])
+
 
     def test_dashboard_status_blocks_dispatch_without_fresh_worker_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -452,7 +477,24 @@ class ControlPlaneRouterTests(unittest.TestCase):
                         name="wake_gate_dashboard_api",
                         ok=True,
                         detail="dashboard API reachable",
-                        data={"body": {"totals": {"active_or_waiting": 1, "live": 1}, "telemetry": {}}},
+                        data={
+                            "body": {
+                                "totals": {"active_or_waiting": 1, "live": 1},
+                                "telemetry": {},
+                                "runs": [{
+                                    "run_id": "run-active-refresh",
+                                    "project_id": "idea-active-refresh",
+                                    "gate_state": "running",
+                                    "run_notes_tail": "x" * 50_000,
+                                    "quiet_samples": [{"sample": "x" * 5000} for _ in range(12)],
+                                    "project_decision": {
+                                        "project_decision": "continue",
+                                        "recommended_next_action": "investigate",
+                                        "long_internal_notes": "x" * 50_000,
+                                    },
+                                }],
+                            }
+                        },
                     ),
                     WorkerPreflightCheck(
                         name="worker_no_live_runs",
@@ -471,6 +513,15 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(status["warnings"], [])
             self.assertEqual(status["conflicts"], [])
             self.assertEqual(status["dispatch_blockers"], ["active GB10 lane exists"])
+            preflight_payload = status["observations"]["worker_preflight"]["payload"]
+            dashboard_check = next(check for check in preflight_payload["checks"] if check["name"] == "wake_gate_dashboard_api")
+            compact_run = dashboard_check["data"]["body"]["runs"][0]
+            self.assertTrue(dashboard_check["data"]["body_compacted"])
+            self.assertTrue(compact_run["run_notes_tail_omitted"])
+            self.assertTrue(compact_run["quiet_samples_omitted"])
+            self.assertNotIn("x" * 5000, json.dumps(preflight_payload))
+            self.assertNotIn("long_internal_notes", json.dumps(preflight_payload))
+            self.assertTrue(status["observations"]["worker_dashboard_api"]["payload"]["payload_omitted"])
 
     def test_dashboard_status_refreshes_fresh_but_conflicting_worker_projection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

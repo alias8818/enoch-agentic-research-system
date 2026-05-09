@@ -1617,7 +1617,11 @@ class ControlPlaneStore:
         out = []
         for row in rows:
             item = dict(row)
-            item["payload"] = json.loads(item.pop("payload_json"))
+            payload_json = item.pop("payload_json")
+            item["payload"] = {
+                "payload_omitted": True,
+                "payload_bytes": len(payload_json.encode("utf-8")),
+            }
             item.pop("payload_hash", None)
             out.append(item)
         return out
@@ -1676,6 +1680,42 @@ class ControlPlaneStore:
             ttl_seconds=item["ttl_seconds"],
             status=item["status"],
             payload=payload,
+            payload_hash=item["payload_hash"],
+            created_at=item["created_at"],
+        )
+
+    def latest_dashboard_observation_summary(self, *, source: str, scope: str = "global") -> DashboardObservationRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """SELECT observation_id, source, scope, observed_at, ttl_seconds, status,
+                          payload_hash, created_at, payload_json, length(payload_json) AS payload_bytes
+                FROM dashboard_observations
+                WHERE source=? AND scope=?
+                ORDER BY observed_at DESC, observation_id DESC
+                LIMIT 1""",
+                (source, scope),
+            ).fetchone()
+        if row is None:
+            return None
+        item = dict(row)
+        payload = json.loads(item.pop("payload_json"))
+        skipped_reasons: dict[str, int] = {}
+        for skipped in payload.get("skipped_rows") or []:
+            reason = str(skipped.get("reason") or "unknown") if isinstance(skipped, dict) else "unknown"
+            skipped_reasons[reason] = skipped_reasons.get(reason, 0) + 1
+        return DashboardObservationRecord(
+            observation_id=item["observation_id"],
+            source=item["source"],
+            scope=item["scope"],
+            observed_at=item["observed_at"],
+            ttl_seconds=item["ttl_seconds"],
+            status=item["status"],
+            payload={
+                "payload_omitted": True,
+                "payload_bytes": item["payload_bytes"],
+                "skipped_row_count": len(payload.get("skipped_rows") or []),
+                "skipped_reasons": skipped_reasons,
+            },
             payload_hash=item["payload_hash"],
             created_at=item["created_at"],
         )

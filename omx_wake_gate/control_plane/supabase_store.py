@@ -1088,7 +1088,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 event_type,
                 entity_type,
                 entity_id,
-                payload_json,
+                pg_column_size(payload_json) as payload_bytes,
                 created_at
             from control_events
             order by event_id desc
@@ -1099,7 +1099,10 @@ class SupabaseReadOnlyControlPlaneStore:
         out: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)
-            item["payload"] = self._payload(item.pop("payload_json"))
+            item["payload"] = {
+                "payload_omitted": True,
+                "payload_bytes": int(item.pop("payload_bytes") or 0),
+            }
             item["created_at"] = str(item.get("created_at") or "")
             item.pop("payload_hash", None)
             out.append(item)
@@ -1154,11 +1157,35 @@ class SupabaseReadOnlyControlPlaneStore:
                     latest_rows = self._cursor_rows(
                         cur,
                         """
-                        select observation_id, source, scope, observed_at, ttl_seconds, status, payload_hash, created_at
-                        from operator_observations
-                        where source = %s and scope = %s
-                        order by observed_at desc, observation_id desc
-                        limit 1
+                        with latest as (
+                          select observation_id, source, scope, observed_at, ttl_seconds, status,
+                                 payload_hash, created_at, payload_json,
+                                 pg_column_size(payload_json) as payload_bytes
+                          from operator_observations
+                          where source = %s and scope = %s
+                          order by observed_at desc, observation_id desc
+                          limit 1
+                        )
+                        select
+                          observation_id,
+                          source,
+                          scope,
+                          observed_at,
+                          ttl_seconds,
+                          status,
+                          payload_hash,
+                          created_at,
+                          payload_bytes,
+                          coalesce(jsonb_array_length(payload_json->'skipped_rows'), 0) as skipped_row_count,
+                          coalesce((
+                            select jsonb_object_agg(reason, count)
+                            from (
+                              select coalesce(item->>'reason', 'unknown') as reason, count(*) as count
+                              from jsonb_array_elements(coalesce(payload_json->'skipped_rows', '[]'::jsonb)) item
+                              group by 1
+                            ) reasons
+                          ), '{}'::jsonb) as skipped_reasons
+                        from latest
                         """,
                         ("idea_intake", "global"),
                     )
@@ -1172,7 +1199,12 @@ class SupabaseReadOnlyControlPlaneStore:
                             observed_at=str(row["observed_at"]),
                             ttl_seconds=int(row["ttl_seconds"]),
                             status=row["status"],
-                            payload={"payload_omitted": True, "payload_bytes": None, "skipped_row_count": None, "skipped_reasons": {}},
+                            payload={
+                                "payload_omitted": True,
+                                "payload_bytes": int(row.get("payload_bytes") or 0),
+                                "skipped_row_count": int(row.get("skipped_row_count") or 0),
+                                "skipped_reasons": self._payload(row.get("skipped_reasons") or {}),
+                            },
                             payload_hash=row["payload_hash"],
                             created_at=str(row["created_at"]),
                         )
@@ -1193,7 +1225,8 @@ class SupabaseReadOnlyControlPlaneStore:
                 recent_rows = self._cursor_rows(
                     cur,
                     """
-                    select *
+                    select event_id, idempotency_key, event_type, entity_type, entity_id,
+                           pg_column_size(payload_json) as payload_bytes, created_at
                     from control_events
                     where event_type = %s
                     order by event_id desc
@@ -1205,7 +1238,8 @@ class SupabaseReadOnlyControlPlaneStore:
                     recent_rows = self._cursor_rows(
                         cur,
                         """
-                        select *
+                        select event_id, idempotency_key, event_type, entity_type, entity_id,
+                               pg_column_size(payload_json) as payload_bytes, created_at
                         from control_events
                         where event_type = %s
                         order by event_id desc
@@ -1216,7 +1250,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 recent = []
                 for row in recent_rows:
                     item = dict(row)
-                    item["payload"] = self._payload(item.pop("payload_json"))
+                    item["payload_summary"] = {"keys": [], "bytes": int(item.pop("payload_bytes") or 0)}
                     item["created_at"] = str(item.get("created_at") or "")
                     item.pop("payload_hash", None)
                     recent.append(item)
@@ -1271,6 +1305,15 @@ class SupabaseReadOnlyControlPlaneStore:
     ) -> DashboardObservationRecord | None:
         row = self._one(
             """
+            with latest as (
+              select observation_id, source, scope, observed_at, ttl_seconds, status,
+                     payload_hash, created_at, payload_json,
+                     pg_column_size(payload_json) as payload_bytes
+              from operator_observations
+              where source = %s and scope = %s
+              order by observed_at desc, observation_id desc
+              limit 1
+            )
             select
               observation_id,
               source,
@@ -1279,11 +1322,18 @@ class SupabaseReadOnlyControlPlaneStore:
               ttl_seconds,
               status,
               payload_hash,
-              created_at
-            from operator_observations
-            where source = %s and scope = %s
-            order by observed_at desc, observation_id desc
-            limit 1
+              created_at,
+              payload_bytes,
+              coalesce(jsonb_array_length(payload_json->'skipped_rows'), 0) as skipped_row_count,
+              coalesce((
+                select jsonb_object_agg(reason, count)
+                from (
+                  select coalesce(item->>'reason', 'unknown') as reason, count(*) as count
+                  from jsonb_array_elements(coalesce(payload_json->'skipped_rows', '[]'::jsonb)) item
+                  group by 1
+                ) reasons
+              ), '{}'::jsonb) as skipped_reasons
+            from latest
             """,
             (source, scope),
         )
@@ -1298,9 +1348,9 @@ class SupabaseReadOnlyControlPlaneStore:
             status=row["status"],
             payload={
                 "payload_omitted": True,
-                "payload_bytes": None,
-                "skipped_row_count": None,
-                "skipped_reasons": {},
+                "payload_bytes": int(row.get("payload_bytes") or 0),
+                "skipped_row_count": int(row.get("skipped_row_count") or 0),
+                "skipped_reasons": self._payload(row.get("skipped_reasons") or {}),
             },
             payload_hash=row["payload_hash"],
             created_at=str(row["created_at"]),

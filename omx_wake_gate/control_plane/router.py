@@ -426,6 +426,146 @@ def _preflight_check(preflight: DashboardObservationRecord | None, name: str) ->
     return None
 
 
+def _truncate_text(value: Any, limit: int = 500) -> Any:
+    if not isinstance(value, str) or len(value) <= limit:
+        return value
+    return f"{value[:limit]}…"
+
+
+def _compact_list(values: Any, *, limit: int = 5) -> dict[str, Any]:
+    if not isinstance(values, list):
+        return {"count": 0, "items": []}
+    return {"count": len(values), "items": values[:limit], "truncated": len(values) > limit}
+
+
+def _compact_project_decision(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    keys = (
+        "project_decision",
+        "hypothesis_status",
+        "evidence_strength",
+        "recommended_next_action",
+        "stop_reason",
+        "followup_recommended",
+        "followup_count",
+        "parent_project_id",
+    )
+    compact = {key: _truncate_text(value.get(key), 300) for key in keys if key in value}
+    for key in ("key_findings", "next_steps", "followup_ideas"):
+        if isinstance(value.get(key), list):
+            compact[key] = _compact_list([_truncate_text(item, 240) for item in value[key]], limit=3)
+    return compact
+
+
+def _compact_worker_run_item(run_item: Any) -> dict[str, Any]:
+    """Keep worker runtime evidence useful without caching multi-100KB detail blobs.
+
+    The GB10 dashboard can include long tails such as quiet_samples,
+    run_notes_tail, project_decision narratives, and file listings.  Status and
+    detail views need the identity/lifecycle/safety facts, not the full worker
+    transcript.  Full worker evidence remains available from the worker host.
+    """
+
+    if not isinstance(run_item, dict):
+        return {}
+    scalar_keys = (
+        "run_id",
+        "project_id",
+        "session_id",
+        "gate_state",
+        "is_live",
+        "is_historical",
+        "lifecycle_state",
+        "needs_attention",
+        "operator_status",
+        "operator_status_detail",
+        "current_activity",
+        "created_at",
+        "updated_at",
+        "last_event_at",
+        "callback_delivered",
+        "active_process_count",
+        "project_dir",
+    )
+    compact = {key: _truncate_text(run_item.get(key), 300) for key in scalar_keys if key in run_item}
+    if "project_decision" in run_item:
+        compact["project_decision"] = _compact_project_decision(run_item.get("project_decision"))
+    if "decision_error" in run_item:
+        compact["decision_error"] = _truncate_text(run_item.get("decision_error"), 500)
+    for key in ("result_files", "recent_files", "active_processes"):
+        if key in run_item:
+            compact[key] = _compact_list(run_item.get(key), limit=5)
+    for key in ("quiet_samples", "run_notes_tail", "stdout_tail", "stderr_tail"):
+        if key in run_item:
+            value = run_item.get(key)
+            compact[f"{key}_omitted"] = True
+            compact[f"{key}_count"] = len(value) if isinstance(value, list) else (1 if value else 0)
+    return compact
+
+
+def _compact_worker_dashboard_body(body: Any) -> dict[str, Any]:
+    if not isinstance(body, dict):
+        return {}
+    compact: dict[str, Any] = {}
+    for key in ("ok", "timestamp", "totals", "telemetry"):
+        if key in body:
+            compact[key] = body.get(key)
+    queue = body.get("queue")
+    if isinstance(queue, dict):
+        compact["queue"] = {
+            key: queue.get(key)
+            for key in (
+                "total",
+                "source",
+                "updated_at",
+                "active_count",
+                "queued_count",
+                "blocked_count",
+                "branch_count",
+                "negative_count",
+                "positive_count",
+                "completed_count",
+                "draft_candidate_count",
+                "polish_candidate_count",
+                "status_counts",
+                "run_state_counts",
+            )
+            if key in queue
+        }
+        if isinstance(queue.get("rows"), list):
+            compact["queue"]["rows_omitted"] = True
+            compact["queue"]["rows_count"] = len(queue["rows"])
+    runs = body.get("runs")
+    if isinstance(runs, list):
+        compact["runs"] = [_compact_worker_run_item(run_item) for run_item in runs[:10]]
+        compact["runs_count"] = len(runs)
+        compact["runs_truncated"] = len(runs) > 10
+    return compact
+
+
+def _compact_worker_dashboard_check_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    compact = dict(payload)
+    data = dict(compact.get("data") or {})
+    if "body" in data:
+        data["body"] = _compact_worker_dashboard_body(data.get("body") or {})
+        data["body_compacted"] = True
+    compact["data"] = data
+    return compact
+
+
+def _compact_worker_preflight_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    compact = dict(payload)
+    checks: list[Any] = []
+    for check in payload.get("checks") or []:
+        if isinstance(check, dict) and check.get("name") == "wake_gate_dashboard_api":
+            checks.append(_compact_worker_dashboard_check_payload(check))
+        else:
+            checks.append(check)
+    compact["checks"] = checks
+    return compact
+
+
 def _project_prompt(candidate: dict) -> str:
     title = str(candidate.get("project_name") or candidate.get("project_id") or "Untitled Project")
     return f"""# Enoch Research Action: {title}
@@ -664,15 +804,16 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         )
 
     def _record_preflight_observations(response: WorkerPreflightResponse) -> None:
+        preflight_payload = _compact_worker_preflight_payload(response.model_dump(mode="json"))
         store.upsert_dashboard_observation(
             source="worker_preflight",
             status="ok" if response.ok else "warn",
             ttl_seconds=300,
-            payload=response.model_dump(mode="json"),
+            payload=preflight_payload,
         )
         dashboard_check = next((check for check in response.checks if check.name == "wake_gate_dashboard_api"), None)
         if dashboard_check is not None:
-            dashboard_payload = dashboard_check.model_dump(mode="json")
+            dashboard_payload = _compact_worker_dashboard_check_payload(dashboard_check.model_dump(mode="json"))
             store.upsert_dashboard_observation(
                 source="worker_dashboard_api",
                 status="ok" if dashboard_check.ok else "unavailable",
@@ -745,9 +886,24 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         paper_rows = store.paper_rows()
         flags = store.flags()
         active = store.active_items()
-        observations = store.latest_dashboard_observations()
+        observations: dict[str, DashboardObservationRecord | None] = {
+            # Status uses the bounded preflight payload for dispatch-safety checks.
+            "worker_preflight": store.latest_dashboard_observation(source="worker_preflight"),
+            # The preflight payload already carries the bounded dashboard check used by status.
+            # Keep the standalone dashboard observation to freshness metadata here.
+            "worker_dashboard_api": _latest_dashboard_observation_metadata("worker_dashboard_api"),
+            # Intake/snapshot observations can contain full batch payloads. Status only needs freshness.
+            "idea_intake": _latest_dashboard_observation_metadata("idea_intake"),
+            "snapshot_mirror": _latest_dashboard_observation_metadata("snapshot_mirror"),
+        }
         if refresh_worker:
-            observations = _refresh_worker_observations_if_needed(observations, active)
+            refreshed = _refresh_worker_observations_if_needed(dict(observations), active)
+            observations = {
+                "worker_preflight": refreshed.get("worker_preflight"),
+                "worker_dashboard_api": _latest_dashboard_observation_metadata("worker_dashboard_api"),
+                "idea_intake": _latest_dashboard_observation_metadata("idea_intake"),
+                "snapshot_mirror": _latest_dashboard_observation_metadata("snapshot_mirror"),
+            }
         preflight = observations.get("worker_preflight")
         worker_dashboard = observations.get("worker_dashboard_api")
         recent_events = store.recent_events(10)
