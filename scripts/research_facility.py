@@ -1,0 +1,428 @@
+#!/usr/bin/env python3
+"""Deterministic Research Facility candidate admission planner.
+
+This is the non-provider core for Enoch idea generation. It does not call LLMs,
+browse the web, or dispatch work. It validates generated candidates, scores the
+operator contract, and can emit auditable SQL for the four Research Facility
+ledgers plus optional admitted idea/project/queue rows.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+GENERATION_MODES = {
+    "fresh_grounded",
+    "followup_from_negative",
+    "moonshot",
+    "implementation_gap",
+    "paper_replication_extension",
+    "home_hardware_accessibility",
+    "manual_import",
+}
+
+CANDIDATE_STATUSES = {"generated", "rejected", "admitted", "merged", "needs_review"}
+REQUIRED_TEXT_FIELDS = (
+    "title",
+    "hypothesis",
+    "mechanism",
+    "baseline_to_beat",
+    "success_threshold",
+    "kill_condition",
+    "accessibility_delta",
+)
+REQUIRED_ARRAY_FIELDS = ("expected_artifacts", "required_evidence", "likely_failure_modes")
+SHALLOW_INCREMENT_PATTERNS = (
+    r"\+\s*0\.0?5\s*%",
+    r"tiny\s+parameter\s+tweak",
+    r"just\s+try\s+different\s+(?:batch|learning rate|temperature|rank)",
+    r"minor\s+hyperparameter",
+)
+DEFAULT_ARTIFACTS = ["run_notes.md", "metrics.json", "failure_cases.json", ".omx/project_decision.json"]
+DEFAULT_EVIDENCE = ["baseline comparison", "metrics table", "failure cases", "decision artifact"]
+
+
+def _as_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
+
+
+def _as_list(value: Any) -> list[Any]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _bounded_score(value: Any) -> float:
+    return max(0.0, min(10.0, _as_float(value)))
+
+
+def slugify(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug[:96] or "research-candidate"
+
+
+def stable_hash(value: str, length: int = 12) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:length]
+
+
+def stable_candidate_id(row: dict[str, Any]) -> str:
+    if _as_text(row.get("candidate_id")):
+        return _as_text(row["candidate_id"])
+    title = _as_text(row.get("title"))
+    basis = "\n".join(
+        [
+            _as_text(row.get("generation_mode")),
+            title,
+            _as_text(row.get("hypothesis")),
+            _as_text(row.get("mechanism")),
+        ]
+    )
+    return f"{slugify(title)}-{stable_hash(basis)}"
+
+
+def stable_dedupe_key(row: dict[str, Any]) -> str:
+    explicit = _as_text(row.get("dedupe_key"))
+    if explicit:
+        return explicit
+    basis = " ".join(
+        [
+            _as_text(row.get("category")),
+            _as_text(row.get("title")),
+            _as_text(row.get("mechanism")),
+            _as_text(row.get("baseline_to_beat")),
+        ]
+    )
+    tokens = re.findall(r"[a-z0-9]+", basis.lower())
+    stop = {"the", "and", "with", "for", "from", "into", "using", "that", "this"}
+    kept = [token for token in tokens if token not in stop]
+    return "research:" + "-".join(kept[:14]) + ":" + stable_hash(" ".join(kept))
+
+
+def _json_obj(row: dict[str, Any], key: str, default: Any) -> Any:
+    value = row.get(key, default)
+    return default if value is None else value
+
+
+@dataclass
+class CandidatePlan:
+    candidate: dict[str, Any]
+    hard_failures: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    score_breakdown: dict[str, Any] = field(default_factory=dict)
+    admission_decision: str = "rejected"
+    admission_reason: str = ""
+    admitted_idea_id: str = ""
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "candidate": self.candidate,
+            "hard_failures": self.hard_failures,
+            "warnings": self.warnings,
+            "score_breakdown": self.score_breakdown,
+            "admission_decision": self.admission_decision,
+            "admission_reason": self.admission_reason,
+            "admitted_idea_id": self.admitted_idea_id,
+        }
+
+
+def normalize_candidate(raw: dict[str, Any], *, default_machine: str, default_model: str, default_sandbox: str) -> dict[str, Any]:
+    row = dict(raw)
+    row["candidate_id"] = stable_candidate_id(row)
+    row["generation_mode"] = _as_text(row.get("generation_mode") or row.get("idea_type") or "manual_import")
+    row["status"] = _as_text(row.get("status") or "generated")
+    row["title"] = _as_text(row.get("title"))
+    row["category"] = _as_text(row.get("category"))
+    row["priority"] = _as_text(row.get("priority"))
+    row["source_kind"] = _as_text(row.get("source_kind"))
+    row["source_ids"] = _as_list(row.get("source_ids"))
+    row["source_urls"] = _as_list(row.get("source_urls") or ([row.get("source_external_url")] if row.get("source_external_url") else []))
+    row["parent_project_id"] = _as_text(row.get("parent_project_id"))
+    row["parent_run_id"] = _as_text(row.get("parent_run_id"))
+    for key in ("hypothesis", "mechanism", "description", "implementation", "baseline_to_beat", "success_threshold", "kill_condition", "accessibility_delta", "novelty_comparison", "risk_notes"):
+        row[key] = _as_text(row.get(key))
+    row["expected_artifacts"] = _as_list(row.get("expected_artifacts")) or DEFAULT_ARTIFACTS
+    row["required_evidence"] = _as_list(row.get("required_evidence")) or DEFAULT_EVIDENCE
+    row["likely_failure_modes"] = _as_list(row.get("likely_failure_modes"))
+    row["estimated_runtime_class"] = _as_text(row.get("estimated_runtime_class"))
+    row["expected_token_budget"] = _as_text(row.get("expected_token_budget"))
+    row["machine_target"] = _as_text(row.get("machine_target") or default_machine)
+    row["model"] = _as_text(row.get("model") or default_model)
+    row["sandbox"] = _as_text(row.get("sandbox") or default_sandbox)
+    row["novelty_score"] = _bounded_score(row.get("novelty_score"))
+    row["feasibility_score"] = _bounded_score(row.get("feasibility_score") or row.get("feasibility"))
+    row["accessibility_score"] = _bounded_score(row.get("accessibility_score") or row.get("accessibility_delta_score"))
+    row["falsifiability_score"] = _bounded_score(row.get("falsifiability_score"))
+    row["dedupe_key"] = stable_dedupe_key(row)
+    row["similar_prior_projects"] = _as_list(row.get("similar_prior_projects"))
+    row["provider"] = _as_text(row.get("provider"))
+    row["provider_model"] = _as_text(row.get("provider_model"))
+    row["prompt_version"] = _as_text(row.get("prompt_version"))
+    row["generated_by"] = _as_text(row.get("generated_by"))
+    row["raw_candidate_json"] = _json_obj(row, "raw_candidate_json", raw)
+    return row
+
+
+def evaluate_candidate(row: dict[str, Any], *, admit_threshold: float = 72.0, review_threshold: float = 58.0) -> CandidatePlan:
+    plan = CandidatePlan(candidate=row)
+    mode = row["generation_mode"]
+    if mode not in GENERATION_MODES:
+        plan.hard_failures.append(f"unsupported generation_mode: {mode}")
+    if row["status"] not in CANDIDATE_STATUSES:
+        plan.hard_failures.append(f"unsupported status: {row['status']}")
+    for key in REQUIRED_TEXT_FIELDS:
+        if not row[key]:
+            plan.hard_failures.append(f"missing {key}")
+    for key in REQUIRED_ARRAY_FIELDS:
+        if not row[key]:
+            plan.hard_failures.append(f"missing {key}")
+    if mode == "fresh_grounded" and not row["source_ids"] and not row["source_urls"]:
+        plan.hard_failures.append("fresh_grounded requires source_ids or source_urls")
+    if mode == "followup_from_negative" and not row["parent_project_id"] and not row["parent_run_id"]:
+        plan.hard_failures.append("followup_from_negative requires parent_project_id or parent_run_id")
+    if row["similar_prior_projects"] and not row["novelty_comparison"]:
+        plan.hard_failures.append("similar_prior_projects requires novelty_comparison")
+    text = "\n".join([row["title"], row["hypothesis"], row["mechanism"], row["implementation"], row["risk_notes"]]).lower()
+    if any(re.search(pattern, text) for pattern in SHALLOW_INCREMENT_PATTERNS):
+        plan.hard_failures.append("candidate looks like shallow incremental sludge")
+
+    novelty = row["novelty_score"]
+    feasibility = row["feasibility_score"]
+    accessibility = row["accessibility_score"]
+    falsifiability = row["falsifiability_score"]
+    if not accessibility and row["accessibility_delta"]:
+        accessibility = 5.0
+    if not falsifiability and row["success_threshold"] and row["kill_condition"]:
+        falsifiability = 6.0
+    mode_bonus = {
+        "moonshot": 4.0 if falsifiability >= 7 else -8.0,
+        "home_hardware_accessibility": 4.0 if accessibility >= 7 else -5.0,
+        "followup_from_negative": 3.0 if row["novelty_comparison"] else -8.0,
+        "fresh_grounded": 2.0,
+        "implementation_gap": 2.0,
+        "paper_replication_extension": 1.0,
+        "manual_import": 0.0,
+    }.get(mode, 0.0)
+    missing_field_penalty = 6.0 * len(plan.hard_failures)
+    total = (novelty * 2.6) + (feasibility * 1.7) + (accessibility * 2.5) + (falsifiability * 2.2) + mode_bonus - missing_field_penalty
+    total = max(0.0, min(100.0, round(total, 2)))
+    row["accessibility_score"] = accessibility
+    row["falsifiability_score"] = falsifiability
+    row["total_score"] = total
+    row["score_breakdown"] = {
+        "novelty_weighted": round(novelty * 2.6, 2),
+        "feasibility_weighted": round(feasibility * 1.7, 2),
+        "accessibility_weighted": round(accessibility * 2.5, 2),
+        "falsifiability_weighted": round(falsifiability * 2.2, 2),
+        "mode_bonus": mode_bonus,
+        "hard_failure_penalty": missing_field_penalty,
+        "admit_threshold": admit_threshold,
+        "review_threshold": review_threshold,
+    }
+    plan.score_breakdown = row["score_breakdown"] | {"total_score": total}
+
+    if plan.hard_failures:
+        plan.admission_decision = "rejected"
+        plan.admission_reason = "; ".join(plan.hard_failures)
+    elif total >= admit_threshold:
+        plan.admission_decision = "admitted"
+        plan.admission_reason = f"score {total} >= admit threshold {admit_threshold} with required research contract present"
+        plan.admitted_idea_id = row["candidate_id"]
+    elif total >= review_threshold:
+        plan.admission_decision = "needs_review"
+        plan.admission_reason = f"score {total} below admit threshold {admit_threshold} but above review threshold {review_threshold}"
+    else:
+        plan.admission_decision = "rejected"
+        plan.admission_reason = f"score {total} below review threshold {review_threshold}"
+    row["status"] = "admitted" if plan.admission_decision == "admitted" else ("needs_review" if plan.admission_decision == "needs_review" else "rejected")
+    return plan
+
+
+def load_candidates(path: Path) -> list[dict[str, Any]]:
+    text = path.read_text(encoding="utf-8")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```", text, flags=re.S)
+        if not match:
+            match = re.search(r"(\[\s*\{.*\}\s*\])", text, flags=re.S)
+        if not match:
+            raise SystemExit(f"{path}: no JSON array/object found")
+        data = json.loads(match.group(1))
+    if isinstance(data, dict):
+        data = data.get("candidates") or data.get("ideas") or [data]
+    if not isinstance(data, list):
+        raise SystemExit(f"{path}: expected JSON list or object")
+    return [item for item in data if isinstance(item, dict)]
+
+
+def sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def sql_json(value: Any) -> str:
+    return sql_literal(json.dumps(value, sort_keys=True, separators=(",", ":"))) + "::jsonb"
+
+
+def emit_sql(plans: list[CandidatePlan], *, requested_by: str, queue_admitted: bool) -> str:
+    lines = [
+        "-- Generated by scripts/research_facility.py",
+        "-- Inserts Research Facility ledger rows. Candidate admission is idempotent by idempotency_key.",
+        "begin;",
+        "",
+    ]
+    for plan in plans:
+        c = plan.candidate
+        for url in c["source_urls"]:
+            source_id = "url-" + stable_hash(_as_text(url), 24)
+            lines.append(
+                "insert into enoch.research_sources(source_id, source_kind, title, url, content_hash, payload_json) values "
+                f"({sql_literal(source_id)}, {sql_literal(c['source_kind'] or 'other')}, {sql_literal(c['title'])}, {sql_literal(_as_text(url))}, {sql_literal(stable_hash(_as_text(url), 64))}, {sql_json({'url': _as_text(url)})}) "
+                "on conflict (source_id) do update set title = excluded.title, url = excluded.url, updated_at = now();"
+            )
+        lines.append(
+            "insert into enoch.research_candidates("
+            "candidate_id, generation_mode, status, title, category, priority, source_kind, source_ids, source_urls, "
+            "parent_project_id, parent_run_id, hypothesis, mechanism, description, implementation, baseline_to_beat, "
+            "success_threshold, kill_condition, accessibility_delta, expected_artifacts, required_evidence, likely_failure_modes, "
+            "estimated_runtime_class, expected_token_budget, machine_target, model, sandbox, novelty_score, feasibility_score, "
+            "accessibility_score, falsifiability_score, total_score, score_breakdown, dedupe_key, similar_prior_projects, "
+            "novelty_comparison, risk_notes, rejection_reason, provider, provider_model, prompt_version, generated_by, raw_candidate_json"
+            ") values ("
+            f"{sql_literal(c['candidate_id'])}, {sql_literal(c['generation_mode'])}, {sql_literal(c['status'])}, {sql_literal(c['title'])}, "
+            f"{sql_literal(c['category'])}, {sql_literal(c['priority'])}, {sql_literal(c['source_kind'])}, {sql_json(c['source_ids'])}, {sql_json(c['source_urls'])}, "
+            f"{sql_literal(c['parent_project_id'])}, {sql_literal(c['parent_run_id'])}, {sql_literal(c['hypothesis'])}, {sql_literal(c['mechanism'])}, "
+            f"{sql_literal(c['description'])}, {sql_literal(c['implementation'])}, {sql_literal(c['baseline_to_beat'])}, {sql_literal(c['success_threshold'])}, "
+            f"{sql_literal(c['kill_condition'])}, {sql_literal(c['accessibility_delta'])}, {sql_json(c['expected_artifacts'])}, {sql_json(c['required_evidence'])}, {sql_json(c['likely_failure_modes'])}, "
+            f"{sql_literal(c['estimated_runtime_class'])}, {sql_literal(c['expected_token_budget'])}, {sql_literal(c['machine_target'])}, {sql_literal(c['model'])}, {sql_literal(c['sandbox'])}, "
+            f"{c['novelty_score']:.2f}, {c['feasibility_score']:.2f}, {c['accessibility_score']:.2f}, {c['falsifiability_score']:.2f}, {c['total_score']:.2f}, "
+            f"{sql_json(c['score_breakdown'])}, {sql_literal(c['dedupe_key'])}, {sql_json(c['similar_prior_projects'])}, {sql_literal(c['novelty_comparison'])}, {sql_literal(c['risk_notes'])}, "
+            f"{sql_literal(plan.admission_reason if plan.admission_decision == 'rejected' else '')}, {sql_literal(c['provider'])}, {sql_literal(c['provider_model'])}, {sql_literal(c['prompt_version'])}, {sql_literal(c['generated_by'])}, {sql_json(c['raw_candidate_json'])}"
+            ") on conflict (candidate_id) do update set "
+            "status = excluded.status, total_score = excluded.total_score, score_breakdown = excluded.score_breakdown, updated_at = now();"
+        )
+        idempotency_key = f"research-admission:{c['candidate_id']}:{plan.admission_decision}"
+        for source_id in c["source_ids"]:
+            lines.append(
+                "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
+                f"('source', {sql_literal(_as_text(source_id))}, 'candidate', {sql_literal(c['candidate_id'])}, 'generated_from', {sql_json({'source_ids': c['source_ids']})});"
+            )
+        for url in c["source_urls"]:
+            source_id = "url-" + stable_hash(_as_text(url), 24)
+            lines.append(
+                "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
+                f"('source', {sql_literal(source_id)}, 'candidate', {sql_literal(c['candidate_id'])}, 'generated_from', {sql_json({'url': _as_text(url)})});"
+            )
+        if plan.admission_decision == "admitted" and queue_admitted:
+            idea_id = plan.admitted_idea_id
+            lines.append(
+                "insert into enoch.ideas(idea_id, title, idea_status, category, priority, source_kind, source_external_url, description, implementation, baseline_to_beat, kill_condition, accessibility_delta, expected_token_budget, novelty_score, machine_target, model, sandbox, selection_rank, dispatch_priority, source_payload_json) values "
+                f"({sql_literal(idea_id)}, {sql_literal(c['title'])}, 'testing', {sql_literal(c['category'])}, {sql_literal(c['priority'])}, 'research_facility', {sql_literal(c['source_urls'][0] if c['source_urls'] else '')}, {sql_literal(c['description'] or c['hypothesis'])}, {sql_literal(c['implementation'])}, {sql_literal(c['baseline_to_beat'])}, {sql_literal(c['kill_condition'])}, {sql_literal(c['accessibility_delta'])}, {sql_literal(c['expected_token_budget'])}, {sql_literal(str(c['novelty_score']))}, {sql_literal(c['machine_target'])}, {sql_literal(c['model'])}, {sql_literal(c['sandbox'])}, 50, 50, {sql_json(c)}) "
+                "on conflict (idea_id) do update set title = excluded.title, source_payload_json = excluded.source_payload_json, updated_at = now();"
+            )
+            lines.append(
+                "insert into enoch.projects(project_id, project_name, project_dir, origin_idea_status) values "
+                f"({sql_literal(idea_id)}, {sql_literal(c['title'])}, {sql_literal(idea_id)}, 'testing') "
+                "on conflict (project_id) do update set project_name = excluded.project_name, updated_at = now();"
+            )
+            lines.append(
+                "insert into enoch.queue_items(project_id, status, selection_rank, dispatch_priority, auto_continue, continue_count, max_continues, retry_count, max_retries, next_action_hint, manual_review_required, machine_target, model, sandbox, updated_at) values "
+                f"({sql_literal(idea_id)}, 'queued', 50, 50, true, 0, 0, 0, 2, 'controller_review', false, {sql_literal(c['machine_target'])}, {sql_literal(c['model'])}, {sql_literal(c['sandbox'])}, now()) "
+                "on conflict (project_id) do update set machine_target = excluded.machine_target, model = excluded.model, sandbox = excluded.sandbox, updated_at = now() "
+                "where enoch.queue_items.status not in ('dispatching', 'running', 'awaiting_wake', 'wake_received', 'reconciling');"
+            )
+            lines.append(
+                "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
+                f"('candidate', {sql_literal(c['candidate_id'])}, 'idea', {sql_literal(idea_id)}, 'admitted_as', {sql_json({'admission_reason': plan.admission_reason})}), "
+                f"('idea', {sql_literal(idea_id)}, 'project', {sql_literal(idea_id)}, 'queued_as', {sql_json({'queued_by': requested_by})});"
+            )
+        admitted_idea_sql = sql_literal(plan.admitted_idea_id) if (queue_admitted and plan.admitted_idea_id) else "null"
+        lines.append(
+            "insert into enoch.research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key) values "
+            f"({sql_literal(c['candidate_id'])}, {sql_literal(plan.admission_decision)}, {sql_literal(plan.admission_reason)}, {sql_json(plan.score_breakdown)}, {admitted_idea_sql}, {sql_literal(requested_by)}, {sql_literal(idempotency_key)}) "
+            "on conflict (idempotency_key) do nothing;"
+        )
+        lines.append("")
+    lines.append("commit;")
+    return "\n".join(lines) + "\n"
+
+
+def plan_candidates(candidates: list[dict[str, Any]], args: argparse.Namespace) -> list[CandidatePlan]:
+    seen: dict[str, str] = {}
+    plans: list[CandidatePlan] = []
+    for raw in candidates:
+        row = normalize_candidate(
+            raw,
+            default_machine=args.default_machine,
+            default_model=args.default_model,
+            default_sandbox=args.default_sandbox,
+        )
+        plan = evaluate_candidate(row, admit_threshold=args.admit_threshold, review_threshold=args.review_threshold)
+        previous = seen.get(row["dedupe_key"])
+        if previous:
+            plan.admission_decision = "rejected"
+            plan.admission_reason = f"duplicate dedupe_key also used by {previous}"
+            plan.hard_failures.append(plan.admission_reason)
+            row["status"] = "rejected"
+        else:
+            seen[row["dedupe_key"]] = row["candidate_id"]
+        plans.append(plan)
+    return plans
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("input", type=Path, help="JSON/markdown file containing candidate objects")
+    parser.add_argument("--output", type=Path, help="write JSON admission plan here; default stdout")
+    parser.add_argument("--emit-sql", type=Path, help="write idempotent SQL ledger plan here")
+    parser.add_argument("--queue-admitted", action="store_true", help="when emitting SQL, also upsert admitted ideas/projects/queue_items")
+    parser.add_argument("--admit-threshold", type=float, default=72.0)
+    parser.add_argument("--review-threshold", type=float, default=58.0)
+    parser.add_argument("--requested-by", default="research_facility")
+    parser.add_argument("--default-machine", default="192.168.1.77")
+    parser.add_argument("--default-model", default="gpt-5.5")
+    parser.add_argument("--default-sandbox", default="danger-full-access")
+    args = parser.parse_args(argv)
+
+    candidates = load_candidates(args.input)
+    plans = plan_candidates(candidates, args)
+    payload = {
+        "ok": True,
+        "input": str(args.input),
+        "candidate_count": len(plans),
+        "admitted_count": sum(1 for plan in plans if plan.admission_decision == "admitted"),
+        "needs_review_count": sum(1 for plan in plans if plan.admission_decision == "needs_review"),
+        "rejected_count": sum(1 for plan in plans if plan.admission_decision == "rejected"),
+        "plans": [plan.to_json() for plan in plans],
+    }
+    text = json.dumps(payload, indent=2, sort_keys=True)
+    if args.output:
+        args.output.write_text(text + "\n", encoding="utf-8")
+    else:
+        print(text)
+    if args.emit_sql:
+        args.emit_sql.write_text(emit_sql(plans, requested_by=args.requested_by, queue_admitted=args.queue_admitted), encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

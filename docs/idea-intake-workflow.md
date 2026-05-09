@@ -1,16 +1,17 @@
 # Idea intake workflow
 
-The Enoch execution system did not start from hand-picked prompts alone. It used an upstream agentic intake process to discover, score, and organize candidate research ideas before the control plane dispatched experiments.
+The Enoch execution system should not depend on hand-picked prompts or ad-hoc ChatGPT batches alone. The Research Facility is the first-class intake lane for discovering, scoring, admitting, and tracing candidate research ideas before the control plane dispatches experiments.
 
-This document describes that intake layer because it is important to the full system story. It is also intentionally separated from the current runtime control plane: the released workflow does not depend on publishing old workflow-tool exports.
+This document describes that intake layer because it is important to the full system story. It is intentionally separated from runtime dispatch: generated candidates do not become work until an admission decision promotes them into the Supabase-native idea/project/queue ledgers.
 
 ## Summary
 
 ```text
-External signals
-  -> LLM research scout
-  -> candidate idea cards
-  -> scoring / weight matrix
+External signals + prior Enoch results
+  -> Research Facility source ledger
+  -> generated candidate ledger
+  -> dedupe / history comparison
+  -> scoring / admission ledger
   -> Supabase-native ideas workbench
   -> queue selection / dispatch planning
   -> Enoch control plane
@@ -18,9 +19,9 @@ External signals
   -> evidence + generated research artifact
 ```
 
-## Stage 1 — External signal scouting
+## Stage 1 — Research Facility source scouting
 
-The upstream agentic scout reviewed technical signals such as:
+The Research Facility source ledger records technical signals such as:
 
 - AI/ML news;
 - public research papers;
@@ -29,33 +30,36 @@ The upstream agentic scout reviewed technical signals such as:
 - local hardware/runtime opportunities;
 - gaps that looked testable on available infrastructure.
 
-The scout's job was not to produce finished research. Its job was to propose candidate experiments that were:
+The source scanner's job is not to produce finished research. Its job is to provide grounded inputs for candidate experiments that are:
 
 - concrete enough to run;
 - small enough for local hardware;
 - relevant to AI systems, model serving, RAG, evaluation, routing, memory, or reliability;
 - likely to produce a useful positive, negative, or mixed result.
 
-## Stage 2 — Candidate idea framing
+## Stage 2 — Candidate generation
 
-Candidate ideas were converted into structured idea records. A good idea record captured:
+Candidate ideas are converted into structured research proposals in `enoch.research_candidates`. A good candidate record captures:
 
 - working title;
 - core hypothesis;
 - expected mechanism;
+- baseline to beat;
+- success threshold;
 - benchmark or evaluation sketch;
 - required hardware/software;
 - novelty estimate;
 - implementation difficulty;
-- expected evidence type;
+- expected artifacts;
+- required evidence;
 - failure/kill criteria;
 - why it might matter.
 
-This made the idea pool machine-actionable instead of a pile of prose.
+This keeps the idea pool machine-actionable instead of a pile of prose.
 
-## Stage 3 — Weight matrix scoring
+## Stage 3 — Dedupe and scoring
 
-Ideas are scored with explicit priority/ranking fields in the Supabase-native ideas workbench. The goal was to turn subjective research instinct into a repeatable prioritization signal.
+Candidates are scored before admission. The goal is to turn subjective research instinct into a repeatable prioritization signal while preventing idea spam, shallow incremental sludge, and re-runs of known negatives.
 
 Typical scoring dimensions included:
 
@@ -63,23 +67,29 @@ Typical scoring dimensions included:
 |---|---|
 | Novelty | Is this meaningfully different from obvious baseline work? |
 | Feasibility | Can it run on available hardware and time budget? |
+| Falsifiability | Does the proposal have a crisp success threshold and kill condition? |
 | Evidence potential | Can the experiment produce measurable support/refutation? |
 | Systems relevance | Does it touch serving, reliability, memory, routing, evaluation, or agent infrastructure? |
 | Implementation complexity | Is the build small enough to complete autonomously? |
 | Risk / uncertainty | Is the outcome uncertain enough to be worth testing? |
+| Accessibility impact | Does this materially help local/home AI viability rather than chase a tiny benchmark tweak? |
 | Reuse value | Will artifacts, harnesses, or results help future work? |
 | Publication/artifact potential | Could the result become a useful technical report? |
 
-The point was not to pretend the scores were objectively true. The point was to make priority explicit, auditable, and adjustable.
+The point is not to pretend the scores are objectively true. The point is to make priority explicit, auditable, and adjustable.
 
-## Stage 4 — Supabase-native idea workbench
+## Stage 4 — Admission and Supabase-native idea workbench
 
 Supabase now acts as the intake and triage database for ideas. Historical Notion identifiers may remain on imported rows as provenance, but they are no longer runtime authority.
+
+Admission is recorded in `enoch.research_admissions`. This is the operator-facing answer to “why did this get queued?” A candidate may be admitted, rejected, merged, or held for review.
 
 The workbench provides:
 
 - human-readable idea cards;
 - weighted prioritization fields;
+- admission reasons;
+- lineage back to sources and prior Enoch evidence;
 - status tracking;
 - links back to source inspiration;
 - queue handoff metadata;
@@ -89,7 +99,7 @@ Important distinction:
 
 > Supabase ideas are the editable intake ledger. The Enoch control plane remains the execution authority.
 
-The current runtime does not require Notion sync to create, inspect, or dispatch idea candidates.
+The current runtime does not require Notion sync to create, inspect, or dispatch idea candidates. See [`research-facility.md`](research-facility.md) for the concrete ledgers and admission planner.
 
 ## Stage 5 — Queue handoff
 
@@ -125,7 +135,8 @@ After intake, Enoch handled execution concerns:
 The key architectural boundary is:
 
 ```text
-Supabase ideas decide what may be worth running.
+Research Facility admissions decide what may be worth running.
+Supabase ideas/projects/queue rows represent admitted runtime work.
 Enoch control plane decides what is safe and true during execution.
 ```
 
@@ -161,7 +172,7 @@ Recommended wording:
 A cleaner future implementation would make scouting and scoring first-class graph nodes:
 
 ```text
-ScoutSignals -> GenerateIdea -> ScoreIdea -> Deduplicate -> Human/Operator Triage -> QueueCandidate -> DispatchGraph
+ScanSources -> GenerateCandidate -> Deduplicate -> ScoreCandidate -> AdmitOrReject -> QueueCandidate -> DispatchGraph
 ```
 
-This would make the intake process reproducible, testable, and versioned alongside the control plane.
+The current implementation starts this path with `enoch.research_sources`, `enoch.research_candidates`, `enoch.research_admissions`, `enoch.research_lineage`, and the deterministic planner in `scripts/research_facility.py`.

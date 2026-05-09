@@ -1,0 +1,122 @@
+# Enoch Research Facility
+
+The Research Facility is the auditable lane for generating ideas before they enter the worker queue. It is intentionally separate from dispatch. A generated candidate is not work until it is admitted and recorded with an admission reason.
+
+## Operator model
+
+```text
+sources
+  -> research candidates
+  -> dedupe/history comparison
+  -> score novelty + feasibility + accessibility + falsifiability
+  -> admission decision
+  -> optional enoch.ideas / projects / queue_items row
+  -> run / decision / paper/no-paper lineage
+```
+
+This lane answers two questions the old ad-hoc process could not answer reliably:
+
+1. Where did this idea come from?
+2. Why did it get queued?
+
+## Ledgers
+
+| Ledger | Table | Purpose | Does it dispatch work? |
+| --- | --- | --- | --- |
+| Source ledger | `enoch.research_sources` | External/internal source evidence: arXiv, GitHub, blogs, HN/X, prior Enoch results, user/ChatGPT supplied batches, generated hypotheses. | No |
+| Candidate ledger | `enoch.research_candidates` | Raw generated proposals before admission. Stores hypothesis, mechanism, baseline, success threshold, kill condition, artifacts, evidence, cost, failure modes, novelty comparison, dedupe key, and score. | No |
+| Admission ledger | `enoch.research_admissions` | Immutable explanation for admitted/rejected/merged/needs-review decisions. This is the answer to “why did this get queued?” | No |
+| Lineage ledger | `enoch.research_lineage` | Connects source -> candidate -> idea -> project -> run -> decision -> paper/no-paper -> follow-up candidate. | No |
+
+Promotion into runtime work still happens through the existing runtime ledgers:
+
+- `enoch.ideas`
+- `enoch.projects`
+- `enoch.queue_items`
+
+## Generation modes
+
+`enoch.research_candidates.generation_mode` is explicit and constrained:
+
+| Mode | Required grounding | Scoring emphasis |
+| --- | --- | --- |
+| `fresh_grounded` | At least one `source_ids` or `source_urls` entry. | External grounding, novelty, falsifiability. |
+| `followup_from_negative` | `parent_project_id` or `parent_run_id`. | Explains what changed from a prior negative/mixed result. |
+| `moonshot` | Crisp falsifiable test despite low feasibility. | High novelty/accessibility, strong kill condition. |
+| `implementation_gap` | Practical gap in a paper/repo/system. | Feasible experiment and baseline clarity. |
+| `paper_replication_extension` | Paper/source lineage. | Bounded replication plus nontrivial extension. |
+| `home_hardware_accessibility` | Local/home AI impact. | Accessibility delta and hardware cost. |
+| `manual_import` | User/operator supplied. | Complete test contract, dedupe, and score. |
+
+Database checks enforce the two easiest-to-abuse modes:
+
+- `fresh_grounded` must include source evidence.
+- `followup_from_negative` must include parent lineage.
+
+## Candidate contract
+
+A candidate must be a testable research proposal, not a vague idea. Required fields are:
+
+- `hypothesis`
+- `mechanism`
+- `baseline_to_beat`
+- `success_threshold`
+- `kill_condition`
+- `expected_artifacts`
+- `required_evidence`
+- `estimated_runtime_class`
+- `expected_token_budget`
+- `machine_target`
+- `likely_failure_modes`
+- `novelty_comparison` when similar prior projects are present
+
+The deterministic planner in `scripts/research_facility.py` rejects candidates that miss the core contract, lack required grounding, look like shallow incremental sludge, or try to re-run known negatives without explaining the new mechanism/evidence.
+
+## Admission behavior
+
+Use the planner first:
+
+```bash
+python scripts/research_facility.py ideas.json --output /tmp/research-plan.json
+```
+
+To generate SQL for the four Research Facility ledgers only:
+
+```bash
+python scripts/research_facility.py ideas.json \
+  --output /tmp/research-plan.json \
+  --emit-sql /tmp/research-ledgers.sql
+```
+
+To also queue admitted candidates, make the promotion explicit:
+
+```bash
+python scripts/research_facility.py ideas.json \
+  --output /tmp/research-plan.json \
+  --emit-sql /tmp/research-ledgers-and-queue.sql \
+  --queue-admitted \
+  --requested-by operator:jeremy
+```
+
+`--queue-admitted` is intentionally separate so review/scoring can happen without mutating runtime queue state.
+
+## Guardrails
+
+- The Research Facility tables do not dispatch work by themselves.
+- The workbench view is `security_invoker` and the tables have RLS enabled.
+- Runtime queue mutation is idempotent and refuses to overwrite in-flight queue rows.
+- Dedupe uses a stable `dedupe_key`; duplicate keys in the same batch are rejected by the planner and unique in the database.
+- Similar prior projects require `novelty_comparison`.
+- Candidate lineage is recorded before queue promotion.
+
+## Validation
+
+Relevant local checks:
+
+```bash
+uv run pytest tests/test_research_facility.py -q
+uv run pytest tests/test_deploy_units.py tests/test_supabase_runtime_cutover.py tests/test_research_facility.py -q
+python scripts/validate_supabase_migrations.py
+```
+
+`validate_supabase_migrations.py` checks that the four Research Facility ledgers exist, RLS/policies are present, the workbench view exists, `security_invoker` is set, and the grounding/parent-lineage checks are present.

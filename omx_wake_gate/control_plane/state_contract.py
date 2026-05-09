@@ -244,6 +244,11 @@ STATE_SURFACE_INVENTORY: Final[dict[str, dict[str, str]]] = {
     "core_decisions.decision_key": _surface("type_discriminator", reason="domain decision lookup key; not a lifecycle state"),
     "core_decisions.decision_type": _surface("type_discriminator", reason="core decision kind; domain-specific payload owns details"),
     "core_projection_cache.projection_version": _surface("projection_metadata", reason="cache schema/version metadata"),
+    "research_candidates.generation_mode": _surface("type_discriminator", reason="Research Facility candidate generation strategy, not runtime lifecycle"),
+    "research_candidates.status": _surface("derived_operator", operator_lane=OperatorLane.READY_QUEUE, reason="candidate admission state before queue promotion; runtime action lives in queue_items"),
+    "research_lineage.source_type": _surface("type_discriminator", reason="Research Facility lineage endpoint kind"),
+    "research_lineage.target_type": _surface("type_discriminator", reason="Research Facility lineage endpoint kind"),
+    "research_lineage.relation_type": _surface("type_discriminator", reason="Research Facility lineage relationship kind"),
 }
 
 

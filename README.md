@@ -21,8 +21,9 @@ Enoch treats those as control-plane problems, not model problems. It uses proces
 ## How it works
 
 ```text
-LLM research scout
-  -> structured idea cards
+Research Facility source scan
+  -> generated research candidates
+  -> dedupe / score / admission ledger
   -> Supabase-native ideas workbench
   -> queue candidate
   -> VM control plane
@@ -64,11 +65,11 @@ Enoch is the project-specific control plane and release package. It runs agent w
 
 ## Idea intake
 
-Ideas are sourced from an upstream LLM-assisted scouting process that reviews technical signals such as AI news, public research papers, systems discussions, and local hardware/runtime opportunities. Candidate ideas are framed as structured experiment cards and stored in the Supabase-native ideas workbench before they become Enoch queue candidates.
+Ideas are sourced through the Research Facility, a separate auditable lane for source scanning, candidate generation, dedupe/history comparison, novelty/feasibility/accessibility scoring, and admission decisions. A generated candidate is not queued work until an admission row explains why it was promoted.
 
 Supabase is now the canonical intake ledger. Legacy Notion IDs/URLs, when present, are historical provenance only and are not runtime authority.
 
-See [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md).
+See [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md) and [`docs/research-facility.md`](docs/research-facility.md).
 
 ## Getting started
 
@@ -104,7 +105,8 @@ uv run pytest -q
 - [`docs/state-model.md`](docs/state-model.md) — operator lane vocabulary and raw-state/detail-stage boundaries
 - [`docs/state-transition-map.md`](docs/state-transition-map.md) — Idea -> Queue -> Run -> Decision -> Paper -> Publication -> Corpus lifecycle map
 - [`docs/state-simplification-todo.md`](docs/state-simplification-todo.md) — next-phase state/ledger simplification backlog
-- [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md) — LLM scouting, Supabase ideas, and queue handoff
+- [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md) — Research Facility scouting, Supabase ideas, and queue handoff
+- [`docs/research-facility.md`](docs/research-facility.md) — source/candidate/admission/lineage ledgers and admission guardrails
 
 **Release context:**
 - [`docs/release/authorship-and-provenance.md`](docs/release/authorship-and-provenance.md) — how generated reports should be framed

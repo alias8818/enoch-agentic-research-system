@@ -312,6 +312,41 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
                 where idempotency_key = 'fixture-core-snapshot'
               )
             )
+          ),
+          'research_facility_contract', (
+            select jsonb_build_object(
+              'source_tables_present', (
+                select count(*)
+                from information_schema.tables
+                where table_schema = 'enoch'
+                  and table_name in ('research_sources', 'research_candidates', 'research_admissions', 'research_lineage')
+              ),
+              'workbench_present', exists (
+                select 1
+                from information_schema.views
+                where table_schema = 'enoch'
+                  and table_name = 'research_facility_workbench'
+              ),
+              'fresh_grounded_check', exists (
+                select 1
+                from pg_constraint
+                where conrelid = 'enoch.research_candidates'::regclass
+                  and pg_get_constraintdef(oid) like '%generation_mode <> ''fresh_grounded''%'
+              ),
+              'followup_parent_check', exists (
+                select 1
+                from pg_constraint
+                where conrelid = 'enoch.research_candidates'::regclass
+                  and pg_get_constraintdef(oid) like '%generation_mode <> ''followup_from_negative''%'
+              ),
+              'security_invoker', coalesce((
+                select (c.reloptions::text like '%security_invoker=true%')
+                from pg_class c
+                join pg_namespace n on n.oid = c.relnamespace
+                where n.nspname = 'enoch'
+                  and c.relname = 'research_facility_workbench'
+              ), false)
+            )
           )
         );
         """,
@@ -325,8 +360,8 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         failures.append(f"state contract validation failed: {state_contract.get('failures')}")
     if checks["enoch_base_tables"] < 15:
         failures.append("expected at least 15 enoch base tables including Enoch core Supabase tables")
-    if checks["enoch_views"] < 2:
-        failures.append("expected at least 2 enoch views")
+    if checks["enoch_views"] < 3:
+        failures.append("expected at least 3 enoch views including Research Facility workbench")
     if checks["public_base_tables"] != 0:
         failures.append("expected 0 public base tables")
     dashboard_counts = checks["operator_dashboard_counts"]
@@ -366,6 +401,17 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         failures.append("Enoch core Supabase tables must accept one shadow event and one snapshot")
     if enoch_core.get("latest_project_id") != "core-fixture":
         failures.append("Enoch core Supabase snapshot payload did not preserve queue rows")
+    research_facility = checks.get("research_facility_contract") or {}
+    if research_facility.get("source_tables_present") != 4:
+        failures.append("Research Facility must create all four ledgers")
+    if not research_facility.get("workbench_present"):
+        failures.append("Research Facility workbench view is missing")
+    if not research_facility.get("fresh_grounded_check"):
+        failures.append("Research Facility fresh_grounded candidates must require source evidence")
+    if not research_facility.get("followup_parent_check"):
+        failures.append("Research Facility followup_from_negative candidates must require parent lineage")
+    if not research_facility.get("security_invoker"):
+        failures.append("Research Facility workbench must use security_invoker")
 
     return {
         "ok": not failures,
