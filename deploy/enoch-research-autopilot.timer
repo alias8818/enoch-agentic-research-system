@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Enoch bounded Research Facility autopilot periodically
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=20min
+AccuracySec=30s
+Persistent=true
+Unit=enoch-research-autopilot.service
+
+[Install]
+WantedBy=timers.target

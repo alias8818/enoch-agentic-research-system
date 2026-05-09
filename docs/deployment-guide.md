@@ -209,6 +209,24 @@ By default, the queue alert pump is execution-only: it dispatches the next queue
 
 If dispatch must remain disabled, leave `enoch-queue-alert-check.timer` disabled. Re-enable that timer only when the worker lane is healthy and dispatch should resume.
 
+The Research Facility autopilot is the bounded end-to-end path for idea generation through positive-gated paper finalization. It is also opt-in and inert by default. Install/enable it only after the provider proxy, worker gate, and paper writer have passed smoke tests:
+
+```bash
+cd /opt/enoch-control-plane
+ENOCH_INSTALL_RESEARCH_AUTOPILOT_UNITS=1 sudo -E scripts/install-control-plane.sh
+sudo systemctl edit enoch-research-autopilot.service
+# Add:
+# [Service]
+# Environment=ENOCH_ENABLE_RESEARCH_AUTOPILOT=1
+# Environment=ENOCH_RESEARCH_AUTOPILOT_DISPATCH=1
+# Environment=ENOCH_RESEARCH_AUTOPILOT_WAIT=1
+# Environment=ENOCH_RESEARCH_AUTOPILOT_PAPERS=1
+sudo systemctl daemon-reload
+sudo systemctl enable --now enoch-research-autopilot.timer
+```
+
+Each autopilot tick calls `/control/api/research/run-cycle` and is capped at one provider request, one promotion, one dispatch, one paper draft, and one finalization package. It preserves the broad queue pause and the paper stage still blocks negative/non-positive decision artifacts.
+
 ## 8. Smoke-test core API paths
 
 ```bash

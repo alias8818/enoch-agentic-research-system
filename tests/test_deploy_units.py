@@ -17,6 +17,14 @@ def _load_queue_pump_module():
     return module
 
 
+def _load_research_autopilot_module():
+    spec = importlib.util.spec_from_file_location("enoch_research_autopilot", ROOT / "deploy" / "enoch_research_autopilot.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_legacy_notion_sync_unit_is_disabled_and_non_dispatching() -> None:
     service = (ROOT / "deploy" / "enoch-notion-sync.service").read_text(encoding="utf-8")
     script = (ROOT / "deploy" / "enoch_notion_sync.sh").read_text(encoding="utf-8")
@@ -55,6 +63,51 @@ def test_paper_drain_is_bounded_opt_in_and_does_not_run_broad_rewrite_batches() 
     assert "/control/api/publication-automation/rewrite-batch" not in script
     assert "/control/dispatch-next" not in script
     assert "192.168.1." not in script
+
+
+def test_research_autopilot_unit_is_opt_in_and_bounded(tmp_path, capsys) -> None:
+    autopilot = _load_research_autopilot_module()
+    service = (ROOT / "deploy" / "enoch-research-autopilot.service").read_text(encoding="utf-8")
+    script = (ROOT / "deploy" / "enoch_research_autopilot.py").read_text(encoding="utf-8")
+    combined = service + script
+    assert "Environment=ENOCH_ENABLE_RESEARCH_AUTOPILOT=0" in service
+    assert "ENOCH_ENABLE_RESEARCH_AUTOPILOT" in script
+    assert "/control/api/research/run-cycle" in script
+    assert "max_provider_requests_per_run" in script
+    assert "max_promotions_per_run" in script
+    assert "max_dispatches_per_run" in script
+    assert "max_paper_drafts_per_run" in script
+    assert "max_publication_rewrites_per_run" in script
+    assert "/control/dispatch-next" not in combined
+    assert "/control/papers/draft-next" not in combined
+    assert "192.168.1." not in combined
+
+    with patch.dict("os.environ", {"ENOCH_ENABLE_RESEARCH_AUTOPILOT": "0"}, clear=False), patch.object(autopilot, "_post_json") as post_json:
+        assert autopilot.main() == 0
+    post_json.assert_not_called()
+    assert json.loads(capsys.readouterr().out)["action"] == "skipped"
+
+
+def test_research_autopilot_calls_bounded_run_cycle_when_enabled(tmp_path, capsys) -> None:
+    autopilot = _load_research_autopilot_module()
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8")
+    calls: list[dict] = []
+
+    def fake_post(base_url: str, path: str, token: str, payload: dict, *, timeout: int) -> dict:
+        calls.append({"base_url": base_url, "path": path, "token": token, "payload": payload, "timeout": timeout})
+        return {"ok": True, "action": "research_cycle", "paper_drafted_count": 0}
+
+    with patch.dict("os.environ", {"ENOCH_CONFIG": str(config), "ENOCH_ENABLE_RESEARCH_AUTOPILOT": "1"}, clear=False), patch.object(autopilot, "_post_json", side_effect=fake_post):
+        assert autopilot.main() == 0
+    assert calls[0]["path"] == "/control/api/research/run-cycle"
+    assert calls[0]["payload"]["enabled"] is True
+    assert calls[0]["payload"]["max_provider_requests_per_run"] == 1
+    assert calls[0]["payload"]["max_promotions_per_run"] == 1
+    assert calls[0]["payload"]["max_dispatches_per_run"] == 1
+    assert calls[0]["payload"]["max_paper_drafts_per_run"] == 1
+    assert calls[0]["payload"]["max_publication_rewrites_per_run"] == 1
+    assert json.loads(capsys.readouterr().out)["ok"] is True
 
 
 def test_queue_pump_dispatches_without_paper_draft_by_default(tmp_path, capsys) -> None:

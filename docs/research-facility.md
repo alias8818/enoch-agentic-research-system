@@ -149,8 +149,8 @@ The dashboard follows the same split:
 - `Generate smoke batch` dry-runs first, then writes only Research Facility source/candidate/admission/lineage rows.
 - `Generate provider batch` dry-runs a provider quota preflight first. The live action spends one provider request, then writes only Research Facility source/candidate/admission/lineage rows.
 - `Promote selected candidate` dry-runs first, then promotes exactly one already-admitted candidate into `enoch.ideas`, `enoch.projects`, and `enoch.queue_items`.
-- `Run bounded cycle` is the first policy-gated automation layer. It requires an explicit live `enabled` flag, checks provider budget, can spend one provider request, can promote up to one admitted candidate, and can optionally dispatch at most one selected queued item while preserving the global queue pause.
-- Neither dashboard action dispatches worker execution. Dispatch remains a separate operator command.
+- `Run bounded cycle` is the first policy-gated automation layer. It requires an explicit live `enabled` flag, checks provider budget, can spend one provider request, can promote up to one admitted candidate, can optionally dispatch at most one selected queued item while preserving the global queue pause, and can optionally draft/finalize at most one paper if the completed run is decision-positive.
+- Provider generation and candidate promotion never dispatch worker execution. The bounded-cycle action can dispatch exactly one item only when its dispatch option is explicitly enabled for that call.
 
 The provider-backed endpoint is:
 
@@ -181,6 +181,10 @@ Default policy:
   "max_provider_requests_per_run": 1,
   "max_promotions_per_run": 1,
   "max_dispatches_per_run": 0,
+  "wait_for_completion": false,
+  "max_wait_seconds": 0,
+  "max_paper_drafts_per_run": 0,
+  "max_publication_rewrites_per_run": 0,
   "allowed_models": ["hf:moonshotai/Kimi-K2.6", "hf:zai-org/GLM-5.1"],
   "min_admission_score": 72,
   "require_budget_ok": true,
@@ -189,7 +193,18 @@ Default policy:
 }
 ```
 
-Live calls must set `enabled: true`; dry-runs do not spend provider requests or write rows. The endpoint records a `research.run_cycle.*` control event for blocked, dry-run, and live outcomes. It does not unpause the broad queue and does not write or finalize papers.
+Live calls must set `enabled: true`; dry-runs do not spend provider requests or write rows. The endpoint records a `research.run_cycle.*` control event for blocked, dry-run, and live outcomes. It does not unpause the broad queue. Paper drafting/finalization is disabled by default and must be explicitly bounded with:
+
+```json
+{
+  "max_paper_drafts_per_run": 1,
+  "max_publication_rewrites_per_run": 1
+}
+```
+
+That paper stage still uses the normal local decision gate. Negative, needs-review, missing, malformed, or otherwise non-positive decision artifacts produce no paper.
+
+For unattended operation, the optional systemd tick is `enoch-research-autopilot.timer` / `enoch-research-autopilot.service`. The unit is inert unless `ENOCH_ENABLE_RESEARCH_AUTOPILOT=1` is set in a systemd override. A live tick is capped at one provider request, one promotion, one dispatch, one paper draft, and one finalization package.
 
 ## Admission behavior
 

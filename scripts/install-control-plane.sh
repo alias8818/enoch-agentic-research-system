@@ -104,6 +104,9 @@ PY
   if [[ "${ENOCH_INSTALL_PAPER_DRAFT_NEXT_UNITS:-0}" == "1" ]]; then
     write_unit "$PREFIX/deploy/enoch-paper-draft-next.service" /etc/systemd/system/enoch-paper-draft-next.service
   fi
+  if [[ "${ENOCH_INSTALL_RESEARCH_AUTOPILOT_UNITS:-0}" == "1" ]]; then
+    write_unit "$PREFIX/deploy/enoch-research-autopilot.service" /etc/systemd/system/enoch-research-autopilot.service
+  fi
   cp "$PREFIX/deploy/enoch-queue-alert-check.timer" /etc/systemd/system/enoch-queue-alert-check.timer
   if [[ "${ENOCH_INSTALL_LEGACY_NOTION_UNITS:-0}" == "1" ]]; then
     cp "$PREFIX/deploy/enoch-notion-sync.timer" /etc/systemd/system/enoch-notion-sync.timer
@@ -111,12 +114,17 @@ PY
   if [[ "${ENOCH_INSTALL_PAPER_DRAFT_NEXT_UNITS:-0}" == "1" ]]; then
     cp "$PREFIX/deploy/enoch-paper-draft-next.timer" /etc/systemd/system/enoch-paper-draft-next.timer
   fi
+  if [[ "${ENOCH_INSTALL_RESEARCH_AUTOPILOT_UNITS:-0}" == "1" ]]; then
+    cp "$PREFIX/deploy/enoch-research-autopilot.timer" /etc/systemd/system/enoch-research-autopilot.timer
+  fi
   systemctl daemon-reload
   echo "Installed systemd units. Edit $CONFIG_DIR/config.json, then run:"
   echo "  sudo systemctl enable --now enoch-control-plane.service"
   echo "  Supabase-native /control/intake/ideas is the supported intake path; legacy Notion units are not installed by default."
   echo "  ENOCH_INSTALL_PAPER_DRAFT_NEXT_UNITS=1 sudo -E scripts/install-control-plane.sh  # install opt-in draft-only paper units"
   echo "  sudo systemctl edit enoch-paper-draft-next.service             # set ENOCH_ENABLE_PAPER_DRAFT_NEXT=1 before intentional drafting"
+  echo "  ENOCH_INSTALL_RESEARCH_AUTOPILOT_UNITS=1 sudo -E scripts/install-control-plane.sh  # install opt-in bounded research autopilot units"
+  echo "  sudo systemctl edit enoch-research-autopilot.service          # set ENOCH_ENABLE_RESEARCH_AUTOPILOT=1 before autonomous cycles"
   echo "  sudo systemctl enable --now enoch-queue-alert-check.timer   # optional Pushover/queue alerts + dispatch pump"
 else
   echo "Dependency install complete. Run with sudo/root to copy this checkout to $PREFIX, create $CONFIG_DIR and $STATE_DIR, and install systemd units."

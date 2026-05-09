@@ -936,6 +936,224 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertFalse(body["dispatch_started"])
         generate.assert_not_called()
 
+    def test_research_facility_run_cycle_paper_stage_blocks_negative_decision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp) / "projects"
+            project_dir = project_root / "negative-project"
+            (project_dir / ".enoch").mkdir(parents=True)
+            (project_dir / "run_notes.md").write_text("negative result\n", encoding="utf-8")
+            (project_dir / ".enoch" / "project_decision.json").write_text(
+                json.dumps({"project_decision": "finalize_negative", "summary": "No improvement"}),
+                encoding="utf-8",
+            )
+
+            class FakeSupabaseStore:
+                def __init__(self) -> None:
+                    self.events = []
+
+                def active_items(self) -> list[dict[str, str]]:
+                    return []
+
+                def status_counts(self) -> dict[str, int]:
+                    return {"blocked": 0, "queued": 0, "active": 0, "completed": 1}
+
+                def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                    return []
+
+                def record_research_facility_plans(self, *_args, **_kwargs):
+                    raise AssertionError("paper-only cycle should not record research ledgers")
+
+                def promote_research_candidate(self, *_args, **_kwargs):
+                    raise AssertionError("paper-only cycle should not promote candidates")
+
+                def queue_rows(self) -> list[dict[str, object]]:
+                    return [{
+                        "project_id": "negative-project",
+                        "project_name": "Negative Project",
+                        "project_dir": str(project_dir),
+                        "status": "completed",
+                        "current_run_id": "run-negative",
+                        "last_run_state": "wake_ready",
+                        "next_action_hint": "draft_paper_or_select_next_project",
+                        "manual_review_required": False,
+                    }]
+
+                def paper_rows(self) -> list[dict[str, object]]:
+                    return []
+
+                def append_event(self, **kwargs):
+                    self.events.append(kwargs)
+                    return 1, True
+
+            config = GateConfig(
+                state_dir=str(Path(tmp) / "state"),
+                project_root=str(project_root),
+                dispatch_script_path=str(Path(tmp) / "dispatch.sh"),
+                control_api_bearer_token=TOKEN,
+                completion_callback_url="http://example.invalid/callback",
+                completion_callback_token="unused",
+                control_plane_store_backend="supabase",
+                supabase_database_url="postgresql://example.invalid/postgres",
+            )
+            quota = {
+                "subscription": {"limit": 2500, "requests": 0},
+                "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+                "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+            }
+            with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=FakeSupabaseStore()), \
+                 patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+                 patch("enoch_control_plane.control_plane.router.write_paper_artifacts") as writer:
+                client = _client_with_config(config)
+                response = client.post(
+                    "/control/api/research/run-cycle",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    json={
+                        "dry_run": False,
+                        "enabled": True,
+                        "max_provider_requests_per_run": 0,
+                        "max_promotions_per_run": 0,
+                        "max_dispatches_per_run": 0,
+                        "max_paper_drafts_per_run": 1,
+                        "max_publication_rewrites_per_run": 1,
+                        "requested_by": "pytest",
+                    },
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertTrue(body["ok"])
+            self.assertEqual(body["paper_drafted_count"], 0)
+            self.assertEqual(body["publication_finalized_count"], 0)
+            self.assertEqual(body["paper_drafts"][0]["action"], "noop")
+            self.assertIn("lacked sufficient positive", body["paper_drafts"][0]["reason"])
+            writer.assert_not_called()
+
+    def test_research_facility_run_cycle_paper_stage_drafts_and_finalizes_positive_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp) / "projects"
+            project_dir = project_root / "positive-project"
+            project_dir.mkdir(parents=True)
+
+            class FakeSupabaseStore:
+                def __init__(self) -> None:
+                    self.events = []
+                    self.papers: dict[str, dict[str, object]] = {}
+                    self.review_rows: dict[str, dict[str, object]] = {}
+
+                def active_items(self) -> list[dict[str, str]]:
+                    return []
+
+                def status_counts(self) -> dict[str, int]:
+                    return {"blocked": 0, "queued": 0, "active": 0, "completed": 1}
+
+                def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                    return []
+
+                def record_research_facility_plans(self, *_args, **_kwargs):
+                    raise AssertionError("paper-only cycle should not record research ledgers")
+
+                def promote_research_candidate(self, *_args, **_kwargs):
+                    raise AssertionError("paper-only cycle should not promote candidates")
+
+                def queue_rows(self) -> list[dict[str, object]]:
+                    return [{
+                        "project_id": "positive-project",
+                        "project_name": "Positive Project",
+                        "project_dir": str(project_dir),
+                        "status": "completed",
+                        "current_run_id": "run-positive",
+                        "last_run_state": "finalize_positive",
+                        "next_action_hint": "draft_paper_or_select_next_project",
+                        "manual_review_required": False,
+                    }]
+
+                def paper_rows(self) -> list[dict[str, object]]:
+                    return list(self.papers.values())
+
+                def update_project_dir(self, project_id: str, project_dir_text: str) -> None:
+                    self.updated_project_dir = (project_id, project_dir_text)
+
+                def upsert_paper(self, paper) -> None:
+                    self.papers[paper.paper_id] = paper.model_dump(mode="json")
+
+                def backfill_paper_reviews(self, payload: PaperReviewBackfillRequest):
+                    paper_id = payload.paper_ids[0]
+                    self.review_rows[paper_id] = {
+                        "paper_id": paper_id,
+                        "project_id": "positive-project",
+                        "project_name": "Positive Project",
+                        "paper_status": "publication_draft",
+                        "paper_type": "arxiv_draft",
+                        "review_status": "queued",
+                        "updated_at": "2026-05-09T00:00:00Z",
+                    }
+                    return True, 1, 0, 0, []
+
+                def paper_row(self, paper_id: str):
+                    return self.papers.get(paper_id)
+
+                def paper_review_row(self, paper_id: str, include_rank_reasons: bool = False):
+                    return self.review_rows.get(paper_id)
+
+                def project_row(self, project_id: str):
+                    return {"project_id": project_id, "project_name": "Positive Project", "project_dir": str(project_dir)}
+
+                def prepare_paper_review_finalization_package(self, paper_id: str, payload, require_approval: bool = False):
+                    item = dict(self.review_rows[paper_id])
+                    item["review_status"] = "finalized"
+                    item["finalization_package_path"] = "papers/run-positive/finalization_package.json"
+                    self.review_rows[paper_id] = item
+                    return 42, True, item, item["finalization_package_path"], {"paper_id": paper_id}
+
+                def append_event(self, **kwargs):
+                    self.events.append(kwargs)
+                    return len(self.events), True
+
+            fake_store = FakeSupabaseStore()
+            config = GateConfig(
+                state_dir=str(Path(tmp) / "state"),
+                project_root=str(project_root),
+                dispatch_script_path=str(Path(tmp) / "dispatch.sh"),
+                control_api_bearer_token=TOKEN,
+                completion_callback_url="http://example.invalid/callback",
+                completion_callback_token="unused",
+                control_plane_store_backend="supabase",
+                supabase_database_url="postgresql://example.invalid/postgres",
+            )
+            quota = {
+                "subscription": {"limit": 2500, "requests": 0},
+                "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+                "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+            }
+            with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+                 patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+                 patch("enoch_control_plane.control_plane.router.write_paper_artifacts", return_value={"provider": "synthetic.new", "model": "hf:zai-org/GLM-5.1", "fallback_used": False}):
+                client = _client_with_config(config)
+                response = client.post(
+                    "/control/api/research/run-cycle",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    json={
+                        "dry_run": False,
+                        "enabled": True,
+                        "max_provider_requests_per_run": 0,
+                        "max_promotions_per_run": 0,
+                        "max_dispatches_per_run": 0,
+                        "max_paper_drafts_per_run": 1,
+                        "max_publication_rewrites_per_run": 1,
+                        "requested_by": "pytest",
+                    },
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertTrue(body["ok"])
+            self.assertEqual(body["paper_drafted_count"], 1)
+            self.assertEqual(body["publication_finalized_count"], 1)
+            self.assertEqual(body["paper_drafts"][0]["action"], "drafted")
+            self.assertEqual(body["publication_finalizations"][0]["item"]["review_status"], "finalized")
+            self.assertIn("paper.drafted", [event["event_type"] for event in fake_store.events])
+            self.assertIn("research.run_cycle.live", [event["event_type"] for event in fake_store.events])
+
     def test_research_facility_promote_candidate_requires_candidate_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)

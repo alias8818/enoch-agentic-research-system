@@ -1,0 +1,14 @@
+[Unit]
+Description=Enoch bounded Research Facility autopilot tick
+After=enoch-control-plane.service
+Wants=enoch-control-plane.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/enoch-control-plane
+Environment=ENOCH_CONFIG=/etc/enoch-control-plane/config.json
+Environment=ENOCH_ENABLE_RESEARCH_AUTOPILOT=0
+Environment=ENOCH_RESEARCH_AUTOPILOT_DISPATCH=1
+Environment=ENOCH_RESEARCH_AUTOPILOT_WAIT=1
+Environment=ENOCH_RESEARCH_AUTOPILOT_PAPERS=1
+ExecStart=/opt/enoch-control-plane/.venv/bin/python /opt/enoch-control-plane/deploy/enoch_research_autopilot.py
