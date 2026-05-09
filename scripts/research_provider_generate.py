@@ -51,7 +51,9 @@ def build_generation_prompt(*, max_candidates: int, topic: str, model: str, temp
     topic_line = topic.strip() or "; ".join(TOPIC_SPREAD)
     return f"""
 Return ONLY compact JSON. No markdown. No prose outside JSON.
-Shape: {{"candidates":[{{...}}]}}
+Top-level JSON object must be: {{"candidates":[candidate_object]}}
+The candidates array is required and must contain exactly {max_candidates} object(s).
+Never return an empty candidates array. If uncertain, still generate the best falsifiable moonshot.
 
 Generate exactly {max_candidates} Enoch Research Facility candidate idea(s).
 Focus: {topic_line}
@@ -221,6 +223,8 @@ def candidates_from_provider_response(
             "prompt_version": PROMPT_VERSION,
         }
         out.append(row)
+    if not out:
+        raise ValueError("provider returned 0 usable candidates")
     return out
 
 

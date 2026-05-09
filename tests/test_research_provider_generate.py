@@ -77,6 +77,31 @@ def test_provider_response_becomes_research_candidate_with_source_record() -> No
     assert row["raw_candidate_json"]["provider_response_id"] == "cmpl-provider-test"
 
 
+def test_provider_response_with_zero_usable_candidates_fails_closed() -> None:
+    payload = {
+        "id": "cmpl-empty",
+        "choices": [{"message": {"content": json.dumps({"candidates": []})}}],
+    }
+
+    try:
+        research_provider_generate.candidates_from_provider_response(
+            payload,
+            provider="synthetic.new",
+            provider_model="hf:moonshotai/Kimi-K2.6",
+            prompt="prompt",
+            topic="quantization",
+            temperature=0.3,
+            seed="seed-empty",
+            default_machine="192.168.1.77",
+            default_model="gpt-5.5",
+            default_sandbox="danger-full-access",
+        )
+    except ValueError as exc:
+        assert "0 usable candidates" in str(exc)
+    else:  # pragma: no cover - explicit failure branch for assertion clarity
+        raise AssertionError("expected zero-candidate provider response to fail closed")
+
+
 def test_provider_generate_calls_openai_compatible_endpoint_without_local_auth_when_empty_key() -> None:
     class FakeResponse:
         def __enter__(self):
@@ -108,3 +133,4 @@ def test_provider_generate_calls_openai_compatible_endpoint_without_local_auth_w
     assert payload["model"] == "hf:zai-org/GLM-5.1"
     assert payload["temperature"] == 0.7
     assert payload["response_format"] == {"type": "json_object"}
+    assert "Never return an empty candidates array" in payload["messages"][1]["content"]

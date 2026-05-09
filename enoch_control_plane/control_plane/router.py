@@ -2415,8 +2415,21 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 "rejected_count": 0,
             })
             return response
+        generated_candidates = generated.get("candidates") or []
+        if not generated_candidates:
+            response.update({
+                "ok": False,
+                "action": "provider_generation_failed",
+                "reason": "provider generation returned 0 usable candidates; no ledger rows written",
+                "candidate_count": 0,
+                "admitted_count": 0,
+                "needs_review_count": 0,
+                "rejected_count": 0,
+                "provider_response_id": generated.get("provider_response_id", ""),
+            })
+            return response
         plans = research_facility.plan_candidates(
-            generated.get("candidates") or [],
+            generated_candidates,
             Namespace(
                 default_machine=os.environ.get("ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"),
                 default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
