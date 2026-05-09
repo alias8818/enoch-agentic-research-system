@@ -36,6 +36,7 @@ from .models import (
     DashboardEventsResponse,
     DispatchNextRequest,
     DispatchNextResponse,
+    DispatchOneRequest,
     DraftNextRequest,
     DraftNextResponse,
     ImportSnapshotRequest,
@@ -705,11 +706,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         require_bearer(authorization)
 
 
-    def _live_dispatch(candidate: dict, requested_by: str, force_preflight: bool) -> tuple[dict, int | None, dict]:
+    def _live_dispatch(candidate: dict, requested_by: str, force_preflight: bool, *, allow_paused: bool = False) -> tuple[dict, int | None, dict]:
         if not config.live_dispatch_enabled:
             raise HTTPException(status_code=501, detail="live dispatch is disabled by config.live_dispatch_enabled")
-        if store.flags().queue_paused or store.flags().maintenance_mode:
-            raise HTTPException(status_code=409, detail="control plane must be resumed and out of maintenance mode before live dispatch")
+        flags = store.flags()
+        if flags.maintenance_mode:
+            raise HTTPException(status_code=409, detail="control plane must be out of maintenance mode before live dispatch")
+        if flags.queue_paused and not allow_paused:
+            raise HTTPException(status_code=409, detail="control plane must be resumed before live dispatch")
         if not config.worker_wake_gate_bearer_token:
             raise HTTPException(status_code=500, detail="worker wake-gate bearer token is not configured")
         project_id = str(candidate.get("project_id") or "").strip()
@@ -2383,6 +2387,47 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             candidate=result.get("candidate"),
             active_count=int(result.get("active_count") or 0),
             event_id=result.get("event_id"),
+        )
+
+    @router.post("/dispatch-one", response_model=DispatchNextResponse)
+    def dispatch_one(payload: DispatchOneRequest, authorization: str | None = Header(default=None)) -> DispatchNextResponse:
+        authorize(authorization)
+        project_id = str(payload.project_id or "").strip()
+        if not project_id:
+            raise HTTPException(status_code=400, detail="project_id is required")
+        active = store.active_items()
+        if active:
+            raise HTTPException(status_code=409, detail="active GB10 lane already exists")
+        candidate = store.queue_row(project_id)
+        if not candidate:
+            raise HTTPException(status_code=404, detail="project_id was not found in the queue")
+        if str(candidate.get("status") or "").strip() != "queued":
+            raise HTTPException(status_code=409, detail="project_id is not queued")
+        manual_review = str(candidate.get("manual_review_required") or "").strip().lower() in {"1", "true", "yes", "on"}
+        if manual_review:
+            raise HTTPException(status_code=409, detail="project_id is blocked by manual_review_required")
+        if payload.dry_run:
+            return DispatchNextResponse(
+                ok=True,
+                action="dry_run_dispatch_one",
+                reason="dry-run selected explicit queued candidate; no state mutated",
+                candidate=candidate,
+                active_count=0,
+            )
+        live, event_id, updated_candidate = _live_dispatch(
+            candidate,
+            payload.requested_by,
+            payload.force_preflight,
+            allow_paused=True,
+        )
+        return DispatchNextResponse(
+            ok=True,
+            action="live_dispatch_one",
+            reason="explicit live dispatch accepted by worker; global queue pause preserved",
+            candidate=updated_candidate,
+            active_count=1,
+            event_id=event_id,
+            live=live,
         )
 
     @router.get("/queue")

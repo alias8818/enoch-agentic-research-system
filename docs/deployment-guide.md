@@ -231,7 +231,7 @@ curl -fsS -H "Authorization: Bearer $TOKEN" \
 
 ## 9. Dispatch flow
 
-The dispatch path is intentionally guarded:
+The normal broad dispatch path is intentionally guarded:
 
 1. queue item exists;
 2. control plane is not paused;
@@ -250,6 +250,27 @@ curl -fsS -H "Authorization: Bearer $TOKEN" \
   -d '{"dry_run":true,"requested_by":"operator"}' \
   http://127.0.0.1:8787/control/dispatch-next | python3 -m json.tool
 ```
+
+For controlled validation work, dispatch exactly one known queued project while the broad queue remains paused:
+
+```bash
+PROJECT_ID="the-queued-project-id"
+
+# Non-mutating preflight of the explicit candidate. This works while the queue is paused.
+curl -fsS -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"project_id\":\"$PROJECT_ID\",\"dry_run\":true,\"requested_by\":\"operator\"}" \
+  http://127.0.0.1:8787/control/dispatch-one | python3 -m json.tool
+
+# Live dispatch of only that project. This still requires maintenance mode off,
+# a healthy worker preflight, and no active worker lane. It preserves queue_paused=true.
+curl -fsS -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"project_id\":\"$PROJECT_ID\",\"dry_run\":false,\"requested_by\":\"operator\"}" \
+  http://127.0.0.1:8787/control/dispatch-one | python3 -m json.tool
+```
+
+`/control/dispatch-one` must not be used as a batch drain. It rejects unknown projects, non-queued projects, blocked/manual-review rows, and any request made while another worker lane is active.
 
 ## 9. Paper artifact workflow
 

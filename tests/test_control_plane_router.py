@@ -1139,6 +1139,122 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(state["counts"].get("dispatching", 0), 0)
 
 
+    def test_dispatch_one_dry_run_works_while_paused_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "dispatch-one-dry-import",
+                "queue_rows": [
+                    {"project_id": "idea-one", "project_name": "One", "project_dir": "idea-one", "status": "queued", "dispatch_priority": 20},
+                    {"project_id": "idea-two", "project_name": "Two", "project_dir": "idea-two", "status": "queued", "dispatch_priority": 10},
+                ],
+            })
+
+            before = client.get("/control/state", headers=headers).json()
+            self.assertTrue(before["flags"]["queue_paused"])
+            self.assertEqual(before["counts"]["queued"], 2)
+
+            response = client.post("/control/dispatch-one", headers=headers, json={"project_id": "idea-one"})
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertEqual(body["action"], "dry_run_dispatch_one")
+            self.assertEqual(body["candidate"]["project_id"], "idea-one")
+
+            after = client.get("/control/state", headers=headers).json()
+            self.assertTrue(after["flags"]["queue_paused"])
+            self.assertEqual(after["counts"]["queued"], 2)
+            rows = client.get("/control/queue", headers=headers).json()["rows"]
+            self.assertEqual({row["project_id"]: row["status"] for row in rows}, {"idea-one": "queued", "idea-two": "queued"})
+
+
+    def test_dispatch_one_live_works_while_paused_and_only_dispatches_specified_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "dispatch-one-live-import",
+                "queue_rows": [
+                    {"project_id": "idea-one", "project_name": "One", "project_dir": "idea-one", "status": "queued", "dispatch_priority": 20},
+                    {"project_id": "idea-two", "project_name": "Two", "project_dir": "idea-two", "status": "queued", "dispatch_priority": 10},
+                ],
+            })
+            client.post("/control/pause", headers=headers, json={"paused_by": "test", "reason": "paused but not maintenance", "maintenance_mode": False})
+            preflight = WorkerPreflightResponse(ok=True, target=config.worker_wake_gate_url, summary="ok", checks=[])
+
+            def fake_post(_base: str, path: str, _token: str, payload: dict) -> HttpResult:
+                if path == "/prepare-project":
+                    return HttpResult(ok=True, status=200, body={"prepared": payload["project_id"]})
+                if path == "/dispatch":
+                    return HttpResult(ok=True, status=200, body={"dispatch": {"session_id": "session-one"}, "project_id": payload["project_id"]})
+                return HttpResult(ok=False, status=404, body=None, error="unexpected path")
+
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=preflight), \
+                 patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post):
+                response = client.post("/control/dispatch-one", headers=headers, json={"project_id": "idea-one", "dry_run": False})
+
+            self.assertEqual(response.status_code, 200, response.text)
+            body = response.json()
+            self.assertEqual(body["action"], "live_dispatch_one")
+            self.assertEqual(body["candidate"]["project_id"], "idea-one")
+            self.assertEqual(body["candidate"]["status"], "awaiting_wake")
+            self.assertEqual(body["live"]["project_id"], "idea-one")
+            self.assertEqual(body["live"]["dispatch"]["dispatch"]["session_id"], "session-one")
+
+            state = client.get("/control/state", headers=headers).json()
+            self.assertTrue(state["flags"]["queue_paused"])
+            self.assertFalse(state["flags"]["maintenance_mode"])
+            self.assertEqual(state["counts"].get("awaiting_wake"), 1)
+            self.assertEqual(state["counts"].get("queued"), 1)
+            rows = {row["project_id"]: row for row in client.get("/control/queue", headers=headers).json()["rows"]}
+            self.assertEqual(rows["idea-one"]["status"], "awaiting_wake")
+            self.assertEqual(rows["idea-two"]["status"], "queued")
+            self.assertFalse(rows["idea-two"].get("current_run_id"))
+
+
+    def test_dispatch_one_rejects_invalid_or_unsafe_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "dispatch-one-reject-import",
+                "queue_rows": [
+                    {"project_id": "idea-queued", "project_name": "Queued", "project_dir": "idea-queued", "status": "queued"},
+                    {"project_id": "idea-completed", "project_name": "Done", "project_dir": "idea-completed", "status": "completed"},
+                ],
+            })
+
+            missing = client.post("/control/dispatch-one", headers=headers, json={"project_id": ""})
+            self.assertEqual(missing.status_code, 400)
+            unknown = client.post("/control/dispatch-one", headers=headers, json={"project_id": "missing"})
+            self.assertEqual(unknown.status_code, 404)
+            non_queued = client.post("/control/dispatch-one", headers=headers, json={"project_id": "idea-completed"})
+            self.assertEqual(non_queued.status_code, 409)
+
+            # Existing /dispatch-next behavior is unchanged: paused dry-runs still report paused.
+            dispatch_next = client.post("/control/dispatch-next", headers=headers, json={"dry_run": True})
+            self.assertEqual(dispatch_next.status_code, 200)
+            self.assertEqual(dispatch_next.json()["action"], "paused")
+
+
+    def test_dispatch_one_rejects_when_active_item_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "dispatch-one-active-import",
+                "queue_rows": [
+                    {"project_id": "idea-active", "project_name": "Active", "project_dir": "idea-active", "status": "awaiting_wake", "current_run_id": "run-active"},
+                    {"project_id": "idea-queued", "project_name": "Queued", "project_dir": "idea-queued", "status": "queued"},
+                ],
+            })
+
+            response = client.post("/control/dispatch-one", headers=headers, json={"project_id": "idea-queued"})
+            self.assertEqual(response.status_code, 409)
+            self.assertIn("active GB10 lane already exists", response.text)
+
 
     def test_dashboard_queue_project_run_paper_events_and_intake_apis(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

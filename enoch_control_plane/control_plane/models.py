@@ -406,6 +406,13 @@ class DispatchNextRequest(BaseModel):
     force_preflight: bool = True
 
 
+class DispatchOneRequest(BaseModel):
+    project_id: str
+    dry_run: bool = True
+    requested_by: str = "operator"
+    force_preflight: bool = True
+
+
 class FollowupLaunchRequest(BaseModel):
     dry_run: bool = True
     requested_by: str = "operator"
@@ -434,7 +441,15 @@ class LiveDispatchResult(BaseModel):
 
 class DispatchNextResponse(BaseModel):
     ok: bool
-    action: Literal["paused", "noop", "dry_run_dispatch", "live_dispatch", "dispatch_blocked"]
+    action: Literal[
+        "paused",
+        "noop",
+        "dry_run_dispatch",
+        "live_dispatch",
+        "dry_run_dispatch_one",
+        "live_dispatch_one",
+        "dispatch_blocked",
+    ]
     reason: str
     candidate: dict[str, Any] | None = None
     active_count: int = 0
