@@ -101,7 +101,7 @@ Do not export or store the Synthetic key on `enoch-core`. After the integration 
 ```bash
 python scripts/research_provider_budget.py \
   --provider synthetic \
-  --base-url http://synthetic.int.exe.xyz \
+  --base-url https://synthetic.int.exe.xyz \
   --no-auth \
   --estimated-requests 4 \
   --reserve-requests 4 \

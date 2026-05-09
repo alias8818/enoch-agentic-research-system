@@ -93,14 +93,14 @@ def test_budget_cli_can_use_exedev_proxy_without_local_api_key(monkeypatch, tmp_
 
     assert research_provider_budget.main([
         "--base-url",
-        "http://synthetic.int.exe.xyz",
+        "https://synthetic.int.exe.xyz",
         "--no-auth",
         "--output",
         str(output),
     ]) == 0
 
     result = json.loads(output.read_text(encoding="utf-8"))
-    assert calls == [("http://synthetic.int.exe.xyz/v2/quotas", "")]
+    assert calls == [("https://synthetic.int.exe.xyz/v2/quotas", "")]
     assert result["ok"] is True
     assert result["auth_mode"] == "exe_http_proxy"
-    assert result["base_url"] == "http://synthetic.int.exe.xyz"
+    assert result["base_url"] == "https://synthetic.int.exe.xyz"
