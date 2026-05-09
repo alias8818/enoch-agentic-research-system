@@ -73,6 +73,25 @@ A candidate must be a testable research proposal, not a vague idea. Required fie
 The deterministic planner in `scripts/research_facility.py` rejects candidates that miss the core contract, lack required grounding, look like shallow incremental sludge, or try to re-run known negatives without explaining the new mechanism/evidence.
 
 
+
+## Provider budget preflight
+
+Provider-backed generation must check quota before spending. Synthetic is supported through `scripts/research_provider_budget.py`; it reads the API key from `SYNTHETIC_API_KEY` and does not print the key.
+
+```bash
+python scripts/research_provider_budget.py \
+  --provider synthetic \
+  --estimated-requests 4 \
+  --reserve-requests 4 \
+  --min-remaining-credits 5 \
+  --min-rolling-remaining 10 \
+  --output /tmp/synthetic-budget.json
+```
+
+The Research Facility should fail closed when the provider is limited, the quota endpoint is unavailable, or available credits/rolling requests fall below the configured reserve. Budget checks belong before provider-backed candidate generation, not in dispatch.
+
+For model diversity, rotate provider-backed candidate batches across strong models such as Kimi and GLM, and vary temperature/seed as generation metadata. The deterministic planner still owns admission: model diversity can create candidates, but it cannot bypass grounding, dedupe, novelty comparison, success thresholds, or kill conditions.
+
 ## Source scanning
 
 Use the deterministic scanner to create a grounded candidate batch without writing to the database:
