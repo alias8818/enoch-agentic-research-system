@@ -144,6 +144,12 @@ For live/local Postgres checks, provide `--database-url` from the service enviro
 
 This keeps source scanning, candidate generation, history comparison, admission, and queue promotion as separate steps.
 
+The dashboard follows the same split:
+
+- `Generate smoke batch` dry-runs first, then writes only Research Facility source/candidate/admission/lineage rows.
+- `Promote selected candidate` dry-runs first, then promotes exactly one already-admitted candidate into `enoch.ideas`, `enoch.projects`, and `enoch.queue_items`.
+- Neither dashboard action dispatches worker execution. Dispatch remains a separate operator command.
+
 ## Admission behavior
 
 Use the planner first:
