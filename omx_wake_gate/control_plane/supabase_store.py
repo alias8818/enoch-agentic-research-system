@@ -2308,6 +2308,27 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 ).fetchall()
         return [dict(row) for row in rows]
 
+    def research_facility_workbench_projection(self, *, limit: int = 200) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 500))
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                rows = cur.execute(
+                    """
+                    select candidate_id, generation_mode, status, title, category, priority,
+                           total_score, novelty_score, feasibility_score, accessibility_score,
+                           falsifiability_score, dedupe_key, parent_project_id, parent_run_id,
+                           similar_prior_projects, source_urls, provider, provider_model,
+                           admission_decision, admission_reason, admitted_idea_id, admitted_by,
+                           admitted_queue_status, admitted_current_run_id, admitted_project_name,
+                           created_at, updated_at
+                    from research_facility_workbench
+                    order by updated_at desc, total_score desc, candidate_id asc
+                    limit %s
+                    """,
+                    (safe_limit,),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
     def paper_notion_projection(self) -> list[dict[str, Any]]:
         return [{
             "paper_id": paper.get("paper_id") or "",

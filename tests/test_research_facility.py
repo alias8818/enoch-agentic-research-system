@@ -111,3 +111,11 @@ def test_research_facility_cli_extracts_json_from_markdown(tmp_path: Path) -> No
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["candidate_count"] == 1
     assert payload["admitted_count"] == 1
+
+
+def test_research_facility_runtime_methods_are_present() -> None:
+    from omx_wake_gate.control_plane.store import ControlPlaneStore
+    from omx_wake_gate.control_plane.supabase_store import SupabaseControlPlaneStore
+
+    assert ControlPlaneStore(Path(":memory:")).research_facility_workbench_projection() == []
+    assert callable(getattr(SupabaseControlPlaneStore("postgresql://example.invalid/postgres", connect=lambda: None), "research_facility_workbench_projection"))

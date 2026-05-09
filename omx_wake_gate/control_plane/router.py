@@ -2191,6 +2191,25 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         authorize(authorization)
         return _dashboard_ideas_intake_response(page_size=page_size, include_latest_payload=include_latest_payload)
 
+    @router.get("/api/research/facility")
+    def dashboard_research_facility(
+        authorization: str | None = Header(default=None),
+        page_size: int = Query(default=50, ge=1, le=200),
+    ) -> dict[str, Any]:
+        authorize(authorization)
+        rows = store.research_facility_workbench_projection(limit=page_size) if hasattr(store, "research_facility_workbench_projection") else []
+        counts: dict[str, int] = {}
+        for row in rows:
+            status = str(row.get("status") or "unknown")
+            counts[status] = counts.get(status, 0) + 1
+        return {
+            "ok": True,
+            "authority": "Research Facility ledgers: sources, candidates, admissions, lineage",
+            "rows": rows,
+            "counts": counts,
+            "page": {"page_size": page_size, "returned": len(rows)},
+        }
+
     @router.get("/api/intake/notion", response_model=DashboardIntakeResponse)
     def dashboard_notion_intake(
         authorization: str | None = Header(default=None),

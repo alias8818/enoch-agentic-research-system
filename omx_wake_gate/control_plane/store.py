@@ -2126,6 +2126,13 @@ class ControlPlaneStore:
             for row in self.queue_notion_projection()
         ]
 
+    def research_facility_workbench_projection(self, *, limit: int = 200) -> list[dict[str, Any]]:
+        # The SQLite compatibility store predates the Research Facility ledgers.
+        # Returning an empty projection keeps legacy/local smokes working while
+        # the Supabase/Postgres store owns the real source/candidate/admission
+        # workbench.
+        return []
+
     def notion_execution_update_projection(self) -> list[dict[str, Any]]:
         state_map = {
             QueueStatus.QUEUED.value: "queued",
