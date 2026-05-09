@@ -156,6 +156,7 @@ def normalize_candidate(raw: dict[str, Any], *, default_machine: str, default_mo
     row["source_kind"] = _as_text(row.get("source_kind"))
     row["source_ids"] = _as_list(row.get("source_ids"))
     row["source_urls"] = _as_list(row.get("source_urls") or ([row.get("source_external_url")] if row.get("source_external_url") else []))
+    row["source_records"] = _as_list(row.get("source_records"))
     row["parent_project_id"] = _as_text(row.get("parent_project_id"))
     row["parent_run_id"] = _as_text(row.get("parent_run_id"))
     for key in ("hypothesis", "mechanism", "description", "implementation", "baseline_to_beat", "success_threshold", "kill_condition", "accessibility_delta", "novelty_comparison", "risk_notes"):
@@ -292,6 +293,17 @@ def emit_sql(plans: list[CandidatePlan], *, requested_by: str, queue_admitted: b
     ]
     for plan in plans:
         c = plan.candidate
+        for source in c.get("source_records", []):
+            if not isinstance(source, dict):
+                continue
+            source_id = _as_text(source.get("source_id")) or "source-" + stable_hash(_as_text(source.get("url") or source.get("title")), 24)
+            source_kind = _as_text(source.get("source_kind") or c.get("source_kind") or "other")
+            lines.append(
+                "insert into enoch.research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash) values "
+                f"({sql_literal(source_id)}, {sql_literal(source_kind)}, {sql_literal(_as_text(source.get('title') or c['title']))}, {sql_literal(_as_text(source.get('url')))}, {sql_literal(_as_text(source.get('external_id')))}, "
+                f"nullif({sql_literal(_as_text(source.get('retrieved_at')))}, '')::timestamptz, {sql_literal(_as_text(source.get('summary')))}, {sql_json(source.get('payload_json') or {})}, {sql_literal(_as_text(source.get('content_hash')) or stable_hash(json.dumps(source, sort_keys=True), 64))}) "
+                "on conflict (source_id) do update set title = excluded.title, url = excluded.url, summary = excluded.summary, payload_json = excluded.payload_json, content_hash = excluded.content_hash, updated_at = now();"
+            )
         for url in c["source_urls"]:
             source_id = "url-" + stable_hash(_as_text(url), 24)
             lines.append(

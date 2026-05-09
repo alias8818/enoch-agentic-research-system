@@ -119,3 +119,30 @@ def test_research_facility_runtime_methods_are_present() -> None:
 
     assert ControlPlaneStore(Path(":memory:")).research_facility_workbench_projection() == []
     assert callable(getattr(SupabaseControlPlaneStore("postgresql://example.invalid/postgres", connect=lambda: None), "research_facility_workbench_projection"))
+
+
+def test_research_facility_emits_full_source_records_when_present() -> None:
+    candidate = _strong_candidate(
+        source_ids=["arxiv-abc"],
+        source_records=[
+            {
+                "source_id": "arxiv-abc",
+                "source_kind": "arxiv",
+                "title": "Source Title",
+                "url": "https://arxiv.org/abs/2401.00000",
+                "external_id": "2401.00000",
+                "retrieved_at": "2026-05-09T00:00:00Z",
+                "summary": "Source summary",
+                "payload_json": {"query": "test"},
+                "content_hash": "abc123",
+            }
+        ],
+    )
+    plan = research_facility.plan_candidates([candidate], _args())[0]
+
+    sql = research_facility.emit_sql([plan], requested_by="pytest", queue_admitted=False)
+
+    assert "external_id, retrieved_at, summary" in sql
+    assert "Source summary" in sql
+    assert "arxiv-abc" in sql
+    assert "'source', 'arxiv-abc', 'candidate'" in sql

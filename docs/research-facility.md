@@ -72,6 +72,36 @@ A candidate must be a testable research proposal, not a vague idea. Required fie
 
 The deterministic planner in `scripts/research_facility.py` rejects candidates that miss the core contract, lack required grounding, look like shallow incremental sludge, or try to re-run known negatives without explaining the new mechanism/evidence.
 
+
+## Source scanning
+
+Use the deterministic scanner to create a grounded candidate batch without writing to the database:
+
+```bash
+python scripts/research_facility_scan.py \
+  --arxiv-query 'cat:cs.LG AND all:speculative decoding' \
+  --max-results 5 \
+  --output /tmp/research-source-batch.json
+```
+
+The scanner can also convert saved source records, which is safer for repeatable tests and for externally supplied source lists:
+
+```bash
+python scripts/research_facility_scan.py \
+  --source-json sources.json \
+  --output /tmp/research-source-batch.json
+```
+
+The output contains both `sources` and `candidates`. Pass the same file into the planner; it reads the `candidates` array, preserves `source_records`, and emits source-ledger SQL before candidate/admission SQL:
+
+```bash
+python scripts/research_facility.py /tmp/research-source-batch.json \
+  --output /tmp/research-plan.json \
+  --emit-sql /tmp/research-ledgers.sql
+```
+
+This keeps source scanning, candidate generation, admission, and queue promotion as separate steps.
+
 ## Admission behavior
 
 Use the planner first:
