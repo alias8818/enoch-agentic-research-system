@@ -150,6 +150,7 @@ def call_openai_compatible_chat(
         ],
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "response_format": {"type": "json_object"},
     }
     headers = {"Content-Type": "application/json", "User-Agent": "EnochResearchFacility/0.1"}
     if api_key:

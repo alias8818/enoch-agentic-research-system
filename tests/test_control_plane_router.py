@@ -628,6 +628,44 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(requested_by, "pytest")
         self.assertFalse(queue_admitted)
 
+    def test_research_facility_provider_generate_failure_does_not_write_ledgers(self) -> None:
+        class FakeSupabaseStore:
+            def record_research_facility_plans(self, *_args, **_kwargs):  # pragma: no cover - should not be called
+                raise AssertionError("ledger write should not run when provider generation fails")
+
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=FakeSupabaseStore()), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+             patch("scripts.research_provider_generate.generate_provider_candidates", side_effect=ValueError("invalid provider JSON")):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/generate-provider-batch",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={"dry_run": False, "max_candidates": 1, "requested_by": "pytest"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["action"], "provider_generation_failed")
+        self.assertIn("invalid provider JSON", body["reason"])
+        self.assertEqual(body["queued_count"], 0)
+        self.assertFalse(body["dispatch_started"])
+
     def test_research_facility_promote_candidate_requires_candidate_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)

@@ -2390,19 +2390,31 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             return response
         if not hasattr(store, "record_research_facility_plans"):
             raise HTTPException(status_code=501, detail="Research Facility ledger writes require the Supabase control-plane store")
-        generated = research_provider_generate.generate_provider_candidates(
-            base_url=provider_openai_base_url,
-            model=provider_model,
-            api_key="",
-            max_candidates=max_candidates,
-            topic=topic,
-            temperature=temperature,
-            seed=seed,
-            timeout=generation_timeout,
-            default_machine=os.environ.get("ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"),
-            default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
-            default_sandbox=os.environ.get("ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"),
-        )
+        try:
+            generated = research_provider_generate.generate_provider_candidates(
+                base_url=provider_openai_base_url,
+                model=provider_model,
+                api_key="",
+                max_candidates=max_candidates,
+                topic=topic,
+                temperature=temperature,
+                seed=seed,
+                timeout=generation_timeout,
+                default_machine=os.environ.get("ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"),
+                default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
+                default_sandbox=os.environ.get("ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"),
+            )
+        except Exception as exc:  # noqa: BLE001 - provider generation must fail closed without ledger writes
+            response.update({
+                "ok": False,
+                "action": "provider_generation_failed",
+                "reason": f"provider generation failed before ledger write: {exc}",
+                "candidate_count": 0,
+                "admitted_count": 0,
+                "needs_review_count": 0,
+                "rejected_count": 0,
+            })
+            return response
         plans = research_facility.plan_candidates(
             generated.get("candidates") or [],
             Namespace(
