@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 from urllib import error, request
 
 
@@ -50,6 +51,21 @@ def _bounded_int(name: str, default: int, lower: int, upper: int) -> int:
     return max(lower, min(value, upper))
 
 
+def _provider_model() -> str:
+    explicit = os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL")
+    if explicit:
+        return explicit
+    rotation = [
+        item.strip()
+        for item in os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL_ROTATION", "hf:zai-org/GLM-5.1,hf:moonshotai/Kimi-K2.6").split(",")
+        if item.strip()
+    ]
+    if not rotation:
+        return "hf:zai-org/GLM-5.1"
+    window_seconds = _bounded_int("ENOCH_RESEARCH_PROVIDER_MODEL_ROTATION_SECONDS", 1200, 60, 86400)
+    return rotation[int(time.time() // window_seconds) % len(rotation)]
+
+
 def main() -> int:
     if not _truthy("ENOCH_ENABLE_RESEARCH_AUTOPILOT"):
         print(json.dumps({"ok": True, "action": "skipped", "reason": "research autopilot disabled; set ENOCH_ENABLE_RESEARCH_AUTOPILOT=1"}, sort_keys=True))
@@ -67,7 +83,7 @@ def main() -> int:
         "enabled": True,
         "dry_run": False,
         "requested_by": os.environ.get("ENOCH_RESEARCH_AUTOPILOT_REQUESTED_BY", "systemd:enoch-research-autopilot"),
-        "model": os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL", "hf:zai-org/GLM-5.1"),
+        "model": _provider_model(),
         "topic": os.environ.get("ENOCH_RESEARCH_AUTOPILOT_TOPIC", ""),
         "temperature": float(os.environ.get("ENOCH_RESEARCH_AUTOPILOT_TEMPERATURE", "0.6")),
         "generation_max_tokens": _bounded_int("ENOCH_RESEARCH_PROVIDER_MAX_TOKENS", 8000, 1000, 16000),
