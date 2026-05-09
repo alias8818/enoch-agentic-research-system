@@ -50,49 +50,41 @@ def _json_dumps(value: Any) -> str:
 def build_generation_prompt(*, max_candidates: int, topic: str, model: str, temperature: float, seed: str) -> str:
     topic_line = topic.strip() or "; ".join(TOPIC_SPREAD)
     return f"""
-Generate exactly {max_candidates} novel, falsifiable Enoch Research Facility candidate ideas.
+Return ONLY compact JSON. No markdown. No prose outside JSON.
+Shape: {{"candidates":[{{...}}]}}
 
-Context:
-- Enoch tests AI systems ideas for local/home hardware usefulness: lower VRAM/RAM, cheaper training, longer useful context, faster inference, distributed/home training, or more reliable small agents.
-- Do not produce shallow incremental ideas such as tiny hyperparameter tweaks or +0.05% benchmark-chasing.
-- High-risk moonshots are allowed if they are testable and have a clear kill condition.
-- Each idea must be a bounded experiment that can run on a local worker before scaling.
-- Current topic spread/focus: {topic_line}
-- Provider/model metadata: model={model}, temperature={temperature}, seed={seed}
+Generate exactly {max_candidates} Enoch Research Facility candidate idea(s).
+Focus: {topic_line}
+Metadata: model={model}; temperature={temperature}; seed={seed}
 
-Return JSON only. No markdown. Shape:
-{{"candidates":[{{...}}]}}
+Goal: non-shallow AI systems experiments for local/home AI: lower VRAM/RAM,
+cheaper training, longer context, faster inference, safer small agents, or
+volunteer/home distributed training. Moonshots are allowed if falsifiable.
 
-Each candidate object must include all fields below:
-- title
-- generation_mode: one of fresh_grounded, moonshot, implementation_gap, paper_replication_extension, home_hardware_accessibility, distributed-training is NOT valid; use moonshot for distributed moonshots
-- category: one of long-context, kv-compression, spec-decoding, quantization, home-training, distributed-training, agent-reliability, systems-research
-- priority: High or Medium
-- hypothesis: one concrete falsifiable claim
-- mechanism: how it might work
-- description: concise explanation
-- implementation: concrete local experiment plan
-- baseline_to_beat: strongest simple baseline
-- success_threshold: numeric or objective pass threshold
-- kill_condition: when to stop/no-paper
-- accessibility_delta: why this helps local/home AI users
-- expected_artifacts: include run_notes.md, metrics.json, failure_cases.json, .enoch/project_decision.json
-- required_evidence: include baseline comparison, metrics table, failure cases, decision artifact
-- likely_failure_modes: at least 3 realistic failure modes
-- estimated_runtime_class: small, medium, large, or overnight
-- expected_token_budget: small, medium, or large
-- machine_target: 192.168.1.77
-- model: gpt-5.5
-- sandbox: danger-full-access
-- novelty_score, feasibility_score, accessibility_score, falsifiability_score: numbers 0-10
-- novelty_comparison: explain why it is not just a duplicate of common known approaches
-- risk_notes: what could make this misleading or weak
+Each string value must be short: <= 180 characters.
+Each candidate must include these keys:
+title, generation_mode, category, priority, hypothesis, mechanism, description,
+implementation, baseline_to_beat, success_threshold, kill_condition,
+accessibility_delta, expected_artifacts, required_evidence,
+likely_failure_modes, estimated_runtime_class, expected_token_budget,
+machine_target, model, sandbox, novelty_score, feasibility_score,
+accessibility_score, falsifiability_score, novelty_comparison, risk_notes.
 
-Additional constraints:
-- If generation_mode is fresh_grounded, mention the grounding concept in description and include a source-like mechanism in novelty_comparison.
-- For follow-ups from prior negative results, do not use followup_from_negative unless parent_project_id or parent_run_id is known. In this provider batch, avoid followup_from_negative.
-- Do not invent external citations. If you reference a research family, name it as conceptual grounding, not as a fake citation.
-- Keep each candidate self-contained and ready for deterministic planner scoring.
+Allowed generation_mode:
+fresh_grounded, moonshot, implementation_gap, paper_replication_extension,
+home_hardware_accessibility, manual_import.
+Do not use followup_from_negative unless a parent id is known.
+
+Allowed category:
+long-context, kv-compression, spec-decoding, quantization, home-training,
+distributed-training, agent-reliability, systems-research.
+
+Fixed values:
+expected_artifacts=["run_notes.md","metrics.json","failure_cases.json",".enoch/project_decision.json"]
+required_evidence=["baseline comparison","metrics table","failure cases","decision artifact"]
+machine_target="192.168.1.77"; model="gpt-5.5"; sandbox="danger-full-access"
+
+Avoid fake citations. Avoid tiny hyperparameter or +0.05% ideas.
 """.strip()
 
 
@@ -139,7 +131,7 @@ def call_openai_compatible_chat(
     prompt: str,
     api_key: str = "",
     temperature: float = 0.8,
-    max_tokens: int = 5000,
+    max_tokens: int = 2500,
     timeout: int = 120,
 ) -> dict[str, Any]:
     payload = {
