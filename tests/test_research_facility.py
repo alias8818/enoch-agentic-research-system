@@ -85,6 +85,18 @@ def test_research_facility_requires_novelty_comparison_for_similar_prior_project
     assert "similar_prior_projects requires novelty_comparison" in plan.hard_failures
 
 
+def test_research_facility_normalizes_provider_runtime_and_token_budget_labels() -> None:
+    row = research_facility.normalize_candidate(
+        _strong_candidate(estimated_runtime_class="days", expected_token_budget="50k"),
+        default_machine="192.168.1.77",
+        default_model="gpt-5.5",
+        default_sandbox="danger-full-access",
+    )
+
+    assert row["estimated_runtime_class"] == "overnight"
+    assert row["expected_token_budget"] == "small"
+
+
 def test_research_facility_emits_auditable_ledgers_and_optional_queue_sql() -> None:
     plan = research_facility.plan_candidates([_strong_candidate()], _args())[0]
 

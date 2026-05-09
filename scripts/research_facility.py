@@ -47,6 +47,8 @@ SHALLOW_INCREMENT_PATTERNS = (
 )
 DEFAULT_ARTIFACTS = ["run_notes.md", "metrics.json", "failure_cases.json", ".enoch/project_decision.json"]
 DEFAULT_EVIDENCE = ["baseline comparison", "metrics table", "failure cases", "decision artifact"]
+RUNTIME_CLASSES = {"", "small", "medium", "large", "overnight"}
+TOKEN_BUDGETS = {"", "small", "medium", "large"}
 
 
 def _as_text(value: Any) -> str:
@@ -74,6 +76,34 @@ def _as_float(value: Any, default: float = 0.0) -> float:
 
 def _bounded_score(value: Any) -> float:
     return max(0.0, min(10.0, _as_float(value)))
+
+
+def _runtime_class(value: Any) -> str:
+    text = _as_text(value).lower()
+    if text in RUNTIME_CLASSES:
+        return text
+    if any(term in text for term in ("overnight", "day", "days", "48", "24h", "long")):
+        return "overnight"
+    if any(term in text for term in ("large", "slow")):
+        return "large"
+    if any(term in text for term in ("small", "fast", "short", "hour")):
+        return "small"
+    if text:
+        return "medium"
+    return ""
+
+
+def _token_budget(value: Any) -> str:
+    text = _as_text(value).lower()
+    if text in TOKEN_BUDGETS:
+        return text
+    if any(term in text for term in ("large", "million", "1m", "500k", "250k")):
+        return "large"
+    if any(term in text for term in ("small", "50k", "25k", "10k")):
+        return "small"
+    if text:
+        return "medium"
+    return ""
 
 
 def slugify(value: str) -> str:
@@ -238,8 +268,8 @@ def normalize_candidate(raw: dict[str, Any], *, default_machine: str, default_mo
     row["expected_artifacts"] = _as_list(row.get("expected_artifacts")) or DEFAULT_ARTIFACTS
     row["required_evidence"] = _as_list(row.get("required_evidence")) or DEFAULT_EVIDENCE
     row["likely_failure_modes"] = _as_list(row.get("likely_failure_modes"))
-    row["estimated_runtime_class"] = _as_text(row.get("estimated_runtime_class"))
-    row["expected_token_budget"] = _as_text(row.get("expected_token_budget"))
+    row["estimated_runtime_class"] = _runtime_class(row.get("estimated_runtime_class"))
+    row["expected_token_budget"] = _token_budget(row.get("expected_token_budget"))
     row["machine_target"] = _as_text(row.get("machine_target") or default_machine)
     row["model"] = _as_text(row.get("model") or default_model)
     row["sandbox"] = _as_text(row.get("sandbox") or default_sandbox)

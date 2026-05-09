@@ -85,6 +85,8 @@ Fixed values:
 expected_artifacts=["run_notes.md","metrics.json","failure_cases.json",".enoch/project_decision.json"]
 required_evidence=["baseline comparison","metrics table","failure cases","decision artifact"]
 machine_target="192.168.1.77"; model="gpt-5.5"; sandbox="danger-full-access"
+estimated_runtime_class must be one of: small, medium, large, overnight.
+expected_token_budget must be one of: small, medium, large.
 
 Avoid fake citations. Avoid tiny hyperparameter or +0.05% ideas.
 """.strip()
