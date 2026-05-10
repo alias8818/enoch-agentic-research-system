@@ -6,6 +6,7 @@ Wants=enoch-control-plane.service
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/enoch-control-plane
+Environment=HOME=/root
 Environment=ENOCH_CONFIG=/etc/enoch-control-plane/config.json
 EnvironmentFile=-/etc/enoch-control-plane/supabase.env
 Environment=ENOCH_RELEASE_ROOT=/opt/enoch-release

@@ -124,6 +124,7 @@ def test_corpus_import_autopilot_unit_is_opt_in_and_capped(capsys) -> None:
     timer = (ROOT / "deploy" / "enoch-corpus-import-autopilot.timer").read_text(encoding="utf-8")
     script = (ROOT / "deploy" / "enoch_corpus_import_autopilot.py").read_text(encoding="utf-8")
     combined = service + timer + script
+    assert "Environment=HOME=/root" in service
     assert "Environment=ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT=0" in service
     assert "EnvironmentFile=-/etc/enoch-control-plane/supabase.env" in service
     assert "Environment=ENOCH_CORPUS_IMPORT_LIMIT=1" in service
