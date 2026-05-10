@@ -1,6 +1,8 @@
 # Configuration reference
 
 Primary config is a JSON file loaded from `ENOCH_CONFIG`.
+For current runtime host paths, storage authority, and compatibility naming,
+see [`current-runtime-snapshot.md`](current-runtime-snapshot.md).
 
 ## Required fields
 

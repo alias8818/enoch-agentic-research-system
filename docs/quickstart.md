@@ -1,6 +1,8 @@
 # Quickstart
 
 This quickstart gets a developer clone to a running local API and dashboard. It does not require a real worker machine.
+For the production two-host topology, see
+[`current-runtime-snapshot.md`](current-runtime-snapshot.md).
 
 ## 1. Install dependencies and run tests
 

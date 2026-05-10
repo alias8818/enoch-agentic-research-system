@@ -3,6 +3,8 @@
 Status: future TODO / feature backlog as of 2026-05-10.
 
 This page is not a commitment to implement every item immediately. It captures the next engineering direction after the native Codex worker migration, Research Facility autopilot, local Postgres control-plane move, long-haul readiness card, and corpus import automation.
+For current runtime topology, see
+[`current-runtime-snapshot.md`](current-runtime-snapshot.md).
 
 ## Future feature: self-healing doctor system
 

@@ -1,6 +1,6 @@
 # State vocabulary reduction plan
 
-Status: migration-safe target vocabulary for control-plane runtime state. This plan was written during the Supabase-backed phase; current production storage is local Postgres on `enoch-core`.
+Status: migration-safe target vocabulary for control-plane runtime state. This plan was written during the Supabase-backed phase; current production storage is local Postgres on `enoch-core`. For current runtime topology, see [`current-runtime-snapshot.md`](current-runtime-snapshot.md).
 
 This plan reduces operator and agent reasoning to small domain vocabularies while keeping raw compatibility values constrained and auditable. It is a planning and validation artifact: live data changes still go through `scripts/normalize_state_surfaces.py` dry-run/apply plus `scripts/state_doctor.py` evidence.
 

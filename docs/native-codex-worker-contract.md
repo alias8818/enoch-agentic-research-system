@@ -3,6 +3,8 @@
 Status: current worker-facing contract as of 2026-05-10.
 
 A worker run closes by leaving auditable local artifacts. The worker does not decide publication readiness and does not manually mark papers ready. The control plane consumes the artifacts, callback, and decision gate.
+For current runtime host topology and callback/reconnect boundaries, see
+[`current-runtime-snapshot.md`](current-runtime-snapshot.md).
 
 ## Required artifacts
 
@@ -80,4 +82,3 @@ Follow-up metadata creates adjacent investigation work only. It does not make th
 The worker gate posts completion to `/control/api/worker-callback` with an idempotency key. If a callback-ready state lacks a delivered key, the worker gate retries automatically. If the control plane disconnects during a bounded Research Facility tick, the timer script checks control-plane recovery and lets the next tick continue rather than replaying a non-idempotent POST.
 
 Still not covered: a worker process killed mid-run before a decision artifact exists. In that case, inspect the worker project directory, logs, and process evidence before reconciling the queue row.
-

@@ -3,6 +3,8 @@
 The Enoch execution system should not depend on hand-picked prompts or ad-hoc ChatGPT batches alone. The Research Facility is the first-class intake lane for discovering, scoring, admitting, and tracing candidate research ideas before the control plane dispatches experiments.
 
 This document describes that intake layer because it is important to the full system story. It is intentionally separated from runtime dispatch: generated candidates do not become work until an admission decision promotes them into the control-plane idea/project/queue ledgers.
+For current runtime topology, storage authority, and bounded Research Facility
+automation, see [`current-runtime-snapshot.md`](current-runtime-snapshot.md).
 
 ## Summary
 

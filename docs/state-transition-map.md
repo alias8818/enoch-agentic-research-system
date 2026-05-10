@@ -3,6 +3,8 @@
 Status: active operator contract as of 2026-05-07.
 
 This is the grade-school lifecycle map for ideas, projects, runs, papers, publication, and corpus import. It is intentionally smaller than the raw database vocabulary. Raw states remain compatibility/detail evidence; operator lanes answer what a human or agent should do next.
+For current runtime topology and decision-artifact ownership, see
+[`current-runtime-snapshot.md`](current-runtime-snapshot.md).
 
 ```text
 Idea -> Queue -> Run -> Decision -> [Follow-up Investigation] or Paper -> Publication -> Corpus

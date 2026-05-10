@@ -96,6 +96,7 @@ Never commit live config files or credentials.
 ```bash
 uv run pytest -q
 python scripts/validate_versioning.py
+python3 scripts/validate_runtime_snapshot_links.py
 ```
 
 ## Versioning and release notes

@@ -3,6 +3,8 @@
 Status: active operator policy as of 2026-05-07.
 
 This policy controls when Enoch can leave the idle/cleanup posture and dispatch new research work after the runtime storage cutovers and canonical paper-gate fixes.
+For current runtime topology and decision-artifact boundaries, see
+[`current-runtime-snapshot.md`](current-runtime-snapshot.md).
 
 ## Current operating posture
 

@@ -4,7 +4,10 @@ Status: current topology note as of 2026-05-10. This file keeps earlier Supabase
 
 The current production control plane runs on `enoch-core` from `/opt/enoch-control-plane` with local Postgres database `enoch_control`. Older `control_plane_store_backend=supabase`, `supabase_database_url`, and `ENOCH_SUPABASE_DATABASE_URL` names remain in compatibility code, migration scripts, and historical evidence. Treat them as adapter/migration names unless live config proves otherwise. Notion is not an active runtime dependency; legacy Notion control-plane endpoints should return `410`, and Notion sync units should remain masked.
 
-For day-to-day operation, prefer [`operator-runbook.md`](operator-runbook.md). This file is the cutover/migration evidence trail plus local-Postgres operational notes.
+For canonical current runtime facts, see
+[`current-runtime-snapshot.md`](current-runtime-snapshot.md). For day-to-day
+operation, prefer [`operator-runbook.md`](operator-runbook.md). This file is
+the cutover/migration evidence trail plus local-Postgres operational notes.
 
 ## Safety invariants
 
