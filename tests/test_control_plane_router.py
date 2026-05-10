@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import FastAPI
@@ -886,6 +887,64 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(fake_store.promoted[0], ("generated-candidate", "pytest", False))
         self.assertEqual(fake_store.events[0]["event_type"], "research.run_cycle.live")
         self.assertEqual(generate.call_args.kwargs["attempts"], 2)
+
+    def test_research_facility_run_cycle_live_records_guardrail_when_queue_paused(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.events = []
+
+            def active_items(self) -> list[dict[str, str]]:
+                return []
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 0, "active": 0}
+
+            def flags(self):
+                return SimpleNamespace(queue_paused=True)
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                return []
+
+            def record_research_facility_plans(self, *_args, **_kwargs):
+                raise AssertionError("provider generation disabled in this test")
+
+            def promote_research_candidate(self, *_args, **_kwargs):
+                raise AssertionError("no promotable rows in this test")
+
+            def append_event(self, **kwargs):
+                self.events.append(kwargs)
+                return len(self.events), True
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={
+                    "dry_run": False,
+                    "enabled": True,
+                    "max_provider_requests_per_run": 0,
+                    "max_promotions_per_run": 0,
+                    "max_dispatches_per_run": 0,
+                    "max_paper_drafts_per_run": 0,
+                    "requested_by": "pytest",
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn("research autopilot is active but broad queue is paused", body["guardrails"])
+        self.assertTrue(any(event["event_type"] == "research.guardrail.queue_paused" for event in fake_store.events))
 
     def test_research_facility_run_cycle_live_requires_enabled_flag(self) -> None:
         class FakeSupabaseStore:
