@@ -1,10 +1,10 @@
 {
-  "artifact_count": 379,
-  "claim_ledgers_empty": 258,
+  "artifact_count": 380,
+  "claim_ledgers_empty": 259,
   "gate_name": "packaging_provenance_gate",
   "gate_scope": "artifact packaging, provenance, placeholder, and overclaim linting",
   "gate_version": "1.0",
-  "generated_at": "2026-05-10T03:07:52Z",
+  "generated_at": "2026-05-10T03:10:52Z",
   "not_validated": [
     "peer_review",
     "scientific_correctness",
@@ -14,7 +14,7 @@
     "citation_accuracy",
     "strict_claim_evidence_audit"
   ],
-  "packaging_provenance_pass_count": 379,
+  "packaging_provenance_pass_count": 380,
   "repos": {
     "corpus": {
       "name": "alias8818/enoch-ai-research-corpus"
@@ -32,7 +32,7 @@
   "strict_claim_evidence_gate_name": "strict_claim_evidence_audit",
   "strict_claim_evidence_gate_status": "blocked_audit_gaps",
   "strict_claim_evidence_pass_count": 3,
-  "strict_claim_evidence_total_count": 379,
+  "strict_claim_evidence_total_count": 380,
   "validated": [
     "ai_provenance_notice_present",
     "no_placeholder_citation_patterns",
