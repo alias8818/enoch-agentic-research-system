@@ -101,18 +101,25 @@ def _import_cmd(*, base_url: str, token: str, limit: int, dry_run: bool) -> list
     return cmd
 
 
-def _corpus_checks(corpus: Path) -> list[dict[str, Any]]:
+def _run_named_steps(cwd: Path, steps: list[tuple[str, list[str]]]) -> list[dict[str, Any]]:
+    out = []
+    for name, cmd in steps:
+        result = _run(cmd, cwd=cwd)
+        out.append({"name": name, "stdout_tail": result.stdout[-1200:], "stderr_tail": result.stderr[-1200:]})
+    return out
+
+
+def _corpus_rebuild(corpus: Path) -> list[dict[str, Any]]:
     steps = [
         ("audit_claim_evidence", [sys.executable, "scripts/audit_claim_evidence_contract.py"]),
         ("quality_scan", [sys.executable, "scripts/quality_scan.py"]),
         ("build_index", [sys.executable, "scripts/build_index.py"]),
-        ("validate_public_trust_surfaces", [sys.executable, "scripts/validate_public_trust_surfaces.py"]),
     ]
-    out = []
-    for name, cmd in steps:
-        result = _run(cmd, cwd=corpus)
-        out.append({"name": name, "stdout_tail": result.stdout[-1200:], "stderr_tail": result.stderr[-1200:]})
-    return out
+    return _run_named_steps(corpus, steps)
+
+
+def _corpus_trust_checks(corpus: Path) -> list[dict[str, Any]]:
+    return _run_named_steps(corpus, [("validate_public_trust_surfaces", [sys.executable, "scripts/validate_public_trust_surfaces.py"])])
 
 
 def _validate_release(system: Path, root: Path, corpus: Path, manifest: Path, *, skip_github_metadata: bool) -> dict[str, Any]:
@@ -213,8 +220,9 @@ def main() -> int:
         if live_payload.get("failed"):
             print(json.dumps({"ok": False, "action": "preflight_import_failed", "preflight": live_payload}, sort_keys=True), file=sys.stderr)
             return 1
-        checks = _corpus_checks(tmp_corpus)
+        checks = _corpus_rebuild(tmp_corpus)
         count_update = _update_public_counts(tmp_system, tmp_root, tmp_root / "enoch-ecosystem.generated.json")
+        checks.extend(_corpus_trust_checks(tmp_corpus))
         release_validation = _validate_release(tmp_system, tmp_root, tmp_corpus, tmp_root / "enoch-ecosystem.generated.json", skip_github_metadata=skip_github)
 
     if _truthy("ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY", "0"):
@@ -223,8 +231,9 @@ def main() -> int:
 
     live = _run(_import_cmd(base_url=base_url, token=token, limit=limit, dry_run=False), cwd=corpus)
     live_payload = json.loads(live.stdout)
-    checks = _corpus_checks(corpus)
+    checks = _corpus_rebuild(corpus)
     count_update = _update_public_counts(system, root, Path(os.environ.get("ENOCH_ECOSYSTEM_MANIFEST", "/tmp/enoch-ecosystem.generated.json")))
+    checks.extend(_corpus_trust_checks(corpus))
     release_validation = _validate_release(system, root, corpus, Path(os.environ.get("ENOCH_ECOSYSTEM_MANIFEST", "/tmp/enoch-ecosystem.generated.json")), skip_github_metadata=skip_github)
     print(json.dumps({"ok": True, "action": "corpus_imported", "limit": limit, "dry_run": dry_payload, "import_result": live_payload, "count_update": count_update, "corpus_checks": checks, "release_validation": release_validation}, sort_keys=True))
     return 0
