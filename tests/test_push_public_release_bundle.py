@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from scripts import push_public_release_bundle
+
+
+def repo(tmp_path: Path, key: str) -> push_public_release_bundle.Repo:
+    path = tmp_path / key
+    path.mkdir()
+    return push_public_release_bundle.Repo(key, path)
+
+
+def test_local_release_checks_run_docs_validators_before_manifest(monkeypatch, tmp_path: Path) -> None:
+    system = repo(tmp_path, "enoch-agentic-research-system")
+    corpus = repo(tmp_path, "enoch-ai-research-corpus")
+    docs = repo(tmp_path, "enoch-docs")
+    profile = repo(tmp_path, "alias8818.github.io")
+    owner = repo(tmp_path, "alias8818")
+    personal = repo(tmp_path, "jeremyblankenship.dev")
+    calls: list[tuple[list[str], Path | None]] = []
+
+    def fake_run(cmd, *, cwd=None, check=True, capture=False):
+        calls.append((list(cmd), cwd))
+        if any(part.endswith("generate_ecosystem_manifest.py") for part in cmd):
+            output_path = Path(cmd[cmd.index("--output") + 1])
+            output_path.write_text(
+                json.dumps(
+                    {
+                        "artifact_count": 377,
+                        "packaging_provenance_pass_count": 377,
+                        "strict_claim_evidence_pass_count": 3,
+                        "strict_claim_evidence_total_count": 377,
+                    }
+                ),
+                encoding="utf-8",
+            )
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(push_public_release_bundle, "run", fake_run)
+
+    push_public_release_bundle.run_local_release_checks(system, corpus, docs, profile, owner, personal)
+
+    commands = [cmd for cmd, _cwd in calls]
+    assert commands[:2] == [
+        [push_public_release_bundle.sys.executable, "scripts/validate_runtime_snapshot_links.py"],
+        ["node", "scripts/validate-docs.mjs"],
+    ]
+    assert calls[0][1] == system.path
+    assert calls[1][1] == docs.path
+    assert "scripts/generate_ecosystem_manifest.py" in commands[2]
+    assert "scripts/validate_public_release.py" in commands[3]
+
+
+def test_local_release_checks_stop_when_docs_validator_fails(monkeypatch, tmp_path: Path) -> None:
+    system = repo(tmp_path, "enoch-agentic-research-system")
+    corpus = repo(tmp_path, "enoch-ai-research-corpus")
+    docs = repo(tmp_path, "enoch-docs")
+    profile = repo(tmp_path, "alias8818.github.io")
+    owner = repo(tmp_path, "alias8818")
+    personal = repo(tmp_path, "jeremyblankenship.dev")
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, *, cwd=None, check=True, capture=False):
+        calls.append(list(cmd))
+        if cmd == ["node", "scripts/validate-docs.mjs"]:
+            raise subprocess.CalledProcessError(1, cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(push_public_release_bundle, "run", fake_run)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        push_public_release_bundle.run_local_release_checks(system, corpus, docs, profile, owner, personal)
+
+    assert calls == [
+        [push_public_release_bundle.sys.executable, "scripts/validate_runtime_snapshot_links.py"],
+        ["node", "scripts/validate-docs.mjs"],
+    ]

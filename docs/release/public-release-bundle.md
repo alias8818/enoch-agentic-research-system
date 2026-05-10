@@ -23,6 +23,8 @@ Use `--ledger-database-url` or `ENOCH_CONTROL_DATABASE_URL` when a direct Postgr
 This preflight:
 
 - requires all release repos to be on `main`, clean, and not behind `origin/main`
+- validates current-runtime snapshot links in the system docs
+- runs the docs repo validator, including Mintlify navigation and runtime snapshot-link checks
 - regenerates the ecosystem manifest from the local corpus/docs state
 - validates public release copy and counts across local repos
 - prints the planned race-safe order

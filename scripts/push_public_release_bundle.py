@@ -165,6 +165,8 @@ def sync_corpus_import_ledger(system: Repo, corpus: Repo, *, database_url: str, 
 def run_local_release_checks(system: Repo, corpus: Repo, docs: Repo, profile_site: Repo, owner_profile: Repo, personal_site: Repo) -> None:
     with tempfile.TemporaryDirectory(prefix="enoch-release-") as tmp:
         generated = Path(tmp) / "ecosystem.generated.json"
+        run([sys.executable, "scripts/validate_runtime_snapshot_links.py"], cwd=system.path)
+        run(["node", "scripts/validate-docs.mjs"], cwd=docs.path)
         run([
             sys.executable,
             "scripts/generate_ecosystem_manifest.py",
