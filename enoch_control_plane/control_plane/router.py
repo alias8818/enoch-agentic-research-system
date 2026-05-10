@@ -2747,38 +2747,43 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
 
         generated_plans = []
         if max_provider_requests:
-            generated = research_provider_generate.generate_provider_candidates(
-                base_url=provider_openai_base_url,
-                model=provider_model,
-                api_key="",
-                max_candidates=max_candidates,
-                topic=topic,
-                temperature=temperature,
-                seed=seed,
-                timeout=generation_timeout,
-                max_tokens=generation_max_tokens,
-                attempts=generation_attempts,
-                default_machine=os.environ.get("ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"),
-                default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
-                default_sandbox=os.environ.get("ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"),
-            )
-            generated_plans = research_facility.plan_candidates(
-                generated.get("candidates") or [],
-                Namespace(
+            try:
+                generated = research_provider_generate.generate_provider_candidates(
+                    base_url=provider_openai_base_url,
+                    model=provider_model,
+                    api_key="",
+                    max_candidates=max_candidates,
+                    topic=topic,
+                    temperature=temperature,
+                    seed=seed,
+                    timeout=generation_timeout,
+                    max_tokens=generation_max_tokens,
+                    attempts=generation_attempts,
                     default_machine=os.environ.get("ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"),
                     default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
                     default_sandbox=os.environ.get("ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"),
-                    admit_threshold=min_admission_score,
-                    review_threshold=float(body.get("review_threshold") or 58.0),
-                    history=[],
-                ),
-            )
-            ledger_result = store.record_research_facility_plans(generated_plans, requested_by=requested_by, queue_admitted=False)
-            response["generated_count"] = len(generated_plans)
-            response["provider_response_id"] = generated.get("provider_response_id", "")
-            response["attempts_used"] = generated.get("attempts_used", 1)
-            response["ledger_result"] = ledger_result
-            response["stages"].append({"stage": "provider_generation", "ok": True, "candidate_count": len(generated_plans), "ledger_result": ledger_result})
+                )
+                generated_plans = research_facility.plan_candidates(
+                    generated.get("candidates") or [],
+                    Namespace(
+                        default_machine=os.environ.get("ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"),
+                        default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
+                        default_sandbox=os.environ.get("ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"),
+                        admit_threshold=min_admission_score,
+                        review_threshold=float(body.get("review_threshold") or 58.0),
+                        history=[],
+                    ),
+                )
+                ledger_result = store.record_research_facility_plans(generated_plans, requested_by=requested_by, queue_admitted=False)
+                response["generated_count"] = len(generated_plans)
+                response["provider_response_id"] = generated.get("provider_response_id", "")
+                response["attempts_used"] = generated.get("attempts_used", 1)
+                response["ledger_result"] = ledger_result
+                response["stages"].append({"stage": "provider_generation", "ok": True, "candidate_count": len(generated_plans), "ledger_result": ledger_result})
+            except Exception as exc:  # noqa: BLE001 - provider output is external and must not break long-haul ticks
+                warning = f"provider generation skipped: {exc}"
+                response.setdefault("warnings", []).append(warning)
+                response["stages"].append({"stage": "provider_generation", "ok": False, "reason": warning})
 
         promoted: list[dict[str, Any]] = []
         for row in promotable_rows()[:max_promotions]:
