@@ -85,7 +85,7 @@ distributed-training, agent-reliability, systems-research.
 Fixed values:
 expected_artifacts=["run_notes.md","metrics.json","failure_cases.json",".enoch/project_decision.json"]
 required_evidence=["baseline comparison","metrics table","failure cases","decision artifact"]
-machine_target="192.168.1.77"; model="gpt-5.5"; sandbox="danger-full-access"
+machine_target="gb10"; model="gpt-5.5"; sandbox="danger-full-access"
 estimated_runtime_class must be one of: small, medium, large, overnight.
 expected_token_budget must be one of: small, medium, large.
 
@@ -243,7 +243,7 @@ def generate_provider_candidates(
     timeout: int = 120,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     attempts: int = 1,
-    default_machine: str = "192.168.1.77",
+    default_machine: str = "gb10",
     default_model: str = "gpt-5.5",
     default_sandbox: str = "danger-full-access",
 ) -> dict[str, Any]:

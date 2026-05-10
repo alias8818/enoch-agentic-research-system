@@ -9,7 +9,7 @@ from scripts import research_facility
 
 def _args(**overrides: object) -> argparse.Namespace:
     base = {
-        "default_machine": "192.168.1.77",
+        "default_machine": "gb10",
         "default_model": "gpt-5.5",
         "default_sandbox": "danger-full-access",
         "admit_threshold": 72.0,
@@ -88,13 +88,47 @@ def test_research_facility_requires_novelty_comparison_for_similar_prior_project
 def test_research_facility_normalizes_provider_runtime_and_token_budget_labels() -> None:
     row = research_facility.normalize_candidate(
         _strong_candidate(estimated_runtime_class="days", expected_token_budget="50k"),
-        default_machine="192.168.1.77",
+        default_machine="gb10",
         default_model="gpt-5.5",
         default_sandbox="danger-full-access",
     )
 
     assert row["estimated_runtime_class"] == "overnight"
     assert row["expected_token_budget"] == "small"
+
+
+def test_research_facility_normalizes_fractional_provider_scores() -> None:
+    row = research_facility.normalize_candidate(
+        _strong_candidate(
+            novelty_score=0.8,
+            feasibility_score=0.7,
+            accessibility_score=0.9,
+            falsifiability_score=0.95,
+        ),
+        default_machine="gb10",
+        default_model="gpt-5.5",
+        default_sandbox="danger-full-access",
+    )
+
+    assert row["novelty_score"] == 8.0
+    assert row["feasibility_score"] == 7.0
+    assert row["accessibility_score"] == 9.0
+    assert row["falsifiability_score"] == 9.5
+
+    plan = research_facility.plan_candidates(
+        [
+            _strong_candidate(
+                novelty_score=0.8,
+                feasibility_score=0.7,
+                accessibility_score=0.9,
+                falsifiability_score=0.95,
+            )
+        ],
+        _args(),
+    )[0]
+
+    assert plan.admission_decision == "admitted"
+    assert plan.candidate["total_score"] >= 72
 
 
 def test_research_facility_emits_auditable_ledgers_and_optional_queue_sql() -> None:
@@ -188,7 +222,7 @@ def test_research_facility_emits_full_source_records_when_present() -> None:
 
 def test_research_facility_merges_exact_history_duplicates() -> None:
     candidate = _strong_candidate()
-    row = research_facility.normalize_candidate(candidate, default_machine="192.168.1.77", default_model="gpt-5.5", default_sandbox="danger-full-access")
+    row = research_facility.normalize_candidate(candidate, default_machine="gb10", default_model="gpt-5.5", default_sandbox="danger-full-access")
     args = _args(history=[{"project_id": "prior-project", "title": row["title"], "dedupe_key": row["dedupe_key"], "decision_gate_state": "negative"}])
 
     plan = research_facility.plan_candidates([candidate], args)[0]
@@ -224,7 +258,7 @@ def test_research_facility_cli_loads_history_json(tmp_path: Path) -> None:
     history_path = tmp_path / "history.json"
     output = tmp_path / "plan.json"
     candidate = _strong_candidate()
-    row = research_facility.normalize_candidate(candidate, default_machine="192.168.1.77", default_model="gpt-5.5", default_sandbox="danger-full-access")
+    row = research_facility.normalize_candidate(candidate, default_machine="gb10", default_model="gpt-5.5", default_sandbox="danger-full-access")
     candidate_path.write_text(json.dumps([candidate]), encoding="utf-8")
     history_path.write_text(json.dumps([{"project_id": "prior-project", "title": row["title"], "dedupe_key": row["dedupe_key"]}]), encoding="utf-8")
 

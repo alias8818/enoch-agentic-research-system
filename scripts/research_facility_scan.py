@@ -282,7 +282,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout", type=int, default=20)
     parser.add_argument("--strict-fetch", action="store_true", help="fail instead of recording scanner errors when a remote source fetch fails")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--default-machine", default="192.168.1.77")
+    parser.add_argument("--default-machine", default="gb10")
     parser.add_argument("--default-model", default="gpt-5.5")
     parser.add_argument("--default-sandbox", default="danger-full-access")
     args = parser.parse_args(argv)

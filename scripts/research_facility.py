@@ -75,7 +75,10 @@ def _as_float(value: Any, default: float = 0.0) -> float:
 
 
 def _bounded_score(value: Any) -> float:
-    return max(0.0, min(10.0, _as_float(value)))
+    score = _as_float(value)
+    if 0.0 < score <= 1.0:
+        score *= 10.0
+    return max(0.0, min(10.0, score))
 
 
 def _runtime_class(value: Any) -> str:
@@ -528,7 +531,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--admit-threshold", type=float, default=72.0)
     parser.add_argument("--review-threshold", type=float, default=58.0)
     parser.add_argument("--requested-by", default="research_facility")
-    parser.add_argument("--default-machine", default="192.168.1.77")
+    parser.add_argument("--default-machine", default="gb10")
     parser.add_argument("--default-model", default="gpt-5.5")
     parser.add_argument("--default-sandbox", default="danger-full-access")
     parser.add_argument("--history-json", type=Path, help="optional prior idea/project/run history JSON for dedupe and novelty comparison")

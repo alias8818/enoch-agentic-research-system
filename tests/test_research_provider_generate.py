@@ -33,7 +33,7 @@ def _provider_payload() -> dict:
                                     "likely_failure_modes": ["residuals too large", "calibration overfit", "int4 remains better"],
                                     "estimated_runtime_class": "medium",
                                     "expected_token_budget": "medium",
-                                    "machine_target": "192.168.1.77",
+                                    "machine_target": "gb10",
                                     "model": "gpt-5.5",
                                     "sandbox": "danger-full-access",
                                     "novelty_score": 8,
@@ -61,7 +61,7 @@ def test_provider_response_becomes_research_candidate_with_source_record() -> No
         topic="quantization",
         temperature=0.8,
         seed="seed-1",
-        default_machine="192.168.1.77",
+        default_machine="gb10",
         default_model="gpt-5.5",
         default_sandbox="danger-full-access",
     )
@@ -75,6 +75,7 @@ def test_provider_response_becomes_research_candidate_with_source_record() -> No
     assert row["source_ids"]
     assert row["source_urls"][0].startswith("enoch://research-facility/provider/")
     assert row["raw_candidate_json"]["provider_response_id"] == "cmpl-provider-test"
+    assert row["machine_target"] == "gb10"
 
 
 def test_provider_response_with_zero_usable_candidates_fails_closed() -> None:
@@ -92,7 +93,7 @@ def test_provider_response_with_zero_usable_candidates_fails_closed() -> None:
             topic="quantization",
             temperature=0.3,
             seed="seed-empty",
-            default_machine="192.168.1.77",
+            default_machine="gb10",
             default_model="gpt-5.5",
             default_sandbox="danger-full-access",
         )

@@ -35,7 +35,7 @@ def test_research_facility_scan_turns_source_json_into_candidate_batch(tmp_path:
     assert candidate["baseline_to_beat"]
     assert candidate["kill_condition"]
 
-    plan = research_facility.plan_candidates([candidate], research_facility.argparse.Namespace(default_machine="192.168.1.77", default_model="gpt-5.5", default_sandbox="danger-full-access", admit_threshold=72.0, review_threshold=58.0))[0]
+    plan = research_facility.plan_candidates([candidate], research_facility.argparse.Namespace(default_machine="gb10", default_model="gpt-5.5", default_sandbox="danger-full-access", admit_threshold=72.0, review_threshold=58.0))[0]
     assert plan.admission_decision in {"admitted", "needs_review", "rejected"}
     assert "fresh_grounded requires" not in plan.admission_reason
 
