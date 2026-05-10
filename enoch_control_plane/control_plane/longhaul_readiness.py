@@ -136,5 +136,13 @@ def evaluate_longhaul_readiness(
             "publish_ready": publish_ready,
             "published_imported": int(pipeline.get("published_imported") or 0),
             "write_needed": write_needed,
+            "research_timer_active": research_active,
+            "research_last_result": research_result or "unknown",
+            "research_tick_age_seconds": research_age,
+            "research_tick_max_age_seconds": research_max_age_seconds,
+            "corpus_timer_active": corpus_active,
+            "corpus_last_result": corpus_result or "unknown",
+            "corpus_tick_age_seconds": corpus_age,
+            "corpus_tick_max_age_seconds": corpus_max_age_seconds,
         },
     }

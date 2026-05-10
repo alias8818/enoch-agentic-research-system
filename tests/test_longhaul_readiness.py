@@ -42,6 +42,11 @@ def test_longhaul_ready_when_all_checks_pass() -> None:
     assert result["ok"] is True
     assert result["label"] == "Long-haul mode: READY"
     assert result["blockers"] == []
+    assert result["summary"]["research_timer_active"] is True
+    assert result["summary"]["research_tick_age_seconds"] == 600
+    assert result["summary"]["research_tick_max_age_seconds"] == 2700
+    assert result["summary"]["corpus_timer_active"] is True
+    assert result["summary"]["corpus_tick_age_seconds"] == 300
 
 
 def test_queue_pause_is_first_class_blocker() -> None:
