@@ -23,3 +23,8 @@ def test_topic_rotation_uses_time_window(monkeypatch):
     monkeypatch.setenv("ENOCH_RESEARCH_TOPIC_ROTATION_SECONDS", "60")
     monkeypatch.setattr(autopilot.time, "time", lambda: 121.0)
     assert autopilot._topic() == "lane c"
+
+
+def test_active_worker_lane_is_benign_timer_backpressure():
+    assert autopilot._is_benign_skip_result({"ok": False, "reason": "active worker lane already exists"}) is True
+    assert autopilot._is_benign_skip_result({"ok": False, "reason": "provider budget unavailable"}) is False

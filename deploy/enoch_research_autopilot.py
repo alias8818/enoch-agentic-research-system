@@ -93,6 +93,22 @@ def _topic() -> str:
     return rotation[int(time.time() // window_seconds) % len(rotation)]
 
 
+def _is_benign_skip_result(result: dict) -> bool:
+    """Return true for normal long-haul idle/backpressure outcomes.
+
+    The timer should not enter failed state just because a previous tick still
+    has a worker lane active. That is expected bounded backpressure, not an
+    automation failure.
+    """
+
+    reason = str(result.get("reason") or "").lower()
+    action = str(result.get("action") or "").lower()
+    return (
+        "active worker lane already exists" in reason
+        or action in {"skipped", "noop"}
+    )
+
+
 def main() -> int:
     if not _truthy("ENOCH_ENABLE_RESEARCH_AUTOPILOT"):
         print(json.dumps({"ok": True, "action": "skipped", "reason": "research autopilot disabled; set ENOCH_ENABLE_RESEARCH_AUTOPILOT=1"}, sort_keys=True))
@@ -140,7 +156,7 @@ def main() -> int:
         return 1
 
     print(json.dumps(result, sort_keys=True))
-    return 0 if result.get("ok") else 1
+    return 0 if result.get("ok") or _is_benign_skip_result(result) else 1
 
 
 if __name__ == "__main__":

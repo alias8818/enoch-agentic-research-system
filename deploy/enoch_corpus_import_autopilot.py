@@ -274,6 +274,17 @@ def _update_public_counts(system: Path, root: Path, manifest: Path) -> dict[str,
     return json.loads(result.stdout)
 
 
+def _is_clean_noop_dry_run(payload: dict[str, Any]) -> bool:
+    """Return true when there is simply nothing importable right now."""
+
+    return (
+        not payload.get("failed")
+        and int(payload.get("imported") or 0) == 0
+        and int(payload.get("updated") or 0) == 0
+        and not payload.get("errors")
+    )
+
+
 def main() -> int:
     if not _truthy("ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT"):
         print(json.dumps({"ok": True, "action": "skipped", "reason": "corpus import autopilot disabled; set ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT=1"}, sort_keys=True))
@@ -307,7 +318,13 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001 - fail closed without writes
         print(json.dumps({"ok": False, "action": "dry_run_failed", "reason": f"{type(exc).__name__}: {exc}"}, sort_keys=True), file=sys.stderr)
         return 1
-    if dry_payload.get("failed") or not dry_payload.get("imported"):
+    if dry_payload.get("failed"):
+        print(json.dumps({"ok": False, "action": "blocked", "reason": "bounded import dry-run failed", "dry_run": dry_payload}, sort_keys=True), file=sys.stderr)
+        return 1
+    if not dry_payload.get("imported"):
+        if _is_clean_noop_dry_run(dry_payload):
+            print(json.dumps({"ok": True, "action": "skipped", "reason": "no clean importable papers", "dry_run": dry_payload}, sort_keys=True))
+            return 0
         print(json.dumps({"ok": False, "action": "blocked", "reason": "bounded import dry-run found no clean importable papers", "dry_run": dry_payload}, sort_keys=True), file=sys.stderr)
         return 1
 
