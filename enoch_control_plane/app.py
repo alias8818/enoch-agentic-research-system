@@ -1383,6 +1383,34 @@ def _callback_delivered(record: RunRecord) -> bool:
     return len(parts) >= 3 and parts[0] == record.run_id and parts[1] in delivered_events
 
 
+def _ready_callback_for_retry(record: RunRecord) -> GateCallback | None:
+    if _callback_delivered(record):
+        return None
+    if record.gate_state == GateState.WAKE_READY:
+        event_type = "wake_ready"
+        reason = "retry_codex_idle_and_system_quiet"
+    elif record.gate_state == GateState.FINISHED_READY:
+        event_type = "session_finished_ready"
+        reason = "retry_session_ended_and_system_quiet"
+    else:
+        return None
+    idempotency_key = f"{record.run_id}:{event_type}:{record.idle_seen_at or record.last_event_at}"
+    return GateCallback(
+        event_type=event_type,
+        run_id=record.run_id,
+        session_id=record.session_id,
+        project_id=record.project_id,
+        project_name=record.project_name,
+        source_event=(record.last_event.value if record.last_event else "unknown"),
+        gate_state=record.gate_state.value,
+        idle_seen_at=record.idle_seen_at,
+        process_tracking=gate.process_tracker.snapshot(record, []),
+        telemetry={"retry": True, "reason": reason},
+        reason=reason,
+        idempotency_key=idempotency_key,
+    )
+
+
 def _dashboard_truth(
     record: RunRecord,
     active_processes: list[ProcessInfo],
@@ -2314,6 +2342,26 @@ async def _evaluate_until_ready(run_id: str) -> None:
 
             await _reap_and_log_stale_project_processes(record)
 
+            retry_callback = _ready_callback_for_retry(record)
+            if retry_callback is not None:
+                ok, detail = await _deliver_callback(retry_callback)
+                profile_evidence = _wake_decision_profile_evidence(record)
+                store.append_event(
+                    {
+                        "kind": "callback_retry",
+                        "run_id": record.run_id,
+                        "event_type": retry_callback.event_type,
+                        "ok": ok,
+                        "detail": detail,
+                        "timestamp": utc_now(),
+                        **profile_evidence,
+                    }
+                )
+                if ok:
+                    record.last_idempotency_key = retry_callback.idempotency_key
+                    store.save_run(record)
+                    return
+
             if gate.is_timed_out(record):
                 timeout_idempotency_key = f"{record.run_id}:gate_timeout:{record.idle_seen_at or record.last_event_at}"
                 if record.last_idempotency_key == timeout_idempotency_key:
@@ -2414,6 +2462,8 @@ async def _reconcile_missing_idle_loop() -> None:
                     GateState.WAITING_FOR_PROCESS_EXIT,
                     GateState.WAITING_FOR_QUIET_WINDOW,
                     GateState.FINISHED_PENDING_GATE,
+                    GateState.WAKE_READY,
+                    GateState.FINISHED_READY,
                 }:
                     _ensure_evaluator(record.run_id)
             await asyncio.sleep(config.sample_interval_sec)

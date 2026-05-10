@@ -8,6 +8,7 @@ from enoch_control_plane.app import (
     _dashboard_truth,
     _is_superseded_record,
     _latest_runs_by_project,
+    _ready_callback_for_retry,
 )
 from enoch_control_plane.models import GateState, ProcessInfo, RunRecord
 
@@ -52,6 +53,21 @@ class DashboardTruthTests(unittest.TestCase):
         self.assertTrue(_dashboard_truth(pending, [])["is_live"])
         self.assertEqual(_dashboard_truth(stale, [])["lifecycle_state"], "stale_callback_ready")
         self.assertTrue(_dashboard_truth(stale, [])["needs_attention"])
+
+    def test_callback_ready_without_delivered_key_can_be_retried(self) -> None:
+        pending = _record("run-pending", GateState.WAKE_READY)
+        retry = _ready_callback_for_retry(pending)
+        self.assertIsNotNone(retry)
+        assert retry is not None
+        self.assertEqual(retry.event_type, "wake_ready")
+        self.assertEqual(retry.idempotency_key, f"{pending.run_id}:wake_ready:{pending.last_event_at}")
+
+        delivered = _record(
+            "run-delivered",
+            GateState.WAKE_READY,
+            idempotency_key="run-delivered:wake_ready:2026-04-14T00:00:00+00:00",
+        )
+        self.assertIsNone(_ready_callback_for_retry(delivered))
 
     def test_errors_and_question_pending_are_attention_only_when_current(self) -> None:
         error = _record("run-error", GateState.ERROR)
