@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate runtime snapshot links
+        run: python3 scripts/validate_runtime_snapshot_links.py
       - uses: astral-sh/setup-uv@v5
       - name: Install dependencies
         run: uv sync --all-extras --dev

@@ -46,6 +46,10 @@ jobs:
         with:
           repository: alias8818/jeremyblankenship.dev
           path: jeremyblankenship.dev
+      - name: Validate runtime snapshot links
+        working-directory: enoch-agentic-research-system
+        run: |
+          python3 scripts/validate_runtime_snapshot_links.py
       - name: Generate fresh manifest without overwriting committed public manifest
         working-directory: enoch-agentic-research-system
         run: |
