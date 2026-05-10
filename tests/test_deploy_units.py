@@ -130,6 +130,7 @@ def test_corpus_import_autopilot_unit_is_opt_in_and_capped(capsys) -> None:
     assert "Environment=ENOCH_CORPUS_IMPORT_AUTOCOMMIT=0" in service
     assert "Environment=ENOCH_CORPUS_IMPORT_PUSH=0" in service
     assert "Environment=ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA=0" in service
+    assert "Environment=ENOCH_GITHUB_TOKEN_FILE=/root/.config/enoch/github-token" in service
     assert "max 1" not in combined.lower()
     assert "scripts/import_from_control_plane.py" in script
     assert "scripts/update_public_release_counts.py" in script

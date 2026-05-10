@@ -14,5 +14,6 @@ Environment=ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY=1
 Environment=ENOCH_CORPUS_IMPORT_AUTOCOMMIT=0
 Environment=ENOCH_CORPUS_IMPORT_PUSH=0
 Environment=ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA=0
+Environment=ENOCH_GITHUB_TOKEN_FILE=/root/.config/enoch/github-token
 Environment=ENOCH_CORPUS_IMPORT_SKIP_GITHUB_METADATA=1
 ExecStart=/opt/enoch-control-plane/.venv/bin/python /opt/enoch-control-plane/deploy/enoch_corpus_import_autopilot.py
