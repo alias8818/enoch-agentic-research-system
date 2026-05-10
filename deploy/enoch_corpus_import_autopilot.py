@@ -76,6 +76,11 @@ def _copy_repo_tree(src: Path, dst: Path) -> None:
     shutil.copytree(src, dst, ignore=ignore)
 
 
+def _copy_release_root(src_root: Path, dst_root: Path) -> None:
+    for name in REPO_NAMES:
+        _copy_repo_tree(src_root / name, dst_root / name)
+
+
 def _import_cmd(*, base_url: str, token: str, limit: int, dry_run: bool) -> list[str]:
     cmd = [
         sys.executable,
@@ -146,6 +151,21 @@ def _validate_release(system: Path, root: Path, corpus: Path, manifest: Path, *,
     return {"generate_stdout": gen.stdout[-1200:], "validate_stdout": val.stdout[-1200:]}
 
 
+def _update_public_counts(system: Path, root: Path, manifest: Path) -> dict[str, Any]:
+    result = _run(
+        [
+            sys.executable,
+            "scripts/update_public_release_counts.py",
+            "--root",
+            str(root),
+            "--generated-manifest",
+            str(manifest),
+        ],
+        cwd=system,
+    )
+    return json.loads(result.stdout)
+
+
 def main() -> int:
     if not _truthy("ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT"):
         print(json.dumps({"ok": True, "action": "skipped", "reason": "corpus import autopilot disabled; set ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT=1"}, sort_keys=True))
@@ -185,25 +205,28 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="enoch-corpus-import-preflight-") as tmp:
         tmp_root = Path(tmp)
+        _copy_release_root(root, tmp_root)
+        tmp_system = tmp_root / "enoch-agentic-research-system"
         tmp_corpus = tmp_root / "enoch-ai-research-corpus"
-        _copy_repo_tree(corpus, tmp_corpus)
         live_preflight = _run(_import_cmd(base_url=base_url, token=token, limit=limit, dry_run=False), cwd=tmp_corpus)
         live_payload = json.loads(live_preflight.stdout)
         if live_payload.get("failed"):
             print(json.dumps({"ok": False, "action": "preflight_import_failed", "preflight": live_payload}, sort_keys=True), file=sys.stderr)
             return 1
         checks = _corpus_checks(tmp_corpus)
-        release_validation = _validate_release(system, root, tmp_corpus, tmp_root / "enoch-ecosystem.generated.json", skip_github_metadata=skip_github)
+        count_update = _update_public_counts(tmp_system, tmp_root, tmp_root / "enoch-ecosystem.generated.json")
+        release_validation = _validate_release(tmp_system, tmp_root, tmp_corpus, tmp_root / "enoch-ecosystem.generated.json", skip_github_metadata=skip_github)
 
     if _truthy("ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY", "0"):
-        print(json.dumps({"ok": True, "action": "preflight_only", "limit": limit, "dry_run": dry_payload, "corpus_checks": checks, "release_validation": release_validation}, sort_keys=True))
+        print(json.dumps({"ok": True, "action": "preflight_only", "limit": limit, "dry_run": dry_payload, "preflight_import": live_payload, "count_update": count_update, "corpus_checks": checks, "release_validation": release_validation}, sort_keys=True))
         return 0
 
     live = _run(_import_cmd(base_url=base_url, token=token, limit=limit, dry_run=False), cwd=corpus)
     live_payload = json.loads(live.stdout)
     checks = _corpus_checks(corpus)
+    count_update = _update_public_counts(system, root, Path(os.environ.get("ENOCH_ECOSYSTEM_MANIFEST", "/tmp/enoch-ecosystem.generated.json")))
     release_validation = _validate_release(system, root, corpus, Path(os.environ.get("ENOCH_ECOSYSTEM_MANIFEST", "/tmp/enoch-ecosystem.generated.json")), skip_github_metadata=skip_github)
-    print(json.dumps({"ok": True, "action": "corpus_imported", "limit": limit, "dry_run": dry_payload, "import_result": live_payload, "corpus_checks": checks, "release_validation": release_validation}, sort_keys=True))
+    print(json.dumps({"ok": True, "action": "corpus_imported", "limit": limit, "dry_run": dry_payload, "import_result": live_payload, "count_update": count_update, "corpus_checks": checks, "release_validation": release_validation}, sort_keys=True))
     return 0
 
 

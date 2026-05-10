@@ -37,7 +37,7 @@ A run goes through:
 7. AI artifact rewriting against evidence context.
 8. Corpus packaging/provenance lint scans and provenance packaging.
 
-I’m also releasing a corpus of 376 canonical generated research artifacts from the system. These are publication-style AI-generated reports, not peer-reviewed publications and not human-authored papers. The point is transparency: show the outputs, show the evidence shape, and let people inspect the system that generated them.
+I’m also releasing a corpus of 377 canonical generated research artifacts from the system. These are publication-style AI-generated reports, not peer-reviewed publications and not human-authored papers. The point is transparency: show the outputs, show the evidence shape, and let people inspect the system that generated them.
 
 What I hope is useful to others:
 

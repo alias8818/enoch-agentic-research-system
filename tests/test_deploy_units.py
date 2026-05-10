@@ -129,6 +129,7 @@ def test_corpus_import_autopilot_unit_is_opt_in_and_capped(capsys) -> None:
     assert "Environment=ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY=1" in service
     assert "max 1" not in combined.lower()
     assert "scripts/import_from_control_plane.py" in script
+    assert "scripts/update_public_release_counts.py" in script
     assert "--dry-run" in script
     assert "audit_claim_evidence_contract.py" in script
     assert "quality_scan.py" in script
