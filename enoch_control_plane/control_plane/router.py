@@ -862,7 +862,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             for unit in ("enoch-research-autopilot.timer", "enoch-corpus-import-autopilot.timer")
         }
         services = {
-            unit: _systemctl_show(unit, ["Result", "ExecMainStatus", "ActiveEnterTimestamp", "InactiveEnterTimestamp"])
+            unit: _systemctl_show(unit, ["ActiveState", "SubState", "Result", "ExecMainStatus", "ActiveEnterTimestamp", "InactiveEnterTimestamp"])
             for unit in ("enoch-research-autopilot.service", "enoch-corpus-import-autopilot.service")
         }
         return timers, services

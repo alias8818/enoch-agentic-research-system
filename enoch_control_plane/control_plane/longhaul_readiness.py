@@ -33,6 +33,21 @@ def _age_seconds(value: Any, now: datetime) -> int | None:
     return max(0, int((now.astimezone(timezone.utc) - parsed).total_seconds()))
 
 
+def _latest_timestamp(*values: Any) -> datetime | None:
+    parsed = [_parse_timestamp(value) for value in values]
+    parsed = [value for value in parsed if value is not None]
+    if not parsed:
+        return None
+    return max(parsed)
+
+
+def _latest_age_seconds(now: datetime, *values: Any) -> int | None:
+    latest = _latest_timestamp(*values)
+    if latest is None:
+        return None
+    return max(0, int((now.astimezone(timezone.utc) - latest).total_seconds()))
+
+
 def check(name: str, ok: bool, detail: str, *, data: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"name": name, "ok": bool(ok), "detail": detail, "data": data or {}}
 
@@ -82,7 +97,12 @@ def evaluate_longhaul_readiness(
     add(check("research_last_result_success", research_result in {"success", ""}, f"research last result={research_result or 'unknown'}", data=research_service), f"research last result={research_result}")
     add(check("corpus_last_result_success", corpus_result in {"success", ""}, f"corpus last result={corpus_result or 'unknown'}", data=corpus_service), f"corpus last result={corpus_result}")
 
-    research_age = _age_seconds(research_service.get("InactiveEnterTimestamp") or research_timer.get("LastTriggerUSec"), now)
+    research_age = _latest_age_seconds(
+        now,
+        research_service.get("InactiveEnterTimestamp"),
+        research_service.get("ActiveEnterTimestamp"),
+        research_timer.get("LastTriggerUSec"),
+    )
     research_recent = research_age is not None and research_age <= research_max_age_seconds
     add(
         check("research_tick_recent", research_recent, f"latest research tick age={research_age if research_age is not None else 'missing'}s max={research_max_age_seconds}s", data={"age_seconds": research_age, "max_age_seconds": research_max_age_seconds}),
@@ -90,7 +110,12 @@ def evaluate_longhaul_readiness(
     )
 
     publish_ready = int(pipeline.get("publish_ready") or 0)
-    corpus_age = _age_seconds(corpus_service.get("InactiveEnterTimestamp") or corpus_timer.get("LastTriggerUSec"), now)
+    corpus_age = _latest_age_seconds(
+        now,
+        corpus_service.get("InactiveEnterTimestamp"),
+        corpus_service.get("ActiveEnterTimestamp"),
+        corpus_timer.get("LastTriggerUSec"),
+    )
     corpus_recent = publish_ready == 0 or (corpus_age is not None and corpus_age <= corpus_max_age_seconds)
     corpus_detail = "publish_ready=0; corpus tick freshness not required" if publish_ready == 0 else f"latest corpus tick age={corpus_age if corpus_age is not None else 'missing'}s max={corpus_max_age_seconds}s"
     add(

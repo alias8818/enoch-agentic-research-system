@@ -62,6 +62,7 @@ def test_publish_ready_requires_recent_corpus_tick() -> None:
     payload = _ready_payload()
     payload["overview"]["paper_pipeline"]["publish_ready"] = 2
     payload["services"]["enoch-corpus-import-autopilot.service"]["InactiveEnterTimestamp"] = "Sun 2026-05-10 02:00:00 UTC"
+    payload["timers"]["enoch-corpus-import-autopilot.timer"]["LastTriggerUSec"] = "Sun 2026-05-10 02:00:00 UTC"
     result = evaluate_longhaul_readiness(now=NOW, **payload)
     assert result["ok"] is False
     assert "publish_ready=2 but latest corpus tick is stale or missing" in result["blockers"]
@@ -73,3 +74,25 @@ def test_provider_budget_must_be_checked_and_ok() -> None:
     result = evaluate_longhaul_readiness(now=NOW, **payload)
     assert result["ok"] is False
     assert "provider budget below threshold or unavailable" in result["blockers"]
+
+
+def test_tick_freshness_uses_latest_timer_trigger_not_stale_inactive_timestamp() -> None:
+    payload = _ready_payload()
+    payload["services"]["enoch-research-autopilot.service"]["InactiveEnterTimestamp"] = "Sun 2026-05-10 04:30:00 UTC"
+    payload["timers"]["enoch-research-autopilot.timer"]["LastTriggerUSec"] = "Sun 2026-05-10 04:59:00 UTC"
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+    assert result["ok"] is True
+    assert result["summary"]["research_tick_age_seconds"] == 60
+
+
+def test_tick_freshness_uses_active_enter_for_running_service() -> None:
+    payload = _ready_payload()
+    payload["services"]["enoch-research-autopilot.service"].update({
+        "ActiveState": "activating",
+        "ActiveEnterTimestamp": "Sun 2026-05-10 04:58:00 UTC",
+        "InactiveEnterTimestamp": "Sun 2026-05-10 04:10:00 UTC",
+    })
+    payload["timers"]["enoch-research-autopilot.timer"]["LastTriggerUSec"] = "Sun 2026-05-10 04:58:00 UTC"
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+    assert result["ok"] is True
+    assert result["summary"]["research_tick_age_seconds"] == 120
