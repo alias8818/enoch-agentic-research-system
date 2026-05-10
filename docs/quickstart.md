@@ -47,7 +47,7 @@ Open:
 http://127.0.0.1:8787/dashboard
 ```
 
-The legacy wake-gate dashboard remains available at `/dashboard`. For the redesigned operator console, open:
+The legacy worker-gate dashboard remains available at `/dashboard`. For the redesigned operator console, open:
 
 ```text
 http://127.0.0.1:8787/control/dashboard

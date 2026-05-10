@@ -10,7 +10,7 @@ I’m releasing Enoch, a local agentic research control plane, plus a corpus of 
 
 The interesting part is not that the papers are “human papers.” They are not. They are explicitly AI-generated artifacts, and I do not claim personal authorship of their prose, arguments, or results.
 
-The interesting part is the system around them: idea intake, scoring, queue state, maintenance pause, worker preflight, wake-gated execution, process/telemetry truth, evidence sync, claim ledgers, paper rewriting, packaging/provenance lint scans, and a dashboard for seeing what the system is actually doing. Enoch is built with FastAPI/LangGraph-era control-plane boundaries and operated through Codex automation, including Codex CLI.
+The interesting part is the system around them: idea intake, scoring, queue state, maintenance pause, worker preflight, worker-gated execution, process/telemetry truth, evidence sync, claim ledgers, paper rewriting, packaging/provenance lint scans, and a dashboard for seeing what the system is actually doing. Enoch is built with FastAPI/LangGraph-era control-plane boundaries and operated through Codex automation, including Codex CLI.
 
 Repos:
 
@@ -29,7 +29,7 @@ Enoch treats those as first-class systems problems.
 A run goes through:
 
 1. LLM-assisted idea scouting and structured idea cards.
-2. Supabase-native scoring / ideas workbench intake.
+2. Control-plane scoring / ideas workbench intake.
 3. Control-plane queue and maintenance gates.
 4. Worker preflight and single-lane safety checks.
 5. Wake-gated execution with process and telemetry observation.
@@ -42,7 +42,7 @@ I’m also releasing a corpus of 384 canonical generated research artifacts from
 What I hope is useful to others:
 
 - a concrete pattern for supervising long-running local agent work with Enoch Control Plane, LangGraph-era state boundaries, and Codex-local orchestration;
-- a wake-gate model for deciding when autonomous work is actually done;
+- a worker-gate model for deciding when autonomous work is actually done;
 - queue reconciliation and pause/maintenance controls;
 - evidence-bounded writing rather than free-floating LLM summaries;
 - examples of local AI infrastructure experiments that include negative findings and caveats.
@@ -51,7 +51,7 @@ What I hope is useful to others:
 
 Code repo:
 
-> Agentic research control plane built with FastAPI/LangGraph-era state boundaries and operated through Codex: queue state, worker preflight, wake-gated execution, evidence sync, dashboard, alerts, and AI-generated paper packaging.
+> Agentic research control plane built with FastAPI/LangGraph-era state boundaries and operated through Codex: queue state, worker preflight, worker-gated execution, evidence sync, dashboard, alerts, and AI-generated paper packaging.
 
 Corpus repo:
 
@@ -66,7 +66,7 @@ Docs repo:
 1. “I’m releasing Enoch: an agentic research control plane plus 377 canonical AI-generated research artifacts.”
 2. “The papers are not human-authored; that is explicit. The point is the system that generated and bounded them.”
 3. “Why I built it: queues hung, dashboards lied, workers kept running, evidence got scattered.”
-4. “What Enoch does: queue, preflight, pause, wake gate, evidence sync, claim ledgers, paper writer, packaging/provenance lint checks—operated through Codex, with Codex CLI credited as orchestration infrastructure.”
+4. “What Enoch does: queue, preflight, pause, worker gate, evidence sync, claim ledgers, paper writer, packaging/provenance lint checks—operated through Codex, with Codex CLI credited as orchestration infrastructure.”
 5. “Some highlighted artifacts: Evidence-Bound Proof Synthesizer, Resource-Bounded Agent Kernel, DFlash GB10 throughput, Value-per-Joule Broker, and Memory Pressure Admission Gate.”
 6. “What I want feedback on: control-plane design, evidence schema, generated-paper framing, and which experiments deserve real replication.”
 

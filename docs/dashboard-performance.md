@@ -9,13 +9,13 @@ Live timing showed the redesigned dashboard shell was waiting on backend read pa
 - Supabase/Postgres connections were opened for each helper query, adding roughly 750 ms per round trip from the control VM.
 - Some list endpoints were only bounded after fetching broader ledgers into Python, then filtering, sorting, and paging in application code.
 
-## Supabase/Postgres guidance applied
+## Postgres guidance applied
 
-The implementation follows the Supabase/Postgres performance guidance that indexes should support frequent filters/orderings and that slow queries should be inspected with query plans rather than guessed. Edge Functions are useful for low-latency HTTP compute near users, but they would add another network hop for this private operator dashboard. For this workload, the right place to use Supabase compute is inside Postgres: SQL filters, SQL ordering, SQL pagination, indexes, views, and future RPC/materialized read models.
+The implementation follows the Postgres performance guidance that indexes should support frequent filters/orderings and that slow queries should be inspected with query plans rather than guessed. For this private operator dashboard, keep compute close to the local control-plane database: SQL filters, SQL ordering, SQL pagination, indexes, views, and future RPC/materialized read models.
 
 ## Changes made
 
-- Reused a guarded server-side Postgres connection inside `SupabaseControlPlaneStore` so repeated dashboard reads do not pay connection setup every time.
+- Reused a guarded server-side Postgres connection inside the control-plane store so repeated dashboard reads do not pay connection setup every time.
 - Aborted stale browser requests on tab changes and loaded secondary overview health checks after primary operator cards render.
 - Moved `queue_page`, `paper_page`, and `run_page` filtering/sorting/pagination into SQL with `limit page_size + 1` instead of fetching all rows and slicing in Python.
 - Added read-model indexes for common dashboard orderings:
@@ -43,9 +43,9 @@ Representative warmed timings from the control VM after deployment:
 | `/control/api/v1/overview` | ~1-2 s, broad ledger inputs | ~1.0-1.1 s warmed, gate-aware counts preserved |
 | `/control/api/intake/ideas` | 1.5 s default after payload bounding | ~0.55-0.62 s warmed, no large observation payload fetch |
 
-`/control/api/v1/overview` now uses the same batched Supabase connection, derives active/queued/blocked counts from one status query, and narrows the overview ledger inputs to rows that can affect operator-visible decisions: paper eligibility candidates, explicit needs-attention queue rows, finalized/imported publication rows, and draft/archive paper rows. The Python read model still owns the final gate-aware semantics so raw completed/no-paper rows cannot become actionable paper work.
+`/control/api/v1/overview` now uses the same batched database connection, derives active/queued/blocked counts from one status query, and narrows the overview ledger inputs to rows that can affect operator-visible decisions: paper eligibility candidates, explicit needs-attention queue rows, finalized/imported publication rows, and draft/archive paper rows. The Python read model still owns the final gate-aware semantics so raw completed/no-paper rows cannot become actionable paper work.
 
-Browser-side routing now renders the primary overview before secondary health checks, aborts stale in-flight requests when the operator changes tabs, and keeps late overview responses from overwriting the newly selected page. Overview auto-refresh preserves the existing card DOM while the bounded overview request is in flight, showing only the topbar status as `Refreshing overview…`; the right-side content is not replaced by the loading card after the first render. The Supabase ideas page also uses a batched read path and omits the large latest-intake payload by default instead of fetching it and hiding it later.
+Browser-side routing now renders the primary overview before secondary health checks, aborts stale in-flight requests when the operator changes tabs, and keeps late overview responses from overwriting the newly selected page. Overview auto-refresh preserves the existing card DOM while the bounded overview request is in flight, showing only the topbar status as `Refreshing overview…`; the right-side content is not replaced by the loading card after the first render. The ideas page also uses a batched read path and omits the large latest-intake payload by default instead of fetching it and hiding it later.
 
 ## Next performance lane
 

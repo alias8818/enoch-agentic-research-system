@@ -156,8 +156,8 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | `dispatch_accepted` | 0 | `running` | `legacy_internal` | `awaiting_wake or reconciled when superseded` | old dispatch bridge state |
 | `dispatch_error` | 0 | `needs_operator` | `keep` |  | dispatch failed |
 | `dispatching` | 0 | `running` | `keep` |  | dispatch request is in flight |
-| `gate_error` | 8 | `needs_operator` | `keep` |  | wake gate failed |
-| `gate_timeout` | 0 | `needs_operator` | `keep` |  | wake gate timed out |
+| `gate_error` | 8 | `needs_operator` | `keep` |  | worker gate failed |
+| `gate_timeout` | 0 | `needs_operator` | `keep` |  | worker gate timed out |
 | `malformed` | 0 | `complete_no_paper` | `keep` |  | malformed decision is not writable |
 | `missing` | 0 | `complete_no_paper` | `keep` |  | missing decision is not writable |
 | `needs_review` | 0 | `needs_operator` | `migrate_after_freeze` | `gate_error` | legacy run attention wording |
@@ -200,8 +200,8 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | `dispatch_accepted` | 0 | `running` | `legacy_internal` | `awaiting_wake or reconciled when superseded` | old dispatch bridge state |
 | `dispatch_error` | 0 | `needs_operator` | `keep` |  | dispatch failed |
 | `dispatching` | 0 | `running` | `keep` |  | dispatch request is in flight |
-| `gate_error` | 0 | `needs_operator` | `keep` |  | wake gate failed |
-| `gate_timeout` | 0 | `needs_operator` | `keep` |  | wake gate timed out |
+| `gate_error` | 0 | `needs_operator` | `keep` |  | worker gate failed |
+| `gate_timeout` | 0 | `needs_operator` | `keep` |  | worker gate timed out |
 | `needs_review` | 0 | `needs_operator` | `migrate_after_freeze` | `gate_error` | legacy run attention wording |
 | `prepared` | 0 | `running` | `alias` | `dispatching` | pre-dispatch transient |
 | `question_pending` | 0 | `needs_operator` | `keep` |  | worker needs an answer |
@@ -222,8 +222,8 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | `dispatch_accepted` | 0 | `running` | `legacy_internal` | `awaiting_wake or reconciled when superseded` | old dispatch bridge state |
 | `dispatch_error` | 0 | `needs_operator` | `keep` |  | dispatch failed |
 | `dispatching` | 0 | `running` | `keep` |  | dispatch request is in flight |
-| `gate_error` | 8 | `needs_operator` | `keep` |  | wake gate failed |
-| `gate_timeout` | 0 | `needs_operator` | `keep` |  | wake gate timed out |
+| `gate_error` | 8 | `needs_operator` | `keep` |  | worker gate failed |
+| `gate_timeout` | 0 | `needs_operator` | `keep` |  | worker gate timed out |
 | `needs_review` | 0 | `needs_operator` | `migrate_after_freeze` | `gate_error` | legacy run attention wording |
 | `prepared` | 0 | `running` | `alias` | `dispatching` | pre-dispatch transient |
 | `question_pending` | 0 | `needs_operator` | `keep` |  | worker needs an answer |

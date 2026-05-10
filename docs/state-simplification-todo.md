@@ -1,6 +1,6 @@
 # State simplification TODO
 
-Status: active next-phase backlog after the Supabase state-contract cleanup on 2026-05-06. State doctor command is implemented; corpus/publication/public-count reconciliation is clean across local corpus, GitHub public surfaces, and Hugging Face export. Notion-runtime retirement is now guarded for primary UI wording and source-metadata overwrite safety, and the live Supabase resume-readiness smoke passed.
+Status: historical state-cleanup backlog with current follow-up relevance. This page records the 2026-05-06 Supabase-backed cleanup and later state model work; current production storage is local Postgres on `enoch-core`. Use `docs/state-model.md` and `docs/operator-runbook.md` for current operator guidance.
 
 The current state model is coherent and live-clean. The remaining legacy/unknown rows have been classified as historical or attention-lane residue, not active runtime drift.
 
@@ -36,10 +36,10 @@ The current state model is coherent and live-clean. The remaining legacy/unknown
 
 ## 4. Retire Notion assumptions
 
-- [x] Make Supabase `ideas` the primary editable intake/workbench source of truth.
+- [x] Make control-plane `ideas` the primary editable intake/workbench source of truth.
 - [x] Keep Notion IDs/URLs as provenance only.
 - [x] Rename primary UI/docs language away from Notion where it is no longer the runtime owner.
-- [x] Audit import/re-ingest paths so source metadata cannot overwrite Supabase-owned runtime fields.
+- [x] Audit import/re-ingest paths so source metadata cannot overwrite control-plane-owned runtime fields.
 
 ## 5. Add a state doctor command
 
@@ -61,7 +61,7 @@ The current state model is coherent and live-clean. The remaining legacy/unknown
 2. Corpus/publication reconciliation. (done)
 3. Dashboard polish. (done)
 4. State transition map. (done)
-5. Notion-runtime retirement. (done; live Supabase resume-readiness smoke passed)
+5. Notion-runtime retirement. (done; historical Supabase resume-readiness smoke passed)
 
 ## Previous known live baseline
 
@@ -83,7 +83,7 @@ Command shape for the live validation artifact:
 
 ```bash
 uv run python scripts/state_doctor.py \
-  --database-url "$ENOCH_SUPABASE_DATABASE_URL" \
+  --database-url "$ENOCH_CONTROL_DATABASE_URL" \
   --control-url "$ENOCH_CONTROL_URL" \
   --token-file /path/to/enoch-control-plane-token.txt \
   --corpus ../enoch-ai-research-corpus \
@@ -178,14 +178,14 @@ Implemented on 2026-05-06:
 
 - Dashboard/source links now render as `Source` instead of `Notion`.
 - Worker project prompts now label retained URLs as `Source/provenance URL`.
-- SQLite and Supabase legacy Notion re-ingest paths preserve runtime-owned `project_dir` on conflict.
-- Supabase-native idea intake preserves existing source/provenance URLs instead of clearing them with blank Notion fields.
+- SQLite and legacy Notion re-ingest paths preserve runtime-owned `project_dir` on conflict.
+- Control-plane idea intake preserves existing source/provenance URLs instead of clearing them with blank Notion fields.
 - Snapshot imports retain existing provenance when incoming source URL/page ID fields are blank.
 - Regression evidence:
   - `uv run pytest -q tests/test_control_plane_store.py::ControlPlaneStoreTests::test_notion_intake_preserves_existing_queue_routing_metadata tests/test_control_plane_store.py::ControlPlaneStoreTests::test_supabase_native_intake_preserves_existing_source_provenance tests/test_control_plane_store.py::ControlPlaneStoreTests::test_legacy_notion_reingest_preserves_runtime_project_dir tests/test_control_plane_router.py::ControlPlaneRouterTests::test_control_dashboard_html_is_served_without_token tests/test_control_plane_router.py::ControlPlaneRouterTests::test_project_prompt_uses_source_provenance_instead_of_notion_authority`
   - `uv run pytest -q tests/test_supabase_runtime_cutover.py::test_supabase_legacy_notion_intake_preserves_runtime_project_dir`
 
-## 2026-05-06 live Supabase resume-readiness evidence
+## 2026-05-06 historical Supabase resume-readiness evidence
 
 Command:
 
@@ -203,7 +203,7 @@ Evidence from `/tmp/enoch-supabase-resume-readiness.json`:
 
 - `/enoch-core/health`: `store_backend = supabase`, `db_path = supabase`.
 - Legacy Notion intake/projection endpoints return `410`.
-- Supabase-native ideas workbench returns `200` and reports authority: `Supabase-native ideas workbench; Notion is provenance only`.
+- Historical Supabase-native ideas workbench returns `200` and reports authority: `Supabase-native ideas workbench; Notion is provenance only`.
 - Queue remains paused/maintenance-guarded after the controlled resume drill.
 - Notion sync/background timers are not active: enabled states `masked`, `masked`, `disabled`, `disabled`; active states all `inactive`.
 - Paper pipeline is gate-aware: `write_needed = 0`, `publish_ready = 0`, `missing_from_corpus = 0`, `published_imported = 492`, `publication_ready_total = 492`, `raw_completed_no_paper_candidates = 220`, `not_writable_by_decision_gate = 220`.
@@ -237,11 +237,11 @@ Implemented after the operator-label patch:
 - Historical finalized drafts already represented in the corpus move to `published_imported` / `published` and should not appear as actionable import work.
 - Public release count drift was fixed by updating GitHub metadata for `alias8818/enoch-ai-research-corpus` to `496`; `validate_public_release.py` passed afterward.
 
-## 2026-05-07 public docs and Supabase cleanup confirmation
+## 2026-05-07 public docs and database cleanup confirmation
 
 - Public Mintlify docs were checked for stale artifact-count references and review/approval wording in operator-facing paper paths. The remaining raw `review_status`, `draft_review`, `human_review_required`, `approved_for_finalization`, and `approve-finalization` mentions are framed as compatibility/detail API fields or legacy path names, not the operator workflow.
 - Docs validation passed with `node scripts/validate-docs.mjs`: 17 MDX files and 16 `docs.json` navigation entries validated.
-- Live Supabase state doctor with the production database URL reported `normalization dry-run rows: 0`, so no safe cleanup rows needed migration. Provenance/audit residue remains visible but classified as inactive historical/attention residue.
+- Live state doctor with the then-production database URL reported `normalization dry-run rows: 0`, so no safe cleanup rows needed migration. Provenance/audit residue remains visible but classified as inactive historical/attention residue.
 - Live control overview remains gate-aware: `write_needed = 0`, `raw_completed_no_paper_candidates = 220`, `not_writable_by_decision_gate = 220`, `finalize_needed = 0`, and `publish_ready = 0`.
 - Local corpus reconciliation reported `finalized_publication_drafts = 492`, `public_corpus = 496`, and `importable = 0`; this confirms no finalized publication draft is missing from the public corpus ledger view.
 
@@ -283,7 +283,7 @@ Historical/debug state disposition after cleanup:
 
 ## 2026-05-07 controlled 3-idea unfreeze evidence
 
-After batch policy and attention cleanup, a controlled 3-idea Supabase-native batch was run to verify the state model under real load.
+After batch policy and attention cleanup, a controlled 3-idea control-plane batch was run to verify the state model under real load.
 
 Batch source: `codex_next_batch_20260507`.
 

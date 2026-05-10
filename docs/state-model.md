@@ -1,8 +1,8 @@
 # Enoch state model contract
 
-Status: active migration contract as of 2026-05-07.
+Status: active operator contract as of 2026-05-10.
 
-Supabase owns the runtime ledger. The control plane keeps detailed raw states for callbacks, backfills, provenance, and audit, but users and agents should reason from a small deterministic operator model. See [`docs/state-transition-map.md`](state-transition-map.md) for the lifecycle transition map and [`docs/state-vocabulary-reduction-plan.md`](state-vocabulary-reduction-plan.md) for the small target vocabulary plus raw-state cleanup mapping.
+The control plane owns the runtime ledger. In production, that ledger now lives in local Postgres on `enoch-core`; older Supabase names remain in migrations, adapter code, and historical docs. The control plane keeps detailed raw states for callbacks, backfills, provenance, and audit, but users and agents should reason from a small deterministic operator model. See [`docs/state-transition-map.md`](state-transition-map.md) for the lifecycle transition map and [`docs/state-vocabulary-reduction-plan.md`](state-vocabulary-reduction-plan.md) for the small target vocabulary plus raw-state cleanup mapping.
 
 ## What to trust
 
@@ -97,7 +97,7 @@ Common examples:
 | `queue_items.blocked_reason` / `last_error` | Evidence fields | Explain why an item needs operator action. |
 | `queue_items.next_action_hint` | Hint | Helps derive paper drafting only with completed delivery and a positive decision gate. |
 | `control_flags` | Runtime config | Pause/maintenance policy; it can hold work but does not replace row lifecycle state. |
-| `ideas.idea_status` | Source/provenance | Intake provenance only after Supabase cutover. |
+| `ideas.idea_status` | Source/provenance | Intake provenance only after the control-plane runtime cutover. |
 | `projects.origin_idea_status` | Source/provenance | Copied source status; do not infer current work status from it. |
 | `corpus_imports` | Publication provenance | Import ledger for `published`; it is not a paper-writing or finalization state. |
 | `dashboard_observations` / telemetry | Observability | Freshness/debug evidence only; do not use as lifecycle truth. |
@@ -164,7 +164,7 @@ Raw tables, raw statuses, and legacy labels belong in detail/debug drawers, not 
 5. Follow-up recommendations are adjacent-investigation work only; they do not make a parent run writable.
 6. Finalization readiness means `publication_draft` plus finalized automation package, not a draft row by itself; actionable publication/import readiness additionally requires no corpus-import ledger row.
 7. Human/operator paper approval is not a normal workflow state. Use automated finalization/package wording.
-8. Notion/source idea status is provenance only now that Supabase owns the runtime ledger.
+8. Notion/source idea status is provenance only now that the control plane owns the runtime ledger.
 9. New raw state strings or new state-like persisted columns require updating `state_contract.py`, the Supabase constraint migration when applicable, `scripts/validate_state_contract.py` coverage, this document, and `docs/state-model.md`, and public docs.
 
 ## State doctor
@@ -173,7 +173,7 @@ Run the state doctor before answering live operator state/count questions or bef
 
 ```bash
 uv run python scripts/state_doctor.py \
-  --database-url "$ENOCH_SUPABASE_DATABASE_URL" \
+  --database-url "$ENOCH_CONTROL_DATABASE_URL" \
   --control-url "$ENOCH_CONTROL_URL" \
   --token-file /path/to/enoch-control-plane-token.txt \
   --corpus ../enoch-ai-research-corpus \
@@ -212,9 +212,9 @@ Run:
 
 ```bash
 uv run python scripts/validate_state_contract.py
-uv run python scripts/validate_state_contract.py --database-url "$ENOCH_SUPABASE_DATABASE_URL"
-uv run python scripts/generate_state_reduction_audit.py --database-url "$ENOCH_SUPABASE_DATABASE_URL"
-uv run python scripts/normalize_state_surfaces.py --database-url "$ENOCH_SUPABASE_DATABASE_URL"
+uv run python scripts/validate_state_contract.py --database-url "$ENOCH_CONTROL_DATABASE_URL"
+uv run python scripts/generate_state_reduction_audit.py --database-url "$ENOCH_CONTROL_DATABASE_URL"
+uv run python scripts/normalize_state_surfaces.py --database-url "$ENOCH_CONTROL_DATABASE_URL"
 ```
 
 `normalize_state_surfaces.py` is dry-run by default. Use `--apply` only after the generated change counts match the state-reduction audit and the system is intentionally in the automation freeze window.

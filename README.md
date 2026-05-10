@@ -24,11 +24,11 @@ Enoch Control Plane treats those as control-plane problems, not model problems. 
 Research Facility source scan
   -> generated research candidates
   -> dedupe / score / admission ledger
-  -> Supabase-native ideas workbench
+  -> local Postgres/control-plane ideas workbench
   -> queue candidate
-  -> VM control plane
+  -> enoch-core control plane
   -> worker preflight and dispatch safety checks
-  -> GB10 worker wake gate
+  -> GB10 worker gate
   -> agent run with process + telemetry supervision
   -> evidence sync
   -> AI-generated research artifact
@@ -40,7 +40,7 @@ The repository contains the execution/control-plane layer and supporting docs. H
 ## Main components
 
 - **Control plane API** — queue state, project state, publication automation/finalization state, pause/maintenance controls, and dispatch decisions; built with FastAPI and LangGraph-era graph boundaries.
-- **Wake gate** — proves a run is actually done, not just agent-session-closed: process-tree tracking and CPU/GPU quiet-window telemetry sustained over a configurable window.
+- **Worker gate** — proves a run is actually done, not just agent-session-closed: process-tree tracking and CPU/GPU quiet-window telemetry sustained over a configurable window. Older code/config names may still say `wake_gate`; treat that as compatibility naming.
 - **Worker preflight** — authenticated health checks against the worker before dispatching new work, so dispatch fails early rather than silently.
 - **Single-lane safety** — prevents overlapping GPU-heavy work on constrained local hardware; the control plane holds the lock, not the dispatch script.
 - **Evidence sync** — copies run notes, metrics, result summaries, evidence bundles, and claim ledgers from worker projects into the control plane before artifact generation begins.
@@ -67,7 +67,7 @@ Enoch Control Plane is the project-specific control plane and release package. I
 
 Ideas are sourced through the Research Facility, a separate auditable lane for source scanning, candidate generation, dedupe/history comparison, novelty/feasibility/accessibility scoring, and admission decisions. A generated candidate is not queued work until an admission row explains why it was promoted.
 
-Supabase is now the canonical intake ledger. Legacy Notion IDs/URLs, when present, are historical provenance only and are not runtime authority.
+The current production runtime stores the intake and queue ledgers in local Postgres behind the Enoch control plane on `enoch-core`. Legacy Notion IDs/URLs, when present, are historical provenance only and are not runtime authority. Older `supabase_*` config names remain compatibility names for the Postgres adapter and historical migration scripts; do not describe Supabase Cloud as the active production database.
 
 See [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md) and [`docs/research-facility.md`](docs/research-facility.md).
 
@@ -106,11 +106,12 @@ The runtime follows semantic versioning. Keep `VERSION`, `pyproject.toml`, and [
 - [`docs/quickstart.md`](docs/quickstart.md) — local clone-to-dashboard smoke test
 - [`docs/deployment-guide.md`](docs/deployment-guide.md) — full deployment guide
 - [`docs/configuration-reference.md`](docs/configuration-reference.md) — config field reference
+- [`docs/operator-runbook.md`](docs/operator-runbook.md) — long-haul readiness, pause/resume, callbacks, and paper-gate checks
 - [`docs/system-workflow.md`](docs/system-workflow.md) — architecture and control-plane boundaries
 - [`docs/state-model.md`](docs/state-model.md) — operator lane vocabulary and raw-state/detail-stage boundaries
 - [`docs/state-transition-map.md`](docs/state-transition-map.md) — Idea -> Queue -> Run -> Decision -> Paper -> Publication -> Corpus lifecycle map
 - [`docs/state-simplification-todo.md`](docs/state-simplification-todo.md) — next-phase state/ledger simplification backlog
-- [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md) — Research Facility scouting, Supabase ideas, and queue handoff
+- [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md) — Research Facility scouting, control-plane ideas, and queue handoff
 - [`docs/research-facility.md`](docs/research-facility.md) — source/candidate/admission/lineage ledgers and admission guardrails
 
 **Release context:**

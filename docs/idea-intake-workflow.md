@@ -2,7 +2,7 @@
 
 The Enoch execution system should not depend on hand-picked prompts or ad-hoc ChatGPT batches alone. The Research Facility is the first-class intake lane for discovering, scoring, admitting, and tracing candidate research ideas before the control plane dispatches experiments.
 
-This document describes that intake layer because it is important to the full system story. It is intentionally separated from runtime dispatch: generated candidates do not become work until an admission decision promotes them into the Supabase-native idea/project/queue ledgers.
+This document describes that intake layer because it is important to the full system story. It is intentionally separated from runtime dispatch: generated candidates do not become work until an admission decision promotes them into the control-plane idea/project/queue ledgers.
 
 ## Summary
 
@@ -12,7 +12,7 @@ External signals + prior Enoch results
   -> generated candidate ledger
   -> dedupe / history comparison
   -> scoring / admission ledger
-  -> Supabase-native ideas workbench
+  -> local Postgres/control-plane ideas workbench
   -> queue selection / dispatch planning
   -> Enoch control plane
   -> GB10 worker experiment
@@ -78,9 +78,9 @@ Typical scoring dimensions included:
 
 The point is not to pretend the scores are objectively true. The point is to make priority explicit, auditable, and adjustable.
 
-## Stage 4 — Admission and Supabase-native idea workbench
+## Stage 4 — Admission and control-plane idea workbench
 
-Supabase now acts as the intake and triage database for ideas. Historical Notion identifiers may remain on imported rows as provenance, but they are no longer runtime authority.
+The current production runtime stores intake and triage data in local Postgres behind the Enoch control plane. Historical Notion identifiers may remain on imported rows as provenance, but they are no longer runtime authority.
 
 Admission is recorded in `enoch.research_admissions`. This is the operator-facing answer to “why did this get queued?” A candidate may be admitted, rejected, merged, or held for review.
 
@@ -97,7 +97,7 @@ The workbench provides:
 
 Important distinction:
 
-> Supabase ideas are the editable intake ledger. The Enoch control plane remains the execution authority.
+> Control-plane ideas are the editable intake ledger. The Enoch control plane remains the execution authority.
 
 The current runtime does not require Notion sync to create, inspect, or dispatch idea candidates. See [`research-facility.md`](research-facility.md) for the concrete ledgers and admission planner.
 
@@ -136,7 +136,7 @@ The key architectural boundary is:
 
 ```text
 Research Facility admissions decide what may be worth running.
-Supabase ideas/projects/queue rows represent admitted runtime work.
+Control-plane ideas/projects/queue rows represent admitted runtime work.
 Enoch control plane decides what is safe and true during execution.
 ```
 
@@ -158,13 +158,13 @@ That loop is the agentic system story.
 
 Recommended wording:
 
-> Enoch uses an upstream LLM-assisted research-scouting process to review technical signals, propose candidate experiments, and store candidate records in a Supabase-native ideas workbench. Execution authority lives in the Enoch control plane, which handles dispatch safety, worker preflight, process/telemetry gating, evidence synchronization, and artifact generation.
+> Enoch uses an upstream LLM-assisted research-scouting process to review technical signals, propose candidate experiments, and store candidate records in a local Postgres/control-plane ideas workbench. Execution authority lives in the Enoch control plane, which handles dispatch safety, worker preflight, process/telemetry gating, evidence synchronization, and artifact generation.
 
 ## What should not be overclaimed
 
 - The intake scout did not guarantee novelty.
 - The weight matrix was a prioritization tool, not a proof of value.
-- Supabase ideas are not the execution engine; they are the intake ledger.
+- Control-plane ideas are not the execution engine; they are the intake ledger.
 - The generated papers remain AI-generated artifacts, not peer-reviewed human scholarship.
 
 ## Future improvements

@@ -2,8 +2,8 @@
 
 This guide describes a two-machine Enoch deployment that mirrors the reference setup:
 
-- **Control VM** — hosts the FastAPI control plane, dashboard, Supabase-backed queue state, publication automation APIs, alert timer, and corpus/export tooling.
-- **Worker machine** — hosts the wake gate used by Codex runs, tracks process trees and telemetry, and stores project workspaces and evidence.
+- **Control VM** — hosts the FastAPI control plane, dashboard, local Postgres/control-plane queue state, publication automation APIs, alert timers, and corpus/export tooling. In the reference deployment this is `enoch-core` with the checkout at `/opt/enoch-control-plane`.
+- **Worker machine** — hosts the GB10 worker gate used by Codex runs, tracks process trees and telemetry, and stores project workspaces and evidence. In the reference deployment this runs from `~/projects/enoch_testing_ground/enoch-control-plane`.
 
 A single-machine development deployment is also possible: run both services on localhost and set `worker_wake_gate_url` to the same host.
 
@@ -96,7 +96,7 @@ The worker can run the same app with a worker-focused config. For a minimal loca
 
 The control VM uses:
 
-- `worker_wake_gate_url` to call the worker API;
+- `worker_wake_gate_url` to call the worker API. The field name is a compatibility name; operator docs should call this the worker gate.
 - `worker_wake_gate_bearer_token` for authenticated worker checks;
 - `paper_evidence_sync_*` settings when importing evidence from worker project folders.
 
@@ -121,7 +121,7 @@ Open the dashboard:
 http://<control-vm>:8787/dashboard
 ```
 
-Use `control_api_bearer_token` as the dashboard/API token. The legacy wake-gate dashboard remains at `/dashboard`; the redesigned operator console is:
+Use `control_api_bearer_token` as the dashboard/API token. The legacy worker-gate dashboard remains at `/dashboard`; the redesigned operator console is:
 
 ```text
 http://<control-vm>:8787/control/dashboard
@@ -162,9 +162,9 @@ sudo ENOCH_CONFIG=/etc/enoch-control-plane/config.json /opt/enoch-control-plane/
 ```
 
 
-## 7. Supabase-native ideas and draft-only paper production
+## 7. Local Postgres ideas and draft-only paper production
 
-Notion sync is obsolete in the current runtime. Idea intake should go through the Supabase-backed control-plane API:
+Notion sync is obsolete in the current runtime. Idea intake should go through the control-plane API backed by the current local Postgres/control-plane store:
 
 ```bash
 curl -fsS -X POST \
@@ -225,7 +225,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now enoch-research-autopilot.timer
 ```
 
-Each autopilot tick calls `/control/api/research/run-cycle` and is capped at one provider request, one promotion, one dispatch, one paper draft, and one finalization package. It preserves the broad queue pause and the paper stage still blocks negative/non-positive decision artifacts.
+Each autopilot tick calls `/control/api/research/run-cycle` and is capped at one provider request, one promotion, one dispatch, one paper draft, and one finalization package. It preserves the broad queue pause and the paper stage still blocks negative/non-positive decision artifacts. The checked-in timer interval is not the operator contract; the current `enoch-core` timer cadence should be inspected with `systemctl list-timers enoch-research-autopilot.timer` before reporting live frequency.
 
 ## 8. Smoke-test core API paths
 
@@ -257,7 +257,7 @@ The normal broad dispatch path is intentionally guarded:
 4. worker preflight is healthy;
 5. no conflicting active GPU lane exists;
 6. dispatch script launches the agent run;
-7. wake gate tracks process/telemetry truth;
+7. worker gate tracks process/telemetry truth;
 8. completion callback or status update is emitted only after the gate is satisfied.
 
 Use dry-run dispatch first:
@@ -299,7 +299,7 @@ Use the operator state model in [`docs/state-model.md`](state-model.md) when int
 - `write_needed` means a completed run is paper-positive and has no live paper row.
 - `finalize_needed` means a draft needs automated rewrite/finalization/package work.
 - `publish_ready` means a `publication_draft` has a finalized automation package and finalization package path, and does **not** have a matching `corpus_imports` ledger row. Historical finalized drafts already imported are tracked as `published_imported`, not actionable publish work.
-- After importing papers into the public corpus, sync the Supabase import ledger with `python3 scripts/sync_corpus_import_ledger.py --corpus ../enoch-ai-research-corpus --sql-output /tmp/enoch-sync-corpus-imports.sql` followed by `supabase db query --linked -f /tmp/enoch-sync-corpus-imports.sql` when a direct database URL is not available.
+- After importing papers into the public corpus, sync the local Postgres/control-plane import ledger with `python3 scripts/sync_corpus_import_ledger.py --corpus ../enoch-ai-research-corpus --sql-output /tmp/enoch-sync-corpus-imports.sql`, then apply that SQL through the configured database connection. The older `supabase db query` path is a compatibility/migration workflow, not the current production database owner.
 
 Do not treat raw `wake_ready`, `draft_review`, or `publication_draft` values by themselves as user-facing paper work or publication readiness.
 

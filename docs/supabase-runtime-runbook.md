@@ -1,25 +1,34 @@
-# Supabase runtime cutover runbook
+# Local Postgres runtime runbook
 
-Status: active as of 2026-05-06.
+Status: current topology note as of 2026-05-10. This file keeps earlier Supabase cutover evidence because it explains the migration path, but Supabase Cloud is no longer the active production database.
 
-The control plane is expected to run with `control_plane_store_backend=supabase`, and `/enoch-core/health` should report `store_backend: supabase` because its shadow/proposal snapshots now follow the Supabase control-plane backend. Notion is not an active runtime dependency; legacy Notion control-plane endpoints should return `410`, and Notion sync units should remain masked.
+The current production control plane runs on `enoch-core` from `/opt/enoch-control-plane` with local Postgres database `enoch_control`. Older `control_plane_store_backend=supabase`, `supabase_database_url`, and `ENOCH_SUPABASE_DATABASE_URL` names remain in compatibility code, migration scripts, and historical evidence. Treat them as adapter/migration names unless live config proves otherwise. Notion is not an active runtime dependency; legacy Notion control-plane endpoints should return `410`, and Notion sync units should remain masked.
+
+For day-to-day operation, prefer [`operator-runbook.md`](operator-runbook.md). This file is the cutover/migration evidence trail plus local-Postgres operational notes.
 
 ## Safety invariants
 
-Before resuming any work:
+Before resuming any work on the current local-Postgres deployment:
 
-- `/control/health` reports `store_backend: supabase`.
-- `/enoch-core/health` reports `store_backend: supabase` and `db_path: supabase`; `enoch_core.sqlite3` must not be the live shadow/proposal ledger.
-- `/control/state` reports `queue_paused=true` and `maintenance_mode=true` until the controlled drill starts.
+- `/control/health` and `/enoch-core/health` point at the configured local control-plane store, not the old `.166` host.
+- local Postgres is reachable on `enoch-core` and the `enoch_control` database has current queue/paper counts.
+- `/control/state` reports the intended pause/maintenance posture for the operation being performed.
 - `/control/api/intake/notion` returns `410`.
 - `/control/projections/notion/queue` returns `410`.
 - `enoch-notion-sync.timer` and `enoch-notion-sync.service` are masked and inactive.
-- `enoch-paper-draft-next.timer` and `enoch-queue-alert-check.timer` are disabled and inactive.
+- timer state matches policy: Research Facility, queue pump, paper drafting, and corpus import timers are checked separately and not inferred from one another.
 - `write_needed=0`; raw completed/no-paper candidates must be explained by the decision gate.
 
 ## Readiness check
 
-From the repo checkout:
+For the current deployment, use the long-haul readiness surface:
+
+```bash
+python scripts/check_longhaul_readiness.py --live \
+  --config /etc/enoch-control-plane/config.json
+```
+
+For historical Supabase-resume validation from the repo checkout:
 
 ```bash
 ENOCH_CONTROL_PLANE_TOKEN="$(ssh root@192.168.1.166 'cat /root/enoch-control-plane-token.txt')" \
@@ -27,7 +36,7 @@ uv run python scripts/validate_supabase_resume_readiness.py \
   --ssh-host root@192.168.1.166
 ```
 
-Expected result: `ok: true` with `store_backend=supabase`, Notion `410`, and disabled/inactive timers.
+Expected historical result: `ok: true` with `store_backend=supabase`, Notion `410`, and disabled/inactive timers. Do not use this as proof of current `enoch-core` local-Postgres readiness.
 
 If running directly on the control-plane host, omit `--ssh-host` and verify timers with local `systemctl`:
 
@@ -43,7 +52,7 @@ systemctl is-active enoch-notion-sync.timer enoch-notion-sync.service enoch-pape
 
 ## Controlled one-dispatch drill
 
-Do not enable timers for the first resume. Use the fail-closed script:
+Historical Supabase-era drill: do not enable timers for the first resume. Use the fail-closed script:
 
 ```bash
 ENOCH_CONTROL_PLANE_TOKEN="$(ssh root@192.168.1.166 'cat /root/enoch-control-plane-token.txt')" \
@@ -56,7 +65,7 @@ The script refuses `--apply` if there is no queued candidate. If it does run, it
 
 ## If no queued candidate exists
 
-Do not unpause just to test empty dispatch. Add or import a Supabase-native idea first via `/control/intake/ideas`, then rerun readiness and the controlled drill.
+Do not unpause just to test empty dispatch. Add or import a control-plane idea first via `/control/intake/ideas`, then rerun readiness and the controlled drill.
 
 ## What not to do
 
@@ -143,6 +152,18 @@ Operational notes:
 - Use `http://100.98.147.24:8787/control/dashboard` for direct Tailscale access.
 - `https://enoch-core.exe.xyz/` is configured as a private exe.dev proxy to port `8787`; exe.dev authentication may be required before the application bearer token is evaluated.
 - Do not point dashboard/API traffic back at Supabase Cloud unless intentionally rolling back.
+
+## Reconnect and callback resilience
+
+Current callback path:
+
+```text
+GB10 worker gate -> Tailscale -> enoch-core /control/api/worker-callback
+```
+
+The callback contract is idempotent by idempotency key. Callback-ready states without delivered idempotency keys are retried by the worker gate, and startup reconciliation can recover missing idle/finished observations. Dashboard states such as `callback_pending` and `stale_callback_ready` remain operator attention signals when retry/reconciliation does not clear the condition.
+
+Still not covered: a worker process killed mid-run before a decision artifact exists. Inspect the GB10 project directory, logs, and process evidence before reconciling that queue row.
 
 ## Long-haul / 24x7 readiness check
 

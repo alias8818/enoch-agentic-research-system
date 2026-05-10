@@ -4,7 +4,7 @@ These documents describe the earlier n8n-era migration path and shadow-protocol 
 
 They are retained as engineering history only. The release project is **not** an n8n workflow package and does not include OpenClaw workflow configuration.
 
-Current workflow authority lives in the LangGraph-era control plane, wake gate, worker preflight, queue/status APIs, evidence synchronization, and paper artifact pipeline described in the main README and `docs/system-workflow.md`.
+Current workflow authority lives in the control plane, worker gate, worker preflight, queue/status APIs, evidence synchronization, and paper artifact pipeline described in the main README and `docs/system-workflow.md`.
 
 Historical files in this directory include:
 

@@ -16,21 +16,21 @@ The system is valuable because it joins three layers that are often split apart:
 LLM research scout
         |
         v
-Structured idea cards + Supabase-native ideas workbench
+Structured idea cards + local Postgres/control-plane ideas workbench
         |
         v
 Idea intake / queue
         |
         v
-VM control plane (FastAPI + LangGraph-era state/graph model)
+enoch-core control plane (FastAPI + LangGraph-era state/graph model)
         |
         | dispatch / preflight / pause safety
         v
-GB10 worker wake gate
+GB10 worker gate
         |
         | Codex agent execution + process/telemetry tracking
         v
-Project workspace with run notes, metrics, results, claim ledgers
+Project workspace with run notes, metrics, results, `.enoch/project_decision.json`
         |
         | evidence sync
         v
@@ -48,9 +48,9 @@ Enoch Control Plane is built around a FastAPI service, a LangGraph-era control-p
 
 ## Intake boundary
 
-The upstream intake process uses an LLM-assisted research scout to review news, public research papers, and systems trends, then frame candidate experiments for scoring. Supabase now acts as the editable ideas workbench and triage database. Historical Notion identifiers may remain as provenance on imported rows, but Notion is not the active runtime authority.
+The upstream intake process uses an LLM-assisted research scout to review news, public research papers, and systems trends, then frame candidate experiments for scoring. The current production runtime stores the editable ideas workbench and triage ledgers in local Postgres behind the Enoch control plane on `enoch-core`. Historical Notion identifiers may remain as provenance on imported rows, but Notion is not the active runtime authority.
 
-Runtime authority begins when a scored candidate becomes a queue item for the Enoch control plane. From there, safety and truth come from control-plane state, worker preflight, wake-gate telemetry, process tracking, and evidence artifacts.
+Runtime authority begins when a scored candidate becomes a queue item for the Enoch control plane. From there, safety and truth come from control-plane state, worker preflight, worker-gate telemetry, process tracking, and evidence artifacts.
 
 See `docs/idea-intake-workflow.md` for the full intake narrative. For the deterministic intake-to-publication state audit, review `docs/end-to-end-workflow-audit.md`. For the planned API/dashboard redesign and memory-hardening lane, review `docs/api-dashboard-redesign.md`.
 
@@ -59,7 +59,7 @@ See `docs/idea-intake-workflow.md` for the full intake narrative. For the determ
 - queue and project state APIs;
 - pause/maintenance controls;
 - worker preflight and single-active-lane safety checks;
-- wake-gate process tracking and CPU/GPU quiet-window evidence;
+- worker-gate process tracking and CPU/GPU quiet-window evidence;
 - professional `/control/dashboard` operator console backed by bounded read models;
 - evidence synchronization from worker to VM;
 - paper/research-artifact generation;

@@ -151,6 +151,7 @@ The dashboard follows the same split:
 - `Promote selected candidate` dry-runs first, then promotes exactly one already-admitted candidate into `enoch.ideas`, `enoch.projects`, and `enoch.queue_items`.
 - `Run bounded cycle` is the first policy-gated automation layer. It requires an explicit live `enabled` flag, checks provider budget, can spend one provider request, can promote up to one admitted candidate, can optionally dispatch at most one selected queued item while preserving the global queue pause, and can optionally draft/finalize at most one paper if the completed run is decision-positive.
 - Provider generation and candidate promotion never dispatch worker execution. The bounded-cycle action can dispatch exactly one item only when its dispatch option is explicitly enabled for that call.
+- The systemd autopilot is a repeating bounded tick, not a broad queue drain. In the current `enoch-core` deployment, `systemctl list-timers enoch-research-autopilot.timer` showed a roughly ten-minute cadence on 2026-05-10; re-check the timer before reporting live cadence because systemd overrides can differ from the checked-in unit.
 
 The provider-backed endpoint is:
 
@@ -204,7 +205,7 @@ Live calls must set `enabled: true`; dry-runs do not spend provider requests or 
 
 That paper stage still uses the normal local decision gate. Negative, needs-review, missing, malformed, or otherwise non-positive decision artifacts produce no paper.
 
-For unattended operation, the optional systemd tick is `enoch-research-autopilot.timer` / `enoch-research-autopilot.service`. The unit is inert unless `ENOCH_ENABLE_RESEARCH_AUTOPILOT=1` is set in a systemd override. A live tick is capped at one provider request, one promotion, one dispatch, one paper draft, and one finalization package.
+For unattended operation, the optional systemd tick is `enoch-research-autopilot.timer` / `enoch-research-autopilot.service`. The unit is inert unless `ENOCH_ENABLE_RESEARCH_AUTOPILOT=1` is set in a systemd override. A live tick is capped at one provider request, one promotion, one dispatch, one paper draft, and one finalization package. Transient disconnects during a long bounded tick are handled conservatively: the script verifies that the control plane recovered and waits for the next tick instead of retrying a non-idempotent POST.
 
 ## Admission behavior
 

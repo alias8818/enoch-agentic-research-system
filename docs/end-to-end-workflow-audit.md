@@ -4,15 +4,15 @@ Date: 2026-05-03
 
 Original scope: legacy Notion intake through queue dispatch, wake callback decisions, branch/discard/paper drafting, paper automation/rewrite, and publication packaging. This audit uses the context snapshot `.omx/context/end-to-end-workflow-audit-20260503T081947Z.md` and preserves public-repo constraints: no private LAN defaults, secrets, or retired private workflow material.
 
-> Superseded runtime note (2026-05-06): Notion is no longer the active intake/runtime ledger. Supabase-native `enoch.ideas` / `enoch.idea_workbench` and `/control/intake/ideas` are the supported paths. The Notion flow below is retained only as historical audit context; live Notion API/projection routes are disabled by default and the checked-in Notion sync unit/script are inert compatibility stubs.
+> Superseded runtime note (2026-05-06): Notion is no longer the active intake/runtime ledger. The control-plane `enoch.ideas` / `enoch.idea_workbench` tables and `/control/intake/ideas` are the supported paths. The Notion flow below is retained only as historical audit context; live Notion API/projection routes are disabled by default and the checked-in Notion sync unit/script are inert compatibility stubs. Supabase-era wording in this audit is historical; the current production database is local Postgres on `enoch-core`.
 
 ## Executive summary
 
-Current runtime spine: Supabase-native idea rows and persisted project decision rows are the active operator ledgers; dispatch is paused/preflight/single-lane guarded; wake callbacks map worker outcomes into durable queue states and persist decision-gate evidence; positive research outcomes can draft papers only when evidence and decision gates pass; publication rewrites preserve provenance policy; and finalization packaging is automated/package-only with no submission side effects.
+Current runtime spine: control-plane idea rows and persisted project decision rows are the active operator ledgers; dispatch is paused/preflight/single-lane guarded; worker callbacks map worker outcomes into durable queue states and persist decision-gate evidence; positive research outcomes can draft papers only when evidence and decision gates pass; publication rewrites preserve provenance policy; and finalization packaging is automated/package-only with no submission side effects.
 
 Safe bounded fixes applied during this audit: `worker_callback.session_started` keeps the queue item active instead of falling through to the completed/default branch, unknown direct-store callbacks require manual review, and the paper-positive gate now uses exact decision/support tokens so negated words such as `not_positive`, `nonpositive`, `non-positive`, `unsupported`, and `not_supported` do not pass by substring. Regression tests lock these behaviors.
 
-1. Legacy Notion intake idempotency replay was fixed during the historical audit; current runtime disables legacy Notion endpoints by default and uses Supabase-native `/control/intake/ideas`.
+1. Legacy Notion intake idempotency replay was fixed during the historical audit; current runtime disables legacy Notion endpoints by default and uses control-plane `/control/intake/ideas`.
 2. Worker callback idempotency replay/conflict is checked before queue/run mutation, so duplicate callbacks are no-op replays and conflicting callback payloads return `409` without overwriting the prior terminal state.
 3. `session_started` callbacks are explicitly treated as active `running` rows with `await_callback`, unknown direct-store callbacks require manual review, and the positive paper gate rejects negated/substr-only tokens such as `not_positive`, `nonpositive`, `non-positive`, `unsupported`, and `not_supported`.
 
@@ -20,7 +20,7 @@ Safe bounded fixes applied during this audit: `worker_callback.session_started` 
 
 ```mermaid
 flowchart TD
-  A[LLM scout / operator idea] --> B[Supabase ideas workbench]
+  A[LLM scout / operator idea] --> B[control-plane ideas workbench]
   B --> C[/control/intake/ideas]
   C -->|dry_run| D0[Candidate preview only]
   C -->|commit + idempotency event| E[(ideas + projects + queue_items)]
@@ -94,7 +94,7 @@ Suggested hardening: expose branch successor validation in dashboard findings an
 
 Fix applied: repeated Notion intake with the same idempotency key and identical payload no longer rewrites `projects` / `queue_items` timestamps or metadata. Reusing the key with different payload still raises `IdempotencyConflict` via `append_event` at `enoch_control_plane/control_plane/store.py:485-498`.
 
-Current runtime status: legacy Notion intake/projection endpoints are disabled by default and should return `410`; Supabase-native idea intake owns editable planning metadata. The historical risk below applies only if `legacy_notion_api_enabled` is deliberately re-enabled in a quarantined compatibility environment.
+Current runtime status: legacy Notion intake/projection endpoints are disabled by default and should return `410`; control-plane idea intake owns editable planning metadata. The historical risk below applies only if `legacy_notion_api_enabled` is deliberately re-enabled in a quarantined compatibility environment.
 
 Suggested hardening if legacy compatibility is ever re-enabled: add an operator-visible diff summary to intake responses for updated rows.
 
@@ -103,7 +103,7 @@ Suggested hardening if legacy compatibility is ever re-enabled: add an operator-
 ### Draft candidate and positive gate
 
 - Draft candidate logic in `enoch_control_plane/enoch_core/logic.py:161-204` requires completed status, positive legacy state or wake-ready + `draft_paper_or_select_next_project`, run evidence, no manual review, and no existing paper for either project or run.
-- Positive decision parsing in `enoch_control_plane/enoch_core/logic.py:86-116` reads `.omx/project_decision.json` or `project_decision.json`, blocks negative/reject/inconclusive/caveat tokens, allows positive tokens, and allows `continue` only with supporting evidence.
+- Positive decision parsing reads the native `.enoch/project_decision.json` artifact, with `.omx/project_decision.json` as a compatibility fallback for older runs. It blocks negative/reject/inconclusive/caveat tokens, allows positive tokens, and allows `continue` only with supporting evidence.
 - `enoch_control_plane/control_plane/router.py:1605-1659` additionally requires local/synced evidence for wake-driven rows, skips non-positive decisions, writes paper artifacts, backfills review items, and logs `paper.drafted`.
 
 Risk: legacy `last_run_state == finalize_positive` intentionally bypasses modern decision artifact checks. That preserves backward compatibility, but it is a deterministic bypass path.
@@ -129,12 +129,12 @@ Superseded risk: older checklist/final-human-approval language reflected a manua
 | Dispatch candidate selection | Dispatch checks pause flags, active lane, and queued candidate before starting worker work. | `enoch_control_plane/control_plane/store.py:1210`, `enoch_control_plane/control_plane/router.py:1507` | Add tests that `manual_review_required=True`, blocked statuses, and active dry-runs cannot write dispatch events. |
 | Wake callback branch | `question_pending` becomes `needs_review`; gate errors/timeouts become `blocked`; `wake_ready` and `session_finished_ready` complete the queue row with `draft_paper_or_select_next_project`; unknown direct-store callbacks require manual review. | `enoch_control_plane/control_plane/store.py:1471` | Deterministic for known callback event types. Hardening: move this branch table into an explicit transition map and assert every `GateCallback` literal is covered. |
 | Branch successor evidence | Branch validation requires successor project id and successor evidence/provenance. | `enoch_control_plane/enoch_core/logic.py:139` | Good invariant but appears as projection logic, not a control-plane transition gate. Add store/router tests that `branch_queued` rows without successor evidence remain non-dispatch and non-draft. |
-| Paper-positive gate | Wake-ready completions must have local/synced evidence and a positive project decision artifact before drafting; negative/caveat/needs-review tokens block drafts. | `enoch_control_plane/enoch_core/logic.py:86`, `enoch_control_plane/enoch_core/logic.py:161`, `enoch_control_plane/control_plane/router.py:1603` | Strong gate. Hardening: expand tests for `continue + supported`, malformed decision JSON, conflicting `.omx/project_decision.json` vs `project_decision.json`, and caveat-only decisions. |
+| Paper-positive gate | Worker-ready completions must have local/synced evidence and a positive project decision artifact before drafting; negative/caveat/needs-review tokens block drafts. | `enoch_control_plane/enoch_core/logic.py:86`, `enoch_control_plane/enoch_core/logic.py:161`, `enoch_control_plane/control_plane/router.py:1603` | Strong gate. Hardening: expand tests for `continue + supported`, malformed decision JSON, conflicting native/compatibility decision artifacts, and caveat-only decisions. |
 | Publication automation lane | Automation/finalization status is explicit; finalization requires readable artifacts and records no submission side effects. | `enoch_control_plane/control_plane/store.py:145`, `enoch_control_plane/control_plane/store.py:925`, `enoch_control_plane/control_plane/store.py:950`, `enoch_control_plane/control_plane/store.py:1004` | Good deterministic publication gate. Hardening: document finalization as package-only and add tests proving no external submission side effects. |
 
 ## Test coverage summary and missing checks
 
-Existing coverage includes legacy Notion-disabled behavior, Supabase-native intake/backfill/cutover checks, control-plane intake/projections, idempotent snapshot import, queue pump ordering, dispatch safety, wake-ready positive/negative paper drafting, paper artifact writing, publication automation mutation validation, rewrite behavior, finalization package idempotency, and core positive/duplicate gates.
+Existing coverage includes legacy Notion-disabled behavior, control-plane intake/backfill/cutover checks, control-plane intake/projections, idempotent snapshot import, queue pump ordering, dispatch safety, worker-ready positive/negative paper drafting, paper artifact writing, publication automation mutation validation, rewrite behavior, finalization package idempotency, and core positive/duplicate gates.
 
 Recommended additional regressions:
 

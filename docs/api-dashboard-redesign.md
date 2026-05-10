@@ -12,7 +12,7 @@ The redesign target is:
 - clear command/read separation;
 - a professional dashboard organized around operator tasks;
 - memory and response-size observability;
-- a migration path that does not break dispatch, worker callbacks, paper production, or Supabase-native idea intake.
+- a migration path that does not break dispatch, worker callbacks, paper production, or control-plane idea intake.
 
 ## Current risk surfaces
 
@@ -31,7 +31,7 @@ Keep command APIs stable and explicit:
 - queue pause/resume;
 - dispatch-next;
 - worker-callback;
-- Supabase-native idea intake;
+- control-plane idea intake;
 - paper draft/publication-automation/finalization mutations;
 - preflight/alerts.
 
@@ -73,7 +73,7 @@ enoch_control_plane/
     read_models.py               # SQL-backed bounded projections
     store.py                     # mutations and low-level queries
   worker_gate/
-    router.py                    # wake-gate run/event API
+    router.py                    # worker-gate run/event API
     read_models.py               # bounded run projections
   observability/
     memory.py                    # RSS/tracemalloc/psutil snapshots
@@ -84,9 +84,9 @@ enoch_control_plane/
 
 Primary navigation:
 
-1. **Overview** — Controller, GB10, Queue, Paper lane, Supabase intake, Memory, and one “needs attention” list.
+1. **Overview** — Controller, GB10, Queue, Paper lane, idea intake, Memory, and one “needs attention” list.
 2. **Work Queue** — paginated projects with status, priority, last state, next action, and age.
-3. **GB10 / Wake Gate** — active lane, quiet-window/callback status, attention items, and bounded history.
+3. **GB10 / Worker Gate** — active lane, quiet-window/callback status, attention items, and bounded history.
 4. **Papers** — first-draft/publication-automation/finalized lanes and artifact status, with raw artifacts hidden by default.
 5. **Events** — bounded searchable audit log with summaries first and payloads expandable.
 6. **Observability** — memory trend, request latency, response sizes, route errors, and restart evidence.
@@ -121,14 +121,14 @@ UX principles:
 
 - Replace first-screen raw output with professional cards/tables/drawers. Initial `/control/dashboard` shell migration now defaults to a shadcn-like sidebar/topbar layout with overview, queue, runs, papers, events, detail, and observability views backed by `/control/api/v1/*`.
 - Move raw JSON/log views behind explicit evidence/debug affordances. Initial shell uses collapsed evidence/debug panels for JSON and raw artifact previews instead of first-screen `<pre>` dumps.
-- Keep compatibility/debug endpoints explicitly labeled. Publication automation and Supabase-native idea intake use command endpoints, while operator dashboard reads use bounded v1 read models.
+- Keep compatibility/debug endpoints explicitly labeled. Publication automation and control-plane idea intake use command endpoints, while operator dashboard reads use bounded v1 read models.
 
 ### Phase 3: Migration and compatibility
 
 - Move dashboard data loading to v1 endpoints.
 - Mark heavyweight legacy endpoints as deprecated or debug-only.
 - Update deployment docs and operator screenshots. Screenshots must be real sanitized captures from the redesigned dashboard, not template placeholders.
-- Move list filtering/sorting/pagination into SQL and keep payload sizes bounded. Initial Supabase slice shipped for queue, runs, papers, and idea intake.
+- Move list filtering/sorting/pagination into SQL and keep payload sizes bounded. Initial database-backed slice shipped for queue, runs, papers, and idea intake.
 
 ### Phase 4: Retention and memory hardening
 
@@ -143,7 +143,7 @@ UX principles:
 - v1 list endpoints enforce hard caps and return page/cursor metadata.
 - Overview loads from aggregate read models and does not parse all run JSON files.
 - Active lane, queue health, paper lane, GB10 state, and memory pressure are human-readable.
-- Existing dispatch, callback, paper, Supabase intake, legacy-Notion-disabled, and preflight tests continue passing.
+- Existing dispatch, callback, paper, idea intake, legacy-Notion-disabled, and preflight tests continue passing.
 - Auth remains required and normal dashboard responses do not leak secrets or absolute private paths.
 
 ## Test plan summary

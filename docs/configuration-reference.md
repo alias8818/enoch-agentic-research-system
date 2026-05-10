@@ -7,7 +7,7 @@ Primary config is a JSON file loaded from `ENOCH_CONFIG`.
 | Field | Purpose |
 |---|---|
 | `control_api_bearer_token` | Authenticates dashboard, control API, worker dispatch, and callback calls. |
-| `completion_callback_url` | URL called when a wake-gated run is complete. |
+| `completion_callback_url` | URL called when a worker-gated run is complete. |
 | `completion_callback_token` | Bearer token used for completion callback delivery. |
 | `state_dir` | Local durable service state directory. |
 | `project_root` | Root for project workspaces and paper artifacts. |
@@ -17,7 +17,7 @@ Primary config is a JSON file loaded from `ENOCH_CONFIG`.
 
 | Field | Purpose |
 |---|---|
-| `worker_wake_gate_url` | Base URL for the worker wake-gate API. |
+| `worker_wake_gate_url` | Base URL for the worker-gate API. The field name is retained for compatibility. |
 | `worker_wake_gate_bearer_token` | Bearer token for worker API checks and dispatch. |
 | `paper_evidence_sync_enabled` | Enables evidence sync before rewriting paper artifacts. |
 | `paper_evidence_sync_ssh_host` | Optional SSH target for fallback evidence sync. |
@@ -67,9 +67,9 @@ The middleware does not record request bodies, response bodies, query strings, o
 
 Early private prototypes used callback fields named after a workflow tool. The public config should use `completion_callback_*`. The aliases are still accepted for old local configs but should not appear in new examples.
 
-## Supabase-native idea intake
+## Local Postgres idea intake
 
-New deployments should use the Supabase-backed ideas API rather than Notion sync. The relevant runtime settings are:
+New deployments should use the control-plane ideas API rather than Notion sync. The current production runtime stores the ledgers in local Postgres on `enoch-core`; older `supabase_*` setting names remain compatibility names for the Postgres/Supabase adapter layer and migration tooling.
 
 ```json
 {
@@ -80,6 +80,6 @@ New deployments should use the Supabase-backed ideas API rather than Notion sync
 }
 ```
 
-`enoch_core_store_backend` defaults to `control_plane`, so `/enoch-core/*` shadow/proposal snapshots follow the control-plane backend: SQLite in local legacy configs, Supabase when `control_plane_store_backend` is `supabase` or `supabase_readonly`. Pin it to `sqlite` only for isolated tests.
+`enoch_core_store_backend` defaults to `control_plane`, so `/enoch-core/*` shadow/proposal snapshots follow the control-plane backend: SQLite in local development configs and the configured Postgres adapter in production. Pin it to `sqlite` only for isolated tests.
 
 `legacy_notion_api_enabled` defaults to `false`. Leave it disabled unless you are deliberately running a one-off historical compatibility import in a quarantined environment. Live Notion tokens, database IDs, and sync timers are not part of the supported runtime path.

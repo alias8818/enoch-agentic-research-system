@@ -32,7 +32,7 @@ All integration credentials must remain outside git and be configured through en
 
 - [x] Pushover integration is documented without app token/user key values.
 - [x] Synthetic.new or other OpenAI-compatible provider configuration is documented without API keys.
-- [x] Supabase-native idea intake is documented; historical Notion provenance is documented without Notion tokens or database IDs that should remain private.
+- [x] Control-plane idea intake is documented; historical Notion provenance is documented without Notion tokens or database IDs that should remain private.
 - [x] Worker machine/control-plane API tokens are documented as required deployment secrets, not repository contents.
 
 ## Corpus release

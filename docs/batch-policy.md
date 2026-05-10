@@ -2,7 +2,7 @@
 
 Status: active operator policy as of 2026-05-07.
 
-This policy controls when Enoch can leave the idle/cleanup posture and dispatch new research work after the Supabase cutover and canonical paper-gate fixes.
+This policy controls when Enoch can leave the idle/cleanup posture and dispatch new research work after the runtime storage cutovers and canonical paper-gate fixes.
 
 ## Current operating posture
 
@@ -133,7 +133,7 @@ Then run:
 
 ```bash
 uv run python scripts/state_doctor.py \
-  --database-url "$ENOCH_SUPABASE_DATABASE_URL" \
+  --database-url "$ENOCH_CONTROL_DATABASE_URL" \
   --control-url "$ENOCH_CONTROL_URL" \
   --token-file /path/to/enoch-control-plane-token.txt \
   --corpus ../enoch-ai-research-corpus

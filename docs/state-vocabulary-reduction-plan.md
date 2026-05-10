@@ -1,6 +1,6 @@
 # State vocabulary reduction plan
 
-Status: migration-safe target vocabulary for Supabase-backed runtime state.
+Status: migration-safe target vocabulary for control-plane runtime state. This plan was written during the Supabase-backed phase; current production storage is local Postgres on `enoch-core`.
 
 This plan reduces operator and agent reasoning to small domain vocabularies while keeping raw compatibility values constrained and auditable. It is a planning and validation artifact: live data changes still go through `scripts/normalize_state_surfaces.py` dry-run/apply plus `scripts/state_doctor.py` evidence.
 
@@ -85,8 +85,8 @@ This plan reduces operator and agent reasoning to small domain vocabularies whil
 | Runs | `runs.state` | `dispatch_accepted` | `running` | `retire` | awaiting_wake or reconciled when superseded | no | `running` | old dispatch bridge state |
 | Runs | `runs.state` | `dispatch_error` | `needs_attention` | `keep` | — | n/a | `needs_operator` | dispatch failed |
 | Runs | `runs.state` | `dispatching` | `running` | `keep` | — | n/a | `running` | dispatch request is in flight |
-| Runs | `runs.state` | `gate_error` | `needs_attention` | `keep` | — | n/a | `needs_operator` | wake gate failed |
-| Runs | `runs.state` | `gate_timeout` | `needs_attention` | `keep` | — | n/a | `needs_operator` | wake gate timed out |
+| Runs | `runs.state` | `gate_error` | `needs_attention` | `keep` | — | n/a | `needs_operator` | worker gate failed |
+| Runs | `runs.state` | `gate_timeout` | `needs_attention` | `keep` | — | n/a | `needs_operator` | worker gate timed out |
 | Runs | `runs.state` | `needs_review` | `needs_attention` | `migrate` | gate_error | yes | `needs_operator` | legacy run attention wording |
 | Runs | `runs.state` | `prepared` | `running` | `alias` | dispatching | yes | `running` | pre-dispatch transient |
 | Runs | `runs.state` | `question_pending` | `needs_attention` | `keep` | — | n/a | `needs_operator` | worker needs an answer |
@@ -103,8 +103,8 @@ This plan reduces operator and agent reasoning to small domain vocabularies whil
 | Runs | `queue_items.last_run_state` | `dispatch_accepted` | `running` | `retire` | awaiting_wake or reconciled when superseded | no | `running` | old dispatch bridge state |
 | Runs | `queue_items.last_run_state` | `dispatch_error` | `needs_attention` | `keep` | — | n/a | `needs_operator` | dispatch failed |
 | Runs | `queue_items.last_run_state` | `dispatching` | `running` | `keep` | — | n/a | `running` | dispatch request is in flight |
-| Runs | `queue_items.last_run_state` | `gate_error` | `needs_attention` | `keep` | — | n/a | `needs_operator` | wake gate failed |
-| Runs | `queue_items.last_run_state` | `gate_timeout` | `needs_attention` | `keep` | — | n/a | `needs_operator` | wake gate timed out |
+| Runs | `queue_items.last_run_state` | `gate_error` | `needs_attention` | `keep` | — | n/a | `needs_operator` | worker gate failed |
+| Runs | `queue_items.last_run_state` | `gate_timeout` | `needs_attention` | `keep` | — | n/a | `needs_operator` | worker gate timed out |
 | Runs | `queue_items.last_run_state` | `malformed` | `decision_no_paper` | `keep` | — | n/a | `complete_no_paper` | malformed decision is not writable |
 | Runs | `queue_items.last_run_state` | `missing` | `decision_no_paper` | `keep` | — | n/a | `complete_no_paper` | missing decision is not writable |
 | Runs | `queue_items.last_run_state` | `needs_review` | `needs_attention` | `migrate` | gate_error | yes | `needs_operator` | legacy run attention wording |
@@ -125,8 +125,8 @@ This plan reduces operator and agent reasoning to small domain vocabularies whil
 | Runs | `runs.gate_state` | `dispatch_accepted` | `running` | `retire` | awaiting_wake or reconciled when superseded | no | `running` | old dispatch bridge state |
 | Runs | `runs.gate_state` | `dispatch_error` | `needs_attention` | `keep` | — | n/a | `needs_operator` | dispatch failed |
 | Runs | `runs.gate_state` | `dispatching` | `running` | `keep` | — | n/a | `running` | dispatch request is in flight |
-| Runs | `runs.gate_state` | `gate_error` | `needs_attention` | `keep` | — | n/a | `needs_operator` | wake gate failed |
-| Runs | `runs.gate_state` | `gate_timeout` | `needs_attention` | `keep` | — | n/a | `needs_operator` | wake gate timed out |
+| Runs | `runs.gate_state` | `gate_error` | `needs_attention` | `keep` | — | n/a | `needs_operator` | worker gate failed |
+| Runs | `runs.gate_state` | `gate_timeout` | `needs_attention` | `keep` | — | n/a | `needs_operator` | worker gate timed out |
 | Runs | `runs.gate_state` | `needs_review` | `needs_attention` | `migrate` | gate_error | yes | `needs_operator` | legacy run attention wording |
 | Runs | `runs.gate_state` | `prepared` | `running` | `alias` | dispatching | yes | `running` | pre-dispatch transient |
 | Runs | `runs.gate_state` | `question_pending` | `needs_attention` | `keep` | — | n/a | `needs_operator` | worker needs an answer |
@@ -177,9 +177,9 @@ This plan reduces operator and agent reasoning to small domain vocabularies whil
 | Projects | `projects.origin_idea_status` | `unknown` | `historical` | `retire` | — | no | `historical` | source/provenance status only |
 | Projects | `projects.origin_idea_status` | `validated` | `historical` | `keep` | — | n/a | `historical` | source/provenance status only |
 
-## Supabase cleanup boundary
+## Database cleanup boundary
 
-- Supabase check constraints remain the guardrail against arbitrary raw state strings.
+- Database check constraints remain the guardrail against arbitrary raw state strings.
 - `scripts/normalize_state_surfaces.py` owns reviewed cleanup SQL and is dry-run by default.
 - `scripts/state_doctor.py` must pass after any cleanup and before unfreezing runtime automation.
 - `retire` rows are not noise if classified as inactive historical/attention residue; they remain visible as provenance.

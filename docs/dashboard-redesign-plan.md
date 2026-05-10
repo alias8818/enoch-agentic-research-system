@@ -8,7 +8,7 @@ Make `/control/dashboard` feel like a professional shadcn-style operator console
 
 - answer operator questions first;
 - keep raw database states in drill-down/debug areas;
-- use bounded Supabase read-model endpoints by default;
+- use bounded database-backed read-model endpoints by default;
 - make paper work decision-gated and corpus-ledger aware;
 - keep unattended token-spend actions explicit, bounded, and visible.
 
@@ -24,7 +24,7 @@ Primary navigation:
 6. **Corpus Import** — finalized draft import gap, ledger-backed publish/import readiness, and imported-publication counts.
 7. **Events** — bounded event log with payload summaries by default.
 8. **Publication automation** — explicit rewrite/finalization lane; no human-approval framing.
-9. **Ideas** — Supabase-native intake/workbench status; Notion is provenance only.
+9. **Ideas** — control-plane intake/workbench status; Notion is provenance only.
 10. **Observability** — route/memory/worker freshness and debug health.
 
 ## Visual direction
@@ -92,4 +92,4 @@ The first shipped slice is the redesigned shell and overview experience:
 - The dashboard shell loads the bounded overview read model first and renders the primary operator cards before secondary observability/health calls complete.
 - Route changes abort stale in-flight dashboard fetches so old overview responses cannot overwrite the newly selected tab and do not continue consuming backend work after navigation.
 - Secondary tabs use their own bounded endpoints on demand; the shell does not call legacy `/control/api/status?refresh_worker=true` or broad unbounded list endpoints during initial render.
-- The Supabase ideas page uses a batched read path and omits the large latest-intake payload by default.
+- The ideas page uses a batched read path and omits the large latest-intake payload by default.
