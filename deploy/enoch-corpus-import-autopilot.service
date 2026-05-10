@@ -7,6 +7,7 @@ Wants=enoch-control-plane.service
 Type=oneshot
 WorkingDirectory=/opt/enoch-control-plane
 Environment=ENOCH_CONFIG=/etc/enoch-control-plane/config.json
+Environment=ENOCH_RELEASE_ROOT=/opt/enoch-release
 Environment=ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT=0
 Environment=ENOCH_CORPUS_IMPORT_LIMIT=1
 Environment=ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY=1
