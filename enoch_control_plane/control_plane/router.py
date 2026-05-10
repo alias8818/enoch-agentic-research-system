@@ -2802,11 +2802,31 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 project_id = str(promoted[0].get("idea_id") or promoted[0].get("candidate_id") or "").strip()
                 candidate = store.queue_row(project_id)
                 if candidate and str(candidate.get("status") or "") == "queued":
-                    live, event_id, updated_candidate = _live_dispatch(candidate, requested_by, force_preflight=True, allow_paused=True)
-                    response["dispatch_started"] = True
-                    response["dispatched_count"] = 1
-                    response["dispatch"] = {"event_id": event_id, "candidate": updated_candidate, "live": live}
-                    response["stages"].append({"stage": "dispatch", "ok": True, "project_id": project_id, "event_id": event_id})
+                    try:
+                        live, event_id, updated_candidate = _live_dispatch(candidate, requested_by, force_preflight=True, allow_paused=True)
+                    except HTTPException as exc:
+                        if int(exc.status_code) != 409:
+                            raise
+                        response["dispatch"] = {
+                            "event_id": None,
+                            "candidate": candidate,
+                            "live": None,
+                            "backpressure": True,
+                            "detail": jsonable_encoder(exc.detail),
+                        }
+                        response["stages"].append({
+                            "stage": "dispatch",
+                            "ok": True,
+                            "action": "dispatch_backpressure",
+                            "project_id": project_id,
+                            "reason": "dispatch conflict/backpressure; queued work remains safe for the queue pump or next tick",
+                            "detail": jsonable_encoder(exc.detail),
+                        })
+                    else:
+                        response["dispatch_started"] = True
+                        response["dispatched_count"] = 1
+                        response["dispatch"] = {"event_id": event_id, "candidate": updated_candidate, "live": live}
+                        response["stages"].append({"stage": "dispatch", "ok": True, "project_id": project_id, "event_id": event_id})
                 else:
                     response["stages"].append({"stage": "dispatch", "ok": False, "reason": "promoted candidate was not queued", "project_id": project_id})
 
