@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Enoch capped corpus import autopilot periodically
+
+[Timer]
+OnBootSec=20min
+OnUnitActiveSec=30min
+RandomizedDelaySec=5min
+Persistent=false
+Unit=enoch-corpus-import-autopilot.service
+
+[Install]
+WantedBy=timers.target

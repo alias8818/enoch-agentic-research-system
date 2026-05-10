@@ -655,6 +655,7 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertIn("1. Write papers", html)
             self.assertIn("2. Finalize drafts", html)
             self.assertIn("3. Publish/import", html)
+            self.assertIn("Last import result", html)
             self.assertIn("Import validation", html)
             self.assertIn("Investigation follow-ups", html)
             self.assertIn("Launch follow-up", html)

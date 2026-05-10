@@ -25,6 +25,14 @@ def _load_research_autopilot_module():
     return module
 
 
+def _load_corpus_import_autopilot_module():
+    spec = importlib.util.spec_from_file_location("enoch_corpus_import_autopilot", ROOT / "deploy" / "enoch_corpus_import_autopilot.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_legacy_notion_sync_unit_is_disabled_and_non_dispatching() -> None:
     service = (ROOT / "deploy" / "enoch-notion-sync.service").read_text(encoding="utf-8")
     script = (ROOT / "deploy" / "enoch_notion_sync.sh").read_text(encoding="utf-8")
@@ -108,6 +116,35 @@ def test_research_autopilot_calls_bounded_run_cycle_when_enabled(tmp_path, capsy
     assert calls[0]["payload"]["max_paper_drafts_per_run"] == 1
     assert calls[0]["payload"]["max_publication_rewrites_per_run"] == 1
     assert json.loads(capsys.readouterr().out)["ok"] is True
+
+
+def test_corpus_import_autopilot_unit_is_opt_in_and_capped(capsys) -> None:
+    autopilot = _load_corpus_import_autopilot_module()
+    service = (ROOT / "deploy" / "enoch-corpus-import-autopilot.service").read_text(encoding="utf-8")
+    timer = (ROOT / "deploy" / "enoch-corpus-import-autopilot.timer").read_text(encoding="utf-8")
+    script = (ROOT / "deploy" / "enoch_corpus_import_autopilot.py").read_text(encoding="utf-8")
+    combined = service + timer + script
+    assert "Environment=ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT=0" in service
+    assert "Environment=ENOCH_CORPUS_IMPORT_LIMIT=1" in service
+    assert "Environment=ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY=1" in service
+    assert "max 1" not in combined.lower()
+    assert "scripts/import_from_control_plane.py" in script
+    assert "--dry-run" in script
+    assert "audit_claim_evidence_contract.py" in script
+    assert "quality_scan.py" in script
+    assert "build_index.py" in script
+    assert "validate_public_trust_surfaces.py" in script
+    assert "validate_public_release.py" in script
+    assert "ENOCH_CORPUS_IMPORT_LIMIT" in script
+    assert autopilot._bounded_int("ENOCH_CORPUS_IMPORT_LIMIT", 1, 1, 2) == 1
+    with patch.dict("os.environ", {"ENOCH_CORPUS_IMPORT_LIMIT": "99"}, clear=False):
+        assert autopilot._bounded_int("ENOCH_CORPUS_IMPORT_LIMIT", 1, 1, 2) == 2
+    assert "192.168.1." not in combined
+
+    with patch.dict("os.environ", {"ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT": "0"}, clear=False), patch.object(autopilot, "_run") as run:
+        assert autopilot.main() == 0
+    run.assert_not_called()
+    assert json.loads(capsys.readouterr().out)["action"] == "skipped"
 
 
 def test_queue_pump_dispatches_without_paper_draft_by_default(tmp_path, capsys) -> None:

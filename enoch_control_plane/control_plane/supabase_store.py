@@ -568,6 +568,7 @@ class SupabaseReadOnlyControlPlaneStore:
               ci.manifest_hash as corpus_manifest_hash,
               ci.source_record_fingerprint,
               ci.hf_dataset_synced,
+              ci.imported_at as corpus_imported_at,
               (ci.paper_id is not null) as corpus_imported
             from papers pa
             left join projects p using(project_id)

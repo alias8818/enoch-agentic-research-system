@@ -518,6 +518,7 @@ def summarize_paper_row(row: dict[str, Any]) -> dict[str, Any]:
         "source_record_fingerprint": row.get("source_record_fingerprint", ""),
         "corpus_commit_sha": row.get("corpus_commit_sha", ""),
         "corpus_manifest_path": row.get("corpus_manifest_path", ""),
+        "corpus_imported_at": row.get("corpus_imported_at", ""),
         "hf_dataset_synced": row.get("hf_dataset_synced", False),
         "generated_at": row.get("generated_at", ""),
         "updated_at": row.get("updated_at", ""),
@@ -727,6 +728,8 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         operator_detail_counts.pop("run_complete_draft_needed", None)
     followup_rows = [row for row in queue_rows if _text(row.get("operator_detail_stage")) == "followup_candidate"]
     publish_candidates = [row for row in paper_rows if _text(row.get("operator_stage")) == "ready_to_publish"]
+    imported_candidates = [row for row in paper_rows if bool(row.get("corpus_imported"))]
+    imported_candidates.sort(key=lambda row: _text(row.get("corpus_imported_at") or row.get("updated_at")), reverse=True)
     publication_ready_total = operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0) + operator_counts.get(OperatorLane.PUBLISHED.value, 0)
     investigation_pipeline = {
         "followup_needed": len(followup_rows),
@@ -746,6 +749,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         "finalize_needed": operator_detail_counts.get("finalization_needed", 0),
         "publish_ready": operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0),
         "next_publish_candidate": publish_candidates[0] if publish_candidates else None,
+        "last_import_result": imported_candidates[0] if imported_candidates else None,
         "missing_from_corpus": operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0),
         "published_imported": operator_counts.get(OperatorLane.PUBLISHED.value, 0),
         "publication_ready_total": publication_ready_total,
