@@ -146,6 +146,33 @@ def sync_records(
                 )
                 cur.execute(
                     """
+                    create temp table tmp_live_paper_fingerprints(
+                      paper_id text,
+                      project_id text,
+                      source_record_fingerprint text
+                    ) on commit drop
+                    """
+                )
+                cur.execute("select paper_id, project_id from enoch.papers")
+                live_papers = [
+                    (
+                        _text(row.get("paper_id")),
+                        _text(row.get("project_id")),
+                        source_fingerprint(_text(row.get("paper_id"))),
+                    )
+                    for row in cur.fetchall()
+                    if _text(row.get("paper_id"))
+                ]
+                if live_papers:
+                    cur.executemany(
+                        """
+                        insert into tmp_live_paper_fingerprints(paper_id, project_id, source_record_fingerprint)
+                        values (%s, %s, %s)
+                        """,
+                        live_papers,
+                    )
+                cur.execute(
+                    """
                     create temp table tmp_resolved_public_index as
                     select
                       coalesce(p.paper_id, 'public-corpus:' || pi.source_record_fingerprint || ':' || pi.artifact_slug) as paper_id,
@@ -156,8 +183,8 @@ def sync_records(
                       pi.public_manifest_path,
                       pi.title
                     from tmp_public_index pi
-                    left join enoch.papers p
-                      on pi.source_record_fingerprint = left(encode(extensions.digest(p.paper_id, 'sha256'), 'hex'), 16)
+                    left join tmp_live_paper_fingerprints p
+                      on pi.source_record_fingerprint = p.source_record_fingerprint
                     """
                 )
                 cur.execute(
