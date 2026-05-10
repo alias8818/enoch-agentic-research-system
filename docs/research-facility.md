@@ -2,6 +2,10 @@
 
 The Research Facility is the auditable lane for generating ideas before they enter the worker queue. It is intentionally separate from dispatch. A generated candidate is not work until it is admitted and recorded with an admission reason.
 
+For how this lane fits the current runtime hosts, storage, bounded ticks, and
+paper-gate boundaries, see
+[`current-runtime-snapshot.md`](current-runtime-snapshot.md).
+
 ## Operator model
 
 ```text

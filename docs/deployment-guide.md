@@ -7,6 +7,10 @@ This guide describes a two-machine Enoch deployment that mirrors the reference s
 
 A single-machine development deployment is also possible: run both services on localhost and set `worker_wake_gate_url` to the same host.
 
+For the canonical reference host paths, storage authority, worker gate, and
+compatibility boundaries, see
+[`current-runtime-snapshot.md`](current-runtime-snapshot.md).
+
 ## 1. Prerequisites
 
 Install on the control VM:

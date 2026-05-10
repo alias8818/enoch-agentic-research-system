@@ -4,6 +4,9 @@ Status: current operator guide as of 2026-05-10.
 
 This runbook describes the current native Codex/control-plane deployment model. It is intentionally question-first: use it to decide whether long-haul automation is safe, what needs attention, and whether paper writing is correctly gated.
 
+For the one-page canonical current-runtime facts, see
+[`current-runtime-snapshot.md`](current-runtime-snapshot.md).
+
 ## Current topology
 
 | Surface | Current owner | Notes |
@@ -125,4 +128,3 @@ Confirm papers are written only from positive decisions:
 5. `continue` is not positive unless the control-plane compatibility parser has exact supported evidence in its supporting field.
 
 Negative and mixed results are successful worker outcomes when they are evidence-backed. They must not become paper-writing backlog.
-

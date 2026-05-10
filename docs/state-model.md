@@ -2,7 +2,7 @@
 
 Status: active operator contract as of 2026-05-10.
 
-The control plane owns the runtime ledger. In production, that ledger now lives in local Postgres on `enoch-core`; older Supabase names remain in migrations, adapter code, and historical docs. The control plane keeps detailed raw states for callbacks, backfills, provenance, and audit, but users and agents should reason from a small deterministic operator model. See [`docs/state-transition-map.md`](state-transition-map.md) for the lifecycle transition map and [`docs/state-vocabulary-reduction-plan.md`](state-vocabulary-reduction-plan.md) for the small target vocabulary plus raw-state cleanup mapping.
+The control plane owns the runtime ledger. In production, that ledger now lives in local Postgres on `enoch-core`; older Supabase names remain in migrations, adapter code, and historical docs. The control plane keeps detailed raw states for callbacks, backfills, provenance, and audit, but users and agents should reason from a small deterministic operator model. See [`current-runtime-snapshot.md`](current-runtime-snapshot.md) for canonical current runtime facts, [`docs/state-transition-map.md`](state-transition-map.md) for the lifecycle transition map, and [`docs/state-vocabulary-reduction-plan.md`](state-vocabulary-reduction-plan.md) for the small target vocabulary plus raw-state cleanup mapping.
 
 ## What to trust
 

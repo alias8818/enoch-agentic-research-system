@@ -37,6 +37,10 @@ Research Facility source scan
 
 The repository contains the execution/control-plane layer and supporting docs. Historical notes describe earlier migration experiments, but this is not a workflow-export repository and does not ship workflow-tool configurations.
 
+For the canonical current host, storage, worker, decision-artifact, automation,
+and compatibility boundaries, see
+[`docs/current-runtime-snapshot.md`](docs/current-runtime-snapshot.md).
+
 ## Main components
 
 - **Control plane API** — queue state, project state, publication automation/finalization state, pause/maintenance controls, and dispatch decisions; built with FastAPI and LangGraph-era graph boundaries.
@@ -103,6 +107,7 @@ The runtime follows semantic versioning. Keep `VERSION`, `pyproject.toml`, and [
 - [Enoch Docs](https://solo-09d10f60.mintlify.app/) — hosted source-grounded docs for operators, contributors, and reviewers ([source](https://github.com/alias8818/enoch-docs))
 
 **Using Enoch:**
+- [`docs/current-runtime-snapshot.md`](docs/current-runtime-snapshot.md) — canonical current runtime facts and compatibility boundaries
 - [`docs/quickstart.md`](docs/quickstart.md) — local clone-to-dashboard smoke test
 - [`docs/deployment-guide.md`](docs/deployment-guide.md) — full deployment guide
 - [`docs/configuration-reference.md`](docs/configuration-reference.md) — config field reference

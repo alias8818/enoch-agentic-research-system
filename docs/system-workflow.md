@@ -12,6 +12,9 @@ The system is valuable because it joins three layers that are often split apart:
 
 ## Current architecture
 
+For the canonical current runtime facts behind this diagram, see
+[`current-runtime-snapshot.md`](current-runtime-snapshot.md).
+
 ```text
 LLM research scout
         |
