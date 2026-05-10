@@ -127,9 +127,13 @@ def test_corpus_import_autopilot_unit_is_opt_in_and_capped(capsys) -> None:
     assert "Environment=ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT=0" in service
     assert "Environment=ENOCH_CORPUS_IMPORT_LIMIT=1" in service
     assert "Environment=ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY=1" in service
+    assert "Environment=ENOCH_CORPUS_IMPORT_AUTOCOMMIT=0" in service
+    assert "Environment=ENOCH_CORPUS_IMPORT_PUSH=0" in service
     assert "max 1" not in combined.lower()
     assert "scripts/import_from_control_plane.py" in script
     assert "scripts/update_public_release_counts.py" in script
+    assert "ENOCH_CORPUS_IMPORT_AUTOCOMMIT" in script
+    assert "ENOCH_CORPUS_IMPORT_PUSH" in script
     assert "--dry-run" in script
     assert "audit_claim_evidence_contract.py" in script
     assert "quality_scan.py" in script
@@ -146,6 +150,36 @@ def test_corpus_import_autopilot_unit_is_opt_in_and_capped(capsys) -> None:
         assert autopilot.main() == 0
     run.assert_not_called()
     assert json.loads(capsys.readouterr().out)["action"] == "skipped"
+
+
+def test_corpus_import_autopilot_commits_only_dirty_repos_after_validation(tmp_path) -> None:
+    autopilot = _load_corpus_import_autopilot_module()
+    for name in autopilot.REPO_NAMES:
+        repo = tmp_path / name
+        repo.mkdir()
+        autopilot._run(["git", "init", "-q"], cwd=repo)
+        autopilot._run(["git", "config", "user.email", "test@example.com"], cwd=repo)
+        autopilot._run(["git", "config", "user.name", "Test User"], cwd=repo)
+        (repo / "README.md").write_text("initial\n", encoding="utf-8")
+        autopilot._run(["git", "add", "README.md"], cwd=repo)
+        autopilot._run(["git", "commit", "-q", "-m", "initial"], cwd=repo)
+
+    (tmp_path / "enoch-ai-research-corpus" / "README.md").write_text("changed corpus\n", encoding="utf-8")
+    (tmp_path / "alias8818" / "README.md").write_text("changed profile\n", encoding="utf-8")
+
+    commits = autopilot._commit_changed_repos(
+        tmp_path,
+        {"imported": 1},
+        {"artifact_count": 378},
+    )
+    assert [item["repo"] for item in commits] == ["enoch-ai-research-corpus", "alias8818"]
+    assert autopilot._git_changed_repos(tmp_path) == []
+    corpus_subject = autopilot._run(["git", "log", "-1", "--pretty=%s"], cwd=tmp_path / "enoch-ai-research-corpus").stdout.strip()
+    profile_subject = autopilot._run(["git", "log", "-1", "--pretty=%s"], cwd=tmp_path / "alias8818").stdout.strip()
+    corpus_body = autopilot._run(["git", "log", "-1", "--pretty=%B"], cwd=tmp_path / "enoch-ai-research-corpus").stdout
+    assert corpus_subject == "Import 1 Enoch corpus artifact"
+    assert profile_subject == "Refresh Enoch corpus release counts"
+    assert "Corpus artifact count after validation: 378." in corpus_body
 
 
 def test_queue_pump_dispatches_without_paper_draft_by_default(tmp_path, capsys) -> None:

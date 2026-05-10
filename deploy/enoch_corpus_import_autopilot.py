@@ -5,7 +5,9 @@ The service is inert unless ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT=1 is set.
 A tick is intentionally conservative: it first performs a real import into a
 throwaway corpus copy, rebuilds indexes/reports, regenerates the ecosystem
 manifest, and runs the public-release validator. It writes to the canonical
-repos only after that preflight passes.
+repos only after that preflight passes. Live writes still stop before Git
+commits unless ENOCH_CORPUS_IMPORT_AUTOCOMMIT=1 is set, and pushes require
+ENOCH_CORPUS_IMPORT_PUSH=1.
 """
 from __future__ import annotations
 
@@ -67,6 +69,52 @@ def _run(cmd: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> sub
 def _git_clean(repo: Path) -> bool:
     result = _run(["git", "status", "--porcelain"], cwd=repo)
     return not result.stdout.strip()
+
+
+def _git_changed_repos(root: Path) -> list[str]:
+    changed: list[str] = []
+    for name in REPO_NAMES:
+        result = _run(["git", "status", "--porcelain"], cwd=root / name)
+        if result.stdout.strip():
+            changed.append(name)
+    return changed
+
+
+def _commit_message(repo_name: str, import_result: dict[str, Any], count_update: dict[str, Any]) -> str:
+    imported = int(import_result.get("imported") or 0)
+    total = count_update.get("artifact_count") or count_update.get("total_artifacts") or "current"
+    if repo_name == "enoch-ai-research-corpus":
+        subject = f"Import {imported} Enoch corpus artifact" if imported == 1 else f"Import {imported} Enoch corpus artifacts"
+        body = f"Import {imported} finalized publication draft(s) from the control plane.\n\nCorpus artifact count after validation: {total}.\n"
+    else:
+        subject = "Refresh Enoch corpus release counts"
+        body = f"Refresh public release surfaces after importing {imported} finalized publication draft(s).\n\nCorpus artifact count after validation: {total}.\n"
+    return f"{subject}\n\n{body}"
+
+
+def _commit_changed_repos(root: Path, import_result: dict[str, Any], count_update: dict[str, Any]) -> list[dict[str, str]]:
+    commits: list[dict[str, str]] = []
+    for name in _git_changed_repos(root):
+        repo = root / name
+        _run(["git", "add", "-A"], cwd=repo)
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
+            handle.write(_commit_message(name, import_result, count_update))
+            msg_path = Path(handle.name)
+        try:
+            _run(["git", "commit", "-F", str(msg_path)], cwd=repo)
+        finally:
+            msg_path.unlink(missing_ok=True)
+        sha = _run(["git", "rev-parse", "HEAD"], cwd=repo).stdout.strip()
+        commits.append({"repo": name, "sha": sha})
+    return commits
+
+
+def _push_commits(root: Path, commits: list[dict[str, str]]) -> list[dict[str, str]]:
+    pushed: list[dict[str, str]] = []
+    for item in commits:
+        _run(["git", "push"], cwd=root / item["repo"])
+        pushed.append(item)
+    return pushed
 
 
 def _copy_repo_tree(src: Path, dst: Path) -> None:
@@ -235,7 +283,14 @@ def main() -> int:
     count_update = _update_public_counts(system, root, Path(os.environ.get("ENOCH_ECOSYSTEM_MANIFEST", "/tmp/enoch-ecosystem.generated.json")))
     checks.extend(_corpus_trust_checks(corpus))
     release_validation = _validate_release(system, root, corpus, Path(os.environ.get("ENOCH_ECOSYSTEM_MANIFEST", "/tmp/enoch-ecosystem.generated.json")), skip_github_metadata=skip_github)
-    print(json.dumps({"ok": True, "action": "corpus_imported", "limit": limit, "dry_run": dry_payload, "import_result": live_payload, "count_update": count_update, "corpus_checks": checks, "release_validation": release_validation}, sort_keys=True))
+    changed_repos = _git_changed_repos(root)
+    commits: list[dict[str, str]] = []
+    pushed: list[dict[str, str]] = []
+    if _truthy("ENOCH_CORPUS_IMPORT_AUTOCOMMIT", "0"):
+        commits = _commit_changed_repos(root, live_payload, count_update)
+        if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0"):
+            pushed = _push_commits(root, commits)
+    print(json.dumps({"ok": True, "action": "corpus_imported", "limit": limit, "dry_run": dry_payload, "import_result": live_payload, "count_update": count_update, "corpus_checks": checks, "release_validation": release_validation, "changed_repos": changed_repos, "commits": commits, "pushed": pushed}, sort_keys=True))
     return 0
 
 
