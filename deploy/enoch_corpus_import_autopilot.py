@@ -82,7 +82,8 @@ def _git_changed_repos(root: Path) -> list[str]:
 
 def _commit_message(repo_name: str, import_result: dict[str, Any], count_update: dict[str, Any]) -> str:
     imported = int(import_result.get("imported") or 0)
-    total = count_update.get("artifact_count") or count_update.get("total_artifacts") or "current"
+    stats = count_update.get("stats") if isinstance(count_update.get("stats"), dict) else {}
+    total = count_update.get("artifact_count") or count_update.get("total_artifacts") or stats.get("artifact_count") or "current"
     if repo_name == "enoch-ai-research-corpus":
         subject = f"Import {imported} Enoch corpus artifact" if imported == 1 else f"Import {imported} Enoch corpus artifacts"
         body = f"Import {imported} finalized publication draft(s) from the control plane.\n\nCorpus artifact count after validation: {total}.\n"

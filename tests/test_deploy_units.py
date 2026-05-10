@@ -170,7 +170,7 @@ def test_corpus_import_autopilot_commits_only_dirty_repos_after_validation(tmp_p
     commits = autopilot._commit_changed_repos(
         tmp_path,
         {"imported": 1},
-        {"artifact_count": 378},
+        {"stats": {"artifact_count": 378}},
     )
     assert [item["repo"] for item in commits] == ["enoch-ai-research-corpus", "alias8818"]
     assert autopilot._git_changed_repos(tmp_path) == []
