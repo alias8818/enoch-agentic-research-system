@@ -37,7 +37,7 @@ A run goes through:
 7. AI artifact rewriting against evidence context.
 8. Corpus packaging/provenance lint scans and provenance packaging.
 
-I’m also releasing a corpus of 381 canonical generated research artifacts from the system. These are publication-style AI-generated reports, not peer-reviewed publications and not human-authored papers. The point is transparency: show the outputs, show the evidence shape, and let people inspect the system that generated them.
+I’m also releasing a corpus of 382 canonical generated research artifacts from the system. These are publication-style AI-generated reports, not peer-reviewed publications and not human-authored papers. The point is transparency: show the outputs, show the evidence shape, and let people inspect the system that generated them.
 
 What I hope is useful to others:
 
@@ -55,7 +55,7 @@ Code repo:
 
 Corpus repo:
 
-> 377 canonical AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim-ledger files, manifests, packaging/provenance reports, and a strict claim/evidence audit report. Current public status: 381/381 packaging/provenance lint passes and 3/381 strict claim/evidence audit pass.
+> 377 canonical AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim-ledger files, manifests, packaging/provenance reports, and a strict claim/evidence audit report. Current public status: 382/382 packaging/provenance lint passes and 3/382 strict claim/evidence audit pass.
 
 Docs repo:
 
