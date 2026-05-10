@@ -8,6 +8,7 @@ dispatch, one positive-gated paper draft, and one automated finalization.
 from __future__ import annotations
 
 import json
+from http.client import RemoteDisconnected
 import os
 from pathlib import Path
 import sys
@@ -37,6 +38,33 @@ def _post_json(base_url: str, path: str, token: str, payload: dict, *, timeout: 
     )
     with request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - local/operator-configured control URL
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _get_json(base_url: str, path: str, token: str, *, timeout: int) -> dict:
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    req = request.Request(f"{base_url}{path}", method="GET", headers=headers)
+    with request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - local/operator-configured control URL
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _control_plane_recovered(base_url: str, token: str) -> bool:
+    """Return true when the local control API is reachable after a dropped tick.
+
+    A deploy or service restart can close the long-running run-cycle request
+    while a worker is still healthy or after the bounded tick already made
+    progress. Do not retry the POST because it is not idempotent; just verify
+    the control plane recovered so the next timer tick can continue safely.
+    """
+
+    for _ in range(3):
+        time.sleep(2)
+        try:
+            health = _get_json(base_url, "/healthz", token, timeout=5)
+        except (OSError, TimeoutError, error.URLError, json.JSONDecodeError):
+            continue
+        if health.get("ok"):
+            return True
+    return False
 
 
 def _truthy(name: str, default: str = "0") -> bool:
@@ -143,14 +171,25 @@ def main() -> int:
         "min_rolling_remaining": _bounded_int("ENOCH_RESEARCH_AUTOPILOT_MIN_ROLLING", 10, 0, 2500),
         "reserve_requests": _bounded_int("ENOCH_RESEARCH_AUTOPILOT_RESERVE_REQUESTS", 2, 0, 100),
     }
+    base_url = _base_url(config)
     try:
         result = _post_json(
-            _base_url(config),
+            base_url,
             "/control/api/research/run-cycle",
             token,
             payload,
             timeout=max(60, max_wait_seconds + 120),
         )
+    except RemoteDisconnected as exc:
+        if _control_plane_recovered(base_url, token):
+            print(json.dumps({
+                "ok": True,
+                "action": "transient_disconnect",
+                "reason": f"control plane disconnected during bounded research tick and recovered: {type(exc).__name__}: {exc}",
+            }, sort_keys=True))
+            return 0
+        print(json.dumps({"ok": False, "action": "failed", "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}"}, sort_keys=True), file=sys.stderr)
+        return 1
     except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         print(json.dumps({"ok": False, "action": "failed", "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}"}, sort_keys=True), file=sys.stderr)
         return 1
