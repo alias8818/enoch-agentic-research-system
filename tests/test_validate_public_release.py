@@ -75,7 +75,7 @@ def test_public_count_checks_reject_personal_site_stale_canonical_count(tmp_path
     )
     failures: list[str] = []
 
-    validate_public_release.check_counts([page], artifact_count=376, pass_count=376, failures=failures)
+    validate_public_release.check_counts([page], artifact_count=377, pass_count=377, failures=failures)
 
     assert any("artifact count drift" in failure for failure in failures)
     assert any("packaging/provenance pass count drift" in failure for failure in failures)
@@ -86,6 +86,6 @@ def test_strict_public_count_checks_reject_personal_site_stale_fail_rate(tmp_pat
     page.write_text("<p>My audit gate flags 494 of its own 497 outputs.</p>", encoding="utf-8")
     failures: list[str] = []
 
-    validate_public_release.check_strict_public_counts([page], artifact_count=376, strict_pass_count=3, failures=failures)
+    validate_public_release.check_strict_public_counts([page], artifact_count=377, strict_pass_count=3, failures=failures)
 
-    assert failures == [f"strict audit fail count drift in {page}:1: 494 of 497 != 373 of 376"]
+    assert failures == [f"strict audit fail count drift in {page}:1: 494 of 497 != 374 of 377"]

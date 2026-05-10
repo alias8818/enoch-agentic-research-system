@@ -66,6 +66,33 @@ def _provider_model() -> str:
     return rotation[int(time.time() // window_seconds) % len(rotation)]
 
 
+def _topic() -> str:
+    explicit = os.environ.get("ENOCH_RESEARCH_AUTOPILOT_TOPIC")
+    if explicit:
+        return explicit
+    rotation = [
+        item.strip()
+        for item in os.environ.get(
+            "ENOCH_RESEARCH_TOPIC_ROTATION",
+            (
+                "speculative decoding without extra draft-model VRAM,"
+                "tiny-VRAM training and optimizer memory reduction,"
+                "agent reliability with falsifiable evidence ledgers,"
+                "distributed volunteer training with cheating-resistant validation,"
+                "long-context memory with exact anchors and compressed state,"
+                "extreme quantization with principled residual channels,"
+                "local-serving routing and model cascades,"
+                "data selection for tiny local pretraining"
+            ),
+        ).split(",")
+        if item.strip()
+    ]
+    if not rotation:
+        return ""
+    window_seconds = _bounded_int("ENOCH_RESEARCH_TOPIC_ROTATION_SECONDS", 1800, 60, 86400)
+    return rotation[int(time.time() // window_seconds) % len(rotation)]
+
+
 def main() -> int:
     if not _truthy("ENOCH_ENABLE_RESEARCH_AUTOPILOT"):
         print(json.dumps({"ok": True, "action": "skipped", "reason": "research autopilot disabled; set ENOCH_ENABLE_RESEARCH_AUTOPILOT=1"}, sort_keys=True))
@@ -84,7 +111,7 @@ def main() -> int:
         "dry_run": False,
         "requested_by": os.environ.get("ENOCH_RESEARCH_AUTOPILOT_REQUESTED_BY", "systemd:enoch-research-autopilot"),
         "model": _provider_model(),
-        "topic": os.environ.get("ENOCH_RESEARCH_AUTOPILOT_TOPIC", ""),
+        "topic": _topic(),
         "temperature": float(os.environ.get("ENOCH_RESEARCH_AUTOPILOT_TEMPERATURE", "0.6")),
         "generation_max_tokens": _bounded_int("ENOCH_RESEARCH_PROVIDER_MAX_TOKENS", 8000, 1000, 16000),
         "generation_attempts": _bounded_int("ENOCH_RESEARCH_PROVIDER_ATTEMPTS", 2, 1, 3),

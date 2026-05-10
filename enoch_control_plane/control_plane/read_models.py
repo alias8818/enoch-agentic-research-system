@@ -726,6 +726,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
     else:
         operator_detail_counts.pop("run_complete_draft_needed", None)
     followup_rows = [row for row in queue_rows if _text(row.get("operator_detail_stage")) == "followup_candidate"]
+    publish_candidates = [row for row in paper_rows if _text(row.get("operator_stage")) == "ready_to_publish"]
     publication_ready_total = operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0) + operator_counts.get(OperatorLane.PUBLISHED.value, 0)
     investigation_pipeline = {
         "followup_needed": len(followup_rows),
@@ -744,6 +745,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         "next_write_candidate": draft_candidate_payload(write_candidates[0]) if write_candidates else None,
         "finalize_needed": operator_detail_counts.get("finalization_needed", 0),
         "publish_ready": operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0),
+        "next_publish_candidate": publish_candidates[0] if publish_candidates else None,
         "missing_from_corpus": operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0),
         "published_imported": operator_counts.get(OperatorLane.PUBLISHED.value, 0),
         "publication_ready_total": publication_ready_total,

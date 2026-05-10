@@ -11,4 +11,5 @@ Environment=ENOCH_ENABLE_RESEARCH_AUTOPILOT=0
 Environment=ENOCH_RESEARCH_AUTOPILOT_DISPATCH=1
 Environment=ENOCH_RESEARCH_AUTOPILOT_WAIT=1
 Environment=ENOCH_RESEARCH_AUTOPILOT_PAPERS=1
+Environment=ENOCH_RESEARCH_TOPIC_ROTATION_SECONDS=1800
 ExecStart=/opt/enoch-control-plane/.venv/bin/python /opt/enoch-control-plane/deploy/enoch_research_autopilot.py
