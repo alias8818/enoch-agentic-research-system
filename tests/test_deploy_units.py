@@ -125,18 +125,22 @@ def test_corpus_import_autopilot_unit_is_opt_in_and_capped(capsys) -> None:
     script = (ROOT / "deploy" / "enoch_corpus_import_autopilot.py").read_text(encoding="utf-8")
     combined = service + timer + script
     assert "Environment=ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT=0" in service
+    assert "EnvironmentFile=-/etc/enoch-control-plane/supabase.env" in service
     assert "Environment=ENOCH_CORPUS_IMPORT_LIMIT=1" in service
     assert "Environment=ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY=1" in service
     assert "Environment=ENOCH_CORPUS_IMPORT_AUTOCOMMIT=0" in service
     assert "Environment=ENOCH_CORPUS_IMPORT_PUSH=0" in service
     assert "Environment=ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA=0" in service
     assert "Environment=ENOCH_GITHUB_TOKEN_FILE=/root/.config/enoch/github-token" in service
+    assert "Environment=ENOCH_CORPUS_IMPORT_SYNC_LEDGER=0" in service
     assert "max 1" not in combined.lower()
     assert "scripts/import_from_control_plane.py" in script
     assert "scripts/update_public_release_counts.py" in script
     assert "ENOCH_CORPUS_IMPORT_AUTOCOMMIT" in script
     assert "ENOCH_CORPUS_IMPORT_PUSH" in script
     assert "ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA" in script
+    assert "ENOCH_CORPUS_IMPORT_SYNC_LEDGER" in script
+    assert "sync_corpus_import_ledger.py" in script
     assert "skip_github_metadata=True" in script
     assert "--dry-run" in script
     assert "audit_claim_evidence_contract.py" in script

@@ -7,6 +7,7 @@ Wants=enoch-control-plane.service
 Type=oneshot
 WorkingDirectory=/opt/enoch-control-plane
 Environment=ENOCH_CONFIG=/etc/enoch-control-plane/config.json
+EnvironmentFile=-/etc/enoch-control-plane/supabase.env
 Environment=ENOCH_RELEASE_ROOT=/opt/enoch-release
 Environment=ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT=0
 Environment=ENOCH_CORPUS_IMPORT_LIMIT=1
@@ -15,5 +16,6 @@ Environment=ENOCH_CORPUS_IMPORT_AUTOCOMMIT=0
 Environment=ENOCH_CORPUS_IMPORT_PUSH=0
 Environment=ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA=0
 Environment=ENOCH_GITHUB_TOKEN_FILE=/root/.config/enoch/github-token
+Environment=ENOCH_CORPUS_IMPORT_SYNC_LEDGER=0
 Environment=ENOCH_CORPUS_IMPORT_SKIP_GITHUB_METADATA=1
 ExecStart=/opt/enoch-control-plane/.venv/bin/python /opt/enoch-control-plane/deploy/enoch_corpus_import_autopilot.py

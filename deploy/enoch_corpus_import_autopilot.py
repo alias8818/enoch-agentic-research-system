@@ -119,6 +119,21 @@ def _push_commits(root: Path, commits: list[dict[str, str]]) -> list[dict[str, s
     return pushed
 
 
+def _sync_corpus_ledger(system: Path, corpus: Path) -> dict[str, Any]:
+    result = _run(
+        [
+            sys.executable,
+            "scripts/sync_corpus_import_ledger.py",
+            "--corpus",
+            str(corpus),
+            "--apply",
+            "--prune-stale",
+        ],
+        cwd=system,
+    )
+    return json.loads(result.stdout)
+
+
 def _github_token() -> str:
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
     if token:
@@ -335,7 +350,12 @@ def main() -> int:
         commits = _commit_changed_repos(root, live_payload, count_update)
         if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0"):
             pushed = _push_commits(root, commits)
-    print(json.dumps({"ok": True, "action": "corpus_imported", "limit": limit, "dry_run": dry_payload, "import_result": live_payload, "count_update": count_update, "corpus_checks": checks, "github_metadata": github_metadata, "release_validation": release_validation, "changed_repos": changed_repos, "commits": commits, "pushed": pushed}, sort_keys=True))
+    ledger_sync: dict[str, Any] = {}
+    if _truthy("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "0"):
+        if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0") and not pushed:
+            raise RuntimeError("ledger sync requires pushed commits when ENOCH_CORPUS_IMPORT_PUSH=1")
+        ledger_sync = _sync_corpus_ledger(system, corpus)
+    print(json.dumps({"ok": True, "action": "corpus_imported", "limit": limit, "dry_run": dry_payload, "import_result": live_payload, "count_update": count_update, "corpus_checks": checks, "github_metadata": github_metadata, "release_validation": release_validation, "changed_repos": changed_repos, "commits": commits, "pushed": pushed, "ledger_sync": ledger_sync}, sort_keys=True))
     return 0
 
 
