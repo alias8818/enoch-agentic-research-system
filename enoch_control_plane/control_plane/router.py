@@ -606,6 +606,7 @@ Turn this idea into a concrete, evidence-backed research result. Work autonomous
 - Swap is intentionally disabled on GB10; use MemAvailable/UMA telemetry and earlyoom posture, not swap availability, for memory judgment.
 - Leave durable artifacts: run_notes.md, commands/log paths, metrics, and a final .enoch/project_decision.json.
 - If final scientific closure truly needs human/private/external evidence, state that precisely and stop with a needs_review/blocker decision.
+- Match the evidence to the claim. If this idea asks for a large/overnight/full-scale validation, a short proxy run must not be presented as full validation.
 
 ## Required final decision artifact
 Write `.enoch/project_decision.json` with these exact enum values. Do not invent
@@ -641,6 +642,14 @@ Decision rules:
 - Use `blocked` only for an execution blocker that prevented a valid test.
 - Use `continue` only when more autonomous work should run before paper/no-paper closure.
 - Use `branch_new_project` only when this run found a distinct follow-up idea.
+
+Evidence-depth rules:
+- Do not add new decision fields or enum values. Use the existing fields precisely.
+- A short smoke/proxy/synthetic test may close `finalize_negative` only when it is an explicit early falsification of the hypothesis or success threshold.
+- For early falsification, `run_notes.md` must say what was directly tested, what was only proxied, and what direct/full evidence would be required to overturn the result.
+- For early falsification, keep `evidence_strength` at `weak` or `moderate` unless direct/full-scale evidence was actually produced.
+- For early falsification, make `recommended_next_action` and `stop_reason` state that the result is a proxy/early falsification rather than a full validation.
+- Do not use `finalize_positive` for a proxy-only result unless the original claim was explicitly scoped to that proxy.
 
 Follow-up rules:
 - Follow-up fields are optional adjacent-investigation metadata; they never make this run paper-positive.

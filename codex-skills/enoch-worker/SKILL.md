@@ -27,6 +27,8 @@ Required artifacts:
 
 Do not wait for human input for ordinary installable/downloadable/runnable dependencies. Use a smoke test before any calibrated or long run.
 
+Match the evidence to the claim. If the idea asks for large, overnight, full-model, full-corpus, or full-serving validation, a short proxy run must not be presented as full validation.
+
 ## Decision schema
 
 Write `.enoch/project_decision.json` with this exact shape and enum vocabulary, and mirror it to `.omx/project_decision.json` when compatibility is required:
@@ -64,6 +66,18 @@ Do not invent synonyms like `negative_result`, `promising`, `paper_candidate`, o
 - `branch_new_project`: this run found a distinct adjacent idea.
 
 A completed run is not paper-positive just because it ran successfully. Negative and mixed results are normal.
+
+## Evidence-depth rules
+
+Do not add new decision fields or enum values. Use the existing schema precisely.
+
+A smoke/proxy/synthetic run may close `finalize_negative` only when it is an explicit early falsification of the hypothesis or success threshold. In that case:
+
+- `run_notes.md` must say what was directly tested, what was only proxied, and what direct/full evidence would be required to overturn the result.
+- `evidence_strength` should remain `weak` or `moderate` unless direct/full-scale evidence was actually produced.
+- `recommended_next_action` and `stop_reason` must state that the result is a proxy/early falsification rather than full validation.
+
+Do not use `finalize_positive` for a proxy-only result unless the original claim was explicitly scoped to that proxy.
 
 ## Follow-up rules
 

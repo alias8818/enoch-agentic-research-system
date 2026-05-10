@@ -3115,5 +3115,9 @@ def test_project_prompt_includes_canonical_decision_contract() -> None:
     assert "promising_synthetic_positive" in prompt
     assert "negative_result" in prompt
     assert "Use `finalize_positive` only when the evidence supports writing a paper now." in prompt
+    assert "Evidence-depth rules:" in prompt
+    assert "short smoke/proxy/synthetic test may close `finalize_negative`" in prompt
+    assert "Do not add new decision fields or enum values." in prompt
+    assert "Do not use `finalize_positive` for a proxy-only result" in prompt
     assert "Follow-up fields are optional adjacent-investigation metadata; they never make this run paper-positive." in prompt
     assert "controller will cap follow-ups at depth 2" in prompt
