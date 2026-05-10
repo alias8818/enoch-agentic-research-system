@@ -2133,6 +2133,9 @@ class ControlPlaneStore:
         # workbench.
         return []
 
+    def research_facility_workbench_counts(self) -> dict[str, int]:
+        return {}
+
     def notion_execution_update_projection(self) -> list[dict[str, Any]]:
         state_map = {
             QueueStatus.QUEUED.value: "queued",

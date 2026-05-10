@@ -474,6 +474,32 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(body["rows"], [])
             self.assertEqual(body["counts"], {})
 
+    def test_research_facility_api_counts_are_total_not_page_rows(self) -> None:
+        class FakeSupabaseStore:
+            def research_facility_workbench_projection(self, *, limit: int = 200) -> list[dict[str, str]]:
+                return [{"candidate_id": "newest-admitted", "status": "admitted"}]
+
+            def research_facility_workbench_counts(self) -> dict[str, int]:
+                return {"admitted": 104, "needs_review": 34}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp).model_copy(
+                update={
+                    "control_plane_store_backend": "supabase",
+                    "supabase_database_url": "postgresql://example.invalid/postgres",
+                }
+            )
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=FakeSupabaseStore()):
+                client = _client_with_config(config)
+                response = client.get("/control/api/research/facility?page_size=1", headers=headers)
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertEqual(body["page"]["returned"], 1)
+            self.assertEqual(body["page"]["counts_scope"], "all_rows")
+            self.assertEqual(body["counts"], {"admitted": 104, "needs_review": 34})
+
     def test_research_facility_generate_batch_dry_run_does_not_queue_or_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)

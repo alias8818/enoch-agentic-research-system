@@ -2330,6 +2330,18 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 ).fetchall()
         return [dict(row) for row in rows]
 
+    def research_facility_workbench_counts(self) -> dict[str, int]:
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                rows = cur.execute(
+                    """
+                    select status, count(*) as count
+                    from research_facility_workbench
+                    group by status
+                    """
+                ).fetchall()
+        return {_text(row.get("status") or "unknown"): int(row.get("count") or 0) for row in rows}
+
     def promote_research_candidate(self, candidate_id: str, *, requested_by: str, dry_run: bool = True) -> dict[str, Any]:
         """Promote one admitted Research Facility candidate into the queued idea lane.
 

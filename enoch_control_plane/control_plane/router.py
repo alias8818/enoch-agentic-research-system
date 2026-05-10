@@ -2327,16 +2327,25 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     ) -> dict[str, Any]:
         authorize(authorization)
         rows = store.research_facility_workbench_projection(limit=page_size) if hasattr(store, "research_facility_workbench_projection") else []
-        counts: dict[str, int] = {}
-        for row in rows:
-            status = str(row.get("status") or "unknown")
-            counts[status] = counts.get(status, 0) + 1
+        counts = (
+            store.research_facility_workbench_counts()
+            if hasattr(store, "research_facility_workbench_counts")
+            else {}
+        )
+        if not counts:
+            for row in rows:
+                status = str(row.get("status") or "unknown")
+                counts[status] = counts.get(status, 0) + 1
         return {
             "ok": True,
             "authority": "Research Facility ledgers: sources, candidates, admissions, lineage",
             "rows": rows,
             "counts": counts,
-            "page": {"page_size": page_size, "returned": len(rows)},
+            "page": {
+                "page_size": page_size,
+                "returned": len(rows),
+                "counts_scope": "all_rows" if hasattr(store, "research_facility_workbench_counts") else "returned_rows",
+            },
         }
 
     @router.post("/api/research/generate-batch")
