@@ -2121,6 +2121,44 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(rows["idea-two"]["status"], "queued")
             self.assertFalse(rows["idea-two"].get("current_run_id"))
 
+    def test_live_dispatch_persists_safe_worker_project_dir_for_long_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            long_project_id = "deterministic-dropout-fingerprinting-for-cheat-resistant-volunteer-gradient-validation-e2abfed2f995"
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "dispatch-long-id-import",
+                "queue_rows": [{
+                    "project_id": long_project_id,
+                    "project_name": "Long ID",
+                    "project_dir": long_project_id,
+                    "status": "queued",
+                }],
+            })
+            client.post("/control/pause", headers=headers, json={"paused_by": "test", "reason": "paused but not maintenance", "maintenance_mode": False})
+            preflight = WorkerPreflightResponse(ok=True, target=config.worker_wake_gate_url, summary="ok", checks=[])
+            prepare_payloads: list[dict] = []
+
+            def fake_post(_base: str, path: str, _token: str, payload: dict) -> HttpResult:
+                if path == "/prepare-project":
+                    prepare_payloads.append(payload)
+                    return HttpResult(ok=True, status=200, body={"prepared": payload["project_id"]})
+                if path == "/dispatch":
+                    return HttpResult(ok=True, status=200, body={"dispatch": {"session_id": "session-long"}, "project_id": payload["project_id"]})
+                return HttpResult(ok=False, status=404, body=None, error="unexpected path")
+
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=preflight), \
+                 patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post):
+                response = client.post("/control/dispatch-one", headers=headers, json={"project_id": long_project_id, "dry_run": False})
+
+            self.assertEqual(response.status_code, 200, response.text)
+            safe_dir = prepare_payloads[0]["project_dir"]
+            self.assertLessEqual(len(safe_dir), 96)
+            self.assertTrue(long_project_id.startswith(safe_dir))
+            rows = {row["project_id"]: row for row in client.get("/control/queue", headers=headers).json()["rows"]}
+            self.assertEqual(rows[long_project_id]["project_dir"], safe_dir)
+
 
     def test_dispatch_one_rejects_invalid_or_unsafe_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

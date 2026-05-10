@@ -790,6 +790,13 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             raise HTTPException(status_code=502, detail={"message": "worker dispatch failed", "status": dispatch.status, "error": dispatch.error, "body": dispatch.body})
         body = dispatch.body or {}
         session_id = str(((body.get("dispatch") or {}) if isinstance(body.get("dispatch"), dict) else {}).get("session_id") or "")
+        # Persist the exact worker directory slug used for prepare/dispatch.
+        # Research-facility IDs can exceed the safe worker path length and are
+        # intentionally shortened by _safe_slug.  If the DB keeps the full
+        # project_id as project_dir, later callback and evidence-sync paths look
+        # in a non-existent directory and mark a completed run as missing its
+        # decision artifact.
+        store.update_project_dir(project_id, project_dir)
         event_id, updated_candidate = store.mark_dispatch_started(project_id=project_id, run_id=run_id, session_id=session_id, dispatch_payload=body, requested_by=requested_by)
         return {
             "run_id": run_id,
