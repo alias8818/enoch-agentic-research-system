@@ -143,3 +143,48 @@ Operational notes:
 - Use `http://100.98.147.24:8787/control/dashboard` for direct Tailscale access.
 - `https://enoch-core.exe.xyz/` is configured as a private exe.dev proxy to port `8787`; exe.dev authentication may be required before the application bearer token is evaluated.
 - Do not point dashboard/API traffic back at Supabase Cloud unless intentionally rolling back.
+
+## Long-haul / 24x7 readiness check
+
+Do not infer overnight readiness from scattered dashboard cards or active timers. The canonical readiness surface is:
+
+```bash
+python scripts/check_longhaul_readiness.py --live \
+  --config /etc/enoch-control-plane/config.json
+```
+
+Expected ready output:
+
+```text
+PASS long-haul ready
+```
+
+Blocked output is intentionally loud and exact, for example:
+
+```text
+FAIL queue_paused=true
+FAIL research timer inactive
+FAIL publish_ready=2 but latest corpus tick is stale or missing
+```
+
+The dashboard mirrors the same endpoint as **Automation readiness** and must show one of:
+
+```text
+Long-haul mode: READY
+Long-haul mode: BLOCKED — <first blocker>
+```
+
+Before telling the operator the system is ready for overnight or 24x7 unattended work, verify this readiness surface plus the underlying live state:
+
+```bash
+curl -H "Authorization: Bearer $ENOCH_CONTROL_PLANE_TOKEN" \
+  http://127.0.0.1:8787/control/state
+
+curl -H "Authorization: Bearer $ENOCH_CONTROL_PLANE_TOKEN" \
+  http://127.0.0.1:8787/control/api/v1/automation-readiness
+
+systemctl show enoch-research-autopilot.timer enoch-corpus-import-autopilot.timer \
+  -p ActiveState -p LastTriggerUSec -p NextElapseUSecRealtime --no-pager
+```
+
+The readiness endpoint checks queue pause, maintenance mode, research/corpus autopilot timers, latest timer ticks, provider budget, blocked/attention counts, queue consistency, and the positive-gated paper-writing counters. If the Research Facility cycle runs while the broad queue is paused, the control plane emits the guardrail event `research.guardrail.queue_paused` with the message `research autopilot is active but broad queue is paused`.
