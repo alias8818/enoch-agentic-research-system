@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 from typing import Any
+from urllib.request import Request, urlopen
 
 
 REPO_NAMES = [
@@ -116,6 +117,42 @@ def _push_commits(root: Path, commits: list[dict[str, str]]) -> list[dict[str, s
         _run(["git", "push"], cwd=root / item["repo"])
         pushed.append(item)
     return pushed
+
+
+def _github_token() -> str:
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+    if token:
+        return token.strip()
+    token_file = os.environ.get("ENOCH_GITHUB_TOKEN_FILE")
+    if token_file:
+        return Path(token_file).expanduser().read_text(encoding="utf-8").strip()
+    return ""
+
+
+def _update_github_metadata(artifact_count: int) -> dict[str, Any]:
+    token = _github_token()
+    if not token:
+        raise RuntimeError("missing GitHub token for metadata update")
+    payload = json.dumps(
+        {
+            "description": f"{artifact_count} AI-generated research artifacts produced by Enoch with provenance metadata, evidence bundles, claim-ledger files, and public audit reports.",
+            "homepage": "https://alias8818.github.io/enoch-agentic-research-system/",
+        }
+    ).encode("utf-8")
+    request = Request(
+        "https://api.github.com/repos/alias8818/enoch-ai-research-corpus",
+        data=payload,
+        method="PATCH",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "enoch-corpus-import-autopilot/1.0",
+        },
+    )
+    with urlopen(request, timeout=30) as response:
+        metadata = json.loads(response.read().decode("utf-8"))
+    return {"repo": "alias8818/enoch-ai-research-corpus", "description": metadata.get("description"), "homepage": metadata.get("homepage")}
 
 
 def _copy_repo_tree(src: Path, dst: Path) -> None:
@@ -272,7 +309,7 @@ def main() -> int:
         checks = _corpus_rebuild(tmp_corpus)
         count_update = _update_public_counts(tmp_system, tmp_root, tmp_root / "enoch-ecosystem.generated.json")
         checks.extend(_corpus_trust_checks(tmp_corpus))
-        release_validation = _validate_release(tmp_system, tmp_root, tmp_corpus, tmp_root / "enoch-ecosystem.generated.json", skip_github_metadata=skip_github)
+        release_validation = _validate_release(tmp_system, tmp_root, tmp_corpus, tmp_root / "enoch-ecosystem.generated.json", skip_github_metadata=True)
 
     if _truthy("ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY", "0"):
         print(json.dumps({"ok": True, "action": "preflight_only", "limit": limit, "dry_run": dry_payload, "preflight_import": live_payload, "count_update": count_update, "corpus_checks": checks, "release_validation": release_validation}, sort_keys=True))
@@ -283,6 +320,13 @@ def main() -> int:
     checks = _corpus_rebuild(corpus)
     count_update = _update_public_counts(system, root, Path(os.environ.get("ENOCH_ECOSYSTEM_MANIFEST", "/tmp/enoch-ecosystem.generated.json")))
     checks.extend(_corpus_trust_checks(corpus))
+    github_metadata: dict[str, Any] = {}
+    if _truthy("ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA", "0"):
+        stats = count_update.get("stats") if isinstance(count_update.get("stats"), dict) else {}
+        artifact_count = int(stats.get("artifact_count") or count_update.get("artifact_count") or 0)
+        if artifact_count <= 0:
+            raise RuntimeError("could not determine artifact count for GitHub metadata update")
+        github_metadata = _update_github_metadata(artifact_count)
     release_validation = _validate_release(system, root, corpus, Path(os.environ.get("ENOCH_ECOSYSTEM_MANIFEST", "/tmp/enoch-ecosystem.generated.json")), skip_github_metadata=skip_github)
     changed_repos = _git_changed_repos(root)
     commits: list[dict[str, str]] = []
@@ -291,7 +335,7 @@ def main() -> int:
         commits = _commit_changed_repos(root, live_payload, count_update)
         if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0"):
             pushed = _push_commits(root, commits)
-    print(json.dumps({"ok": True, "action": "corpus_imported", "limit": limit, "dry_run": dry_payload, "import_result": live_payload, "count_update": count_update, "corpus_checks": checks, "release_validation": release_validation, "changed_repos": changed_repos, "commits": commits, "pushed": pushed}, sort_keys=True))
+    print(json.dumps({"ok": True, "action": "corpus_imported", "limit": limit, "dry_run": dry_payload, "import_result": live_payload, "count_update": count_update, "corpus_checks": checks, "github_metadata": github_metadata, "release_validation": release_validation, "changed_repos": changed_repos, "commits": commits, "pushed": pushed}, sort_keys=True))
     return 0
 
 
