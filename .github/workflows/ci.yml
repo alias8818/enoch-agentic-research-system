@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v6
       - name: Validate runtime snapshot links
         run: python3 scripts/validate_runtime_snapshot_links.py
-      - uses: astral-sh/setup-uv@v8
+      - uses: astral-sh/setup-uv@v8.1.0
       - name: Install dependencies
         run: uv sync --all-extras --dev
       - name: Run tests
