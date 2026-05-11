@@ -18,31 +18,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout system repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: enoch-agentic-research-system
       - name: Checkout corpus repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: alias8818/enoch-ai-research-corpus
           path: enoch-ai-research-corpus
       - name: Checkout docs repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: alias8818/enoch-docs
           path: enoch-docs
       - name: Checkout profile site repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: alias8818/alias8818.github.io
           path: alias8818.github.io
       - name: Checkout owner profile repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: alias8818/alias8818
           path: alias8818
       - name: Checkout personal site repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: alias8818/jeremyblankenship.dev
           path: jeremyblankenship.dev
@@ -64,7 +64,7 @@ jobs:
           python3 scripts/validate_corpus_import_ledger.py --corpus ../enoch-ai-research-corpus --sql-output /tmp/enoch-corpus-ledger-validate.sql
       - name: Set up Supabase CLI for live corpus ledger drift check
         if: ${{ env.ENOCH_SUPABASE_DATABASE_URL != '' }}
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@v2
         with:
           version: 2.98.1
       - name: Validate live Supabase corpus import ledger
