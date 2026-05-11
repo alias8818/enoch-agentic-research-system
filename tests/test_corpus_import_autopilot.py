@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
+from subprocess import CompletedProcess
+from unittest.mock import patch
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "deploy" / "enoch_corpus_import_autopilot.py"
@@ -19,3 +22,54 @@ def test_clean_noop_dry_run_is_successful_timer_idle():
 def test_failed_or_error_dry_run_is_not_clean_noop():
     assert autopilot._is_clean_noop_dry_run({"failed": 1, "imported": 0, "updated": 0, "errors": []}) is False
     assert autopilot._is_clean_noop_dry_run({"failed": 0, "imported": 0, "updated": 0, "errors": ["bad"]}) is False
+
+
+def test_clean_noop_syncs_ledger_when_enabled(tmp_path, capsys):
+    for name in autopilot.REPO_NAMES:
+        (tmp_path / name).mkdir()
+
+    dry_payload = {"failed": 0, "imported": 0, "updated": 0, "errors": [], "seen": 385, "skipped": 384, "skipped_existing_slug": 1}
+
+    def fake_run(cmd, *, cwd, env=None):
+        assert "scripts/import_from_control_plane.py" in cmd
+        return CompletedProcess(cmd, 0, stdout=json.dumps(dry_payload), stderr="")
+
+    with (
+        patch.dict("os.environ", {"ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT": "1", "ENOCH_CORPUS_IMPORT_SYNC_LEDGER": "1"}, clear=False),
+        patch.object(autopilot, "_release_root", return_value=tmp_path),
+        patch.object(autopilot, "_git_clean", return_value=True),
+        patch.object(autopilot, "_ff_only_repos", return_value=["enoch-docs"]),
+        patch.object(autopilot, "_load_config", return_value={"control_api_bearer_token": "token"}),
+        patch.object(autopilot, "_base_url", return_value="http://127.0.0.1:8787"),
+        patch.object(autopilot, "_run", side_effect=fake_run),
+        patch.object(autopilot, "_sync_corpus_ledger", return_value={"ok": True, "publication_ready": 0}) as sync,
+    ):
+        assert autopilot.main() == 0
+
+    sync.assert_called_once()
+    output = json.loads(capsys.readouterr().out)
+    assert output["action"] == "skipped"
+    assert output["fast_forwarded"] == ["enoch-docs"]
+    assert output["ledger_sync"] == {"ok": True, "publication_ready": 0}
+
+
+def test_clean_noop_does_not_sync_ledger_without_opt_in(tmp_path, capsys):
+    for name in autopilot.REPO_NAMES:
+        (tmp_path / name).mkdir()
+
+    dry_payload = {"failed": 0, "imported": 0, "updated": 0, "errors": [], "seen": 385, "skipped": 384, "skipped_existing_slug": 1}
+
+    with (
+        patch.dict("os.environ", {"ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT": "1", "ENOCH_CORPUS_IMPORT_SYNC_LEDGER": "0"}, clear=False),
+        patch.object(autopilot, "_release_root", return_value=tmp_path),
+        patch.object(autopilot, "_git_clean", return_value=True),
+        patch.object(autopilot, "_ff_only_repos", return_value=[]),
+        patch.object(autopilot, "_load_config", return_value={"control_api_bearer_token": "token"}),
+        patch.object(autopilot, "_base_url", return_value="http://127.0.0.1:8787"),
+        patch.object(autopilot, "_run", return_value=CompletedProcess(["import"], 0, stdout=json.dumps(dry_payload), stderr="")),
+        patch.object(autopilot, "_sync_corpus_ledger") as sync,
+    ):
+        assert autopilot.main() == 0
+
+    sync.assert_not_called()
+    assert json.loads(capsys.readouterr().out)["ledger_sync"] == {}

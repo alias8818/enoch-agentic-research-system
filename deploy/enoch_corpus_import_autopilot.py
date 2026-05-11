@@ -72,6 +72,26 @@ def _git_clean(repo: Path) -> bool:
     return not result.stdout.strip()
 
 
+def _ff_only_repos(root: Path) -> list[str]:
+    """Fast-forward clean release repos before an automated import tick.
+
+    The corpus autopilot spans several public repos. If another docs/release
+    task has pushed to one of them, a later count-refresh push can fail after
+    only some repos were pushed. Pulling with --ff-only before writes keeps the
+    local release bundle current without hiding merge conflicts.
+    """
+
+    updated: list[str] = []
+    for name in REPO_NAMES:
+        repo = root / name
+        before = _run(["git", "rev-parse", "HEAD"], cwd=repo).stdout.strip()
+        _run(["git", "pull", "--ff-only"], cwd=repo)
+        after = _run(["git", "rev-parse", "HEAD"], cwd=repo).stdout.strip()
+        if after != before:
+            updated.append(name)
+    return updated
+
+
 def _git_changed_repos(root: Path) -> list[str]:
     changed: list[str] = []
     for name in REPO_NAMES:
@@ -301,6 +321,7 @@ def main() -> int:
     if dirty:
         print(json.dumps({"ok": False, "action": "blocked", "reason": "release repos are dirty before import", "dirty_repos": dirty}, sort_keys=True), file=sys.stderr)
         return 2
+    fast_forwarded = _ff_only_repos(root)
 
     config = _load_config()
     token = os.environ.get("ENOCH_CONTROL_TOKEN") or str(config.get("control_api_bearer_token") or "")
@@ -323,9 +344,12 @@ def main() -> int:
         return 1
     if not dry_payload.get("imported"):
         if _is_clean_noop_dry_run(dry_payload):
-            print(json.dumps({"ok": True, "action": "skipped", "reason": "no clean importable papers", "dry_run": dry_payload}, sort_keys=True))
+            ledger_sync: dict[str, Any] = {}
+            if _truthy("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "0"):
+                ledger_sync = _sync_corpus_ledger(system, corpus)
+            print(json.dumps({"ok": True, "action": "skipped", "reason": "no clean importable papers", "dry_run": dry_payload, "fast_forwarded": fast_forwarded, "ledger_sync": ledger_sync}, sort_keys=True))
             return 0
-        print(json.dumps({"ok": False, "action": "blocked", "reason": "bounded import dry-run found no clean importable papers", "dry_run": dry_payload}, sort_keys=True), file=sys.stderr)
+        print(json.dumps({"ok": False, "action": "blocked", "reason": "bounded import dry-run found no clean importable papers", "dry_run": dry_payload, "fast_forwarded": fast_forwarded}, sort_keys=True), file=sys.stderr)
         return 1
 
     with tempfile.TemporaryDirectory(prefix="enoch-corpus-import-preflight-") as tmp:
@@ -344,7 +368,7 @@ def main() -> int:
         release_validation = _validate_release(tmp_system, tmp_root, tmp_corpus, tmp_root / "enoch-ecosystem.generated.json", skip_github_metadata=True)
 
     if _truthy("ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY", "0"):
-        print(json.dumps({"ok": True, "action": "preflight_only", "limit": limit, "dry_run": dry_payload, "preflight_import": live_payload, "count_update": count_update, "corpus_checks": checks, "release_validation": release_validation}, sort_keys=True))
+        print(json.dumps({"ok": True, "action": "preflight_only", "limit": limit, "dry_run": dry_payload, "preflight_import": live_payload, "count_update": count_update, "corpus_checks": checks, "release_validation": release_validation, "fast_forwarded": fast_forwarded}, sort_keys=True))
         return 0
 
     live = _run(_import_cmd(base_url=base_url, token=token, limit=limit, dry_run=False), cwd=corpus)
@@ -372,7 +396,7 @@ def main() -> int:
         if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0") and not pushed:
             raise RuntimeError("ledger sync requires pushed commits when ENOCH_CORPUS_IMPORT_PUSH=1")
         ledger_sync = _sync_corpus_ledger(system, corpus)
-    print(json.dumps({"ok": True, "action": "corpus_imported", "limit": limit, "dry_run": dry_payload, "import_result": live_payload, "count_update": count_update, "corpus_checks": checks, "github_metadata": github_metadata, "release_validation": release_validation, "changed_repos": changed_repos, "commits": commits, "pushed": pushed, "ledger_sync": ledger_sync}, sort_keys=True))
+    print(json.dumps({"ok": True, "action": "corpus_imported", "limit": limit, "dry_run": dry_payload, "import_result": live_payload, "count_update": count_update, "corpus_checks": checks, "github_metadata": github_metadata, "release_validation": release_validation, "changed_repos": changed_repos, "commits": commits, "pushed": pushed, "ledger_sync": ledger_sync, "fast_forwarded": fast_forwarded}, sort_keys=True))
     return 0
 
 
