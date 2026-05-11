@@ -88,6 +88,7 @@ The LLM advisor returns a proposed diagnosis and repair plan, not direct root-sh
 
 3. **Research Facility quality control**
    - Improve idea generation scoring so the pipeline spends fewer runs on shallow negatives. Keep moonshots, but require stronger novelty comparison, baseline clarity, and failure-mode diversity.
+   - Add an offline DSPy + GEPA optimization loop for Research Facility prompts and branching policy. This should consume Research Quality reports and run/decision traces, propose prompt or policy patches, and emit PR-ready diffs only. It must not mutate live queue, paper, or database state.
 
 4. **Follow-up branching policy hardening**
    - Make follow-up creation more explicit: cap depth, track parent evidence, prevent repeat variants, and require a clear changed mechanism before launching adjacent work.
@@ -109,6 +110,77 @@ The LLM advisor returns a proposed diagnosis and repair plan, not direct root-sh
 
 10. **End-to-end autonomous mode tests**
     - Add a long-haul simulation/smoke suite that validates: generate -> admit -> promote -> dispatch -> callback -> decision gate -> optional paper -> corpus import -> public count validation -> readiness remains clean.
+
+## Future feature: offline DSPy + GEPA research-policy evolution
+
+Problem: the Research Facility is now capable of running continuously, but many generated ideas still collapse into shallow negatives, proxy-only results, or adjacent variants of already-falsified mechanisms. Manual prompt tuning does not scale well enough for 24x7 operation.
+
+Goal: use the same pattern seen in Hermes Agent Self-Evolution — DSPy + GEPA over traces and eval cases — but keep it offline, reviewable, and unable to mutate live automation state.
+
+### Scope
+
+This should optimize Research Facility prompts and policy text, not the live runtime directly.
+
+Initial targets:
+
+- provider idea-generation prompt;
+- candidate scoring rubric;
+- follow-up branching rubric;
+- anti-duplicate / changed-mechanism requirements;
+- evidence requirements for paper-positive decisions.
+
+Non-targets for the first version:
+
+- worker system prompt mutation;
+- control-plane code mutation;
+- direct DB writes;
+- direct queue promotion;
+- automatic production rollout.
+
+### Proposed pipeline
+
+```text
+Research Quality report
+  -> trace/eval dataset builder
+  -> DSPy/GEPA offline optimizer
+  -> candidate prompt/policy patches
+  -> replay tests against known good/bad cases
+  -> PR/manual review
+```
+
+### Proposed commands
+
+```bash
+scripts/build_research_quality_evalset.py \
+  --database-url "$ENOCH_CONTROL_DATABASE_URL" \
+  --quality-report /var/lib/enoch-control-plane/research-quality/latest-report.json \
+  --output /tmp/enoch-research-quality-evalset.jsonl
+
+scripts/evolve_research_prompt.py \
+  --evalset /tmp/enoch-research-quality-evalset.jsonl \
+  --target research-provider-prompt \
+  --output-dir /tmp/enoch-research-prompt-evolution
+```
+
+### Guardrails
+
+Every evolved variant must:
+
+1. run outside the production autopilot path;
+2. use an optional dependency environment, not the production control-plane venv;
+3. produce a normal diff/patch, not direct writes to live config;
+4. pass replay tests against known poor candidates and known useful branches;
+5. preserve the boundary that generation does not queue work until promotion policy allows it;
+6. preserve positive-only paper writing;
+7. record the eval set, optimizer settings, and selected variant rationale.
+
+### First useful eval cases
+
+- candidates that looked novel but duplicated prior negative mechanisms;
+- supported-but-negative decisions that should become warnings, not blockers;
+- proxy-only positives that lacked enough evidence for paper writing;
+- follow-up branches that reached max depth without a stronger mechanism;
+- genuinely useful adjacent tests that should have been promoted.
 
 ## 10 stretch goals / nice-to-haves
 
@@ -149,4 +221,5 @@ The LLM advisor returns a proposed diagnosis and repair plan, not direct root-sh
 3. Allowlisted self-heal for timer backpressure and clean corpus no-op cases.
 4. Stale active-row repair with worker proof.
 5. Research Facility quality metrics and anti-duplicate memory.
-6. Long-haul simulation test.
+6. Offline DSPy + GEPA eval-set builder for Research Facility prompt/policy evolution.
+7. Long-haul simulation test.
