@@ -90,6 +90,14 @@ estimated_runtime_class must be one of: small, medium, large, overnight.
 expected_token_budget must be one of: small, medium, large.
 
 Avoid fake citations. Avoid tiny hyperparameter or +0.05% ideas.
+
+Additional Research Quality policy:
+Research Quality feedback from recent Enoch traces:
+- Do not treat proxy-only, trace-only, or synthetic-positive evidence as paper-positive; require direct target-stack evidence before paper writing.
+- When a run is supported but still finalize_negative, require the candidate/follow-up to separate mechanism support from publication readiness.
+- Do not propose another automatic follow-up at max depth; require a manually justified new branch with a materially different mechanism.
+- For useful adjacent follow-ups, include a changed hypothesis, at least two concrete evidence items, a success threshold, and a stop condition.
+- Preserve the boundary that generation does not queue work until promotion policy allows it.
 """.strip()
 
 

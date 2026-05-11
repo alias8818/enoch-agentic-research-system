@@ -174,3 +174,19 @@ def test_provider_generate_retries_malformed_json_before_succeeding() -> None:
     assert result["candidate_count"] == 1
     assert result["attempts_requested"] == 2
     assert result["attempts_used"] == 2
+
+
+def test_generation_prompt_includes_research_quality_policy() -> None:
+    prompt = research_provider_generate.build_generation_prompt(
+        max_candidates=1,
+        topic="quantization",
+        model="hf:zai-org/GLM-5.1",
+        temperature=0.6,
+        seed="seed-policy",
+    )
+
+    assert "Additional Research Quality policy" in prompt
+    assert "Do not treat proxy-only" in prompt
+    assert "supported but still finalize_negative" in prompt
+    assert "Do not propose another automatic follow-up at max depth" in prompt
+    assert "generation does not queue work until promotion policy allows it" in prompt
