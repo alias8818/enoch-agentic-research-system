@@ -85,10 +85,9 @@ def _policy_clauses(case_counts: Counter[str]) -> list[str]:
         clauses.append(
             "For useful adjacent follow-ups, include a changed hypothesis, at least two concrete evidence items, a success threshold, and a stop condition."
         )
-    if not clauses:
-        clauses.append(
-            "Keep candidate generation falsifiable, non-duplicative, baseline-grounded, and explicit about evidence required before queue promotion."
-        )
+    clauses.append(
+        "Preserve the boundary that generation does not queue work until promotion policy allows it."
+    )
     return clauses
 
 
