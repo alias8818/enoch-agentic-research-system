@@ -120,11 +120,35 @@ def classify_candidate_contract(row: CandidateRow) -> tuple[float, list[str]]:
     return round(score, 3), problems
 
 
+def has_bounded_followup(row: DecisionRow) -> bool:
+    return (
+        row.followup_recommended
+        and bool(row.followup_title)
+        and bool(row.followup_hypothesis)
+        and row.followup_required_evidence_count >= 2
+        and bool(row.followup_success_threshold)
+        and bool(row.followup_stop_condition)
+    )
+
+
+def has_substantive_negative_rationale(row: DecisionRow) -> bool:
+    combined = " ".join([row.stop_reason, row.recommended_next_action]).lower()
+    if len(row.stop_reason) < 40 or len(row.recommended_next_action) < 40:
+        return False
+    paper_negative_markers = ("no-paper", "paper-positive", "paper positive", "paper-ready", "publishable", "proxy-only")
+    evidence_limit_markers = ("proxy", "synthetic", "insufficient", "direct", "full-scale", "real")
+    return any(marker in combined for marker in paper_negative_markers) and any(marker in combined for marker in evidence_limit_markers)
+
+
 def classify_decision_quality(row: DecisionRow) -> tuple[float, list[str]]:
     problems: list[str] = []
     if row.decision == "unknown":
         problems.append("unknown_decision")
-    if row.decision == "finalize_negative" and row.hypothesis_status == "supported":
+    if (
+        row.decision == "finalize_negative"
+        and row.hypothesis_status == "supported"
+        and not (has_bounded_followup(row) and has_substantive_negative_rationale(row))
+    ):
         problems.append("supported_but_negative_requires_review")
     if row.followup_recommended:
         if not row.followup_title:

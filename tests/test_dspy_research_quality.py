@@ -56,6 +56,34 @@ def test_quality_report_flags_supported_negative_decisions() -> None:
     assert "Inspect supported-but-negative decisions" in report["recommendations"][0]
 
 
+
+def test_supported_negative_with_bounded_followup_is_not_a_quality_problem() -> None:
+    score, problems = classify_decision_quality(
+        DecisionRow(
+            project_id="project-1",
+            project_name="Project 1",
+            run_id="run-1",
+            decision="finalize_negative",
+            hypothesis_status="supported",
+            evidence_strength="moderate",
+            confidence="medium",
+            followup_recommended=True,
+            followup_type="deepen",
+            followup_title="Real-framework follow-up",
+            followup_hypothesis="A real framework test should validate whether the proxy-supported mechanism holds.",
+            followup_required_evidence_count=4,
+            followup_success_threshold="At least 95% success with less than 2x overhead.",
+            followup_stop_condition="Stop if framework-native checks already catch the faults or overhead exceeds 2x.",
+            recommended_next_action="Stop this run as proxy-only/no-paper; launch a separate bounded real-framework follow-up.",
+            stop_reason="Synthetic proxy evidence supports the narrow mechanism but is insufficient for a paper-positive decision on a real checkpoint stack.",
+            created_at="2026-05-11T00:00:00Z",
+        )
+    )
+
+    assert score == 1.0
+    assert "supported_but_negative_requires_review" not in problems
+
+
 def test_decision_quality_flags_thin_followup() -> None:
     score, problems = classify_decision_quality(
         DecisionRow(
