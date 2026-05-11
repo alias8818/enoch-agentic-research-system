@@ -33,6 +33,14 @@ def _ready_payload() -> dict:
             "enoch-corpus-import-autopilot.service": {"Result": "success", "InactiveEnterTimestamp": "Sun 2026-05-10 04:55:00 UTC"},
         },
         "provider_budget": {"ok": True, "provider": "synthetic", "remaining_credits": 100.0, "rolling_remaining": 2500},
+        "research_quality": {
+            "ok": True,
+            "status": "warnings",
+            "decisions_checked": 100,
+            "problem_counts": {"weak_or_missing_evidence_strength": 1},
+            "report_path": "/tmp/quality.json",
+            "report_mtime": "2026-05-10T04:50:00Z",
+        },
     }
 
 
@@ -66,6 +74,29 @@ def test_publish_ready_requires_recent_corpus_tick() -> None:
     result = evaluate_longhaul_readiness(now=NOW, **payload)
     assert result["ok"] is False
     assert "publish_ready=2 but latest corpus tick is stale or missing" in result["blockers"]
+
+
+
+def test_research_quality_blocker_fails_longhaul_readiness() -> None:
+    payload = _ready_payload()
+    payload["research_quality"] = {"ok": False, "status": "blocked", "problem_counts": {"unknown_decision": 1}}
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+    assert result["ok"] is False
+    assert "research quality status=blocked" in result["blockers"]
+
+
+def test_research_quality_warning_does_not_block_longhaul_readiness() -> None:
+    payload = _ready_payload()
+    payload["research_quality"] = {
+        "ok": True,
+        "status": "warnings",
+        "decisions_checked": 100,
+        "problem_counts": {"weak_or_missing_evidence_strength": 1},
+    }
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+    assert result["ok"] is True
+    assert result["summary"]["research_quality_status"] == "warnings"
+    assert result["summary"]["research_quality_problem_counts"] == {"weak_or_missing_evidence_strength": 1}
 
 
 def test_provider_budget_must_be_checked_and_ok() -> None:

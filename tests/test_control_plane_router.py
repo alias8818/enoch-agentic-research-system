@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -83,6 +84,36 @@ class ControlPlaneRouterTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["store_backend"], "supabase")
         self.assertEqual(body["db_path"], "supabase")
+
+
+    def test_research_quality_endpoint_reads_configured_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "research-quality.json"
+            report.write_text(json.dumps({
+                "schema_version": "enoch_research_quality_report_v1",
+                "generated_at": "2026-05-11T00:00:00Z",
+                "summary": {"candidate_count": 0, "decision_count": 1, "problem_counts": {"weak_or_missing_evidence_strength": 1}},
+                "candidate_scores": [],
+                "decision_scores": [{
+                    "project_id": "p1",
+                    "project_name": "Project 1",
+                    "run_id": "r1",
+                    "decision": "finalize_negative",
+                    "hypothesis_status": "mixed",
+                    "problems": ["weak_or_missing_evidence_strength"],
+                }],
+            }), encoding="utf-8")
+            with patch.dict(os.environ, {"ENOCH_RESEARCH_QUALITY_REPORT_PATH": str(report)}):
+                client = _client(tmp)
+                response = client.get("/control/api/v1/research-quality", headers={"Authorization": f"Bearer {TOKEN}"})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["source"], "control_api_v1_research_quality")
+        self.assertEqual(body["status"], "warnings")
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["decisions_checked"], 1)
+        self.assertEqual(body["problem_counts"], {"weak_or_missing_evidence_strength": 1})
 
     def test_pause_import_dry_run_and_draft(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -329,6 +360,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("/control/api/v1/automation-readiness", response.text)
             self.assertIn("Long-haul mode", response.text)
             self.assertIn("Automation readiness", response.text)
+            self.assertIn("Research quality", response.text)
             self.assertIn("Check provider budget", response.text)
             self.assertIn("Generated candidates", response.text)
             self.assertIn("Admitted ideas", response.text)

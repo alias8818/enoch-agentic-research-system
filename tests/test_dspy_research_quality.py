@@ -159,7 +159,14 @@ def test_dspy_research_quality_script_accepts_fixture_json(tmp_path: Path) -> No
         encoding="utf-8",
     )
 
+    candidates_before = candidates.read_text(encoding="utf-8")
+    decisions_before = decisions.read_text(encoding="utf-8")
+
     assert dspy_research_quality.main(["--candidate-json", str(candidates), "--decision-json", str(decisions), "--output", str(output)]) == 0
+
+    assert candidates.read_text(encoding="utf-8") == candidates_before
+    assert decisions.read_text(encoding="utf-8") == decisions_before
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["candidates.json", "decisions.json", "report.json"]
 
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["summary"]["candidate_count"] == 1

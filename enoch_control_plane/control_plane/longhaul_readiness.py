@@ -59,6 +59,7 @@ def evaluate_longhaul_readiness(
     timers: dict[str, dict[str, Any]],
     services: dict[str, dict[str, Any]],
     provider_budget: dict[str, Any] | None = None,
+    research_quality: dict[str, Any] | None = None,
     now: datetime | None = None,
     research_max_age_seconds: int = 2700,
     corpus_max_age_seconds: int = 4500,
@@ -143,6 +144,14 @@ def evaluate_longhaul_readiness(
     budget_ok = budget.get("ok") is True
     add(check("provider_budget_ok", budget_ok, "provider budget ok" if budget_ok else f"provider budget not ok: {budget.get('failures') or budget.get('reason') or 'unknown'}", data=budget), "provider budget below threshold or unavailable")
 
+    quality = research_quality or {"ok": False, "status": "blocked", "problem_counts": {"missing_quality_report": 1}}
+    quality_status = str(quality.get("status") or "unknown")
+    quality_ok = bool(quality.get("ok")) and quality_status in {"clean", "warnings"}
+    add(
+        check("research_quality_not_blocked", quality_ok, f"research quality status={quality_status}", data=quality),
+        f"research quality status={quality_status}",
+    )
+
     status = "ready" if not blockers else "blocked"
     return {
         "ok": not blockers,
@@ -169,5 +178,10 @@ def evaluate_longhaul_readiness(
             "corpus_last_result": corpus_result or "unknown",
             "corpus_tick_age_seconds": corpus_age,
             "corpus_tick_max_age_seconds": corpus_max_age_seconds,
+            "research_quality_status": quality_status,
+            "research_quality_decisions_checked": int(quality.get("decisions_checked") or 0),
+            "research_quality_problem_counts": quality.get("problem_counts") or {},
+            "research_quality_report_path": quality.get("report_path") or "",
+            "research_quality_report_mtime": quality.get("report_mtime") or "",
         },
     }
