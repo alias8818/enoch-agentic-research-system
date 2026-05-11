@@ -12,10 +12,11 @@ def test_worker_prompt_makes_controller_followup_depth_explicit() -> None:
         "project_id": "followup-1",
         "project_name": "Follow-up One",
         "idea_source_kind": "followup_branch",
-        "source_followup_depth": 2,
+        "source_followup_depth": 4,
     })
     assert "Controller source kind: followup_branch" in prompt
-    assert "Controller follow-up depth: 2" in prompt
+    assert "Controller follow-up depth: 4" in prompt
     assert "copy that exact integer into `followup_depth`" in prompt
     assert "do not reset it to 1" in prompt
     assert "set `followup_recommended: false`" in prompt
+    assert "current/controller follow-up depth is 4 or greater" in prompt

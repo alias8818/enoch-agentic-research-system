@@ -223,3 +223,20 @@ Every evolved variant must:
 5. Research Facility quality metrics and anti-duplicate memory.
 6. Offline DSPy + GEPA eval-set builder for Research Facility prompt/policy evolution.
 7. Long-haul simulation test.
+
+## Research campaign evidence ladder
+
+Current concern: 24x7 Research Facility runs are producing many clean negatives and too few paper-positive results. Two manual reference projects set the bar for what a promising project should do before it is called either a paper or a dead end:
+
+- CoSpec: started with a small screen, escalated into confirmation runs, larger-budget checks, controls, mechanism diagnostics, and scoped claims. It became useful because the claim was narrowed and backed by persistence/control evidence rather than because it was universally groundbreaking.
+- ArborealMoE: reached a credible no-paper result only after testing whether the mechanism fit, then investigating specialization collapse, alternative conditioning, longer runs, and scale/capacity limits. It identified a concrete next milestone instead of treating the first tiny negative as the whole story.
+
+Policy direction:
+
+1. Start every speculative idea with a small probe that can cheaply falsify the central mechanism.
+2. If the small probe is promising, require a medium confirmation with a real baseline/control and direct target metrics.
+3. If small and medium agree, allow a bounded full-scale validation, normally capped around 24 hours.
+4. For model-training ideas, prefer GPT-2-small-class or parameter-matched baselines when feasible; a toy result should compare against a dense/standard model at the same parameter scale.
+5. Use follow-up branches for promising proxy/medium results; do not write papers from proxy-only positives.
+6. Keep hard negatives cheap, but do not collapse every promising result into a no-paper terminal state just because it is not publication-ready yet.
+7. Later: add semantic clustering over prior good/bad runs so new idea generation can learn which mechanisms repeatedly fail and what changed evidence would justify another branch.

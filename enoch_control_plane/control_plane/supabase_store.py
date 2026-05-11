@@ -2981,7 +2981,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "followup_depth": followup_depth,
         }
 
-    def next_followup_candidate(self, *, project_id: str = "", max_followup_depth: int = 2) -> dict[str, Any] | None:
+    def next_followup_candidate(self, *, project_id: str = "", max_followup_depth: int = 4) -> dict[str, Any] | None:
         clauses = [
             "q.status = %s",
             "q.manual_review_required = false",
@@ -3003,7 +3003,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         )
         return rows[0] if rows else None
 
-    def launch_followup_candidate(self, *, project_id: str = "", dry_run: bool = True, requested_by: str = "operator", max_followup_depth: int = 2) -> dict[str, Any]:
+    def launch_followup_candidate(self, *, project_id: str = "", dry_run: bool = True, requested_by: str = "operator", max_followup_depth: int = 4) -> dict[str, Any]:
         candidate = self.next_followup_candidate(project_id=project_id, max_followup_depth=max_followup_depth)
         if not candidate:
             return {"ok": True, "action": "noop", "reason": "no follow-up candidate", "candidate": None, "followup": None}

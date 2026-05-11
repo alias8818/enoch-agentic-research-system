@@ -733,11 +733,11 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
     publication_ready_total = operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0) + operator_counts.get(OperatorLane.PUBLISHED.value, 0)
     investigation_pipeline = {
         "followup_needed": len(followup_rows),
-        "max_followup_depth": 2,
+        "max_followup_depth": 4,
         "next_followup_candidate": followup_rows[0] if followup_rows else None,
         "definitions": {
             "followup_needed": "completed no-paper rows whose decision artifact recommends a bounded adjacent investigation",
-            "max_followup_depth": "default safety cap for automatic follow-up branch creation",
+            "max_followup_depth": "default safety cap for bounded research-campaign follow-up creation",
         },
     }
     paper_pipeline = {

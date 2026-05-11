@@ -30,7 +30,7 @@ Idea -> Queue -> Run -> Decision -> [Follow-up Investigation] or Paper -> Public
 3. `complete_no_paper` is the correct operator lane for negative, missing, malformed, unknown, or ambiguous decisions.
 4. `wake_ready` and `session_finished_ready` mean worker delivery, not outcome polarity.
 5. A follow-up recommendation is no-paper adjacent-investigation work; it does not make the parent run writable.
-6. Follow-up chains are explicitly bounded; default cap is depth 2.
+6. Follow-up chains are explicitly bounded; default cap is depth 4 for bounded research-campaign follow-ups.
 7. `publication_draft` alone is not public; corpus import is separate from finalization.
 8. `paper_pipeline.raw_completed_no_paper_candidates` is informational only; it must equal `write_needed + not_writable_by_decision_gate`.
 9. Dashboard `operator_counts` may contain canonical operator lanes and aggregate keys only; detail stages belong in `operator_detail_counts` or debug drill-downs.

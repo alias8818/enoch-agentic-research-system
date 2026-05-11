@@ -121,7 +121,7 @@ Follow-up branching is intentionally a separate lane from paper writing:
 
 - A follow-up can be shown only when a completed no-paper row has `followup_recommended = true` in the parsed project decision artifact.
 - The worker must provide concrete adjacent-test metadata: `followup_type`, title, hypothesis, required evidence, success threshold, and stop condition.
-- The control plane queues a new project only through an explicit bounded launch action (`max_followup_depth` defaults to `2`).
+- The control plane queues a new project only through an explicit bounded launch action (`max_followup_depth` defaults to `4`).
 - Already-launched parents are not shown again as actionable follow-up work.
 - The effective follow-up depth is the maximum of the worker decision artifact depth and controller-owned source lineage depth, so a worker cannot reset a depth-2 branch back to depth 1.
 - Follow-up launch creates queued investigation work; it does not create a paper, mark the parent positive, or bypass the paper decision gate.

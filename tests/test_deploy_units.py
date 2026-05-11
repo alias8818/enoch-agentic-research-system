@@ -307,8 +307,8 @@ def test_queue_pump_followup_launch_is_opt_in_and_dispatches_one_candidate(tmp_p
     paths = [path for path, _payload in calls]
     followup_payloads = [payload for path, payload in calls if path == "/control/api/v1/followups/launch-next"]
     assert followup_payloads == [
-        {"dry_run": True, "requested_by": "systemd:queue-pump-followup", "max_followup_depth": 2},
-        {"dry_run": False, "requested_by": "systemd:queue-pump-followup", "max_followup_depth": 2},
+        {"dry_run": True, "requested_by": "systemd:queue-pump-followup", "max_followup_depth": 4},
+        {"dry_run": False, "requested_by": "systemd:queue-pump-followup", "max_followup_depth": 4},
     ]
     assert paths[-1] == "/control/dispatch-next"
     output = json.loads(capsys.readouterr().out)

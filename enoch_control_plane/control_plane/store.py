@@ -1764,7 +1764,7 @@ class ControlPlaneStore:
         candidates.sort(key=lambda row: (_int(row.get("dispatch_priority"), 9999), _int(row.get("selection_rank"), 9999), _text(row.get("updated_at"))))
         return candidates[0] if candidates else None
 
-    def next_followup_candidate(self, *, project_id: str = "", max_followup_depth: int = 2) -> dict[str, Any] | None:
+    def next_followup_candidate(self, *, project_id: str = "", max_followup_depth: int = 4) -> dict[str, Any] | None:
         rows = self.operator_queue_rows_sql()
         candidates = [
             row for row in rows
@@ -1778,7 +1778,7 @@ class ControlPlaneStore:
         candidates.sort(key=lambda row: _text(row.get("updated_at")), reverse=True)
         return candidates[0] if candidates else None
 
-    def launch_followup_candidate(self, *, project_id: str = "", dry_run: bool = True, requested_by: str = "operator", max_followup_depth: int = 2) -> dict[str, Any]:
+    def launch_followup_candidate(self, *, project_id: str = "", dry_run: bool = True, requested_by: str = "operator", max_followup_depth: int = 4) -> dict[str, Any]:
         candidate = self.next_followup_candidate(project_id=project_id, max_followup_depth=max_followup_depth)
         if not candidate:
             return {"ok": True, "action": "noop", "reason": "no follow-up candidate", "candidate": None, "followup": None}

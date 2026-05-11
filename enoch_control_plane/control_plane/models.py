@@ -417,7 +417,7 @@ class FollowupLaunchRequest(BaseModel):
     dry_run: bool = True
     requested_by: str = "operator"
     project_id: str = ""
-    max_followup_depth: int = Field(default=2, ge=0, le=5)
+    max_followup_depth: int = Field(default=4, ge=0, le=5)
 
 
 class FollowupLaunchResponse(BaseModel):

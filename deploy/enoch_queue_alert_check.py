@@ -144,7 +144,7 @@ def main() -> int:
                         base_url,
                         "/control/api/v1/followups/launch-next",
                         token,
-                        {"dry_run": True, "requested_by": "systemd:queue-pump-followup", "max_followup_depth": 2},
+                        {"dry_run": True, "requested_by": "systemd:queue-pump-followup", "max_followup_depth": 4},
                     )
                     if followup_dry_run.get("action") != "dry_run_followup":
                         followup_launch = {
@@ -162,7 +162,7 @@ def main() -> int:
                             base_url,
                             "/control/api/v1/followups/launch-next",
                             token,
-                            {"dry_run": False, "requested_by": "systemd:queue-pump-followup", "max_followup_depth": 2},
+                            {"dry_run": False, "requested_by": "systemd:queue-pump-followup", "max_followup_depth": 4},
                         )
                         if followup_launch.get("action") == "followup_queued":
                             dispatch = _post_json(

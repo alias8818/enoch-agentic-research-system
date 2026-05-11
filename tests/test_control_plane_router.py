@@ -3174,10 +3174,14 @@ def test_project_prompt_includes_canonical_decision_contract() -> None:
     assert "negative_result" in prompt
     assert "Use `finalize_positive` only when the evidence supports writing a paper now with direct, publication-grade evidence." in prompt
     assert "`continue` is not paper-positive and will not trigger paper writing" in prompt
+    assert "prefer `finalize_negative` plus `followup_recommended: true` for promising next-tier work" in prompt
     assert "prefer `finalize_negative` plus `followup_recommended: true`" in prompt
     assert "Evidence-depth rules:" in prompt
+    assert "small probe -> medium confirmation -> bounded full-scale validation" in prompt
+    assert "GPT-2-small-class baselines" in prompt
+    assert "CoSpec-style result" in prompt
     assert "short smoke/proxy/synthetic test may close `finalize_negative`" in prompt
     assert "Do not add new decision fields or enum values." in prompt
     assert "Do not use `finalize_positive` for a proxy-only result" in prompt
     assert "Follow-up fields are optional adjacent-investigation metadata; they never make this run paper-positive." in prompt
-    assert "controller will cap follow-ups at depth 2" in prompt
+    assert "controller will cap follow-ups at depth 4" in prompt
