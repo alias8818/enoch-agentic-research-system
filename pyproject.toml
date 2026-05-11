@@ -13,10 +13,6 @@ dependencies = [
   "uvicorn>=0.35.0,<1.0.0",
 ]
 
-[project.optional-dependencies]
-research-quality = [
-  "dspy>=3.0,<4.0",
-]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
