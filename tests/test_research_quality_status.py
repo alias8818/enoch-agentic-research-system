@@ -93,6 +93,44 @@ def test_load_latest_quality_status_reads_report_without_mutating_it(tmp_path: P
     assert report_path.read_text(encoding="utf-8") == before
 
 
+def test_quality_status_includes_post_prompt_monitor(tmp_path: Path) -> None:
+    report_path = tmp_path / "quality.json"
+    report_path.write_text(json.dumps(_report_with_decision("weak_or_missing_evidence_strength")), encoding="utf-8")
+    window_path = tmp_path / "window.json"
+    window_path.write_text(json.dumps({
+        "schema_version": "enoch_research_quality_window_comparison_v1",
+        "cutoff": "2026-05-11T09:58:00Z",
+        "post": {
+            "candidate_count": 20,
+            "decision_count": 13,
+            "eval_case_counts": {"proxy_only_positive": 4, "useful_adjacent_followup": 2},
+            "high_similarity_pair_count": 0,
+            "moonshot_count": 10,
+            "moonshot_avg_score": 74.64,
+        },
+        "delta": {"proxy_only_positive_delta": -4, "useful_adjacent_followup_delta": -4, "moonshot_avg_score_delta": 1.426},
+    }), encoding="utf-8")
+    history_path = tmp_path / "history.jsonl"
+    history_path.write_text(
+        json.dumps({"checked_at": "2026-05-11T11:17:08Z", "malformed_provider_response_count": 1, "generated_count": 0}) + "\n"
+        + json.dumps({"checked_at": "2026-05-11T11:37:28Z", "malformed_provider_response_count": 0, "generated_count": 2}) + "\n",
+        encoding="utf-8",
+    )
+
+    status = load_latest_quality_status([str(report_path)], window_report_path=str(window_path), autopilot_history_path=str(history_path))
+
+    monitor = status["post_prompt_monitor"]
+    assert monitor["available"] is True
+    assert monitor["candidate_count"] == 20
+    assert monitor["decision_count"] == 13
+    assert monitor["decision_coverage"] == 0.65
+    assert monitor["proxy_only_positive"] == 4
+    assert monitor["proxy_only_positive_delta"] == -4.0
+    assert monitor["useful_adjacent_followup"] == 2
+    assert monitor["malformed_provider_response_count"] == 1
+    assert monitor["last_malformed_at"] == "2026-05-11T11:17:08Z"
+
+
 def test_missing_quality_report_blocks_readiness() -> None:
     status = load_latest_quality_status(["/definitely/missing/research-quality.json"])
 

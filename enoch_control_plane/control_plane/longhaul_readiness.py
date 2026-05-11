@@ -183,5 +183,6 @@ def evaluate_longhaul_readiness(
             "research_quality_problem_counts": quality.get("problem_counts") or {},
             "research_quality_report_path": quality.get("report_path") or "",
             "research_quality_report_mtime": quality.get("report_mtime") or "",
+            "research_quality_post_prompt_monitor": quality.get("post_prompt_monitor") or {},
         },
     }

@@ -220,6 +220,127 @@ def refresh_research_quality_report() -> dict:
     }
 
 
+def refresh_research_quality_window_comparison() -> dict:
+    """Refresh the read-only post-prompt comparison used by the dashboard."""
+
+    cutoff = os.environ.get("ENOCH_RESEARCH_QUALITY_WINDOW_CUTOFF", "").strip()
+    if not cutoff:
+        return {"ok": True, "action": "research_quality_window_comparison_skipped", "reason": "missing cutoff"}
+
+    database_url = _database_url()
+    if not database_url:
+        return {"ok": False, "action": "research_quality_window_comparison_skipped", "reason": "missing database URL"}
+
+    output = Path(
+        os.environ.get(
+            "ENOCH_RESEARCH_QUALITY_WINDOW_REPORT_PATH",
+            "/var/lib/enoch-control-plane/research-quality/latest-window-comparison.json",
+        )
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    limit = _bounded_int("ENOCH_RESEARCH_QUALITY_WINDOW_LIMIT", 20, 1, 200)
+    timeout = _bounded_int("ENOCH_RESEARCH_QUALITY_WINDOW_TIMEOUT_SECONDS", 90, 10, 600)
+    script = _repo_root() / "scripts" / "compare_research_quality_windows.py"
+    cmd = [
+        sys.executable,
+        str(script),
+        "--database-url",
+        database_url,
+        "--cutoff",
+        cutoff,
+        "--limit",
+        str(limit),
+        "--output",
+        str(output),
+    ]
+    display_cmd = [*cmd]
+    if database_url in display_cmd:
+        display_cmd[display_cmd.index(database_url)] = "<redacted-database-url>"
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=_repo_root(),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "ok": False,
+            "action": "research_quality_window_comparison_failed",
+            "reason": f"timeout after {timeout}s: {exc}",
+            "command": display_cmd,
+            "output": str(output),
+        }
+    except OSError as exc:
+        return {
+            "ok": False,
+            "action": "research_quality_window_comparison_failed",
+            "reason": f"{type(exc).__name__}: {exc}",
+            "command": display_cmd,
+            "output": str(output),
+        }
+
+    return {
+        "ok": proc.returncode == 0,
+        "action": "research_quality_window_comparison",
+        "returncode": proc.returncode,
+        "output": str(output),
+        "cutoff": cutoff,
+        "limit": limit,
+        "stdout": proc.stdout.strip()[-2000:],
+        "stderr": proc.stderr.strip()[-2000:],
+        "command": display_cmd,
+    }
+
+
+def _provider_malformed_count(result: dict) -> int:
+    texts: list[str] = []
+    for warning in result.get("warnings") or []:
+        texts.append(str(warning))
+    for stage in result.get("stages") or []:
+        if isinstance(stage, dict):
+            texts.append(str(stage.get("reason") or ""))
+    return sum(
+        1
+        for text in texts
+        if "provider returned no usable candidate JSON" in text or "Unterminated string" in text
+    )
+
+
+def append_research_autopilot_history(result: dict) -> dict:
+    """Append a compact tick summary for dashboard quality monitoring."""
+
+    path = Path(
+        os.environ.get(
+            "ENOCH_RESEARCH_AUTOPILOT_HISTORY_PATH",
+            "/var/lib/enoch-control-plane/research-quality/autopilot-history.jsonl",
+        )
+    )
+    entry = {
+        "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "checked_at": (result.get("budget") or {}).get("checked_at") or "",
+        "ok": bool(result.get("ok")),
+        "reason": result.get("reason") or "",
+        "provider_model": result.get("provider_model") or "",
+        "generated_count": int(result.get("generated_count") or 0),
+        "promoted_count": int(result.get("promoted_count") or 0),
+        "dispatched_count": int(result.get("dispatched_count") or 0),
+        "initial_promotable_count": int(result.get("initial_promotable_count") or 0),
+        "malformed_provider_response_count": _provider_malformed_count(result),
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, sort_keys=True) + "\n")
+    except OSError as exc:
+        return {"ok": False, "action": "research_autopilot_history_append_failed", "reason": f"{type(exc).__name__}: {exc}", "path": str(path)}
+    return {"ok": True, "action": "research_autopilot_history_append", "path": str(path), "entry": entry}
+
+
 def _is_benign_skip_result(result: dict) -> bool:
     """Return true for normal long-haul idle/backpressure outcomes.
 
@@ -298,9 +419,13 @@ def main() -> int:
         print(json.dumps({"ok": False, "action": "failed", "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}"}, sort_keys=True), file=sys.stderr)
         return 1
 
+    history_result = append_research_autopilot_history(result) if isinstance(result, dict) else {"ok": False, "action": "research_autopilot_history_append_skipped"}
     quality_result = refresh_research_quality_report()
+    window_result = refresh_research_quality_window_comparison()
     if isinstance(result, dict):
+        result["research_autopilot_history"] = history_result
         result["research_quality_refresh"] = quality_result
+        result["research_quality_window_comparison"] = window_result
     print(json.dumps(result, sort_keys=True))
     tick_ok = result.get("ok") or _is_benign_skip_result(result)
     return 0 if tick_ok else 1

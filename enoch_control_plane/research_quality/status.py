@@ -11,6 +11,8 @@ DEFAULT_REPORT_PATHS = (
     "/tmp/enoch-dspy-quality-report.after.json",
     "/tmp/enoch-dspy-quality-report.json",
 )
+DEFAULT_WINDOW_REPORT_PATH = "/var/lib/enoch-control-plane/research-quality/latest-window-comparison.json"
+DEFAULT_AUTOPILOT_HISTORY_PATH = "/var/lib/enoch-control-plane/research-quality/autopilot-history.jsonl"
 
 
 def _utc_iso_from_mtime(path: Path) -> str:
@@ -92,7 +94,121 @@ def classify_quality_report(report: dict[str, Any], *, report_path: str = "", re
     }
 
 
-def load_latest_quality_status(paths: list[str] | tuple[str, ...] = DEFAULT_REPORT_PATHS) -> dict[str, Any]:
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _load_json_file(path: str) -> dict[str, Any] | None:
+    if not path:
+        return None
+    candidate = Path(path)
+    if not candidate.exists():
+        return None
+    try:
+        with candidate.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _load_autopilot_history_summary(path: str, *, cutoff: str = "", max_rows: int = 200) -> dict[str, Any]:
+    if not path:
+        return {"path": path, "available": False, "reason": "not_configured"}
+    candidate = Path(path)
+    if not candidate.exists():
+        return {"path": path, "available": False, "reason": "missing_history"}
+    try:
+        lines = candidate.read_text(encoding="utf-8").splitlines()[-max_rows:]
+    except OSError as exc:
+        return {"path": path, "available": False, "reason": f"read_failed: {exc}"}
+
+    rows: list[dict[str, Any]] = []
+    for line in lines:
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(item, dict):
+            continue
+        if cutoff and str(item.get("checked_at") or item.get("recorded_at") or "") < cutoff:
+            continue
+        rows.append(item)
+
+    malformed_rows = [
+        item for item in rows
+        if _safe_int(item.get("malformed_provider_response_count")) > 0
+    ]
+    return {
+        "path": path,
+        "available": True,
+        "rows_checked": len(rows),
+        "malformed_provider_response_ticks": len(malformed_rows),
+        "malformed_provider_response_count": sum(_safe_int(item.get("malformed_provider_response_count")) for item in rows),
+        "last_malformed_at": str(malformed_rows[-1].get("checked_at") or malformed_rows[-1].get("recorded_at") or "") if malformed_rows else "",
+        "last_generated_count": _safe_int(rows[-1].get("generated_count")) if rows else 0,
+        "last_checked_at": str(rows[-1].get("checked_at") or rows[-1].get("recorded_at") or "") if rows else "",
+    }
+
+
+def _post_prompt_monitor(*, window_path: str, history_path: str) -> dict[str, Any]:
+    window = _load_json_file(window_path)
+    if not window:
+        history = _load_autopilot_history_summary(history_path)
+        return {
+            "available": False,
+            "reason": "missing_window_comparison",
+            "window_path": window_path,
+            "history": history,
+        }
+
+    post = window.get("post") or {}
+    delta = window.get("delta") or {}
+    meta = window.get("post_meta") or {}
+    eval_counts = post.get("eval_case_counts") or {}
+    candidate_count = _safe_int(post.get("candidate_count") or meta.get("candidate_count"))
+    decision_count = _safe_int(post.get("decision_count") or meta.get("decision_count"))
+    cutoff = str(window.get("cutoff") or "")
+    history = _load_autopilot_history_summary(history_path, cutoff=cutoff)
+    decision_coverage = round(decision_count / candidate_count, 3) if candidate_count else 0.0
+    return {
+        "available": True,
+        "window_path": window_path,
+        "cutoff": cutoff,
+        "candidate_count": candidate_count,
+        "decision_count": decision_count,
+        "decision_coverage": decision_coverage,
+        "proxy_only_positive": _safe_int(eval_counts.get("proxy_only_positive")),
+        "proxy_only_positive_delta": _safe_float(delta.get("proxy_only_positive_delta")),
+        "useful_adjacent_followup": _safe_int(eval_counts.get("useful_adjacent_followup")),
+        "useful_adjacent_followup_delta": _safe_float(delta.get("useful_adjacent_followup_delta")),
+        "high_similarity_pair_count": _safe_int(post.get("high_similarity_pair_count")),
+        "moonshot_count": _safe_int(post.get("moonshot_count")),
+        "moonshot_avg_score": _safe_float(post.get("moonshot_avg_score")),
+        "moonshot_avg_score_delta": _safe_float(delta.get("moonshot_avg_score_delta")),
+        "malformed_provider_response_count": _safe_int(history.get("malformed_provider_response_count")),
+        "malformed_provider_response_ticks": _safe_int(history.get("malformed_provider_response_ticks")),
+        "last_malformed_at": history.get("last_malformed_at") or "",
+        "last_checked_at": history.get("last_checked_at") or meta.get("candidate_last_created_at") or "",
+    }
+
+
+def load_latest_quality_status(
+    paths: list[str] | tuple[str, ...] = DEFAULT_REPORT_PATHS,
+    *,
+    window_report_path: str = DEFAULT_WINDOW_REPORT_PATH,
+    autopilot_history_path: str = DEFAULT_AUTOPILOT_HISTORY_PATH,
+) -> dict[str, Any]:
     chosen = next((Path(path) for path in paths if path and Path(path).exists()), None)
     if chosen is None:
         report_path = str(paths[0]) if paths else ""
@@ -109,7 +225,10 @@ def load_latest_quality_status(paths: list[str] | tuple[str, ...] = DEFAULT_REPO
             "problem_counts": {"missing_quality_report": 1},
             "severity_counts": {"blocked": 1},
             "problem_details": [{"section": "report", "severity": "blocked", "problem": "missing_quality_report"}],
+            "post_prompt_monitor": _post_prompt_monitor(window_path=window_report_path, history_path=autopilot_history_path),
         }
     with chosen.open("r", encoding="utf-8") as handle:
         report = json.load(handle)
-    return classify_quality_report(report, report_path=str(chosen), report_mtime=_utc_iso_from_mtime(chosen))
+    status = classify_quality_report(report, report_path=str(chosen), report_mtime=_utc_iso_from_mtime(chosen))
+    status["post_prompt_monitor"] = _post_prompt_monitor(window_path=window_report_path, history_path=autopilot_history_path)
+    return status

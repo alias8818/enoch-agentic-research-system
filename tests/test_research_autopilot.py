@@ -88,17 +88,76 @@ def test_research_autopilot_includes_quality_refresh_result(tmp_path, capsys, mo
     config.write_text(json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8")
     monkeypatch.setenv("ENOCH_CONFIG", str(config))
     monkeypatch.setenv("ENOCH_ENABLE_RESEARCH_AUTOPILOT", "1")
+    monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_HISTORY_PATH", str(tmp_path / "history.jsonl"))
 
     with (
         patch.object(autopilot, "_post_json", return_value={"ok": True, "action": "research_cycle"}),
         patch.object(autopilot, "refresh_research_quality_report", return_value={"ok": True, "action": "research_quality_refresh"}) as refresh,
+        patch.object(autopilot, "refresh_research_quality_window_comparison", return_value={"ok": True, "action": "research_quality_window_comparison"}) as window,
     ):
         assert autopilot.main() == 0
 
     refresh.assert_called_once_with()
+    window.assert_called_once_with()
     result = json.loads(capsys.readouterr().out)
     assert result["ok"] is True
     assert result["research_quality_refresh"] == {"ok": True, "action": "research_quality_refresh"}
+    assert result["research_quality_window_comparison"] == {"ok": True, "action": "research_quality_window_comparison"}
+    assert result["research_autopilot_history"]["ok"] is True
+
+
+def test_autopilot_history_counts_malformed_provider_responses(tmp_path, monkeypatch):
+    history = tmp_path / "history.jsonl"
+    monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_HISTORY_PATH", str(history))
+    result = {
+        "ok": True,
+        "budget": {"checked_at": "2026-05-11T11:17:08Z"},
+        "provider_model": "hf:moonshotai/Kimi-K2.6",
+        "generated_count": 0,
+        "promoted_count": 1,
+        "dispatched_count": 1,
+        "initial_promotable_count": 8,
+        "stages": [{
+            "stage": "provider_generation",
+            "ok": False,
+            "reason": "provider generation skipped: provider returned no usable candidate JSON after 2 attempt(s): Unterminated string",
+        }],
+    }
+
+    append = autopilot.append_research_autopilot_history(result)
+
+    assert append["ok"] is True
+    row = json.loads(history.read_text(encoding="utf-8"))
+    assert row["checked_at"] == "2026-05-11T11:17:08Z"
+    assert row["malformed_provider_response_count"] == 1
+    assert row["generated_count"] == 0
+
+
+def test_research_quality_window_comparison_runs_read_only_script(tmp_path, monkeypatch):
+    output = tmp_path / "window.json"
+    calls: list[dict] = []
+
+    def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check):
+        calls.append({"cmd": cmd, "cwd": cwd, "timeout": timeout, "check": check})
+        return Mock(returncode=0, stdout='{"ok": true}', stderr="")
+
+    monkeypatch.setenv("ENOCH_SUPABASE_DATABASE_URL", "postgresql://user:secret@host/db")
+    monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_WINDOW_CUTOFF", "2026-05-11T09:58:00Z")
+    monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_WINDOW_REPORT_PATH", str(output))
+    monkeypatch.setattr(autopilot.subprocess, "run", fake_run)
+
+    result = autopilot.refresh_research_quality_window_comparison()
+
+    assert result["ok"] is True
+    assert result["action"] == "research_quality_window_comparison"
+    assert result["output"] == str(output)
+    assert calls
+    cmd = calls[0]["cmd"]
+    assert str(MODULE_PATH.parents[1] / "scripts" / "compare_research_quality_windows.py") in cmd
+    assert "--cutoff" in cmd
+    assert "2026-05-11T09:58:00Z" in cmd
+    assert "postgresql://user:secret@host/db" not in json.dumps(result["command"])
+    assert "<redacted-database-url>" in result["command"]
 
 
 def test_research_quality_refresh_missing_database_url_is_fail_soft(monkeypatch):

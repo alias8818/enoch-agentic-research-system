@@ -99,6 +99,22 @@ def test_research_quality_warning_does_not_block_longhaul_readiness() -> None:
     assert result["summary"]["research_quality_problem_counts"] == {"weak_or_missing_evidence_strength": 1}
 
 
+def test_research_quality_post_prompt_monitor_is_exposed_in_summary() -> None:
+    payload = _ready_payload()
+    payload["research_quality"]["post_prompt_monitor"] = {
+        "available": True,
+        "candidate_count": 20,
+        "decision_count": 13,
+        "proxy_only_positive": 4,
+        "malformed_provider_response_count": 1,
+    }
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is True
+    assert result["summary"]["research_quality_post_prompt_monitor"]["candidate_count"] == 20
+    assert result["summary"]["research_quality_post_prompt_monitor"]["malformed_provider_response_count"] == 1
+
+
 def test_provider_budget_must_be_checked_and_ok() -> None:
     payload = _ready_payload()
     payload["provider_budget"] = {"ok": False, "failures": ["rolling limit low"]}
