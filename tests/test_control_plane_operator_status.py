@@ -594,7 +594,7 @@ class OperatorStatusTests(unittest.TestCase):
                 self.assertFalse(queue_item["paper_draft_eligible"])
                 self.assertEqual(
                     queue_item["project_decision_summary"],
-                    "project decision lacks positive draft signal",
+                    "continue (continue decision is not paper-positive)",
                 )
 
                 overview = client.get("/control/api/v1/overview", headers=headers).json()
