@@ -3172,7 +3172,9 @@ def test_project_prompt_includes_canonical_decision_contract() -> None:
     assert "partial_viable" in prompt
     assert "promising_synthetic_positive" in prompt
     assert "negative_result" in prompt
-    assert "Use `finalize_positive` only when the evidence supports writing a paper now." in prompt
+    assert "Use `finalize_positive` only when the evidence supports writing a paper now with direct, publication-grade evidence." in prompt
+    assert "`continue` is not paper-positive and will not trigger paper writing" in prompt
+    assert "prefer `finalize_negative` plus `followup_recommended: true`" in prompt
     assert "Evidence-depth rules:" in prompt
     assert "short smoke/proxy/synthetic test may close `finalize_negative`" in prompt
     assert "Do not add new decision fields or enum values." in prompt

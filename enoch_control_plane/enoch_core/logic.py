@@ -23,7 +23,6 @@ EXCLUDED_DRAFT_NAME_FRAGMENT = (
 PAPER_DRAFT_POSITIVE_DECISION_TOKENS = (
     "finalize_positive",
 )
-PAPER_DRAFT_SUPPORTED_TOKENS = ("supported",)
 PAPER_DRAFT_BLOCKED_DECISION_TOKENS = (
     "negative",
     "non_positive",
@@ -161,11 +160,9 @@ def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
         if _has_decision_token(value, PAPER_DRAFT_POSITIVE_DECISION_TOKENS):
             return {"eligible": True, "reason": "project decision is positive", "source": source, "field": field, "decision": value, "values": values}
 
-    if any(value == "continue" for _, _, value in primary) and any(
-        value in PAPER_DRAFT_SUPPORTED_TOKENS or value.startswith("supported_") for _, _, value in supporting
-    ):
+    if any(value == "continue" for _, _, value in primary):
         source, field, value = next((item for item in primary if item[2] == "continue"), primary[0])
-        return {"eligible": True, "reason": "continue decision has supported hypothesis evidence", "source": source, "field": field, "decision": value, "values": values}
+        return {"eligible": False, "reason": "continue decision is not paper-positive", "source": source, "field": field, "decision": value, "values": values}
 
     return {"eligible": False, "reason": "project decision lacks positive draft signal", "values": values}
 

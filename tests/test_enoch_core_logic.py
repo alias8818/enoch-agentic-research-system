@@ -145,13 +145,21 @@ class EnochCoreLogicTests(unittest.TestCase):
             gate = paper_draft_decision_gate(root)
             self.assertFalse(gate["eligible"])
 
-    def test_paper_draft_gate_accepts_supported_on_status(self) -> None:
+    def test_paper_draft_gate_rejects_continue_even_when_supported(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / ".omx").mkdir()
-            (root / ".omx" / "project_decision.json").write_text('{"decision":"continue","status":"supported_on_bounded_benchmark"}\n', encoding="utf-8")
+            (root / ".enoch").mkdir()
+            payload = {
+                "project_decision": "continue",
+                "hypothesis_status": "supported",
+                "confidence": "medium",
+                "evidence_strength": "moderate",
+                "recommended_next_action": "Run a direct target-stack validation before any paper.",
+            }
+            (root / ".enoch" / "project_decision.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
             gate = paper_draft_decision_gate(root)
-            self.assertTrue(gate["eligible"])
+            self.assertFalse(gate["eligible"])
+            self.assertEqual(gate["reason"], "continue decision is not paper-positive")
 
     def test_paper_draft_candidate_excludes_existing_run_even_for_new_project(self) -> None:
         queue_rows = [{

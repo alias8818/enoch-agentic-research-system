@@ -637,11 +637,12 @@ Required JSON shape:
 ```
 
 Decision rules:
-- Use `finalize_positive` only when the evidence supports writing a paper now.
+- Use `finalize_positive` only when the evidence supports writing a paper now with direct, publication-grade evidence.
+- Do not use `finalize_positive` for proxy-only, smoke-only, synthetic-only, trace-only, or "promising but not closed" results.
 - Use `finalize_negative` when the result is negative, non-viable, or not worth a paper.
 - Use `needs_review` only for a real ambiguity or required external/private evidence.
 - Use `blocked` only for an execution blocker that prevented a valid test.
-- Use `continue` only when more autonomous work should run before paper/no-paper closure.
+- Use `continue` only when more autonomous work should run before paper/no-paper closure; `continue` is not paper-positive and will not trigger paper writing.
 - Use `branch_new_project` only when this run found a distinct follow-up idea.
 
 Evidence-depth rules:
@@ -650,7 +651,8 @@ Evidence-depth rules:
 - For early falsification, `run_notes.md` must say what was directly tested, what was only proxied, and what direct/full evidence would be required to overturn the result.
 - For early falsification, keep `evidence_strength` at `weak` or `moderate` unless direct/full-scale evidence was actually produced.
 - For early falsification, make `recommended_next_action` and `stop_reason` state that the result is a proxy/early falsification rather than a full validation.
-- Do not use `finalize_positive` for a proxy-only result unless the original claim was explicitly scoped to that proxy.
+- If evidence supports the mechanism but is not enough for a paper, prefer `finalize_negative` plus `followup_recommended: true` with a bounded direct-evidence follow-up.
+- Do not use `finalize_positive` for a proxy-only result unless the original claim was explicitly scoped to that proxy and the run fully satisfies that scoped success threshold.
 
 Follow-up rules:
 - Follow-up fields are optional adjacent-investigation metadata; they never make this run paper-positive.
