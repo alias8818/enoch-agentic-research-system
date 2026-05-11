@@ -11,6 +11,7 @@ import json
 from http.client import RemoteDisconnected
 import os
 from pathlib import Path
+import subprocess
 import sys
 import time
 from urllib import error, request
@@ -121,6 +122,104 @@ def _topic() -> str:
     return rotation[int(time.time() // window_seconds) % len(rotation)]
 
 
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _database_url() -> str:
+    return (
+        os.environ.get("ENOCH_RESEARCH_QUALITY_DATABASE_URL")
+        or os.environ.get("ENOCH_SUPABASE_DATABASE_URL")
+        or os.environ.get("ENOCH_CONTROL_DATABASE_URL")
+        or os.environ.get("DATABASE_URL")
+        or ""
+    ).strip()
+
+
+def refresh_research_quality_report() -> dict:
+    """Refresh the read-only Research Facility quality report.
+
+    This is intentionally fail-soft for the main autopilot tick: generating the
+    report must never enqueue, dispatch, draft, or mutate database state. The
+    dashboard readiness surface still exposes stale/missing reports as a
+    separate operator-visible condition.
+    """
+
+    if _truthy("ENOCH_RESEARCH_QUALITY_REFRESH_DISABLED"):
+        return {"ok": True, "action": "research_quality_refresh_skipped", "reason": "disabled"}
+
+    database_url = _database_url()
+    if not database_url:
+        return {"ok": False, "action": "research_quality_refresh_skipped", "reason": "missing database URL"}
+
+    output = Path(
+        os.environ.get(
+            "ENOCH_RESEARCH_QUALITY_REPORT_PATH",
+            "/var/lib/enoch-control-plane/research-quality/latest-report.json",
+        )
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    limit = _bounded_int("ENOCH_RESEARCH_QUALITY_LIMIT", 100, 1, 1000)
+    timeout = _bounded_int("ENOCH_RESEARCH_QUALITY_TIMEOUT_SECONDS", 90, 10, 600)
+    script = _repo_root() / "scripts" / "dspy_research_quality.py"
+    cmd = [
+        sys.executable,
+        str(script),
+        "--database-url",
+        database_url,
+        "--limit",
+        str(limit),
+        "--output",
+        str(output),
+        "--pretty",
+    ]
+    display_cmd = [*cmd]
+    if database_url in display_cmd:
+        display_cmd[display_cmd.index(database_url)] = "<redacted-database-url>"
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=_repo_root(),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "ok": False,
+            "action": "research_quality_refresh_failed",
+            "reason": f"timeout after {timeout}s: {exc}",
+            "command": display_cmd,
+            "output": str(output),
+        }
+    except OSError as exc:
+        return {
+            "ok": False,
+            "action": "research_quality_refresh_failed",
+            "reason": f"{type(exc).__name__}: {exc}",
+            "command": display_cmd,
+            "output": str(output),
+        }
+
+    stdout = proc.stdout.strip()
+    stderr = proc.stderr.strip()
+    return {
+        "ok": proc.returncode == 0,
+        "action": "research_quality_refresh",
+        "returncode": proc.returncode,
+        "output": str(output),
+        "limit": limit,
+        "stdout": stdout[-2000:],
+        "stderr": stderr[-2000:],
+        "command": display_cmd,
+    }
+
+
 def _is_benign_skip_result(result: dict) -> bool:
     """Return true for normal long-haul idle/backpressure outcomes.
 
@@ -138,6 +237,11 @@ def _is_benign_skip_result(result: dict) -> bool:
 
 
 def main() -> int:
+    if _truthy("ENOCH_RESEARCH_QUALITY_REFRESH_ONLY"):
+        result = refresh_research_quality_report()
+        print(json.dumps(result, sort_keys=True))
+        return 0 if result.get("ok") else 1
+
     if not _truthy("ENOCH_ENABLE_RESEARCH_AUTOPILOT"):
         print(json.dumps({"ok": True, "action": "skipped", "reason": "research autopilot disabled; set ENOCH_ENABLE_RESEARCH_AUTOPILOT=1"}, sort_keys=True))
         return 0
@@ -194,8 +298,12 @@ def main() -> int:
         print(json.dumps({"ok": False, "action": "failed", "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}"}, sort_keys=True), file=sys.stderr)
         return 1
 
+    quality_result = refresh_research_quality_report()
+    if isinstance(result, dict):
+        result["research_quality_refresh"] = quality_result
     print(json.dumps(result, sort_keys=True))
-    return 0 if result.get("ok") or _is_benign_skip_result(result) else 1
+    tick_ok = result.get("ok") or _is_benign_skip_result(result)
+    return 0 if tick_ok else 1
 
 
 if __name__ == "__main__":

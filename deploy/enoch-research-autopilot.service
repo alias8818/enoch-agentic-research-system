@@ -7,9 +7,12 @@ Wants=enoch-control-plane.service
 Type=oneshot
 WorkingDirectory=/opt/enoch-control-plane
 Environment=ENOCH_CONFIG=/etc/enoch-control-plane/config.json
+EnvironmentFile=-/etc/enoch-control-plane/supabase.env
 Environment=ENOCH_ENABLE_RESEARCH_AUTOPILOT=0
 Environment=ENOCH_RESEARCH_AUTOPILOT_DISPATCH=1
 Environment=ENOCH_RESEARCH_AUTOPILOT_WAIT=1
 Environment=ENOCH_RESEARCH_AUTOPILOT_PAPERS=1
 Environment=ENOCH_RESEARCH_TOPIC_ROTATION_SECONDS=1800
+Environment=ENOCH_RESEARCH_QUALITY_REPORT_PATH=/var/lib/enoch-control-plane/research-quality/latest-report.json
+Environment=ENOCH_RESEARCH_QUALITY_LIMIT=100
 ExecStart=/opt/enoch-control-plane/.venv/bin/python /opt/enoch-control-plane/deploy/enoch_research_autopilot.py

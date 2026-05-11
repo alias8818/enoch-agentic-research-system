@@ -57,7 +57,8 @@ systemctl show enoch-research-autopilot.service -p Result -p ActiveState --no-pa
 
 3. Check provider budget. A budget block prevents candidate generation before tokens are spent.
 4. Inspect Research Facility ledgers for admitted candidates and recent generation outcomes.
-5. Inspect `investigation_pipeline.followup_needed`; a follow-up candidate is adjacent investigation work, not paper-writing work.
+5. Inspect Research Quality status; the systemd tick refreshes `/var/lib/enoch-control-plane/research-quality/latest-report.json` after bounded cycles, and stale/missing reports are operator-visible readiness evidence.
+6. Inspect `investigation_pipeline.followup_needed`; a follow-up candidate is adjacent investigation work, not paper-writing work.
 6. If no candidates exist and the timer is healthy, the next bounded tick may generate or admit one candidate. Do not manually drain a broad queue.
 
 ## If research last result=exit-code

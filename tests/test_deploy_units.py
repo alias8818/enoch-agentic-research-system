@@ -79,8 +79,13 @@ def test_research_autopilot_unit_is_opt_in_and_bounded(tmp_path, capsys) -> None
     script = (ROOT / "deploy" / "enoch_research_autopilot.py").read_text(encoding="utf-8")
     combined = service + script
     assert "Environment=ENOCH_ENABLE_RESEARCH_AUTOPILOT=0" in service
+    assert "EnvironmentFile=-/etc/enoch-control-plane/supabase.env" in service
+    assert "Environment=ENOCH_RESEARCH_QUALITY_REPORT_PATH=/var/lib/enoch-control-plane/research-quality/latest-report.json" in service
+    assert "Environment=ENOCH_RESEARCH_QUALITY_LIMIT=100" in service
     assert "ENOCH_ENABLE_RESEARCH_AUTOPILOT" in script
     assert "/control/api/research/run-cycle" in script
+    assert "scripts" in script and "dspy_research_quality.py" in script
+    assert "ENOCH_RESEARCH_QUALITY_REFRESH_ONLY" in script
     assert "max_provider_requests_per_run" in script
     assert "max_promotions_per_run" in script
     assert "max_dispatches_per_run" in script
