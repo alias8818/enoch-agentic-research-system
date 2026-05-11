@@ -20,8 +20,16 @@ def _utc_iso_from_mtime(path: Path) -> str:
 def _problem_severity(problem: str, item: dict[str, Any]) -> str:
     decision = str(item.get("decision") or "").strip()
     hypothesis_status = str(item.get("hypothesis_status") or "").strip()
-    if problem == "weak_or_missing_evidence_strength" and decision == "finalize_negative" and hypothesis_status in {"mixed", "unsupported"}:
-        return "warning"
+    if decision == "finalize_negative" and hypothesis_status in {"mixed", "unsupported"}:
+        if problem in {"weak_or_missing_evidence_strength", "supported_but_negative_requires_review"}:
+            return "warning"
+    if decision == "finalize_negative" and hypothesis_status == "supported" and problem == "supported_but_negative_requires_review":
+        followup_recommended = bool(item.get("followup_recommended"))
+        rationale = " ".join([str(item.get("stop_reason") or ""), str(item.get("recommended_next_action") or "")]).lower()
+        depth_capped = "follow-up depth" in rationale or "followup depth" in rationale or "depth 2" in rationale or "max follow" in rationale
+        proxy_limited = "proxy" in rationale or "synthetic" in rationale
+        if (not followup_recommended) and depth_capped and proxy_limited:
+            return "warning"
     if problem in {
         "missing_success_threshold",
         "missing_kill_condition",

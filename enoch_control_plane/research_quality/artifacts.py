@@ -46,6 +46,8 @@ def build_quality_report(
                 "hypothesis_status": row.hypothesis_status,
                 "evidence_strength": row.evidence_strength,
                 "followup_recommended": row.followup_recommended,
+                "recommended_next_action": row.recommended_next_action,
+                "stop_reason": row.stop_reason,
                 "decision_quality_score": score,
                 "problems": problems,
                 "created_at": row.created_at,

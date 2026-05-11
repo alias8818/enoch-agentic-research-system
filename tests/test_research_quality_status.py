@@ -42,6 +42,36 @@ def test_weak_evidence_on_negative_mixed_result_is_warning_not_blocked() -> None
     assert status["report_mtime"] == "2026-05-11T00:00:01Z"
 
 
+
+def test_supported_negative_depth_capped_proxy_result_is_warning() -> None:
+    report = _report_with_decision("supported_but_negative_requires_review", decision="finalize_negative", hypothesis_status="supported")
+    report["decision_scores"][0].update({
+        "followup_recommended": False,
+        "stop_reason": "Positive synthetic/proxy result only; not full validation and not sufficient for a paper decision.",
+        "recommended_next_action": "Stop at controller follow-up depth 2: proxy evidence is positive but not paper-ready.",
+    })
+
+    status = classify_quality_report(report)
+
+    assert status["ok"] is True
+    assert status["status"] == "warnings"
+    assert status["severity_counts"] == {"warning": 1}
+
+
+def test_supported_negative_without_depth_cap_rationale_is_blocked() -> None:
+    report = _report_with_decision("supported_but_negative_requires_review", decision="finalize_negative", hypothesis_status="supported")
+    report["decision_scores"][0].update({
+        "followup_recommended": False,
+        "stop_reason": "Partial support did not pass the paper gate.",
+        "recommended_next_action": "Stop without a follow-up.",
+    })
+
+    status = classify_quality_report(report)
+
+    assert status["ok"] is False
+    assert status["status"] == "blocked"
+
+
 def test_structural_decision_problem_is_blocked() -> None:
     status = classify_quality_report(_report_with_decision("unknown_decision", decision="unknown", hypothesis_status="unknown"))
 
