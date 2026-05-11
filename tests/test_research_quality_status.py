@@ -43,7 +43,7 @@ def test_weak_evidence_on_negative_mixed_result_is_warning_not_blocked() -> None
 
 
 
-def test_supported_negative_depth_capped_proxy_result_is_warning() -> None:
+def test_supported_negative_depth_capped_proxy_result_is_info_not_amber() -> None:
     report = _report_with_decision("supported_but_negative_requires_review", decision="finalize_negative", hypothesis_status="supported")
     report["decision_scores"][0].update({
         "followup_recommended": False,
@@ -54,8 +54,10 @@ def test_supported_negative_depth_capped_proxy_result_is_warning() -> None:
     status = classify_quality_report(report)
 
     assert status["ok"] is True
-    assert status["status"] == "warnings"
-    assert status["severity_counts"] == {"warning": 1}
+    assert status["status"] == "clean"
+    assert status["problem_counts"] == {}
+    assert status["raw_problem_counts"] == {"supported_but_negative_requires_review": 1}
+    assert status["severity_counts"] == {"info": 1}
 
 
 def test_supported_negative_without_depth_cap_rationale_is_blocked() -> None:

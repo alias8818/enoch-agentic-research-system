@@ -31,7 +31,7 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
         depth_capped = "follow-up depth" in rationale or "followup depth" in rationale or "depth 2" in rationale or "max follow" in rationale
         proxy_limited = "proxy" in rationale or "synthetic" in rationale
         if (not followup_recommended) and depth_capped and proxy_limited:
-            return "warning"
+            return "info"
     if problem in {
         "missing_success_threshold",
         "missing_kill_condition",
@@ -45,7 +45,8 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
 
 def classify_quality_report(report: dict[str, Any], *, report_path: str = "", report_mtime: str = "") -> dict[str, Any]:
     summary = report.get("summary") or {}
-    problem_counts = dict(summary.get("problem_counts") or {})
+    raw_problem_counts = dict(summary.get("problem_counts") or {})
+    actionable_problem_counts: Counter[str] = Counter()
     severity_counts: Counter[str] = Counter()
     problem_details: list[dict[str, Any]] = []
 
@@ -56,6 +57,8 @@ def classify_quality_report(report: dict[str, Any], *, report_path: str = "", re
             for problem in item.get("problems") or []:
                 severity = _problem_severity(str(problem), item)
                 severity_counts[severity] += 1
+                if severity in {"warning", "blocked"}:
+                    actionable_problem_counts[str(problem)] += 1
                 problem_details.append(
                     {
                         "section": section_name,
@@ -88,7 +91,8 @@ def classify_quality_report(report: dict[str, Any], *, report_path: str = "", re
         "schema_version": report.get("schema_version") or "",
         "decisions_checked": int(summary.get("decision_count") or 0),
         "candidates_checked": int(summary.get("candidate_count") or 0),
-        "problem_counts": problem_counts,
+        "problem_counts": dict(actionable_problem_counts),
+        "raw_problem_counts": raw_problem_counts,
         "severity_counts": dict(severity_counts),
         "problem_details": problem_details[:25],
     }
