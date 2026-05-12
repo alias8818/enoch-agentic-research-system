@@ -2000,6 +2000,48 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(alert["should_alert"])
             self.assertEqual(alert["findings"], [])
 
+    def test_queue_alert_check_suppresses_transient_worker_timeout_during_active_lane(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client_with_config(_live_config(tmp))
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "active-timeout-alert-import",
+                "queue_rows": [{
+                    "project_id": "idea-active-timeout",
+                    "project_name": "Active Timeout",
+                    "project_dir": "idea-active-timeout",
+                    "status": "awaiting_wake",
+                    "current_run_id": "run-active-timeout",
+                }],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="warn",
+                payload={
+                    "ok": False,
+                    "checks": [
+                        {
+                            "name": "worker_no_live_runs",
+                            "ok": False,
+                            "detail": "active_or_waiting=1, live=1",
+                            "data": {"active_or_waiting": 1, "live": 1},
+                        },
+                        {
+                            "name": "wake_gate_healthz",
+                            "ok": False,
+                            "detail": "wake gate health failed: URLError: <urlopen error timed out>",
+                            "data": {},
+                        },
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+            alert = client.post("/control/api/alerts/queue-check", headers=headers, json={"dry_run": True}).json()
+            self.assertFalse(alert["should_alert"])
+            self.assertEqual(alert["findings"], [])
+
     def test_queue_health_summarizes_active_lane_and_alerts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client_with_config(_live_config(tmp))

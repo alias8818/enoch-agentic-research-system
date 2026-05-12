@@ -44,30 +44,16 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
     flags = status.flags
     intentional_hold = flags.queue_paused or flags.maintenance_mode
     findings: list[DashboardFinding] = []
+    active_lane_findings: list[DashboardFinding] = []
 
     for item in status.conflicts:
         findings.append(item)
 
     if not intentional_hold and status.config.live_dispatch_enabled:
-        for item in status.warnings:
-            if item.source in {"worker_preflight", "worker_dashboard_api", "control_plane_db+worker_preflight"}:
-                findings.append(item)
-
-        for source, freshness in status.source_freshness.items():
-            if source in {"worker_preflight", "worker_dashboard_api"} and freshness.stale:
-                findings.append(DashboardFinding(
-                    severity="warn",
-                    source=source,
-                    authority=freshness.authority,
-                    message=f"{source} is stale or missing while live dispatch is enabled",
-                    observed_at=freshness.observed_at,
-                    suggested_action="refresh /control/api/preflight and verify GB10 worker health",
-                ))
-
         for row in status.active_items:
             stale_at = _parse_ts(row.get("stale_after"))
             if stale_at and datetime.now(timezone.utc) > stale_at:
-                findings.append(DashboardFinding(
+                active_lane_findings.append(DashboardFinding(
                     severity="warn",
                     source="control_plane_db",
                     authority="queue_items.stale_after",
@@ -79,7 +65,7 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
             elif not stale_at:
                 updated = _parse_ts(row.get("updated_at") or row.get("last_dispatch_at"))
                 if updated and datetime.now(timezone.utc) > updated + timedelta(seconds=hang_after_sec):
-                    findings.append(DashboardFinding(
+                    active_lane_findings.append(DashboardFinding(
                         severity="warn",
                         source="control_plane_db",
                         authority="queue_items.updated_at",
@@ -88,6 +74,34 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
                         suggested_action="inspect GB10 wake gate and active run detail",
                         data={"project_id": row.get("project_id"), "run_id": row.get("current_run_id")},
                     ))
+
+        active_lane_present = bool(status.active_items)
+        active_lane_unhealthy = bool(active_lane_findings)
+
+        for item in status.warnings:
+            if item.source in {"worker_preflight", "worker_dashboard_api", "control_plane_db+worker_preflight"}:
+                if (
+                    active_lane_present
+                    and not active_lane_unhealthy
+                    and item.source in {"worker_preflight", "worker_dashboard_api"}
+                ):
+                    continue
+                findings.append(item)
+
+        for source, freshness in status.source_freshness.items():
+            if source in {"worker_preflight", "worker_dashboard_api"} and freshness.stale:
+                if active_lane_present and not active_lane_unhealthy:
+                    continue
+                findings.append(DashboardFinding(
+                    severity="warn",
+                    source=source,
+                    authority=freshness.authority,
+                    message=f"{source} is stale or missing while live dispatch is enabled",
+                    observed_at=freshness.observed_at,
+                    suggested_action="refresh /control/api/preflight and verify GB10 worker health",
+                ))
+
+        findings.extend(active_lane_findings)
 
     deduped: dict[str, DashboardFinding] = {}
     for item in findings:
