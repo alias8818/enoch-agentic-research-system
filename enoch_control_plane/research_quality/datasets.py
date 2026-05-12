@@ -149,6 +149,7 @@ def has_substantive_negative_rationale(row: DecisionRow) -> bool:
         "paper gating",
         "paper gate",
         "considering publication",
+        "paper promotion",
     )
     evidence_limit_markers = (
         "proxy",
@@ -166,6 +167,9 @@ def has_substantive_negative_rationale(row: DecisionRow) -> bool:
         "end-to-end",
         "memory pressure",
         "concurrency",
+        "reconstructed",
+        "actual production trace",
+        "production-grade",
     )
     return any(marker in combined for marker in paper_negative_markers) and any(marker in combined for marker in evidence_limit_markers)
 

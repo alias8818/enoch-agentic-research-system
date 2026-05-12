@@ -28,8 +28,8 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
     if decision == "finalize_negative" and hypothesis_status == "supported" and problem == "supported_but_negative_requires_review":
         followup_recommended = bool(item.get("followup_recommended"))
         rationale = " ".join([str(item.get("stop_reason") or ""), str(item.get("recommended_next_action") or "")]).lower()
-        depth_capped = "follow-up depth" in rationale or "followup depth" in rationale or "depth 2" in rationale or "max follow" in rationale
-        proxy_limited = "proxy" in rationale or "synthetic" in rationale
+        depth_capped = any(marker in rationale for marker in ("follow-up depth", "followup depth", "depth 2", "depth-2", "depth 3", "depth-3", "depth 4", "depth-4", "max follow"))
+        proxy_limited = any(marker in rationale for marker in ("proxy", "synthetic", "reconstructed", "not on an actual", "actual production trace"))
         paper_limited = any(marker in rationale for marker in (
             "no-paper",
             "paper-positive",
@@ -42,6 +42,7 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
         "paper gating",
         "paper gate",
         "considering publication",
+        "paper promotion",
         ))
         scale_limited = any(marker in rationale for marker in (
             "proxy",
@@ -54,6 +55,9 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
         "end-to-end",
         "memory pressure",
         "concurrency",
+        "reconstructed",
+        "actual production trace",
+        "production-grade",
             "insufficient",
             "full validation",
             "full-scale",
