@@ -2708,8 +2708,9 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         counts = store.status_counts()
         blocked_count = int(counts.get("blocked") or 0)
         stop_reasons: list[str] = []
+        backpressure_reasons: list[str] = []
         if active:
-            stop_reasons.append("active worker lane already exists")
+            backpressure_reasons.append("active worker lane already exists")
         if blocked_count and bool(body.get("stop_if_dashboard_attention", True)):
             stop_reasons.append(f"{blocked_count} blocked item(s) need attention")
         if not dry_run and not enabled:
@@ -2735,7 +2736,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 "reserve_requests": max(1, int(body.get("reserve_requests") or 2)),
                 "failures": [f"provider budget check failed: {exc}"],
             }
-        if not budget.get("ok") and max_provider_requests:
+        if not budget.get("ok") and max_provider_requests and not backpressure_reasons:
             stop_reasons.append("; ".join(str(item) for item in budget.get("failures") or ["provider budget unavailable"]))
 
         def promotable_rows() -> list[dict[str, Any]]:
@@ -2806,6 +2807,27 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 store.append_event(
                     idempotency_key=f"research-cycle:{'dry' if dry_run else 'live'}:{requested_by}:{utc_now()}",
                     event_type="research.run_cycle.blocked",
+                    entity_type="research",
+                    entity_id="run-cycle",
+                    payload=jsonable_encoder(response),
+                )
+            return response
+        if backpressure_reasons:
+            response["ok"] = True
+            response["action"] = "dry_run_research_cycle_backpressure" if dry_run else "research_cycle_backpressure"
+            response["reason"] = "; ".join(backpressure_reasons)
+            response["backpressure"] = True
+            response["active_count"] = len(active)
+            response["stages"].append({
+                "stage": "backpressure",
+                "ok": True,
+                "reason": response["reason"],
+                "active_count": len(active),
+            })
+            if hasattr(store, "append_event"):
+                store.append_event(
+                    idempotency_key=f"research-cycle:backpressure:{'dry' if dry_run else 'live'}:{requested_by}:{utc_now()}",
+                    event_type="research.run_cycle.backpressure",
                     entity_type="research",
                     entity_id="run-cycle",
                     payload=jsonable_encoder(response),
