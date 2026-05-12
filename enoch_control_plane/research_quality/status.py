@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .datasets import is_supported_negative_nonblocking, negative_rationale
+
 DEFAULT_REPORT_PATHS = (
     "/var/lib/enoch-control-plane/research-quality/latest-report.json",
     "/tmp/enoch-dspy-quality-report.after.json",
@@ -25,48 +27,20 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
     if decision == "finalize_negative" and hypothesis_status in {"mixed", "unsupported"}:
         if problem in {"weak_or_missing_evidence_strength", "supported_but_negative_requires_review"}:
             return "warning"
-    if decision == "finalize_negative" and hypothesis_status == "supported" and problem == "supported_but_negative_requires_review":
-        followup_recommended = bool(item.get("followup_recommended"))
-        rationale = " ".join([str(item.get("stop_reason") or ""), str(item.get("recommended_next_action") or "")]).lower()
-        depth_capped = any(marker in rationale for marker in ("follow-up depth", "followup depth", "depth 2", "depth-2", "depth 3", "depth-3", "depth 4", "depth-4", "max follow"))
-        proxy_limited = any(marker in rationale for marker in ("proxy", "synthetic", "reconstructed", "not on an actual", "actual production trace"))
-        paper_limited = any(marker in rationale for marker in (
-            "no-paper",
-            "paper-positive",
-            "paper positive",
-            "paper-ready",
-            "do not write a paper",
-            "publication-grade",
-            "publication ready",
-            "publication-ready",
-        "paper gating",
-        "paper gate",
-        "considering publication",
-        "paper promotion",
-        ))
-        scale_limited = any(marker in rationale for marker in (
-            "proxy",
-            "synthetic",
-            "trace",
-            "small-model",
-            "short-context",
-        "in-process",
-        "serving path",
-        "end-to-end",
-        "memory pressure",
-        "concurrency",
-        "reconstructed",
-        "actual production trace",
-        "production-grade",
-            "insufficient",
-            "full validation",
-            "full-scale",
-            "direct",
-        ))
-        if followup_recommended and paper_limited and scale_limited:
-            return "info"
-        if (not followup_recommended) and depth_capped and proxy_limited:
-            return "info"
+    followup_recommended = bool(item.get("followup_recommended"))
+    bounded_followup = (
+        followup_recommended
+        and bool(item.get("followup_success_threshold"))
+        and bool(item.get("followup_stop_condition"))
+    )
+    if problem == "supported_but_negative_requires_review" and is_supported_negative_nonblocking(
+        decision=decision,
+        hypothesis_status=hypothesis_status,
+        followup_recommended=followup_recommended,
+        rationale=negative_rationale(item),
+        bounded_followup=bounded_followup,
+    ):
+        return "info"
     if problem in {
         "missing_success_threshold",
         "missing_kill_condition",

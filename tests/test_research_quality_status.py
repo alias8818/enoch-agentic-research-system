@@ -190,3 +190,20 @@ def test_supported_negative_depth4_reconstructed_trace_is_info() -> None:
     assert status["problem_counts"] == {}
     assert status["raw_problem_counts"] == {"supported_but_negative_requires_review": 1}
     assert status["severity_counts"] == {"info": 1}
+
+
+def test_supported_negative_depth4_real_streaming_limits_is_info() -> None:
+    report = _report_with_decision("supported_but_negative_requires_review", decision="finalize_negative", hypothesis_status="supported")
+    report["decision_scores"][0].update({
+        "followup_recommended": False,
+        "stop_reason": "Mechanism support was replicated on distilgpt2 and gpt2 with real past_key_values pruning, but validation remains limited to small GPT-2-family models, 768-token streams, and unoptimized Python cache mutation rather than long-context production serving.",
+        "recommended_next_action": "Stop this depth-4 follow-up: the bounded real-streaming evidence supports the mechanism but is not Tier-4 paper-ready, and controller lineage cap prevents recommending another deepen/retry follow-up.",
+    })
+
+    status = classify_quality_report(report)
+
+    assert status["ok"] is True
+    assert status["status"] == "clean"
+    assert status["problem_counts"] == {}
+    assert status["raw_problem_counts"] == {"supported_but_negative_requires_review": 1}
+    assert status["severity_counts"] == {"info": 1}

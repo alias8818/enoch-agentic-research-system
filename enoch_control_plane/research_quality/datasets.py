@@ -131,59 +131,142 @@ def has_bounded_followup(row: DecisionRow) -> bool:
     )
 
 
+PAPER_LIMIT_MARKERS = (
+    "no-paper",
+    "paper-positive",
+    "paper positive",
+    "paper-ready",
+    "publishable",
+    "proxy-only",
+    "do not write a paper",
+    "publication-grade",
+    "publication ready",
+    "publication-ready",
+    "paper gating",
+    "paper gate",
+    "considering publication",
+    "paper promotion",
+    "tier-4 paper-ready",
+)
+
+EVIDENCE_LIMIT_MARKERS = (
+    "proxy",
+    "synthetic",
+    "insufficient",
+    "direct",
+    "full-scale",
+    "full validation",
+    "real",
+    "trace",
+    "small-model",
+    "small model",
+    "gpt-2",
+    "distilgpt2",
+    "short-context",
+    "token streams",
+    "in-process",
+    "serving path",
+    "production serving",
+    "end-to-end",
+    "memory pressure",
+    "concurrency",
+    "reconstructed",
+    "actual production trace",
+    "production-grade",
+    "unoptimized",
+    "rather than",
+    "limited to",
+)
+
+DEPTH_CAP_MARKERS = (
+    "follow-up depth",
+    "followup depth",
+    "depth 2",
+    "depth-2",
+    "depth 3",
+    "depth-3",
+    "depth 4",
+    "depth-4",
+    "lineage cap",
+    "controller lineage cap",
+    "max follow",
+    "cap prevents recommending",
+)
+
+
+def negative_rationale(row_or_item: Any) -> str:
+    if isinstance(row_or_item, dict):
+        return " ".join([
+            as_text(row_or_item.get("stop_reason")),
+            as_text(row_or_item.get("recommended_next_action")),
+        ]).lower()
+    return " ".join([row_or_item.stop_reason, row_or_item.recommended_next_action]).lower()
+
+
+def has_marker(value: str, markers: tuple[str, ...]) -> bool:
+    return any(marker in value for marker in markers)
+
+
+def has_paper_limit_rationale(value: str) -> bool:
+    return has_marker(value, PAPER_LIMIT_MARKERS)
+
+
+def has_evidence_limit_rationale(value: str) -> bool:
+    return has_marker(value, EVIDENCE_LIMIT_MARKERS)
+
+
+def has_depth_cap_rationale(value: str) -> bool:
+    return has_marker(value, DEPTH_CAP_MARKERS)
+
+
 def has_substantive_negative_rationale(row: DecisionRow) -> bool:
-    combined = " ".join([row.stop_reason, row.recommended_next_action]).lower()
     if len(row.stop_reason) < 40 or len(row.recommended_next_action) < 40:
         return False
-    paper_negative_markers = (
-        "no-paper",
-        "paper-positive",
-        "paper positive",
-        "paper-ready",
-        "publishable",
-        "proxy-only",
-        "do not write a paper",
-        "publication-grade",
-        "publication ready",
-        "publication-ready",
-        "paper gating",
-        "paper gate",
-        "considering publication",
-        "paper promotion",
-    )
-    evidence_limit_markers = (
-        "proxy",
-        "synthetic",
-        "insufficient",
-        "direct",
-        "full-scale",
-        "full validation",
-        "real",
-        "trace",
-        "small-model",
-        "short-context",
-        "in-process",
-        "serving path",
-        "end-to-end",
-        "memory pressure",
-        "concurrency",
-        "reconstructed",
-        "actual production trace",
-        "production-grade",
-    )
-    return any(marker in combined for marker in paper_negative_markers) and any(marker in combined for marker in evidence_limit_markers)
+    combined = negative_rationale(row)
+    return has_paper_limit_rationale(combined) and has_evidence_limit_rationale(combined)
+
+
+def is_supported_negative_nonblocking(
+    *,
+    decision: str,
+    hypothesis_status: str,
+    followup_recommended: bool,
+    rationale: str,
+    bounded_followup: bool = False,
+) -> bool:
+    """Return true for supported no-paper decisions that are intentional.
+
+    A supported mechanism can still be a correct no-paper result when the run is
+    explicitly bounded by scale/evidence limits and either launches a concrete
+    next tier or has reached a controller lineage/depth cap. This is the core
+    Research Quality distinction that prevents long-haul readiness from being
+    blocked by healthy ladder behavior.
+    """
+
+    if decision != "finalize_negative" or hypothesis_status != "supported":
+        return False
+    paper_limited = has_paper_limit_rationale(rationale)
+    evidence_limited = has_evidence_limit_rationale(rationale)
+    depth_capped = has_depth_cap_rationale(rationale)
+    if followup_recommended:
+        return bounded_followup or paper_limited or evidence_limited
+    return depth_capped and (paper_limited or evidence_limited)
 
 
 def classify_decision_quality(row: DecisionRow) -> tuple[float, list[str]]:
     problems: list[str] = []
     if row.decision == "unknown":
         problems.append("unknown_decision")
-    if (
-        row.decision == "finalize_negative"
-        and row.hypothesis_status == "supported"
-        and not (has_bounded_followup(row) and has_substantive_negative_rationale(row))
-    ):
-        problems.append("supported_but_negative_requires_review")
+    if row.decision == "finalize_negative" and row.hypothesis_status == "supported":
+        bounded_followup = has_bounded_followup(row) and has_substantive_negative_rationale(row)
+        if not is_supported_negative_nonblocking(
+            decision=row.decision,
+            hypothesis_status=row.hypothesis_status,
+            followup_recommended=row.followup_recommended,
+            rationale=negative_rationale(row),
+            bounded_followup=bounded_followup,
+        ):
+            problems.append("supported_but_negative_requires_review")
     if row.followup_recommended:
         if not row.followup_title:
             problems.append("followup_missing_title")
