@@ -156,3 +156,20 @@ def test_supported_negative_with_bounded_followup_and_scale_limits_is_info() -> 
     assert status["problem_counts"] == {}
     assert status["raw_problem_counts"] == {"supported_but_negative_requires_review": 1}
     assert status["severity_counts"] == {"info": 1}
+
+
+def test_supported_negative_with_serving_path_followup_is_info() -> None:
+    report = _report_with_decision("supported_but_negative_requires_review", decision="finalize_negative", hypothesis_status="supported")
+    report["decision_scores"][0].update({
+        "followup_recommended": True,
+        "stop_reason": "Direct real-trace latency evidence supports the mechanism, but this run measures in-process count retrieval rather than a full production serving path with concurrency, update costs, memory pressure, and result materialization.",
+        "recommended_next_action": "Stop paper gating for this run; treat the result as Tier 2 mechanism support and run one bounded end-to-end serving validation before considering publication.",
+    })
+
+    status = classify_quality_report(report)
+
+    assert status["ok"] is True
+    assert status["status"] == "clean"
+    assert status["problem_counts"] == {}
+    assert status["raw_problem_counts"] == {"supported_but_negative_requires_review": 1}
+    assert status["severity_counts"] == {"info": 1}

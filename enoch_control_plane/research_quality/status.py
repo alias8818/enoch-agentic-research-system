@@ -39,6 +39,9 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
             "publication-grade",
             "publication ready",
             "publication-ready",
+        "paper gating",
+        "paper gate",
+        "considering publication",
         ))
         scale_limited = any(marker in rationale for marker in (
             "proxy",
@@ -46,6 +49,11 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
             "trace",
             "small-model",
             "short-context",
+        "in-process",
+        "serving path",
+        "end-to-end",
+        "memory pressure",
+        "concurrency",
             "insufficient",
             "full validation",
             "full-scale",
