@@ -586,6 +586,40 @@ def _compact_worker_preflight_payload(payload: dict[str, Any]) -> dict[str, Any]
     return compact
 
 
+
+
+def _dictish(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _project_escalation_prompt(candidate: dict[str, Any]) -> str:
+    source = _dictish(candidate.get("idea_source_payload_json") or candidate.get("source_payload_json"))
+    tier = source.get("research_ladder_tier")
+    label = str(source.get("research_ladder_label") or "").strip()
+    budget = str(source.get("research_ladder_budget_hint") or "").strip()
+    promising = source.get("promising_escalation") is True
+    guidance = source.get("worker_prompt_guidance") if isinstance(source.get("worker_prompt_guidance"), list) else []
+    if tier is None and not label and not guidance:
+        return ""
+    lines = ["", "## Controller escalation ladder"]
+    if label:
+        lines.append(f"Validation tier: {label}")
+    elif tier is not None:
+        lines.append(f"Validation tier: {tier}")
+    if budget:
+        lines.append(f"Budget hint: {budget}")
+    lines.append(f"Promising escalation: {'yes' if promising else 'no'}")
+    lines.append("Instructions:")
+    for item in guidance:
+        text = str(item).strip()
+        if text:
+            lines.append(f"- {text}")
+    if not guidance:
+        lines.append("- Preserve the strict paper gate and match validation scale to the claim.")
+    return "\n".join(lines) + "\n"
+
 def _project_prompt(candidate: dict) -> str:
     title = str(candidate.get("project_name") or candidate.get("project_id") or "Untitled Project")
     return f"""# Enoch Research Action: {title}
@@ -597,7 +631,7 @@ Source/provenance URL: {candidate.get('notion_page_url') or ''}
 Origin status: {candidate.get('origin_idea_status') or ''}
 Controller source kind: {candidate.get('idea_source_kind') or ''}
 Controller follow-up depth: {candidate.get('source_followup_depth') if candidate.get('source_followup_depth') is not None else candidate.get('followup_depth', 0)}
-
+{_project_escalation_prompt(candidate)}
 ## Mission
 Turn this idea into a concrete, evidence-backed research result. Work autonomously inside the project directory. Prefer install/build/run/verify over blocking on missing ordinary dependencies. If the idea is not viable, produce a clear negative result with evidence.
 

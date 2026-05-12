@@ -70,7 +70,7 @@ def test_provider_response_becomes_research_candidate_with_source_record() -> No
     row = candidates[0]
     assert row["provider"] == "synthetic.new"
     assert row["provider_model"] == "hf:zai-org/GLM-5.1"
-    assert row["prompt_version"] == "research_provider_generate_v1"
+    assert row["prompt_version"] == "research_provider_generate_v2"
     assert row["source_records"][0]["source_kind"] == "internal_generated"
     assert row["source_ids"]
     assert row["source_urls"][0].startswith("enoch://research-facility/provider/")
@@ -135,7 +135,11 @@ def test_provider_generate_calls_openai_compatible_endpoint_without_local_auth_w
     assert payload["temperature"] == 0.7
     assert payload["max_tokens"] == research_provider_generate.DEFAULT_MAX_TOKENS
     assert payload["response_format"] == {"type": "json_object"}
-    assert "Never return an empty candidates array" in payload["messages"][1]["content"]
+    prompt = payload["messages"][1]["content"]
+    assert "Never return an empty candidates array" in prompt
+    assert "GPT-2-small-class model architecture tests" in prompt
+    assert "Tier 2 medium confirmation" in prompt
+    assert "Pure simulations" in prompt
 
 
 def test_provider_generate_retries_malformed_json_before_succeeding() -> None:

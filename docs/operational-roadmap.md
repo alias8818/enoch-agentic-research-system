@@ -239,5 +239,6 @@ Policy direction:
 4. For model-training ideas, prefer GPT-2-small-class or parameter-matched baselines when feasible; a toy result should compare against a dense/standard model at the same parameter scale.
 5. Use follow-up branches for promising proxy/medium results; do not write papers from proxy-only positives.
 6. Keep hard negatives cheap, but do not collapse every promising result into a no-paper terminal state just because it is not publication-ready yet.
-7. Use `scripts/audit_research_dedupe_loss.py` to review held/rejected near-duplicates before assuming dedupe was harmless. The audit ranks `duplicate_suppress`, `variant_hold`, and `branch_candidate` rows against prior decisions.
-8. Later: add semantic clustering over prior good/bad runs so new idea generation can learn which mechanisms repeatedly fail and what changed evidence would justify another branch.
+7. Encode promising follow-ups as stronger ladder steps, not repeat tiny probes: mixed/supported `finalize_negative` results with moderate evidence, concrete evidence requirements, and follow-up depth below 3 should move to direct medium/full validation metadata while keeping the paper gate strict.
+8. Use `scripts/audit_research_dedupe_loss.py` to review held/rejected near-duplicates before assuming dedupe was harmless. The audit ranks `duplicate_suppress`, `variant_hold`, and `branch_candidate` rows against prior decisions.
+9. Later: add semantic clustering over prior good/bad runs so new idea generation can learn which mechanisms repeatedly fail and what changed evidence would justify another branch.

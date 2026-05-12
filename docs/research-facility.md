@@ -157,6 +157,28 @@ The dashboard follows the same split:
 - Provider generation and candidate promotion never dispatch worker execution. The bounded-cycle action can dispatch exactly one item only when its dispatch option is explicitly enabled for that call.
 - The systemd autopilot is a repeating bounded tick, not a broad queue drain. Each completed tick also refreshes the read-only Research Quality report at `/var/lib/enoch-control-plane/research-quality/latest-report.json` when a database URL is available; that refresh is fail-soft and does not enqueue, dispatch, draft, or mutate database state. In the current `enoch-core` deployment, `systemctl list-timers enoch-research-autopilot.timer` showed a roughly ten-minute cadence on 2026-05-10; re-check the timer before reporting live cadence because systemd overrides can differ from the checked-in unit.
 
+## Generation and follow-up policy
+
+The provider prompt now biases candidates toward experiments that can produce direct evidence on local hardware:
+
+- GPT-2-small-class or parameter-matched architecture tests;
+- tiny pretraining/data-selection experiments with bounded seeds;
+- decoding/speculative-decoding work with exact no-speculation and n-gram/suffix baselines;
+- KV/cache work with measured memory, latency, throughput, and quality;
+- agent reliability/evidence-ledger tests with direct artifacts and counterexamples.
+
+It explicitly rejects ideas that only work as unavailable cloud/service plans, private-dataset requirements, or pure simulations of systems the worker cannot actually exercise.
+
+Follow-up launch preserves the strict paper gate. A no-paper result can still earn a stronger next run when it is `finalize_negative` with mixed/supported mechanism evidence, at least moderate evidence strength, concrete follow-up evidence requirements, and depth below 3. Those runs receive controller source metadata with a validation ladder target:
+
+1. Tier 0: smoke/proxy falsification.
+2. Tier 1: controlled small direct test.
+3. Tier 2: medium confirmation with fixed seeds, ablations, and a real baseline.
+4. Tier 3: bounded full validation, normally capped around 24 hours.
+5. Tier 4: paper-readiness replication and robustness.
+
+The worker prompt tells the agent not to close promising follow-ups on another tiny proxy unless that proxy directly falsifies the stated threshold. Proxy-only positives still remain no-paper until a later run independently satisfies publication-grade evidence.
+
 The provider-backed endpoint is:
 
 ```text

@@ -1771,6 +1771,11 @@ class ControlPlaneStore:
             if _bool(row.get("followup_recommended"))
             and _text(row.get("status")) == QueueStatus.COMPLETED.value
             and not _bool(row.get("manual_review_required"))
+            and _text(row.get("followup_title"))
+            and _text(row.get("followup_hypothesis"))
+            and len(row.get("followup_required_evidence") or []) >= 2
+            and _text(row.get("followup_success_threshold"))
+            and _text(row.get("followup_stop_condition"))
             and _int(row.get("followup_depth"), 0) < max_followup_depth
             and not _bool(row.get("followup_launched"))
             and (not project_id or _text(row.get("project_id")) == project_id)

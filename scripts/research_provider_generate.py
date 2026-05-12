@@ -23,7 +23,7 @@ from scripts import research_facility_scan
 DEFAULT_OPENAI_BASE_URL = "https://api.synthetic.new/openai/v1"
 DEFAULT_MODEL = "hf:zai-org/GLM-5.1"
 DEFAULT_MAX_TOKENS = 8000
-PROMPT_VERSION = "research_provider_generate_v1"
+PROMPT_VERSION = "research_provider_generate_v2"
 
 TOPIC_SPREAD = [
     "long-context SSM/Mamba memory for tiny local systems",
@@ -90,6 +90,24 @@ estimated_runtime_class must be one of: small, medium, large, overnight.
 expected_token_budget must be one of: small, medium, large.
 
 Avoid fake citations. Avoid tiny hyperparameter or +0.05% ideas.
+
+Preferred experiment shapes:
+- GPT-2-small-class model architecture tests with parameter-matched dense baselines.
+- Tiny pretraining or data-selection experiments that can run bounded seeds locally.
+- Decoding/speculative-decoding work with exact no-speculation and n-gram/suffix baselines.
+- KV/cache work with measurable memory, latency, throughput, and quality metrics.
+- Agent reliability/evidence-ledger tests that leave direct artifacts and counterexamples.
+
+Avoid proposing:
+- Huge distributed-training systems unless the first proof is a real local toy run.
+- Ideas that require unavailable private datasets, cloud services, or external operators.
+- Pure simulations of systems that cannot be exercised on this hardware.
+- Another tiny proxy for a mechanism that already earned mixed/supported evidence; escalate to direct medium evidence instead.
+
+Validation ladder to encode in the implementation:
+Tier 0 smoke/proxy falsification -> Tier 1 controlled small direct test ->
+Tier 2 medium confirmation with fixed seeds, ablations, and real baseline ->
+Tier 3 bounded full validation up to roughly 24h -> Tier 4 replication/robustness.
 
 Additional Research Quality policy:
 Research Quality feedback from recent Enoch traces:

@@ -111,6 +111,103 @@ def _enforced_followup_depth(decision_payload: dict[str, Any], *lineage_payloads
     return max([_followup_depth_from_payload(decision_payload), *[_followup_depth_from_payload(payload) for payload in lineage_payloads]])
 
 
+
+
+_RESEARCH_LADDER_TIERS: dict[int, tuple[str, str, str]] = {
+    0: ("Tier 0", "smoke/proxy falsification", "small"),
+    1: ("Tier 1", "controlled small direct test", "medium"),
+    2: ("Tier 2", "medium confirmation with fixed seeds, ablations, and a real baseline", "large"),
+    3: ("Tier 3", "bounded full validation up to roughly 24 hours", "large"),
+    4: ("Tier 4", "paper-readiness replication and robustness", "large"),
+}
+
+
+def _jsonish_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _jsonish_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return []
+
+
+def _project_decision_payload_from_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+    payload = _jsonish_dict(candidate.get("decision_payload_json"))
+    nested = payload.get("project_decision")
+    if isinstance(nested, dict):
+        return nested
+    return payload
+
+
+def _followup_required_evidence_items(candidate: dict[str, Any]) -> list[Any]:
+    return _jsonish_list(candidate.get("followup_required_evidence"))
+
+
+def _has_concrete_followup(candidate: dict[str, Any]) -> bool:
+    return (
+        bool(_text(candidate.get("followup_title")))
+        and bool(_text(candidate.get("followup_hypothesis")))
+        and len(_followup_required_evidence_items(candidate)) >= 2
+        and bool(_text(candidate.get("followup_success_threshold")))
+        and bool(_text(candidate.get("followup_stop_condition")))
+    )
+
+
+def _followup_escalation_payload(candidate: dict[str, Any], next_depth: int) -> dict[str, Any]:
+    decision = _project_decision_payload_from_candidate(candidate)
+    hypothesis_status = _text(decision.get("hypothesis_status")).lower()
+    evidence_strength = _text(decision.get("evidence_strength")).lower()
+    project_decision = _text(decision.get("project_decision") or decision.get("decision")).lower()
+    concrete = _has_concrete_followup(candidate)
+    promising = (
+        project_decision == "finalize_negative"
+        and hypothesis_status in {"mixed", "supported"}
+        and evidence_strength in {"moderate", "strong"}
+        and concrete
+        and next_depth <= 3
+    )
+    if promising:
+        tier = max(1, min(3, next_depth))
+    else:
+        tier = max(0, min(4, next_depth))
+    tier_name, tier_label, budget = _RESEARCH_LADDER_TIERS[tier]
+    guidance = [
+        f"Minimum validation target: {tier_name} - {tier_label}.",
+        "Do not close this follow-up on another tiny proxy unless it directly falsifies the stated threshold.",
+        "Keep the paper gate strict: mechanism support is not publication readiness.",
+    ]
+    if tier >= 2:
+        guidance.append("Use direct target metrics, fixed seeds where relevant, an ablation/control, and a real baseline.")
+    if tier >= 3:
+        guidance.append("A bounded full validation may spend up to roughly 24 hours if the medium signal still holds.")
+    return {
+        "research_ladder_tier": tier,
+        "research_ladder_label": f"{tier_name}: {tier_label}",
+        "research_ladder_budget_hint": budget,
+        "promising_escalation": promising,
+        "escalation_reason": (
+            "mixed/supported moderate no-paper result with concrete follow-up evidence"
+            if promising
+            else "standard bounded follow-up; preserve strict paper gate"
+        ),
+        "worker_prompt_guidance": guidance,
+    }
+
 def _decision_summary(gate: dict[str, Any]) -> str:
     reason = _text(gate.get("reason"))
     decision = _text(gate.get("decision"))
@@ -451,6 +548,14 @@ class SupabaseReadOnlyControlPlaneStore:
                 order by d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as decision_summary,
+              (
+                select d.payload_json
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as decision_payload_json,
               (
                 select d.followup_recommended
                 from project_decisions d
@@ -2986,6 +3091,11 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "q.status = %s",
             "q.manual_review_required = false",
             "coalesce(pe.followup_recommended, false) = true",
+            "coalesce(pe.followup_title, '') <> ''",
+            "coalesce(pe.followup_hypothesis, '') <> ''",
+            "jsonb_array_length(coalesce(pe.followup_required_evidence, '[]'::jsonb)) >= 2",
+            "coalesce(pe.followup_success_threshold, '') <> ''",
+            "coalesce(pe.followup_stop_condition, '') <> ''",
             "greatest(coalesce(pe.followup_depth, 0), case when coalesce(i.source_payload_json->>'followup_depth', '') ~ '^[0-9]+$' then (i.source_payload_json->>'followup_depth')::integer when coalesce(i.source_payload_json->>'parent_followup_depth', '') ~ '^[0-9]+$' then (i.source_payload_json->>'parent_followup_depth')::integer else 0 end) < %s",
             "not coalesce(pe.has_live_paper_row, false)",
             "not exists (select 1 from control_events ev where ev.event_type = 'followup.launch' and ev.entity_type = 'project' and ev.entity_id = q.project_id)",
@@ -3020,9 +3130,10 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "followup_depth": depth,
             "followup_type": _text(candidate.get("followup_type")),
             "followup_hypothesis": hypothesis,
-            "followup_required_evidence": candidate.get("followup_required_evidence") or [],
+            "followup_required_evidence": _followup_required_evidence_items(candidate),
             "followup_success_threshold": _text(candidate.get("followup_success_threshold")),
             "followup_stop_condition": _text(candidate.get("followup_stop_condition")),
+            **_followup_escalation_payload(candidate, depth),
         }
         if dry_run:
             return {"ok": True, "action": "dry_run_followup", "reason": "follow-up candidate selected; no row inserted", "candidate": candidate, "followup": followup_payload}
