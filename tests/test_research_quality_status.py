@@ -139,3 +139,20 @@ def test_missing_quality_report_blocks_readiness() -> None:
     assert status["ok"] is False
     assert status["status"] == "blocked"
     assert status["problem_counts"] == {"missing_quality_report": 1}
+
+
+def test_supported_negative_with_bounded_followup_and_scale_limits_is_info() -> None:
+    report = _report_with_decision("supported_but_negative_requires_review", decision="finalize_negative", hypothesis_status="supported")
+    report["decision_scores"][0].update({
+        "followup_recommended": True,
+        "stop_reason": "Tier 1 real-model KV trace supports the mechanism, but it is small-model, short-context, trace-only, and not publication-grade full validation.",
+        "recommended_next_action": "Do not write a paper; deepen with a bounded direct test using longer contexts and real memory/latency metrics.",
+    })
+
+    status = classify_quality_report(report)
+
+    assert status["ok"] is True
+    assert status["status"] == "clean"
+    assert status["problem_counts"] == {}
+    assert status["raw_problem_counts"] == {"supported_but_negative_requires_review": 1}
+    assert status["severity_counts"] == {"info": 1}

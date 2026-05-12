@@ -30,6 +30,29 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
         rationale = " ".join([str(item.get("stop_reason") or ""), str(item.get("recommended_next_action") or "")]).lower()
         depth_capped = "follow-up depth" in rationale or "followup depth" in rationale or "depth 2" in rationale or "max follow" in rationale
         proxy_limited = "proxy" in rationale or "synthetic" in rationale
+        paper_limited = any(marker in rationale for marker in (
+            "no-paper",
+            "paper-positive",
+            "paper positive",
+            "paper-ready",
+            "do not write a paper",
+            "publication-grade",
+            "publication ready",
+            "publication-ready",
+        ))
+        scale_limited = any(marker in rationale for marker in (
+            "proxy",
+            "synthetic",
+            "trace",
+            "small-model",
+            "short-context",
+            "insufficient",
+            "full validation",
+            "full-scale",
+            "direct",
+        ))
+        if followup_recommended and paper_limited and scale_limited:
+            return "info"
         if (not followup_recommended) and depth_capped and proxy_limited:
             return "info"
     if problem in {

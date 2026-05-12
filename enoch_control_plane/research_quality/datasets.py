@@ -135,8 +135,30 @@ def has_substantive_negative_rationale(row: DecisionRow) -> bool:
     combined = " ".join([row.stop_reason, row.recommended_next_action]).lower()
     if len(row.stop_reason) < 40 or len(row.recommended_next_action) < 40:
         return False
-    paper_negative_markers = ("no-paper", "paper-positive", "paper positive", "paper-ready", "publishable", "proxy-only")
-    evidence_limit_markers = ("proxy", "synthetic", "insufficient", "direct", "full-scale", "real")
+    paper_negative_markers = (
+        "no-paper",
+        "paper-positive",
+        "paper positive",
+        "paper-ready",
+        "publishable",
+        "proxy-only",
+        "do not write a paper",
+        "publication-grade",
+        "publication ready",
+        "publication-ready",
+    )
+    evidence_limit_markers = (
+        "proxy",
+        "synthetic",
+        "insufficient",
+        "direct",
+        "full-scale",
+        "full validation",
+        "real",
+        "trace",
+        "small-model",
+        "short-context",
+    )
     return any(marker in combined for marker in paper_negative_markers) and any(marker in combined for marker in evidence_limit_markers)
 
 
