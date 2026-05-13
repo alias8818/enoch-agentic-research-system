@@ -50,8 +50,12 @@ def test_transition_map_matches_decision_gate_operator_invariants() -> None:
             **base,
             "decision_gate_state": "negative",
             "followup_recommended": True,
+            "followup_type": "deepen",
             "followup_title": "Adjacent bounded test",
             "followup_hypothesis": "A narrower condition could still work.",
+            "followup_required_evidence": ["baseline", "metrics"],
+            "followup_success_threshold": "beat baseline",
+            "followup_stop_condition": "stop on miss",
         }
     )
     assert followup["operator_stage"] == "followup_investigation"
@@ -63,18 +67,26 @@ def test_transition_map_matches_decision_gate_operator_invariants() -> None:
         **base,
         "decision_gate_state": "negative",
         "followup_recommended": True,
+        "followup_type": "deepen",
         "followup_title": "Adjacent bounded test",
         "followup_hypothesis": "A narrower condition could still work.",
+        "followup_required_evidence": ["baseline", "metrics"],
+        "followup_success_threshold": "beat baseline",
+        "followup_stop_condition": "stop on miss",
     }
     launched_followup = operator_stage_for_record({**followup_row, "followup_launched": True})
     assert launched_followup["operator_stage"] == "complete_no_paper"
     assert launched_followup["operator_detail_stage"] == "run_complete_no_paper"
 
-    capped_followup = operator_stage_for_record({**followup_row, "followup_depth": 2})
+    unbounded_followup = operator_stage_for_record({**followup_row, "followup_required_evidence": ["baseline"]})
+    assert unbounded_followup["operator_stage"] == "complete_no_paper"
+    assert unbounded_followup["operator_detail_stage"] == "run_complete_no_paper"
+
+    capped_followup = operator_stage_for_record({**followup_row, "followup_depth": 4})
     assert capped_followup["operator_stage"] == "complete_no_paper"
     assert capped_followup["operator_detail_stage"] == "run_complete_no_paper"
 
-    source_capped_followup = operator_stage_for_record({**followup_row, "followup_depth": 1, "source_followup_depth": 2})
+    source_capped_followup = operator_stage_for_record({**followup_row, "followup_depth": 1, "source_followup_depth": 4})
     assert source_capped_followup["operator_stage"] == "complete_no_paper"
     assert source_capped_followup["operator_detail_stage"] == "run_complete_no_paper"
 

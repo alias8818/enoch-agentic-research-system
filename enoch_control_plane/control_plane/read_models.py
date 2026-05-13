@@ -25,6 +25,8 @@ READY_REVIEW_STATUSES = PUBLICATION_READY_AUTOMATION_STATUSES
 # Queue blockers/questions still require operator attention; publication drafts should
 # flow through rewrite/finalization automatically unless explicitly rejected.
 ATTENTION_REVIEW_STATUSES: set[str] = set()
+MAX_FOLLOWUP_DEPTH = 4
+MIN_FOLLOWUP_REQUIRED_EVIDENCE = 2
 
 OPERATOR_LANE_LABELS: dict[str, str] = {
     OperatorLane.RUNNING.value: "Running",
@@ -204,12 +206,19 @@ def _is_followup_candidate(row: dict[str, Any]) -> bool:
         depth = max(int(row.get("followup_depth") or 0), int(row.get("source_followup_depth") or 0))
     except (TypeError, ValueError):
         depth = 0
+    required_evidence = _listish(row.get("followup_required_evidence"))
     return (
         _truthy(row.get("followup_recommended"))
         and _text(row.get("status") or row.get("queue_status")) == "completed"
         and not _truthy(row.get("manual_review_required"))
         and not _truthy(row.get("followup_launched"))
-        and depth < 2
+        and depth < MAX_FOLLOWUP_DEPTH
+        and _text(row.get("followup_type")) in {"deepen", "branch", "retry"}
+        and _text(row.get("followup_title"))
+        and _text(row.get("followup_hypothesis"))
+        and len(required_evidence) >= MIN_FOLLOWUP_REQUIRED_EVIDENCE
+        and _text(row.get("followup_success_threshold"))
+        and _text(row.get("followup_stop_condition"))
     )
 
 
@@ -733,7 +742,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
     publication_ready_total = operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0) + operator_counts.get(OperatorLane.PUBLISHED.value, 0)
     investigation_pipeline = {
         "followup_needed": len(followup_rows),
-        "max_followup_depth": 4,
+        "max_followup_depth": MAX_FOLLOWUP_DEPTH,
         "next_followup_candidate": followup_rows[0] if followup_rows else None,
         "definitions": {
             "followup_needed": "completed no-paper rows whose decision artifact recommends a bounded adjacent investigation",
