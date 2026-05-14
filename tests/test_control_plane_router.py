@@ -946,6 +946,139 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(fake_store.events[0]["event_type"], "research.run_cycle.live")
         self.assertEqual(generate.call_args.kwargs["attempts"], 2)
 
+    def test_research_facility_run_cycle_prioritizes_followup_before_fresh_generation(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.events = []
+                self.observations = []
+                self.queue = {
+                    "followup-idea": {
+                        "project_id": "followup-idea",
+                        "project_name": "Follow-up Idea",
+                        "project_dir": "followup-idea",
+                        "status": "queued",
+                        "model": "gpt-5.5",
+                        "sandbox": "danger-full-access",
+                    }
+                }
+
+            def active_items(self) -> list[dict[str, str]]:
+                return []
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 0, "active": 0}
+
+            def flags(self):
+                return SimpleNamespace(queue_paused=False, maintenance_mode=False)
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                return [{"candidate_id": "fresh-candidate", "admission_decision": "admitted", "admitted_idea_id": "", "total_score": "99.00"}]
+
+            def next_followup_candidate(self, *, max_followup_depth: int = 4, project_id: str = "") -> dict[str, str]:
+                return {"project_id": "parent-idea", "followup_title": "Bounded branch"}
+
+            def launch_followup_candidate(self, *, dry_run: bool = True, requested_by: str = "operator", max_followup_depth: int = 4, project_id: str = "") -> dict[str, object]:
+                return {
+                    "ok": True,
+                    "action": "followup_queued",
+                    "reason": "bounded follow-up queued",
+                    "candidate": {"project_id": "parent-idea"},
+                    "followup": {"idea_id": "followup-idea", "title": "Bounded branch"},
+                }
+
+            def record_research_facility_plans(self, *_args, **_kwargs):  # pragma: no cover - follow-up should skip provider generation
+                raise AssertionError("branch-first cycle should not write fresh provider candidates")
+
+            def promote_research_candidate(self, *_args, **_kwargs):  # pragma: no cover - follow-up should skip fresh promotion
+                raise AssertionError("branch-first cycle should not promote fresh candidates")
+
+            def queue_row(self, project_id: str):
+                return self.queue.get(project_id)
+
+            def claim_dispatch_candidate(self, *, project_id: str, run_id: str, requested_by: str):
+                claimed = dict(self.queue[project_id])
+                claimed.update({"status": "dispatching", "current_run_id": run_id})
+                self.queue[project_id] = claimed
+                return claimed
+
+            def release_dispatch_claim(self, *, project_id: str, run_id: str, reason: str):  # pragma: no cover - happy path
+                self.queue[project_id]["status"] = "queued"
+                return True
+
+            def update_project_dir(self, project_id: str, project_dir: str) -> None:
+                self.queue[project_id]["project_dir"] = project_dir
+
+            def mark_dispatch_started(self, *, project_id: str, run_id: str, session_id: str, dispatch_payload: dict, requested_by: str):
+                self.queue[project_id].update({"status": "awaiting_wake", "current_run_id": run_id, "current_session_id": session_id})
+                return 11, self.queue[project_id]
+
+            def upsert_dashboard_observation(self, **kwargs):
+                self.observations.append(kwargs)
+
+            def append_event(self, **kwargs):
+                self.events.append(kwargs)
+                return len(self.events), True
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+            live_dispatch_enabled=True,
+            worker_wake_gate_bearer_token="worker-token",
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        ok_preflight = WorkerPreflightResponse(
+            ok=True,
+            target="http://worker.invalid",
+            summary="ok",
+            checks=[WorkerPreflightCheck(name="worker_no_live_runs", ok=True, detail="no live worker runs")],
+        )
+        ok_http = HttpResult(ok=True, status=200, body={"dispatch": {"session_id": "session-1"}}, error="")
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+             patch("scripts.research_provider_generate.generate_provider_candidates") as generate, \
+             patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=ok_preflight), \
+             patch("enoch_control_plane.control_plane.router.post_worker_json", return_value=ok_http):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={
+                    "dry_run": False,
+                    "enabled": True,
+                    "max_provider_requests_per_run": 1,
+                    "max_promotions_per_run": 1,
+                    "max_dispatches_per_run": 1,
+                    "max_paper_drafts_per_run": 0,
+                    "requested_by": "pytest",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertTrue(body["fresh_generation_skipped"])
+        self.assertEqual(body["followup_launch"]["action"], "followup_queued")
+        self.assertEqual(body["generated_count"], 0)
+        self.assertEqual(body["promoted_count"], 0)
+        self.assertEqual(body["queued_count"], 1)
+        self.assertEqual(body["dispatched_count"], 1)
+        self.assertTrue(body["dispatch_started"])
+        self.assertEqual(body["dispatch"]["candidate"]["project_id"], "followup-idea")
+        self.assertIn("follow-up branch took priority", body["reason"])
+        generate.assert_not_called()
+        self.assertEqual(fake_store.events[-1]["event_type"], "research.run_cycle.live")
+
     def test_research_facility_run_cycle_provider_failure_still_promotes_existing_candidate(self) -> None:
         class FakeSupabaseStore:
             def __init__(self) -> None:

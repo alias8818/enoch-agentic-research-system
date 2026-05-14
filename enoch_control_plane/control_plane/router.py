@@ -2747,7 +2747,27 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 and not str(row.get("admitted_idea_id") or "").strip()
                 and float(row.get("total_score") or 0) >= min_admission_score
             ]
-            return sorted(candidates, key=lambda r: float(r.get("total_score") or 0), reverse=True)
+            now_dt = datetime.now(timezone.utc)
+
+            def candidate_priority(row: dict[str, Any]) -> tuple[float, float, str]:
+                score = float(row.get("total_score") or 0)
+                created_raw = str(row.get("created_at") or row.get("updated_at") or "").strip()
+                age_days = 0.0
+                if created_raw:
+                    try:
+                        created = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+                        if created.tzinfo is None:
+                            created = created.replace(tzinfo=timezone.utc)
+                        age_days = max(0.0, (now_dt - created).total_seconds() / 86400.0)
+                    except ValueError:
+                        age_days = 0.0
+                # Small aging pressure prevents older admitted ideas from being
+                # permanently starved by newer high-score generations while
+                # keeping evidence/score quality dominant.
+                age_bonus = min(5.0, age_days * 0.25)
+                return (score + age_bonus, score, str(row.get("candidate_id") or ""))
+
+            return sorted(candidates, key=candidate_priority, reverse=True)
 
         initial_promotable = promotable_rows()
         response: dict[str, Any] = {
@@ -2851,8 +2871,78 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 )
             return response
 
+        def dispatch_queued_project(project_id: str) -> bool:
+            candidate = store.queue_row(project_id)
+            if candidate and str(candidate.get("status") or "") == "queued":
+                try:
+                    live, event_id, updated_candidate = _live_dispatch(candidate, requested_by, force_preflight=True, allow_paused=True)
+                except HTTPException as exc:
+                    if int(exc.status_code) != 409:
+                        raise
+                    response["dispatch"] = {
+                        "event_id": None,
+                        "candidate": candidate,
+                        "live": None,
+                        "backpressure": True,
+                        "detail": jsonable_encoder(exc.detail),
+                    }
+                    response["stages"].append({
+                        "stage": "dispatch",
+                        "ok": True,
+                        "action": "dispatch_backpressure",
+                        "project_id": project_id,
+                        "reason": "dispatch conflict/backpressure; queued work remains safe for the queue pump or next tick",
+                        "detail": jsonable_encoder(exc.detail),
+                    })
+                    return False
+                response["dispatch_started"] = True
+                response["dispatched_count"] = 1
+                response["dispatch"] = {"event_id": event_id, "candidate": updated_candidate, "live": live}
+                response["stages"].append({"stage": "dispatch", "ok": True, "project_id": project_id, "event_id": event_id})
+                return True
+            response["stages"].append({"stage": "dispatch", "ok": False, "reason": "queued project was not dispatchable", "project_id": project_id})
+            return False
+
+        followup_candidate = None
+        if hasattr(store, "next_followup_candidate"):
+            followup_candidate = store.next_followup_candidate(max_followup_depth=4)
+        if followup_candidate:
+            if max_dispatches:
+                followup_launch = store.launch_followup_candidate(dry_run=False, requested_by=requested_by, max_followup_depth=4)
+                response["followup_launch"] = followup_launch
+                response["stages"].append({
+                    "stage": "followup_launch",
+                    "ok": followup_launch.get("action") == "followup_queued",
+                    "action": followup_launch.get("action"),
+                    "parent_project_id": (followup_launch.get("candidate") or {}).get("project_id"),
+                    "project_id": (followup_launch.get("followup") or {}).get("idea_id"),
+                    "reason": followup_launch.get("reason"),
+                })
+                if followup_launch.get("action") == "followup_queued":
+                    response["queued_count"] = 1
+                    followup_project_id = str((followup_launch.get("followup") or {}).get("idea_id") or "").strip()
+                    if followup_project_id:
+                        dispatch_queued_project(followup_project_id)
+            else:
+                response["followup_launch"] = {
+                    "action": "skipped",
+                    "reason": "bounded follow-up candidate exists but dispatch is disabled for this run",
+                    "candidate": followup_candidate,
+                }
+                response["stages"].append({
+                    "stage": "followup_launch",
+                    "ok": True,
+                    "action": "skipped",
+                    "reason": "bounded follow-up candidate exists but dispatch is disabled for this run",
+                    "parent_project_id": followup_candidate.get("project_id"),
+                })
+            response["fresh_generation_skipped"] = True
+            response["reason"] = "bounded follow-up branch took priority over fresh idea generation"
+        else:
+            response["fresh_generation_skipped"] = False
+
         generated_plans = []
-        if max_provider_requests:
+        if max_provider_requests and not response.get("fresh_generation_skipped"):
             try:
                 generated = research_provider_generate.generate_provider_candidates(
                     base_url=provider_openai_base_url,
@@ -2892,49 +2982,25 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 response["stages"].append({"stage": "provider_generation", "ok": False, "reason": warning})
 
         promoted: list[dict[str, Any]] = []
-        for row in promotable_rows()[:max_promotions]:
-            result = store.promote_research_candidate(str(row.get("candidate_id")), requested_by=requested_by, dry_run=False)
-            promoted.append(result)
-        response["promotions"] = promoted
-        response["promoted_count"] = sum(1 for item in promoted if item.get("ok") and not item.get("already_promoted"))
-        response["queued_count"] = sum(int(item.get("queued_count") or 0) for item in promoted)
-        response["stages"].append({"stage": "promotion", "ok": True, "promoted_count": response["promoted_count"], "queued_count": response["queued_count"]})
+        if not response.get("fresh_generation_skipped"):
+            for row in promotable_rows()[:max_promotions]:
+                result = store.promote_research_candidate(str(row.get("candidate_id")), requested_by=requested_by, dry_run=False)
+                promoted.append(result)
+            response["promotions"] = promoted
+            response["promoted_count"] = sum(1 for item in promoted if item.get("ok") and not item.get("already_promoted"))
+            response["queued_count"] = sum(int(item.get("queued_count") or 0) for item in promoted)
+            response["stages"].append({"stage": "promotion", "ok": True, "promoted_count": response["promoted_count"], "queued_count": response["queued_count"]})
+        else:
+            response["promotions"] = promoted
+            response["promoted_count"] = 0
 
-        if max_dispatches and promoted:
+        if max_dispatches and promoted and not response.get("dispatch_started"):
             active_after_promotion = store.active_items()
             if active_after_promotion:
                 response["stages"].append({"stage": "dispatch", "ok": False, "reason": "active worker lane exists after promotion"})
             else:
                 project_id = str(promoted[0].get("idea_id") or promoted[0].get("candidate_id") or "").strip()
-                candidate = store.queue_row(project_id)
-                if candidate and str(candidate.get("status") or "") == "queued":
-                    try:
-                        live, event_id, updated_candidate = _live_dispatch(candidate, requested_by, force_preflight=True, allow_paused=True)
-                    except HTTPException as exc:
-                        if int(exc.status_code) != 409:
-                            raise
-                        response["dispatch"] = {
-                            "event_id": None,
-                            "candidate": candidate,
-                            "live": None,
-                            "backpressure": True,
-                            "detail": jsonable_encoder(exc.detail),
-                        }
-                        response["stages"].append({
-                            "stage": "dispatch",
-                            "ok": True,
-                            "action": "dispatch_backpressure",
-                            "project_id": project_id,
-                            "reason": "dispatch conflict/backpressure; queued work remains safe for the queue pump or next tick",
-                            "detail": jsonable_encoder(exc.detail),
-                        })
-                    else:
-                        response["dispatch_started"] = True
-                        response["dispatched_count"] = 1
-                        response["dispatch"] = {"event_id": event_id, "candidate": updated_candidate, "live": live}
-                        response["stages"].append({"stage": "dispatch", "ok": True, "project_id": project_id, "event_id": event_id})
-                else:
-                    response["stages"].append({"stage": "dispatch", "ok": False, "reason": "promoted candidate was not queued", "project_id": project_id})
+                dispatch_queued_project(project_id)
 
         wait_result = {"action": "skipped", "reason": "wait_for_completion disabled"}
         if response.get("dispatch_started") and wait_for_completion:
@@ -3017,7 +3083,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         response["paper_drafted_count"] = sum(1 for item in drafted_papers if item.get("action") == "drafted")
         response["publication_finalizations"] = finalized_papers
         response["publication_finalized_count"] = len(finalized_papers)
-        response["reason"] = "bounded research cycle completed; broad queue pause preserved and paper stages were positive-gated"
+        if not response.get("reason"):
+            response["reason"] = "bounded research cycle completed; broad queue pause preserved and paper stages were positive-gated"
         if hasattr(store, "append_event"):
             store.append_event(
                 idempotency_key=f"research-cycle:live:{requested_by}:{utc_now()}",
