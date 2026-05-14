@@ -2501,7 +2501,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     ) -> dict[str, Any]:
         authorize(authorization)
         from argparse import Namespace
-        from scripts import research_facility, research_facility_maintenance, research_provider_budget, research_provider_generate
+        from scripts import research_facility, research_provider_budget, research_provider_generate
 
         body = payload or {}
         dry_run = bool(body.get("dry_run", True))
@@ -2659,7 +2659,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
 
         authorize(authorization)
         from argparse import Namespace
-        from scripts import research_facility, research_provider_budget, research_provider_generate
+        from scripts import research_facility, research_facility_maintenance, research_provider_budget, research_provider_generate
 
         if not hasattr(store, "research_facility_workbench_projection") or not hasattr(store, "record_research_facility_plans") or not hasattr(store, "promote_research_candidate"):
             raise HTTPException(status_code=501, detail="Research Facility run-cycle requires the Supabase control-plane store")
