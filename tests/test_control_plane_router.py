@@ -1143,6 +1143,83 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(fake_store.promoted[0], ("existing-candidate", "pytest", False))
         self.assertEqual(fake_store.events[0]["event_type"], "research.run_cycle.live")
 
+    def test_research_facility_run_cycle_skips_provider_when_admitted_backlog_is_high(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.events = []
+                self.promoted = []
+
+            def active_items(self) -> list[dict[str, str]]:
+                return []
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 0, "active": 0}
+
+            def next_followup_candidate(self, *, max_followup_depth: int = 4, project_id: str = "") -> None:
+                return None
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                return [
+                    {"candidate_id": f"existing-{index}", "admission_decision": "admitted", "admitted_idea_id": "", "total_score": str(80 + index)}
+                    for index in range(3)
+                ]
+
+            def record_research_facility_plans(self, *_args, **_kwargs):  # pragma: no cover - backlog should skip provider generation
+                raise AssertionError("provider generation must be skipped when admitted backlog is high")
+
+            def promote_research_candidate(self, candidate_id: str, *, requested_by: str, dry_run: bool = True) -> dict[str, object]:
+                self.promoted.append((candidate_id, requested_by, dry_run))
+                return {"ok": True, "action": "promote_candidate", "candidate_id": candidate_id, "idea_id": candidate_id, "queued_count": 1, "dispatch_started": False}
+
+            def append_event(self, **kwargs):
+                self.events.append(kwargs)
+                return 1, True
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+             patch("scripts.research_provider_generate.generate_provider_candidates") as generate:
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={
+                    "dry_run": False,
+                    "enabled": True,
+                    "max_provider_requests_per_run": 1,
+                    "max_promotions_per_run": 1,
+                    "max_dispatches_per_run": 0,
+                    "fresh_generation_backlog_threshold": 3,
+                    "requested_by": "pytest",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertTrue(body["fresh_generation_skipped"])
+        self.assertEqual(body["fresh_generation_skip_reason"], "admitted candidate backlog is above fresh generation threshold")
+        self.assertEqual(body["generated_count"], 0)
+        self.assertEqual(body["promoted_count"], 1)
+        self.assertEqual(body["queued_count"], 1)
+        self.assertEqual(fake_store.promoted[0][0], "existing-2")
+        generate.assert_not_called()
+
     def test_research_facility_run_cycle_dispatch_conflict_is_benign_backpressure(self) -> None:
         class FakeSupabaseStore:
             def __init__(self) -> None:

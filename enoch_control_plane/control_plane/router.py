@@ -2695,6 +2695,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         poll_interval_seconds = bounded_int("poll_interval_seconds", 10, 2, 60)
         min_admission_score = max(0.0, min(float(body.get("min_admission_score") or body.get("admit_threshold") or 72.0), 100.0))
         max_candidates = max(1, min(int(body.get("max_candidates") or 2), 5))
+        fresh_generation_backlog_threshold = max(0, min(
+            int(body.get("fresh_generation_backlog_threshold") or os.environ.get("ENOCH_RESEARCH_FRESH_GENERATION_BACKLOG_THRESHOLD") or 25),
+            500,
+        ))
         topic = str(body.get("topic") or "").strip()
         temperature = max(0.0, min(float(body.get("temperature") or 0.6), 1.5))
         seed = str(body.get("seed") or utc_now()).strip()
@@ -2792,6 +2796,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 "stop_if_dashboard_attention": bool(body.get("stop_if_dashboard_attention", True)),
                 "wait_for_completion": wait_for_completion,
                 "max_wait_seconds": max_wait_seconds,
+                "fresh_generation_backlog_threshold": fresh_generation_backlog_threshold,
             },
             "budget": {key: budget.get(key) for key in {
                 "ok", "provider", "checked_at", "estimated_requests", "reserve_requests", "remaining_credits",
@@ -2937,9 +2942,29 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     "parent_project_id": followup_candidate.get("project_id"),
                 })
             response["fresh_generation_skipped"] = True
+            response["fresh_promotion_skipped"] = True
             response["reason"] = "bounded follow-up branch took priority over fresh idea generation"
         else:
             response["fresh_generation_skipped"] = False
+            response["fresh_promotion_skipped"] = False
+
+        if (
+            not response.get("fresh_generation_skipped")
+            and max_provider_requests
+            and fresh_generation_backlog_threshold
+            and len(initial_promotable) >= fresh_generation_backlog_threshold
+        ):
+            response["fresh_generation_skipped"] = True
+            response["fresh_promotion_skipped"] = False
+            response["fresh_generation_skip_reason"] = "admitted candidate backlog is above fresh generation threshold"
+            response["stages"].append({
+                "stage": "provider_generation",
+                "ok": True,
+                "action": "skipped",
+                "reason": response["fresh_generation_skip_reason"],
+                "initial_promotable_count": len(initial_promotable),
+                "fresh_generation_backlog_threshold": fresh_generation_backlog_threshold,
+            })
 
         generated_plans = []
         if max_provider_requests and not response.get("fresh_generation_skipped"):
@@ -2982,7 +3007,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 response["stages"].append({"stage": "provider_generation", "ok": False, "reason": warning})
 
         promoted: list[dict[str, Any]] = []
-        if not response.get("fresh_generation_skipped"):
+        if not response.get("fresh_promotion_skipped"):
             for row in promotable_rows()[:max_promotions]:
                 result = store.promote_research_candidate(str(row.get("candidate_id")), requested_by=requested_by, dry_run=False)
                 promoted.append(result)
