@@ -2781,7 +2781,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 # --apply-rejections so automation cannot silently discard rows.
                 janitor_promotions = [item for item in janitor_actions if item.get("action") == "promote"][:max_promotions]
                 apply_result = None
-                if not dry_run and janitor_promotions:
+                janitor_apply_allowed = not dry_run and not stop_reasons and not backpressure_reasons
+                if janitor_apply_allowed and janitor_promotions:
                     apply_result = research_facility_maintenance.apply_actions(
                         store.database_url,
                         janitor_promotions,
@@ -2791,11 +2792,13 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 janitor_report = research_facility_maintenance.build_report(
                     janitor_rows,
                     janitor_actions,
-                    applied=not dry_run and bool(janitor_promotions),
+                    applied=bool(apply_result),
                     apply_result=apply_result,
                 )
                 janitor_report["enabled"] = True
                 janitor_report["bounded_promotion_count"] = len(janitor_promotions)
+                if not janitor_apply_allowed and not dry_run and janitor_promotions:
+                    janitor_report["apply_blocked_reason"] = "; ".join(stop_reasons or backpressure_reasons)
                 janitor_report["actions"] = janitor_report["actions"][:25]
             except Exception as exc:  # noqa: BLE001 - maintenance must fail soft inside long-haul tick
                 janitor_report = {"enabled": True, "ok": False, "action": "failed", "reason": f"research janitor failed: {exc}"}
