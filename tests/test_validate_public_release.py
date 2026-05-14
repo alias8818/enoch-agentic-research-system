@@ -81,6 +81,16 @@ def test_public_count_checks_reject_personal_site_stale_canonical_count(tmp_path
     assert any("packaging/provenance pass count drift" in failure for failure in failures)
 
 
+def test_public_count_checks_reject_stale_canonical_artifacts_wording(tmp_path) -> None:
+    page = tmp_path / "index.html"
+    page.write_text("<p>377 canonical AI-generated artifacts indexed</p>", encoding="utf-8")
+    failures: list[str] = []
+
+    validate_public_release.check_counts([page], artifact_count=385, pass_count=385, failures=failures)
+
+    assert failures == [f"artifact count drift in {page}:1: 377 != 385"]
+
+
 def test_strict_public_count_checks_reject_personal_site_stale_fail_rate(tmp_path) -> None:
     page = tmp_path / "index.html"
     page.write_text("<p>My audit gate flags 494 of its own 497 outputs.</p>", encoding="utf-8")
@@ -89,3 +99,34 @@ def test_strict_public_count_checks_reject_personal_site_stale_fail_rate(tmp_pat
     validate_public_release.check_strict_public_counts([page], artifact_count=377, strict_pass_count=3, failures=failures)
 
     assert failures == [f"strict audit fail count drift in {page}:1: 494 of 497 != 374 of 377"]
+
+
+def test_strict_public_count_checks_reject_stale_strict_pass_fraction(tmp_path) -> None:
+    page = tmp_path / "index.html"
+    page.write_text("<p>3/377 pass strict claim/evidence audit.</p>", encoding="utf-8")
+    failures: list[str] = []
+
+    validate_public_release.check_strict_public_counts([page], artifact_count=385, strict_pass_count=3, failures=failures)
+
+    assert failures == [f"strict audit pass count drift in {page}:1: 3/377 != 3/385"]
+
+
+def test_hf_export_check_rejects_stale_dataset_summary(tmp_path) -> None:
+    hf = tmp_path / "hf"
+    hf.mkdir()
+    (hf / "dataset_summary.json").write_text(
+        '{"artifact_count": 496, "strict_claim_evidence_pass_count": 3, "strict_claim_evidence_total_count": 496}',
+        encoding="utf-8",
+    )
+    (hf / "README.md").write_text(
+        "This dataset contains 496 AI-generated research artifacts. "
+        "Current strict claim/evidence audit status is **3 / 496 passing**.",
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_hf_export(hf, artifact_count=385, strict_pass_count=3, failures=failures)
+
+    assert any("HF export artifact_count 496 != 385" in failure for failure in failures)
+    assert any("HF export strict total 496 != 385" in failure for failure in failures)
+    assert any("HF export README missing current count fragment" in failure for failure in failures)

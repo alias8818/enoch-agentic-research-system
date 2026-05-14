@@ -33,8 +33,8 @@ DOC_FILES = [
 OWNER_PROFILE_FILES = ["README.md"]
 PERSONAL_SITE_FILES = ["index.html", "writing/index.html", "writing/ai-research-failure-rate.html"]
 HISTORIC_STALE_COUNT = re.compile(r"\b120\b|120/120")
-COUNT_PHRASE = re.compile(r"\b(\d{2,5})\b\s+(AI-generated artifacts indexed|AI-generated research artifacts|generated research artifacts|indexed artifacts|canonical AI-generated papers|canonical artifacts|canonical outputs|artifacts)", re.I)
-PASS_PHRASE = re.compile(r"\b(\d{2,5})\s*/\s*(\d{2,5})\b\s+(pass packaging/provenance|pass packaging and provenance|packaging/provenance passed|pass count|quality)", re.I)
+COUNT_PHRASE = re.compile(r"\b(\d{2,5})\b\s+(canonical AI-generated artifacts indexed|canonical AI-generated artifacts|AI-generated artifacts indexed|AI-generated research artifacts|generated research artifacts|indexed artifacts|canonical AI-generated papers|canonical artifacts|canonical outputs|artifacts)", re.I)
+PASS_PHRASE = re.compile(r"\b(\d{1,5})\s*/\s*(\d{2,5})\b\s+(pass packaging/provenance|pass packaging and provenance|packaging/provenance passed|pass count|quality|pass strict claim/evidence|pass strict claim and evidence|strict claim/evidence audit)", re.I)
 OF_PASS_PHRASE = re.compile(r"\b(\d{2,5})\s+of\s+(\d{2,5})\s+pass(?:es)?\s+(?:the\s+)?packaging(?:/| and )provenance", re.I)
 STRICT_FAIL_PHRASE = re.compile(r"\b(?:fails?|flags|rejects)\s+(\d{1,5})\s+of\s+(?:its own\s+|its\s+|the\s+)?(\d{2,5})\s+(?:canonical\s+)?outputs", re.I)
 FULL_AUDIT_CLAIM = re.compile(r"fully auditable|deeply auditable", re.I)
@@ -219,6 +219,37 @@ def check_github_metadata(artifact_count: int, failures: list[str]) -> None:
                 fail(f"corpus GitHub homepage drift: {homepage!r} != {expected_homepage!r}", failures)
 
 
+def check_hf_export(hf_export: Path, artifact_count: int, strict_pass_count: int, failures: list[str]) -> None:
+    summary_path = hf_export / "dataset_summary.json"
+    readme_path = hf_export / "README.md"
+    if not summary_path.exists():
+        fail(f"HF export missing dataset_summary.json: {summary_path}", failures)
+        return
+    if not readme_path.exists():
+        fail(f"HF export missing README.md: {readme_path}", failures)
+        return
+    try:
+        summary = load_json(summary_path)
+    except json.JSONDecodeError as exc:
+        fail(f"HF export dataset_summary.json is invalid JSON: {exc}", failures)
+        return
+    if int(summary.get("artifact_count") or -1) != artifact_count:
+        fail(f"HF export artifact_count {summary.get('artifact_count')} != {artifact_count}", failures)
+    if int(summary.get("strict_claim_evidence_pass_count") or -1) != strict_pass_count:
+        fail(f"HF export strict pass count {summary.get('strict_claim_evidence_pass_count')} != {strict_pass_count}", failures)
+    if int(summary.get("strict_claim_evidence_total_count") or -1) != artifact_count:
+        fail(f"HF export strict total {summary.get('strict_claim_evidence_total_count')} != {artifact_count}", failures)
+    readme = readme_path.read_text(encoding="utf-8", errors="replace")
+    expected_fragments = [
+        f"This dataset contains {artifact_count} AI-generated research artifacts",
+        f"current public corpus indexes **{artifact_count} AI-generated research artifacts**",
+        f"Current strict claim/evidence audit status is **{strict_pass_count} / {artifact_count} passing**",
+    ]
+    for fragment in expected_fragments:
+        if fragment not in readme:
+            fail(f"HF export README missing current count fragment: {fragment}", failures)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate Enoch public release accounting and gate wording.")
     parser.add_argument("--system", type=Path, required=True)
@@ -227,6 +258,7 @@ def main() -> int:
     parser.add_argument("--profile", type=Path, required=True)
     parser.add_argument("--owner-profile", type=Path, default=None)
     parser.add_argument("--personal-site", type=Path, default=None)
+    parser.add_argument("--hf-export", type=Path, default=None)
     parser.add_argument("--generated-manifest", type=Path, default=None, help="Optional freshly generated manifest to compare against committed site/ecosystem.json")
     parser.add_argument("--skip-github-metadata", action="store_true", help="Skip live GitHub repository About/description checks for offline validation")
     args = parser.parse_args()
@@ -237,6 +269,7 @@ def main() -> int:
     profile = args.profile.resolve()
     owner_profile = args.owner_profile.resolve() if args.owner_profile else None
     personal_site = args.personal_site.resolve() if args.personal_site else None
+    hf_export = args.hf_export.resolve() if args.hf_export else None
     failures: list[str] = []
 
     manifest = load_json(system / "site" / "ecosystem.json")
@@ -289,6 +322,13 @@ def main() -> int:
             fail(f"public copy implies full strict auditability while strict pass count is 0: {match.group(0)}", failures)
     if not args.skip_github_metadata:
         check_github_metadata(int(manifest["artifact_count"]), failures)
+    if hf_export:
+        check_hf_export(
+            hf_export,
+            int(manifest["artifact_count"]),
+            int(manifest.get("strict_claim_evidence_pass_count") or 0),
+            failures,
+        )
 
     if failures:
         for item in failures:

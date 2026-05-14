@@ -163,6 +163,7 @@ def sync_corpus_import_ledger(system: Repo, corpus: Repo, *, database_url: str, 
         )
 
 def run_local_release_checks(system: Repo, corpus: Repo, docs: Repo, profile_site: Repo, owner_profile: Repo, personal_site: Repo) -> None:
+    hf_export = system.path.parent / "hf-enoch-ai-research-corpus"
     with tempfile.TemporaryDirectory(prefix="enoch-release-") as tmp:
         generated = Path(tmp) / "ecosystem.generated.json"
         run([sys.executable, "scripts/validate_runtime_snapshot_links.py"], cwd=system.path)
@@ -177,7 +178,7 @@ def run_local_release_checks(system: Repo, corpus: Repo, docs: Repo, profile_sit
             "--output",
             str(generated),
         ], cwd=system.path)
-        run([
+        validate_cmd = [
             sys.executable,
             "scripts/validate_public_release.py",
             "--system",
@@ -194,7 +195,10 @@ def run_local_release_checks(system: Repo, corpus: Repo, docs: Repo, profile_sit
             str(personal_site.path),
             "--generated-manifest",
             str(generated),
-        ], cwd=system.path)
+        ]
+        if hf_export.exists():
+            validate_cmd.extend(["--hf-export", str(hf_export)])
+        run(validate_cmd, cwd=system.path)
         manifest = json.loads(generated.read_text(encoding="utf-8"))
         print(
             "local public release accounting:",

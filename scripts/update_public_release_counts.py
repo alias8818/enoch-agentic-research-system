@@ -103,7 +103,7 @@ def update_text(text: str, stats: dict[str, int]) -> str:
     text = re.sub(r'(<meta name="enoch-strict-claim-evidence-pass-count" content=")\d+(" />)', rf"\g<1>{sp}\2", text)
 
     # Count phrases covered by validator plus the launch-announcement wording it intentionally allows.
-    count_phrase = re.compile(r"\b\d{2,5}\b(?=\s+(?:canonical AI-generated artifacts indexed|AI-generated artifacts indexed|AI-generated research artifacts|generated research artifacts|indexed artifacts|canonical AI-generated papers|canonical artifacts|canonical outputs|artifacts|canonical generated research artifacts))", re.I)
+    count_phrase = re.compile(r"\b\d{2,5}\b(?=\s+(?:canonical AI-generated artifacts indexed|canonical AI-generated artifacts|AI-generated artifacts indexed|AI-generated research artifacts|generated research artifacts|indexed artifacts|canonical AI-generated papers|canonical artifacts|canonical outputs|artifacts|canonical generated research artifacts))", re.I)
     text = count_phrase.sub(str(n), text)
 
     packaging_patterns = [
@@ -117,6 +117,7 @@ def update_text(text: str, stats: dict[str, int]) -> str:
 
     strict_patterns = [
         (re.compile(r"\b\d{1,5}\s*/\s*\d{2,5}(?=\s+(?:pass strict claim/evidence|pass strict claim/evidence audit|pass my strict audit gate|strict claim/evidence audit passes|strict claim/evidence audit))", re.I), f"{sp}/{n}"),
+        (re.compile(r"\b\d{1,5}\s*/\s*\d{2,5}(?=\s+pass strict claim and evidence audit)", re.I), f"{sp}/{n}"),
         (re.compile(r"\b\d{1,5}\s*/\s*\d{2,5}(?=; the failure rate is visible)", re.I), f"{sp}/{n}"),
         (re.compile(r"\b\d{1,5}\s*/\s*\d{2,5}(?=\s+pass the strict claim/evidence audit)", re.I), f"{sp}/{n}"),
         (re.compile(r"\b\d{1,5}\s*/\s*\d{2,5}(?=\s+pass strict claim/evidence audit)", re.I), f"{sp}/{n}"),
@@ -131,6 +132,8 @@ def update_text(text: str, stats: dict[str, int]) -> str:
         text,
         flags=re.I,
     )
+    text = re.sub(r"\b(?:fails?|rejects)\s+\d{1,5}\s+of\s+them\b", lambda m: re.sub(r"\d{1,5}", str(sf), m.group(0), count=1), text, flags=re.I)
+    text = re.sub(r"\brejects the other \d{1,5}\b", f"rejects the other {sf}", text, flags=re.I)
     text = re.sub(r"For \d{1,5} of the \d{2,5} papers", f"For {sf} of the {n} papers", text)
     text = re.sub(r"\b\d{1,5}\s+empty claim ledgers\b", f"{empty} empty claim ledgers", text)
     text = re.sub(r"(?<![\d,])\b\d{1,5}\s+missing public result-file references\b", f"{fmt_int(missing)} missing public result-file references", text)
