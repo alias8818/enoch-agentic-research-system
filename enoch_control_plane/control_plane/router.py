@@ -2501,7 +2501,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     ) -> dict[str, Any]:
         authorize(authorization)
         from argparse import Namespace
-        from scripts import research_facility, research_provider_budget, research_provider_generate
+        from scripts import research_facility, research_facility_maintenance, research_provider_budget, research_provider_generate
 
         body = payload or {}
         dry_run = bool(body.get("dry_run", True))
@@ -2745,6 +2745,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
 
         def promotable_rows() -> list[dict[str, Any]]:
             rows = list(store.research_facility_workbench_projection(limit=100))
+            category_counts: dict[str, int] = {}
+            for row in rows:
+                category = str(row.get("category") or "").strip().lower()
+                if category:
+                    category_counts[category] = category_counts.get(category, 0) + 1
             candidates = [
                 row for row in rows
                 if str(row.get("admission_decision") or "") == "admitted"
@@ -2754,24 +2759,50 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             now_dt = datetime.now(timezone.utc)
 
             def candidate_priority(row: dict[str, Any]) -> tuple[float, float, str]:
+                priority = research_facility.dispatch_priority_score(row, category_counts=category_counts, now=now_dt)
                 score = float(row.get("total_score") or 0)
-                created_raw = str(row.get("created_at") or row.get("updated_at") or "").strip()
-                age_days = 0.0
-                if created_raw:
-                    try:
-                        created = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
-                        if created.tzinfo is None:
-                            created = created.replace(tzinfo=timezone.utc)
-                        age_days = max(0.0, (now_dt - created).total_seconds() / 86400.0)
-                    except ValueError:
-                        age_days = 0.0
-                # Small aging pressure prevents older admitted ideas from being
-                # permanently starved by newer high-score generations while
-                # keeping evidence/score quality dominant.
-                age_bonus = min(5.0, age_days * 0.25)
-                return (score + age_bonus, score, str(row.get("candidate_id") or ""))
+                return (priority, score, str(row.get("candidate_id") or ""))
 
             return sorted(candidates, key=candidate_priority, reverse=True)
+
+        janitor_enabled = bool(body.get("janitor_enabled", True))
+        janitor_limit = bounded_int("janitor_limit", 250, 0, 500)
+        janitor_report: dict[str, Any] = {"enabled": janitor_enabled, "ok": True, "action": "skipped"}
+        if janitor_enabled and janitor_limit and hasattr(store, "database_url"):
+            try:
+                janitor_rows = research_facility_maintenance.fetch_needs_review_rows(store.database_url, limit=janitor_limit)
+                janitor_actions = research_facility_maintenance.classify_rows(
+                    janitor_rows,
+                    policy=research_facility_maintenance.JanitorPolicy(),
+                    now=datetime.now(timezone.utc),
+                )
+                # Bound maintenance per tick. Rejections stay report-only here;
+                # applying them requires the standalone janitor CLI with
+                # --apply-rejections so automation cannot silently discard rows.
+                janitor_promotions = [item for item in janitor_actions if item.get("action") == "promote"][:max_promotions]
+                apply_result = None
+                if not dry_run and janitor_promotions:
+                    apply_result = research_facility_maintenance.apply_actions(
+                        store.database_url,
+                        janitor_promotions,
+                        requested_by=requested_by,
+                        apply_rejections=False,
+                    )
+                janitor_report = research_facility_maintenance.build_report(
+                    janitor_rows,
+                    janitor_actions,
+                    applied=not dry_run and bool(janitor_promotions),
+                    apply_result=apply_result,
+                )
+                janitor_report["enabled"] = True
+                janitor_report["bounded_promotion_count"] = len(janitor_promotions)
+                janitor_report["actions"] = janitor_report["actions"][:25]
+            except Exception as exc:  # noqa: BLE001 - maintenance must fail soft inside long-haul tick
+                janitor_report = {"enabled": True, "ok": False, "action": "failed", "reason": f"research janitor failed: {exc}"}
+        elif not janitor_enabled:
+            janitor_report = {"enabled": False, "ok": True, "action": "disabled"}
+        else:
+            janitor_report = {"enabled": True, "ok": True, "action": "skipped", "reason": "store does not expose a database URL"}
 
         initial_promotable = promotable_rows()
         response: dict[str, Any] = {
@@ -2797,7 +2828,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 "wait_for_completion": wait_for_completion,
                 "max_wait_seconds": max_wait_seconds,
                 "fresh_generation_backlog_threshold": fresh_generation_backlog_threshold,
+                "janitor_enabled": janitor_enabled,
+                "janitor_limit": janitor_limit,
             },
+            "janitor": janitor_report,
             "budget": {key: budget.get(key) for key in {
                 "ok", "provider", "checked_at", "estimated_requests", "reserve_requests", "remaining_credits",
                 "min_remaining_credits", "rolling_remaining", "rolling_max", "rolling_limited",

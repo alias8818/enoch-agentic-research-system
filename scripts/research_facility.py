@@ -15,6 +15,7 @@ import json
 import re
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -49,6 +50,19 @@ DEFAULT_ARTIFACTS = ["run_notes.md", "metrics.json", "failure_cases.json", ".eno
 DEFAULT_EVIDENCE = ["baseline comparison", "metrics table", "failure cases", "decision artifact"]
 RUNTIME_CLASSES = {"", "small", "medium", "large", "overnight"}
 TOKEN_BUDGETS = {"", "small", "medium", "large"}
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    text = _as_text(value)
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def _as_text(value: Any) -> str:
@@ -107,6 +121,131 @@ def _token_budget(value: Any) -> str:
     if text:
         return "medium"
     return ""
+
+
+def dispatch_priority_breakdown(
+    row: dict[str, Any],
+    *,
+    category_counts: dict[str, int] | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Return the queue-dispatch priority for an admitted candidate.
+
+    ``total_score`` intentionally remains the admission/contract-completeness
+    score. This priority score is a separate portfolio ranking signal used when
+    choosing which already-admitted candidate gets promoted next. It spreads
+    otherwise-close admission scores by preferring evidence-backed branches,
+    targeted papers, bounded follow-ups, fresh-but-not-saturated categories, and
+    older candidates that have waited long enough to avoid starvation.
+    """
+
+    now_dt = now or datetime.now(timezone.utc)
+    category = _as_text(row.get("category")).lower()
+    mode = _as_text(row.get("generation_mode"))
+    source_kind = _as_text(row.get("source_kind")).lower()
+    source_urls = [_as_text(url).lower() for url in _as_list(row.get("source_urls"))]
+    similar_prior = _as_list(row.get("similar_prior_projects"))
+    runtime_class = _runtime_class(row.get("estimated_runtime_class"))
+    token_budget = _token_budget(row.get("expected_token_budget"))
+    parent_project_id = _as_text(row.get("parent_project_id"))
+    parent_run_id = _as_text(row.get("parent_run_id"))
+    total_score = _as_float(row.get("total_score"))
+    novelty_score = _as_float(row.get("novelty_score"))
+    falsifiability_score = _as_float(row.get("falsifiability_score"))
+
+    lineage_bonus = 0.0
+    if mode == "followup_from_negative" or parent_project_id or parent_run_id:
+        lineage_bonus += 8.0
+    elif mode == "paper_replication_extension":
+        lineage_bonus += 5.0
+    elif mode == "implementation_gap":
+        lineage_bonus += 3.0
+    elif mode == "home_hardware_accessibility":
+        lineage_bonus += 2.0
+    elif mode == "moonshot":
+        lineage_bonus += 2.0 if falsifiability_score >= 7.0 else -6.0
+
+    targeted_source_bonus = 0.0
+    if source_kind == "arxiv" or any("arxiv.org/abs/" in url for url in source_urls):
+        targeted_source_bonus += 4.0
+    if any(host in url for url in source_urls for host in ("github.com/", "dspy.ai/", "docs.vllm.ai/")):
+        targeted_source_bonus += 1.5
+
+    created = _parse_datetime(row.get("created_at") or row.get("updated_at"))
+    age_days = 0.0
+    if created is not None:
+        age_days = max(0.0, (now_dt - created).total_seconds() / 86400.0)
+    age_bonus = min(5.0, age_days * 0.25)
+
+    saturation_penalty = 0.0
+    category_count = int((category_counts or {}).get(category, 0) or 0)
+    if category_count > 8:
+        saturation_penalty = min(8.0, (category_count - 8) * 0.5)
+
+    duplicate_penalty = 0.0
+    if similar_prior:
+        duplicate_penalty = 4.0
+        # Similarity is not fatal if the candidate includes a novelty
+        # comparison, but it should not beat cleaner work unless other signals
+        # are strong.
+        if not _as_text(row.get("novelty_comparison")):
+            duplicate_penalty += 4.0
+
+    runtime_penalty = {
+        "": 0.0,
+        "small": 0.0,
+        "medium": 1.0,
+        "large": 3.0,
+        "overnight": 5.0,
+    }.get(runtime_class, 1.0)
+    if token_budget == "large":
+        runtime_penalty += 1.0
+
+    weak_contract_penalty = 0.0
+    if total_score < 68.0:
+        weak_contract_penalty += 6.0
+    elif total_score < 72.0:
+        weak_contract_penalty += 2.0
+    if novelty_score and novelty_score < 7.0:
+        weak_contract_penalty += 2.0
+    if falsifiability_score and falsifiability_score < 7.0:
+        weak_contract_penalty += 2.0
+
+    score = (
+        total_score
+        + lineage_bonus
+        + targeted_source_bonus
+        + age_bonus
+        - saturation_penalty
+        - duplicate_penalty
+        - runtime_penalty
+        - weak_contract_penalty
+    )
+    score = max(0.0, min(120.0, round(score, 2)))
+    return {
+        "dispatch_priority_score": score,
+        "base_total_score": round(total_score, 2),
+        "lineage_bonus": round(lineage_bonus, 2),
+        "targeted_source_bonus": round(targeted_source_bonus, 2),
+        "age_bonus": round(age_bonus, 2),
+        "category_saturation_penalty": round(saturation_penalty, 2),
+        "duplicate_penalty": round(duplicate_penalty, 2),
+        "runtime_penalty": round(runtime_penalty, 2),
+        "weak_contract_penalty": round(weak_contract_penalty, 2),
+        "category_count": category_count,
+        "age_days": round(age_days, 2),
+        "generation_mode": mode,
+        "category": category,
+    }
+
+
+def dispatch_priority_score(
+    row: dict[str, Any],
+    *,
+    category_counts: dict[str, int] | None = None,
+    now: datetime | None = None,
+) -> float:
+    return float(dispatch_priority_breakdown(row, category_counts=category_counts, now=now)["dispatch_priority_score"])
 
 
 def slugify(value: str) -> str:
