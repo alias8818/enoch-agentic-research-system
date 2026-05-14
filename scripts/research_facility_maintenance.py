@@ -80,7 +80,10 @@ def classify_candidate(row: dict[str, Any], *, category_counts: dict[str, int], 
     action = "keep"
     reason = "candidate remains reviewable but does not cross janitor thresholds"
     if (
-        (total_score >= policy.promote_score_floor or float(breakdown["dispatch_priority_score"]) >= policy.promote_priority_floor)
+        (
+            float(breakdown["dispatch_priority_score"]) >= policy.promote_priority_floor
+            or (total_score >= policy.promote_score_floor and has_priority_signal)
+        )
         and duplicate_penalty < 8.0
         and (has_priority_signal or not saturated)
     ):

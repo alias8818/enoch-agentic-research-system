@@ -96,3 +96,21 @@ def test_janitor_keeps_saturated_fresh_rows_out_of_promote_lane() -> None:
     )
 
     assert all(action["action"] == "rewrite_suggested" for action in actions)
+
+
+def test_janitor_does_not_promote_borderline_fresh_without_priority_signal() -> None:
+    actions = research_facility_maintenance.classify_rows(
+        [
+            _row(
+                candidate_id="borderline-fresh",
+                generation_mode="fresh_grounded",
+                source_urls=["https://example.com/post"],
+                parent_project_id="",
+                total_score=71.9,
+            )
+        ],
+        policy=research_facility_maintenance.JanitorPolicy(),
+        now=datetime(2026, 5, 14, tzinfo=timezone.utc),
+    )
+
+    assert actions[0]["action"] == "rewrite_suggested"
