@@ -167,3 +167,55 @@ def test_research_quality_refresh_missing_database_url_is_fail_soft(monkeypatch)
     monkeypatch.delenv("DATABASE_URL", raising=False)
     result = autopilot.refresh_research_quality_report()
     assert result == {"ok": False, "action": "research_quality_refresh_skipped", "reason": "missing database URL"}
+
+
+def test_janitor_llm_review_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("ENOCH_RESEARCH_JANITOR_LLM_REVIEW_ENABLED", raising=False)
+    assert autopilot.run_quota_gated_janitor_llm_review() == {
+        "ok": True,
+        "action": "research_janitor_llm_review_skipped",
+        "reason": "disabled",
+    }
+
+
+def test_janitor_llm_review_runs_quota_gated_script(tmp_path, monkeypatch):
+    output = tmp_path / "janitor-llm.json"
+    calls: list[dict] = []
+
+    def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check):
+        calls.append({"cmd": cmd, "cwd": cwd, "timeout": timeout, "check": check})
+        output.write_text(
+            json.dumps(
+                {
+                    "ok": True,
+                    "action": "reviewed",
+                    "batch_count": 3,
+                    "decision_count": 3,
+                    "decision_counts": {"rewrite_contract": 2, "keep_for_later": 1},
+                    "budget": {"ok": True, "rolling_remaining": 1000, "weekly_percent_remaining": 90.0},
+                    "apply_result": {"dry_run": True},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return Mock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setenv("ENOCH_RESEARCH_JANITOR_LLM_REVIEW_ENABLED", "1")
+    monkeypatch.setenv("ENOCH_SUPABASE_DATABASE_URL", "postgresql://user:secret@host/db")
+    monkeypatch.setenv("ENOCH_RESEARCH_JANITOR_LLM_REPORT_PATH", str(output))
+    monkeypatch.setenv("ENOCH_RESEARCH_JANITOR_LLM_BATCH_SIZE", "3")
+    monkeypatch.setenv("ENOCH_RESEARCH_JANITOR_LLM_MIN_ROLLING", "150")
+    monkeypatch.setattr(autopilot.subprocess, "run", fake_run)
+
+    result = autopilot.run_quota_gated_janitor_llm_review()
+
+    assert result["ok"] is True
+    assert result["action"] == "reviewed"
+    assert result["summary"]["decision_counts"] == {"rewrite_contract": 2, "keep_for_later": 1}
+    assert calls
+    cmd = calls[0]["cmd"]
+    assert str(MODULE_PATH.parents[1] / "scripts" / "research_facility_llm_review.py") in cmd
+    assert "--min-rolling-remaining" in cmd
+    assert "150" in cmd
+    assert "postgresql://user:secret@host/db" not in json.dumps(result["command"])
+    assert "<redacted-database-url>" in result["command"]

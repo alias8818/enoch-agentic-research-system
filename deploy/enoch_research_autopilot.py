@@ -297,6 +297,114 @@ def refresh_research_quality_window_comparison() -> dict:
     }
 
 
+def run_quota_gated_janitor_llm_review() -> dict:
+    """Run at most one Synthetic-backed janitor adjudication batch.
+
+    The script owns its own quota/cooldown gates. The timer may call this every
+    tick, but provider spend only happens when rolling and weekly budgets are
+    healthy and rewrite_suggested backlog exists.
+    """
+
+    if not _truthy("ENOCH_RESEARCH_JANITOR_LLM_REVIEW_ENABLED"):
+        return {"ok": True, "action": "research_janitor_llm_review_skipped", "reason": "disabled"}
+
+    database_url = _database_url()
+    if not database_url:
+        return {"ok": False, "action": "research_janitor_llm_review_skipped", "reason": "missing database URL"}
+
+    output = Path(
+        os.environ.get(
+            "ENOCH_RESEARCH_JANITOR_LLM_REPORT_PATH",
+            "/var/lib/enoch-control-plane/research-quality/latest-janitor-llm-review.json",
+        )
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    timeout = _bounded_int("ENOCH_RESEARCH_JANITOR_LLM_TIMEOUT_SECONDS", 180, 30, 600)
+    script = _repo_root() / "scripts" / "research_facility_llm_review.py"
+    cmd = [
+        sys.executable,
+        str(script),
+        "--database-url",
+        database_url,
+        "--provider-base-url",
+        os.environ.get("ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"),
+        "--openai-base-url",
+        os.environ.get("ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL", "https://synthetic.int.exe.xyz/openai/v1"),
+        "--model",
+        _provider_model(),
+        "--batch-size",
+        str(_bounded_int("ENOCH_RESEARCH_JANITOR_LLM_BATCH_SIZE", 15, 1, 50)),
+        "--janitor-limit",
+        str(_bounded_int("ENOCH_RESEARCH_JANITOR_LLM_JANITOR_LIMIT", 250, 1, 500)),
+        "--estimated-requests",
+        str(_bounded_int("ENOCH_RESEARCH_JANITOR_LLM_ESTIMATED_REQUESTS", 1, 1, 5)),
+        "--reserve-requests",
+        str(_bounded_int("ENOCH_RESEARCH_JANITOR_LLM_RESERVE_REQUESTS", 5, 0, 100)),
+        "--min-rolling-remaining",
+        str(_bounded_int("ENOCH_RESEARCH_JANITOR_LLM_MIN_ROLLING", 150, 0, 2500)),
+        "--min-remaining-credits",
+        os.environ.get("ENOCH_RESEARCH_JANITOR_LLM_MIN_CREDITS", "10.0"),
+        "--min-weekly-percent-remaining",
+        os.environ.get("ENOCH_RESEARCH_JANITOR_LLM_MIN_WEEKLY_PERCENT", "25.0"),
+        "--cooldown-minutes",
+        str(_bounded_int("ENOCH_RESEARCH_JANITOR_LLM_COOLDOWN_MINUTES", 25, 0, 1440)),
+        "--timeout",
+        str(timeout),
+        "--max-tokens",
+        str(_bounded_int("ENOCH_RESEARCH_JANITOR_LLM_MAX_TOKENS", 6000, 1000, 16000)),
+        "--temperature",
+        os.environ.get("ENOCH_RESEARCH_JANITOR_LLM_TEMPERATURE", "0.1"),
+        "--requested-by",
+        os.environ.get("ENOCH_RESEARCH_JANITOR_LLM_REQUESTED_BY", "systemd:enoch-research-autopilot"),
+        "--output",
+        str(output),
+    ]
+    if _truthy("ENOCH_RESEARCH_JANITOR_LLM_APPLY"):
+        cmd.append("--apply")
+    else:
+        cmd.append("--dry-run")
+    display_cmd = [*cmd]
+    if database_url in display_cmd:
+        display_cmd[display_cmd.index(database_url)] = "<redacted-database-url>"
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=_repo_root(),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout + 30,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {"ok": False, "action": "research_janitor_llm_review_failed", "reason": f"timeout after {timeout + 30}s: {exc}", "command": display_cmd, "output": str(output)}
+    except OSError as exc:
+        return {"ok": False, "action": "research_janitor_llm_review_failed", "reason": f"{type(exc).__name__}: {exc}", "command": display_cmd, "output": str(output)}
+    payload: dict = {}
+    if output.exists():
+        try:
+            payload = json.loads(output.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+    return {
+        "ok": proc.returncode == 0 and bool(payload.get("ok", proc.returncode == 0)),
+        "action": payload.get("action") or "research_janitor_llm_review",
+        "returncode": proc.returncode,
+        "output": str(output),
+        "summary": {
+            "reason": payload.get("reason") or "",
+            "batch_count": payload.get("batch_count"),
+            "decision_count": payload.get("decision_count"),
+            "decision_counts": payload.get("decision_counts") or {},
+            "budget": payload.get("budget") or {},
+            "apply_result": payload.get("apply_result") or {},
+        },
+        "stdout": proc.stdout.strip()[-2000:],
+        "stderr": proc.stderr.strip()[-2000:],
+        "command": display_cmd,
+    }
+
+
 def _provider_malformed_count(result: dict) -> int:
     texts: list[str] = []
     for warning in result.get("warnings") or []:
@@ -422,10 +530,12 @@ def main() -> int:
     history_result = append_research_autopilot_history(result) if isinstance(result, dict) else {"ok": False, "action": "research_autopilot_history_append_skipped"}
     quality_result = refresh_research_quality_report()
     window_result = refresh_research_quality_window_comparison()
+    janitor_llm_result = run_quota_gated_janitor_llm_review()
     if isinstance(result, dict):
         result["research_autopilot_history"] = history_result
         result["research_quality_refresh"] = quality_result
         result["research_quality_window_comparison"] = window_result
+        result["research_janitor_llm_review"] = janitor_llm_result
     print(json.dumps(result, sort_keys=True))
     tick_ok = result.get("ok") or _is_benign_skip_result(result)
     return 0 if tick_ok else 1
