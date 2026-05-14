@@ -63,7 +63,11 @@ def main() -> int:
     reject_stale("profile", profile, failures)
     reject_stale("docs", docs, failures)
 
-    require("Run local AI research workflows" in launch, "launch missing proof-first hero", failures)
+    require(
+        "Run local AI research workflows" in launch or "Local AI research needs a control plane." in launch,
+        "launch missing proof-first hero",
+        failures,
+    )
     require("Run the local proof" in launch, "launch missing local proof section", failures)
     require("packaging/provenance" in launch, "launch missing packaging/provenance wording", failures)
     require("strict claim/evidence" in launch, "launch missing strict claim/evidence audit wording", failures)
