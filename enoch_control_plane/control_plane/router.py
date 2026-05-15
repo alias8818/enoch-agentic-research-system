@@ -1353,19 +1353,137 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         authorize(authorization)
         return dashboard_status_response(refresh_worker=refresh_worker)
 
+    def _artifact_root_for_queue_row(row: dict[str, Any]) -> tuple[Path, str]:
+        project_id = str(row.get("project_id") or "").strip()
+        project_dir_text = str(row.get("project_dir") or project_id).strip()
+        root = config.expanded_project_root.resolve()
+        artifact_root = (root / project_id).resolve()
+        if project_dir_text:
+            candidate_root = Path(project_dir_text).expanduser()
+            if candidate_root.is_absolute():
+                try:
+                    candidate_root.resolve().relative_to(root)
+                    artifact_root = candidate_root.resolve()
+                except ValueError:
+                    artifact_root = (root / project_id).resolve()
+            else:
+                artifact_root = (root / candidate_root).resolve()
+        return artifact_root, project_dir_text
+
+    def _auto_reconcile_stale_callback_ready(status: DashboardStatusResponse, *, requested_by: str) -> list[dict[str, Any]]:
+        if not status.active_items:
+            return []
+        has_no_live_conflict = any(
+            item.source == "control_plane_db+worker_preflight" and "no live worker run" in item.message
+            for item in [*status.conflicts, *status.warnings]
+        )
+        if not has_no_live_conflict:
+            return []
+        reconciled: list[dict[str, Any]] = []
+        for row in status.active_items:
+            project_id = str(row.get("project_id") or "").strip()
+            run_id = str(row.get("current_run_id") or "").strip()
+            if not project_id or not run_id:
+                continue
+            artifact_root, project_dir_text = _artifact_root_for_queue_row(row)
+            evidence_sync = _sync_remote_project_evidence(
+                config,
+                project_id=project_id,
+                artifact_root=artifact_root,
+                source_project_dir=project_dir_text if project_dir_text.startswith("/") else "",
+                source_run_id=run_id,
+            )
+            gate = paper_draft_decision_gate(artifact_root)
+            if not gate.get("values"):
+                reconciled.append({
+                    "ok": False,
+                    "project_id": project_id,
+                    "run_id": run_id,
+                    "reason": "missing project decision artifact",
+                    "artifact_root": str(artifact_root),
+                    "evidence_sync": evidence_sync,
+                })
+                continue
+            callback = GateCallback(
+                event_type="wake_ready",
+                run_id=run_id,
+                session_id=str(row.get("current_session_id") or ""),
+                project_id=project_id,
+                project_name=str(row.get("project_name") or project_id),
+                source_event="control-plane-auto-reconcile",
+                gate_state="wake_ready",
+                process_tracking={"root_pid": None, "process_group_id": None, "processes": [], "live_process_count": 0},
+                telemetry={"replayed_by": requested_by, "artifact_root": str(artifact_root), "evidence_sync": evidence_sync},
+                reason="auto replay: active row had no live worker run but durable decision artifact exists",
+                idempotency_key=f"{run_id}:wake_ready:auto-reconcile:{requested_by}",
+            )
+            try:
+                event_id, inserted, updated = store.record_worker_callback(callback, received_by="queue-alert-auto-reconcile")
+                decision_record = store.record_project_decision_gate(project_id=project_id, run_id=run_id, artifact_root=artifact_root) if hasattr(store, "record_project_decision_gate") else {}
+                if decision_record.get("persisted"):
+                    store.update_project_dir(project_id, str(artifact_root))
+                reconciled.append({
+                    "ok": True,
+                    "project_id": project_id,
+                    "run_id": run_id,
+                    "event_id": event_id,
+                    "inserted_event": inserted,
+                    "queue_status": (updated or {}).get("status"),
+                    "artifact_root": str(artifact_root),
+                    "evidence_sync": evidence_sync,
+                    "decision_record": decision_record,
+                })
+            except Exception as exc:
+                reconciled.append({
+                    "ok": False,
+                    "project_id": project_id,
+                    "run_id": run_id,
+                    "reason": f"{type(exc).__name__}: {exc}",
+                    "artifact_root": str(artifact_root),
+                    "evidence_sync": evidence_sync,
+                })
+        if reconciled:
+            store.append_event(
+                idempotency_key=f"queue-alert-auto-reconcile:{utc_now()}",
+                event_type="queue_alert.auto_reconcile",
+                entity_type="queue_alert",
+                entity_id="active-lane",
+                payload={"requested_by": requested_by, "results": reconciled},
+            )
+        return reconciled
+
     @router.post("/api/alerts/queue-check")
     def dashboard_queue_alert_check(payload: dict[str, Any] | None = None, authorization: str | None = Header(default=None)) -> dict[str, Any]:
         authorize(authorization)
         request_payload = payload or {}
+        dry_run = bool(request_payload.get("dry_run", True))
+        requested_by = str(request_payload.get("requested_by") or "operator")
         status = dashboard_status_response(refresh_worker=bool(request_payload.get("refresh_worker", False)))
-        return evaluate_and_notify_queue_alerts(
+        auto_reconcile: list[dict[str, Any]] = []
+        if not dry_run:
+            auto_reconcile = _auto_reconcile_stale_callback_ready(status, requested_by=requested_by)
+            if any(item.get("ok") for item in auto_reconcile):
+                status = dashboard_status_response(refresh_worker=False)
+        alert = evaluate_and_notify_queue_alerts(
             config=config,
             store=store,
             status=status,
-            dry_run=bool(request_payload.get("dry_run", True)),
+            dry_run=dry_run,
             force_notify=bool(request_payload.get("force_notify", False)),
-            requested_by=str(request_payload.get("requested_by") or "operator"),
+            requested_by=requested_by,
         )
+        if auto_reconcile:
+            alert["auto_reconcile"] = auto_reconcile
+            if any(item.get("ok") for item in auto_reconcile) and not status.active_items:
+                alert.update({
+                    "should_alert": False,
+                    "sent": False,
+                    "suppressed_by_cooldown": False,
+                    "fingerprint": "auto-reconciled",
+                    "findings": [],
+                    "notification": {"attempted": False, "ok": True, "status_code": None, "detail": "auto reconciled stale callback"},
+                })
+        return alert
 
     @router.get("/api/queue-health")
     def dashboard_queue_health(refresh_worker: bool = Query(default=False), authorization: str | None = Header(default=None)) -> dict[str, Any]:

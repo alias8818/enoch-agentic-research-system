@@ -43,6 +43,8 @@ case "$MODE" in
 esac
 
 mkdir -p "$PROJECT_DIR/.enoch/logs" "$PROJECT_DIR/.enoch/state" "$PROJECT_DIR/.omx/logs" "$PROJECT_DIR/.omx/state"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
 export ENOCH_RUN_ID="$RUN_ID"
@@ -51,6 +53,7 @@ export ENOCH_PROJECT_DIR="$PROJECT_DIR"
 export ENOCH_LAUNCH_ROOT_PID="$$"
 export ENOCH_LAUNCH_PGID="$(ps -o pgid= -p $$ | tr -d ' ')"
 export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/bin:$PATH"
+export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
 # Upstream Codex still recognizes this variable; keep disabled by default to avoid legacy OMX wrappers.
 export USE_OMX_EXPLORE_CMD="${USE_OMX_EXPLORE_CMD:-0}"
 
@@ -158,6 +161,7 @@ fi
 CALLBACK_URL="${ENOCH_COMPLETION_CALLBACK_URL:-}"
 CALLBACK_TOKEN="${ENOCH_COMPLETION_CALLBACK_TOKEN:-}"
 CALLBACK_TIMEOUT="${ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC:-120}"
+WORKER_STATE_DIR="${ENOCH_WORKER_STATE_DIR:-$PROJECT_DIR/.enoch/state}"
 CALLBACK_EVENT="wake_ready"
 CALLBACK_GATE="wake_ready"
 CALLBACK_REASON="codex runner completed"
@@ -168,10 +172,11 @@ if [[ "$EXIT_CODE" -ne 0 ]]; then
 fi
 
 if [[ -n "$CALLBACK_URL" && -n "$CALLBACK_TOKEN" ]]; then
-  python3 - <<'PY' "$CALLBACK_URL" "$CALLBACK_TOKEN" "$CALLBACK_TIMEOUT" "$RUN_ID" "$SESSION_ID_EFFECTIVE" "$PROJECT_ID" "$CALLBACK_EVENT" "$CALLBACK_GATE" "$CALLBACK_REASON" "$EXIT_CODE" "$PROJECT_DIR" "$STARTED_AT" "$ENDED_AT"
-import json, sys, urllib.request, urllib.error
+  CALLBACK_PAYLOAD_FILE="$PROJECT_DIR/.enoch/state/${RUN_ID}.callback_payload.json"
+  python3 - <<'PY_CALLBACK_PAYLOAD' "$CALLBACK_PAYLOAD_FILE" "$RUN_ID" "$SESSION_ID_EFFECTIVE" "$PROJECT_ID" "$CALLBACK_EVENT" "$CALLBACK_GATE" "$CALLBACK_REASON" "$EXIT_CODE" "$PROJECT_DIR" "$STARTED_AT" "$ENDED_AT"
+import json, pathlib, sys
 (
-    url, token, timeout, run_id, session_id, project_id, event_type, gate_state,
+    payload_file, run_id, session_id, project_id, event_type, gate_state,
     reason, exit_code, project_dir, started_at, ended_at,
 ) = sys.argv[1:]
 payload = {
@@ -198,48 +203,16 @@ payload = {
     "reason": reason,
     "idempotency_key": f"{run_id}:{event_type}:codex-runner:{ended_at}",
 }
-data = json.dumps(payload).encode("utf-8")
-req = urllib.request.Request(
-    url,
-    data=data,
-    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-    method="POST",
-)
-def mark_local_worker_state_delivered(idempotency_key):
-    import os, pathlib, time
-    state_dir = os.environ.get("ENOCH_WORKER_STATE_DIR", "").strip()
-    if not state_dir:
-        return
-    path = pathlib.Path(state_dir).expanduser() / "runs" / f"{run_id}.json"
-    for _ in range(40):
-        if path.exists():
-            break
-        time.sleep(0.25)
-    if not path.exists():
-        print(f"worker state record not found for callback mark: {path}", file=sys.stderr)
-        return
-    try:
-        record = json.loads(path.read_text(encoding="utf-8"))
-        record["gate_state"] = gate_state
-        record["last_idempotency_key"] = idempotency_key
-        record["updated_at"] = ended_at
-        path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    except Exception as exc:
-        print(f"worker state callback mark failed: {type(exc).__name__}: {exc}", file=sys.stderr)
-
-try:
-    with urllib.request.urlopen(req, timeout=float(timeout)) as resp:
-        body = resp.read().decode("utf-8", errors="replace")
-        print(body)
-        mark_local_worker_state_delivered(payload["idempotency_key"])
-except urllib.error.HTTPError as exc:
-    body = exc.read().decode("utf-8", errors="replace")
-    print(body, file=sys.stderr)
-    raise SystemExit(20)
-except Exception as exc:
-    print(f"callback delivery failed: {exc}", file=sys.stderr)
-    raise SystemExit(21)
-PY
+path = pathlib.Path(payload_file)
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY_CALLBACK_PAYLOAD
+  python3 -m enoch_control_plane.callback_outbox write --state-dir "$WORKER_STATE_DIR" --payload-file "$CALLBACK_PAYLOAD_FILE" >/dev/null
+  if python3 -m enoch_control_plane.callback_outbox deliver --state-dir "$WORKER_STATE_DIR" --run-id "$RUN_ID" --url "$CALLBACK_URL" --token "$CALLBACK_TOKEN" --timeout "$CALLBACK_TIMEOUT"; then
+    true
+  else
+    echo "callback delivery failed; durable callback outbox will retry: $WORKER_STATE_DIR/callback_outbox/${RUN_ID}.json" >&2
+  fi
 else
   echo "completion callback not configured; leaving local artifacts only" >&2
 fi

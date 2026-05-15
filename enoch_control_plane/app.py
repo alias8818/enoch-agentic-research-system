@@ -16,6 +16,7 @@ from typing import Any
 from fastapi import FastAPI, Header, HTTPException, Query, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from . import callback_outbox
 from .callbacks import CallbackSender
 from .control_plane.router import create_control_plane_router
 from .config import GateConfig
@@ -2314,6 +2315,30 @@ async def _deliver_callback(callback: GateCallback) -> tuple[bool, str]:
         return False, f"{type(exc).__name__}: {exc}"
 
 
+async def _replay_callback_outbox_once() -> None:
+    if not config.completion_callback_url or not config.completion_callback_token:
+        return
+    results = await asyncio.to_thread(
+        callback_outbox.replay_pending,
+        state_dir=config.expanded_state_dir,
+        url=config.completion_callback_url,
+        token=config.completion_callback_token,
+        timeout=float(config.completion_callback_timeout_sec),
+        limit=10,
+    )
+    for result in results:
+        store.append_event(
+            {
+                "kind": "callback_outbox_replay",
+                "ok": result.ok,
+                "status_code": result.status_code,
+                "detail": result.detail,
+                "path": result.path,
+                "timestamp": utc_now(),
+            }
+        )
+
+
 async def _reap_and_log_stale_project_processes(record: RunRecord) -> None:
     reaped_processes = await asyncio.to_thread(gate.reap_stale_project_processes, record)
     if not reaped_processes:
@@ -2442,6 +2467,7 @@ def _ensure_evaluator(run_id: str) -> None:
 async def _reconcile_missing_idle_loop() -> None:
     try:
         while True:
+            await _replay_callback_outbox_once()
             for record in store.list_runs():
                 record = _assign_record_workload_profile(record)
                 if record.gate_state == GateState.RUNNING:

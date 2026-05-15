@@ -94,6 +94,29 @@ Current hardening:
 
 Still not covered: if the worker process is killed mid-run before the gate can observe completion and before a decision artifact exists, the operator must inspect the worker project directory and reconcile the active row from evidence.
 
+## CLCA: callback timeout after control-plane stall
+
+Symptom: Pushover reports an active VM row with no live GB10 worker run, usually after the control-plane API was slow, wedged, or restarting.
+
+Mitigation now in place:
+
+- Codex runner writes a durable callback payload before attempting delivery.
+- GB10 worker gate replays pending callback outbox records on its normal reconciliation loop.
+- Queue alert checks attempt auto-reconciliation before paging when the worker has no live run and a decision artifact exists.
+- Successful auto-reconciliation records the normal worker callback, syncs high-signal evidence, persists the project decision when supported by the store backend, and suppresses the stale-run Pushover alert.
+
+Verification:
+
+```bash
+curl -fsS -H "Authorization: Bearer $TOKEN"   -H "Content-Type: application/json"   -d '{"dry_run":true,"requested_by":"operator"}'   "$ENOCH_CONTROL_URL/control/api/alerts/queue-check" | python3 -m json.tool
+
+curl -fsS -H "Authorization: Bearer $TOKEN"   "$ENOCH_CONTROL_URL/control/api/v1/automation-readiness" | python3 -m json.tool
+```
+
+Expected healthy result: queue alert `findings` is empty, readiness is `READY`, the stuck queue row has moved from `awaiting_wake` to `completed`, and negative decisions remain no-paper unless the normal decision gate is positive.
+
+Manual replay is now an escape hatch, not the normal path. Use it only if the callback outbox is missing, malformed, or cannot reach the control plane after retries.
+
 ## Pause and resume
 
 Pause before maintenance, uncertain callback state, provider budget failures, worker instability, or public release operations:

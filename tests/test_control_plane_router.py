@@ -2325,6 +2325,58 @@ class ControlPlaneRouterTests(unittest.TestCase):
             second = client.post("/control/api/alerts/queue-check", headers=headers, json={"dry_run": False}).json()
             self.assertTrue(second["suppressed_by_cooldown"])
 
+    def test_queue_alert_check_auto_reconciles_stale_callback_with_local_decision_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_dir = Path(config.project_root) / "idea-auto-reconcile"
+            (project_dir / ".enoch").mkdir(parents=True)
+            (project_dir / "run_notes.md").write_text("completed\n", encoding="utf-8")
+            (project_dir / ".enoch" / "project_decision.json").write_text(json.dumps({
+                "project_decision": "finalize_negative",
+                "hypothesis_status": "mixed",
+                "confidence": "medium",
+                "evidence_strength": "moderate",
+                "novelty_progress": True,
+                "results_changed": True,
+                "recommended_next_action": "stop",
+                "stop_reason": "negative",
+                "followup_recommended": False,
+                "followup_type": "",
+                "followup_title": "",
+                "followup_hypothesis": "",
+                "followup_required_evidence": [],
+                "followup_success_threshold": "",
+                "followup_stop_condition": "",
+                "followup_depth": 0,
+            }), encoding="utf-8")
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "auto-reconcile-alert-import",
+                "queue_rows": [{
+                    "project_id": "idea-auto-reconcile",
+                    "project_name": "Auto Reconcile",
+                    "project_dir": "idea-auto-reconcile",
+                    "status": "awaiting_wake",
+                    "current_run_id": "run-auto-reconcile",
+                }],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                payload={"ok": True, "checks": [{"name": "worker_no_live_runs", "ok": True, "detail": "active_or_waiting=0, live=0", "data": {"active_or_waiting": 0, "live": 0}}]},
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+
+            alert = client.post("/control/api/alerts/queue-check", headers=headers, json={"dry_run": False, "requested_by": "test"}).json()
+
+            self.assertFalse(alert["should_alert"])
+            self.assertTrue(alert["auto_reconcile"][0]["ok"])
+            status = client.get("/control/api/status", headers=headers).json()
+            self.assertEqual(status["active_items"], [])
+
     def test_worker_callback_clears_active_lane(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client_with_config(_live_config(tmp))

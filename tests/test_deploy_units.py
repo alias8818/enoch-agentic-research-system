@@ -366,14 +366,18 @@ def test_codex_dispatch_resolves_runner_relative_to_deploy_script() -> None:
     assert '$HOME/projects/enoch-agentic-research-system/deploy/enoch_codex_runner.sh' not in script
 
 
-def test_codex_runner_marks_local_worker_state_after_callback() -> None:
+def test_codex_runner_uses_durable_callback_outbox() -> None:
     runner = (ROOT / "deploy" / "enoch_codex_runner.sh").read_text(encoding="utf-8")
     app = (ROOT / "enoch_control_plane" / "app.py").read_text(encoding="utf-8")
+    outbox = (ROOT / "enoch_control_plane" / "callback_outbox.py").read_text(encoding="utf-8")
     assert '"ENOCH_WORKER_STATE_DIR": str(config.expanded_state_dir)' in app
-    assert 'def mark_local_worker_state_delivered(idempotency_key):' in runner
-    assert 'pathlib.Path(state_dir).expanduser() / "runs" / f"{run_id}.json"' in runner
-    assert 'record["last_idempotency_key"] = idempotency_key' in runner
-    assert 'mark_local_worker_state_delivered(payload["idempotency_key"])' in runner
+    assert "python3 -m enoch_control_plane.callback_outbox write" in runner
+    assert 'export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"' in runner
+    assert "python3 -m enoch_control_plane.callback_outbox deliver" in runner
+    assert "callback delivery failed; durable callback outbox will retry" in runner
+    assert "def _mark_local_worker_state_delivered" in outbox
+    assert 'record["last_idempotency_key"] = payload.get("idempotency_key")' in outbox
+    assert "await _replay_callback_outbox_once()" in app
 
 
 def test_codex_runner_sets_gb10_path_before_resolving_codex_binary() -> None:
