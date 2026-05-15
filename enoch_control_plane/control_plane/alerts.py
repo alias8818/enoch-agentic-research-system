@@ -31,6 +31,14 @@ def _parse_ts(raw: str | None) -> datetime | None:
         return None
 
 
+def _observed_at_text(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw.isoformat()
+    return str(raw)
+
+
 def _event_payload_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:16]
 
@@ -97,7 +105,7 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
                     source=source,
                     authority=freshness.authority,
                     message=f"{source} is stale or missing while live dispatch is enabled",
-                    observed_at=freshness.observed_at,
+                    observed_at=_observed_at_text(freshness.observed_at),
                     suggested_action="refresh /control/api/preflight and verify GB10 worker health",
                 ))
 
