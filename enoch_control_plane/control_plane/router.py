@@ -690,7 +690,7 @@ Decision rules:
 - Use `branch_new_project` only when this run found a distinct follow-up idea.
 
 Evidence-depth rules:
-- Do not add decision fields or enum values beyond the schema above.
+- Do not add new decision fields or enum values. Use only the schema above.
 - This deployment does not have datacenter-scale training. Do not treat lack of 7B+/multi-node/full-scale training as a universal failure; judge whether the small/toy/medium evidence creates a useful scoped signal.
 - The #1 rule is to produce something useful for someone else in the world. A small, reproducible signal with honest limits can be valuable even when it only invites hyperscaler follow-up.
 - Treat promising research as a tiered ladder, not a one-shot yes/no test: small probe -> medium confirmation -> bounded full-scale validation -> robustness/ablation before paper.
