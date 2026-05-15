@@ -45,6 +45,14 @@ PAPER_PRIMARY_DECISION_FIELDS = (
     "recommendation",
 )
 PAPER_SUPPORTING_DECISION_FIELDS = ("hypothesis_status", "status")
+PAPER_USEFUL_SIGNAL_FIELDS = (
+    "research_outcome",
+    "bounded_paper_ready",
+    "claim_scope",
+    "scale_limits",
+    "useful_signal_summary",
+    "compute_scale_blocked",
+)
 
 
 def text(value: Any) -> str:
@@ -88,10 +96,51 @@ def _paper_decision_json_values(artifact_root: str | Path) -> list[tuple[str, st
             continue
         if not isinstance(payload, dict):
             continue
-        for field in (*PAPER_PRIMARY_DECISION_FIELDS, *PAPER_SUPPORTING_DECISION_FIELDS):
+        for field in (*PAPER_PRIMARY_DECISION_FIELDS, *PAPER_SUPPORTING_DECISION_FIELDS, *PAPER_USEFUL_SIGNAL_FIELDS):
             if field in payload:
                 values.append((relative, field, text(payload.get(field))))
     return values
+
+
+def _paper_decision_json_payloads(artifact_root: str | Path) -> list[tuple[str, dict[str, Any]]]:
+    root = Path(artifact_root)
+    payloads: list[tuple[str, dict[str, Any]]] = []
+    for relative in PAPER_DECISION_FILES:
+        path = root / relative
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict):
+            payloads.append((relative, payload))
+    return payloads
+
+
+def _bounded_useful_signal_ready(payload: dict[str, Any]) -> bool:
+    """Return whether a useful-signal result is scoped enough for a bounded paper.
+
+    This is deliberately narrower than "promising." It admits local-hardware
+    useful signals only when the worker explicitly scopes the claim, names the
+    scale limits, and marks the bounded paper as ready. Unsupported/proxy-only
+    notes remain no-paper unless the artifact makes that scoped claim explicit.
+    """
+
+    outcome = _normal(payload.get("research_outcome"))
+    if outcome not in {"useful_signal", "paper_positive"}:
+        return False
+    if not truthy(payload.get("bounded_paper_ready")):
+        return False
+    if _normal(payload.get("hypothesis_status")) not in {"supported", "mixed"}:
+        return False
+    if _normal(payload.get("evidence_strength")) not in {"moderate", "strong"}:
+        return False
+    if not text(payload.get("claim_scope")):
+        return False
+    if not text(payload.get("scale_limits")):
+        return False
+    return True
 
 
 
@@ -149,11 +198,25 @@ def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
     if not values:
         return {"eligible": False, "reason": "missing project decision artifact", "values": []}
 
+    payload_by_source = dict(_paper_decision_json_payloads(artifact_root))
     primary = [(source, field, _normal(value)) for source, field, value in values if field in PAPER_PRIMARY_DECISION_FIELDS]
     supporting = [(source, field, _normal(value)) for source, field, value in values if field in PAPER_SUPPORTING_DECISION_FIELDS]
 
     for source, field, value in primary:
         if _has_decision_token(value, PAPER_DRAFT_BLOCKED_DECISION_TOKENS):
+            payload = payload_by_source.get(source) or {}
+            if _bounded_useful_signal_ready(payload):
+                return {
+                    "eligible": True,
+                    "reason": "bounded useful signal is paper-scoped",
+                    "source": source,
+                    "field": field,
+                    "decision": value,
+                    "values": values,
+                    "research_outcome": text(payload.get("research_outcome")),
+                    "claim_scope": text(payload.get("claim_scope")),
+                    "scale_limits": text(payload.get("scale_limits")),
+                }
             return {"eligible": False, "reason": "project decision is not positive", "source": source, "field": field, "decision": value, "values": values}
 
     for source, field, value in primary:

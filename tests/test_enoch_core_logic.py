@@ -116,6 +116,40 @@ class EnochCoreLogicTests(unittest.TestCase):
             self.assertEqual(followup["followup_required_evidence"], ["runtime trace", "baseline comparison"])
             self.assertFalse(paper_draft_decision_gate(root)["eligible"])
 
+    def test_bounded_useful_signal_can_pass_scoped_paper_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".enoch").mkdir()
+            payload = {
+                "project_decision": "finalize_negative",
+                "research_outcome": "useful_signal",
+                "bounded_paper_ready": True,
+                "hypothesis_status": "supported",
+                "evidence_strength": "moderate",
+                "claim_scope": "GPT-2-small-class toy validation with a dense baseline.",
+                "scale_limits": "No 7B or multi-node training was run.",
+            }
+            (root / ".enoch" / "project_decision.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
+            gate = paper_draft_decision_gate(root)
+            self.assertTrue(gate["eligible"])
+            self.assertEqual(gate["reason"], "bounded useful signal is paper-scoped")
+
+    def test_useful_signal_without_scope_remains_no_paper(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".enoch").mkdir()
+            payload = {
+                "project_decision": "finalize_negative",
+                "research_outcome": "useful_signal",
+                "bounded_paper_ready": True,
+                "hypothesis_status": "supported",
+                "evidence_strength": "moderate",
+                "scale_limits": "No large-scale training was run.",
+            }
+            (root / ".enoch" / "project_decision.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
+            gate = paper_draft_decision_gate(root)
+            self.assertFalse(gate["eligible"])
+
     def test_wake_ready_negative_decision_artifacts_fail_paper_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

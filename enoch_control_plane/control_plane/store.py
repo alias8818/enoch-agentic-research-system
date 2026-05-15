@@ -1777,10 +1777,17 @@ class ControlPlaneStore:
             and _text(row.get("followup_success_threshold"))
             and _text(row.get("followup_stop_condition"))
             and _int(row.get("followup_depth"), 0) < max_followup_depth
+            and not _bool(row.get("compute_scale_blocked"))
             and not _bool(row.get("followup_launched"))
             and (not project_id or _text(row.get("project_id")) == project_id)
         ]
-        candidates.sort(key=lambda row: _text(row.get("updated_at")), reverse=True)
+        candidates.sort(
+            key=lambda row: (
+                1 if _text(row.get("research_outcome")) in {"useful_signal", "paper_positive"} else 0,
+                _text(row.get("updated_at")),
+            ),
+            reverse=True,
+        )
         return candidates[0] if candidates else None
 
     def launch_followup_candidate(self, *, project_id: str = "", dry_run: bool = True, requested_by: str = "operator", max_followup_depth: int = 4) -> dict[str, Any]:

@@ -25,6 +25,8 @@ The dashboard and assistant should answer simple questions with these lanes:
 | `running` | Work is dispatching, running, writing, finalizing, or waiting for wake callback. | Wait. |
 | `needs_operator` | A blocker, worker question, dispatch/gate failure, manual-action flag, or automation blocker exists. | Resolve the blocker/question. |
 | `complete_no_paper` | Worker delivery is complete, but the paper decision gate is not actionable-positive. | Select the next project. |
+| `useful_signal` | Worker delivery found bounded local evidence that is useful but not yet paper-positive. | Preserve it or launch one cheap bounded deepen run. |
+| `compute_scale_blocked` | Worker delivery found a promising signal whose next meaningful validation exceeds local compute/time limits. | Park as promising-if-scaled unless a cheaper test is defined. |
 | `followup_investigation` | Worker delivery is no-paper, but the decision artifact recommends a specific bounded adjacent test. | Launch a follow-up only if the next investigation is still worth worker time. |
 | `write_paper` | A completed run has no live paper row and passes the positive paper decision gate. | Run bounded/explicit paper drafting only. |
 | `automate_publication` | A paper exists and still needs automated rewrite/finalization/package work. | Let automation finalize or inspect artifacts if automation failed. |
@@ -43,6 +45,8 @@ Operator-facing labels must stay grade-school simple even when raw keys remain s
 | `ready_queue` | Ready |
 | `needs_operator` / `blocked_needs_operator` | Needs Attention |
 | `complete_no_paper` / `run_complete_no_paper` | Done / No Paper |
+| `useful_signal` | Useful Signal |
+| `compute_scale_blocked` | Scale Blocked |
 | `followup_investigation` / `followup_candidate` | Investigate Next |
 | `write_paper` / `run_complete_draft_needed` | Write Paper |
 | `automate_publication` / `finalization_needed` | Finalize Draft |
@@ -58,6 +62,8 @@ Count fields follow the same split:
 - `operator_counts` groups rows by canonical operator lane and keeps `operator_stage`/`operator_lane` vocabulary user-facing.
 - `operator_detail_counts` groups rows by compatibility/detail stage for drill-down metrics and legacy counters.
 - `paper_pipeline.write_needed`, `paper_pipeline.finalize_needed`, and `paper_pipeline.publish_ready` are the preferred actionable paper-work counters. `publish_ready` means finalized drafts missing a corpus-import ledger row, not all historical finalized drafts. `paper_pipeline.publication_ready_total` and `paper_pipeline.published_imported` are informational reconciliation counts.
+- `investigation_pipeline.useful_signals` counts bounded local useful signals that are not currently paper-positive.
+- `investigation_pipeline.compute_scale_blocked` counts promising signals parked because the next validation exceeds local compute/time limits.
 - `investigation_pipeline.followup_needed` is the preferred actionable adjacent-investigation counter. It is separate from paper writing: a follow-up candidate is no-paper until its own independent run later produces a positive paper decision.
 
 ## Canonical lifecycle state surfaces

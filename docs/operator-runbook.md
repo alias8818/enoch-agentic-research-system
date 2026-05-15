@@ -38,8 +38,10 @@ uv run python scripts/check_longhaul_readiness.py \
 | --- | --- | --- |
 | What needs me? | `needs_attention` / `needs_operator` | Real blocker, worker question, dispatch failure, stale callback, or manual-action flag. |
 | What is running? | `running`, `counts.active`, active worker rows | Active dispatch/run/paper/finalization or callback wait. |
+| What is useful? | `investigation_pipeline.useful_signals` / `useful_signal` | Bounded local evidence that is useful but not yet paper-positive. |
+| Compute-scale blocked? | `investigation_pipeline.compute_scale_blocked` / `compute_scale_blocked` | Promising signal parked because the next validation exceeds local compute or time limits. |
 | What can be written? | `paper_pipeline.write_needed` | Decision-gated positive paper work only. |
-| Needs another investigation? | `investigation_pipeline.followup_needed` | No-paper row with concrete bounded follow-up metadata. |
+| Needs another investigation? | `investigation_pipeline.followup_needed` | No-paper row with concrete bounded follow-up metadata. Useful-signal follow-ups are prioritized when bounded and cheap. |
 | What can be published? | `paper_pipeline.publish_ready` | Finalized package missing corpus import ledger. |
 | What is done/no paper? | `complete_no_paper` | Completed worker delivery that is not paper-positive. |
 
@@ -149,6 +151,8 @@ Confirm papers are written only from positive decisions:
    - compatibility mirror only: `.omx/project_decision.json`.
 3. The only normal positive decision is exact `finalize_positive`.
 4. `finalize_negative`, `needs_review`, `blocked`, missing, malformed, unknown, and follow-up-only decisions are no-paper until a later independent run becomes positive.
-5. `continue` is not positive unless the control-plane compatibility parser has exact supported evidence in its supporting field.
+5. `research_outcome: useful_signal` means the run found bounded local evidence worth preserving or deepening, not broad/full-scale validation. It may become write work only when the artifact also sets `bounded_paper_ready: true` and includes honest `claim_scope` and `scale_limits`.
+6. `research_outcome: promising_if_scaled` plus `compute_scale_blocked: true` means park the result unless a cheaper bounded test is defined; do not spend local runs on scale-only validation.
+7. `continue` is not positive unless the control-plane compatibility parser has exact supported evidence in its supporting field.
 
-Negative and mixed results are successful worker outcomes when they are evidence-backed. They must not become paper-writing backlog.
+Negative, mixed, and useful-signal results are successful worker outcomes when they are evidence-backed. They must not become paper-writing backlog unless the scoped paper gate passes.

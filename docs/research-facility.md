@@ -159,7 +159,7 @@ The dashboard follows the same split:
 
 ## Generation and follow-up policy
 
-The provider prompt now biases candidates toward experiments that can produce direct evidence on local hardware:
+The provider prompt now biases candidates toward experiments that can produce direct evidence on local hardware. The operating context is intentionally bounded: Enoch can run toy/small/medium tests and small-to-medium inference, but not datacenter-scale training. Lack of 7B+/multi-node validation is not automatically negative when the scoped local signal is useful and honest:
 
 - GPT-2-small-class or parameter-matched architecture tests;
 - tiny pretraining/data-selection experiments with bounded seeds;
@@ -169,7 +169,7 @@ The provider prompt now biases candidates toward experiments that can produce di
 
 It explicitly rejects ideas that only work as unavailable cloud/service plans, private-dataset requirements, or pure simulations of systems the worker cannot actually exercise.
 
-Follow-up launch preserves the strict paper gate. A no-paper result can still earn a stronger next run when it is `finalize_negative` with mixed/supported mechanism evidence, at least moderate evidence strength, concrete follow-up evidence requirements, and depth below 3. Those runs receive controller source metadata with a validation ladder target:
+Follow-up launch preserves the strict paper gate. A no-paper result can still earn a stronger next run when it is `finalize_negative` or `research_outcome: useful_signal` with mixed/supported mechanism evidence, at least moderate evidence strength, concrete follow-up evidence requirements, and depth below 3. Useful-signal follow-ups are preferred over fresh ideas when the next test is cheap and bounded. If the only next step is hyperscaler/datacenter validation, the worker should set `research_outcome: promising_if_scaled` and `compute_scale_blocked: true` instead of recommending another local run. Those runs receive controller source metadata with a validation ladder target:
 
 1. Tier 0: smoke/proxy falsification.
 2. Tier 1: controlled small direct test.
@@ -177,7 +177,7 @@ Follow-up launch preserves the strict paper gate. A no-paper result can still ea
 4. Tier 3: bounded full validation, normally capped around 24 hours.
 5. Tier 4: paper-readiness replication and robustness.
 
-The worker prompt tells the agent not to close promising follow-ups on another tiny proxy unless that proxy directly falsifies the stated threshold. Proxy-only positives still remain no-paper until a later run independently satisfies publication-grade evidence.
+The worker prompt tells the agent not to close promising follow-ups on another tiny proxy unless that proxy directly falsifies the stated threshold. Proxy-only positives still remain no-paper until a later run independently satisfies publication-grade evidence or the claim is explicitly scoped to that proxy. A useful-signal paper is allowed only when `bounded_paper_ready: true`, `claim_scope`, and `scale_limits` make the paper useful without overstating the validation scale.
 
 The provider-backed endpoint is:
 

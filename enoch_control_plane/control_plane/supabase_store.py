@@ -1087,6 +1087,16 @@ class SupabaseReadOnlyControlPlaneStore:
                               ''::text as related_source_record_fingerprint,
                               coalesce(pe.decision_gate_state, '') as decision_gate_state,
                               coalesce(pe.decision_summary, '') as decision_summary,
+                              coalesce(pe.research_outcome, '') as research_outcome,
+                              coalesce(pe.hypothesis_status, '') as hypothesis_status,
+                              coalesce(pe.evidence_strength, '') as evidence_strength,
+                              coalesce(pe.claim_scope, '') as claim_scope,
+                              coalesce(pe.scale_limits, '') as scale_limits,
+                              coalesce(pe.useful_signal_summary, '') as useful_signal_summary,
+                              coalesce(pe.bounded_paper_ready, false) as bounded_paper_ready,
+                              coalesce(pe.compute_scale_blocked, false) as compute_scale_blocked,
+                              coalesce(pe.recommended_next_action, '') as recommended_next_action,
+                              coalesce(pe.stop_reason, '') as stop_reason,
                               coalesce(pe.followup_recommended, false) as followup_recommended,
                               coalesce(pe.followup_type, '') as followup_type,
                               coalesce(pe.followup_title, '') as followup_title,
@@ -3114,6 +3124,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "coalesce(pe.followup_stop_condition, '') <> ''",
             "greatest(coalesce(pe.followup_depth, 0), case when coalesce(i.source_payload_json->>'followup_depth', '') ~ '^[0-9]+$' then (i.source_payload_json->>'followup_depth')::integer when coalesce(i.source_payload_json->>'parent_followup_depth', '') ~ '^[0-9]+$' then (i.source_payload_json->>'parent_followup_depth')::integer else 0 end) < %s",
             "not coalesce(pe.has_live_paper_row, false)",
+            "not coalesce(pe.compute_scale_blocked, false)",
             "not exists (select 1 from control_events ev where ev.event_type = 'followup.launch' and ev.entity_type = 'project' and ev.entity_id = q.project_id)",
         ]
         params: list[Any] = [QueueStatus.COMPLETED.value, max_followup_depth]
@@ -3124,7 +3135,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "left join paper_eligibility pe on pe.project_id = q.project_id "
             + "where "
             + " and ".join(clauses)
-            + " order by q.updated_at desc limit 1",
+            + " order by case when coalesce(pe.research_outcome, '') in ('useful_signal', 'paper_positive') then 0 else 1 end, q.updated_at desc limit 1",
             params,
         )
         return rows[0] if rows else None

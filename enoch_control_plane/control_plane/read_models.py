@@ -33,6 +33,8 @@ OPERATOR_LANE_LABELS: dict[str, str] = {
     OperatorLane.READY_QUEUE.value: "Ready",
     OperatorLane.NEEDS_OPERATOR.value: "Needs Attention",
     OperatorLane.COMPLETE_NO_PAPER.value: "Done / No Paper",
+    OperatorLane.USEFUL_SIGNAL.value: "Useful Signal",
+    OperatorLane.COMPUTE_SCALE_BLOCKED.value: "Scale Blocked",
     OperatorLane.FOLLOWUP_INVESTIGATION.value: "Investigate Next",
     OperatorLane.WRITE_PAPER.value: "Write Paper",
     OperatorLane.AUTOMATE_PUBLICATION.value: "Finalize Draft",
@@ -46,6 +48,8 @@ OPERATOR_DETAIL_LABELS: dict[str, str] = {
     "blocked_needs_operator": "Needs Attention",
     "paused_work": "Paused",
     "run_complete_no_paper": "Done / No Paper",
+    "useful_signal": "Useful Local Signal",
+    "compute_scale_blocked": "Scale-Limited Signal",
     "published": "Published",
     "ready_to_publish": "Publish / Import",
     "finalization_needed": "Finalize Draft",
@@ -184,6 +188,93 @@ def _listish(value: Any) -> list[str]:
     return []
 
 
+def _decision_payload_fields(row: dict[str, Any]) -> dict[str, Any]:
+    payload = row.get("decision_payload_json")
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    decision = payload.get("project_decision")
+    if not isinstance(decision, dict):
+        decision = payload
+    if not isinstance(decision, dict):
+        decision = {}
+    return {
+        "research_outcome": row.get("research_outcome", decision.get("research_outcome", "")),
+        "hypothesis_status": row.get("hypothesis_status", decision.get("hypothesis_status", "")),
+        "evidence_strength": row.get("evidence_strength", decision.get("evidence_strength", "")),
+        "claim_scope": row.get("claim_scope", decision.get("claim_scope", "")),
+        "scale_limits": row.get("scale_limits", decision.get("scale_limits", "")),
+        "useful_signal_summary": row.get("useful_signal_summary", decision.get("useful_signal_summary", "")),
+        "bounded_paper_ready": row.get("bounded_paper_ready", decision.get("bounded_paper_ready", False)),
+        "compute_scale_blocked": row.get("compute_scale_blocked", decision.get("compute_scale_blocked", False)),
+        "recommended_next_action": row.get("recommended_next_action", decision.get("recommended_next_action", "")),
+        "stop_reason": row.get("stop_reason", decision.get("stop_reason", "")),
+    }
+
+
+def _research_outcome(row: dict[str, Any]) -> str:
+    if "decision_payload_json" in row and not _text(row.get("research_outcome")):
+        row = {**row, **_decision_payload_fields(row)}
+    outcome = _text(row.get("research_outcome")).lower().replace("-", "_").replace(" ", "_")
+    if outcome:
+        return outcome
+    return ""
+
+
+def _compute_scale_blocked(row: dict[str, Any]) -> bool:
+    if "decision_payload_json" in row and not _text(row.get("scale_limits")):
+        row = {**row, **_decision_payload_fields(row)}
+    if _truthy(row.get("compute_scale_blocked")):
+        return True
+    outcome = _research_outcome(row)
+    haystack = " ".join(
+        _text(row.get(key)).lower()
+        for key in (
+            "scale_limits",
+            "stop_reason",
+            "recommended_next_action",
+            "last_result_summary",
+            "decision_summary",
+        )
+    )
+    scale_markers = (
+        "hyperscaler",
+        "datacenter",
+        "large model",
+        "large-model",
+        "larger model",
+        "larger-scale",
+        "large-scale",
+        "distributed",
+        "multi-gpu",
+        "full scale",
+        "full-scale",
+    )
+    return outcome in {"useful_signal", "promising_if_scaled"} and any(marker in haystack for marker in scale_markers)
+
+
+def _is_useful_signal(row: dict[str, Any]) -> bool:
+    outcome = _research_outcome(row)
+    return outcome in {"useful_signal", "paper_positive", "promising_if_scaled"}
+
+
+def _useful_signal_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "research_outcome": _research_outcome(row),
+        "hypothesis_status": _text(row.get("hypothesis_status")),
+        "evidence_strength": _text(row.get("evidence_strength")),
+        "claim_scope": _text(row.get("claim_scope")),
+        "scale_limits": _text(row.get("scale_limits")),
+        "useful_signal_summary": _text(row.get("useful_signal_summary")),
+        "bounded_paper_ready": _truthy(row.get("bounded_paper_ready")),
+        "compute_scale_blocked": _compute_scale_blocked(row),
+    }
+
+
 def _followup_from_row(row: dict[str, Any]) -> dict[str, Any]:
     try:
         depth = max(int(row.get("followup_depth") or 0), int(row.get("source_followup_depth") or 0))
@@ -228,7 +319,8 @@ def _paper_draft_gate_from_row_decision(row: dict[str, Any]) -> dict[str, Any] |
         return None
     summary = _text(row.get("decision_summary"))
     if state == "positive":
-        return {"eligible": True, "reason": "project decision is positive", "decision": summary or state, "values": [], "source": "supabase_project_decisions"}
+        reason = "bounded useful signal is paper-scoped" if _research_outcome(row) == "useful_signal" and _truthy(row.get("bounded_paper_ready")) else "project decision is positive"
+        return {"eligible": True, "reason": reason, "decision": summary or state, "values": [], "source": "supabase_project_decisions"}
     reason_by_state = {
         "negative": "project decision is not positive",
         "needs_review": "project decision is not positive",
@@ -356,6 +448,33 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
         gate = _paper_draft_gate_from_row_decision(row) or _paper_draft_gate_for_row(row)
         decision_summary = _decision_summary_from_gate(gate)
         if gate is None or not bool(gate.get("eligible")):
+            if _is_useful_signal(row):
+                signal = _useful_signal_from_row(row)
+                if signal["compute_scale_blocked"]:
+                    return _stage(
+                        "compute_scale_blocked",
+                        lane=OperatorLane.COMPUTE_SCALE_BLOCKED,
+                        tone="info",
+                        attention=False,
+                        next_step="Park as promising-if-scaled unless a cheaper bounded test is defined.",
+                        explanation=f"Worker delivery found a useful signal, but the remaining validation appears to exceed local compute/time limits: {decision_summary or 'not paper-ready'}.",
+                        paper_draft_eligible=False if gate is not None else None,
+                        project_decision_summary=decision_summary,
+                        project_decision_gate=gate,
+                        **signal,
+                    )
+                return _stage(
+                    "useful_signal",
+                    lane=OperatorLane.USEFUL_SIGNAL,
+                    tone="info",
+                    attention=False,
+                    next_step="Prefer one bounded deepen run if it is cheap; otherwise keep the scoped useful signal as no-paper evidence.",
+                    explanation=f"Worker delivery found a useful local signal, but it is not yet paper-positive: {decision_summary or 'not paper-ready'}.",
+                    paper_draft_eligible=False if gate is not None else None,
+                    project_decision_summary=decision_summary,
+                    project_decision_gate=gate,
+                    **signal,
+                )
             if _is_followup_candidate(row):
                 followup = _followup_from_row(row)
                 return _stage(
@@ -393,6 +512,27 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
             project_decision_gate=gate,
         )
     if queue_status == "completed" or last_run_state in WAKE_GATE_COMPLETION_STATES:
+        if not has_paper and _is_useful_signal(row):
+            signal = _useful_signal_from_row(row)
+            if signal["compute_scale_blocked"]:
+                return _stage(
+                    "compute_scale_blocked",
+                    lane=OperatorLane.COMPUTE_SCALE_BLOCKED,
+                    tone="info",
+                    attention=False,
+                    next_step="Park as promising-if-scaled unless a cheaper bounded test is defined.",
+                    explanation="The prior run found a useful signal, but remaining validation exceeds local compute/time limits.",
+                    **signal,
+                )
+            return _stage(
+                "useful_signal",
+                lane=OperatorLane.USEFUL_SIGNAL,
+                tone="info",
+                attention=False,
+                next_step="Prefer one bounded deepen run if it is cheap; otherwise keep the scoped useful signal as no-paper evidence.",
+                explanation="The prior run found a bounded useful signal but no current paper-draft signal is visible.",
+                **signal,
+            )
         if not has_paper and _is_followup_candidate(row):
             followup = _followup_from_row(row)
             return _stage(
@@ -472,6 +612,7 @@ def paper_links(row: dict[str, Any]) -> dict[str, str]:
 
 
 def summarize_queue_row(row: dict[str, Any]) -> dict[str, Any]:
+    decision_fields = _decision_payload_fields(row)
     return with_operator_stage({
         "project_id": row.get("project_id", ""),
         "project_name": row.get("project_name", ""),
@@ -486,6 +627,7 @@ def summarize_queue_row(row: dict[str, Any]) -> dict[str, Any]:
         "blocked_reason": row.get("blocked_reason", ""),
         "decision_gate_state": row.get("decision_gate_state", ""),
         "decision_summary": row.get("decision_summary", ""),
+        **decision_fields,
         "followup_recommended": row.get("followup_recommended", False),
         "followup_type": row.get("followup_type", ""),
         "followup_title": row.get("followup_title", ""),
@@ -735,17 +877,26 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         operator_detail_counts["run_complete_draft_needed"] = len(write_candidates)
     else:
         operator_detail_counts.pop("run_complete_draft_needed", None)
-    followup_rows = [row for row in queue_rows if _text(row.get("operator_detail_stage")) == "followup_candidate"]
+    followup_rows = [row for row in queue_rows if _is_followup_candidate(row) and not _compute_scale_blocked(row)]
+    followup_rows.sort(key=lambda row: (1 if _is_useful_signal(row) else 0, _text(row.get("updated_at"))), reverse=True)
+    useful_signal_rows = [row for row in queue_rows if _is_useful_signal(row) and not _compute_scale_blocked(row)]
+    compute_scale_blocked_rows = [row for row in queue_rows if _compute_scale_blocked(row)]
     publish_candidates = [row for row in paper_rows if _text(row.get("operator_stage")) == "ready_to_publish"]
     imported_candidates = [row for row in paper_rows if bool(row.get("corpus_imported"))]
     imported_candidates.sort(key=lambda row: _text(row.get("corpus_imported_at") or row.get("updated_at")), reverse=True)
     publication_ready_total = operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0) + operator_counts.get(OperatorLane.PUBLISHED.value, 0)
     investigation_pipeline = {
         "followup_needed": len(followup_rows),
+        "useful_signals": len(useful_signal_rows),
+        "compute_scale_blocked": len(compute_scale_blocked_rows),
         "max_followup_depth": MAX_FOLLOWUP_DEPTH,
         "next_followup_candidate": followup_rows[0] if followup_rows else None,
+        "next_useful_signal": useful_signal_rows[0] if useful_signal_rows else None,
+        "next_compute_scale_blocked": compute_scale_blocked_rows[0] if compute_scale_blocked_rows else None,
         "definitions": {
             "followup_needed": "completed no-paper rows whose decision artifact recommends a bounded adjacent investigation",
+            "useful_signals": "completed runs with bounded local evidence that is useful but not currently paper-positive",
+            "compute_scale_blocked": "promising signals whose next evidence would exceed local compute or wall-clock limits",
             "max_followup_depth": "default safety cap for bounded research-campaign follow-up creation",
         },
     }
