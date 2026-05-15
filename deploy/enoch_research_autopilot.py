@@ -363,6 +363,12 @@ def run_quota_gated_janitor_llm_review() -> dict:
         cmd.append("--apply")
     else:
         cmd.append("--dry-run")
+    if _truthy("ENOCH_RESEARCH_JANITOR_LLM_APPLY_STORED", default=True):
+        cmd.append("--apply-stored-decisions")
+        cmd.extend([
+            "--stored-decision-limit",
+            str(_bounded_int("ENOCH_RESEARCH_JANITOR_LLM_STORED_LIMIT", 500, 1, 2000)),
+        ])
     display_cmd = [*cmd]
     if database_url in display_cmd:
         display_cmd[display_cmd.index(database_url)] = "<redacted-database-url>"

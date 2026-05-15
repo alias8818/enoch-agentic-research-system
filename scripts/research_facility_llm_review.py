@@ -4,7 +4,7 @@
 This is a second-opinion layer, not the primary scorer. It spends at most one
 provider request per run, only after Synthetic quota gates pass, and it only
 applies safe deterministic mutations: admitted rows may be moved to admitted;
-rewrite/keep/reject decisions are recorded as control-plane events for now.
+rewrite/keep/reject decisions now close the candidate review loop by moving rows to explicit terminal or holding statuses.
 """
 
 from __future__ import annotations
@@ -26,6 +26,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts import research_facility_maintenance, research_provider_budget, research_provider_generate
 
 DECISIONS = {"admit", "rewrite_contract", "keep_for_later", "reject"}
+NON_ADMIT_STATUS_BY_DECISION = {"reject": "rejected", "rewrite_contract": "rewrite_needed", "keep_for_later": "deferred"}
+ADMISSION_DECISION_BY_STATUS = {"rejected": "rejected", "rewrite_needed": "rewrite_needed", "deferred": "deferred"}
 DEFAULT_MODEL = "hf:zai-org/GLM-5.1"
 PROMPT_VERSION = "research_facility_llm_review_v1"
 
@@ -219,12 +221,87 @@ def normalize_decisions(raw: dict[str, Any], batch: list[dict[str, Any]]) -> lis
     return out
 
 
+def _confidence_allows_admit(decision: dict[str, Any]) -> bool:
+    return _as_text(decision.get("confidence")).lower() in {"medium", "high"}
+
+
+def _candidate_status_for_decision(decision: dict[str, Any]) -> str | None:
+    verdict = _as_text(decision.get("decision")).lower()
+    if verdict == "admit":
+        return "admitted" if _confidence_allows_admit(decision) else "deferred"
+    return NON_ADMIT_STATUS_BY_DECISION.get(verdict)
+
+
+def _status_update_payload(*, decision: dict[str, Any], provider_model: str, janitor_action: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "janitor_llm_decision": {
+            "decision": decision.get("decision"),
+            "confidence": decision.get("confidence"),
+            "reason": decision.get("reason"),
+            "rewrite_notes": decision.get("rewrite_notes"),
+            "provider_model": provider_model,
+            "prompt_version": PROMPT_VERSION,
+            "janitor_action": janitor_action,
+            "decided_at": utc_now(),
+        }
+    }
+
+
+def _apply_non_admit_decision(
+    cur: Any,
+    *,
+    candidate_id: str,
+    decision: dict[str, Any],
+    requested_by: str,
+    provider_model: str,
+    janitor_action: dict[str, Any],
+) -> dict[str, int]:
+    status = _candidate_status_for_decision(decision)
+    if status not in {"rejected", "rewrite_needed", "deferred"}:
+        return {"status_updates": 0, "admissions_inserted": 0}
+    admission_decision = ADMISSION_DECISION_BY_STATUS[status]
+    reason = decision.get("reason") or f"LLM janitor review marked {admission_decision}"
+    payload = _status_update_payload(decision=decision, provider_model=provider_model, janitor_action=janitor_action)
+    cur.execute(
+        """
+        update research_candidates
+        set status = %s,
+            rejection_reason = case when %s = 'rejected' then %s else rejection_reason end,
+            score_breakdown = coalesce(score_breakdown, '{}'::jsonb) || %s::jsonb,
+            updated_at = now()
+        where candidate_id = %s and status = 'needs_review'
+        """,
+        (status, status, str(reason), json.dumps(payload, sort_keys=True, default=str), candidate_id),
+    )
+    status_updates = int(cur.rowcount or 0)
+    admission_key = f"research-janitor-llm-admission:{candidate_id}:{admission_decision}"
+    cur.execute(
+        """
+        insert into research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key)
+        values (%s,%s,%s,%s::jsonb,null,%s,%s)
+        on conflict (idempotency_key) do nothing
+        """,
+        (candidate_id, admission_decision, str(reason), json.dumps(payload, sort_keys=True, default=str), requested_by, admission_key),
+    )
+    return {"status_updates": status_updates, "admissions_inserted": int(cur.rowcount or 0)}
+
+
 def record_review(database_url: str, *, decisions: list[dict[str, Any]], batch: list[dict[str, Any]], requested_by: str, provider_model: str, dry_run: bool) -> dict[str, Any]:
     import psycopg
 
     by_id = {str(item["candidate"].get("candidate_id")): item for item in batch}
     counts = Counter(decision["decision"] for decision in decisions)
-    result = {"dry_run": dry_run, "decision_counts": dict(sorted(counts.items())), "events_inserted": 0, "admitted": 0}
+    result = {
+        "dry_run": dry_run,
+        "decision_counts": dict(sorted(counts.items())),
+        "events_inserted": 0,
+        "admissions_inserted": 0,
+        "status_updates": 0,
+        "admitted": 0,
+        "rejected": 0,
+        "rewrite_needed": 0,
+        "deferred": 0,
+    }
     if dry_run:
         return result
     with psycopg.connect(database_url) as conn:
@@ -233,12 +310,13 @@ def record_review(database_url: str, *, decisions: list[dict[str, Any]], batch: 
             for decision in decisions:
                 candidate_id = decision["candidate_id"]
                 source = by_id.get(candidate_id, {})
+                janitor_action = source.get("janitor_action") or {}
                 payload = {
                     "requested_by": requested_by,
                     "provider_model": provider_model,
                     "prompt_version": PROMPT_VERSION,
                     "llm_decision": decision,
-                    "janitor_action": source.get("janitor_action") or {},
+                    "janitor_action": janitor_action,
                 }
                 event_key = f"research-janitor-llm:{candidate_id}:{decision['decision']}"
                 cur.execute("select event_id from control_events where idempotency_key = %s", (event_key,))
@@ -251,13 +329,106 @@ def record_review(database_url: str, *, decisions: list[dict[str, Any]], batch: 
                         (event_key, candidate_id, json.dumps(payload, sort_keys=True, default=str), _payload_hash(payload), datetime.now(timezone.utc).isoformat()),
                     )
                     result["events_inserted"] += int(cur.rowcount or 0)
-                if decision["decision"] == "admit" and decision.get("confidence") in {"medium", "high"}:
+                if decision["decision"] == "admit" and _confidence_allows_admit(decision):
                     action = source.get("janitor_action") or {"candidate_id": candidate_id, "action": "promote", "reason": decision.get("reason") or "LLM review admitted candidate"}
                     action = dict(action)
                     action["action"] = "promote"
                     action["reason"] = f"LLM janitor review admitted: {decision.get('reason') or 'no reason'}"
                     apply = research_facility_maintenance.apply_actions(database_url, [action], requested_by=requested_by, apply_rejections=False)
-                    result["admitted"] += int(apply.get("promoted") or 0)
+                    promoted = int(apply.get("promoted") or 0)
+                    result["admitted"] += promoted
+                    result["status_updates"] += promoted
+                    result["admissions_inserted"] += int(apply.get("admissions_inserted") or 0)
+                    continue
+                update = _apply_non_admit_decision(
+                    cur,
+                    candidate_id=candidate_id,
+                    decision=decision,
+                    requested_by=requested_by,
+                    provider_model=provider_model,
+                    janitor_action=janitor_action,
+                )
+                status = _candidate_status_for_decision(decision)
+                updated = int(update.get("status_updates") or 0)
+                result["status_updates"] += updated
+                result["admissions_inserted"] += int(update.get("admissions_inserted") or 0)
+                if updated and status in {"rejected", "rewrite_needed", "deferred"}:
+                    result[status] += updated
+    return result
+
+
+def apply_stored_llm_decisions(database_url: str, *, requested_by: str, limit: int, dry_run: bool) -> dict[str, Any]:
+    """Apply latest stored LLM janitor decisions that were event-only before this patch."""
+
+    import psycopg
+    from psycopg.rows import dict_row
+
+    result: dict[str, Any] = {
+        "dry_run": dry_run,
+        "candidate_count": 0,
+        "decision_counts": {},
+        "status_updates": 0,
+        "admissions_inserted": 0,
+        "rejected": 0,
+        "rewrite_needed": 0,
+        "deferred": 0,
+        "admitted": 0,
+    }
+    with psycopg.connect(database_url, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute("set search_path to enoch, public")
+            rows = cur.execute(
+                """
+                select distinct on (e.entity_id)
+                       e.entity_id as candidate_id,
+                       e.payload_json->'llm_decision' as llm_decision,
+                       e.payload_json->'janitor_action' as janitor_action,
+                       coalesce(e.payload_json->>'provider_model', '') as provider_model,
+                       e.created_at
+                from control_events e
+                join research_candidates c on c.candidate_id = e.entity_id
+                where e.event_type = 'research.janitor.llm_review'
+                  and e.entity_type = 'research_candidate'
+                  and c.status = 'needs_review'
+                  and e.payload_json ? 'llm_decision'
+                order by e.entity_id, e.created_at desc
+                limit %s
+                """,
+                (max(1, min(limit, 2000)),),
+            ).fetchall()
+            result["candidate_count"] = len(rows)
+            decisions = [dict(row["llm_decision"] or {}, candidate_id=row["candidate_id"]) for row in rows]
+            result["decision_counts"] = dict(sorted(Counter(_as_text(d.get("decision")).lower() for d in decisions if _as_text(d.get("decision"))).items()))
+            if dry_run:
+                return result
+            for row in rows:
+                decision = dict(row["llm_decision"] or {})
+                decision["candidate_id"] = row["candidate_id"]
+                if decision.get("decision") == "admit" and _confidence_allows_admit(decision):
+                    action = dict(row["janitor_action"] or {})
+                    action["candidate_id"] = row["candidate_id"]
+                    action["action"] = "promote"
+                    action["reason"] = f"Stored LLM janitor review admitted: {decision.get('reason') or 'no reason'}"
+                    apply = research_facility_maintenance.apply_actions(database_url, [action], requested_by=requested_by, apply_rejections=False)
+                    promoted = int(apply.get("promoted") or 0)
+                    result["admitted"] += promoted
+                    result["status_updates"] += promoted
+                    result["admissions_inserted"] += int(apply.get("admissions_inserted") or 0)
+                    continue
+                update = _apply_non_admit_decision(
+                    cur,
+                    candidate_id=row["candidate_id"],
+                    decision=decision,
+                    requested_by=requested_by,
+                    provider_model=row["provider_model"] or DEFAULT_MODEL,
+                    janitor_action=dict(row["janitor_action"] or {}),
+                )
+                status = _candidate_status_for_decision(decision)
+                updated = int(update.get("status_updates") or 0)
+                result["status_updates"] += updated
+                result["admissions_inserted"] += int(update.get("admissions_inserted") or 0)
+                if updated and status in {"rejected", "rewrite_needed", "deferred"}:
+                    result[status] += updated
     return result
 
 
@@ -281,6 +452,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--requested-by", default="research-facility-llm-review")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--apply-stored-decisions", action="store_true", help="Apply prior event-only LLM janitor decisions before any provider call")
+    parser.add_argument("--apply-stored-decisions-only", action="store_true", help="Apply prior event-only LLM janitor decisions and exit without a provider call")
+    parser.add_argument("--stored-decision-limit", type=int, default=500)
     parser.add_argument("--output", type=Path)
     return parser
 
@@ -289,6 +463,22 @@ def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     dry_run = not args.apply or args.dry_run
     report: dict[str, Any] = {"ok": False, "action": "research_janitor_llm_review", "dry_run": dry_run, "checked_at": utc_now()}
+    if args.apply_stored_decisions or args.apply_stored_decisions_only:
+        stored = apply_stored_llm_decisions(
+            args.database_url,
+            requested_by=args.requested_by,
+            limit=args.stored_decision_limit,
+            dry_run=dry_run,
+        )
+        report["stored_decision_apply"] = stored
+        if args.apply_stored_decisions_only:
+            report.update({"ok": True, "action": "applied_stored_decisions"})
+            text = json.dumps(report, indent=2, sort_keys=True, default=str)
+            if args.output:
+                args.output.write_text(text + "\n", encoding="utf-8")
+            else:
+                print(text)
+            return 0
     age = latest_review_age_minutes(args.database_url)
     report["last_review_age_minutes"] = age
     if age is not None and age < args.cooldown_minutes:

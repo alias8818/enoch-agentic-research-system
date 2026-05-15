@@ -63,3 +63,30 @@ def test_llm_review_prompt_contains_allowed_decisions():
     assert "admit|rewrite_contract|keep_for_later|reject" in prompt
     assert "Candidate A" in prompt
     assert "proxy" in prompt.lower()
+
+
+def test_llm_review_maps_non_admit_decisions_to_candidate_statuses():
+    assert research_facility_llm_review._candidate_status_for_decision({"decision": "reject", "confidence": "low"}) == "rejected"
+    assert research_facility_llm_review._candidate_status_for_decision({"decision": "rewrite_contract", "confidence": "high"}) == "rewrite_needed"
+    assert research_facility_llm_review._candidate_status_for_decision({"decision": "keep_for_later", "confidence": "medium"}) == "deferred"
+
+
+def test_llm_review_low_confidence_admit_is_deferred_not_admitted():
+    assert research_facility_llm_review._candidate_status_for_decision({"decision": "admit", "confidence": "low"}) == "deferred"
+    assert research_facility_llm_review._candidate_status_for_decision({"decision": "admit", "confidence": "medium"}) == "admitted"
+
+
+def test_llm_review_cli_exposes_stored_decision_backfill_flags():
+    parser = research_facility_llm_review.build_arg_parser()
+    args = parser.parse_args([
+        "--database-url",
+        "postgresql:///enoch_control",
+        "--apply",
+        "--apply-stored-decisions-only",
+        "--stored-decision-limit",
+        "25",
+    ])
+
+    assert args.apply is True
+    assert args.apply_stored_decisions_only is True
+    assert args.stored_decision_limit == 25

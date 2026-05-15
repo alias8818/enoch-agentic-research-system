@@ -29,7 +29,7 @@ GENERATION_MODES = {
     "manual_import",
 }
 
-CANDIDATE_STATUSES = {"generated", "rejected", "admitted", "merged", "needs_review"}
+CANDIDATE_STATUSES = {"generated", "rejected", "admitted", "merged", "needs_review", "rewrite_needed", "deferred"}
 REQUIRED_TEXT_FIELDS = (
     "title",
     "hypothesis",
