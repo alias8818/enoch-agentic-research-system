@@ -27,3 +27,21 @@ def test_queue_alert_findings_normalizes_datetime_freshness_observed_at() -> Non
 
     assert len(findings) == 1
     assert findings[0].observed_at == observed_at.isoformat()
+
+
+
+def test_queue_alert_findings_normalizes_datetime_active_lane_observed_at() -> None:
+    updated_at = datetime(2026, 5, 15, 10, 0, tzinfo=timezone.utc)
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[{"project_id": "p", "current_run_id": "r", "updated_at": updated_at}],
+        warnings=[],
+        source_freshness={},
+    )
+
+    findings = queue_alert_findings(status, hang_after_sec=1)  # type: ignore[arg-type]
+
+    assert len(findings) == 1
+    assert findings[0].observed_at == updated_at.isoformat()

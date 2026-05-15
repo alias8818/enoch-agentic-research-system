@@ -66,7 +66,7 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
                     source="control_plane_db",
                     authority="queue_items.stale_after",
                     message="active queue item exceeded its stale_after timestamp",
-                    observed_at=row.get("stale_after"),
+                    observed_at=_observed_at_text(row.get("stale_after")),
                     suggested_action="inspect run detail and reconcile the queue item",
                     data={"project_id": row.get("project_id"), "run_id": row.get("current_run_id")},
                 ))
@@ -78,7 +78,7 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
                         source="control_plane_db",
                         authority="queue_items.updated_at",
                         message=f"active queue item has not updated for more than {hang_after_sec} seconds",
-                        observed_at=row.get("updated_at") or row.get("last_dispatch_at"),
+                        observed_at=_observed_at_text(row.get("updated_at") or row.get("last_dispatch_at")),
                         suggested_action="inspect GB10 wake gate and active run detail",
                         data={"project_id": row.get("project_id"), "run_id": row.get("current_run_id")},
                     ))
