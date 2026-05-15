@@ -278,32 +278,48 @@ class SupabaseReadOnlyControlPlaneStore:
             return
 
         self._conn_lock.acquire()
-        conn = self._conn
-        if conn is None or bool(getattr(conn, "closed", False)):
-            conn = self._connect_factory()
-            with conn.cursor() as cur:
-                cur.execute("set statement_timeout to '45s'")
-                cur.execute("set idle_in_transaction_session_timeout to '30s'")
-            self._conn = conn
-        # Supabase pooler/transaction boundaries can reset session settings.
-        # Keep the persistent server-side connection, but assert the private
-        # schema on every checkout so subsequent dashboard reads do not drift
-        # back to `public`.
-        with conn.cursor() as cur:
-            cur.execute("set search_path to enoch, public")
+        conn = None
         try:
-            yield conn
-            conn.commit()
-        except Exception as exc:
-            rollback = getattr(conn, "rollback", None)
-            if callable(rollback):
-                rollback()
-            if bool(getattr(conn, "closed", False)) or self._is_transient_connection_error(exc):
-                close = getattr(conn, "close", None)
-                if callable(close):
-                    close()
-                self._conn = None
-            raise
+            try:
+                conn = self._conn
+                if conn is None or bool(getattr(conn, "closed", False)):
+                    conn = self._connect_factory()
+                    with conn.cursor() as cur:
+                        cur.execute("set statement_timeout to '45s'")
+                        cur.execute("set idle_in_transaction_session_timeout to '30s'")
+                    self._conn = conn
+                # Supabase pooler/transaction boundaries can reset session settings.
+                # Keep the persistent server-side connection, but assert the private
+                # schema on every checkout so subsequent dashboard reads do not drift
+                # back to `public`. This pre-yield section must also release the
+                # mutex on failure; otherwise a DB restart can permanently wedge all
+                # dashboard worker threads behind _conn_lock.
+                with conn.cursor() as cur:
+                    cur.execute("set search_path to enoch, public")
+            except Exception as exc:
+                if conn is not None:
+                    rollback = getattr(conn, "rollback", None)
+                    if callable(rollback):
+                        rollback()
+                    if bool(getattr(conn, "closed", False)) or self._is_transient_connection_error(exc):
+                        close = getattr(conn, "close", None)
+                        if callable(close):
+                            close()
+                        self._conn = None
+                raise
+            try:
+                yield conn
+                conn.commit()
+            except Exception as exc:
+                rollback = getattr(conn, "rollback", None)
+                if callable(rollback):
+                    rollback()
+                if bool(getattr(conn, "closed", False)) or self._is_transient_connection_error(exc):
+                    close = getattr(conn, "close", None)
+                    if callable(close):
+                        close()
+                    self._conn = None
+                raise
         finally:
             self._conn_lock.release()
 

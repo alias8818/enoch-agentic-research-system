@@ -347,3 +347,54 @@ def test_overview_uses_supabase_batched_read_parts_when_available() -> None:
     assert store.called
     assert data["paper_pipeline"]["write_needed"] == 0
     assert data["recent_events"] == []
+
+
+def test_supabase_runtime_store_releases_connection_lock_when_search_path_fails() -> None:
+    class FakeCursor:
+        def __init__(self, conn: "FakeConnection") -> None:
+            self.conn = conn
+
+        def __enter__(self) -> "FakeCursor":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def execute(self, sql: str, params: Sequence[Any] = ()) -> None:
+            self.conn.executed.append((sql, tuple(params)))
+            if "set search_path" in sql:
+                raise RuntimeError("server closed the connection during checkout")
+
+    class FakeConnection:
+        closed = False
+
+        def __init__(self) -> None:
+            self.executed: list[tuple[str, tuple[Any, ...]]] = []
+            self.rollbacks = 0
+            self.closes = 0
+
+        def cursor(self) -> FakeCursor:
+            return FakeCursor(self)
+
+        def rollback(self) -> None:
+            self.rollbacks += 1
+
+        def close(self) -> None:
+            self.closes += 1
+            self.closed = True
+
+    conn = FakeConnection()
+    store = SupabaseControlPlaneStore("postgresql://example.invalid/postgres", connect=lambda: conn)
+    store._external_connect_factory = False
+
+    try:
+        store._query("select 1")
+    except RuntimeError as exc:
+        assert "server closed" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected checkout failure")
+
+    assert store._conn_lock.acquire(blocking=False)
+    store._conn_lock.release()
+    assert conn.rollbacks >= 1
+    assert conn.closes >= 1
