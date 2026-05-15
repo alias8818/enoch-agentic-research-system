@@ -2,6 +2,41 @@
 
 Enoch uses semantic versioning for the control-plane package and runtime. The canonical package version is stored in both `VERSION` and `pyproject.toml`; release work should update both, update this changelog, run validation, and then tag the commit when publishing.
 
+## [0.3.0] - 2026-05-15
+
+### Added
+
+- Added durable worker callback outbox and replay support so completed worker runs can survive transient control-plane or network callback failures.
+- Added queue-alert auto-reconciliation for stale active lanes when a completed decision artifact is present, reducing false Pushover alerts and manual recovery work.
+- Added Research Facility quality signals, post-prompt diagnostics, bounded-follow-up prioritization, and janitor candidate review support.
+- Added escalation-ladder and dedupe-loss audit policy for deciding when negative results should branch instead of being discarded.
+
+### Changed
+
+- Prioritized bounded follow-up branches ahead of fresh idea generation when existing no-paper evidence indicates a plausible next investigation.
+- Tightened paper-production gates so only explicit positive decisions can enter the write-needed lane.
+- Made Research Facility generation and janitor review more conservative under backlog, quota, or active-lane backpressure.
+- Normalized public corpus count handling and release validation around the current launch/corpus surfaces.
+
+### Fixed
+
+- Fixed stale active-lane and freshness timestamp handling in queue alerts.
+- Fixed database connection lock release behavior in the control-plane store.
+- Fixed janitor run-cycle integration and candidate review loop closure.
+- Fixed corpus ledger sync to remain idempotent on no-op ticks.
+- Fixed release validation drift for current launch assets and public corpus counts.
+
+### Security
+
+- Updated vulnerable dependency locks, including urllib3 and langsmith.
+- Removed vulnerable DSPy transitive dependencies from the active lockfile while preserving DSPy/GEPA as a future research-policy item.
+- Pinned GitHub Actions away from floating major tags and moved workflows off Node 20 actions where required.
+
+### Operations
+
+- Deployed the callback hardening path to the native Enoch/Codex control-plane runtime.
+- Documented the callback-timeout CLCA path in the operator runbook.
+
 ## [0.2.0] - 2026-05-09
 
 ### Changed
