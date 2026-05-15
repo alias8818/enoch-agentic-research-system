@@ -48,6 +48,52 @@ def _fingerprint(findings: list[DashboardFinding]) -> str:
     return hashlib.sha256("\n".join(sorted(parts)).encode("utf-8")).hexdigest()[:16]
 
 
+def _observed_worker_runs(status: DashboardStatusResponse) -> list[dict[str, Any]]:
+    observations = getattr(status, "observations", {}) or {}
+    runs: list[dict[str, Any]] = []
+    if not isinstance(observations, dict):
+        return runs
+
+    def add_from(value: Any) -> None:
+        if isinstance(value, dict):
+            maybe_runs = value.get("runs")
+            if isinstance(maybe_runs, list):
+                runs.extend(item for item in maybe_runs if isinstance(item, dict))
+            for nested_key in ("body", "payload", "data"):
+                nested = value.get(nested_key)
+                if nested is not value:
+                    add_from(nested)
+            checks = value.get("checks")
+            if isinstance(checks, list):
+                for check in checks:
+                    add_from(check)
+        elif isinstance(value, list):
+            for item in value:
+                add_from(item)
+
+    for source in ("worker_preflight", "worker_dashboard_api"):
+        add_from(observations.get(source))
+    return runs
+
+
+def _has_live_worker_run(status: DashboardStatusResponse, run_id: str | None) -> bool:
+    if not run_id:
+        return False
+    for run in _observed_worker_runs(status):
+        if str(run.get("run_id") or "") != str(run_id):
+            continue
+        if run.get("is_live") is True:
+            return True
+        if str(run.get("lifecycle_state") or "").lower() == "active":
+            return True
+        try:
+            if int(run.get("active_process_count") or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            pass
+    return False
+
+
 def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int) -> list[DashboardFinding]:
     flags = status.flags
     intentional_hold = flags.queue_paused or flags.maintenance_mode
@@ -73,6 +119,8 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
             elif not stale_at:
                 updated = _parse_ts(row.get("updated_at") or row.get("last_dispatch_at"))
                 if updated and datetime.now(timezone.utc) > updated + timedelta(seconds=hang_after_sec):
+                    if _has_live_worker_run(status, str(row.get("current_run_id") or "")):
+                        continue
                     active_lane_findings.append(DashboardFinding(
                         severity="warn",
                         source="control_plane_db",

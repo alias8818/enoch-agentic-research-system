@@ -45,3 +45,43 @@ def test_queue_alert_findings_normalizes_datetime_active_lane_observed_at() -> N
 
     assert len(findings) == 1
     assert findings[0].observed_at == updated_at.isoformat()
+
+
+def test_queue_alert_findings_suppresses_old_active_row_when_worker_is_live() -> None:
+    updated_at = datetime(2026, 5, 15, 10, 0, tzinfo=timezone.utc)
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[{"project_id": "p", "current_run_id": "r", "updated_at": updated_at}],
+        warnings=[],
+        source_freshness={},
+        observations={
+            "worker_preflight": {
+                "payload": {
+                    "checks": [
+                        {
+                            "name": "wake_gate_runs",
+                            "data": {
+                                "body": {
+                                    "runs": [
+                                        {
+                                            "run_id": "r",
+                                            "is_live": True,
+                                            "lifecycle_state": "active",
+                                            "active_process_count": 3,
+                                        }
+                                    ]
+                                }
+                            },
+                        }
+                    ]
+                }
+            }
+        },
+    )
+
+    findings = queue_alert_findings(status, hang_after_sec=1)  # type: ignore[arg-type]
+
+    assert findings == []
+
