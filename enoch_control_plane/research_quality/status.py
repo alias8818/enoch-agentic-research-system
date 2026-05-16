@@ -39,6 +39,11 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
         followup_recommended=followup_recommended,
         rationale=negative_rationale(item),
         bounded_followup=bounded_followup,
+        research_outcome=str(item.get("research_outcome") or "").strip(),
+        claim_scope=str(item.get("claim_scope") or "").strip(),
+        scale_limits=str(item.get("scale_limits") or "").strip(),
+        evidence_strength=str(item.get("evidence_strength") or "").strip(),
+        bounded_paper_ready=bool(item.get("bounded_paper_ready")),
     ):
         return "info"
     if problem in {

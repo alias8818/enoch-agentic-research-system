@@ -84,6 +84,37 @@ def test_supported_negative_with_bounded_followup_is_not_a_quality_problem() -> 
     assert "supported_but_negative_requires_review" not in problems
 
 
+def test_supported_useful_signal_with_scope_limits_is_not_a_quality_problem() -> None:
+    score, problems = classify_decision_quality(
+        DecisionRow(
+            project_id="project-1",
+            project_name="Project 1",
+            run_id="run-1",
+            decision="finalize_negative",
+            hypothesis_status="supported",
+            evidence_strength="moderate",
+            confidence="medium",
+            followup_recommended=False,
+            followup_type="",
+            followup_title="",
+            followup_hypothesis="",
+            followup_required_evidence_count=0,
+            followup_success_threshold="",
+            followup_stop_condition="",
+            recommended_next_action="Stop as no-paper useful-signal evidence; any paper attempt requires broader validation.",
+            stop_reason="Scoped direct validation supports the mechanism but remains too narrow for publication-grade claims.",
+            created_at="2026-05-11T00:00:00Z",
+            research_outcome="useful_signal",
+            claim_scope="On a GPT-2-small local benchmark, the mechanism outperformed the named baseline at bounded retention settings.",
+            scale_limits="Single local model and dataset only; no larger model families, production serving, or long-context tasks.",
+            bounded_paper_ready=False,
+        )
+    )
+
+    assert score == 1.0
+    assert "supported_but_negative_requires_review" not in problems
+
+
 def test_decision_quality_flags_thin_followup() -> None:
     score, problems = classify_decision_quality(
         DecisionRow(

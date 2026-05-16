@@ -49,6 +49,11 @@ class DecisionRow:
     recommended_next_action: str
     stop_reason: str
     created_at: str
+    research_outcome: str = ""
+    claim_scope: str = ""
+    scale_limits: str = ""
+    bounded_paper_ready: bool = False
+    compute_scale_blocked: bool = False
 
 
 def as_text(value: Any) -> str:
@@ -233,6 +238,11 @@ def is_supported_negative_nonblocking(
     followup_recommended: bool,
     rationale: str,
     bounded_followup: bool = False,
+    research_outcome: str = "",
+    claim_scope: str = "",
+    scale_limits: str = "",
+    evidence_strength: str = "",
+    bounded_paper_ready: bool = False,
 ) -> bool:
     """Return true for supported no-paper decisions that are intentional.
 
@@ -245,6 +255,16 @@ def is_supported_negative_nonblocking(
 
     if decision != "finalize_negative" or hypothesis_status != "supported":
         return False
+    scoped_useful_signal = (
+        research_outcome == "useful_signal"
+        and not bounded_paper_ready
+        and evidence_strength in {"moderate", "strong"}
+        and len(claim_scope.strip()) >= 40
+        and len(scale_limits.strip()) >= 40
+        and (has_paper_limit_rationale(rationale) or has_evidence_limit_rationale(rationale))
+    )
+    if scoped_useful_signal:
+        return True
     paper_limited = has_paper_limit_rationale(rationale)
     evidence_limited = has_evidence_limit_rationale(rationale)
     depth_capped = has_depth_cap_rationale(rationale)
@@ -265,6 +285,11 @@ def classify_decision_quality(row: DecisionRow) -> tuple[float, list[str]]:
             followup_recommended=row.followup_recommended,
             rationale=negative_rationale(row),
             bounded_followup=bounded_followup,
+            research_outcome=row.research_outcome,
+            claim_scope=row.claim_scope,
+            scale_limits=row.scale_limits,
+            evidence_strength=row.evidence_strength,
+            bounded_paper_ready=row.bounded_paper_ready,
         ):
             problems.append("supported_but_negative_requires_review")
     if row.followup_recommended:
