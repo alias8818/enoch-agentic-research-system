@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import os
 import re
 import shlex
@@ -352,14 +352,29 @@ def _remote_evidence_dir(config: GateConfig, *, project_id: str, source_project_
             except (OSError, ValueError):
                 return source
         else:
-            return f"{remote_root}/{source}"
+            remote_relative = PurePosixPath(source.replace("\\", "/"))
+            if ".." not in remote_relative.parts and not remote_relative.is_absolute():
+                return f"{remote_root}/{remote_relative.as_posix()}"
     return f"{remote_root}/{project_id}"
+
+
+def _stop_process(proc: subprocess.Popen | None) -> None:
+    if proc is None:
+        return
+    if proc.poll() is None:
+        proc.kill()
+    try:
+        proc.wait(timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifact_root: Path, source_project_dir: str = "", source_run_id: str = "") -> dict[str, Any]:
     if not config.paper_evidence_sync_enabled:
         return {"enabled": False, "synced": False, "reason": "disabled"}
     http_sync = _sync_worker_http_evidence(config, project_id=project_id, artifact_root=artifact_root, source_run_id=source_run_id)
+    if http_sync.get("ok") and _local_paper_evidence_present(artifact_root):
+        return {"enabled": True, "synced": True, "reason": str(http_sync.get("reason") or "worker_http_synced"), "method": "worker_http", "local_evidence_present": True, "http_sync": http_sync}
     remote_dir = _remote_evidence_dir(config, project_id=project_id, source_project_dir=source_project_dir)
     # The VM talks to the GB10 over SSH and streams a bounded evidence tarball.
     # This intentionally excludes external source trees and large trace/log files,
@@ -404,6 +419,8 @@ def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifa
     tar_cmd = ["tar", "-xzf", "-", "-C", str(artifact_root)]
     artifact_root.mkdir(parents=True, exist_ok=True)
     known_hosts.parent.mkdir(parents=True, exist_ok=True)
+    ssh_proc: subprocess.Popen | None = None
+    tar_proc: subprocess.Popen | None = None
     try:
         ssh_proc = subprocess.Popen(ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         tar_proc = subprocess.Popen(tar_cmd, stdin=ssh_proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -413,12 +430,12 @@ def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifa
         ssh_err = ssh_proc.stderr.read() if ssh_proc.stderr is not None else b""
         ssh_code = ssh_proc.wait(timeout=5)
     except subprocess.TimeoutExpired as exc:
-        for proc_name in ("ssh_proc", "tar_proc"):
-            proc = locals().get(proc_name)
-            if proc is not None:
-                proc.kill()
+        _stop_process(tar_proc)
+        _stop_process(ssh_proc)
         return {"enabled": True, "synced": _local_paper_evidence_present(artifact_root), "reason": "timeout", "remote_dir": remote_dir, "error": str(exc), "http_sync": http_sync, "method": "worker_http+ssh"}
     except OSError as exc:
+        _stop_process(tar_proc)
+        _stop_process(ssh_proc)
         return {"enabled": True, "synced": _local_paper_evidence_present(artifact_root), "reason": "spawn_failed", "remote_dir": remote_dir, "error": str(exc), "http_sync": http_sync, "method": "worker_http+ssh"}
     if ssh_code != 0 or tar_proc.returncode != 0:
         return {

@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import io
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+
 from enoch_control_plane.config import GateConfig
-from enoch_control_plane.control_plane.router import _remote_evidence_dir
+from enoch_control_plane.control_plane.router import _remote_evidence_dir, _sync_remote_project_evidence
 
 
 def _config(tmp_path) -> GateConfig:
@@ -36,9 +41,61 @@ def test_remote_evidence_dir_preserves_worker_absolute_and_ignores_local_absolut
     assert _remote_evidence_dir(config, project_id="project", source_project_dir=str(local_project)) == "/remote/projects/project"
     assert _remote_evidence_dir(config, project_id="project", source_project_dir="") == "/remote/projects/project"
 
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from unittest.mock import patch
+
+def test_remote_evidence_dir_rejects_relative_escape(tmp_path) -> None:
+    config = _config(tmp_path)
+
+    assert _remote_evidence_dir(config, project_id="project", source_project_dir="../outside") == "/remote/projects/project"
+
+
+def test_sync_remote_evidence_skips_ssh_after_http_sync_has_required_local_evidence(tmp_path) -> None:
+    config = _config(tmp_path)
+    artifact_root = tmp_path / "artifact"
+
+    def fake_http_sync(config, *, project_id: str, artifact_root, source_run_id: str = ""):
+        del config, project_id, source_run_id
+        (artifact_root / ".enoch").mkdir(parents=True)
+        (artifact_root / "run_notes.md").write_text("measured evidence\n", encoding="utf-8")
+        (artifact_root / ".enoch" / "project_decision.json").write_text('{"decision":"positive"}', encoding="utf-8")
+        return {"ok": True, "reason": "worker_http_synced", "files": 2}
+
+    with patch("enoch_control_plane.control_plane.router._sync_worker_http_evidence", side_effect=fake_http_sync):
+        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", side_effect=AssertionError("ssh should not run after complete HTTP evidence sync")):
+            result = _sync_remote_project_evidence(config, project_id="project", artifact_root=artifact_root)
+
+    assert result["synced"] is True
+    assert result["reason"] == "worker_http_synced"
+    assert result["method"] == "worker_http"
+
+
+class _FakeStartedProcess:
+    def __init__(self) -> None:
+        self.stdout = io.BytesIO(b"")
+        self.stderr = io.BytesIO(b"")
+        self.killed = False
+
+    def kill(self) -> None:
+        self.killed = True
+
+    def poll(self):
+        return -9 if self.killed else None
+
+    def wait(self, timeout=None):  # noqa: ANN001 - subprocess-compatible test double
+        del timeout
+        return -9 if self.killed else 0
+
+
+def test_sync_remote_evidence_kills_started_ssh_when_tar_spawn_fails(tmp_path) -> None:
+    config = _config(tmp_path)
+    artifact_root = tmp_path / "artifact"
+    ssh_proc = _FakeStartedProcess()
+
+    with patch("enoch_control_plane.control_plane.router._sync_worker_http_evidence", return_value={"ok": False, "reason": "worker_read_failed"}):
+        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", side_effect=[ssh_proc, OSError("tar missing")]):
+            result = _sync_remote_project_evidence(config, project_id="project", artifact_root=artifact_root)
+
+    assert result["reason"] == "spawn_failed"
+    assert ssh_proc.killed is True
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
