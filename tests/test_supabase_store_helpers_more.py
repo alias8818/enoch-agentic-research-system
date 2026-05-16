@@ -1,0 +1,202 @@
+from __future__ import annotations
+
+from enoch_control_plane.control_plane import supabase_store as s
+from enoch_control_plane.control_plane.models import ControlFlags
+from enoch_control_plane.control_plane.store import QueueStatus
+
+
+def test_decision_gate_state_and_summary_variants() -> None:
+    assert s._decision_gate_state({"eligible": True}) == "positive"
+    assert s._decision_gate_state({"reason": "missing project_decision"}) == "missing"
+    assert s._decision_gate_state({"reason": "could not parse JSON"}) == "malformed"
+    assert s._decision_gate_state({"decision": "finalize_negative"}) == "negative"
+    assert s._decision_gate_state({"values": [("x", "project_decision", "needs_review")]}) == "unknown"
+    assert s._decision_summary({"decision": "finalize_negative", "reason": "not positive"}) == "finalize_negative (not positive)"
+    assert s._decision_summary({"values": [("json", "hypothesis_status", "mixed")]}) == "mixed"
+
+
+def test_followup_payload_helpers() -> None:
+    assert s._stable_followup_id("parent", "A Great Followup!", "hyp") == s._stable_followup_id("parent", "A Great Followup!", "hyp")
+    assert s._followup_depth_from_payload(None) == 0
+    assert s._followup_depth_from_payload({"followup_depth": "2"}) == 2
+    assert s._followup_depth_from_payload({"source_payload_json": {"parent_followup_depth": "3"}}) == 3
+    assert s._followup_depth_from_payload({"followup_depth": "bad"}) == 0
+    assert s._enforced_followup_depth({"followup_depth": 1}, {"source_payload_json": {"followup_depth": 4}}) == 4
+    assert s._jsonish_dict('{"a":1}') == {"a": 1}
+    assert s._jsonish_dict('[1]') == {}
+    assert s._jsonish_list('[1]') == [1]
+    assert s._jsonish_list('{"a":1}') == []
+    assert s._project_decision_payload_from_candidate({"decision_payload_json": {"project_decision": {"decision": "x"}}}) == {"decision": "x"}
+    assert s._followup_required_evidence_items({"followup_required_evidence": '["a","b"]'}) == ["a", "b"]
+
+
+def test_followup_escalation_promising_and_standard() -> None:
+    candidate = {
+        "decision_payload_json": {
+            "project_decision": "finalize_negative",
+            "hypothesis_status": "mixed",
+            "evidence_strength": "moderate",
+        },
+        "followup_title": "Deepen signal",
+        "followup_hypothesis": "signal survives medium test",
+        "followup_required_evidence": ["direct metric", "ablation"],
+        "followup_success_threshold": "beats baseline",
+        "followup_stop_condition": "no lift",
+    }
+    payload = s._followup_escalation_payload(candidate, 2)
+    assert payload["promising_escalation"] is True
+    assert payload["research_ladder_tier"] == 2
+    assert "real baseline" in " ".join(payload["worker_prompt_guidance"])
+
+    weak = dict(candidate, decision_payload_json={"project_decision": "continue"})
+    standard = s._followup_escalation_payload(weak, 4)
+    assert standard["promising_escalation"] is False
+    assert standard["research_ladder_tier"] == 4
+
+
+def test_readonly_store_basic_query_methods() -> None:
+    class Cursor:
+        def __init__(self):
+            self.sql = ""
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):
+            self.sql = sql
+            self.params = params
+        def fetchall(self):
+            if "from control_flags" in self.sql:
+                return [{"queue_paused": True, "maintenance_mode": False, "pause_reason": "ops", "paused_at": None, "paused_by": "tester", "updated_at": "now"}]
+            if "from queue_items group by status" in self.sql:
+                return [{"status": QueueStatus.QUEUED.value, "count": 2}, {"status": QueueStatus.RUNNING.value, "count": 1}]
+            if "manual_review_required" in self.sql and "count(*) as count" in self.sql:
+                return [{"count": 3}]
+            if "from papers group by paper_status" in self.sql:
+                return [{"paper_status": "publication_draft", "count": 4}]
+            return []
+    class Conn:
+        closed = False
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+        def close(self): self.closed = True
+
+    store = s.SupabaseReadOnlyControlPlaneStore("postgres://example", connect=Conn)
+    flags = store.flags()
+    assert isinstance(flags, ControlFlags)
+    assert flags.queue_paused is True
+    counts = store.queue_counts_sql()
+    assert counts["queued"] == 2
+    assert counts["active"] == 1
+    assert counts["blocked"] == 3
+    papers = store.paper_counts_sql()
+    assert papers == {"publication_draft": 4, "all": 4}
+    try:
+        store.pause()
+    except s.ReadOnlyStoreError:
+        pass
+    else:
+        raise AssertionError("pause should be read-only")
+
+from enoch_control_plane.control_plane.models import IdeaIntakeRequest, NotionIntakeRequest
+from enoch_control_plane.control_plane.supabase_store import SupabaseControlPlaneStore
+
+
+def test_write_store_dry_run_intakes_build_candidates_and_skips_rows() -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    notion_inserted, notion_created, notion_updated, notion_skipped, notion_candidates, notion_skipped_rows = store.ingest_notion_ideas(
+        NotionIntakeRequest(
+            dry_run=True,
+            include_statuses=["testing"],
+            notion_rows=[
+                {"title": "Keep This", "property_status": "Testing", "url": "https://notion.so/example/abc12345678901234567890123456789"},
+                {"title": "Skip This", "property_status": "Archived"},
+                {"property_status": "Testing"},
+            ],
+            default_machine_target="gb10",
+            default_model="gpt-5.5",
+        )
+    )
+    assert notion_inserted is False
+    assert notion_created == notion_updated == 0
+    assert notion_skipped == 2
+    assert len(notion_candidates) == 1
+    assert notion_candidates[0]["project_name"] == "Keep This"
+    assert notion_candidates[0]["machine_target"] == "gb10"
+    assert {row["reason"] for row in notion_skipped_rows} == {"status 'archived' not included", "missing title"}
+
+    idea_inserted, idea_created, idea_updated, idea_skipped, idea_candidates, idea_skipped_rows = store.ingest_ideas(
+        IdeaIntakeRequest(
+            dry_run=True,
+            include_statuses=["testing"],
+            ideas=[
+                {"idea_id": "idea-1", "title": "Good Idea", "idea_status": "testing", "selection_rank": "12", "machine_target": "gb10", "source_kind": "unit"},
+                {"idea_id": "idea-2", "title": "Old Idea", "idea_status": "archived"},
+                {"idea_id": "idea-3", "idea_status": "testing"},
+            ],
+        )
+    )
+    assert idea_inserted is False
+    assert idea_created == idea_updated == 0
+    assert idea_skipped == 2
+    assert idea_candidates[0]["project_id"] == "idea-1"
+    assert idea_candidates[0]["selection_rank"] == 12
+    assert idea_candidates[0]["source_kind"] == "unit"
+    assert {row["reason"] for row in idea_skipped_rows} == {"status 'archived' not included", "missing title"}
+
+
+def test_write_store_dispatch_and_projection_helpers(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    monkeypatch.setattr(store, "flags", lambda: ControlFlags(queue_paused=True, pause_reason="maintenance"))
+    assert store.dispatch_next_dry_run(requested_by="operator") == ("paused", None, None, "maintenance")
+
+    monkeypatch.setattr(store, "flags", lambda: ControlFlags(queue_paused=False))
+    monkeypatch.setattr(store, "active_items", lambda: [{"project_id": "active"}])
+    assert store.dispatch_next_dry_run(requested_by="operator")[3] == "active GB10 lane already exists"
+
+    monkeypatch.setattr(store, "active_items", lambda: [])
+    monkeypatch.setattr(store, "next_dispatch_candidate", lambda: None)
+    assert store.dispatch_next_dry_run(requested_by="operator")[3] == "no queued candidate"
+
+    candidate = {"project_id": "queued", "project_name": "Queued"}
+    monkeypatch.setattr(store, "next_dispatch_candidate", lambda: candidate)
+    assert store.dispatch_next_dry_run(requested_by="operator") == ("dry_run_dispatch", candidate, None, "dry-run dispatch selected candidate")
+
+    queue_rows = [
+        {"project_id": "p1", "project_name": "One", "status": QueueStatus.RUNNING.value, "notion_page_url": "https://notion.so/x/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "notion_page_id": "page", "current_run_id": "run", "next_action_hint": "wait", "updated_at": "now"},
+        {"project_id": "p2", "project_name": "Two", "status": QueueStatus.BLOCKED.value, "notion_page_url": "", "last_result_summary": "blocked"},
+    ]
+    paper_rows = [{"project_id": "p1", "paper_id": "paper", "paper_status": "publication_draft", "paper_type": "note", "draft_markdown_path": "paper.md", "updated_at": "paper-now"}]
+    monkeypatch.setattr(store, "queue_rows", lambda: queue_rows)
+    monkeypatch.setattr(store, "paper_rows", lambda: paper_rows)
+    notion_projection = store.notion_execution_update_projection()
+    assert len(notion_projection) == 1
+    props = notion_projection[0]["properties"]
+    assert props["Execution State"] == "running"
+    assert props["Enoch Paper ID"] == "paper"
+    assert store.queue_notion_projection()[0]["queue_status"] == QueueStatus.RUNNING.value
+
+
+def test_launch_followup_candidate_dry_run_and_noop(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    monkeypatch.setattr(store, "next_followup_candidate", lambda **kwargs: None)
+    assert store.launch_followup_candidate(dry_run=True)["action"] == "noop"
+
+    candidate = {
+        "project_id": "parent",
+        "project_name": "Parent Project",
+        "current_run_id": "run-parent",
+        "followup_depth": 1,
+        "followup_type": "deepen",
+        "followup_title": "Check medium scale",
+        "followup_hypothesis": "signal holds",
+        "followup_required_evidence": ["metric", "ablation"],
+        "followup_success_threshold": "beats baseline",
+        "followup_stop_condition": "no lift",
+        "decision_payload_json": {"project_decision": "finalize_negative", "hypothesis_status": "supported", "evidence_strength": "strong"},
+    }
+    monkeypatch.setattr(store, "next_followup_candidate", lambda **kwargs: candidate)
+    result = store.launch_followup_candidate(dry_run=True, requested_by="unit")
+    assert result["action"] == "dry_run_followup"
+    assert result["followup"]["parent_project_id"] == "parent"
+    assert result["followup"]["followup_depth"] == 2
+    assert result["followup"]["promising_escalation"] is True

@@ -1,0 +1,78 @@
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+from enoch_control_plane.callbacks import CallbackSender
+from enoch_control_plane.config import GateConfig
+from enoch_control_plane.models import GateCallback, ProcessSnapshot, RunRecord
+from enoch_control_plane.state_store import StateStore
+from enoch_control_plane.research_quality import dspy_programs
+
+
+def test_state_store_roundtrip_and_skips_invalid_json(tmp_path: Path) -> None:
+    store = StateStore(tmp_path)
+    record = RunRecord(run_id="run", session_id="session", project_id="project")
+    assert store.load_run("missing") is None
+    store.save_run(record)
+    assert store.load_run("run").project_id == "project"
+    (store.runs_dir / "bad.json").write_text("not-json")
+    assert [item.run_id for item in store.list_runs()] == ["run"]
+    store.append_event({"b": 2, "a": 1})
+    assert store.events_log.read_text().strip() == '{"a": 1, "b": 2}'
+
+
+def test_callback_sender_posts_expected_headers(monkeypatch) -> None:
+    config = GateConfig(
+        state_dir="/tmp/state",
+        project_root="/tmp/projects",
+        dispatch_script_path="/tmp/dispatch.sh",
+        control_api_bearer_token="control",
+        completion_callback_url="http://callback",
+        completion_callback_token="secret",
+    )
+    callback = GateCallback(
+        event_type="wake_ready",
+        run_id="run",
+        session_id="session",
+        project_id="project",
+        source_event="session-idle",
+        gate_state="wake_ready",
+        process_tracking=ProcessSnapshot(),
+        telemetry={},
+        reason="quiet",
+        idempotency_key="idem",
+    )
+    captured = {}
+    class Resp:
+        status = 202
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def read(self): return b"accepted"
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["headers"] = dict(req.header_items())
+        captured["timeout"] = timeout
+        return Resp()
+    monkeypatch.setattr("enoch_control_plane.callbacks.request.urlopen", fake_urlopen)
+    status, text = CallbackSender(config).send(callback)
+    assert status == 202
+    assert text == "accepted"
+    assert captured["url"] == "http://callback"
+    assert captured["headers"]["Authorization"] == "Bearer secret"
+    assert captured["headers"]["X-idempotency-key"] == "idem"
+
+
+def test_dspy_program_signatures_with_fake_module(monkeypatch) -> None:
+    class Signature: pass
+    class Field:
+        def __init__(self, *args, **kwargs): pass
+    fake = SimpleNamespace(Signature=Signature, InputField=Field, OutputField=Field)
+    monkeypatch.setitem(sys.modules, "dspy", fake)
+    assert dspy_programs.dspy_available() is True
+    candidate = dspy_programs.candidate_quality_signature()
+    decision = dspy_programs.decision_quality_signature()
+    assert issubclass(candidate, Signature)
+    assert issubclass(decision, Signature)
+    monkeypatch.delitem(sys.modules, "dspy", raising=False)
