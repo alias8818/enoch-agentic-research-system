@@ -75,6 +75,7 @@ with latest_decision as (
       and not cb.manual_review_required
       and not cb.has_project_paper_row
       and not cb.has_run_paper_row
+      and cb.project_id not like 'canonical-positive-smoke-%'
       and not (
         cb.draft_exclusion_haystack like '%human-validated%'
         or cb.draft_exclusion_haystack like '%human label%'
