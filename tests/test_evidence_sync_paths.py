@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from enoch_control_plane.config import GateConfig
-from enoch_control_plane.control_plane.router import _remote_evidence_dir, _sync_remote_project_evidence
+from enoch_control_plane.control_plane.router import _local_artifact_root, _remote_evidence_dir, _sync_remote_project_evidence
 
 
 def _config(tmp_path) -> GateConfig:
@@ -46,6 +46,24 @@ def test_remote_evidence_dir_rejects_relative_escape(tmp_path) -> None:
     config = _config(tmp_path)
 
     assert _remote_evidence_dir(config, project_id="project", source_project_dir="../outside") == "/remote/projects/project"
+
+
+def test_local_artifact_root_rejects_relative_project_dir_escape(tmp_path) -> None:
+    config = _config(tmp_path)
+
+    resolved = _local_artifact_root(config, project_id="project", project_dir_text="../outside")
+
+    assert resolved == (config.expanded_project_root / "project").resolve()
+    resolved.relative_to(config.expanded_project_root.resolve())
+
+
+def test_local_artifact_root_rejects_unsafe_project_id_fallback(tmp_path) -> None:
+    config = _config(tmp_path)
+
+    resolved = _local_artifact_root(config, project_id="../evil project", project_dir_text="")
+
+    assert resolved == (config.expanded_project_root / "evil-project").resolve()
+    resolved.relative_to(config.expanded_project_root.resolve())
 
 
 def test_sync_remote_evidence_skips_ssh_after_http_sync_has_required_local_evidence(tmp_path) -> None:

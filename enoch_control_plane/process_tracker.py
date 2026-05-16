@@ -34,16 +34,28 @@ class ProcessTracker:
 
     def _project_dir(self, record: RunRecord) -> Path | None:
         raw = (record.project_dir or '').strip()
+        root = self.project_root
         if raw:
             try:
-                return Path(raw).expanduser().resolve()
+                candidate = Path(raw).expanduser()
+                resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
             except OSError:
                 return None
+            try:
+                resolved.relative_to(root)
+            except ValueError:
+                return None
+            return resolved
         if record.project_id:
             try:
-                return (self.project_root / record.project_id).resolve()
+                resolved = (root / record.project_id).resolve()
             except OSError:
                 return None
+            try:
+                resolved.relative_to(root)
+            except ValueError:
+                return None
+            return resolved
         return None
 
     def _process_in_project_dir(self, proc: object, project_dir: Path) -> bool:

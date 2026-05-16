@@ -358,6 +358,28 @@ def _remote_evidence_dir(config: GateConfig, *, project_id: str, source_project_
     return f"{remote_root}/{project_id}"
 
 
+def _safe_project_artifact_name(project_id: str) -> str:
+    raw = Path(str(project_id or "").strip())
+    if str(project_id or "").strip() and not raw.is_absolute() and not any(part in {"", ".", ".."} for part in raw.parts):
+        return raw.as_posix()
+    return _safe_slug(str(project_id or ""), "project")
+
+
+def _local_artifact_root(config: GateConfig, *, project_id: str, project_dir_text: str = "") -> Path:
+    root = config.expanded_project_root.resolve()
+    fallback = (root / _safe_project_artifact_name(project_id)).resolve()
+    source = str(project_dir_text or "").strip()
+    if not source:
+        return fallback
+    candidate = Path(source).expanduser()
+    resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError:
+        return fallback
+    return resolved
+
+
 def _stop_process(proc: subprocess.Popen | None) -> None:
     if proc is None:
         return
@@ -1429,19 +1451,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     def _artifact_root_for_queue_row(row: dict[str, Any]) -> tuple[Path, str]:
         project_id = str(row.get("project_id") or "").strip()
         project_dir_text = str(row.get("project_dir") or project_id).strip()
-        root = config.expanded_project_root.resolve()
-        artifact_root = (root / project_id).resolve()
-        if project_dir_text:
-            candidate_root = Path(project_dir_text).expanduser()
-            if candidate_root.is_absolute():
-                try:
-                    candidate_root.resolve().relative_to(root)
-                    artifact_root = candidate_root.resolve()
-                except ValueError:
-                    artifact_root = (root / project_id).resolve()
-            else:
-                artifact_root = (root / candidate_root).resolve()
-        return artifact_root, project_dir_text
+        return _local_artifact_root(config, project_id=project_id, project_dir_text=project_dir_text), project_dir_text
 
     def _auto_reconcile_stale_callback_ready(status: DashboardStatusResponse, *, requested_by: str) -> list[dict[str, Any]]:
         if not status.active_items:
@@ -3697,19 +3707,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     def _candidate_project_dir(candidate: dict[str, Any]) -> Path:
         project_id = str(candidate.get("project_id") or "").strip()
         project_dir_text = str(candidate.get("project_dir") or project_id).strip()
-        root = config.expanded_project_root.resolve()
-        project_dir = Path(project_dir_text).expanduser()
-        if not project_dir.is_absolute():
-            return (root / project_dir).resolve()
-        resolved = project_dir.resolve()
-        try:
-            resolved.relative_to(root)
-            return resolved
-        except ValueError:
-            # Completed worker rows can carry a worker-absolute path that is not
-            # valid on the VM. Use a VM-local artifact root and keep the source
-            # path only for evidence sync.
-            return (root / project_id).resolve()
+        # Completed worker rows can carry worker-absolute or stale relative paths
+        # that are not valid on the VM. Use a VM-local artifact root and keep the
+        # original source path only for evidence sync.
+        return _local_artifact_root(config, project_id=project_id, project_dir_text=project_dir_text)
 
     def _prepare_draft_evidence(candidate: dict[str, Any]) -> dict[str, Any]:
         project_id = str(candidate.get("project_id") or "").strip()

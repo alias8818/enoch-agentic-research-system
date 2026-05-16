@@ -137,6 +137,27 @@ class StaleProcessReaperTests(unittest.TestCase):
                 if proc.poll() is None:
                     proc.kill()
 
+    def test_tracker_rejects_project_dir_escape_outside_project_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "projects"
+            root.mkdir()
+            outside = Path(tmp) / "outside"
+            outside.mkdir()
+            tracker = ProcessTracker(root)
+
+            self.assertIsNone(tracker._project_dir(RunRecord(
+                run_id="run-relative-escape",
+                session_id="session-relative-escape",
+                project_id="project-a",
+                project_dir="../outside",
+            )))
+            self.assertIsNone(tracker._project_dir(RunRecord(
+                run_id="run-absolute-escape",
+                session_id="session-absolute-escape",
+                project_id="project-a",
+                project_dir=str(outside),
+            )))
+
     def test_reaper_returns_only_successfully_signaled_processes(self) -> None:
         tracker = ProcessTracker(Path("/tmp"))
         record = RunRecord(run_id="run", session_id="session", root_pid=999_999_999)
