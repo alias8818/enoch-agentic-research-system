@@ -10,6 +10,7 @@ existing paper drafting gate for a scoped draft.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -202,13 +203,15 @@ def apply_ready(database_url: str, results: list[ScoutResult], *, max_apply: int
                     "effect": "bounded_paper_ready_true",
                     "requested_by": requested_by,
                 }
+                event_json = json.dumps(event_payload, sort_keys=True)
+                event_hash = hashlib.sha256(event_json.encode("utf-8")).hexdigest()
                 cur.execute(
                     """
-                    insert into control_events(idempotency_key, event_type, entity_type, entity_id, payload_json)
-                    values (%s, 'paper_scout.mark_ready', 'project', %s, %s::jsonb)
+                    insert into control_events(idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash)
+                    values (%s, 'paper_scout.mark_ready', 'project', %s, %s::jsonb, %s)
                     on conflict (idempotency_key) do nothing
                     """,
-                    (f"paper-scout:{result.row.decision_id}:bounded-ready", result.row.project_id, json.dumps(event_payload, sort_keys=True)),
+                    (f"paper-scout:{result.row.decision_id}:bounded-ready", result.row.project_id, event_json, event_hash),
                 )
                 applied.append(event_payload)
         conn.commit()
