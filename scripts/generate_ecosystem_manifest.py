@@ -12,6 +12,15 @@ def load_json(path: Path) -> dict:
         return json.load(handle)
 
 
+def require_repo_path(label: str, path: Path) -> Path:
+    resolved = path.resolve()
+    if not resolved.exists():
+        raise SystemExit(f"{label} repo path does not exist: {resolved}")
+    if not resolved.is_dir():
+        raise SystemExit(f"{label} repo path is not a directory: {resolved}")
+    return resolved
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate the public Enoch ecosystem manifest from corpus state.")
     parser.add_argument("--corpus", type=Path, required=True, help="Path to alias8818/enoch-ai-research-corpus")
@@ -20,9 +29,9 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=Path("site/ecosystem.json"))
     args = parser.parse_args()
 
-    system = args.system.resolve()
-    corpus = args.corpus.resolve()
-    docs = args.docs.resolve()
+    system = require_repo_path("system", args.system)
+    corpus = require_repo_path("corpus", args.corpus)
+    docs = require_repo_path("docs", args.docs)
     index = load_json(corpus / "papers" / "index.json")
     report = load_json(corpus / "quality" / "quality_report.json")
     claim_audit_path = corpus / "quality" / "claim_evidence_audit.json"
