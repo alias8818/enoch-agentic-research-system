@@ -64,8 +64,8 @@ def write_pending(state_dir: str | Path, payload: dict[str, Any]) -> Path:
             record["attempt_count"] = int(existing.get("attempt_count") or 0)
             record["last_attempt_at"] = existing.get("last_attempt_at") or ""
             record["last_error"] = existing.get("last_error") or ""
-        except Exception:
-            pass
+        except Exception as exc:
+            record["last_error"] = f"existing pending metadata unreadable: {type(exc).__name__}: {exc}"
     _atomic_write_json(path, record)
     return path
 

@@ -298,7 +298,7 @@ def _is_followup_candidate(row: dict[str, Any]) -> bool:
     except (TypeError, ValueError):
         depth = 0
     required_evidence = _listish(row.get("followup_required_evidence"))
-    return (
+    return bool(
         _truthy(row.get("followup_recommended"))
         and _text(row.get("status") or row.get("queue_status")) == "completed"
         and not _truthy(row.get("manual_review_required"))

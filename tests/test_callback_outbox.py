@@ -38,6 +38,18 @@ def test_write_pending_preserves_failed_attempt_metadata(tmp_path: Path) -> None
     assert data["last_error"] == "TimeoutError: timed out"
 
 
+def test_write_pending_records_corrupt_existing_metadata(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    path = callback_outbox.write_pending(state, _payload())
+    path.write_text("{not-json", encoding="utf-8")
+
+    path = callback_outbox.write_pending(state, _payload())
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    assert data["attempt_count"] == 0
+    assert "existing pending metadata unreadable" in data["last_error"]
+
+
 def test_failed_delivery_keeps_pending_record(monkeypatch, tmp_path: Path) -> None:
     state = tmp_path / "state"
     callback_outbox.write_pending(state, _payload())

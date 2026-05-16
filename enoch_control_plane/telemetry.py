@@ -130,10 +130,11 @@ class TelemetryCollector:
                     if dedicated_total_mib > 0:
                         vram_used_mib = dedicated_used_mib
                         memory_source = "nvml_dedicated"
-                except Exception:
+                except Exception as exc:
                     # Expected on DGX Spark/iGPU UMA platforms: NVIDIA documents
-                    # that nvidia-smi reports Memory-Usage as unsupported.
-                    pass
+                    # that nvidia-smi reports Memory-Usage as unsupported. UMA
+                    # meminfo remains the operator-visible fallback signal.
+                    memory_source = f"{memory_source}:nvml_memory_unavailable:{type(exc).__name__}"
             except Exception:
                 gpu_pct = 0.0
                 gpu_compute_pids = []
@@ -155,5 +156,9 @@ class TelemetryCollector:
         if self._nvml_ready and nvmlShutdown is not None:
             try:
                 nvmlShutdown()
-            except Exception:
-                pass
+            except Exception as exc:
+                # Shutdown is best effort; a failed NVML shutdown must not mask
+                # process exit or service shutdown. Keep the exception type local
+                # for debugger visibility without making close() fail.
+                self._nvml_ready = False
+                _ = exc
