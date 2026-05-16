@@ -14,6 +14,14 @@ from .models import DashboardFinding, DashboardStatusResponse
 from .store import ControlPlaneStore
 
 
+DISPATCH_RACE_GRACE_SEC = 180
+DISPATCH_TRANSITION_EVENTS = {
+    "controller.dispatch_claimed",
+    "controller.live_dispatch",
+    "followup.launch",
+}
+
+
 @dataclass(frozen=True)
 class PushoverResult:
     attempted: bool
@@ -166,6 +174,62 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
     return list(deduped.values())
 
 
+def _recent_dispatch_transition_projects(store: ControlPlaneStore, *, grace_sec: int = DISPATCH_RACE_GRACE_SEC) -> set[str]:
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=grace_sec)
+    projects: set[str] = set()
+    try:
+        rows = store.event_rows(limit=100)
+    except Exception:
+        return projects
+    for row in rows:
+        event_type = str(row.get("event_type") or "")
+        if event_type not in DISPATCH_TRANSITION_EVENTS:
+            continue
+        created_at = _parse_ts(str(row.get("created_at") or ""))
+        if created_at is None or created_at < cutoff:
+            continue
+        entity_type = str(row.get("entity_type") or "")
+        entity_id = str(row.get("entity_id") or "")
+        if entity_type == "project" and entity_id:
+            projects.add(entity_id)
+        payload = row.get("payload")
+        if isinstance(payload, dict):
+            project_id = str(payload.get("project_id") or "")
+            if project_id:
+                projects.add(project_id)
+    return projects
+
+
+def _is_active_row_worker_preflight_race(finding: DashboardFinding) -> bool:
+    if finding.source != "control_plane_db+worker_preflight":
+        return False
+    return "active row" in finding.message.lower() and "no live worker run" in finding.message.lower()
+
+
+def _suppress_dispatch_race_findings(
+    *,
+    store: ControlPlaneStore,
+    status: DashboardStatusResponse,
+    findings: list[DashboardFinding],
+) -> tuple[list[DashboardFinding], list[DashboardFinding]]:
+    if not findings or not status.active_items:
+        return findings, []
+    recent_projects = _recent_dispatch_transition_projects(store)
+    if not recent_projects:
+        return findings, []
+    active_projects = {str(row.get("project_id") or "") for row in status.active_items}
+    if not (active_projects & recent_projects):
+        return findings, []
+    kept: list[DashboardFinding] = []
+    suppressed: list[DashboardFinding] = []
+    for finding in findings:
+        if _is_active_row_worker_preflight_race(finding):
+            suppressed.append(finding)
+        else:
+            kept.append(finding)
+    return kept, suppressed
+
+
 def send_pushover(config: GateConfig, *, title: str, message: str, priority: int = 0) -> PushoverResult:
     token = config.pushover_app_token or os.environ.get("PUSHOVER_APP_TOKEN", "")
     user = config.pushover_user_key or os.environ.get("PUSHOVER_USER_KEY", "")
@@ -196,7 +260,8 @@ def evaluate_and_notify_queue_alerts(
     force_notify: bool,
     requested_by: str,
 ) -> dict[str, Any]:
-    findings = queue_alert_findings(status, hang_after_sec=config.queue_alert_hang_after_sec)
+    raw_findings = queue_alert_findings(status, hang_after_sec=config.queue_alert_hang_after_sec)
+    findings, transient_suppressed_findings = _suppress_dispatch_race_findings(store=store, status=status, findings=raw_findings)
     fingerprint = _fingerprint(findings) if findings else "none"
     now = datetime.now(timezone.utc)
     cooldown_bucket = int(now.timestamp() // config.queue_alert_cooldown_sec)
@@ -211,6 +276,12 @@ def evaluate_and_notify_queue_alerts(
         "cooldown_sec": config.queue_alert_cooldown_sec,
         "generated_at": utc_now(),
         "findings": [item.model_dump(mode="json") for item in findings],
+        "transient_suppressed_findings": [item.model_dump(mode="json") for item in transient_suppressed_findings],
+        "transient_suppression": {
+            "enabled": True,
+            "grace_sec": DISPATCH_RACE_GRACE_SEC,
+            "reason": "recent dispatch transition can precede worker preflight visibility",
+        },
         "dispatch_safe": status.dispatch_safe,
         "dispatch_blockers": status.dispatch_blockers,
         "active_count": len(status.active_items),
@@ -270,4 +341,5 @@ def evaluate_and_notify_queue_alerts(
         "pushover_configured": bool((config.pushover_app_token or os.environ.get("PUSHOVER_APP_TOKEN")) and (config.pushover_user_key or os.environ.get("PUSHOVER_USER_KEY"))),
         "notification": notification.__dict__,
         "findings": [item.model_dump(mode="json") for item in findings],
+        "transient_suppressed_findings": [item.model_dump(mode="json") for item in transient_suppressed_findings],
     }

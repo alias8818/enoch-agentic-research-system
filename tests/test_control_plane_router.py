@@ -2326,6 +2326,50 @@ class ControlPlaneRouterTests(unittest.TestCase):
             second = client.post("/control/api/alerts/queue-check", headers=headers, json={"dry_run": False}).json()
             self.assertTrue(second["suppressed_by_cooldown"])
 
+    def test_queue_alert_check_suppresses_dispatch_preflight_race(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client_with_config(_live_config(tmp))
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_id = "idea-dispatch-race"
+            run_id = "run-dispatch-race"
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "dispatch-race-alert-import",
+                "queue_rows": [{
+                    "project_id": project_id,
+                    "project_name": "Dispatch Race",
+                    "project_dir": project_id,
+                    "status": "awaiting_wake",
+                    "current_run_id": run_id,
+                }],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.append_event(
+                idempotency_key="dispatch-race-live-dispatch",
+                event_type="controller.live_dispatch",
+                entity_type="project",
+                entity_id=project_id,
+                payload={"project_id": project_id, "run_id": run_id},
+            )
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                payload={
+                    "ok": True,
+                    "checks": [
+                        {"name": "worker_no_live_runs", "ok": True, "detail": "active_or_waiting=0, live=0", "data": {"active_or_waiting": 0, "live": 0}}
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+
+            alert = client.post("/control/api/alerts/queue-check", headers=headers, json={"dry_run": True}).json()
+
+            self.assertFalse(alert["should_alert"])
+            self.assertEqual(alert["findings"], [])
+            self.assertTrue(alert["transient_suppressed_findings"])
+            self.assertIn("active row", alert["transient_suppressed_findings"][0]["message"])
+
     def test_queue_alert_check_auto_reconciles_stale_callback_with_local_decision_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp)
