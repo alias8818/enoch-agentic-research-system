@@ -143,6 +143,44 @@ def _bounded_useful_signal_ready(payload: dict[str, Any]) -> bool:
     return True
 
 
+def bounded_useful_signal_row_gate(row: dict[str, Any]) -> dict[str, Any]:
+    """Return a paper gate result for DB-scoped useful-signal rows.
+
+    Paper-scout review can mark a completed no-paper row as
+    ``bounded_paper_ready`` in the control-plane database without rewriting the
+    worker artifact. The draft endpoint must honor that bounded review state;
+    otherwise the dashboard can show write-needed candidates that the draft
+    writer can never consume.
+    """
+
+    payload = {
+        "project_decision": row.get("project_decision") or row.get("decision_gate_state") or row.get("last_run_state"),
+        "research_outcome": row.get("research_outcome"),
+        "bounded_paper_ready": row.get("bounded_paper_ready"),
+        "hypothesis_status": row.get("hypothesis_status"),
+        "evidence_strength": row.get("evidence_strength"),
+        "claim_scope": row.get("claim_scope"),
+        "scale_limits": row.get("scale_limits"),
+    }
+    if not _bounded_useful_signal_ready(payload):
+        return {
+            "eligible": False,
+            "reason": "row is not a bounded useful-signal paper candidate",
+            "research_outcome": text(payload.get("research_outcome")),
+            "bounded_paper_ready": truthy(payload.get("bounded_paper_ready")),
+        }
+    return {
+        "eligible": True,
+        "reason": "bounded useful signal is paper-scoped",
+        "source": "control_plane_row",
+        "field": "bounded_paper_ready",
+        "decision": text(payload.get("project_decision")),
+        "research_outcome": text(payload.get("research_outcome")),
+        "claim_scope": text(payload.get("claim_scope")),
+        "scale_limits": text(payload.get("scale_limits")),
+    }
+
+
 
 def project_decision_payload(artifact_root: str | Path) -> dict[str, Any]:
     """Return the first parseable project decision JSON payload for follow-up metadata."""
@@ -311,6 +349,7 @@ def eligible_paper_draft_candidates(
     return sorted(
         candidates,
         key=lambda row: (
+            1 if truthy(row.get("bounded_paper_ready")) else 0,
             text(row.get("updatedAt")) or text(row.get("last_callback_at")) or text(row.get("last_dispatch_at")),
             -integer(row.get("dispatch_priority"), 9999),
         ),

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from enoch_control_plane.enoch_core.logic import (
     assert_single_active_lane,
+    bounded_useful_signal_row_gate,
     draft_candidate_payload,
     eligible_paper_draft_candidates,
     eligible_paper_polish_candidates,
@@ -54,6 +55,33 @@ class EnochCoreLogicTests(unittest.TestCase):
         }]
         candidates = eligible_paper_draft_candidates(queue_rows, [])
         self.assertEqual([row["project_id"] for row in candidates], ["idea-wake"])
+
+    def test_bounded_paper_ready_candidate_sorts_before_raw_recent_no_paper(self) -> None:
+        queue_rows = [
+            {
+                "project_id": "raw-recent",
+                "project_name": "Raw Recent",
+                "project_dir": "raw-recent",
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-raw",
+                "updatedAt": "2026-05-16T18:09:00Z",
+            },
+            {
+                "project_id": "scout-ready",
+                "project_name": "Scout Ready",
+                "project_dir": "scout-ready",
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-scout",
+                "updatedAt": "2026-05-16T14:01:00Z",
+                "bounded_paper_ready": True,
+            },
+        ]
+        candidates = eligible_paper_draft_candidates(queue_rows, [])
+        self.assertEqual([row["project_id"] for row in candidates], ["scout-ready", "raw-recent"])
 
     def test_draft_candidate_payload_preserves_legacy_run_id_fallback(self) -> None:
         candidate = {
@@ -133,6 +161,30 @@ class EnochCoreLogicTests(unittest.TestCase):
             gate = paper_draft_decision_gate(root)
             self.assertTrue(gate["eligible"])
             self.assertEqual(gate["reason"], "bounded useful signal is paper-scoped")
+
+    def test_bounded_useful_signal_row_gate_accepts_paper_scout_db_state(self) -> None:
+        gate = bounded_useful_signal_row_gate({
+            "project_decision": "finalize_negative",
+            "research_outcome": "useful_signal",
+            "bounded_paper_ready": True,
+            "hypothesis_status": "supported",
+            "evidence_strength": "moderate",
+            "claim_scope": "GPT-2-small-class direct local result with baseline comparison.",
+            "scale_limits": "No datacenter-scale or long-horizon training was run.",
+        })
+        self.assertTrue(gate["eligible"])
+        self.assertEqual(gate["source"], "control_plane_row")
+
+    def test_bounded_useful_signal_row_gate_requires_explicit_ready_flag(self) -> None:
+        gate = bounded_useful_signal_row_gate({
+            "research_outcome": "useful_signal",
+            "bounded_paper_ready": False,
+            "hypothesis_status": "supported",
+            "evidence_strength": "moderate",
+            "claim_scope": "Scoped claim.",
+            "scale_limits": "Scale limit.",
+        })
+        self.assertFalse(gate["eligible"])
 
     def test_useful_signal_without_scope_remains_no_paper(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
