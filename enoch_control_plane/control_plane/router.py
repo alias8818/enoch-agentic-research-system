@@ -344,7 +344,13 @@ def _remote_evidence_dir(config: GateConfig, *, project_id: str, source_project_
     source = source_project_dir.strip()
     remote_root = config.paper_evidence_sync_remote_root.rstrip("/")
     if source:
-        source_path = Path(source).expanduser()
+        remote_source = PurePosixPath(source.replace("\\", "/"))
+        if ".." in remote_source.parts:
+            return f"{remote_root}/{_safe_project_artifact_name(project_id)}"
+        try:
+            source_path = Path(source).expanduser()
+        except RuntimeError:
+            return f"{remote_root}/{_safe_project_artifact_name(project_id)}"
         local_root = config.expanded_project_root.resolve()
         if source_path.is_absolute():
             try:
@@ -352,9 +358,8 @@ def _remote_evidence_dir(config: GateConfig, *, project_id: str, source_project_
             except (OSError, ValueError):
                 return source
         else:
-            remote_relative = PurePosixPath(source.replace("\\", "/"))
-            if ".." not in remote_relative.parts and not remote_relative.is_absolute():
-                return f"{remote_root}/{remote_relative.as_posix()}"
+            if not remote_source.is_absolute():
+                return f"{remote_root}/{remote_source.as_posix()}"
     return f"{remote_root}/{project_id}"
 
 
@@ -371,7 +376,10 @@ def _local_artifact_root(config: GateConfig, *, project_id: str, project_dir_tex
     source = str(project_dir_text or "").strip()
     if not source:
         return fallback
-    candidate = Path(source).expanduser()
+    try:
+        candidate = Path(source).expanduser()
+    except RuntimeError:
+        return fallback
     resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
     try:
         resolved.relative_to(root)

@@ -1,0 +1,32 @@
+rules:
+  - id: enoch-python-subprocess-shell-true
+    message: Avoid shell=True in Enoch automation; prefer argv lists with explicit quoting and bounded inputs.
+    severity: WARNING
+    languages: [python]
+    pattern: subprocess.$FUNC(..., shell=True, ...)
+
+  - id: enoch-hardcoded-publication-count
+    message: Do not hardcode live public corpus/publication counts; derive them from manifests or ledgers.
+    severity: WARNING
+    languages: [python]
+    pattern-either:
+      - pattern: $X = 385
+      - pattern: $X == 385
+      - pattern: $X != 385
+      - pattern: $F(..., 385, ...)
+
+  - id: enoch-silent-broad-exception
+    message: Broad exceptions in control-plane automation must record operator-visible failure context, not silently pass.
+    severity: WARNING
+    languages: [python]
+    pattern-either:
+      - pattern: |
+          try:
+              ...
+          except Exception:
+              pass
+      - pattern: |
+          try:
+              ...
+          except Exception as $EXC:
+              pass

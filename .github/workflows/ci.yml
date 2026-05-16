@@ -23,6 +23,12 @@ jobs:
         run: uv sync --all-extras --dev
       - name: Run Ruff correctness checks
         run: uv run ruff check .
+      - name: Run Pyright report-only type check
+        continue-on-error: true
+        run: uv run pyright --level error
+      - name: Run Semgrep report-only Enoch guardrails
+        continue-on-error: true
+        run: uv run semgrep --config .semgrep/enoch-guardrails.yml --metrics=off --no-git-ignore .
       - name: Run tests
         run: uv run pytest -q
   secret-scan:

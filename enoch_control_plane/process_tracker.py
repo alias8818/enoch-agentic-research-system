@@ -39,7 +39,7 @@ class ProcessTracker:
             try:
                 candidate = Path(raw).expanduser()
                 resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
-            except OSError:
+            except (OSError, RuntimeError):
                 return None
             try:
                 resolved.relative_to(root)
