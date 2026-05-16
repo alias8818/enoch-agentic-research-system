@@ -98,7 +98,26 @@ with latest_decision as (
         and coalesce(d.claim_scope, '') <> ''
         and coalesce(d.scale_limits, '') <> ''
       ) as paper_gate_eligible,
-    d.*
+    d.decision_gate_state as pe_decision_gate_state,
+    d.decision_summary as pe_decision_summary,
+    d.followup_recommended as pe_followup_recommended,
+    d.followup_type as pe_followup_type,
+    d.followup_title as pe_followup_title,
+    d.followup_hypothesis as pe_followup_hypothesis,
+    d.followup_required_evidence as pe_followup_required_evidence,
+    d.followup_success_threshold as pe_followup_success_threshold,
+    d.followup_stop_condition as pe_followup_stop_condition,
+    d.followup_depth as pe_followup_depth,
+    d.research_outcome as pe_research_outcome,
+    d.hypothesis_status as pe_hypothesis_status,
+    d.evidence_strength as pe_evidence_strength,
+    d.claim_scope as pe_claim_scope,
+    d.scale_limits as pe_scale_limits,
+    d.useful_signal_summary as pe_useful_signal_summary,
+    d.recommended_next_action as pe_recommended_next_action,
+    d.stop_reason as pe_stop_reason,
+    d.bounded_paper_ready as pe_bounded_paper_ready,
+    d.compute_scale_blocked as pe_compute_scale_blocked
   from candidate_flags cf
   left join decision_fields d on d.project_id = cf.project_id
 )
@@ -106,8 +125,8 @@ select
   e.project_id,
   e.project_name,
   e.current_run_id as run_id,
-  coalesce(e.decision_gate_state, 'missing') as decision_gate_state,
-  coalesce(e.decision_summary, '') as decision_summary,
+  coalesce(e.pe_decision_gate_state, 'missing') as decision_gate_state,
+  coalesce(e.pe_decision_summary, '') as decision_summary,
   (e.has_project_paper_row or e.has_run_paper_row) as has_live_paper_row,
   (e.raw_write_candidate and e.paper_gate_eligible) as write_needed,
   (e.raw_write_candidate and not e.paper_gate_eligible) as not_writable_by_decision_gate,
@@ -117,25 +136,25 @@ select
     and not e.manual_review_required
     and not (e.has_project_paper_row or e.has_run_paper_row)
     and not e.paper_gate_eligible
-    and coalesce(e.followup_recommended, false)
+    and coalesce(e.pe_followup_recommended, false)
   ) as followup_recommended,
-  coalesce(e.followup_type, '') as followup_type,
-  coalesce(e.followup_title, '') as followup_title,
-  coalesce(e.followup_hypothesis, '') as followup_hypothesis,
-  coalesce(e.followup_required_evidence, '[]'::jsonb) as followup_required_evidence,
-  coalesce(e.followup_success_threshold, '') as followup_success_threshold,
-  coalesce(e.followup_stop_condition, '') as followup_stop_condition,
-  coalesce(e.followup_depth, 0) as followup_depth,
-  coalesce(e.research_outcome, '') as research_outcome,
-  coalesce(e.hypothesis_status, '') as hypothesis_status,
-  coalesce(e.evidence_strength, '') as evidence_strength,
-  coalesce(e.claim_scope, '') as claim_scope,
-  coalesce(e.scale_limits, '') as scale_limits,
-  coalesce(e.useful_signal_summary, '') as useful_signal_summary,
-  coalesce(e.recommended_next_action, '') as recommended_next_action,
-  coalesce(e.stop_reason, '') as stop_reason,
-  coalesce(e.bounded_paper_ready, false) as bounded_paper_ready,
-  coalesce(e.compute_scale_blocked, false) as compute_scale_blocked
+  coalesce(e.pe_followup_type, '') as followup_type,
+  coalesce(e.pe_followup_title, '') as followup_title,
+  coalesce(e.pe_followup_hypothesis, '') as followup_hypothesis,
+  coalesce(e.pe_followup_required_evidence, '[]'::jsonb) as followup_required_evidence,
+  coalesce(e.pe_followup_success_threshold, '') as followup_success_threshold,
+  coalesce(e.pe_followup_stop_condition, '') as followup_stop_condition,
+  coalesce(e.pe_followup_depth, 0) as followup_depth,
+  coalesce(e.pe_research_outcome, '') as research_outcome,
+  coalesce(e.pe_hypothesis_status, '') as hypothesis_status,
+  coalesce(e.pe_evidence_strength, '') as evidence_strength,
+  coalesce(e.pe_claim_scope, '') as claim_scope,
+  coalesce(e.pe_scale_limits, '') as scale_limits,
+  coalesce(e.pe_useful_signal_summary, '') as useful_signal_summary,
+  coalesce(e.pe_recommended_next_action, '') as recommended_next_action,
+  coalesce(e.pe_stop_reason, '') as stop_reason,
+  coalesce(e.pe_bounded_paper_ready, false) as bounded_paper_ready,
+  coalesce(e.pe_compute_scale_blocked, false) as compute_scale_blocked
 from eligible e;
 
 comment on view enoch.paper_eligibility is
