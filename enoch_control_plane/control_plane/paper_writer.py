@@ -166,7 +166,7 @@ Requirements:
 - Distinguish carefully between toy simulation results, llama.cpp hook-prototype results, CUDA copy calibration, and final production validation.
 - Never write TODO, FIXME, placeholder citations, or "citation needed". If external citation details are not present in the context, omit external references rather than inserting placeholders. Prefer a "Referenced artifacts" section that names the local run notes, evidence bundle, claim ledger, metrics, source files, and result files actually present in the context.
 - Keep the draft reviewable and evidence-grounded.
-- Include a clear AI provenance / no-human-credit note near the top: this draft was AI-generated from automated research artifacts, the operator claims no personal authorship credit for the writing or results beyond releasing the artifact, and readers should treat it as an unreviewed AI-generated research artifact. Do not require a human reviewer in the note.
+- Include a clear AI provenance / no-human-credit note near the top: this draft was AI-generated from automated research artifacts, the operator claims no personal authorship credit for the writing or results beyond releasing the artifact, and readers should treat it as an unreviewed AI-generated research artifact. Do not require a human reviewer in the note, and do not use the phrase "No human reviewer has validated".
 
 Project metadata:
 {json.dumps(candidate, indent=2, sort_keys=True, default=str)}
