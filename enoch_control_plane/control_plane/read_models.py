@@ -321,6 +321,22 @@ def _paper_draft_gate_from_row_decision(row: dict[str, Any]) -> dict[str, Any] |
     if state == "positive":
         reason = "bounded useful signal is paper-scoped" if _research_outcome(row) == "useful_signal" and _truthy(row.get("bounded_paper_ready")) else "project decision is positive"
         return {"eligible": True, "reason": reason, "decision": summary or state, "values": [], "source": "supabase_project_decisions"}
+    if (
+        state == "negative"
+        and _research_outcome(row) == "useful_signal"
+        and _truthy(row.get("bounded_paper_ready"))
+        and _text(row.get("hypothesis_status")) in {"supported", "mixed"}
+        and _text(row.get("evidence_strength")) in {"moderate", "strong"}
+        and _text(row.get("claim_scope"))
+        and _text(row.get("scale_limits"))
+    ):
+        return {
+            "eligible": True,
+            "reason": "bounded useful signal is paper-scoped",
+            "decision": summary or state,
+            "values": [],
+            "source": "supabase_project_decisions",
+        }
     reason_by_state = {
         "negative": "project decision is not positive",
         "needs_review": "project decision is not positive",
