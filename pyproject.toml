@@ -24,7 +24,24 @@ include = ["enoch_control_plane*"]
 
 [dependency-groups]
 dev = [
+    "coverage[toml]>=7.14.0",
     "pytest>=9.0.3",
 ]
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+[tool.coverage.run]
+branch = true
+source = ["enoch_control_plane"]
+omit = [
+  "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+  "pragma: no cover",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
