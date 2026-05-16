@@ -43,6 +43,9 @@ class PaperWriterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "projects" / "idea"
             project.mkdir(parents=True)
+            (project / "run_notes.md").write_text("Measured throughput improved by 1.20x against baseline.\n", encoding="utf-8")
+            (project / "results").mkdir()
+            (project / "results" / "metrics.json").write_text('{"aggregate":{"speedup_mean":1.2},"baseline":"control"}\n', encoding="utf-8")
             meta = write_paper_artifacts(self._config(tmp), {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"}, self._paper(), force=True)
             self.assertEqual(meta["provider"], "deterministic")
             draft = (project / "papers/run/paper.md").read_text(encoding="utf-8")
@@ -51,6 +54,13 @@ class PaperWriterTests(unittest.TestCase):
             self.assertNotIn("Review Required", draft)
             self.assertNotIn("Human review", draft)
             self.assertTrue((project / "papers/run/manifest.json").exists())
+            evidence = json.loads((project / "papers/run/evidence.json").read_text(encoding="utf-8"))
+            self.assertEqual(evidence["schema_version"], "evidence_bundle.v2")
+            self.assertIn("evidence/results/metrics.json", evidence["result_file_refs"])
+            self.assertTrue(evidence["public_evidence_files"])
+            ledger = json.loads((project / "papers/run/claims.json").read_text(encoding="utf-8"))
+            self.assertTrue(ledger["claims"])
+            self.assertTrue(ledger["claims"][0]["evidence_refs"])
 
     def test_synthetic_writer_uses_openai_compatible_response(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -67,9 +77,10 @@ class PaperWriterTests(unittest.TestCase):
             evidence_path = project / "papers/run/evidence.json"
             evidence_path.parent.mkdir(parents=True, exist_ok=True)
             evidence_path.write_text("{\"real\": true}\n", encoding="utf-8")
+            (project / "run_notes.md").write_text("Evidence-grounded model draft completed with measured result files.\n", encoding="utf-8")
             with patch("enoch_control_plane.control_plane.paper_writer.request.urlopen", return_value=FakeResponse()) as urlopen:
                 meta = write_paper_artifacts(cfg, {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"}, self._paper(), force=True)
-            self.assertEqual(evidence_path.read_text(encoding="utf-8"), "{\"real\": true}\n")
+            self.assertIn("evidence_bundle.v2", evidence_path.read_text(encoding="utf-8"))
             self.assertEqual(meta["provider"], "synthetic.new")
             self.assertEqual(meta["model"], "hf:zai-org/GLM-5.1")
             self.assertIn("/chat/completions", urlopen.call_args.args[0].full_url)
@@ -85,6 +96,7 @@ class PaperWriterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "projects" / "idea"
             project.mkdir(parents=True)
+            (project / "run_notes.md").write_text("Evidence-grounded synthetic writer date serialization check.\n", encoding="utf-8")
             cfg = self._config(tmp, paper_writer_provider="synthetic.new", paper_writer_api_key="test-key", paper_writer_fallback_enabled=False)
 
             class FakeResponse:
@@ -109,6 +121,7 @@ class PaperWriterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "projects" / "idea"
             project.mkdir(parents=True)
+            (project / "run_notes.md").write_text("Fallback writer had local source evidence.\n", encoding="utf-8")
             cfg = self._config(tmp, paper_writer_provider="synthetic.new", paper_writer_api_key="", paper_writer_fallback_enabled=True)
             meta = write_paper_artifacts(cfg, {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"}, self._paper(), force=True)
             self.assertTrue(meta["fallback_used"])

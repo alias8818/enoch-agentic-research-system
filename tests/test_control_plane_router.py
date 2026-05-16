@@ -119,6 +119,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "projects" / "idea-positive"
             project_dir.mkdir(parents=True)
+            (project_dir / "run_notes.md").write_text("Positive evidence supports drafting this paper.\n", encoding="utf-8")
             client = _client(tmp)
             headers = {"Authorization": f"Bearer {TOKEN}"}
 
@@ -3120,6 +3121,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             headers = {"Authorization": f"Bearer {TOKEN}"}
             papers = []
             for idx in range(3):
+                evidence_dir = config.expanded_project_root / f"bulk-{idx}"
+                evidence_dir.mkdir(parents=True, exist_ok=True)
+                (evidence_dir / "run_notes.md").write_text(f"Bulk Paper {idx} has local evidence for rewrite.\n", encoding="utf-8")
                 papers.append({
                     "paper_id": f"bulk-{idx}:run-{idx}:arxiv_draft",
                     "project_id": f"bulk-{idx}",
@@ -3168,6 +3172,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             client = _client_with_config(config)
             headers = {"Authorization": f"Bearer {TOKEN}"}
             paper_id = "router-rewrite:run-1:arxiv_draft"
+            evidence_dir = config.expanded_project_root / "router-rewrite"
+            evidence_dir.mkdir(parents=True, exist_ok=True)
+            (evidence_dir / "run_notes.md").write_text("Router Rewrite has synced local evidence.\n", encoding="utf-8")
             legacy_dir = Path(tmp) / "legacy-missing" / "router-rewrite"
             audit_path = Path(tmp) / "audit.json"
             audit_path.write_text(json.dumps({"papers": [{"paper_id": paper_id, "ready": True}]}), encoding="utf-8")
@@ -3235,6 +3242,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             client = _client_with_config(config)
             headers = {"Authorization": f"Bearer {TOKEN}"}
             paper_id = "router-rewrite-datetime:run-1:arxiv_draft"
+            evidence_dir = config.expanded_project_root / "router-rewrite-datetime"
+            evidence_dir.mkdir(parents=True, exist_ok=True)
+            (evidence_dir / "run_notes.md").write_text("Router Rewrite Datetime has local evidence.\n", encoding="utf-8")
             audit_path = Path(tmp) / "audit.json"
             audit_path.write_text(json.dumps({"papers": [{"paper_id": paper_id, "ready": True}]}), encoding="utf-8")
             store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
@@ -3376,6 +3386,10 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
             def fake_worker_post(base_url: str, path: str, token: str, payload: dict) -> HttpResult:
                 requested = payload["paths"][0]
+                if requested == "run_notes.md":
+                    return HttpResult(ok=True, status=200, body={"files": [{"path": requested, "content": "Measured router sync evidence improved throughput by 1.20x.\n"}]})
+                if requested == ".enoch/project_decision.json":
+                    return HttpResult(ok=True, status=200, body={"files": [{"path": requested, "content": "{\"decision\":\"positive\",\"evidence\":\"measured\"}\n"}]})
                 if requested == "papers/run-1/evidence_bundle.json":
                     return HttpResult(ok=True, status=200, body={"files": [{"path": requested, "content": "{\"claims\":[\"measured\"]}"}]})
                 return HttpResult(ok=False, status=404, body=None, error=f"missing {requested}")
@@ -3389,8 +3403,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             body = response.json()
-            self.assertEqual(body["writer"]["evidence_sync"]["method"], "worker_http")
-            self.assertEqual(body["writer"]["evidence_sync"]["http_sync"]["files"], 1)
+            self.assertIn(body["writer"]["evidence_sync"]["method"], {"worker_http", "worker_http+ssh"})
+            self.assertGreaterEqual(body["writer"]["evidence_sync"]["http_sync"]["files"], 2)
             self.assertTrue((Path(body["artifact_root"]) / "papers/run-1/evidence_bundle.json").exists())
 
     def test_paper_review_prepare_finalization_package_endpoint_is_automated_and_idempotent(self) -> None:

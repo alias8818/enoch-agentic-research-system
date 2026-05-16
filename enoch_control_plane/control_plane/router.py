@@ -73,7 +73,7 @@ from .models import (
     PauseRequest,
     ResumeRequest,
 )
-from .alerts import evaluate_and_notify_queue_alerts
+from .alerts import evaluate_and_notify_queue_alerts, send_pushover
 from .graphs import build_dispatch_graph
 from .longhaul_readiness import evaluate_longhaul_readiness
 from ..research_quality.status import DEFAULT_AUTOPILOT_HISTORY_PATH, DEFAULT_REPORT_PATHS, DEFAULT_WINDOW_REPORT_PATH, load_latest_quality_status
@@ -343,13 +343,7 @@ def _sync_worker_http_evidence(config: GateConfig, *, project_id: str, artifact_
 def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifact_root: Path, source_project_dir: str = "", source_run_id: str = "") -> dict[str, Any]:
     if not config.paper_evidence_sync_enabled:
         return {"enabled": False, "synced": False, "reason": "disabled"}
-    if _local_high_signal_evidence_present(artifact_root):
-        return {"enabled": True, "synced": False, "reason": "local_high_signal_evidence_present"}
     http_sync = _sync_worker_http_evidence(config, project_id=project_id, artifact_root=artifact_root, source_run_id=source_run_id)
-    if _local_high_signal_evidence_present(artifact_root):
-        return {"enabled": True, "synced": True, "reason": http_sync.get("reason", "worker_http_synced"), "method": "worker_http", "http_sync": http_sync}
-    if _local_paper_evidence_present(artifact_root):
-        return {"enabled": True, "synced": True, "reason": http_sync.get("reason", "worker_http_synced"), "method": "worker_http", "http_sync": http_sync}
     remote_dir = source_project_dir.strip() or f"{config.paper_evidence_sync_remote_root.rstrip('/')}/{project_id}"
     # The VM talks to the GB10 over SSH and streams a bounded evidence tarball.
     # This intentionally excludes external source trees and large trace/log files,
@@ -358,22 +352,42 @@ def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifa
         "run_notes.md",
         ".enoch/project_decision.json",
         ".enoch/metrics.json",
+        ".enoch/project.json",
+        ".enoch/session.json",
+        ".enoch/last_message.md",
+        ".enoch/logs",
+        ".enoch/state",
         ".omx/project_decision.json",
         ".omx/metrics.json",
+        "results",
+        "logs",
+        "scripts",
+        "prompts",
         "papers",
-        "results/hot_cold_sim_results.json",
-        "results/smoke.json",
-        "results/llamacpp_probe/hotcold_probe.json",
-        "results/llamacpp_hotcold_residency/qwen32b_hotcold_residency.json",
-        "results/llamacpp_hotcold_residency/qwen32b_hotcold_fixed_budget_pager_sweep.json",
-        "results/llamacpp_hotcold_residency/qwen32b_hotcold_fixed_budget_pager_sweep_summary.csv",
-        "results/llamacpp_hotcold_residency/qwen32b_hotcold_reuse_pager_sweep.json",
-        "results/llamacpp_hotcold_residency/qwen32b_hotcold_reuse_pager_sweep_summary.csv",
     ]
-    remote_cmd = "cd " + shlex.quote(remote_dir) + " && tar -czf - --ignore-failed-read " + " ".join(shlex.quote(path) for path in include_paths)
-    ssh_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new", config.paper_evidence_sync_ssh_host, remote_cmd]
+    remote_cmd = (
+        "cd "
+        + shlex.quote(remote_dir)
+        + " && tar -czf - --ignore-failed-read --exclude=__pycache__ --exclude='*.pyc' "
+        + " ".join(shlex.quote(path) for path in include_paths)
+    )
+    known_hosts = (config.expanded_state_dir / "ssh_known_hosts").expanduser()
+    ssh_cmd = [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=8",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        f"UserKnownHostsFile={known_hosts}",
+        config.paper_evidence_sync_ssh_host,
+        remote_cmd,
+    ]
     tar_cmd = ["tar", "-xzf", "-", "-C", str(artifact_root)]
     artifact_root.mkdir(parents=True, exist_ok=True)
+    known_hosts.parent.mkdir(parents=True, exist_ok=True)
     try:
         ssh_proc = subprocess.Popen(ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         tar_proc = subprocess.Popen(tar_cmd, stdin=ssh_proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -387,13 +401,13 @@ def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifa
             proc = locals().get(proc_name)
             if proc is not None:
                 proc.kill()
-        return {"enabled": True, "synced": False, "reason": "timeout", "remote_dir": remote_dir, "error": str(exc), "http_sync": http_sync}
+        return {"enabled": True, "synced": _local_paper_evidence_present(artifact_root), "reason": "timeout", "remote_dir": remote_dir, "error": str(exc), "http_sync": http_sync, "method": "worker_http+ssh"}
     except OSError as exc:
-        return {"enabled": True, "synced": False, "reason": "spawn_failed", "remote_dir": remote_dir, "error": str(exc), "http_sync": http_sync}
+        return {"enabled": True, "synced": _local_paper_evidence_present(artifact_root), "reason": "spawn_failed", "remote_dir": remote_dir, "error": str(exc), "http_sync": http_sync, "method": "worker_http+ssh"}
     if ssh_code != 0 or tar_proc.returncode != 0:
         return {
             "enabled": True,
-            "synced": False,
+            "synced": _local_paper_evidence_present(artifact_root),
             "reason": "command_failed",
             "remote_dir": remote_dir,
             "ssh_returncode": ssh_code,
@@ -401,8 +415,9 @@ def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifa
             "stderr": ((ssh_err or b"") + (tar_err or b"")).decode("utf-8", errors="replace")[-2000:],
             "stdout": (tar_out or b"").decode("utf-8", errors="replace")[-1000:],
             "http_sync": http_sync,
+            "method": "worker_http+ssh",
         }
-    return {"enabled": True, "synced": True, "reason": "synced", "remote_dir": remote_dir, "local_evidence_present": _local_paper_evidence_present(artifact_root)}
+    return {"enabled": True, "synced": True, "reason": "synced", "method": "worker_http+ssh", "remote_dir": remote_dir, "local_evidence_present": _local_paper_evidence_present(artifact_root), "http_sync": http_sync}
 
 
 def _safe_slug(value: str, fallback: str) -> str:
@@ -784,6 +799,17 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
 
     def authorize(authorization: str | None) -> None:
         require_bearer(authorization)
+
+    def _alert_paper_evidence_blocked(*, project_id: str, run_id: str = "", paper_id: str = "", reason: str = "") -> dict[str, Any]:
+        if not config.pushover_alerts_enabled:
+            return {"attempted": False, "ok": False, "detail": "pushover alerts disabled"}
+        result = send_pushover(
+            config,
+            title="Enoch paper evidence blocked",
+            message=f"Paper generation blocked because source evidence could not be gathered. project={project_id} run={run_id or 'unknown'} paper={paper_id or 'unknown'} reason={reason or 'missing evidence'}",
+            priority=1,
+        )
+        return {"attempted": result.attempted, "ok": result.ok, "status_code": result.status_code, "detail": result.detail}
 
 
     def _live_dispatch(candidate: dict, requested_by: str, force_preflight: bool, *, allow_paused: bool = False) -> tuple[dict, int | None, dict]:
@@ -2217,6 +2243,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         source_project_dir = str((project or {}).get("project_dir") or "")
         evidence_sync = _sync_remote_project_evidence(config, project_id=project_id, artifact_root=artifact_root, source_project_dir=source_project_dir if source_project_dir and source_project_dir.startswith("/") and not use_current_dir else "", source_run_id=str(paper.get("run_id") or ""))
         if config.paper_evidence_sync_enabled and not _local_paper_evidence_present(artifact_root):
+            notification = _alert_paper_evidence_blocked(project_id=project_id, run_id=str(paper.get("run_id") or ""), paper_id=paper_id, reason=str(evidence_sync.get("reason") or "missing evidence"))
+            store.append_event(
+                idempotency_key=f"paper-evidence-sync-blocked:{paper_id}:{utc_now()[:16]}",
+                event_type="paper.evidence_sync_blocked",
+                entity_type="paper",
+                entity_id=paper_id,
+                payload={"project_id": project_id, "artifact_root": str(artifact_root), "evidence_sync": evidence_sync, "notification": notification},
+            )
             raise HTTPException(status_code=424, detail={"message": "paper rewrite requires synced project evidence", "evidence_sync": evidence_sync})
         record = _paper_record_from_row(paper).model_copy(update={"paper_status": PaperStatus.PUBLICATION_DRAFT, "updated_at": utc_now()})
         candidate = {
@@ -2228,6 +2262,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "notion_page_url": str((project or paper).get("notion_page_url") or ""),
             "paper_review_item": item,
             "paper": paper,
+            "evidence_sync": evidence_sync,
             "publication_policy": {
                 "ai_generated": True,
                 "operator_credit_claim": "none",
@@ -3666,6 +3701,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             evidence = _prepare_draft_evidence(candidate)
             legacy_finalize_positive = str(candidate.get("last_run_state") or "").strip() == "finalize_positive"
             if not legacy_finalize_positive and not evidence["local_evidence_present"]:
+                notification = _alert_paper_evidence_blocked(project_id=str(candidate.get("project_id") or ""), run_id=str(candidate.get("current_run_id") or candidate.get("run_id") or ""), reason=str((evidence.get("evidence_sync") or {}).get("reason") or "missing evidence"))
+                store.append_event(
+                    idempotency_key=f"paper-evidence-sync-blocked:{candidate.get('project_id')}:{candidate.get('current_run_id') or candidate.get('run_id')}:{utc_now()[:16]}",
+                    event_type="paper.evidence_sync_blocked",
+                    entity_type="project",
+                    entity_id=str(candidate.get("project_id") or ""),
+                    payload={"project_id": candidate.get("project_id"), "run_id": candidate.get("current_run_id") or candidate.get("run_id"), "artifact_root": evidence.get("artifact_root"), "evidence_sync": evidence.get("evidence_sync"), "notification": notification},
+                )
                 skipped.append({"project_id": candidate.get("project_id"), "run_id": candidate.get("current_run_id"), "reason": "missing paper evidence", "evidence_sync": evidence.get("evidence_sync")})
                 continue
             decision_gate = {"eligible": True, "reason": "legacy finalize_positive state"}
@@ -3691,7 +3734,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     paper=paper,
                     candidate=draft_candidate_payload(candidate),
                 )
-            candidate_for_write = {**candidate, "project_dir": evidence.get("artifact_root") or candidate.get("project_dir")}
+            candidate_for_write = {**candidate, "project_dir": evidence.get("artifact_root") or candidate.get("project_dir"), "evidence_sync": evidence.get("evidence_sync")}
             writer = write_paper_artifacts(config, candidate_for_write, paper, force=payload.force)
             writer = {**writer, "evidence_sync": evidence.get("evidence_sync"), "artifact_root": evidence.get("artifact_root"), "decision_gate": decision_gate}
             store.update_project_dir(str(candidate.get("project_id") or ""), str(candidate_for_write["project_dir"]))
