@@ -573,6 +573,62 @@ class SupabaseReadOnlyControlPlaneStore:
                 limit 1
               ) as decision_payload_json,
               (
+                select coalesce(d.payload_json->'project_decision'->>'project_decision', d.payload_json->>'project_decision')
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as project_decision,
+              (
+                select coalesce(d.payload_json->'project_decision'->>'research_outcome', d.payload_json->>'research_outcome')
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as research_outcome,
+              (
+                select coalesce(d.payload_json->'project_decision'->>'bounded_paper_ready', d.payload_json->>'bounded_paper_ready')
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as bounded_paper_ready,
+              (
+                select coalesce(d.payload_json->'project_decision'->>'hypothesis_status', d.payload_json->>'hypothesis_status')
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as hypothesis_status,
+              (
+                select coalesce(d.payload_json->'project_decision'->>'evidence_strength', d.payload_json->>'evidence_strength')
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as evidence_strength,
+              (
+                select coalesce(d.payload_json->'project_decision'->>'claim_scope', d.payload_json->>'claim_scope')
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as claim_scope,
+              (
+                select coalesce(d.payload_json->'project_decision'->>'scale_limits', d.payload_json->>'scale_limits')
+                from project_decisions d
+                where d.project_id = q.project_id
+                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                limit 1
+              ) as scale_limits,
+              (
                 select d.followup_recommended
                 from project_decisions d
                 where d.project_id = q.project_id
