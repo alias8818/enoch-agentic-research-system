@@ -340,11 +340,27 @@ def _sync_worker_http_evidence(config: GateConfig, *, project_id: str, artifact_
     return {"ok": True, "reason": "worker_http_synced", "files": len(written), "paths": written[:30], "skipped": skipped[:30]}
 
 
+def _remote_evidence_dir(config: GateConfig, *, project_id: str, source_project_dir: str = "") -> str:
+    source = source_project_dir.strip()
+    remote_root = config.paper_evidence_sync_remote_root.rstrip("/")
+    if source:
+        source_path = Path(source).expanduser()
+        local_root = config.expanded_project_root.resolve()
+        if source_path.is_absolute():
+            try:
+                source_path.resolve().relative_to(local_root)
+            except (OSError, ValueError):
+                return source
+        else:
+            return f"{remote_root}/{source}"
+    return f"{remote_root}/{project_id}"
+
+
 def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifact_root: Path, source_project_dir: str = "", source_run_id: str = "") -> dict[str, Any]:
     if not config.paper_evidence_sync_enabled:
         return {"enabled": False, "synced": False, "reason": "disabled"}
     http_sync = _sync_worker_http_evidence(config, project_id=project_id, artifact_root=artifact_root, source_run_id=source_run_id)
-    remote_dir = source_project_dir.strip() or f"{config.paper_evidence_sync_remote_root.rstrip('/')}/{project_id}"
+    remote_dir = _remote_evidence_dir(config, project_id=project_id, source_project_dir=source_project_dir)
     # The VM talks to the GB10 over SSH and streams a bounded evidence tarball.
     # This intentionally excludes external source trees and large trace/log files,
     # while preserving the artifacts the paper writer needs for claim grounding.
@@ -1430,7 +1446,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 config,
                 project_id=project_id,
                 artifact_root=artifact_root,
-                source_project_dir=project_dir_text if project_dir_text.startswith("/") else "",
+                source_project_dir=project_dir_text,
                 source_run_id=run_id,
             )
             gate = paper_draft_decision_gate(artifact_root)
@@ -1584,7 +1600,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 config,
                 project_id=project_id,
                 artifact_root=artifact_root,
-                source_project_dir=project_dir_text if project_dir_text.startswith("/") else "",
+                source_project_dir=project_dir_text,
                 source_run_id=str(callback.run_id or ""),
             )
             decision_sync = {"artifact_root": str(artifact_root), "evidence_sync": evidence_sync}
@@ -2241,7 +2257,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         artifact_root = (current_project_dir.resolve() if use_current_dir else (configured_root / project_id).resolve())
         artifact_root.mkdir(parents=True, exist_ok=True)
         source_project_dir = str((project or {}).get("project_dir") or "")
-        evidence_sync = _sync_remote_project_evidence(config, project_id=project_id, artifact_root=artifact_root, source_project_dir=source_project_dir if source_project_dir and source_project_dir.startswith("/") and not use_current_dir else "", source_run_id=str(paper.get("run_id") or ""))
+        evidence_sync = _sync_remote_project_evidence(config, project_id=project_id, artifact_root=artifact_root, source_project_dir=source_project_dir if source_project_dir and not use_current_dir else "", source_run_id=str(paper.get("run_id") or ""))
         if config.paper_evidence_sync_enabled and not _local_paper_evidence_present(artifact_root):
             notification = _alert_paper_evidence_blocked(project_id=project_id, run_id=str(paper.get("run_id") or ""), paper_id=paper_id, reason=str(evidence_sync.get("reason") or "missing evidence"))
             store.append_event(
@@ -3685,7 +3701,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             config,
             project_id=project_id,
             artifact_root=artifact_root,
-            source_project_dir=str(candidate.get("project_dir") or "") if str(candidate.get("project_dir") or "").startswith("/") else "",
+            source_project_dir=str(candidate.get("project_dir") or ""),
             source_run_id=str(candidate.get("current_run_id") or candidate.get("run_id") or ""),
         )
         return {"artifact_root": str(artifact_root), "evidence_sync": evidence_sync, "local_evidence_present": _local_paper_evidence_present(artifact_root)}
