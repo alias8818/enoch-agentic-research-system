@@ -3714,6 +3714,17 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if not candidates:
             return DraftNextResponse(ok=True, action="noop", reason="no eligible completed paper-draft candidate without paper remains")
         for candidate in candidates:
+            if payload.dry_run:
+                paper = _paper_record_from_candidate(candidate, force=payload.force)
+                dry_candidate = draft_candidate_payload(candidate)
+                dry_candidate["evidence_sync"] = {"enabled": config.paper_evidence_sync_enabled, "skipped": True, "reason": "dry_run"}
+                return DraftNextResponse(
+                    ok=True,
+                    action="dry_run_draft",
+                    reason="eligible paper-ready candidate found; dry_run prevented evidence sync and artifact writes",
+                    paper=paper,
+                    candidate=dry_candidate,
+                )
             evidence = _prepare_draft_evidence(candidate)
             legacy_finalize_positive = str(candidate.get("last_run_state") or "").strip() == "finalize_positive"
             if not legacy_finalize_positive and not evidence["local_evidence_present"]:
@@ -3742,14 +3753,6 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     })
                     continue
             paper = _paper_record_from_candidate(candidate, force=payload.force)
-            if payload.dry_run:
-                return DraftNextResponse(
-                    ok=True,
-                    action="dry_run_draft",
-                    reason="eligible paper-ready candidate found; dry_run prevented artifact writes",
-                    paper=paper,
-                    candidate=draft_candidate_payload(candidate),
-                )
             candidate_for_write = {**candidate, "project_dir": evidence.get("artifact_root") or candidate.get("project_dir"), "evidence_sync": evidence.get("evidence_sync")}
             writer = write_paper_artifacts(config, candidate_for_write, paper, force=payload.force)
             writer = {**writer, "evidence_sync": evidence.get("evidence_sync"), "artifact_root": evidence.get("artifact_root"), "decision_gate": decision_gate}
