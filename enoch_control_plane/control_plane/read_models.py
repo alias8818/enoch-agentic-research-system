@@ -930,7 +930,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         "published_imported": operator_counts.get(OperatorLane.PUBLISHED.value, 0),
         "publication_ready_total": publication_ready_total,
         "definitions": {
-            "write_needed": "completed runs with no live paper row that currently pass the paper-positive decision gate",
+            "write_needed": "completed runs with no live paper row that currently pass the paper-ready gate",
             "raw_completed_no_paper_candidates": "completed no-paper rows before checking local project decision artifacts",
             "not_writable_by_decision_gate": "completed no-paper rows rejected by local project decision artifacts as negative, ambiguous, or otherwise non-positive",
             "finalize_needed": "publication drafts missing automated finalization package",
