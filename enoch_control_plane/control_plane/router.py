@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import io
 import hashlib
 from pathlib import Path, PurePosixPath
 import os
@@ -8,6 +9,8 @@ import queue
 import re
 import shlex
 import subprocess
+import tarfile
+import tempfile
 import threading
 import time
 from typing import Any, Callable
@@ -303,6 +306,78 @@ window.addEventListener('hashchange',route); route(); setInterval(autoRefreshCur
 """
 
 
+
+
+
+
+def _atomic_write_bytes(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile("wb", dir=path.parent, delete=False) as handle:
+            handle.write(content)
+            tmp = Path(handle.name)
+        tmp.replace(path)
+    finally:
+        if tmp is not None:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
+
+
+def _safe_tar_target(artifact_root: Path, member_name: str) -> Path | None:
+    raw = PurePosixPath(str(member_name or ""))
+    if raw.is_absolute() or not raw.parts or any(part in {"", ".", ".."} for part in raw.parts):
+        return None
+    try:
+        target = (artifact_root / Path(*raw.parts)).resolve()
+        target.relative_to(artifact_root.resolve())
+    except (OSError, ValueError):
+        return None
+    return target
+
+
+def _extract_safe_tar_bytes(payload: bytes, artifact_root: Path, *, max_file_bytes: int = 8_000_000, max_total_bytes: int = 64_000_000) -> dict[str, Any]:
+    artifact_root = artifact_root.resolve()
+    try:
+        artifact_root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return {"ok": False, "reason": "artifact_root_unusable", "files": 0, "paths": [], "skipped": [], "error": f"{type(exc).__name__}: {exc}"}
+    written: list[str] = []
+    skipped: list[dict[str, Any]] = []
+    total_bytes = 0
+    try:
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+            for member in archive.getmembers():
+                target = _safe_tar_target(artifact_root, member.name)
+                if target is None:
+                    skipped.append({"path": member.name, "status": "unsafe_path", "error": "tar member path escapes artifact root"})
+                    continue
+                if member.isdir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                if not member.isfile():
+                    skipped.append({"path": member.name, "status": "unsupported_member", "error": "tar member is not a regular file"})
+                    continue
+                if member.size > max_file_bytes or total_bytes + member.size > max_total_bytes:
+                    skipped.append({"path": member.name, "status": "too_large", "error": "tar member exceeds evidence extraction byte limit"})
+                    continue
+                extracted = archive.extractfile(member)
+                if extracted is None:
+                    skipped.append({"path": member.name, "status": "read_failed", "error": "tar member could not be read"})
+                    continue
+                content = extracted.read(max_file_bytes + 1)
+                if len(content) > max_file_bytes:
+                    skipped.append({"path": member.name, "status": "too_large", "error": "tar member exceeds evidence extraction byte limit"})
+                    continue
+                _atomic_write_bytes(target, content)
+                total_bytes += len(content)
+                written.append(member.name)
+    except (tarfile.TarError, OSError) as exc:
+        return {"ok": False, "reason": "extract_failed", "files": len(written), "paths": written[:30], "skipped": skipped[:30], "error": f"{type(exc).__name__}: {exc}"}
+    return {"ok": bool(written), "reason": "safe_tar_extracted" if written else "no_safe_tar_evidence", "files": len(written), "paths": written[:30], "skipped": skipped[:30]}
 
 
 def _safe_local_evidence_file(project_dir: Path, path: Path) -> bool:
@@ -621,37 +696,40 @@ def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifa
         config.paper_evidence_sync_ssh_host,
         remote_cmd,
     ]
-    tar_cmd = ["tar", "-xzf", "-", "-C", str(artifact_root)]
     artifact_root.mkdir(parents=True, exist_ok=True)
     known_hosts.parent.mkdir(parents=True, exist_ok=True)
     ssh_proc: subprocess.Popen | None = None
-    tar_proc: subprocess.Popen | None = None
     try:
         ssh_proc = subprocess.Popen(ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        tar_proc = subprocess.Popen(tar_cmd, stdin=ssh_proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if ssh_proc.stdout is not None:
-            ssh_proc.stdout.close()
-        tar_out, tar_err = tar_proc.communicate(timeout=config.paper_evidence_sync_timeout_sec)
-        ssh_err = ssh_proc.stderr.read() if ssh_proc.stderr is not None else b""
-        ssh_code = ssh_proc.wait(timeout=5)
+        ssh_out, ssh_err = ssh_proc.communicate(timeout=config.paper_evidence_sync_timeout_sec)
+        ssh_code = ssh_proc.returncode
     except subprocess.TimeoutExpired as exc:
-        _stop_process(tar_proc)
         _stop_process(ssh_proc)
         return {"enabled": True, "synced": _local_paper_evidence_present(artifact_root), "reason": "timeout", "remote_dir": remote_dir, "error": str(exc), "http_sync": http_sync, "method": "worker_http+ssh"}
     except OSError as exc:
-        _stop_process(tar_proc)
         _stop_process(ssh_proc)
         return {"enabled": True, "synced": _local_paper_evidence_present(artifact_root), "reason": "spawn_failed", "remote_dir": remote_dir, "error": str(exc), "http_sync": http_sync, "method": "worker_http+ssh"}
-    if ssh_code != 0 or tar_proc.returncode != 0:
+    if ssh_code != 0:
         return {
             "enabled": True,
             "synced": _local_paper_evidence_present(artifact_root),
             "reason": "command_failed",
             "remote_dir": remote_dir,
             "ssh_returncode": ssh_code,
-            "tar_returncode": tar_proc.returncode,
-            "stderr": ((ssh_err or b"") + (tar_err or b"")).decode("utf-8", errors="replace")[-2000:],
-            "stdout": (tar_out or b"").decode("utf-8", errors="replace")[-1000:],
+            "stderr": (ssh_err or b"").decode("utf-8", errors="replace")[-2000:],
+            "stdout": (ssh_out or b"").decode("utf-8", errors="replace")[-1000:],
+            "http_sync": http_sync,
+            "method": "worker_http+ssh",
+        }
+    extract_result = _extract_safe_tar_bytes(ssh_out or b"", artifact_root)
+    if not extract_result.get("ok"):
+        return {
+            "enabled": True,
+            "synced": _local_paper_evidence_present(artifact_root),
+            "local_evidence_present": _local_paper_evidence_present(artifact_root),
+            "reason": str(extract_result.get("reason") or "extract_failed"),
+            "remote_dir": remote_dir,
+            "extract": extract_result,
             "http_sync": http_sync,
             "method": "worker_http+ssh",
         }

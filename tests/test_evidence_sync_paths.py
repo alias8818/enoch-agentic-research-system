@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import io
+import tarfile
 from pathlib import Path
 import time
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from enoch_control_plane.config import GateConfig
-from enoch_control_plane.control_plane.router import _local_artifact_root, _local_paper_evidence_present, _remote_evidence_dir, _sync_remote_project_evidence
+from enoch_control_plane.control_plane.router import _extract_safe_tar_bytes, _local_artifact_root, _local_paper_evidence_present, _remote_evidence_dir, _sync_remote_project_evidence
 
 
 def _config(tmp_path) -> GateConfig:
@@ -21,6 +22,43 @@ def _config(tmp_path) -> GateConfig:
         paper_evidence_sync_enabled=True,
         paper_evidence_sync_remote_root="/remote/projects",
     )
+
+
+
+
+def _tar_bytes(entries: dict[str, bytes], *, symlinks: dict[str, str] | None = None) -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as tf:
+        for name, content in entries.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(content)
+            tf.addfile(info, io.BytesIO(content))
+        for name, target in (symlinks or {}).items():
+            info = tarfile.TarInfo(name)
+            info.type = tarfile.SYMTYPE
+            info.linkname = target
+            tf.addfile(info)
+    return buffer.getvalue()
+
+
+def test_safe_tar_extract_rejects_traversal_and_symlinks(tmp_path) -> None:
+    artifact_root = tmp_path / "artifact"
+    outside = tmp_path / "outside.txt"
+    payload = _tar_bytes(
+        {
+            "run_notes.md": b"safe notes",
+            "../outside.txt": b"escape",
+        },
+        symlinks={"results/link.json": "../outside.txt"},
+    )
+
+    result = _extract_safe_tar_bytes(payload, artifact_root)
+
+    assert result["ok"] is True
+    assert (artifact_root / "run_notes.md").read_text(encoding="utf-8") == "safe notes"
+    assert not outside.exists()
+    assert any(item["status"] == "unsafe_path" for item in result["skipped"])
+    assert any(item["status"] == "unsupported_member" for item in result["skipped"])
 
 
 def test_remote_evidence_dir_uses_relative_project_dir_over_project_id(tmp_path) -> None:
@@ -171,16 +209,23 @@ class _FakeStartedProcess:
         return -9 if self.killed else 0
 
 
-def test_sync_remote_evidence_kills_started_ssh_when_tar_spawn_fails(tmp_path) -> None:
+def test_sync_remote_evidence_kills_started_ssh_on_timeout(tmp_path) -> None:
     config = _config(tmp_path)
     artifact_root = tmp_path / "artifact"
-    ssh_proc = _FakeStartedProcess()
+
+    class TimeoutSshProcess(_FakeStartedProcess):
+        def communicate(self, timeout=None):  # noqa: ANN001 - subprocess-compatible test double
+            raise subprocess.TimeoutExpired("ssh", timeout)
+
+    import subprocess
+
+    ssh_proc = TimeoutSshProcess()
 
     with patch("enoch_control_plane.control_plane.router._sync_worker_http_evidence", return_value={"ok": False, "reason": "worker_read_failed"}):
-        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", side_effect=[ssh_proc, OSError("tar missing")]):
+        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", return_value=ssh_proc):
             result = _sync_remote_project_evidence(config, project_id="project", artifact_root=artifact_root)
 
-    assert result["reason"] == "spawn_failed"
+    assert result["reason"] == "timeout"
     assert ssh_proc.killed is True
 
 from fastapi import FastAPI
@@ -260,24 +305,11 @@ def test_sync_remote_evidence_reports_failed_when_successful_tar_has_no_required
 
     class FakeSshProcess:
         def __init__(self) -> None:
-            self.stdout = io.BytesIO(b"")
-            self.stderr = io.BytesIO(b"")
-            self.returncode = 0
-
-        def wait(self, timeout=None):  # noqa: ANN001 - subprocess-compatible test double
-            del timeout
-            return 0
-
-        def poll(self):
-            return 0
-
-    class FakeTarProcess:
-        def __init__(self) -> None:
             self.returncode = 0
 
         def communicate(self, timeout=None):  # noqa: ANN001 - subprocess-compatible test double
             del timeout
-            return b"", b""
+            return _tar_bytes({}, symlinks={}), b""
 
         def wait(self, timeout=None):  # noqa: ANN001 - subprocess-compatible test double
             del timeout
@@ -287,13 +319,13 @@ def test_sync_remote_evidence_reports_failed_when_successful_tar_has_no_required
             return 0
 
     with patch("enoch_control_plane.control_plane.router._sync_worker_http_evidence", return_value={"ok": False, "reason": "worker_read_failed"}):
-        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", side_effect=[FakeSshProcess(), FakeTarProcess()]):
+        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", return_value=FakeSshProcess()):
             result = _sync_remote_project_evidence(config, project_id="project", artifact_root=artifact_root)
 
     assert result["method"] == "worker_http+ssh"
     assert result["synced"] is False
     assert result["local_evidence_present"] is False
-    assert result["reason"] == "synced_without_required_evidence"
+    assert result["reason"] == "no_safe_tar_evidence"
 
 
 def test_sync_worker_http_evidence_skips_empty_worker_paths(tmp_path) -> None:
