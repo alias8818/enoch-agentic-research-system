@@ -621,3 +621,12 @@ def test_supabase_queue_rows_query_prefers_run_specific_project_decisions() -> N
     sql = " ".join(store._queue_rows_query("where q.project_id = %s").split()).lower()
 
     assert "case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end" in sql
+
+
+def test_supabase_queue_rows_query_treats_null_current_run_as_project_level_paper_join() -> None:
+    store = s.SupabaseReadOnlyControlPlaneStore("postgres://example", connect=lambda: None)
+
+    sql = " ".join(store._queue_rows_query("where q.project_id = %s").split()).lower()
+
+    assert "coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id" in sql
+    assert "q.current_run_id = '' or pa.run_id = q.current_run_id" not in sql

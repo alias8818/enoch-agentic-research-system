@@ -483,7 +483,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 select pa.paper_id
                 from papers pa
                 where pa.project_id = q.project_id
-                  and (q.current_run_id = '' or pa.run_id = q.current_run_id)
+                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
                 order by pa.updated_at desc
                 limit 1
               ) as related_paper_id,
@@ -491,7 +491,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 select pa.paper_status
                 from papers pa
                 where pa.project_id = q.project_id
-                  and (q.current_run_id = '' or pa.run_id = q.current_run_id)
+                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
                 order by pa.updated_at desc
                 limit 1
               ) as related_paper_status,
@@ -500,7 +500,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from papers pa
                 left join publication_automation_items rv using(paper_id)
                 where pa.project_id = q.project_id
-                  and (q.current_run_id = '' or pa.run_id = q.current_run_id)
+                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
                 order by pa.updated_at desc
                 limit 1
               ) as related_review_status,
@@ -509,7 +509,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from papers pa
                 left join publication_automation_items rv using(paper_id)
                 where pa.project_id = q.project_id
-                  and (q.current_run_id = '' or pa.run_id = q.current_run_id)
+                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
                 order by pa.updated_at desc
                 limit 1
               ) as related_finalization_package_path,
@@ -518,7 +518,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from papers pa
                 left join corpus_imports ci using(paper_id)
                 where pa.project_id = q.project_id
-                  and (q.current_run_id = '' or pa.run_id = q.current_run_id)
+                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
                 order by pa.updated_at desc
                 limit 1
               ) as related_corpus_import_id,
@@ -527,7 +527,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from papers pa
                 left join corpus_imports ci using(paper_id)
                 where pa.project_id = q.project_id
-                  and (q.current_run_id = '' or pa.run_id = q.current_run_id)
+                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
                 order by pa.updated_at desc
                 limit 1
               ) as related_artifact_slug,
@@ -536,7 +536,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from papers pa
                 left join corpus_imports ci using(paper_id)
                 where pa.project_id = q.project_id
-                  and (q.current_run_id = '' or pa.run_id = q.current_run_id)
+                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
                 order by pa.updated_at desc
                 limit 1
               ) as related_source_record_fingerprint,
@@ -545,7 +545,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from papers pa
                 left join corpus_imports ci using(paper_id)
                 where pa.project_id = q.project_id
-                  and (q.current_run_id = '' or pa.run_id = q.current_run_id)
+                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
                 order by pa.updated_at desc
                 limit 1
               ) as related_corpus_imported,
