@@ -628,6 +628,39 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(event["payload"]["stale_callback_ignored"], True)
             self.assertEqual(event["payload"]["ignore_reason"], "missing_run_id_for_active_project")
 
+    def test_worker_callback_missing_run_id_does_not_complete_queued_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="callback-missing-run-queued-import",
+                    queue_rows=[{
+                        "project_id": "idea-queued-project-only",
+                        "project_name": "Queued Project Only",
+                        "project_dir": "idea-queued-project-only",
+                        "status": "queued",
+                        "current_run_id": "",
+                        "next_action_hint": "controller_review",
+                    }],
+                    paper_rows=[],
+                )
+            )
+
+            event_id, inserted, row = store.record_worker_callback({
+                "project_id": "idea-queued-project-only",
+                "event_type": "wake_ready",
+                "reason": "project-only callback without run id",
+            })
+
+            self.assertTrue(inserted)
+            self.assertIsInstance(event_id, int)
+            self.assertEqual(row["status"], "queued")
+            self.assertEqual(row["current_run_id"], "")
+            self.assertEqual(row["next_action_hint"], "controller_review")
+            event = store.event_rows(limit=1, entity_type="run", entity_id="idea-queued-project-only")[0]
+            self.assertEqual(event["payload"]["stale_callback_ignored"], True)
+            self.assertEqual(event["payload"]["ignore_reason"], "missing_run_id_for_project_callback")
+
     def test_worker_callback_without_idempotency_key_replays_by_run_event_and_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

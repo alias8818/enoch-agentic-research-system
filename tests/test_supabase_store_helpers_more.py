@@ -458,6 +458,73 @@ def test_supabase_worker_callback_missing_run_id_does_not_mutate_active_project_
     assert event["payload"]["ignore_reason"] == "missing_run_id_for_active_project"
 
 
+def test_supabase_worker_callback_missing_run_id_does_not_complete_queued_project(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    events: dict[str, dict] = {}
+    executed: list[tuple[tuple, dict]] = []
+    queue = {
+        "project_id": "idea-queued-project-only",
+        "status": "queued",
+        "current_run_id": "",
+        "current_session_id": "",
+        "last_run_state": "",
+        "next_action_hint": "controller_review",
+    }
+
+    def fake_one(sql, params=()):  # noqa: ANN001 - lightweight store fake
+        if "from queue_items" in sql:
+            return queue
+        if "from control_events" in sql:
+            key = params[0]
+            event = events.get(key)
+            if event:
+                return {"event_id": event["event_id"], "payload_hash": event["payload_hash"]}
+        return None
+
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, *args, **kwargs):
+            executed.append((args, kwargs))
+            return None
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    def fake_append_event(*, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
+        event_id = len(events) + 1
+        events[idempotency_key] = {
+            "event_id": event_id,
+            "payload_hash": s._hash(payload),
+            "event_type": event_type,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "payload": payload,
+        }
+        return event_id, True
+
+    monkeypatch.setattr(store, "_one", fake_one)
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "append_event", fake_append_event)
+    monkeypatch.setattr(store, "queue_row", lambda project_id: queue)
+
+    event_id, inserted, row = store.record_worker_callback({
+        "project_id": "idea-queued-project-only",
+        "event_type": "wake_ready",
+        "reason": "project-only callback without run id",
+    })
+
+    assert inserted is True
+    assert event_id == 1
+    assert row["status"] == "queued"
+    assert executed == []
+    event = next(iter(events.values()))
+    assert event["payload"]["stale_callback_ignored"] is True
+    assert event["payload"]["ignore_reason"] == "missing_run_id_for_project_callback"
+
+
 def test_supabase_import_snapshot_preserves_active_runtime_with_empty_current_run(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     queue_upserts: list[tuple] = []

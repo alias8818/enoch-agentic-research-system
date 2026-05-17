@@ -2399,7 +2399,7 @@ class ControlPlaneStore:
             current_status = _text((current_queue_row or {}).get("status"))
             stale_callback = bool(
                 (current_run_id and current_run_id != run_id)
-                or (not run_id and current_status in ACTIVE_STATUSES)
+                or (not run_id and current_queue_row is not None)
             )
 
         status = QueueStatus.COMPLETED.value
@@ -2435,7 +2435,13 @@ class ControlPlaneStore:
                 "applied_status": status,
                 "applied_next_action_hint": next_action_hint,
                 "stale_callback_ignored": True,
-                "ignore_reason": "missing_run_id_for_active_project" if not run_id else "run_id_mismatch",
+                "ignore_reason": (
+                    "missing_run_id_for_active_project"
+                    if not run_id and current_status in ACTIVE_STATUSES
+                    else "missing_run_id_for_project_callback"
+                    if not run_id
+                    else "run_id_mismatch"
+                ),
                 "current_run_id": _text(current_queue_row.get("current_run_id")),
             }
             replayed_event_id = self._replayed_event_id(idempotency_key, event_payload)
