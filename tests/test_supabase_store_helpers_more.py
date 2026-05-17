@@ -277,3 +277,50 @@ def test_supabase_worker_callback_without_key_dedupes_exact_retry(monkeypatch) -
     assert first_inserted is True
     assert second_inserted is False
     assert len(events) == 1
+
+def test_supabase_worker_callback_without_identifiers_dedupes_by_payload(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    events: dict[str, tuple[int, str]] = {}
+
+    def fake_one(sql, params=()):  # noqa: ANN001 - lightweight store fake
+        if "from control_events" in sql:
+            key = params[0]
+            if key in events:
+                event_id, payload_hash = events[key]
+                return {"event_id": event_id, "payload_hash": payload_hash}
+        return None
+
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, *args, **kwargs): return None
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    def fake_connect():
+        return Conn()
+
+    def fake_append_event(*, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
+        del event_type, entity_type, entity_id
+        event_id = len(events) + 1
+        events[idempotency_key] = (event_id, s._hash(payload))
+        return event_id, True
+
+    monkeypatch.setattr(store, "_one", fake_one)
+    monkeypatch.setattr(store, "_connect", fake_connect)
+    monkeypatch.setattr(store, "append_event", fake_append_event)
+    monkeypatch.setattr(store, "queue_row", lambda project_id: {})
+
+    callback = {"source_event": "malformed-worker-callback", "reason": "missing worker identifiers"}
+
+    first_event_id, first_inserted, _ = store.record_worker_callback(callback)
+    second_event_id, second_inserted, _ = store.record_worker_callback(callback)
+
+    assert first_event_id == second_event_id
+    assert first_inserted is True
+    assert second_inserted is False
+    assert len(events) == 1
+

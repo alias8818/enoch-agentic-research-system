@@ -685,3 +685,7 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 ---
 
 **Additional janitor LLM review closure hardening:** Normalized missing or invalid per-candidate LLM decisions into low-confidence `keep_for_later` decisions. This prevents partial LLM responses from leaving rows indefinitely stuck in `needs_review` while still failing closed instead of admitting uncertain work.
+
+---
+
+**Additional malformed callback idempotency hardening:** Made missing-identifier worker callbacks dedupe by deterministic payload hash in both SQLite and Supabase stores instead of timestamp. Exact malformed retries now append one event instead of creating unbounded duplicate unknown callbacks.

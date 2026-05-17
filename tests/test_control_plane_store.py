@@ -532,6 +532,24 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertTrue(third_inserted)
             self.assertEqual(len(store.event_rows(limit=10, entity_type="run", entity_id="run-missing-idempotency")), 2)
 
+    def test_worker_callback_without_identifiers_dedupes_by_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            callback = {
+                "source_event": "malformed-worker-callback",
+                "reason": "missing worker identifiers",
+                "telemetry": {"exit_code": 0},
+            }
+
+            first_event_id, first_inserted, _first_row = store.record_worker_callback(callback)
+            second_event_id, second_inserted, _second_row = store.record_worker_callback(callback)
+
+            self.assertEqual(first_event_id, second_event_id)
+            self.assertTrue(first_inserted)
+            self.assertFalse(second_inserted)
+            self.assertEqual(len(store.event_rows(limit=10, entity_type="run", entity_id="unknown")), 1)
+
+
     def test_unknown_worker_callback_requires_manual_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

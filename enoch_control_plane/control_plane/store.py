@@ -2353,11 +2353,7 @@ class ControlPlaneStore:
         if not idempotency_key:
             session_part = _text(payload.get("session_id")) or "no-session"
             payload_part = _hash(payload)[:16]
-            idempotency_key = (
-                f"worker-callback:{run_id}:{event_type}:{session_part}:{payload_part}"
-                if run_id and event_type
-                else f"worker-callback:unknown:{now}"
-            )
+            idempotency_key = f"worker-callback:{run_id or 'unknown'}:{event_type or 'unknown'}:{session_part}:{payload_part}"
         if not project_id and run_id:
             with self._connect() as conn:
                 found = conn.execute("SELECT project_id FROM runs WHERE run_id=?", (run_id,)).fetchone()
