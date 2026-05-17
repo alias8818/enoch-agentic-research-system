@@ -967,7 +967,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     ) -> dict[str, Any]:
         evidence_sync = evidence_sync or {}
         reason = str(evidence_sync.get("reason") or "missing evidence")
-        bucket = utc_now()[:13]
+        # Bucket by UTC day, not hour. A missing-evidence paper candidate is
+        # durable until evidence arrives or the row is no longer paper-ready;
+        # hourly timer retries should not produce hourly Pushover noise.
+        bucket = utc_now()[:10]
         key = ":".join(
             [
                 "paper-evidence-sync-blocked",

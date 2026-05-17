@@ -18,6 +18,7 @@ def test_update_text_rewrites_current_public_count_phrases_without_touching_hist
         [
             "377 canonical AI-generated artifacts indexed",
             "<strong>377</strong><span>canonical AI-generated artifacts indexed</span>",
+            '<text class="m">377 indexed</text><text class="t">AI artifacts</text>',
             "377 canonical AI-generated artifacts",
             "377 canonical AI-generated research artifacts produced by Enoch",
             "377 canonical indexed artifacts",
@@ -42,6 +43,7 @@ def test_update_text_rewrites_current_public_count_phrases_without_touching_hist
     updated = update_text(text, stats)
     assert "385 canonical AI-generated artifacts indexed" in updated
     assert "<strong>385</strong><span>canonical AI-generated artifacts indexed</span>" in updated
+    assert '<text class="m">385 indexed</text><text class="t">AI artifacts</text>' in updated
     assert "385 canonical AI-generated artifacts" in updated
     assert "385 canonical AI-generated research artifacts produced by Enoch" in updated
     assert "385 canonical indexed artifacts" in updated

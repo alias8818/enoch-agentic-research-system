@@ -33,7 +33,8 @@ DOC_FILES = [
 OWNER_PROFILE_FILES = ["README.md"]
 PERSONAL_SITE_FILES = ["index.html", "writing/index.html", "writing/ai-research-failure-rate.html"]
 HISTORIC_STALE_COUNT = re.compile(r"\b120\b|120/120")
-COUNT_PHRASE = re.compile(r"\b(\d{2,5})\b\s+(canonical AI-generated artifacts indexed|canonical AI-generated artifacts|AI-generated artifacts indexed|AI-generated research artifacts|generated research artifacts|indexed artifacts|canonical AI-generated papers|canonical artifacts|canonical outputs|artifacts)", re.I)
+COUNT_PHRASE = re.compile(r"\b(\d{2,5})\b(?:\s|<[^>]+>)+(canonical AI-generated artifacts indexed|canonical AI-generated artifacts|AI-generated artifacts indexed|indexed AI artifacts|AI artifacts|AI-generated research artifacts|generated research artifacts|indexed artifacts|canonical AI-generated papers|canonical artifacts|canonical outputs|artifacts)", re.I)
+SPLIT_SVG_COUNT_PHRASE = re.compile(r"\b(\d{2,5})\b(?:\s|<[^>]+>)+indexed(?:\s|<[^>]+>)+AI artifacts", re.I)
 PASS_PHRASE = re.compile(r"\b(\d{1,5})\s*/\s*(\d{2,5})\b\s+(pass packaging/provenance|pass packaging and provenance|packaging/provenance passed|pass count|quality|pass strict claim/evidence|pass strict claim and evidence|strict claim/evidence audit)", re.I)
 OF_PASS_PHRASE = re.compile(r"\b(\d{2,5})\s+of\s+(\d{2,5})\s+pass(?:es)?\s+(?:the\s+)?packaging(?:/| and )provenance", re.I)
 STRICT_FAIL_PHRASE = re.compile(r"\b(?:fails?|flags|rejects)\s+(\d{1,5})\s+of\s+(?:its own\s+|its\s+|the\s+)?(\d{2,5})\s+(?:canonical\s+)?outputs", re.I)
@@ -70,10 +71,11 @@ def check_counts(paths: list[Path], artifact_count: int, pass_count: int, failur
         text = path.read_text(encoding="utf-8", errors="replace")
         for match in HISTORIC_STALE_COUNT.finditer(text):
             fail(f"historic stale count in {path}:{line_for(text, match.start())}: {match.group(0)}", failures)
-        for match in COUNT_PHRASE.finditer(text):
-            value = int(match.group(1))
-            if value != artifact_count:
-                fail(f"artifact count drift in {path}:{line_for(text, match.start())}: {value} != {artifact_count}", failures)
+        for pattern in (COUNT_PHRASE, SPLIT_SVG_COUNT_PHRASE):
+            for match in pattern.finditer(text):
+                value = int(match.group(1))
+                if value != artifact_count:
+                    fail(f"artifact count drift in {path}:{line_for(text, match.start())}: {value} != {artifact_count}", failures)
         for match in PASS_PHRASE.finditer(text):
             left, right = int(match.group(1)), int(match.group(2))
             phrase = match.group(3).lower()

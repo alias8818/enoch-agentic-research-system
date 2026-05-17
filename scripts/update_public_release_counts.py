@@ -105,8 +105,10 @@ def update_text(text: str, stats: dict[str, int]) -> str:
     # Count phrases covered by validator plus the launch-announcement wording it intentionally allows.
     # HTML landing pages often split the number and phrase across adjacent tags.
     html_gap = r"(?:\s|<[^>]+>)*"
-    count_phrase = re.compile(rf"\b\d{{2,5}}\b(?={html_gap}(?:canonical AI-generated artifacts indexed|canonical AI-generated artifacts|canonical AI-generated research artifacts|canonical indexed artifacts|AI-generated artifacts indexed|AI-generated research artifacts|generated research artifacts|indexed artifacts|canonical AI-generated papers|canonical artifacts|canonical outputs|artifacts|canonical generated research artifacts))", re.I)
+    count_phrase = re.compile(rf"\b\d{{2,5}}\b(?={html_gap}(?:canonical AI-generated artifacts indexed|canonical AI-generated artifacts|canonical AI-generated research artifacts|canonical indexed artifacts|AI-generated artifacts indexed|indexed AI artifacts|AI artifacts|AI-generated research artifacts|generated research artifacts|indexed artifacts|canonical AI-generated papers|canonical artifacts|canonical outputs|artifacts|canonical generated research artifacts))", re.I)
     text = count_phrase.sub(str(n), text)
+    split_svg_count_phrase = re.compile(rf"\b\d{{2,5}}\b(?={html_gap}indexed{html_gap}AI artifacts)", re.I)
+    text = split_svg_count_phrase.sub(str(n), text)
 
     packaging_patterns = [
         (re.compile(rf"\b\d{{2,5}}\s*/\s*\d{{2,5}}(?={html_gap}(?:pass packaging/provenance|pass packaging and provenance|packaging/provenance passed|pass count|quality))", re.I), f"{p}/{n}"),

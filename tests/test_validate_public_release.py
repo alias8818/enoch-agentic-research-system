@@ -130,3 +130,13 @@ def test_hf_export_check_rejects_stale_dataset_summary(tmp_path) -> None:
     assert any("HF export artifact_count 496 != 385" in failure for failure in failures)
     assert any("HF export strict total 496 != 385" in failure for failure in failures)
     assert any("HF export README missing current count fragment" in failure for failure in failures)
+
+
+def test_public_count_checks_reject_stale_svg_split_count(tmp_path) -> None:
+    page = tmp_path / "social-card.svg"
+    page.write_text('<text class="m">385 indexed</text><text class="t">AI artifacts</text>', encoding="utf-8")
+    failures: list[str] = []
+
+    validate_public_release.check_counts([page], artifact_count=388, pass_count=388, failures=failures)
+
+    assert failures == [f"artifact count drift in {page}:1: 385 != 388"]
