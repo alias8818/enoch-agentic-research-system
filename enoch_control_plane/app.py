@@ -1755,8 +1755,7 @@ def dashboard_queue_snapshot(
     _require_local_bearer(authorization)
     snapshot = _build_queue_snapshot(payload)
     path = _queue_snapshot_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_text(path, json.dumps(snapshot, indent=2, sort_keys=True) + "\n", overwrite=True)
     return {"ok": True, "queue_snapshot": snapshot}
 
 
@@ -1852,8 +1851,7 @@ def dashboard_paper_snapshot(
     _require_local_bearer(authorization)
     snapshot = _build_paper_snapshot(payload)
     path = _paper_snapshot_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_text(path, json.dumps(snapshot, indent=2, sort_keys=True) + "\n", overwrite=True)
     return {"ok": True, "paper_snapshot": snapshot}
 
 
@@ -2105,7 +2103,7 @@ async def prepare_project(
         "prepared_at": utc_now(),
         "metadata": metadata,
     }
-    metadata_path.write_text(json.dumps(metadata_payload, indent=2, sort_keys=True), encoding="utf-8")
+    _write_text(metadata_path, json.dumps(metadata_payload, indent=2, sort_keys=True), overwrite=True)
 
     return {
         "accepted": True,

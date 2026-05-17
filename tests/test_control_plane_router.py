@@ -13,9 +13,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from enoch_control_plane.config import GateConfig
-from enoch_control_plane.control_plane.router import _project_prompt, create_control_plane_router
+from enoch_control_plane.control_plane.router import _project_prompt, _write_deterministic_paper, create_control_plane_router
 from enoch_control_plane.control_plane.store import ControlPlaneStore
-from enoch_control_plane.control_plane.models import ImportSnapshotRequest, PaperReviewBackfillRequest, WorkerPreflightCheck, WorkerPreflightResponse
+from enoch_control_plane.control_plane.models import ImportSnapshotRequest, PaperRecord, PaperReviewBackfillRequest, WorkerPreflightCheck, WorkerPreflightResponse
 from enoch_control_plane.control_plane.worker_adapter import HttpResult
 
 
@@ -62,6 +62,41 @@ def _client_with_config(config: GateConfig) -> TestClient:
 
 
 class ControlPlaneRouterTests(unittest.TestCase):
+
+    def test_deterministic_paper_writes_are_atomic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            project_dir = Path(config.project_root) / "project-a"
+            paper_path = project_dir / "papers" / "run-1" / "draft.md"
+            paper_path.parent.mkdir(parents=True, exist_ok=True)
+            paper_path.write_text("old draft", encoding="utf-8")
+            paper = PaperRecord(
+                paper_id="paper-1",
+                project_id="project-a",
+                run_id="run-1",
+                draft_markdown_path="papers/run-1/draft.md",
+                draft_latex_path="papers/run-1/draft.tex",
+                evidence_bundle_path="papers/run-1/evidence_bundle.json",
+                claim_ledger_path="papers/run-1/claim_ledger.json",
+                manifest_path="papers/run-1/manifest.json",
+            )
+
+            def fail_atomic(path: Path, content: str) -> None:
+                if path == paper_path.resolve():
+                    raise OSError("simulated atomic write failure")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+
+            with patch("enoch_control_plane.control_plane.router._atomic_write_text", side_effect=fail_atomic):
+                with self.assertRaises(OSError):
+                    _write_deterministic_paper(
+                        config,
+                        {"project_name": "Project A", "project_dir": "project-a"},
+                        paper,
+                        force=True,
+                    )
+
+            self.assertEqual(paper_path.read_text(encoding="utf-8"), "old draft")
 
     def test_health_supports_supabase_backend_without_sqlite_path(self) -> None:
         class FakeSupabaseStore:

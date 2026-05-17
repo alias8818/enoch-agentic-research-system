@@ -927,10 +927,9 @@ def _write_deterministic_paper(config: GateConfig, candidate: dict, paper: Paper
             target.relative_to(project_dir)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"paper path escapes project dir: {rel_path}") from exc
-        target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists() and not force:
             continue
-        target.write_text(content, encoding="utf-8")
+        _atomic_write_text(target, content)
 
 
 def create_control_plane_router(config: GateConfig, require_bearer: RequireBearer) -> APIRouter:

@@ -753,3 +753,14 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Root cause: worker HTTP evidence sync wrote returned artifact content directly to target paths. A partial filesystem failure could corrupt previously synced evidence before a paper rewrite.
 - Fix: worker HTTP evidence sync now uses the shared same-directory atomic writer for each copied evidence file.
 - Tests: added `test_sync_worker_http_evidence_preserves_existing_file_when_write_fails`.
+
+### Additional atomic-write hardening: dashboard snapshots, prepare metadata, legacy deterministic paper artifacts
+
+- Found remaining direct write boundaries in `enoch_control_plane/app.py` and legacy deterministic paper writing in `control_plane/router.py`.
+- Added regression coverage proving existing files survive simulated atomic replace failures for:
+  - dashboard queue snapshot writes,
+  - dashboard paper snapshot writes,
+  - worker `prepare-project` metadata writes,
+  - legacy deterministic paper artifact writes.
+- Switched those paths to the existing atomic writer helpers instead of direct `Path.write_text` replacement.
+- Verification: `uv run ruff check . && uv run pytest -q` passed with `547 passed, 5 warnings, 31 subtests passed`.

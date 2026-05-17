@@ -76,6 +76,71 @@ def test_dashboard_api_and_run_detail_endpoint(tmp_path: Path, monkeypatch) -> N
     assert client.get("/dashboard/api/run/missing", headers={"Authorization": f"Bearer {token}"}).status_code == 404
 
 
+def test_dashboard_snapshot_writes_preserve_existing_files_on_replace_failure(tmp_path: Path, monkeypatch) -> None:
+    client, token = _client(tmp_path, monkeypatch)
+    headers = {"Authorization": f"Bearer {token}"}
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    queue_path = state_dir / "queue_snapshot.json"
+    paper_path = state_dir / "paper_snapshot.json"
+    queue_path.write_text("old queue", encoding="utf-8")
+    paper_path.write_text("old paper", encoding="utf-8")
+
+    real_replace = appmod.os.replace
+
+    def flaky_replace(src, dst) -> None:
+        if Path(dst) in {queue_path, paper_path}:
+            raise OSError("simulated atomic replace failure")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(appmod.os, "replace", flaky_replace)
+
+    failing = TestClient(appmod.app, raise_server_exceptions=False)
+    queue_response = failing.post("/dashboard/queue-snapshot", headers=headers, json={"rows": [], "total": 0})
+    paper_response = failing.post("/dashboard/paper-snapshot", headers=headers, json={"rows": [], "total": 0})
+
+    assert queue_response.status_code == 500
+    assert paper_response.status_code == 500
+    assert queue_path.read_text(encoding="utf-8") == "old queue"
+    assert paper_path.read_text(encoding="utf-8") == "old paper"
+    assert not list(state_dir.glob(".queue_snapshot.json.*.tmp"))
+    assert not list(state_dir.glob(".paper_snapshot.json.*.tmp"))
+
+
+def test_prepare_project_metadata_preserves_existing_file_on_replace_failure(tmp_path: Path, monkeypatch) -> None:
+    client, token = _client(tmp_path, monkeypatch)
+    headers = {"Authorization": f"Bearer {token}"}
+    project_dir = tmp_path / "project-a"
+    metadata_path = project_dir / ".enoch" / "project.json"
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text("old metadata", encoding="utf-8")
+
+    real_replace = appmod.os.replace
+
+    def flaky_replace(src, dst) -> None:
+        if Path(dst) == metadata_path:
+            raise OSError("simulated atomic replace failure")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(appmod.os, "replace", flaky_replace)
+
+    failing = TestClient(appmod.app, raise_server_exceptions=False)
+    response = failing.post("/prepare-project", headers=headers, json={
+        "run_id": "run-live",
+        "project_id": "project-a",
+        "project_name": "Project A",
+        "project_dir": "project-a",
+        "prompt_file": "project-a/prompt.md",
+        "prompt_text": "Do work",
+        "metadata": {"workload_class": "training"},
+        "overwrite": True,
+    })
+
+    assert response.status_code == 500
+    assert metadata_path.read_text(encoding="utf-8") == "old metadata"
+    assert not list(metadata_path.parent.glob(".project.json.*.tmp"))
+
+
 def test_prepare_project_status_and_paper_artifact_endpoints(tmp_path: Path, monkeypatch) -> None:
     client, token = _client(tmp_path, monkeypatch)
     headers = {"Authorization": f"Bearer {token}"}
