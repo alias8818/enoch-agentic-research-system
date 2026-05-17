@@ -741,3 +741,9 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Root cause: paper-writer artifact emission used direct target writes. A failure during overwrite could corrupt an existing draft/evidence/claim/manifest artifact.
 - Fix: `_write_files` now writes to a same-directory temporary file and atomically replaces each artifact target, preserving existing artifacts if replacement fails and cleaning temp files.
 - Tests: added `test_write_files_preserves_existing_artifact_when_replace_fails`.
+
+## Additional finalization package atomic-write hardening
+
+- Root cause: finalization manifest writes used direct target writes in the SQLite and Supabase review stores. A filesystem failure during manifest overwrite could leave a partial finalization package on disk.
+- Fix: added shared `_atomic_write_text` for finalization manifests and used it in both store adapters.
+- Tests: extended finalization package commit/retry coverage to prove existing manifests survive write failure.

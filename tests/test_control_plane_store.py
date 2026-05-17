@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from enoch_control_plane.control_plane.models import (
@@ -967,6 +968,19 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(len(manifest["artifacts"]), 5)
             self.assertTrue(all(artifact["readable"] for artifact in manifest["artifacts"]))
             self.assertEqual(item["review_status"], "claimed")
+
+            existing_manifest = Path(package_path)
+            existing_manifest.parent.mkdir(parents=True, exist_ok=True)
+            existing_manifest.write_text("previous manifest", encoding="utf-8")
+            with unittest.mock.patch("enoch_control_plane.control_plane.store._atomic_write_text", side_effect=OSError("simulated manifest write failure")):
+                with self.assertRaises(OSError):
+                    store.prepare_paper_review_finalization_package(
+                        paper_id,
+                        PaperReviewPrepareFinalizationRequest(idempotency_key="package-dry", requested_by="alice", target_label="first-paper", dry_run=False),
+                        require_approval=False,
+                    )
+            self.assertEqual(existing_manifest.read_text(encoding="utf-8"), "previous manifest")
+            existing_manifest.unlink()
 
             event_id, inserted, finalized, package_path, manifest = store.prepare_paper_review_finalization_package(
                 paper_id, PaperReviewPrepareFinalizationRequest(idempotency_key="package-commit", requested_by="alice", target_label="first-paper", dry_run=False), require_approval=False

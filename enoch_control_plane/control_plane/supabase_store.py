@@ -37,6 +37,7 @@ from .store import (
     ALLOWED_STATUS_TRANSITIONS,
     SYSTEM_REVIEW_STATUSES,
     QueueStatus,
+    _atomic_write_text,
     _audit_rows,
     _bool,
     _checklist_progress,
@@ -2136,8 +2137,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         }
         if request.dry_run:
             return None, False, self.paper_review_row(paper_id) or {}, str(package_path), manifest
-        package_path.parent.mkdir(parents=True, exist_ok=True)
-        package_path.write_text(_json(manifest), encoding="utf-8")
+        _atomic_write_text(package_path, _json(manifest))
         event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.finalization_package_prepared", entity_type="paper_review", entity_id=paper_id, payload=payload)
         if inserted:
             with self._connect() as conn:

@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,23 @@ ACTIVE_STATUSES = {"dispatching", "running", "awaiting_wake", "wake_received", "
 
 def _json(payload: Any) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+            handle.write(text)
+            tmp = Path(handle.name)
+        tmp.replace(path)
+    finally:
+        if tmp is not None:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
 
 
 def _hash(payload: Any) -> str:
@@ -1445,8 +1463,7 @@ class ControlPlaneStore:
         }
         if request.dry_run:
             return None, False, self.paper_review_row(paper_id) or {}, str(package_path), manifest
-        package_path.parent.mkdir(parents=True, exist_ok=True)
-        package_path.write_text(_json(manifest), encoding="utf-8")
+        _atomic_write_text(package_path, _json(manifest))
         event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.finalization_package_prepared", entity_type="paper_review", entity_id=paper_id, payload=payload)
         if inserted:
             with self._connect() as conn:
