@@ -3002,7 +3002,15 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         run_id = _text(payload.get("run_id"))
         project_id = _text(payload.get("project_id"))
         event_type = _text(payload.get("event_type"))
-        idempotency_key = _text(payload.get("idempotency_key")) or f"worker-callback:{run_id}:{event_type}:{now}"
+        idempotency_key = _text(payload.get("idempotency_key"))
+        if not idempotency_key:
+            session_part = _text(payload.get("session_id")) or "no-session"
+            payload_part = _hash(payload)[:16]
+            idempotency_key = (
+                f"worker-callback:{run_id}:{event_type}:{session_part}:{payload_part}"
+                if run_id and event_type
+                else f"worker-callback:unknown:{now}"
+            )
         if not project_id and run_id:
             row = self._one("select project_id from runs where run_id = %s", (run_id,))
             project_id = _text(row.get("project_id") if row else "")

@@ -566,6 +566,8 @@ Then run live readiness probe. Expected: readiness `ready` or a clearly understo
 
 **Additional finalization artifact hardening:** Paper finalization now treats artifact paths as readable only when they resolve under the paper project directory in both SQLite and Supabase-backed stores. Added regressions for imported absolute/outside paths so public package generation fails closed instead of packaging unrelated host files.
 
+**Additional Supabase callback parity hardening:** Mirrored the SQLite fallback idempotency-key behavior in the Supabase store so worker callbacks missing explicit keys dedupe exact retries by run/event/session/payload instead of creating timestamp-keyed duplicate control events.
+
 ## Task 9: Final verification, cleanup, and report
 
 **Timebox:** 25 minutes
