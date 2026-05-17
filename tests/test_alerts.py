@@ -127,3 +127,29 @@ def test_queue_alert_findings_reads_live_worker_run_from_observation_model() -> 
     findings = queue_alert_findings(status, hang_after_sec=1)  # type: ignore[arg-type]
 
     assert findings == []
+
+
+def test_send_pushover_rejects_non_http_api_url_before_urlopen(monkeypatch, tmp_path) -> None:
+    from enoch_control_plane.config import GateConfig
+    from enoch_control_plane.control_plane import alerts
+
+    config = GateConfig(
+        state_dir=str(tmp_path / "state"),
+        project_root=str(tmp_path / "projects"),
+        dispatch_script_path=str(tmp_path / "dispatch.sh"),
+        control_api_bearer_token="control",
+        completion_callback_url="http://callback",
+        completion_callback_token="callback",
+        pushover_app_token="app",
+        pushover_user_key="user",
+        pushover_api_url="file:///etc/passwd",
+    )
+
+    def fake_urlopen(*_args, **_kwargs):
+        raise AssertionError("urlopen should not run for unsafe pushover URL")
+
+    monkeypatch.setattr(alerts.request, "urlopen", fake_urlopen)
+    result = alerts.send_pushover(config, title="t", message="m")
+    assert result.attempted is True
+    assert result.ok is False
+    assert "pushover api url must use http or https" in result.detail

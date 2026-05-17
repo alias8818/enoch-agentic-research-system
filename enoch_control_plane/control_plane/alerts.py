@@ -10,6 +10,7 @@ from urllib import parse, request
 
 from ..config import GateConfig
 from ..models import utc_now
+from ..url_safety import validate_http_url
 from .models import DashboardFinding, DashboardStatusResponse
 from .store import ControlPlaneStore
 
@@ -248,7 +249,8 @@ def send_pushover(config: GateConfig, *, title: str, message: str, priority: int
         "priority": str(priority),
     }).encode("utf-8")
     try:
-        req = request.Request(config.pushover_api_url, data=data, method="POST")
+        safe_url = validate_http_url(config.pushover_api_url, field_name="pushover api url")
+        req = request.Request(safe_url, data=data, method="POST")
         with request.urlopen(req, timeout=10) as resp:
             body = resp.read(2048).decode("utf-8", errors="replace")
             return PushoverResult(attempted=True, ok=200 <= resp.status < 300, status_code=resp.status, detail=body)

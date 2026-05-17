@@ -292,6 +292,9 @@ Commit subject if changed: `fix: fail closed on paper draft evidence gates`.
 
 ---
 
+
+**Additional alert URL hardening:** Applied the HTTP(S)-only URL guard to Pushover delivery. Added a regression proving a poisoned `pushover_api_url=file://...` is rejected before `urlopen` runs.
+
 ## Task 4: Queue alert false-positive and backpressure audit
 
 **Timebox:** 60 minutes
