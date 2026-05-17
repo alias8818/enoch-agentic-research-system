@@ -9,6 +9,7 @@ from typing import Any
 from urllib import parse, request
 
 from ..config import GateConfig
+from ..enoch_core.store import IdempotencyConflict
 from ..models import utc_now
 from ..url_safety import validate_http_url
 from .models import DashboardFinding, DashboardStatusResponse
@@ -300,6 +301,7 @@ def evaluate_and_notify_queue_alerts(
     notification = PushoverResult(attempted=False, ok=False, detail="no alert findings")
     event_id = None
     inserted = False
+    event_append_error = ""
     if should_alert:
         message_lines = [
             "Enoch queue alert: possible stoppage/hang",
@@ -323,10 +325,13 @@ def evaluate_and_notify_queue_alerts(
                     entity_id=fingerprint,
                     payload={**payload, "payload_hash": _event_payload_hash(payload)},
                 )
-            except Exception:
-                # If the same alert already exists with an older payload shape, avoid spamming.
+            except IdempotencyConflict:
+                # Same alert bucket with a non-identical timestamp/payload shape; treat as cooldown.
                 inserted = False
-            if inserted or force_notify:
+            except Exception as exc:
+                event_append_error = f"{type(exc).__name__}: {exc}"
+                inserted = False
+            if inserted or force_notify or event_append_error:
                 if config.pushover_alerts_enabled or force_notify:
                     notification = send_pushover(config, title="Enoch queue alert", message=message, priority=1 if any(f.severity == "critical" for f in findings) else 0)
                     sent = notification.ok
@@ -346,6 +351,7 @@ def evaluate_and_notify_queue_alerts(
         "fingerprint": fingerprint,
         "event_id": event_id,
         "inserted_event": inserted,
+        "event_append_error": event_append_error,
         "alerts_enabled": config.pushover_alerts_enabled,
         "pushover_configured": bool((config.pushover_app_token or os.environ.get("PUSHOVER_APP_TOKEN")) and (config.pushover_user_key or os.environ.get("PUSHOVER_USER_KEY"))),
         "notification": notification.__dict__,

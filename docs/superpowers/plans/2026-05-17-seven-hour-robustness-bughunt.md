@@ -723,3 +723,9 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Root cause: a worker callback containing a `project_id` but no `run_id` could mutate an active queue item into `needs_review` because stale-callback protection only ran when a callback supplied a run id.
 - Fix: callback handling now checks the current queue row whenever `project_id` is present. If the project has an active `current_run_id` and the callback omits or mismatches `run_id`, the callback is recorded as ignored and the queue item is left untouched. Applied to SQLite and Supabase store implementations.
 - Tests: added SQLite and Supabase regression tests for missing-run callbacks against active projects.
+
+## Additional pass: queue alert event-store failures still notify
+
+- Root cause: queue alert notification treated any `append_event` exception like a duplicate/cooldown condition. A transient event-store failure could suppress Pushover even though findings were real.
+- Fix: preserve event append errors in the response and still attempt notification when alert findings exist. Cooldown suppression only applies when event append succeeds as a duplicate/no-insert path.
+- Tests: added `test_queue_alert_notify_does_not_treat_event_store_failure_as_cooldown`.
