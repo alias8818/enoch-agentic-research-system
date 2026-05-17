@@ -9,7 +9,9 @@ from unittest.mock import patch
 
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.models import PaperRecord
-from enoch_control_plane.control_plane.paper_writer import write_paper_artifacts
+from fastapi import HTTPException
+
+from enoch_control_plane.control_plane.paper_writer import _write_files, write_paper_artifacts
 
 
 class PaperWriterTests(unittest.TestCase):
@@ -137,6 +139,16 @@ class PaperWriterTests(unittest.TestCase):
                 meta = write_paper_artifacts(cfg, {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"}, self._paper(), force=True)
             self.assertTrue(meta["fallback_used"])
             self.assertIn("paper writer provider url must use http or https", meta["fallback_reason"])
+
+    def test_write_files_rejects_empty_or_directory_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            for rel_path in ("", "."):
+                with self.subTest(rel_path=rel_path):
+                    with self.assertRaises(HTTPException):
+                        _write_files(project, {rel_path: "bad"}, force=True)
+            self.assertTrue(project.is_dir())
 
     def test_synthetic_writer_falls_back_without_key_when_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

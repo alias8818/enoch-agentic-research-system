@@ -39,12 +39,16 @@ def _resolve_project_dir(config: GateConfig, candidate: dict[str, Any]) -> Path:
 
 
 def _write_files(project_dir: Path, files: dict[str, str], *, force: bool) -> None:
+    project_dir = project_dir.resolve()
     for rel_path, content in files.items():
-        target = (project_dir / rel_path).resolve()
+        raw_rel_path = str(rel_path or "").strip()
         try:
+            target = (project_dir / raw_rel_path).resolve()
             target.relative_to(project_dir)
-        except ValueError as exc:
+        except (OSError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=f"paper path escapes project dir: {rel_path}") from exc
+        if not raw_rel_path or target == project_dir or (target.exists() and target.is_dir()):
+            raise HTTPException(status_code=400, detail=f"paper path is not a file target: {rel_path}")
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists() and not force:
             continue
