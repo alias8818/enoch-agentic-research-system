@@ -38,6 +38,7 @@ from .store import (
     SYSTEM_REVIEW_STATUSES,
     QueueStatus,
     TERMINAL_SUCCESS_CALLBACK_STATES,
+    WORKER_CALLBACK_AUDIT_KEYS,
     _atomic_write_text,
     _audit_rows,
     _bool,
@@ -3014,9 +3015,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 raise IdempotencyConflict(f"idempotency key {idempotency_key!r} has unreadable payload") from exc
         if not isinstance(existing_payload, dict):
             raise IdempotencyConflict(f"idempotency key {idempotency_key!r} has non-object payload")
-        for key, value in incoming_payload.items():
-            if existing_payload.get(key) != value:
-                raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different callback payload")
+        existing_callback_payload = {
+            key: value
+            for key, value in existing_payload.items()
+            if key not in WORKER_CALLBACK_AUDIT_KEYS
+        }
+        if existing_callback_payload != incoming_payload:
+            raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different callback payload")
         return int(row["event_id"])
 
     def record_worker_callback(self, callback: Any, *, received_by: str = "worker-callback") -> tuple[int, bool, dict[str, Any]]:

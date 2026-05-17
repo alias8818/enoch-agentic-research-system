@@ -38,6 +38,16 @@ from .state_contract import RUN_STATES
 SCHEMA_VERSION = 1
 ACTIVE_STATUSES = {"dispatching", "running", "awaiting_wake", "wake_received", "reconciling"}
 TERMINAL_SUCCESS_CALLBACK_STATES = {"wake_ready", "session_finished_ready"}
+WORKER_CALLBACK_AUDIT_KEYS = {
+    "received_by",
+    "applied_status",
+    "applied_next_action_hint",
+    "stale_callback_ignored",
+    "late_callback_ignored",
+    "ignore_reason",
+    "current_run_id",
+    "current_last_run_state",
+}
 
 
 def _json(payload: Any) -> str:
@@ -1341,9 +1351,13 @@ class ControlPlaneStore:
             raise IdempotencyConflict(f"idempotency key {idempotency_key!r} has unreadable payload") from exc
         if not isinstance(existing_payload, dict):
             raise IdempotencyConflict(f"idempotency key {idempotency_key!r} has non-object payload")
-        for key, value in incoming_payload.items():
-            if existing_payload.get(key) != value:
-                raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different callback payload")
+        existing_callback_payload = {
+            key: value
+            for key, value in existing_payload.items()
+            if key not in WORKER_CALLBACK_AUDIT_KEYS
+        }
+        if existing_callback_payload != incoming_payload:
+            raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different callback payload")
         return int(row["event_id"])
 
     def claim_paper_review(self, paper_id: str, request: PaperReviewClaimRequest) -> tuple[int, bool, dict[str, Any]]:

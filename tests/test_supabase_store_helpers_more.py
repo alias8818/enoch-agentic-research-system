@@ -606,6 +606,86 @@ def test_supabase_stale_worker_callback_replay_stays_idempotent_after_current_ru
     assert len(events) == 1
     assert events["stale-replay-key"]["payload"]["stale_callback_ignored"] is True
 
+
+
+def test_supabase_worker_callback_idempotency_rejects_payload_subset_reuse(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    events: dict[str, dict] = {}
+    queue = {
+        "project_id": "idea-subset-reuse",
+        "status": "awaiting_wake",
+        "current_run_id": "run-subset-reuse",
+        "current_session_id": "session-subset-reuse",
+        "last_run_state": "awaiting_wake",
+        "next_action_hint": "await_callback",
+    }
+
+    def fake_one(sql, params=()):  # noqa: ANN001 - lightweight store fake
+        if "from control_events" in sql:
+            event = events.get(params[0])
+            if event:
+                return {"event_id": event["event_id"], "payload_hash": event["payload_hash"], "payload_json": event["payload"]}
+        if "from queue_items" in sql:
+            return queue
+        return None
+
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, *args, **kwargs): return None
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    def fake_append_event(*, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
+        event_id = len(events) + 1
+        events[idempotency_key] = {
+            "event_id": event_id,
+            "payload_hash": s._hash(payload),
+            "event_type": event_type,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "payload": payload,
+        }
+        return event_id, True
+
+    monkeypatch.setattr(store, "_one", fake_one)
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "append_event", fake_append_event)
+    monkeypatch.setattr(store, "queue_row", lambda project_id: queue)
+
+    original = {
+        "event_type": "wake_ready",
+        "run_id": "run-subset-reuse",
+        "session_id": "session-subset-reuse",
+        "project_id": "idea-subset-reuse",
+        "gate_state": "wake_ready",
+        "reason": "original worker ready",
+        "telemetry": {"exit_code": 0},
+        "idempotency_key": "subset-reuse-key",
+    }
+    first_event_id, first_inserted, _row = store.record_worker_callback(original)
+    assert first_inserted is True
+    assert first_event_id == 1
+
+    subset = {
+        "event_type": "wake_ready",
+        "run_id": "run-subset-reuse",
+        "session_id": "session-subset-reuse",
+        "project_id": "idea-subset-reuse",
+        "idempotency_key": "subset-reuse-key",
+    }
+
+    try:
+        store.record_worker_callback(subset)
+    except s.IdempotencyConflict:
+        pass
+    else:
+        raise AssertionError("subset callback reused idempotency key")
+
+
 def test_supabase_import_snapshot_preserves_active_runtime_with_empty_current_run(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     queue_upserts: list[tuple] = []

@@ -710,6 +710,49 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(len(events), 1)
             self.assertEqual(events[0]["payload"]["stale_callback_ignored"], True)
 
+
+    def test_worker_callback_idempotency_rejects_payload_subset_reuse(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="callback-subset-reuse-import",
+                    queue_rows=[{
+                        "project_id": "idea-subset-reuse",
+                        "project_name": "Subset Reuse",
+                        "project_dir": "idea-subset-reuse",
+                        "status": "awaiting_wake",
+                        "current_run_id": "run-subset-reuse",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            original = {
+                "event_type": "wake_ready",
+                "run_id": "run-subset-reuse",
+                "session_id": "session-subset-reuse",
+                "project_id": "idea-subset-reuse",
+                "gate_state": "wake_ready",
+                "reason": "original worker ready",
+                "telemetry": {"exit_code": 0},
+                "idempotency_key": "subset-reuse-key",
+            }
+            event_id, inserted, _row = store.record_worker_callback(original)
+            self.assertTrue(inserted)
+            self.assertIsInstance(event_id, int)
+
+            subset = {
+                "event_type": "wake_ready",
+                "run_id": "run-subset-reuse",
+                "session_id": "session-subset-reuse",
+                "project_id": "idea-subset-reuse",
+                "idempotency_key": "subset-reuse-key",
+            }
+
+            with self.assertRaises(IdempotencyConflict):
+                store.record_worker_callback(subset)
+
+
     def test_worker_callback_without_idempotency_key_replays_by_run_event_and_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
