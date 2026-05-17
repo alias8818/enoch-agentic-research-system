@@ -558,6 +558,10 @@ Then run live readiness probe. Expected: readiness `ready` or a clearly understo
 
 **Agentic-PBT sweep:** Re-ran checked-in property proposals for alert behavior, provider-budget logic, and store/callback idempotency. All three returned `no_counterexample`; transient reports were removed after inspection to keep the repo clean.
 
+**Additional callback/state filename hardening:** Found and fixed two filesystem persistence edge cases: missing-key worker callbacks now dedupe exact retries without conflicting on changed retry payloads, callback outbox files cap/hash oversized run IDs, and worker `StateStore` run-state files sanitize path separators plus oversized names. Added regressions for each boundary and reran the callback/state targeted tests plus the full suite.
+
+**Additional Agentic-PBT sweep:** Executed checked-in proposals for `enoch_core.logic`, store callback invariants, alert behavior, and provider-budget gating under the project virtualenv. All four returned `no_counterexample`; reports were kept under `artifacts/agentic-pbt/`.
+
 ## Task 9: Final verification, cleanup, and report
 
 **Timebox:** 25 minutes
