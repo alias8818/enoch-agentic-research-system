@@ -63,6 +63,11 @@ def _observed_worker_runs(status: DashboardStatusResponse) -> list[dict[str, Any
         return runs
 
     def add_from(value: Any) -> None:
+        if not isinstance(value, (dict, list)) and hasattr(value, "model_dump"):
+            try:
+                value = value.model_dump(mode="json")
+            except TypeError:
+                value = value.model_dump()
         if isinstance(value, dict):
             maybe_runs = value.get("runs")
             if isinstance(maybe_runs, list):
