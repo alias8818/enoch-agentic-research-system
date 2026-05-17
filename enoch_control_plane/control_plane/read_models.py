@@ -602,6 +602,8 @@ def row_age_seconds(row: dict[str, Any]) -> int | None:
         ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
     return max(0, int((datetime.now(timezone.utc) - ts).total_seconds()))
 
 

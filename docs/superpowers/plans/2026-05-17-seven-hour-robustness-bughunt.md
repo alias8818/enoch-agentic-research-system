@@ -832,3 +832,9 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Found a paper-gate trust-boundary bug: `project_decision_payload()` and `paper_draft_decision_gate()` followed symlinked `.enoch/.omx/project_decision.json` files. A worker-controlled symlink could make the paper lane read a decision artifact outside the synced project evidence tree.
 - Fix: decision readers now require real non-symlink files before parsing project decision JSON.
 - Test: added `test_decision_payloads_do_not_follow_symlinks`.
+
+### Additional read-model timestamp hardening: tolerate naive DB timestamps
+
+- Found a dashboard/read-model crash edge: `row_age_seconds()` parsed naive database timestamp strings, then subtracted them from an aware UTC timestamp and raised `TypeError`.
+- Fix: naive parsed timestamps are treated as UTC before age calculation.
+- Test: added `test_row_age_seconds_handles_naive_database_timestamps`.
