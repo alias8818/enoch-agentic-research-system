@@ -303,7 +303,9 @@ Commit subject if changed: `fix: fail closed on paper draft evidence gates`.
 
 **Risk being hunted:** alerts fire while the system is healthy, causing noise and eroding trust.
 
-- [ ] **Step 1: Locate existing alert tests and alert event rules**
+**Progress note:** Existing alert predicates already suppressed healthy active lanes and cooldown duplicates. Added a live non-dry-run regression proving healthy active work does not persist queue-alert events or send Pushover. No alert code patch was required. Full test suite passed with 480 tests.
+
+- [x] **Step 1: Locate existing alert tests and alert event rules**
 
 Run:
 
@@ -311,7 +313,7 @@ Run:
 grep -RIn "Queue Alert\|Backpressure\|queue_alert\|enoch_queue_alert_check" deploy tests enoch_control_plane | head -240
 ```
 
-- [ ] **Step 2: Add a regression for active work not being an alert by itself**
+- [x] **Step 2: Add a regression for active work not being an alert by itself**
 
 Build the smallest fake API/read model used by `enoch_queue_alert_check.py`. Assert:
 
@@ -324,15 +326,15 @@ needs_attention == 0
 
 does not emit Pushover and does not append a `Queue Alert Detected` event.
 
-- [ ] **Step 3: Add a regression for backpressure cooldown/deduping**
+- [x] **Step 3: Add a regression for backpressure cooldown/deduping**
 
 Simulate repeated backpressure samples within `queue_alert_cooldown_sec`. Assert at most one alert is sent and subsequent samples produce non-alert telemetry only.
 
-- [ ] **Step 4: Patch the smallest alert predicate**
+- [x] **Step 4: Patch the smallest alert predicate**
 
 Healthy active work should be telemetry, not alert. Alert only when there is sustained blocked/attention/hang evidence or readiness is blocked for a real reason.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run:
 

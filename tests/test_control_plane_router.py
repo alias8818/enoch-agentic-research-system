@@ -2211,6 +2211,44 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(alert["should_alert"])
             self.assertEqual(alert["findings"], [])
 
+    def test_queue_alert_check_does_not_persist_event_for_healthy_active_lane(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client_with_config(_live_config(tmp))
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "normal-active-live-alert-import",
+                "queue_rows": [{
+                    "project_id": "idea-active-live-normal",
+                    "project_name": "Active Live Normal",
+                    "project_dir": "idea-active-live-normal",
+                    "status": "awaiting_wake",
+                    "current_run_id": "run-active-live-normal",
+                }],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="warn",
+                payload={
+                    "ok": False,
+                    "checks": [
+                        {"name": "worker_no_live_runs", "ok": False, "detail": "active_or_waiting=1, live=1", "data": {"active_or_waiting": 1, "live": 1}},
+                        {"name": "wake_gate_healthz", "ok": True, "detail": "ok", "data": {}},
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+
+            alert = client.post("/control/api/alerts/queue-check", headers=headers, json={"dry_run": False}).json()
+
+            self.assertFalse(alert["should_alert"])
+            self.assertFalse(alert["inserted_event"])
+            self.assertFalse(alert["sent"])
+            self.assertEqual(alert["findings"], [])
+            events = client.get("/control/api/v1/events?entity_type=queue_alert", headers=headers).json()
+            self.assertEqual(events["rows"], [])
+
     def test_queue_alert_check_suppresses_transient_worker_timeout_during_active_lane(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client_with_config(_live_config(tmp))
