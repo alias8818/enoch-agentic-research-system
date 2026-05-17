@@ -6,6 +6,7 @@ import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from enoch_control_plane.enoch_core.logic import draft_candidate_payload, eligible_paper_draft_candidates, paper_draft_decision_gate
 
@@ -604,9 +605,14 @@ def row_age_seconds(row: dict[str, Any]) -> int | None:
     return max(0, int((datetime.now(timezone.utc) - ts).total_seconds()))
 
 
+def _url_path_segment(value: Any) -> str:
+    text = str(value or "")
+    return quote(text, safe="") if text else ""
+
+
 def queue_links(row: dict[str, Any]) -> dict[str, str]:
-    project_id = str(row.get("project_id") or "")
-    run_id = str(row.get("current_run_id") or "")
+    project_id = _url_path_segment(row.get("project_id"))
+    run_id = _url_path_segment(row.get("current_run_id"))
     return {
         "project": f"/control/api/v1/projects/{project_id}" if project_id else "",
         "run": f"/control/api/v1/runs/{run_id}" if run_id else "",
@@ -616,9 +622,9 @@ def queue_links(row: dict[str, Any]) -> dict[str, str]:
 
 
 def paper_links(row: dict[str, Any]) -> dict[str, str]:
-    paper_id = str(row.get("paper_id") or "")
-    project_id = str(row.get("project_id") or "")
-    run_id = str(row.get("run_id") or "")
+    paper_id = _url_path_segment(row.get("paper_id"))
+    project_id = _url_path_segment(row.get("project_id"))
+    run_id = _url_path_segment(row.get("run_id"))
     return {
         "paper": f"/control/api/v1/papers/{paper_id}" if paper_id else "",
         "project": f"/control/api/v1/projects/{project_id}" if project_id else "",

@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from enoch_control_plane.config import GateConfig
-from enoch_control_plane.control_plane.read_models import OPERATOR_DETAIL_LABELS, OPERATOR_LANE_LABELS, operator_stage_for_record, paper_source_fingerprint
+from enoch_control_plane.control_plane.read_models import OPERATOR_DETAIL_LABELS, OPERATOR_LANE_LABELS, operator_stage_for_record, paper_links, paper_source_fingerprint, queue_links
 from enoch_control_plane.control_plane.state_contract import OperatorLane
 from enoch_control_plane.control_plane.store import REVIEW_CHECKLIST_DEFINITION
 from enoch_control_plane.control_plane.router import create_control_plane_router
@@ -75,6 +75,20 @@ class OperatorStatusTests(unittest.TestCase):
                 self.assertEqual(translated["operator_lane"], lane)
                 self.assertEqual(translated["operator_detail_stage"], detail_stage)
                 self.assertIs(translated["operator_attention"], attention)
+
+
+    def test_read_model_links_url_encode_path_segments(self) -> None:
+        queue = queue_links({"project_id": "project/with spaces?x=1", "current_run_id": "run/../evil"})
+        self.assertEqual(queue["project"], "/control/api/v1/projects/project%2Fwith%20spaces%3Fx%3D1")
+        self.assertEqual(queue["run"], "/control/api/v1/runs/run%2F..%2Fevil")
+        self.assertEqual(queue["legacy_project"], "/control/api/projects/project%2Fwith%20spaces%3Fx%3D1")
+        self.assertEqual(queue["legacy_run"], "/control/api/runs/run%2F..%2Fevil")
+
+        paper = paper_links({"paper_id": "paper/one", "project_id": "project space", "run_id": "run#frag"})
+        self.assertEqual(paper["paper"], "/control/api/v1/papers/paper%2Fone")
+        self.assertEqual(paper["project"], "/control/api/v1/projects/project%20space")
+        self.assertEqual(paper["run"], "/control/api/v1/runs/run%23frag")
+        self.assertEqual(paper["legacy_paper"], "/control/api/papers/paper%2Fone")
 
     def test_operator_labels_use_grade_school_vocabulary(self) -> None:
         expected_lane_labels = {

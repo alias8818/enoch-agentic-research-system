@@ -820,3 +820,9 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Initial rsync hit a root-owned `targeted_paper_intakes` directory and `.venv` recreation issue; service was immediately restarted, then deployment was rerun safely excluding `targeted_paper_intakes` and reusing the existing `.venv`.
 - Post-deploy smoke: `/healthz` returned ok, `enoch-control-plane.service` was active, and automation readiness was `Long-haul mode: READY` with active=0, queued=0, blocked=0, needs_attention=0, write_needed=0, publish_ready=0, imported=388.
 - Remote code spot-check: deployed files contain the SQLite contextmanager close fix and paper evidence event-store failure alert handling.
+
+### Additional read-model URL hardening: encode dashboard link path segments
+
+- Found a dashboard/read-model link bug: raw project, run, and paper IDs were interpolated directly into API path links. IDs containing slash, query, or fragment characters could produce misleading dashboard/API links.
+- Fix: queue and paper links now URL-encode each path segment before composing v1 and legacy API URLs.
+- Test: added `test_read_model_links_url_encode_path_segments`.
