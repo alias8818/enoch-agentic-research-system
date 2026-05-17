@@ -209,3 +209,17 @@ def test_launch_followup_candidate_dry_run_and_noop(monkeypatch) -> None:
     assert result["followup"]["parent_project_id"] == "parent"
     assert result["followup"]["followup_depth"] == 2
     assert result["followup"]["promising_escalation"] is True
+
+
+def test_supabase_store_resolved_artifact_rejects_paths_outside_project(tmp_path) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    outside = tmp_path / "outside.json"
+    outside.write_text("{}", encoding="utf-8")
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+
+    artifact = store._resolved_artifact({"project_dir": str(project_dir), "evidence_bundle_path": str(outside)}, "evidence_bundle_path")
+
+    assert artifact["exists"] is True
+    assert artifact["safe"] is False
+    assert artifact["readable"] is False

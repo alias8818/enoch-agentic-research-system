@@ -564,6 +564,8 @@ Then run live readiness probe. Expected: readiness `ready` or a clearly understo
 
 **Additional alert/path hardening:** Bucketed paper evidence-sync blocked alerts by project/run/reason/hour so repeated draft attempts do not spam Pushover for the same missing-evidence condition. Also hardened worker paper manifest writes to resolve `run_id` through the same project-relative path guard as artifact writes, blocking path traversal in generated manifest paths.
 
+**Additional finalization artifact hardening:** Paper finalization now treats artifact paths as readable only when they resolve under the paper project directory in both SQLite and Supabase-backed stores. Added regressions for imported absolute/outside paths so public package generation fails closed instead of packaging unrelated host files.
+
 ## Task 9: Final verification, cleanup, and report
 
 **Timebox:** 25 minutes
