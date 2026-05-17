@@ -453,6 +453,9 @@ Do not commit in sibling repos unless the release validator requires a coordinat
 
 **Additional provider URL hardening:** Applied the HTTP(S)-only URL guard to Synthetic quota fetches and OpenAI-compatible provider generation calls. Added regressions proving `file://` provider URLs are rejected before `urllib.urlopen` runs; targeted provider tests and ruff passed.
 
+
+**Additional URL parser hardening:** Extended the shared HTTP URL guard to reject control characters such as CR/LF before `urllib.Request` construction. Added regression coverage for header-injection-shaped URLs.
+
 ## Task 7: Static-analysis bug sweep
 
 **Timebox:** 45 minutes

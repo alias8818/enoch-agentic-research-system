@@ -12,6 +12,8 @@ def validate_http_url(url: str, *, field_name: str = "url") -> str:
     URL into local-file reads or non-HTTP requests.
     """
     value = str(url or "").strip()
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
+        raise ValueError(f"{field_name} must not contain control characters")
     parsed = urlparse(value)
     if parsed.scheme not in {"http", "https"}:
         raise ValueError(f"{field_name} must use http or https")

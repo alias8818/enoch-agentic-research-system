@@ -10,7 +10,7 @@ def test_validate_http_url_accepts_http_and_https() -> None:
     assert validate_http_url("https://example.com/callback") == "https://example.com/callback"
 
 
-@pytest.mark.parametrize("url", ["file:///etc/passwd", "ftp://example.com/a", "//example.com/a", "http:///missing-host", "", "   "])
-def test_validate_http_url_rejects_non_http_or_missing_host(url: str) -> None:
+@pytest.mark.parametrize("url", ["file:///etc/passwd", "ftp://example.com/a", "//example.com/a", "http:///missing-host", "http://example.com/\nInjected: yes", "http://example.com/\r\nInjected: yes", "", "   "])
+def test_validate_http_url_rejects_non_http_or_malformed_urls(url: str) -> None:
     with pytest.raises(ValueError):
         validate_http_url(url)
