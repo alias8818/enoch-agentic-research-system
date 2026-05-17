@@ -3000,6 +3000,16 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         if not project_id and run_id:
             row = self._one("select project_id from runs where run_id = %s", (run_id,))
             project_id = _text(row.get("project_id") if row else "")
+        current_queue_row: dict[str, Any] | None = None
+        stale_callback = False
+        if project_id and run_id:
+            current_queue_row = self._one(
+                "select status,current_run_id,current_session_id,last_run_state,next_action_hint from queue_items where project_id = %s",
+                (project_id,),
+            )
+            current_run_id = _text((current_queue_row or {}).get("current_run_id"))
+            stale_callback = bool(current_run_id and current_run_id != run_id)
+
         status = QueueStatus.COMPLETED.value
         next_action_hint = "select_next_project"
         manual_review_required = False
@@ -3023,6 +3033,29 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             next_action_hint = "inspect_unknown_worker_callback"
             manual_review_required = True
             last_error = _text(payload.get("reason")) or f"unknown worker callback: {event_type}"
+        if stale_callback and current_queue_row:
+            status = _text(current_queue_row.get("status")) or QueueStatus.NEEDS_REVIEW.value
+            next_action_hint = _text(current_queue_row.get("next_action_hint")) or "await_callback"
+            event_payload = {
+                **payload,
+                "received_by": received_by,
+                "applied_status": status,
+                "applied_next_action_hint": next_action_hint,
+                "stale_callback_ignored": True,
+                "current_run_id": _text(current_queue_row.get("current_run_id")),
+            }
+            replayed_event_id = self._replayed_event_id(idempotency_key, event_payload)
+            if replayed_event_id is not None:
+                return replayed_event_id, False, self.queue_row(project_id) or {}
+            event_id, inserted = self.append_event(
+                idempotency_key=idempotency_key,
+                event_type=f"worker_callback.{event_type}",
+                entity_type="run",
+                entity_id=run_id or project_id or "unknown",
+                payload=event_payload,
+            )
+            return event_id, inserted, self.queue_row(project_id) or {}
+
         event_payload = {
             **payload,
             "received_by": received_by,

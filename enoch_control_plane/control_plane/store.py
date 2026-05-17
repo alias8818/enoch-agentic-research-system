@@ -2314,6 +2314,18 @@ class ControlPlaneStore:
             with self._connect() as conn:
                 found = conn.execute("SELECT project_id FROM runs WHERE run_id=?", (run_id,)).fetchone()
                 project_id = found["project_id"] if found else ""
+        current_queue_row: dict[str, Any] | None = None
+        stale_callback = False
+        if project_id and run_id:
+            with self._connect() as conn:
+                found = conn.execute(
+                    "SELECT status,current_run_id,current_session_id,last_run_state,next_action_hint FROM queue_items WHERE project_id=?",
+                    (project_id,),
+                ).fetchone()
+                current_queue_row = dict(found) if found else None
+            current_run_id = _text((current_queue_row or {}).get("current_run_id"))
+            stale_callback = bool(current_run_id and current_run_id != run_id)
+
         status = QueueStatus.COMPLETED.value
         next_action_hint = "select_next_project"
         manual_review_required = 0
@@ -2337,6 +2349,32 @@ class ControlPlaneStore:
             next_action_hint = "inspect_unknown_worker_callback"
             manual_review_required = 1
             last_error = _text(payload.get("reason")) or f"unknown worker callback: {event_type}"
+        if stale_callback and current_queue_row:
+            status = _text(current_queue_row.get("status")) or QueueStatus.NEEDS_REVIEW.value
+            next_action_hint = _text(current_queue_row.get("next_action_hint")) or "await_callback"
+            last_run_state = _text(current_queue_row.get("last_run_state")) or status
+            event_payload = {
+                **payload,
+                "received_by": received_by,
+                "applied_status": status,
+                "applied_next_action_hint": next_action_hint,
+                "stale_callback_ignored": True,
+                "current_run_id": _text(current_queue_row.get("current_run_id")),
+            }
+            replayed_event_id = self._replayed_event_id(idempotency_key, event_payload)
+            if replayed_event_id is not None:
+                row = self.queue_row(project_id) if project_id else {}
+                return replayed_event_id, False, row or {}
+            event_id, inserted = self.append_event(
+                idempotency_key=idempotency_key,
+                event_type=f"worker_callback.{event_type}",
+                entity_type="run",
+                entity_id=run_id or project_id or "unknown",
+                payload=event_payload,
+            )
+            row = self.queue_row(project_id) if project_id else {}
+            return event_id, inserted, row or {}
+
         event_payload = {
             **payload,
             "received_by": received_by,
