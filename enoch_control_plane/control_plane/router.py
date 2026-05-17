@@ -893,6 +893,7 @@ Turn this idea into a concrete, evidence-backed research result. Work autonomous
 - For GB10 work, start with a small smoke test, then calibrate throughput/utilization before any long run.
 - Swap is intentionally disabled on GB10; use MemAvailable/UMA telemetry and earlyoom posture, not swap availability, for memory judgment.
 - Leave durable artifacts: run_notes.md, commands/log paths, metrics, and a final .enoch/project_decision.json.
+- Use `set -o pipefail` before shell pipelines that pipe through `tee`; do not let pipeline logging mask failed experiments.
 - If final scientific closure truly needs human/private/external evidence, state that precisely and stop with a needs_review/blocker decision.
 - Match the evidence to the claim. If this idea asks for a large/overnight/full-scale validation, a short proxy run must not be presented as full validation.
 

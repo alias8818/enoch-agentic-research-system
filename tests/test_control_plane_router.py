@@ -4077,6 +4077,7 @@ def test_project_prompt_includes_canonical_decision_contract() -> None:
     assert "short smoke/proxy/synthetic test may close `finalize_negative`" in prompt
     assert "Do not add new decision fields or enum values." in prompt
     assert "Do not use `finalize_positive` for a proxy-only result" in prompt
+    assert "Use `set -o pipefail` before shell pipelines that pipe through `tee`" in prompt
     assert "Follow-up fields are optional adjacent-investigation metadata; they never make this run paper-positive." in prompt
     assert "controller will cap follow-ups at depth 4" in prompt
 
