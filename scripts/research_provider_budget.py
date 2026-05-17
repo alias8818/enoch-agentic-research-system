@@ -59,7 +59,8 @@ def synthetic_budget_status(
     except ValueError:
         remaining_credits = 0.0
     rolling_remaining = int(rolling.get("remaining") or 0)
-    subscription_remaining = max(0, int(subscription.get("limit") or 0) - int(subscription.get("requests") or 0))
+    subscription_limit = int(subscription.get("limit") or 0)
+    subscription_remaining = max(0, subscription_limit - int(subscription.get("requests") or 0))
     required_rolling = max(0, int(estimated_requests)) + max(0, int(reserve_requests))
     if remaining_credits < min_remaining_credits:
         failures.append(f"weekly remaining credits {remaining_credits:.2f} < minimum {min_remaining_credits:.2f}")
@@ -67,7 +68,7 @@ def synthetic_budget_status(
         failures.append("rolling five-hour limit is currently limited")
     if rolling_remaining < max(min_rolling_remaining, required_rolling):
         failures.append(f"rolling remaining {rolling_remaining} < required {max(min_rolling_remaining, required_rolling)}")
-    if subscription_remaining and subscription_remaining < estimated_requests:
+    if subscription_limit > 0 and subscription_remaining < max(0, int(estimated_requests)):
         failures.append(f"subscription request allowance remaining {subscription_remaining} < estimated requests {estimated_requests}")
     return {
         "ok": not failures,

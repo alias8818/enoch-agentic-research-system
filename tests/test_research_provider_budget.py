@@ -72,6 +72,23 @@ def test_synthetic_budget_fails_closed_when_low_or_limited() -> None:
     assert any("rolling remaining" in failure for failure in result["failures"])
 
 
+
+def test_synthetic_budget_fails_when_subscription_allowance_exhausted() -> None:
+    payload = json.loads(json.dumps(SYNTHETIC_QUOTA))
+    payload["subscription"]["limit"] = 100
+    payload["subscription"]["requests"] = 100
+
+    result = research_provider_budget.synthetic_budget_status(
+        payload,
+        min_remaining_credits=5.0,
+        min_rolling_remaining=10,
+        estimated_requests=1,
+        reserve_requests=1,
+    )
+
+    assert result["ok"] is False
+    assert any("subscription request allowance" in failure for failure in result["failures"])
+
 def test_budget_cli_uses_offline_payload(tmp_path: Path) -> None:
     payload = tmp_path / "quota.json"
     output = tmp_path / "budget.json"
