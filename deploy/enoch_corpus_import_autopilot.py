@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any
 from urllib.request import Request, urlopen
 
@@ -39,6 +40,14 @@ def _truthy(name: str, default: str = "0") -> bool:
 def _bounded_int(name: str, default: int, lower: int, upper: int) -> int:
     try:
         value = int(os.environ.get(name, str(default)))
+    except ValueError:
+        value = default
+    return max(lower, min(value, upper))
+
+
+def _bounded_float(name: str, default: float, lower: float, upper: float) -> float:
+    try:
+        value = float(os.environ.get(name, str(default)))
     except ValueError:
         value = default
     return max(lower, min(value, upper))
@@ -222,6 +231,57 @@ def _import_cmd(*, base_url: str, token: str, limit: int, dry_run: bool) -> list
     return cmd
 
 
+
+
+def _redact_command(cmd: object) -> object:
+    if not isinstance(cmd, list):
+        return cmd
+    redacted: list[object] = []
+    skip_next = False
+    for item in cmd:
+        text = str(item)
+        if skip_next:
+            redacted.append("<redacted>")
+            skip_next = False
+            continue
+        redacted.append(item)
+        if text in {"--token", "--github-token", "--api-key"}:
+            skip_next = True
+    return redacted
+
+
+def _exception_summary(exc: Exception) -> str:
+    if isinstance(exc, subprocess.CalledProcessError):
+        return json.dumps(
+            {
+                "type": type(exc).__name__,
+                "returncode": exc.returncode,
+                "cmd": _redact_command(exc.cmd),
+                "stdout_tail": str(exc.output or "")[-800:],
+                "stderr_tail": str(exc.stderr or "")[-800:],
+            },
+            sort_keys=True,
+        )
+    return f"{type(exc).__name__}: {exc}"
+
+
+def _run_import_dry_run_with_retries(cmd: list[str], *, cwd: Path) -> tuple[subprocess.CompletedProcess[str], int]:
+    attempts = _bounded_int("ENOCH_CORPUS_IMPORT_DRY_RUN_RETRIES", 3, 1, 5)
+    delay = _bounded_float("ENOCH_CORPUS_IMPORT_DRY_RUN_RETRY_DELAY_SEC", 3.0, 0.0, 30.0)
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return _run(cmd, cwd=cwd), attempt
+        except Exception as exc:  # noqa: BLE001 - retry bounded preflight only
+            last_exc = exc
+            if attempt >= attempts:
+                break
+            if delay > 0:
+                time.sleep(delay)
+    assert last_exc is not None
+    raise RuntimeError(_exception_summary(last_exc)) from last_exc
+
+
 def _run_named_steps(cwd: Path, steps: list[tuple[str, list[str]]]) -> list[dict[str, Any]]:
     out = []
     for name, cmd in steps:
@@ -334,10 +394,10 @@ def main() -> int:
     skip_github = _truthy("ENOCH_CORPUS_IMPORT_SKIP_GITHUB_METADATA", "1")
 
     try:
-        dry = _run(_import_cmd(base_url=base_url, token=token, limit=limit, dry_run=True), cwd=corpus)
+        dry, dry_run_attempts = _run_import_dry_run_with_retries(_import_cmd(base_url=base_url, token=token, limit=limit, dry_run=True), cwd=corpus)
         dry_payload = json.loads(dry.stdout)
     except Exception as exc:  # noqa: BLE001 - fail closed without writes
-        print(json.dumps({"ok": False, "action": "dry_run_failed", "reason": f"{type(exc).__name__}: {exc}"}, sort_keys=True), file=sys.stderr)
+        print(json.dumps({"ok": False, "action": "dry_run_failed", "reason": _exception_summary(exc)}, sort_keys=True), file=sys.stderr)
         return 1
     if dry_payload.get("failed"):
         print(json.dumps({"ok": False, "action": "blocked", "reason": "bounded import dry-run failed", "dry_run": dry_payload}, sort_keys=True), file=sys.stderr)
@@ -347,9 +407,9 @@ def main() -> int:
             ledger_sync: dict[str, Any] = {}
             if _truthy("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "0"):
                 ledger_sync = _sync_corpus_ledger(system, corpus)
-            print(json.dumps({"ok": True, "action": "skipped", "reason": "no clean importable papers", "dry_run": dry_payload, "fast_forwarded": fast_forwarded, "ledger_sync": ledger_sync}, sort_keys=True))
+            print(json.dumps({"ok": True, "action": "skipped", "reason": "no clean importable papers", "dry_run": dry_payload, "dry_run_attempts": dry_run_attempts, "fast_forwarded": fast_forwarded, "ledger_sync": ledger_sync}, sort_keys=True))
             return 0
-        print(json.dumps({"ok": False, "action": "blocked", "reason": "bounded import dry-run found no clean importable papers", "dry_run": dry_payload, "fast_forwarded": fast_forwarded}, sort_keys=True), file=sys.stderr)
+        print(json.dumps({"ok": False, "action": "blocked", "reason": "bounded import dry-run found no clean importable papers", "dry_run": dry_payload, "dry_run_attempts": dry_run_attempts, "fast_forwarded": fast_forwarded}, sort_keys=True), file=sys.stderr)
         return 1
 
     with tempfile.TemporaryDirectory(prefix="enoch-corpus-import-preflight-") as tmp:
@@ -368,7 +428,7 @@ def main() -> int:
         release_validation = _validate_release(tmp_system, tmp_root, tmp_corpus, tmp_root / "enoch-ecosystem.generated.json", skip_github_metadata=True)
 
     if _truthy("ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY", "0"):
-        print(json.dumps({"ok": True, "action": "preflight_only", "limit": limit, "dry_run": dry_payload, "preflight_import": live_payload, "count_update": count_update, "corpus_checks": checks, "release_validation": release_validation, "fast_forwarded": fast_forwarded}, sort_keys=True))
+        print(json.dumps({"ok": True, "action": "preflight_only", "limit": limit, "dry_run": dry_payload, "dry_run_attempts": dry_run_attempts, "preflight_import": live_payload, "count_update": count_update, "corpus_checks": checks, "release_validation": release_validation, "fast_forwarded": fast_forwarded}, sort_keys=True))
         return 0
 
     live = _run(_import_cmd(base_url=base_url, token=token, limit=limit, dry_run=False), cwd=corpus)
@@ -396,7 +456,7 @@ def main() -> int:
         if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0") and not pushed:
             raise RuntimeError("ledger sync requires pushed commits when ENOCH_CORPUS_IMPORT_PUSH=1")
         ledger_sync = _sync_corpus_ledger(system, corpus)
-    print(json.dumps({"ok": True, "action": "corpus_imported", "limit": limit, "dry_run": dry_payload, "import_result": live_payload, "count_update": count_update, "corpus_checks": checks, "github_metadata": github_metadata, "release_validation": release_validation, "changed_repos": changed_repos, "commits": commits, "pushed": pushed, "ledger_sync": ledger_sync, "fast_forwarded": fast_forwarded}, sort_keys=True))
+    print(json.dumps({"ok": True, "action": "corpus_imported", "limit": limit, "dry_run": dry_payload, "dry_run_attempts": dry_run_attempts, "import_result": live_payload, "count_update": count_update, "corpus_checks": checks, "github_metadata": github_metadata, "release_validation": release_validation, "changed_repos": changed_repos, "commits": commits, "pushed": pushed, "ledger_sync": ledger_sync, "fast_forwarded": fast_forwarded}, sort_keys=True))
     return 0
 
 
