@@ -408,6 +408,15 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
             next_step="No paper publication action is needed for this record.",
             explanation="The paper/review record is rejected or archived.",
         )
+    if queue_status in ACTIVE_QUEUE_STATUSES or last_run_state in ACTIVE_QUEUE_STATUSES:
+        return _stage(
+            "running",
+            lane=OperatorLane.RUNNING,
+            tone="info",
+            attention=False,
+            next_step="Wait for worker callback or gate completion.",
+            explanation="The worker lane is active or awaiting wake callback.",
+        )
     if has_paper and _paper_imported(row):
         return _stage(
             "published",
@@ -443,15 +452,6 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
             attention=False,
             next_step="Continue automated rewrite/finalization or inspect artifacts if automation failed.",
             explanation="A paper record exists, but it is not yet a finalized publication draft.",
-        )
-    if queue_status in ACTIVE_QUEUE_STATUSES or last_run_state in ACTIVE_QUEUE_STATUSES:
-        return _stage(
-            "running",
-            lane=OperatorLane.RUNNING,
-            tone="info",
-            attention=False,
-            next_step="Wait for worker callback or gate completion.",
-            explanation="The worker lane is active or awaiting wake callback.",
         )
     if queue_status == "queued":
         return _stage(

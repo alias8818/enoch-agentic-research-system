@@ -119,6 +119,26 @@ def test_operator_counts_match_detail_counts_for_mixed_lifecycle_rows() -> None:
     assert counts["needs_attention"] == 1
     assert counts["total_operator_items"] == 5
 
+
+
+def test_active_queue_summary_ignores_stale_related_paper_projection() -> None:
+    from enoch_control_plane.control_plane.read_models import summarize_queue_row
+
+    row = _active_queue(
+        "active-project",
+        "active-run",
+        related_paper_id="old-paper",
+        related_paper_status="publication_draft",
+        related_review_status="finalized",
+        related_finalization_package_path="package.json",
+    )
+
+    summary = summarize_queue_row(row)
+
+    assert summary["operator_lane"] == OperatorLane.RUNNING.value
+    assert summary["operator_detail_stage"] == "running"
+    assert summary["operator_next_step"] == "Wait for worker callback or gate completion."
+
 class _OverviewStore:
     def __init__(self, queue_rows: list[dict[str, object]], paper_rows: list[dict[str, object]]) -> None:
         self._queue_rows = queue_rows
