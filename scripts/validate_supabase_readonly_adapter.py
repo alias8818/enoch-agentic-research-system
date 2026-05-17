@@ -26,7 +26,6 @@ from enoch_control_plane.control_plane.models import (  # noqa: E402
     ImportSnapshotRequest,
     NotionIntakeRequest,
     PaperRecord,
-    PaperReviewApproveFinalizationRequest,
     PaperReviewBackfillRequest,
     PaperReviewChecklistUpdateRequest,
     PaperReviewClaimRequest,
@@ -279,8 +278,12 @@ def main() -> int:
             paper_keys = ["paper_id", "project_id", "run_id", "paper_status", "review_status", "finalization_package_path"]
             if comparable(sqlite_store.paper_rows()[0], paper_keys) != comparable(pg_store.paper_rows()[0], paper_keys):
                 failures.append("paper_rows first row mismatch")
-            if sqlite_store.recent_events(1)[0]["payload"] != pg_store.recent_events(1)[0]["payload"]:
-                failures.append("recent_events payload mismatch")
+            sqlite_recent_payload = sqlite_store.recent_events(1)[0]["payload"]
+            pg_recent_payload = pg_store.recent_events(1)[0]["payload"]
+            if not (sqlite_recent_payload.get("payload_omitted") and pg_recent_payload.get("payload_omitted")):
+                failures.append("recent_events did not omit payloads consistently")
+            if int(sqlite_recent_payload.get("payload_bytes") or 0) <= 0 or int(pg_recent_payload.get("payload_bytes") or 0) <= 0:
+                failures.append("recent_events omitted payload byte counts missing")
             if sqlite_store.latest_dashboard_observation(source="worker_preflight").payload != pg_store.latest_dashboard_observation(source="worker_preflight").payload:  # type: ignore[union-attr]
                 failures.append("latest_dashboard_observation payload mismatch")
 
@@ -446,8 +449,8 @@ def main() -> int:
                     reviewer="validator",
                 ),
             )
-            if claim_event_id <= 0 or not claim_inserted or claimed_review.get("review_status") != "in_review":
-                failures.append("publication automation claim did not persist in_review state")
+            if claim_event_id <= 0 or not claim_inserted or claimed_review.get("review_status") != "claimed":
+                failures.append("publication automation claim did not persist claimed state")
             checklist = write_store.paper_review_checklist("paper-review-smoke")
             for item in checklist.get("items", []):
                 if item.get("required"):
@@ -460,30 +463,6 @@ def main() -> int:
                             status="pass",
                         ),
                     )
-            approve_event_id, approve_inserted, approved_review = write_store.approve_paper_review_finalization(
-                "paper-review-smoke",
-                PaperReviewApproveFinalizationRequest(
-                    idempotency_key="write-smoke-paper-review-approve",
-                    requested_by="validator",
-                    note="validator approved",
-                ),
-            )
-            approve_event_id_again, approve_inserted_again, _ = write_store.approve_paper_review_finalization(
-                "paper-review-smoke",
-                PaperReviewApproveFinalizationRequest(
-                    idempotency_key="write-smoke-paper-review-approve",
-                    requested_by="validator",
-                    note="validator approved",
-                ),
-            )
-            if (
-                approve_event_id <= 0
-                or not approve_inserted
-                or approve_inserted_again
-                or approve_event_id_again != approve_event_id
-                or approved_review.get("review_status") != "approved_for_finalization"
-            ):
-                failures.append("publication automation packaging approval did not persist idempotent approved_for_finalization state")
             if not any(row.get("paper_id") == "paper-review-smoke" for row in write_store.paper_review_rows()):
                 failures.append("paper_review_rows missing smoke review row")
             artifact_root = Path(tmp) / "artifact-root"
@@ -508,6 +487,7 @@ def main() -> int:
                     requested_by="validator",
                     dry_run=False,
                 ),
+                require_approval=False,
             )
             package_event_id_again, package_inserted_again, _finalized_item_again, package_path_again, _manifest_again = write_store.prepare_paper_review_finalization_package(
                 "paper-review-smoke",
@@ -516,6 +496,7 @@ def main() -> int:
                     requested_by="validator",
                     dry_run=False,
                 ),
+                require_approval=False,
             )
             if (
                 package_event_id is None

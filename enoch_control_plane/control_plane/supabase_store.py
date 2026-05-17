@@ -3397,7 +3397,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             _text(_first_present(raw, "notion_page_url", "url")),
                             _text(_first_present(raw, "notion_page_id", "page_id", "id"))
                             or _notion_page_id_from_url(_text(_first_present(raw, "notion_page_url", "url"))),
-                            _text(_first_present(raw, "origin_idea_status", "idea_status")),
+                            _text(_first_present(raw, "origin_idea_status", "idea_status")) or "unknown",
                             created_at,
                             updated_at,
                         ),
@@ -3488,7 +3488,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             project_id, _text(raw.get("project_name")) or project_id, _text(raw.get("project_dir")),
                             _text(raw.get("notion_page_url")),
                             _text(raw.get("notion_page_id")) or _notion_page_id_from_url(_text(raw.get("notion_page_url"))),
-                            "", utc_now(), utc_now(),
+                            "unknown", utc_now(), utc_now(),
                         ),
                     )
                     status = _text(raw.get("paper_status")) or PaperStatus.DRAFT_REVIEW.value

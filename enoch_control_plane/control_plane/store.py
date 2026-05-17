@@ -684,7 +684,7 @@ class ControlPlaneStore:
                     continue
                 conn.execute(
                     "INSERT OR IGNORE INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-                    (project_id, _text(raw.get("project_name")) or project_id, _text(raw.get("project_dir")), _text(raw.get("notion_page_url")), _text(raw.get("notion_page_id")) or _notion_page_id_from_url(_text(raw.get("notion_page_url"))), "", utc_now(), utc_now()),
+                    (project_id, _text(raw.get("project_name")) or project_id, _text(raw.get("project_dir")), _text(raw.get("notion_page_url")), _text(raw.get("notion_page_id")) or _notion_page_id_from_url(_text(raw.get("notion_page_url"))), "unknown", utc_now(), utc_now()),
                 )
                 status = _text(raw.get("paper_status")) or PaperStatus.DRAFT_REVIEW.value
                 if status not in PaperStatus._value2member_map_:
