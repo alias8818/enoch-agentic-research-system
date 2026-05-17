@@ -17,6 +17,7 @@ from enoch_control_plane.control_plane.router import _project_prompt, _write_det
 from enoch_control_plane.control_plane.store import ControlPlaneStore
 from enoch_control_plane.control_plane.models import ImportSnapshotRequest, PaperRecord, PaperReviewBackfillRequest, WorkerPreflightCheck, WorkerPreflightResponse
 from enoch_control_plane.control_plane.worker_adapter import HttpResult
+from enoch_control_plane.enoch_core.store import IdempotencyConflict
 
 
 TOKEN = "test-token"
@@ -1108,6 +1109,59 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
             events = fake_store.event_rows(event_type="research.run_cycle.backpressure")
             self.assertEqual(len(events), 1)
+
+    def test_research_facility_backpressure_event_idempotency_conflict_still_returns_ok(self) -> None:
+        class ConflictStore:
+            def flags(self):
+                return SimpleNamespace(queue_paused=False)
+
+            def active_items(self) -> list[dict[str, str]]:
+                return [{"project_id": "active-research", "status": "awaiting_wake", "current_run_id": "run-active"}]
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 0, "active": 1}
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                return []
+
+            def record_research_facility_plans(self, *_args, **_kwargs):
+                raise AssertionError("backpressure should stop before generation")
+
+            def promote_research_candidate(self, *_args, **_kwargs):
+                raise AssertionError("backpressure should stop before promotion")
+
+            def append_event(self, **_kwargs):
+                raise IdempotencyConflict("duplicate backpressure event with changed volatile payload")
+
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=ConflictStore()), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={"dry_run": False, "enabled": True, "requested_by": "pytest"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertTrue(body["backpressure"])
+        self.assertEqual(body["reason"], "active worker lane already exists")
 
     def test_research_facility_run_cycle_live_generates_and_promotes_without_dispatch(self) -> None:
         class FakeSupabaseStore:
@@ -3152,7 +3206,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                  patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post):
                 response = client.post("/control/dispatch-one", headers=headers, json={"project_id": "idea-one", "dry_run": False})
 
-            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.status_code, 200)
             body = response.json()
             self.assertEqual(body["action"], "live_dispatch_one")
             self.assertEqual(body["candidate"]["project_id"], "idea-one")
@@ -3201,7 +3255,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                  patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post):
                 response = client.post("/control/dispatch-one", headers=headers, json={"project_id": long_project_id, "dry_run": False})
 
-            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.status_code, 200)
             safe_dir = prepare_payloads[0]["project_dir"]
             self.assertLessEqual(len(safe_dir), 96)
             self.assertTrue(long_project_id.startswith(safe_dir))

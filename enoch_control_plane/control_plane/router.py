@@ -3299,16 +3299,20 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 "active_count": len(active),
             })
             if hasattr(store, "append_event"):
-                store.append_event(
-                    idempotency_key=(
-                        f"research-cycle:backpressure:{'dry' if dry_run else 'live'}:{requested_by}:"
-                        f"{_active_lane_signature(active)}:{_event_cooldown_bucket()}"
-                    ),
-                    event_type="research.run_cycle.backpressure",
-                    entity_type="research",
-                    entity_id="run-cycle",
-                    payload=jsonable_encoder(response),
-                )
+                try:
+                    store.append_event(
+                        idempotency_key=(
+                            f"research-cycle:backpressure:{'dry' if dry_run else 'live'}:{requested_by}:"
+                            f"{_active_lane_signature(active)}:{_event_cooldown_bucket()}"
+                        ),
+                        event_type="research.run_cycle.backpressure",
+                        entity_type="research",
+                        entity_id="run-cycle",
+                        payload=jsonable_encoder(response),
+                    )
+                except IdempotencyConflict as exc:
+                    response["event_write_suppressed"] = "idempotency_conflict"
+                    response["event_write_suppressed_reason"] = str(exc)
             return response
         if dry_run:
             response["reason"] = "dry-run only; provider was not called and no ledgers, queue rows, dispatches, or papers were written"
