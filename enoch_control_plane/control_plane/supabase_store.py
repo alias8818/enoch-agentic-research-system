@@ -3438,8 +3438,11 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     preserve_active_runtime = bool(
                         existing_queue
                         and _text(existing_queue["status"]) in ACTIVE_STATUSES
-                        and existing_run_id
-                        and incoming_run_id != existing_run_id
+                        and (
+                            not existing_run_id
+                            or incoming_run_id != existing_run_id
+                            or status_value not in ACTIVE_STATUSES
+                        )
                     )
                     if preserve_active_runtime:
                         status_value = _text(existing_queue["status"])

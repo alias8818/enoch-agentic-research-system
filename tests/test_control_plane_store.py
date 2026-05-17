@@ -376,6 +376,46 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(row["model"], "gpt-5.4")
             self.assertEqual(row["sandbox"], "danger-full-access")
 
+    def test_import_snapshot_preserves_active_runtime_even_when_current_run_id_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="import-active-empty-run",
+                    queue_rows=[{
+                        "project_id": "idea-active-empty-import",
+                        "project_name": "Active Empty Import",
+                        "project_dir": "idea-active-empty-import",
+                        "status": "reconciling",
+                        "current_run_id": "",
+                        "next_action_hint": "await_callback",
+                        "last_run_state": "wake_received",
+                    }],
+                    paper_rows=[],
+                )
+            )
+
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="import-stale-completed-over-active-empty-run",
+                    queue_rows=[{
+                        "project_id": "idea-active-empty-import",
+                        "project_name": "Active Empty Import",
+                        "project_dir": "idea-active-empty-import",
+                        "status": "completed",
+                        "current_run_id": "",
+                        "next_action_hint": "select_next_project",
+                        "last_run_state": "finalize_negative",
+                    }],
+                    paper_rows=[],
+                )
+            )
+
+            row = store.queue_row("idea-active-empty-import")
+            self.assertEqual(row["status"], "reconciling")
+            self.assertEqual(row["next_action_hint"], "await_callback")
+            self.assertEqual(row["last_run_state"], "wake_received")
+
     def test_mark_dispatch_started_clears_stale_error_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

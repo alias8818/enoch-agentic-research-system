@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enoch_control_plane.control_plane import supabase_store as s
-from enoch_control_plane.control_plane.models import ControlFlags
+from enoch_control_plane.control_plane.models import ControlFlags, ImportSnapshotRequest
 from enoch_control_plane.control_plane.store import QueueStatus
 
 
@@ -456,3 +456,70 @@ def test_supabase_worker_callback_missing_run_id_does_not_mutate_active_project_
     event = next(iter(events.values()))
     assert event["payload"]["stale_callback_ignored"] is True
     assert event["payload"]["ignore_reason"] == "missing_run_id_for_active_project"
+
+
+def test_supabase_import_snapshot_preserves_active_runtime_with_empty_current_run(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    queue_upserts: list[tuple] = []
+    existing_queue = {
+        "status": "reconciling",
+        "current_run_id": "",
+        "current_session_id": "session-active",
+        "last_run_state": "wake_received",
+        "last_event_type": "worker_callback",
+        "next_action_hint": "await_callback",
+        "manual_review_required": False,
+        "blocked_reason": "",
+        "last_error": "",
+        "last_result_summary": "waiting",
+        "last_dispatch_at": "2026-01-01T00:00:00Z",
+        "last_callback_at": "2026-01-01T00:01:00Z",
+        "stale_after": "",
+    }
+
+    class Cursor:
+        def __init__(self) -> None:
+            self._next = None
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            normalized = " ".join(str(sql).split())
+            if normalized.startswith("select status,current_run_id"):
+                self._next = existing_queue
+            elif normalized.startswith("insert into queue_items"):
+                queue_upserts.append(tuple(params))
+            return self
+        def fetchone(self):
+            value = self._next
+            self._next = None
+            return value
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "append_event", lambda **kwargs: (1, True))
+
+    store.import_snapshot(ImportSnapshotRequest(
+        idempotency_key="supabase-import-preserve-active-empty-run",
+        queue_rows=[{
+            "project_id": "idea-active-empty-import",
+            "project_name": "Active Empty Import",
+            "project_dir": "idea-active-empty-import",
+            "status": "completed",
+            "current_run_id": "",
+            "next_action_hint": "select_next_project",
+            "last_run_state": "finalize_negative",
+        }],
+        paper_rows=[],
+    ))
+
+    assert queue_upserts
+    params = queue_upserts[0]
+    assert params[1] == "reconciling"
+    assert params[9] == ""
+    assert params[10] == "session-active"
+    assert params[11] == "wake_received"
+    assert params[13] == "await_callback"

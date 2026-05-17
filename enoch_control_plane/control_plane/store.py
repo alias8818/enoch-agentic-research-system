@@ -678,8 +678,11 @@ class ControlPlaneStore:
                 preserve_active_runtime = bool(
                     existing_queue
                     and _text(existing_queue["status"]) in ACTIVE_STATUSES
-                    and existing_run_id
-                    and (incoming_run_id != existing_run_id or qi.status.value not in ACTIVE_STATUSES)
+                    and (
+                        not existing_run_id
+                        or incoming_run_id != existing_run_id
+                        or qi.status.value not in ACTIVE_STATUSES
+                    )
                 )
                 if preserve_active_runtime:
                     qi.status = QueueStatus(_text(existing_queue["status"]))

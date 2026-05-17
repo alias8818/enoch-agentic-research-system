@@ -799,3 +799,10 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Fix: callback outbox `_atomic_write_json` now cleans temporary files in a `finally` block while preserving the previous durable JSON record.
 - Test: added `test_atomic_write_json_preserves_existing_file_and_cleans_temp_on_replace_failure`.
 - Verification: `uv run ruff check . && uv run pytest -q` passed with `553 passed, 5 warnings, 31 subtests passed`.
+
+### Additional snapshot-import hardening: preserve active rows even if current run id is missing
+
+- Found another state-drift edge: legacy snapshot import protected active rows only when `current_run_id` was populated. If an active row had already lost that id, a stale completed snapshot could overwrite the live/reconciling state.
+- Fix: SQLite and Supabase snapshot imports now preserve active runtime state for active rows even when `current_run_id` is empty, unless the incoming snapshot is a safe active continuation.
+- Tests: added SQLite and Supabase regression coverage for stale completed imports over active rows with empty `current_run_id`.
+- Verification: `uv run ruff check . && uv run pytest -q` passed with `555 passed, 5 warnings, 31 subtests passed`.
