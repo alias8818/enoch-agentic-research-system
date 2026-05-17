@@ -152,6 +152,46 @@ from enoch_control_plane.models import GateCallback, ProcessSnapshot, SourceEven
 from enoch_control_plane import callback_outbox
 
 
+
+def test_dispatch_rejects_unsafe_run_id_and_log_dir_escape(tmp_path: Path, monkeypatch) -> None:
+    client, token = _client(tmp_path, monkeypatch)
+    headers = {"Authorization": f"Bearer {token}"}
+    project = tmp_path / "project-a"
+    (project / ".enoch").mkdir(parents=True)
+    (project / "prompt.md").write_text("prompt")
+    script = tmp_path / "dispatch.sh"
+    script.write_text("#!/bin/sh\n")
+    script.chmod(0o755)
+    monkeypatch.setattr(appmod.config, "dispatch_script_path", str(script))
+    monkeypatch.setattr(appmod.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=json.dumps({"pid": 1, "pgid": 1}), stderr=""))
+
+    unsafe_run = client.post(
+        "/dispatch",
+        headers=headers,
+        json={
+            "run_id": "../escape",
+            "project_id": "project-a",
+            "project_dir": "project-a",
+            "prompt_file": "project-a/prompt.md",
+            "mode": "exec",
+        },
+    )
+    assert unsafe_run.status_code == 422
+
+    escaped_log_dir = client.post(
+        "/dispatch",
+        headers=headers,
+        json={
+            "run_id": "run-live",
+            "project_id": "project-a",
+            "project_dir": "project-a",
+            "prompt_file": "project-a/prompt.md",
+            "mode": "exec",
+            "log_dir": "../outside-logs",
+        },
+    )
+    assert escaped_log_dir.status_code == 400
+
 def test_callback_outbox_replay_and_reaper_async_helpers(tmp_path: Path, monkeypatch) -> None:
     client, token = _client(tmp_path, monkeypatch)
     fake_store = appmod.store

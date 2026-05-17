@@ -2229,7 +2229,8 @@ async def dispatch_run(
     if request.reasoning_effort:
         cmd.extend(["--reasoning-effort", request.reasoning_effort])
     if request.log_dir:
-        cmd.extend(["--log-dir", request.log_dir])
+        log_dir = _resolve_under_root(request.log_dir, config.expanded_project_root)
+        cmd.extend(["--log-dir", str(log_dir)])
 
     try:
         env = os.environ.copy()

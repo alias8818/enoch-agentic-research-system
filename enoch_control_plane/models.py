@@ -132,9 +132,12 @@ class GateCallback(BaseModel):
     idempotency_key: str
 
 
+SAFE_DISPATCH_ID_PATTERN = r"^[A-Za-z0-9._+-]+$"
+
+
 class DispatchRequest(BaseModel):
-    run_id: str
-    project_id: str | None = None
+    run_id: str = Field(min_length=1, max_length=180, pattern=SAFE_DISPATCH_ID_PATTERN)
+    project_id: str | None = Field(default=None, max_length=220, pattern=SAFE_DISPATCH_ID_PATTERN)
     project_dir: str
     prompt_file: str
     mode: Literal["exec", "resume"] = "exec"
