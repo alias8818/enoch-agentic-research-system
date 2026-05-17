@@ -697,3 +697,7 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 ---
 
 **Additional paper claim-ledger strictness hardening:** Tightened generated claim ledgers so weak fallback context links do not produce `claims_reference_evidence` pass status. A claim ledger now passes only when every extracted claim has a positive lexical support match, keeping public strict-evidence counts conservative.
+
+---
+
+**Additional worker-preflight malformed telemetry hardening:** Worker dashboard numeric fields now parse fail-closed instead of raising. Malformed GPU/memory/active-run counts produce failed preflight checks and release the dispatch path cleanly rather than crashing after a dispatch claim.

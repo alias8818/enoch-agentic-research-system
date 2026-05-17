@@ -79,6 +79,41 @@ class WorkerPreflightTests(unittest.TestCase):
         checks = {check.name: check for check in response.checks}
         self.assertTrue(checks["wake_gate_dashboard_api"].data["skipped"])
 
+    def test_preflight_malformed_worker_numbers_fail_closed_without_exception(self) -> None:
+        def transport(url: str, headers: dict[str, str]) -> HttpResult:
+            if url.endswith("/healthz"):
+                return HttpResult(ok=True, status=200, body={"ok": True})
+            if "/dashboard/api" in url:
+                return HttpResult(
+                    ok=True,
+                    status=200,
+                    body={
+                        "telemetry": {
+                            "gpu_pct": "not-a-number",
+                            "gpu_compute_pids": [],
+                            "memory_available_mib": "unknown",
+                            "swap_free_mib": "unknown",
+                        },
+                        "totals": {"active_or_waiting": "unknown", "live": "unknown"},
+                        "queue": {"active_count": "unknown"},
+                    },
+                )
+            raise AssertionError(f"unexpected url {url}")
+
+        response = run_worker_preflight(
+            WorkerPreflightRequest(wake_gate_url="http://worker:8787", bearer_token="secret"),
+            ControlFlags(queue_paused=True, maintenance_mode=True),
+            transport=transport,
+        )
+
+        self.assertFalse(response.ok)
+        checks = {check.name: check for check in response.checks}
+        self.assertFalse(checks["worker_gpu_idle"].ok)
+        self.assertFalse(checks["worker_memory_available"].ok)
+        self.assertFalse(checks["worker_no_live_runs"].ok)
+        self.assertFalse(checks["worker_queue_snapshot_no_active"].ok)
+
+
     def test_post_worker_json_uses_bearer_and_json_transport(self) -> None:
         calls = []
 

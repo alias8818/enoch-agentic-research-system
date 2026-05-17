@@ -52,6 +52,25 @@ def _check(name: str, ok: bool, detail: str, data: dict[str, Any] | None = None)
     return WorkerPreflightCheck(name=name, ok=ok, detail=detail, data=data or {})
 
 
+
+def _float_or(value: Any, *, missing: float, malformed: float) -> float:
+    if value is None or value == "":
+        return missing
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return malformed
+
+
+def _int_or(value: Any, *, missing: int, malformed: int) -> int:
+    if value is None or value == "":
+        return missing
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return malformed
+
+
 def _auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
@@ -99,13 +118,13 @@ def run_worker_preflight(
         telemetry = (dashboard_body or {}).get("telemetry") or {}
         queue = (dashboard_body or {}).get("queue") or {}
         totals = (dashboard_body or {}).get("totals") or {}
-        gpu_pct = float(telemetry.get("gpu_pct") or 0.0)
-        mem_available = int(telemetry.get("memory_available_mib") or 0)
-        swap_free = int(telemetry.get("swap_free_mib") or 0)
+        gpu_pct = _float_or(telemetry.get("gpu_pct"), missing=0.0, malformed=float("inf"))
+        mem_available = _int_or(telemetry.get("memory_available_mib"), missing=0, malformed=0)
+        swap_free = _int_or(telemetry.get("swap_free_mib"), missing=0, malformed=0)
         gpu_pids = telemetry.get("gpu_compute_pids") or []
-        active_or_waiting = int(totals.get("active_or_waiting") or 0)
-        live = int(totals.get("live") or 0)
-        queue_active = int(queue.get("active_count") or 0)
+        active_or_waiting = _int_or(totals.get("active_or_waiting"), missing=0, malformed=1)
+        live = _int_or(totals.get("live"), missing=0, malformed=1)
+        queue_active = _int_or(queue.get("active_count"), missing=0, malformed=1)
         checks.extend(
             [
                 _check("worker_gpu_idle", gpu_pct <= payload.max_gpu_pct and not gpu_pids, f"gpu_pct={gpu_pct}, gpu_compute_pids={gpu_pids}", {"gpu_pct": gpu_pct, "gpu_compute_pids": gpu_pids}),
