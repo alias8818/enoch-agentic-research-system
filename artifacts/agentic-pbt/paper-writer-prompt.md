@@ -22,6 +22,9 @@ Target path: enoch_control_plane/control_plane/paper_writer.py
   Prefer composing `st.text`, `st.lists`, `st.dictionaries`, and
   `pathlib.Path` manually over APIs such as `st.paths`.
 - Collection/import/syntax errors are invalid proposals, not counterexamples.
+- Never ask for operator input. Every outcome must be handled by an agentic next
+  action: regenerate invalid proposals, minimize/reproduce counterexamples,
+  patch confirmed bugs, or advance to the next target.
 - Valid output shape:
 
 ```json

@@ -43,9 +43,12 @@ def test_agentic_property_testing_records_counterexample_report(tmp_path: Path) 
     result = execute_proposals(repo, proposals, repo / "reports")
 
     assert result["status"] == "counterexample_found"
+    assert "agent" in result["next_action"]
+    assert "human" not in result["next_action"].lower()
     report = Path(result["report_path"]).read_text(encoding="utf-8")
     assert "absolute_is_non_negative" in report
     assert "Exit code: `1`" in report
+    assert "No operator action required" in report
 
 
 def test_agentic_property_testing_classifies_collection_errors_as_proposal_error(tmp_path: Path) -> None:
@@ -69,6 +72,10 @@ def test_agentic_property_testing_classifies_collection_errors_as_proposal_error
     result = execute_proposals(repo, proposals, repo / "reports")
 
     assert result["status"] == "proposal_error"
+    assert result["agentic_terminal"] is True
+    assert "regenerate" in result["next_action"]
+    assert "human" not in result["next_action"].lower()
     report = Path(result["report_path"]).read_text(encoding="utf-8")
     assert "Agentic PBT report - proposal_error" in report
     assert "Exit code: `2`" in report
+    assert "No operator action required" in report

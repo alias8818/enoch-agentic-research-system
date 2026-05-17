@@ -48,6 +48,9 @@ Target path: {target_path}
   Prefer composing `st.text`, `st.lists`, `st.dictionaries`, and
   `pathlib.Path` manually over APIs such as `st.paths`.
 - Collection/import/syntax errors are invalid proposals, not counterexamples.
+- Never ask for operator input. Every outcome must be handled by an agentic next
+  action: regenerate invalid proposals, minimize/reproduce counterexamples,
+  patch confirmed bugs, or advance to the next target.
 - Valid output shape:
 
 ```json
@@ -173,6 +176,16 @@ def _execution_status(returncode: int, output: str) -> str:
     return "counterexample_found"
 
 
+def _agentic_next_action(status: str) -> str:
+    if status == "no_counterexample":
+        return "agent_continue_next_target_or_generate_more_properties"
+    if status == "proposal_error":
+        return "agent_quarantine_invalid_proposal_and_regenerate"
+    if status == "counterexample_found":
+        return "agent_minimize_reproduce_patch_and_rerun"
+    return "agent_route_unknown_status_to_quarantine"
+
+
 def execute_proposals(repo_root: Path, proposal_file: Path, report_dir: Path, *, pytest_args: list[str] | None = None) -> dict[str, Any]:
     proposals = load_proposals(proposal_file)
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -183,6 +196,7 @@ def execute_proposals(repo_root: Path, proposal_file: Path, report_dir: Path, *,
         cmd = [sys.executable, "-m", "pytest", "-q", str(test_path), *(pytest_args or [])]
         proc = subprocess.run(cmd, cwd=repo_root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
     status = _execution_status(proc.returncode, proc.stdout)
+    next_action = _agentic_next_action(status)
     report_path = report_dir / f"agentic-pbt-{timestamp}.md"
     report_path.write_text(
         "\n".join(
@@ -193,6 +207,11 @@ def execute_proposals(repo_root: Path, proposal_file: Path, report_dir: Path, *,
                 f"Command: `{' '.join(cmd)}`",
                 f"Exit code: `{proc.returncode}`",
                 "",
+                "## Agentic disposition",
+                "",
+                "No operator action required.",
+                f"Next action: `{next_action}`",
+                "",
                 "## Output",
                 "",
                 "```text",
@@ -202,7 +221,14 @@ def execute_proposals(repo_root: Path, proposal_file: Path, report_dir: Path, *,
         ),
         encoding="utf-8",
     )
-    return {"status": status, "exit_code": proc.returncode, "report_path": str(report_path), "proposal_count": len(proposals)}
+    return {
+        "status": status,
+        "exit_code": proc.returncode,
+        "report_path": str(report_path),
+        "proposal_count": len(proposals),
+        "agentic_terminal": True,
+        "next_action": next_action,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:

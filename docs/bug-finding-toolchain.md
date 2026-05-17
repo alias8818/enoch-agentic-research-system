@@ -64,8 +64,16 @@ property-based testing work:
      --execute-proposals
    ```
 
-The execution step writes a markdown report under `artifacts/agentic-pbt/`. A
-non-zero pytest run is treated as a candidate counterexample, not an automatic
-confirmed bug; the report still needs human or follow-up agent validation.
+The execution step writes a markdown report under `artifacts/agentic-pbt/`.
+Every report includes an agentic disposition and next action. Nothing in this
+lane waits on the operator:
+
+- `no_counterexample` -> advance to the next target or generate more properties.
+- `proposal_error` -> quarantine the invalid proposal and regenerate.
+- `counterexample_found` -> minimize, reproduce, patch, and rerun by agent.
+
+A non-zero pytest run is treated as a candidate counterexample, not an
+automatic confirmed bug. Confirmation, minimization, patching, and reruns are
+follow-up agent work, not a human-review queue.
 
 Source inspiration: <https://arxiv.org/abs/2510.09907>.

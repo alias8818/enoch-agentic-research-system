@@ -145,7 +145,7 @@ Research Quality report
   -> DSPy/GEPA offline optimizer
   -> candidate prompt/policy patches
   -> replay tests against known good/bad cases
-  -> PR/manual review
+  -> agent-authored patch branch with automated validation
 ```
 
 ### Proposed commands
