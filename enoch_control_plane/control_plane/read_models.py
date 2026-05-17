@@ -777,6 +777,13 @@ def _typed_lifecycle_key(row: dict[str, Any]) -> str:
     return ""
 
 
+
+
+def _operator_row_is_active(row: dict[str, Any]) -> bool:
+    status = _text(row.get("status") or row.get("queue_status"))
+    state = _text(row.get("last_run_state") or row.get("state") or row.get("gate_state"))
+    return status in ACTIVE_QUEUE_STATUSES or state in ACTIVE_QUEUE_STATUSES
+
 def _queue_is_superseded_by_paper(
     row: dict[str, Any],
     paper_projects: set[str],
@@ -799,10 +806,14 @@ def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]
         if _text(row.get("paper_id")) and _text(row.get("project_id"))
     }
     paper_runs = {_text(row.get("run_id")) for row in staged_rows if _text(row.get("paper_id")) and _text(row.get("run_id"))}
+    paper_ids = {_text(row.get("paper_id")) for row in staged_rows if _text(row.get("paper_id"))}
     by_key: dict[str, dict[str, Any]] = {}
     anonymous: list[dict[str, Any]] = []
     for staged in staged_rows:
-        if not _text(staged.get("paper_id")) and _text(staged.get("related_paper_id")):
+        related_paper_id = _text(staged.get("related_paper_id"))
+        is_queue_row = not _text(staged.get("paper_id"))
+        is_active_row = _operator_row_is_active(staged)
+        if is_queue_row and related_paper_id and related_paper_id in paper_ids and not is_active_row:
             continue
         if _queue_is_superseded_by_paper(staged, paper_projects, paper_runs):
             continue
@@ -811,6 +822,12 @@ def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]
             anonymous.append(staged)
             continue
         current = by_key.get(key)
+        current_is_active = _operator_row_is_active(current or {})
+        if current is not None and current_is_active and not is_active_row:
+            continue
+        if current is not None and is_active_row and not current_is_active:
+            by_key[key] = staged
+            continue
         detail_stage = _text(staged.get("operator_detail_stage"))
         current_detail_stage = _text((current or {}).get("operator_detail_stage"))
         lane = _text(staged.get("operator_lane") or staged.get("operator_stage"))
