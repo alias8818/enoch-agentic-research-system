@@ -199,3 +199,29 @@ def test_completed_queue_with_same_run_paper_without_related_pointer_counts_as_p
     assert counts["total_operator_items"] == 1
     assert detail["ready_to_publish"] == 1
     assert "run_complete_no_paper" not in detail
+
+class _BatchedOverviewStore(_OverviewStore):
+    def overview_read_model_parts(self, *, active_limit: int, event_limit: int) -> dict[str, object]:
+        del active_limit, event_limit
+        return {
+            "counts": self.queue_counts_sql(),
+            "paper_counts": self.paper_counts_sql(),
+            "active_items": self.active_items_sql(limit=10),
+            "next_candidate": self.next_candidate_sql(),
+            "raw_queue_rows": [],
+            "raw_paper_rows": self.operator_paper_rows_sql(),
+            "events_page": ([], None, False),
+        }
+
+
+def test_overview_batched_parts_count_active_items_even_when_raw_queue_is_trimmed() -> None:
+    from enoch_control_plane.control_plane import read_models
+
+    store = _BatchedOverviewStore([_active_queue("active-project", "active-run")], [])
+
+    overview = read_models.overview(store)  # type: ignore[arg-type]
+
+    assert overview["active_items"][0]["project_id"] == "active-project"
+    assert overview["operator_counts"][OperatorLane.RUNNING.value] == 1
+    assert overview["operator_counts"]["total_operator_items"] == 1
+    assert overview["operator_detail_counts"]["running"] == 1

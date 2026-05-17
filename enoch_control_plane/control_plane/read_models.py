@@ -892,8 +892,14 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         raw_paper_rows = store.operator_paper_rows_sql()
     queue_rows = [summarize_queue_row(row) for row in raw_queue_rows]
     paper_rows = [summarize_paper_row(row) for row in raw_paper_rows]
-    operator_counts = operator_counts_from_rows([*queue_rows, *paper_rows])
-    operator_detail_counts = operator_detail_counts_from_rows([*queue_rows, *paper_rows])
+    # Supabase batched overview intentionally trims raw_queue_rows to keep the
+    # dashboard cheap. Active rows are fetched separately for the running-work
+    # card, so include them in reconciled operator counts as well. The
+    # reconciler deduplicates when an adapter returns the same active row in
+    # both surfaces.
+    operator_queue_rows = [*queue_rows, *active]
+    operator_counts = operator_counts_from_rows([*operator_queue_rows, *paper_rows])
+    operator_detail_counts = operator_detail_counts_from_rows([*operator_queue_rows, *paper_rows])
     raw_write_candidates = eligible_paper_draft_candidates(raw_queue_rows, raw_paper_rows)
     write_candidates: list[dict[str, Any]] = []
     gate_rejected: list[dict[str, Any]] = []
