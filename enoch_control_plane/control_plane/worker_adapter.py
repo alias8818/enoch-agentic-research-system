@@ -90,7 +90,7 @@ def run_worker_preflight(
     checks: list[WorkerPreflightCheck] = []
     if payload.require_paused:
         checks.append(_check("control_queue_paused", flags.queue_paused, "control plane queue is paused" if flags.queue_paused else "control plane queue is not paused"))
-    checks.append(_check("control_maintenance_mode", flags.maintenance_mode, "maintenance mode is enabled" if flags.maintenance_mode else "maintenance mode is disabled"))
+    checks.append(_check("control_maintenance_mode", not flags.maintenance_mode, "maintenance mode is enabled" if flags.maintenance_mode else "maintenance mode is disabled"))
 
     base = payload.wake_gate_url.rstrip("/")
     health = transport(f"{base}/healthz", {})

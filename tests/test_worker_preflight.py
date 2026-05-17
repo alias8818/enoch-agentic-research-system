@@ -49,6 +49,19 @@ class WorkerPreflightTests(unittest.TestCase):
         self.assertEqual(checks["worker_memory_available"].data["swap_free_mib"], 0)
         self.assertEqual(checks["wake_gate_dashboard_api"].data["body"]["runs"][0]["run_id"], "run-1")
 
+
+    def test_preflight_marks_disabled_maintenance_mode_as_safe(self) -> None:
+        response = run_worker_preflight(
+            WorkerPreflightRequest(wake_gate_url="http://worker:8787", bearer_token="secret", require_paused=False),
+            ControlFlags(queue_paused=False, maintenance_mode=False),
+            transport=FakeWorkerTransport(),
+        )
+
+        checks = {check.name: check for check in response.checks}
+        self.assertTrue(response.ok)
+        self.assertTrue(checks["control_maintenance_mode"].ok)
+        self.assertEqual(checks["control_maintenance_mode"].detail, "maintenance mode is disabled")
+
     def test_preflight_fails_when_control_is_unpaused_but_pause_required(self) -> None:
         response = run_worker_preflight(
             WorkerPreflightRequest(wake_gate_url="http://worker:8787", bearer_token="secret"),
