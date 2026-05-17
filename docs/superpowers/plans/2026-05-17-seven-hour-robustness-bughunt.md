@@ -552,6 +552,9 @@ Then run live readiness probe. Expected: readiness `ready` or a clearly understo
 
 ---
 
+
+**Agentic-PBT sweep:** Re-ran checked-in property proposals for alert behavior, provider-budget logic, and store/callback idempotency. All three returned `no_counterexample`; transient reports were removed after inspection to keep the repo clean.
+
 ## Task 9: Final verification, cleanup, and report
 
 **Timebox:** 25 minutes
