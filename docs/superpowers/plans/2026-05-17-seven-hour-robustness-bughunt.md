@@ -235,6 +235,9 @@ Commit subject if a bug was fixed: `fix: require evidence presence after sync fa
 
 ---
 
+
+**Additional paper-writer URL hardening:** Applied the shared HTTP URL guard to the Synthetic/OpenAI-compatible paper writer endpoint. Added a regression proving an unsafe provider URL falls back deterministically without calling `urlopen`.
+
 ## Task 3: Paper-write gate fail-closed audit
 
 **Timebox:** 60 minutes

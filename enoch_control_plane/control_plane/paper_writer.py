@@ -11,6 +11,7 @@ from urllib import request
 from fastapi import HTTPException
 
 from ..config import GateConfig
+from ..url_safety import validate_http_url
 from .models import PaperRecord
 
 
@@ -448,7 +449,7 @@ Local evidence context:
         "temperature": config.paper_writer_temperature,
         "max_tokens": config.paper_writer_max_tokens,
     }
-    url = config.paper_writer_base_url.rstrip("/") + "/chat/completions"
+    url = validate_http_url(config.paper_writer_base_url.rstrip("/") + "/chat/completions", field_name="paper writer provider url")
     req = request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),

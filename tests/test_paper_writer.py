@@ -117,6 +117,27 @@ class PaperWriterTests(unittest.TestCase):
             payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
             self.assertIn("2026-05-09", payload["messages"][1]["content"])
 
+    def test_synthetic_writer_rejects_non_http_provider_before_urlopen(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            (project / "run_notes.md").write_text("Fallback writer had local source evidence.\n", encoding="utf-8")
+            cfg = self._config(
+                tmp,
+                paper_writer_provider="synthetic.new",
+                paper_writer_api_key="test-key",
+                paper_writer_base_url="file:///etc/passwd",
+                paper_writer_fallback_enabled=True,
+            )
+
+            def fake_urlopen(*_args, **_kwargs):
+                raise AssertionError("urlopen should not run for unsafe paper writer URL")
+
+            with patch("enoch_control_plane.control_plane.paper_writer.request.urlopen", side_effect=fake_urlopen):
+                meta = write_paper_artifacts(cfg, {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"}, self._paper(), force=True)
+            self.assertTrue(meta["fallback_used"])
+            self.assertIn("paper writer provider url must use http or https", meta["fallback_reason"])
+
     def test_synthetic_writer_falls_back_without_key_when_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "projects" / "idea"
