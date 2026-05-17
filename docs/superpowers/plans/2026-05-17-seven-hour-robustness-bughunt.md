@@ -838,3 +838,9 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Found a dashboard/read-model crash edge: `row_age_seconds()` parsed naive database timestamp strings, then subtracted them from an aware UTC timestamp and raised `TypeError`.
 - Fix: naive parsed timestamps are treated as UTC before age calculation.
 - Test: added `test_row_age_seconds_handles_naive_database_timestamps`.
+
+### Deploy note: read-model and decision-artifact hardening deployed
+
+- Deployed commits through `f142750` after the active lane returned to `active=0`.
+- A stop-then-rsync attempt was canceled by systemd service state; redeploy used rsync while service was running, then package reinstall and `systemctl restart`.
+- Post-deploy smoke: `/healthz` returned ok, `enoch-control-plane.service` was active, automation readiness was `Long-haul mode: READY`, and active=0/queued=0 with imported=388.
