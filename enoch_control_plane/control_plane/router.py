@@ -4,9 +4,11 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 from pathlib import Path, PurePosixPath
 import os
+import queue
 import re
 import shlex
 import subprocess
+import threading
 import time
 from typing import Any, Callable
 from urllib.parse import urlparse
@@ -81,7 +83,7 @@ from ..research_quality.status import DEFAULT_AUTOPILOT_HISTORY_PATH, DEFAULT_RE
 from . import read_models
 from .store import ControlPlaneStore, _atomic_write_text
 from .supabase_store import SupabaseControlPlaneStore, SupabaseReadOnlyControlPlaneStore, resolve_supabase_database_url
-from .worker_adapter import post_worker_json, run_worker_preflight
+from .worker_adapter import HttpResult, post_worker_json, run_worker_preflight
 
 RequireBearer = Callable[[str | None], None]
 
@@ -341,7 +343,56 @@ def _local_paper_evidence_present(project_dir: Path) -> bool:
     )
 
 
-def _sync_worker_http_evidence(config: GateConfig, *, project_id: str, artifact_root: Path, source_run_id: str = "") -> dict[str, Any]:
+def _post_worker_json_with_deadline(
+    base_url: str,
+    path: str,
+    token: str,
+    payload: dict[str, Any],
+    *,
+    timeout_seconds: float,
+) -> HttpResult:
+    """Bound optional worker HTTP reads by wall clock.
+
+    urllib's socket timeout is not a complete route-level guard for optional
+    evidence sync. A worker endpoint can still hold the request open long
+    enough to keep the research run-cycle route and systemd oneshot service in
+    an invisible activating state. Evidence sync is opportunistic, so fail it
+    closed on a small deadline and let deterministic evidence gates decide
+    whether publication may proceed.
+    """
+
+    result_queue: queue.Queue[HttpResult] = queue.Queue(maxsize=1)
+
+    def request_worker() -> None:
+        try:
+            result = post_worker_json(base_url, path, token, payload)
+        except BaseException as exc:  # pragma: no cover - defensive thread boundary
+            result = HttpResult(ok=False, status=None, body=None, error=f"{type(exc).__name__}: {exc}")
+        try:
+            result_queue.put_nowait(result)
+        except queue.Full:  # pragma: no cover - impossible with one producer
+            pass
+
+    thread = threading.Thread(target=request_worker, daemon=True)
+    thread.start()
+    thread.join(timeout=max(0.001, timeout_seconds))
+    if thread.is_alive():
+        return HttpResult(ok=False, status=None, body=None, error=f"TimeoutError: worker request exceeded {timeout_seconds:.3f}s")
+    try:
+        return result_queue.get_nowait()
+    except queue.Empty:
+        return HttpResult(ok=False, status=None, body=None, error="worker request produced no result")
+
+
+def _sync_worker_http_evidence(
+    config: GateConfig,
+    *,
+    project_id: str,
+    artifact_root: Path,
+    source_run_id: str = "",
+    per_request_timeout_seconds: float = 5.0,
+    overall_timeout_seconds: float = 45.0,
+) -> dict[str, Any]:
     if not config.worker_wake_gate_bearer_token:
         return {"ok": False, "reason": "worker_token_missing"}
     base_run = source_run_id.removesuffix("-publication") if source_run_id else ""
@@ -384,15 +435,27 @@ def _sync_worker_http_evidence(config: GateConfig, *, project_id: str, artifact_
     # before useful evidence is copied. Treat missing optional paths as skipped
     # and let the later local evidence gate decide whether enough material was
     # synced to ground a paper.
+    started = time.monotonic()
+    timeouts = 0
     for path in paths:
-        result = post_worker_json(
+        remaining = overall_timeout_seconds - (time.monotonic() - started)
+        if remaining <= 0:
+            timeouts += 1
+            skipped.append({"path": path, "status": "timeout", "error": "overall worker evidence sync timeout exceeded"})
+            break
+        request_timeout = min(per_request_timeout_seconds, remaining)
+        result = _post_worker_json_with_deadline(
             config.worker_wake_gate_url,
             f"/project-paper/{project_id}/read",
             config.worker_wake_gate_bearer_token,
             {"paths": [path], "max_bytes_per_file": 2_000_000},
+            timeout_seconds=request_timeout,
         )
         if not result.ok or not result.body:
-            skipped.append({"path": path, "status": result.status, "error": result.error[:300]})
+            is_timeout = "TimeoutError:" in (result.error or "")
+            if is_timeout:
+                timeouts += 1
+            skipped.append({"path": path, "status": "timeout" if is_timeout else result.status, "error": result.error[:300]})
             continue
         for file in result.body.get("files", []):
             rel = str(file.get("path") or "").strip()
@@ -409,8 +472,8 @@ def _sync_worker_http_evidence(config: GateConfig, *, project_id: str, artifact_
             _atomic_write_text(target, content)
             written.append(rel)
     if not written:
-        return {"ok": False, "reason": "worker_read_failed", "files": 0, "paths": [], "skipped": skipped[:30]}
-    return {"ok": True, "reason": "worker_http_synced", "files": len(written), "paths": written[:30], "skipped": skipped[:30]}
+        return {"ok": False, "reason": "no_worker_http_evidence" if timeouts else "worker_read_failed", "files": 0, "paths": [], "skipped": skipped[:30], "timeouts": timeouts}
+    return {"ok": True, "reason": "worker_http_synced", "files": len(written), "paths": written[:30], "skipped": skipped[:30], "timeouts": timeouts}
 
 
 def _remote_evidence_dir(config: GateConfig, *, project_id: str, source_project_dir: str = "") -> str:

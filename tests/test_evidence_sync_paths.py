@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+import time
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
@@ -375,3 +376,44 @@ def test_sync_worker_http_evidence_preserves_existing_file_when_write_fails(tmp_
         pass
 
     assert target.read_text(encoding="utf-8") == "old evidence"
+
+
+def test_worker_http_evidence_sync_times_out_slow_worker_reads(tmp_path, monkeypatch):
+    from enoch_control_plane.config import GateConfig
+    from enoch_control_plane.control_plane import router
+    from enoch_control_plane.control_plane.worker_adapter import HttpResult
+
+    calls = []
+
+    def slow_post_worker_json(*args, **kwargs):  # noqa: ANN001 - patched worker transport
+        calls.append((args, kwargs))
+        time.sleep(0.2)
+        return HttpResult(ok=True, status=200, body={"files": []})
+
+    monkeypatch.setattr(router, "post_worker_json", slow_post_worker_json)
+    config = GateConfig(
+        state_dir=str(tmp_path / "state"),
+        project_root=str(tmp_path / "projects"),
+        dispatch_script_path=str(tmp_path / "dispatch.sh"),
+        control_api_bearer_token="token",
+        completion_callback_url="http://example.invalid/callback",
+        completion_callback_token="unused",
+        worker_wake_gate_url="http://worker.example:8787",
+        worker_wake_gate_bearer_token="worker-token",
+    )
+
+    started = time.monotonic()
+    result = router._sync_worker_http_evidence(
+        config,
+        project_id="slow-project",
+        artifact_root=tmp_path / "artifact-root",
+        per_request_timeout_seconds=0.01,
+        overall_timeout_seconds=0.05,
+    )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 0.15
+    assert result["ok"] is False
+    assert result["reason"] == "no_worker_http_evidence"
+    assert result["timeouts"] >= 1
+    assert any(item.get("status") == "timeout" for item in result["skipped"])
