@@ -3880,3 +3880,52 @@ def test_legacy_finalize_positive_without_evidence_does_not_write_paper() -> Non
             assert "evidence" in str(draft.json()).lower()
         snapshot = client.get("/control/export/snapshot", headers=headers).json()
         assert snapshot["paper_rows"] == []
+
+
+def test_missing_evidence_alert_is_bucketed_per_run() -> None:
+    from enoch_control_plane.control_plane.alerts import PushoverResult
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp).model_copy(update={
+            "paper_evidence_sync_enabled": True,
+            "pushover_alerts_enabled": True,
+            "pushover_api_token": "token",
+            "pushover_user_key": "user",
+        })
+        client = _client_with_config(config)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        response = client.post("/control/import/legacy-snapshot", headers=headers, json={
+            "idempotency_key": "import-alert-missing-evidence",
+            "queue_rows": [{
+                "project_id": "alert-missing-evidence",
+                "project_name": "Alert Missing Evidence",
+                "project_dir": "alert-missing-evidence",
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-alert-missing-evidence",
+                "manual_review_required": False,
+            }],
+            "paper_rows": [],
+        })
+        assert response.status_code == 200
+        calls = []
+
+        def fake_send_pushover(*args, **kwargs):  # noqa: ANN001 - patched function
+            del args
+            calls.append(kwargs)
+            return PushoverResult(attempted=True, ok=True, status_code=200, detail="ok")
+
+        with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", return_value={"enabled": True, "synced": False, "reason": "worker_read_failed"}):
+            with patch("enoch_control_plane.control_plane.router.send_pushover", side_effect=fake_send_pushover):
+                first = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
+                second = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json()["action"] == "noop"
+        assert second.json()["action"] == "noop"
+        assert len(calls) == 1
+        snapshot = client.get("/control/export/snapshot", headers=headers).json()
+        events = [event for event in snapshot["events"] if event["event_type"] == "paper.evidence_sync_blocked"]
+        assert len(events) == 1

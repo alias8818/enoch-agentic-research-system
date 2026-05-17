@@ -945,6 +945,54 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         )
         return {"attempted": result.attempted, "ok": result.ok, "status_code": result.status_code, "detail": result.detail}
 
+    def _record_paper_evidence_blocked(
+        *,
+        entity_type: str,
+        entity_id: str,
+        project_id: str,
+        run_id: str = "",
+        paper_id: str = "",
+        artifact_root: str = "",
+        evidence_sync: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        evidence_sync = evidence_sync or {}
+        reason = str(evidence_sync.get("reason") or "missing evidence")
+        bucket = utc_now()[:13]
+        key = ":".join(
+            [
+                "paper-evidence-sync-blocked",
+                entity_type,
+                _safe_slug(entity_id, "unknown"),
+                _safe_slug(run_id or paper_id or "unknown", "unknown"),
+                _safe_slug(reason, "reason"),
+                bucket,
+            ]
+        )
+        event_id, inserted = store.append_event(
+            idempotency_key=key,
+            event_type="paper.evidence_sync_blocked",
+            entity_type=entity_type,
+            entity_id=entity_id,
+            payload={
+                "project_id": project_id,
+                "run_id": run_id,
+                "paper_id": paper_id,
+                "artifact_root": artifact_root,
+                "reason": reason,
+                "evidence_sync_summary": {
+                    "enabled": evidence_sync.get("enabled"),
+                    "synced": evidence_sync.get("synced"),
+                    "method": evidence_sync.get("method"),
+                    "local_evidence_present": evidence_sync.get("local_evidence_present"),
+                    "reason": reason,
+                },
+            },
+        )
+        if not inserted:
+            return {"attempted": False, "ok": True, "detail": "duplicate paper evidence alert suppressed", "event_id": event_id}
+        notification = _alert_paper_evidence_blocked(project_id=project_id, run_id=run_id, paper_id=paper_id, reason=reason)
+        return {**notification, "event_id": event_id}
+
 
     def _live_dispatch(candidate: dict, requested_by: str, force_preflight: bool, *, allow_paused: bool = False) -> tuple[dict, int | None, dict]:
         if not config.live_dispatch_enabled:
@@ -2365,13 +2413,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         source_project_dir = str((project or {}).get("project_dir") or "")
         evidence_sync = _sync_remote_project_evidence(config, project_id=project_id, artifact_root=artifact_root, source_project_dir=source_project_dir if source_project_dir and not use_current_dir else "", source_run_id=str(paper.get("run_id") or ""))
         if config.paper_evidence_sync_enabled and not _local_paper_evidence_present(artifact_root):
-            notification = _alert_paper_evidence_blocked(project_id=project_id, run_id=str(paper.get("run_id") or ""), paper_id=paper_id, reason=str(evidence_sync.get("reason") or "missing evidence"))
-            store.append_event(
-                idempotency_key=f"paper-evidence-sync-blocked:{paper_id}:{utc_now()[:16]}",
-                event_type="paper.evidence_sync_blocked",
+            _record_paper_evidence_blocked(
                 entity_type="paper",
                 entity_id=paper_id,
-                payload={"project_id": project_id, "artifact_root": str(artifact_root), "evidence_sync": evidence_sync, "notification": notification},
+                project_id=project_id,
+                run_id=str(paper.get("run_id") or ""),
+                paper_id=paper_id,
+                artifact_root=str(artifact_root),
+                evidence_sync=evidence_sync,
             )
             raise HTTPException(status_code=424, detail={"message": "paper rewrite requires synced project evidence", "evidence_sync": evidence_sync})
         record = _paper_record_from_row(paper).model_copy(update={"paper_status": PaperStatus.PUBLICATION_DRAFT, "updated_at": utc_now()})
@@ -3841,13 +3890,13 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             evidence = _prepare_draft_evidence(candidate)
             legacy_finalize_positive = str(candidate.get("last_run_state") or "").strip() == "finalize_positive"
             if not legacy_finalize_positive and not evidence["local_evidence_present"]:
-                notification = _alert_paper_evidence_blocked(project_id=str(candidate.get("project_id") or ""), run_id=str(candidate.get("current_run_id") or candidate.get("run_id") or ""), reason=str((evidence.get("evidence_sync") or {}).get("reason") or "missing evidence"))
-                store.append_event(
-                    idempotency_key=f"paper-evidence-sync-blocked:{candidate.get('project_id')}:{candidate.get('current_run_id') or candidate.get('run_id')}:{utc_now()[:16]}",
-                    event_type="paper.evidence_sync_blocked",
+                _record_paper_evidence_blocked(
                     entity_type="project",
                     entity_id=str(candidate.get("project_id") or ""),
-                    payload={"project_id": candidate.get("project_id"), "run_id": candidate.get("current_run_id") or candidate.get("run_id"), "artifact_root": evidence.get("artifact_root"), "evidence_sync": evidence.get("evidence_sync"), "notification": notification},
+                    project_id=str(candidate.get("project_id") or ""),
+                    run_id=str(candidate.get("current_run_id") or candidate.get("run_id") or ""),
+                    artifact_root=str(evidence.get("artifact_root") or ""),
+                    evidence_sync=evidence.get("evidence_sync") if isinstance(evidence.get("evidence_sync"), dict) else {},
                 )
                 skipped.append({"project_id": candidate.get("project_id"), "run_id": candidate.get("current_run_id"), "reason": "missing paper evidence", "evidence_sync": evidence.get("evidence_sync")})
                 continue
