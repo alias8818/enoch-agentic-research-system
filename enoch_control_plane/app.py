@@ -895,7 +895,16 @@ def _write_text(path: Path, text: str, overwrite: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and not overwrite:
         raise HTTPException(status_code=409, detail=f"refusing to overwrite existing file: {path}")
-    path.write_text(text, encoding="utf-8")
+    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    try:
+        tmp_path.write_text(text, encoding="utf-8")
+        os.replace(tmp_path, path)
+    finally:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
 
 
 def _normalize_prepare_metadata(metadata: dict[str, Any]) -> dict[str, Any]:

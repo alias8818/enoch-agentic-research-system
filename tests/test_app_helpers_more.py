@@ -211,3 +211,21 @@ def test_record_age_uses_updated_last_event_or_created() -> None:
     ts = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
     age = appmod._record_age_seconds(_record(updated_at="", last_event_at=ts, created_at=""))
     assert age is not None and 0 <= age < 30
+
+
+def test_write_text_preserves_existing_file_when_replace_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = tmp_path / "paper.md"
+    target.write_text("old", encoding="utf-8")
+
+    def flaky_replace(src: Path | str, dst: Path | str) -> None:
+        if Path(dst) == target:
+            raise OSError("simulated atomic replace failure")
+        appmod.os.replace(src, dst)
+
+    monkeypatch.setattr(appmod.os, "replace", flaky_replace)
+
+    with pytest.raises(OSError):
+        appmod._write_text(target, "new", overwrite=True)
+
+    assert target.read_text(encoding="utf-8") == "old"
+    assert not list(tmp_path.glob(".paper.md.*.tmp"))

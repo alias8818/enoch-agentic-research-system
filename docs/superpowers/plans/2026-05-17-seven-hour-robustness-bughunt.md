@@ -729,3 +729,9 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Root cause: queue alert notification treated any `append_event` exception like a duplicate/cooldown condition. A transient event-store failure could suppress Pushover even though findings were real.
 - Fix: preserve event append errors in the response and still attempt notification when alert findings exist. Cooldown suppression only applies when event append succeeds as a duplicate/no-insert path.
 - Tests: added `test_queue_alert_notify_does_not_treat_event_store_failure_as_cooldown`.
+
+## Additional worker artifact write hardening
+
+- Root cause: worker-gate prompt/artifact writes used direct target writes. A crash or filesystem error during overwrite could leave a partially rewritten prompt/artifact file in the project workspace.
+- Fix: `_write_text` now writes to a same-directory temporary file and atomically replaces the destination, preserving the prior file if replacement fails and cleaning temporary files.
+- Tests: added `test_write_text_preserves_existing_file_when_replace_fails` plus existing overwrite/path tests.
