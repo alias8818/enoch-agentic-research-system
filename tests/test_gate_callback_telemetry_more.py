@@ -146,7 +146,8 @@ def test_callback_outbox_reuses_existing_metadata_and_marks_delivered(tmp_path: 
     payload = {"run_id": "run/unsafe", "gate_state": "wake_ready", "idempotency_key": "idem"}
     path = callback_outbox.write_pending(tmp_path, payload)
     stored = json.loads(path.read_text())
-    assert path.name == "run_unsafe.json"
+    assert path.name.startswith("run_unsafe-")
+    assert path.name.endswith(".json")
     assert stored["attempt_count"] == 0
 
     stored["attempt_count"] = 7
@@ -155,7 +156,7 @@ def test_callback_outbox_reuses_existing_metadata_and_marks_delivered(tmp_path: 
     path2 = callback_outbox.write_pending(tmp_path, payload)
     assert json.loads(path2.read_text())["attempt_count"] == 7
 
-    run_state = tmp_path / "runs" / "run_unsafe.json"
+    run_state = tmp_path / "runs" / path.name
     run_state.parent.mkdir()
     run_state.write_text(json.dumps({"gate_state": "pending"}))
     monkeypatch.setattr(callback_outbox, "deliver_payload", lambda payload, **kwargs: callback_outbox.DeliveryResult(ok=True, status_code=204, detail="ok"))

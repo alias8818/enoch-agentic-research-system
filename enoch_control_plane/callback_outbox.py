@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -29,9 +30,18 @@ def delivered_dir(state_dir: str | Path) -> Path:
     return path
 
 
-def _safe_run_id(run_id: str) -> str:
+def _legacy_safe_run_id(run_id: str) -> str:
     safe = "".join(ch if ch.isalnum() or ch in "._-+" else "_" for ch in str(run_id))
     return safe or "unknown-run"
+
+
+def _safe_run_id(run_id: str) -> str:
+    raw = str(run_id)
+    safe = _legacy_safe_run_id(raw)
+    if raw and safe == raw:
+        return safe
+    digest = hashlib.blake2s(raw.encode("utf-8"), digest_size=4).hexdigest()
+    return f"{safe[:80]}-{digest}"
 
 
 def pending_path(state_dir: str | Path, run_id: str) -> Path:
@@ -74,7 +84,11 @@ def _mark_local_worker_state_delivered(state_dir: str | Path, payload: dict[str,
     run_id = str(payload.get("run_id") or "")
     if not run_id:
         return
-    path = Path(state_dir).expanduser() / "runs" / f"{_safe_run_id(run_id)}.json"
+    run_dir = Path(state_dir).expanduser() / "runs"
+    path = run_dir / f"{_safe_run_id(run_id)}.json"
+    legacy_path = run_dir / f"{_legacy_safe_run_id(run_id)}.json"
+    if not path.exists() and legacy_path != path and legacy_path.exists():
+        path = legacy_path
     if not path.exists():
         return
     try:

@@ -50,6 +50,19 @@ def test_write_pending_records_corrupt_existing_metadata(tmp_path: Path) -> None
     assert "existing pending metadata unreadable" in data["last_error"]
 
 
+
+def test_pending_paths_do_not_collide_for_sanitized_run_ids(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+
+    unsafe = callback_outbox.write_pending(state, _payload("run/unsafe"))
+    safe = callback_outbox.write_pending(state, _payload("run_unsafe"))
+
+    assert unsafe != safe
+    assert unsafe.exists()
+    assert safe.exists()
+    assert json.loads(unsafe.read_text(encoding="utf-8"))["run_id"] == "run/unsafe"
+    assert json.loads(safe.read_text(encoding="utf-8"))["run_id"] == "run_unsafe"
+
 def test_failed_delivery_keeps_pending_record(monkeypatch, tmp_path: Path) -> None:
     state = tmp_path / "state"
     callback_outbox.write_pending(state, _payload())
