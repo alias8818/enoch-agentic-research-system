@@ -370,11 +370,11 @@ def test_sync_worker_http_evidence_preserves_existing_file_when_write_fails(tmp_
     monkeypatch.setattr(router, "post_worker_json", lambda *args, **kwargs: Result())
     monkeypatch.setattr(router, "_atomic_write_text", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("simulated evidence write failure")))
 
-    try:
-        router._sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
-    except OSError:
-        pass
+    result = router._sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
 
+    assert result["ok"] is False
+    assert result["reason"] == "worker_read_failed"
+    assert any(item["status"] == "write_failed" for item in result["skipped"])
     assert target.read_text(encoding="utf-8") == "old evidence"
 
 

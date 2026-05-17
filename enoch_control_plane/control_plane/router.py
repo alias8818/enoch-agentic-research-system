@@ -470,7 +470,11 @@ def _sync_worker_http_evidence(
             if not rel or target == artifact_root or (target.exists() and target.is_dir()):
                 skipped.append({"path": rel, "status": "unsafe_path", "error": "worker returned path is not a file target"})
                 continue
-            _atomic_write_text(target, content)
+            try:
+                _atomic_write_text(target, content)
+            except OSError as exc:
+                skipped.append({"path": rel, "status": "write_failed", "error": f"{type(exc).__name__}: {exc}"[:300]})
+                continue
             written.append(rel)
     if not written:
         return {"ok": False, "reason": "no_worker_http_evidence" if timeouts else "worker_read_failed", "files": 0, "paths": [], "skipped": skipped[:30], "timeouts": timeouts}
