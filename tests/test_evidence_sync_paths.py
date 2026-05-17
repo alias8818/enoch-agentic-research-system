@@ -189,3 +189,68 @@ def test_draft_next_dry_run_does_not_sync_evidence() -> None:
         body = response.json()
         assert body["action"] == "dry_run_draft"
         assert body["candidate"]["evidence_sync"] == {"enabled": True, "skipped": True, "reason": "dry_run"}
+
+
+def test_sync_worker_http_evidence_rejects_worker_returned_escape_paths(tmp_path) -> None:
+    from enoch_control_plane.control_plane.router import _sync_worker_http_evidence
+    from enoch_control_plane.control_plane.worker_adapter import HttpResult
+
+    config = _config(tmp_path)
+    config.worker_wake_gate_bearer_token = "worker-token"
+    config.worker_wake_gate_url = "http://worker"
+    artifact_root = tmp_path / "artifact"
+    outside = tmp_path / "outside.txt"
+
+    def fake_post_worker_json(base_url, path, token, payload):  # noqa: ANN001 - matches patched function
+        del base_url, path, token, payload
+        return HttpResult(ok=True, status=200, body={"files": [{"path": "../outside.txt", "content": "escape"}]})
+
+    with patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post_worker_json):
+        result = _sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+
+    assert result["ok"] is False
+    assert result["reason"] == "worker_read_failed"
+    assert not outside.exists()
+    assert any(item["status"] == "unsafe_path" for item in result["skipped"])
+
+
+def test_sync_remote_evidence_reports_failed_when_successful_tar_has_no_required_evidence(tmp_path) -> None:
+    config = _config(tmp_path)
+    artifact_root = tmp_path / "artifact"
+
+    class FakeSshProcess:
+        def __init__(self) -> None:
+            self.stdout = io.BytesIO(b"")
+            self.stderr = io.BytesIO(b"")
+            self.returncode = 0
+
+        def wait(self, timeout=None):  # noqa: ANN001 - subprocess-compatible test double
+            del timeout
+            return 0
+
+        def poll(self):
+            return 0
+
+    class FakeTarProcess:
+        def __init__(self) -> None:
+            self.returncode = 0
+
+        def communicate(self, timeout=None):  # noqa: ANN001 - subprocess-compatible test double
+            del timeout
+            return b"", b""
+
+        def wait(self, timeout=None):  # noqa: ANN001 - subprocess-compatible test double
+            del timeout
+            return 0
+
+        def poll(self):
+            return 0
+
+    with patch("enoch_control_plane.control_plane.router._sync_worker_http_evidence", return_value={"ok": False, "reason": "worker_read_failed"}):
+        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", side_effect=[FakeSshProcess(), FakeTarProcess()]):
+            result = _sync_remote_project_evidence(config, project_id="project", artifact_root=artifact_root)
+
+    assert result["method"] == "worker_http+ssh"
+    assert result["synced"] is False
+    assert result["local_evidence_present"] is False
+    assert result["reason"] == "synced_without_required_evidence"

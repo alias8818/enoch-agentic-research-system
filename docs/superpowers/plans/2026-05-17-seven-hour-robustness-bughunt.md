@@ -6,7 +6,7 @@
 
 **Architecture:** This is a reliability hardening pass, not a feature sprint. Work from the highest-risk boundaries outward: persistent store invariants, worker callback idempotency, evidence sync gates, paper-write gates, alert correctness, autopilot loops, and release/count validation. Every accepted change must have a failing regression/property test first, pass the full local test suite, be committed, pushed, and deployed only when the live lane is safe to restart.
 
-**Tech Stack:** Python 3.14, FastAPI, local/Postgres-compatible control-plane store adapters, SQLite test store, Hypothesis property tests, pytest, ruff, Semgrep/custom rules where useful, systemd services on `enoch-core`, GB10 worker gate over Tailscale.
+**Tech Stack:** Python 3.14, FastAPI, local/Postgres-compatible control-plane store adapters, SQLite test store, Hypothesis property tests, pytest, ruff, Semgrep/custom rules where useful, systemd services on `enoch-core`, GB10 worker gate over Tailscale. Current topology reference: [`current-runtime-snapshot.md`](../current-runtime-snapshot.md).
 
 ---
 
@@ -190,15 +190,17 @@ Commit message subject if a bug was fixed: `fix: preserve queue invariants acros
 
 **Risk being hunted:** SSH/tar fallback, worker HTTP reads, symlinks, path traversal, or partial syncs make the control plane think evidence is present when it is not trustworthy.
 
-- [ ] **Step 1: Add property for worker HTTP returned paths staying under artifact root**
+**Progress note:** Found and fixed SSH fallback fail-open behavior where a successful tar command reported `synced: true` even when required local paper evidence was absent. Added worker HTTP path escape coverage and evidence sync regressions. Full test suite passed with 477 tests.
+
+- [x] **Step 1: Add property for worker HTTP returned paths staying under artifact root**
 
 Patch `post_worker_json` in a test to return generated file paths including normal names, nested paths, `../escape`, absolute paths, Windows separators, and weird Unicode. Call `_sync_worker_http_evidence()`. Assert every written file resolves under `artifact_root` and no unsafe path is created outside it.
 
-- [ ] **Step 2: Add regression for HTTP partial sync truthfulness**
+- [x] **Step 2: Add regression for HTTP partial sync truthfulness**
 
 Create a test where HTTP returns only optional `results/smoke.json` and no `run_notes.md` or decision artifact. Assert `_sync_remote_project_evidence()` does not report `method == "worker_http"` with `synced == True` unless `_local_paper_evidence_present()` is actually true under the hardened gate.
 
-- [ ] **Step 3: Add regression for SSH tar extraction symlink edge**
+- [x] **Step 3: Add regression for SSH tar extraction symlink edge**
 
 Use a local tar stream fixture or patched `subprocess.Popen` double if practical. The target invariant is: after fallback extraction, `_sync_remote_project_evidence()` must compute `synced` from `_local_paper_evidence_present(artifact_root)`, not from tar return code alone. If current code returns `synced: True` solely on command success, fix it.
 
@@ -217,7 +219,7 @@ return {
 }
 ```
 
-- [ ] **Step 4: Verify evidence sync tests**
+- [x] **Step 4: Verify evidence sync tests**
 
 Run:
 
@@ -227,7 +229,7 @@ uv run pytest -q tests/test_evidence_sync_paths.py tests/test_property_invariant
 
 Expected: pass.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 Commit subject if a bug was fixed: `fix: require evidence presence after sync fallback`.
 

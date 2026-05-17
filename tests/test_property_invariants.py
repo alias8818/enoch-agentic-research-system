@@ -4,11 +4,13 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from hypothesis import example, given, settings, strategies as st
+from unittest.mock import patch
 
 from enoch_control_plane.config import GateConfig
-from enoch_control_plane.control_plane.router import _local_artifact_root, _local_paper_evidence_present, _remote_evidence_dir
+from enoch_control_plane.control_plane.router import _local_artifact_root, _local_paper_evidence_present, _remote_evidence_dir, _sync_worker_http_evidence
 from enoch_control_plane.control_plane.store import ControlPlaneStore
 from enoch_control_plane.control_plane.models import ImportSnapshotRequest
+from enoch_control_plane.control_plane.worker_adapter import HttpResult
 from enoch_control_plane.models import RunRecord
 from enoch_control_plane.process_tracker import ProcessTracker
 
@@ -262,3 +264,35 @@ def test_import_snapshot_does_not_blank_active_queue_run_fields(current_run_id: 
         assert row["current_session_id"] == "session-current"
         assert row["last_run_state"] == "running"
         assert row["next_action_hint"] == "await_callback"
+
+
+worker_returned_path = st.text(
+    alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\x00"),
+    min_size=0,
+    max_size=80,
+)
+
+
+@example(rel_path="../escape.txt")
+@example(rel_path="/tmp/escape.txt")
+@example(rel_path="safe/result.json")
+@given(rel_path=worker_returned_path)
+@settings(max_examples=80, deadline=None)
+def test_worker_http_evidence_sync_never_writes_outside_artifact_root(rel_path: str) -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        artifact_root = root / "artifact"
+        config = _config(root)
+        config.worker_wake_gate_bearer_token = "worker-token"
+        config.worker_wake_gate_url = "http://worker"
+
+        def fake_post_worker_json(base_url, path, token, payload):  # noqa: ANN001 - patched transport-compatible fake
+            del base_url, path, token, payload
+            return HttpResult(ok=True, status=200, body={"files": [{"path": rel_path, "content": "evidence"}]})
+
+        with patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post_worker_json):
+            _sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+
+        for path in root.rglob("*"):
+            if path.is_file():
+                path.resolve().relative_to(artifact_root.resolve())

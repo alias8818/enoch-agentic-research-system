@@ -501,7 +501,16 @@ def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifa
             "http_sync": http_sync,
             "method": "worker_http+ssh",
         }
-    return {"enabled": True, "synced": True, "reason": "synced", "method": "worker_http+ssh", "remote_dir": remote_dir, "local_evidence_present": _local_paper_evidence_present(artifact_root), "http_sync": http_sync}
+    local_evidence_present = _local_paper_evidence_present(artifact_root)
+    return {
+        "enabled": True,
+        "synced": local_evidence_present,
+        "reason": "synced" if local_evidence_present else "synced_without_required_evidence",
+        "method": "worker_http+ssh",
+        "remote_dir": remote_dir,
+        "local_evidence_present": local_evidence_present,
+        "http_sync": http_sync,
+    }
 
 
 def _safe_slug(value: str, fallback: str) -> str:
