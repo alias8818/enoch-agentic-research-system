@@ -214,6 +214,21 @@ class PaperWriterTests(unittest.TestCase):
                         _write_files(project, {rel_path: "bad"}, force=True)
             self.assertTrue(project.is_dir())
 
+    def test_write_files_preserves_existing_artifact_when_replace_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            project.mkdir()
+            target = project / "papers" / "run" / "paper.md"
+            target.parent.mkdir(parents=True)
+            target.write_text("old", encoding="utf-8")
+
+            with patch("enoch_control_plane.control_plane.paper_writer.os.replace", side_effect=OSError("simulated replace failure")):
+                with self.assertRaises(OSError):
+                    _write_files(project, {"papers/run/paper.md": "new"}, force=True)
+
+            self.assertEqual(target.read_text(encoding="utf-8"), "old")
+            self.assertEqual(list(target.parent.glob(".paper.md.*.tmp")), [])
+
     def test_synthetic_writer_falls_back_without_key_when_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "projects" / "idea"

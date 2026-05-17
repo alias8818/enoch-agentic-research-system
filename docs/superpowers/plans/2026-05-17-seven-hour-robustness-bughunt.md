@@ -735,3 +735,9 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Root cause: worker-gate prompt/artifact writes used direct target writes. A crash or filesystem error during overwrite could leave a partially rewritten prompt/artifact file in the project workspace.
 - Fix: `_write_text` now writes to a same-directory temporary file and atomically replaces the destination, preserving the prior file if replacement fails and cleaning temporary files.
 - Tests: added `test_write_text_preserves_existing_file_when_replace_fails` plus existing overwrite/path tests.
+
+## Additional paper artifact atomic-write hardening
+
+- Root cause: paper-writer artifact emission used direct target writes. A failure during overwrite could corrupt an existing draft/evidence/claim/manifest artifact.
+- Fix: `_write_files` now writes to a same-directory temporary file and atomically replaces each artifact target, preserving existing artifacts if replacement fails and cleaning temp files.
+- Tests: added `test_write_files_preserves_existing_artifact_when_replace_fails`.

@@ -4,6 +4,7 @@ import json
 import hashlib
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any
 from urllib import request
@@ -79,7 +80,16 @@ def _write_files(project_dir: Path, files: dict[str, str], *, force: bool) -> No
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists() and not force:
             continue
-        target.write_text(content, encoding="utf-8")
+        tmp_path = target.with_name(f".{target.name}.{os.getpid()}.{time.time_ns()}.tmp")
+        try:
+            tmp_path.write_text(content, encoding="utf-8")
+            os.replace(tmp_path, target)
+        finally:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
 
 
 def _blocked_empty_claim_ledger(paper: PaperRecord, *, provider_note: Any) -> str:
