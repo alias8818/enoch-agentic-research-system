@@ -75,6 +75,23 @@ def _sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _read_evidence_preview(path: Path, *, max_public_bytes: int = MAX_PUBLIC_EVIDENCE_BYTES) -> tuple[str, int, str, bool]:
+    digest = hashlib.sha256()
+    preview = bytearray()
+    total = 0
+    with path.open("rb") as fh:
+        while True:
+            chunk = fh.read(64 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            digest.update(chunk)
+            if len(preview) < max_public_bytes:
+                remaining = max_public_bytes - len(preview)
+                preview.extend(chunk[:remaining])
+    return preview.decode("utf-8", errors="replace"), total, digest.hexdigest(), total > len(preview)
+
+
 def _safe_public_evidence_path(rel_path: Path) -> str:
     safe_parts = [re.sub(r"[^A-Za-z0-9._-]+", "_", part).strip("._") or "artifact" for part in rel_path.parts]
     return str(Path(EVIDENCE_PUBLIC_DIR, *safe_parts))
@@ -185,15 +202,14 @@ def _build_evidence_bundle_data(
     metric_summaries: list[dict[str, Any]] = []
     for path in source_files:
         rel_path = str(path.relative_to(project_dir))
-        raw = path.read_text(encoding="utf-8", errors="replace")
-        public_content = raw[:MAX_PUBLIC_EVIDENCE_BYTES]
+        public_content, byte_size, source_sha256, truncated = _read_evidence_preview(path)
         public_path = _safe_public_evidence_path(Path(rel_path))
         entry = {
             "source_path": rel_path,
             "public_path": public_path,
-            "bytes": len(raw.encode("utf-8")),
-            "sha256": _sha256_text(raw),
-            "truncated": len(raw.encode("utf-8")) > len(public_content.encode("utf-8")),
+            "bytes": byte_size,
+            "sha256": source_sha256,
+            "truncated": truncated,
         }
         inventory.append(entry)
         public_files.append({
@@ -204,7 +220,7 @@ def _build_evidence_bundle_data(
             "truncated": entry["truncated"],
         })
         if len(metric_summaries) < MAX_METRIC_FILES:
-            summary = _metric_summary_for_file(path, rel_path, raw)
+            summary = _metric_summary_for_file(path, rel_path, public_content)
             if summary is not None:
                 metric_summaries.append(summary)
     result_refs = [item["path"] for item in public_files]

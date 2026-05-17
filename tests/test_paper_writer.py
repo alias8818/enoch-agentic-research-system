@@ -64,6 +64,22 @@ class PaperWriterTests(unittest.TestCase):
             self.assertTrue(ledger["claims"])
             self.assertTrue(ledger["claims"][0]["evidence_refs"])
 
+    def test_evidence_bundle_limits_large_source_file_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            large_text = "metric=1\n" * 20_000
+            (project / "run_notes.md").write_text(large_text, encoding="utf-8")
+            meta = write_paper_artifacts(self._config(tmp), {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"}, self._paper(), force=True)
+            self.assertEqual(meta["provider"], "deterministic")
+            evidence = json.loads((project / "papers/run/evidence.json").read_text(encoding="utf-8"))
+            run_notes = next(item for item in evidence["public_evidence_files"] if item["source_path"] == "run_notes.md")
+            inventory = next(item for item in evidence["file_inventory"] if item["source_path"] == "run_notes.md")
+            self.assertLessEqual(len(run_notes["content"].encode("utf-8")), 80_000)
+            self.assertTrue(run_notes["truncated"])
+            self.assertTrue(inventory["truncated"])
+            self.assertEqual(inventory["bytes"], len(large_text.encode("utf-8")))
+
     def test_synthetic_writer_uses_openai_compatible_response(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "projects" / "idea"

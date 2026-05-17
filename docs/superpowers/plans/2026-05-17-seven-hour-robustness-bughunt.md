@@ -572,6 +572,8 @@ Then run live readiness probe. Expected: readiness `ready` or a clearly understo
 
 **Additional paper writer path hardening:** The paper writer shared file-emission helper now rejects empty, dot, directory, invalid, and escaping artifact paths with a controlled 400 instead of surfacing filesystem exceptions during paper rewrite/backfill.
 
+**Additional evidence packaging memory hardening:** Evidence bundle generation now streams source evidence for hashing and only keeps the public preview bytes in memory, preserving full byte counts and hashes while bounding large log/result files during paper rewrite/backfill.
+
 ## Task 9: Final verification, cleanup, and report
 
 **Timebox:** 25 minutes
