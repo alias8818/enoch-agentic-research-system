@@ -115,6 +115,18 @@ def test_research_quality_post_prompt_monitor_is_exposed_in_summary() -> None:
     assert result["summary"]["research_quality_post_prompt_monitor"]["malformed_provider_response_count"] == 1
 
 
+
+def test_tick_freshness_treats_naive_iso_timestamps_as_utc() -> None:
+    payload = _ready_payload()
+    payload["services"]["enoch-research-autopilot.service"]["InactiveEnterTimestamp"] = "2026-05-10T04:45:00"
+    payload["services"]["enoch-research-autopilot.service"].pop("ActiveEnterTimestamp", None)
+    payload["timers"]["enoch-research-autopilot.timer"]["LastTriggerUSec"] = "2026-05-10T04:45:00"
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is True
+    assert result["summary"]["research_tick_age_seconds"] == 900
+
 def test_provider_budget_must_be_checked_and_ok() -> None:
     payload = _ready_payload()
     payload["provider_budget"] = {"ok": False, "failures": ["rolling limit low"]}

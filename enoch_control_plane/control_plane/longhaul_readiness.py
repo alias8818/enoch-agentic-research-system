@@ -21,7 +21,10 @@ def _parse_timestamp(value: Any) -> datetime | None:
             pass
     try:
         normalized = text.replace("Z", "+00:00")
-        return datetime.fromisoformat(normalized).astimezone(timezone.utc)
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
     except ValueError:
         return None
 
