@@ -826,3 +826,9 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Found a dashboard/read-model link bug: raw project, run, and paper IDs were interpolated directly into API path links. IDs containing slash, query, or fragment characters could produce misleading dashboard/API links.
 - Fix: queue and paper links now URL-encode each path segment before composing v1 and legacy API URLs.
 - Test: added `test_read_model_links_url_encode_path_segments`.
+
+### Additional decision-artifact hardening: reject symlinked decision files
+
+- Found a paper-gate trust-boundary bug: `project_decision_payload()` and `paper_draft_decision_gate()` followed symlinked `.enoch/.omx/project_decision.json` files. A worker-controlled symlink could make the paper lane read a decision artifact outside the synced project evidence tree.
+- Fix: decision readers now require real non-symlink files before parsing project decision JSON.
+- Test: added `test_decision_payloads_do_not_follow_symlinks`.

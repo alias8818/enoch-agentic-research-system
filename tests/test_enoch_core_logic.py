@@ -120,6 +120,23 @@ class EnochCoreLogicTests(unittest.TestCase):
                 gate = paper_draft_decision_gate(root)
                 self.assertFalse(gate["eligible"], decision)
 
+    def test_decision_payloads_do_not_follow_symlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+            external = Path(tmp) / "external"
+            (root / ".enoch").mkdir(parents=True)
+            external.mkdir()
+            (external / "project_decision.json").write_text(
+                json.dumps({"project_decision": "finalize_positive"}) + "\n",
+                encoding="utf-8",
+            )
+            (root / ".enoch" / "project_decision.json").symlink_to(external / "project_decision.json")
+
+            self.assertEqual(project_decision_payload(root), {})
+            gate = paper_draft_decision_gate(root)
+            self.assertFalse(gate["eligible"])
+            self.assertEqual(gate["reason"], "missing project decision artifact")
+
     def test_project_decision_payload_and_followup_metadata_are_separate_from_paper_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -83,12 +83,19 @@ def _has_decision_token(value: str, tokens: tuple[str, ...]) -> bool:
     return value in token_set or bool(_decision_tokens(value) & token_set)
 
 
+def _safe_decision_file(path: Path) -> bool:
+    try:
+        return path.exists() and path.is_file() and not path.is_symlink()
+    except OSError:
+        return False
+
+
 def _paper_decision_json_values(artifact_root: str | Path) -> list[tuple[str, str, str]]:
     root = Path(artifact_root)
     values: list[tuple[str, str, str]] = []
     for relative in PAPER_DECISION_FILES:
         path = root / relative
-        if not path.exists():
+        if not _safe_decision_file(path):
             continue
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -107,7 +114,7 @@ def _paper_decision_json_payloads(artifact_root: str | Path) -> list[tuple[str, 
     payloads: list[tuple[str, dict[str, Any]]] = []
     for relative in PAPER_DECISION_FILES:
         path = root / relative
-        if not path.exists():
+        if not _safe_decision_file(path):
             continue
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -188,7 +195,7 @@ def project_decision_payload(artifact_root: str | Path) -> dict[str, Any]:
     root = Path(artifact_root)
     for relative in PAPER_DECISION_FILES:
         path = root / relative
-        if not path.exists():
+        if not _safe_decision_file(path):
             continue
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
