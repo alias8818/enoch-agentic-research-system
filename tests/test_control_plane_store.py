@@ -126,6 +126,41 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertIsNone(event_id)
             self.assertEqual(len(store.recent_events(100)), before_events)
 
+    def test_import_snapshot_idempotency_replay_does_not_rewrite_runtime_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            payload = ImportSnapshotRequest(
+                idempotency_key="import-replay-no-runtime-rewrite",
+                queue_rows=[{
+                    "project_id": "idea-replay-runtime",
+                    "project_name": "Replay Runtime",
+                    "project_dir": "idea-replay-runtime",
+                    "status": "queued",
+                    "current_run_id": "",
+                    "last_result_summary": "original import",
+                }],
+                paper_rows=[],
+            )
+            inserted, *_ = store.import_snapshot(payload)
+            self.assertTrue(inserted)
+            paused = store.mark_queue_item_paused(
+                project_id="idea-replay-runtime",
+                reason="operator pause after import",
+                updated_by="test",
+            )
+            self.assertTrue(paused)
+            before = store.queue_row("idea-replay-runtime")
+            self.assertEqual(before["status"], "paused")
+            self.assertEqual(before["last_result_summary"], "operator pause after import")
+
+            inserted_again, *_ = store.import_snapshot(payload)
+            after = store.queue_row("idea-replay-runtime")
+
+            self.assertFalse(inserted_again)
+            self.assertEqual(after["status"], before["status"])
+            self.assertEqual(after["current_run_id"], before["current_run_id"])
+            self.assertEqual(after["last_result_summary"], before["last_result_summary"])
+
     def test_notion_intake_replay_does_not_rewrite_queue_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

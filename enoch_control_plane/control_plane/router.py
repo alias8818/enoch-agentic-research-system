@@ -443,9 +443,47 @@ def _safe_project_artifact_name(project_id: str) -> str:
     return _safe_slug(str(project_id or ""), "project")
 
 
+def _has_symlink_component(root: Path, candidate: Path) -> bool:
+    try:
+        rel = candidate.relative_to(root)
+    except ValueError:
+        return True
+    current = root
+    for part in rel.parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+    return False
+
+
+def _safe_artifact_candidate(root: Path, candidate: Path) -> Path | None:
+    try:
+        resolved = candidate.resolve()
+        resolved.relative_to(root)
+    except (OSError, ValueError):
+        return None
+    if _has_symlink_component(root, candidate):
+        return None
+    return resolved
+
+
+def _safe_fallback_artifact_root(root: Path, project_id: str) -> Path:
+    slug = _safe_slug(str(project_id or ""), "project")
+    digest = hashlib.sha256(slug.encode("utf-8")).hexdigest()[:12]
+    for candidate in (
+        root / _safe_project_artifact_name(project_id),
+        root / "_evidence_artifacts" / slug,
+        root / f"_evidence_artifacts_{digest}" / slug,
+    ):
+        safe = _safe_artifact_candidate(root, candidate)
+        if safe is not None:
+            return safe
+    return root
+
+
 def _local_artifact_root(config: GateConfig, *, project_id: str, project_dir_text: str = "") -> Path:
     root = config.expanded_project_root.resolve()
-    fallback = (root / _safe_project_artifact_name(project_id)).resolve()
+    fallback = _safe_fallback_artifact_root(root, project_id)
     source = str(project_dir_text or "").strip()
     if not source:
         return fallback
@@ -453,12 +491,8 @@ def _local_artifact_root(config: GateConfig, *, project_id: str, project_dir_tex
         candidate = Path(source).expanduser()
     except RuntimeError:
         return fallback
-    resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
-    try:
-        resolved.relative_to(root)
-    except ValueError:
-        return fallback
-    return resolved
+    safe_candidate = _safe_artifact_candidate(root, candidate if candidate.is_absolute() else root / candidate)
+    return safe_candidate or fallback
 
 
 def _stop_process(proc: subprocess.Popen | None) -> None:

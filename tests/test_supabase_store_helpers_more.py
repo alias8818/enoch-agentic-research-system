@@ -523,3 +523,26 @@ def test_supabase_import_snapshot_preserves_active_runtime_with_empty_current_ru
     assert params[10] == "session-active"
     assert params[11] == "wake_received"
     assert params[13] == "await_callback"
+
+
+def test_supabase_import_snapshot_idempotency_replay_does_not_connect(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    monkeypatch.setattr(store, "append_event", lambda **kwargs: (7, False))
+
+    def fail_connect():
+        raise AssertionError("duplicate import snapshot must not mutate rows")
+
+    monkeypatch.setattr(store, "_connect", fail_connect)
+
+    inserted, projects, queue_items, papers = store.import_snapshot(ImportSnapshotRequest(
+        idempotency_key="supabase-import-replay-no-connect",
+        queue_rows=[{
+            "project_id": "idea-supabase-replay",
+            "project_name": "Supabase Replay",
+            "status": "queued",
+        }],
+        paper_rows=[],
+    ))
+
+    assert inserted is False
+    assert (projects, queue_items, papers) == (0, 0, 0)

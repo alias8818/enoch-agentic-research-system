@@ -66,6 +66,33 @@ def test_local_artifact_root_rejects_unsafe_project_id_fallback(tmp_path) -> Non
     resolved.relative_to(config.expanded_project_root.resolve())
 
 
+def test_local_artifact_root_rejects_symlinked_project_id_fallback(tmp_path) -> None:
+    config = _config(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    config.expanded_project_root.mkdir(parents=True)
+    (config.expanded_project_root / "project").symlink_to(outside, target_is_directory=True)
+
+    resolved = _local_artifact_root(config, project_id="project", project_dir_text="")
+
+    resolved.relative_to(config.expanded_project_root.resolve())
+    assert resolved != outside.resolve()
+    assert not (config.expanded_project_root / resolved.relative_to(config.expanded_project_root.resolve()).parts[0]).is_symlink()
+
+
+def test_local_artifact_root_rejects_symlinked_project_dir(tmp_path) -> None:
+    config = _config(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    config.expanded_project_root.mkdir(parents=True)
+    (config.expanded_project_root / "runtime-link").symlink_to(outside, target_is_directory=True)
+
+    resolved = _local_artifact_root(config, project_id="project", project_dir_text="runtime-link")
+
+    resolved.relative_to(config.expanded_project_root.resolve())
+    assert resolved != outside.resolve()
+
+
 
 
 def test_local_paper_evidence_rejects_symlinked_high_signal_files(tmp_path) -> None:

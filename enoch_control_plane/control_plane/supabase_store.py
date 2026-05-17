@@ -3391,6 +3391,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             entity_id=request.source,
             payload=event_payload,
         )
+        if not inserted:
+            return False, 0, 0, 0
         projects = queue_items = papers = 0
         with self._connect() as conn:
             with conn.cursor() as cur:
