@@ -40,7 +40,7 @@ def _legacy_safe_run_id(run_id: str) -> str:
 def _safe_run_id(run_id: str) -> str:
     raw = str(run_id)
     safe = _legacy_safe_run_id(raw)
-    if raw and safe == raw:
+    if raw and safe == raw and len(safe) <= 100:
         return safe
     digest = hashlib.blake2s(raw.encode("utf-8"), digest_size=4).hexdigest()
     return f"{safe[:80]}-{digest}"

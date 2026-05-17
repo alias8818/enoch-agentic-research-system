@@ -167,6 +167,17 @@ def test_callback_outbox_reuses_existing_metadata_and_marks_delivered(tmp_path: 
     assert json.loads(run_state.read_text())["gate_state"] == "wake_ready"
 
 
+def test_callback_outbox_caps_safe_but_long_run_id_filenames(tmp_path: Path) -> None:
+    long_run_id = "r" * 400
+
+    path = callback_outbox.write_pending(tmp_path, {"run_id": long_run_id})
+
+    assert path.exists()
+    assert len(path.name) <= 120
+    assert path.name.endswith(".json")
+    assert json.loads(path.read_text())["run_id"] == long_run_id
+
+
 def test_callback_outbox_failure_and_replay_limits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ValueError):
         callback_outbox.write_pending(tmp_path, {"no_run_id": True})
