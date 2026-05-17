@@ -20,6 +20,33 @@ EVIDENCE_PUBLIC_DIR = "evidence"
 MAX_EVIDENCE_FILES = 80
 MAX_PUBLIC_EVIDENCE_BYTES = 80_000
 MAX_METRIC_FILES = 40
+MAX_SECRET_TOKEN_LENGTH = 12_000
+SECRET_REDACTION_PATTERNS = [
+    re.compile(r"(?i)(Authorization\s*:\s*Bearer\s+)([A-Za-z0-9._\-]{16,})"),
+    re.compile(r"(?i)((?:OPENAI|ANTHROPIC|SYNTHETIC|GITHUB|HF|HUGGINGFACE|SUPABASE)?[_-]?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[=:]\s*)([^\s'\"]{12,})"),
+    re.compile(r"\b(sk-(?:proj-)?[A-Za-z0-9_-]{20,})\b"),
+    re.compile(r"\b(syn_[A-Za-z0-9]{20,})\b"),
+    re.compile(r"\b(gh[pousr]_[A-Za-z0-9_]{20,})\b"),
+]
+
+
+def _redact_public_evidence_text(text: str) -> str:
+    redacted = text
+    for pattern in SECRET_REDACTION_PATTERNS:
+        def repl(match: re.Match[str]) -> str:
+            if match.lastindex and match.lastindex >= 2:
+                prefix = match.group(1)
+                token = match.group(2)
+                if len(token) > MAX_SECRET_TOKEN_LENGTH:
+                    return match.group(0)
+                return f"{prefix}[REDACTED_TOKEN]"
+            token = match.group(1)
+            if len(token) > MAX_SECRET_TOKEN_LENGTH:
+                return match.group(0)
+            return "[REDACTED_TOKEN]"
+
+        redacted = pattern.sub(repl, redacted)
+    return redacted
 
 
 def _resolve_project_dir(config: GateConfig, candidate: dict[str, Any]) -> Path:
@@ -89,7 +116,8 @@ def _read_evidence_preview(path: Path, *, max_public_bytes: int = MAX_PUBLIC_EVI
             if len(preview) < max_public_bytes:
                 remaining = max_public_bytes - len(preview)
                 preview.extend(chunk[:remaining])
-    return preview.decode("utf-8", errors="replace"), total, digest.hexdigest(), total > len(preview)
+    public_text = _redact_public_evidence_text(preview.decode("utf-8", errors="replace"))
+    return public_text, total, digest.hexdigest(), total > len(preview)
 
 
 def _safe_public_evidence_path(rel_path: Path) -> str:

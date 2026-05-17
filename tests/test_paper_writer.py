@@ -64,6 +64,33 @@ class PaperWriterTests(unittest.TestCase):
             self.assertTrue(ledger["claims"])
             self.assertTrue(ledger["claims"][0]["evidence_refs"])
 
+    def test_evidence_bundle_redacts_secret_like_tokens_from_public_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            secret_text = (
+                "Authorization: Bearer syn_abcdefghijklmnopqrstuvwxyz1234567890\n"
+                "OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwxyz1234567890abcdefghijkl\n"
+                "normal_metric=1.23\n"
+            )
+            (project / "run_notes.md").write_text(secret_text, encoding="utf-8")
+
+            write_paper_artifacts(
+                self._config(tmp),
+                {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"},
+                self._paper(),
+                force=True,
+            )
+
+            evidence = json.loads((project / "papers/run/evidence.json").read_text(encoding="utf-8"))
+            run_notes = next(item for item in evidence["public_evidence_files"] if item["source_path"] == "run_notes.md")
+            content = run_notes["content"]
+            self.assertIn("normal_metric=1.23", content)
+            self.assertIn("Authorization: Bearer [REDACTED_TOKEN]", content)
+            self.assertIn("OPENAI_API_KEY=[REDACTED_TOKEN]", content)
+            self.assertNotIn("syn_abcdefghijklmnopqrstuvwxyz", content)
+            self.assertNotIn("sk-proj-abcdefghijklmnopqrstuvwxyz", content)
+
     def test_evidence_bundle_limits_large_source_file_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "projects" / "idea"

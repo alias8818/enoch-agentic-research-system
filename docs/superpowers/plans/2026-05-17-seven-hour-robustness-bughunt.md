@@ -705,3 +705,9 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 ---
 
 **Additional dispatch-claim release hardening:** Wrapped unexpected worker-preflight exceptions after a queue claim and release the claim with a diagnostic 409 backpressure response. A malformed or crashing preflight can no longer strand a queued item in dispatching state.
+
+## Additional pass: public evidence secret redaction
+
+- Root cause: paper evidence packaging streamed previews of worker artifacts verbatim into public `evidence_bundle.json`. If a worker log, prompt, or run note accidentally contained an API key or bearer token, the paper lane could preserve that token in a public artifact.
+- Fix: redact common secret/token forms before storing public evidence content while preserving raw source file byte counts and source SHA for provenance.
+- Tests: added `test_evidence_bundle_redacts_secret_like_tokens_from_public_content`.
