@@ -36,9 +36,12 @@ def _parse_ts(raw: str | None) -> datetime | None:
     if not raw:
         return None
     try:
-        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def _observed_at_text(raw: Any) -> str | None:
