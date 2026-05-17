@@ -615,7 +615,7 @@ class ControlPlaneStore:
                     project_dir=_text(_first_present(raw, "project_dir", "project_path")),
                     notion_page_url=_text(_first_present(raw, "notion_page_url", "url")),
                     notion_page_id=_text(_first_present(raw, "notion_page_id", "page_id", "id")) or _notion_page_id_from_url(_text(_first_present(raw, "notion_page_url", "url"))),
-                    origin_idea_status=_text(_first_present(raw, "origin_idea_status", "idea_status")),
+                    origin_idea_status=_text(_first_present(raw, "origin_idea_status", "idea_status")) or "unknown",
                     created_at=_text(_first_present(raw, "createdAt", "created_at")) or utc_now(),
                     updated_at=_text(_first_present(raw, "updatedAt", "updated_at", "last_execution_update")) or utc_now(),
                 )

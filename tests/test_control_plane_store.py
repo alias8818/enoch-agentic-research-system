@@ -28,6 +28,29 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertTrue(flags.queue_paused)
             self.assertTrue(flags.maintenance_mode)
 
+
+    def test_import_snapshot_defaults_missing_origin_status_to_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="import-missing-origin-status",
+                    queue_rows=[{
+                        "project_id": "missing-status-queue",
+                        "project_name": "Missing Status Queue",
+                        "status": "queued",
+                    }],
+                    paper_rows=[{
+                        "paper_id": "missing-status-paper",
+                        "project_id": "missing-status-paper-project",
+                        "paper_status": "draft_review",
+                    }],
+                )
+            )
+
+            self.assertEqual(store.project_row("missing-status-queue")["origin_idea_status"], "unknown")
+            self.assertEqual(store.project_row("missing-status-paper-project")["origin_idea_status"], "unknown")
+
     def test_pause_resume_records_events_and_controls_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
