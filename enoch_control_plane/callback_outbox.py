@@ -52,11 +52,20 @@ def pending_path(state_dir: str | Path, run_id: str) -> Path:
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as fh:
-        json.dump(payload, fh, indent=2, sort_keys=True)
-        fh.write("\n")
-        tmp = Path(fh.name)
-    tmp.replace(path)
+    tmp: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as fh:
+            json.dump(payload, fh, indent=2, sort_keys=True)
+            fh.write("\n")
+            tmp = Path(fh.name)
+        tmp.replace(path)
+    finally:
+        if tmp is not None:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
 
 
 def write_pending(state_dir: str | Path, payload: dict[str, Any]) -> Path:

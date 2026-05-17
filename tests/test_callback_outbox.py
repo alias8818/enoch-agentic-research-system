@@ -135,3 +135,26 @@ def test_deliver_pending_file_rejects_paths_outside_outbox(tmp_path: Path) -> No
     assert not result.ok
     assert "outside callback outbox" in result.detail
     assert "attempt_count" not in json.loads(outside.read_text(encoding="utf-8"))
+
+
+def test_atomic_write_json_preserves_existing_file_and_cleans_temp_on_replace_failure(monkeypatch, tmp_path: Path) -> None:
+    target = tmp_path / "pending.json"
+    target.write_text('{"old": true}\n', encoding="utf-8")
+    original_replace = Path.replace
+
+    def flaky_replace(self: Path, target_arg: Path | str):
+        if Path(target_arg) == target:
+            raise OSError("simulated replace failure")
+        return original_replace(self, target_arg)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+
+    try:
+        callback_outbox._atomic_write_json(target, {"new": True})
+    except OSError:
+        pass
+    else:  # pragma: no cover - regression guard
+        raise AssertionError("expected simulated replace failure")
+
+    assert target.read_text(encoding="utf-8") == '{"old": true}\n'
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["pending.json"]

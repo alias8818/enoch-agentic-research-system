@@ -792,3 +792,10 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Fix: `paper.evidence_sync_blocked` now attempts notification even if event append raises, and returns event-store failure details in the alert result instead of crashing the no-paper path.
 - Tests: added `test_missing_evidence_alert_still_notifies_when_event_store_fails`; strengthened bucketed-alert coverage with varied evidence-sync detail under the same reason bucket.
 - Verification: `uv run ruff check . && uv run pytest -q` passed with `552 passed, 5 warnings, 31 subtests passed`.
+
+### Additional callback outbox hardening: cleanup failed atomic temp files
+
+- Found a durability hygiene gap in callback outbox atomic JSON writes: a failed replace preserved the existing record but left a temporary file behind.
+- Fix: callback outbox `_atomic_write_json` now cleans temporary files in a `finally` block while preserving the previous durable JSON record.
+- Test: added `test_atomic_write_json_preserves_existing_file_and_cleans_temp_on_replace_failure`.
+- Verification: `uv run ruff check . && uv run pytest -q` passed with `553 passed, 5 warnings, 31 subtests passed`.
