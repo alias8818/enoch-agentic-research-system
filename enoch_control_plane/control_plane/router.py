@@ -978,26 +978,35 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 bucket,
             ]
         )
-        event_id, inserted = store.append_event(
-            idempotency_key=key,
-            event_type="paper.evidence_sync_blocked",
-            entity_type=entity_type,
-            entity_id=entity_id,
-            payload={
-                "project_id": project_id,
-                "run_id": run_id,
-                "paper_id": paper_id,
-                "artifact_root": artifact_root,
-                "reason": reason,
-                "evidence_sync_summary": {
-                    "enabled": evidence_sync.get("enabled"),
-                    "synced": evidence_sync.get("synced"),
-                    "method": evidence_sync.get("method"),
-                    "local_evidence_present": evidence_sync.get("local_evidence_present"),
+        try:
+            event_id, inserted = store.append_event(
+                idempotency_key=key,
+                event_type="paper.evidence_sync_blocked",
+                entity_type=entity_type,
+                entity_id=entity_id,
+                payload={
+                    "project_id": project_id,
+                    "run_id": run_id,
+                    "paper_id": paper_id,
+                    "artifact_root": artifact_root,
                     "reason": reason,
+                    "evidence_sync_summary": {
+                        "enabled": evidence_sync.get("enabled"),
+                        "synced": evidence_sync.get("synced"),
+                        "method": evidence_sync.get("method"),
+                        "local_evidence_present": evidence_sync.get("local_evidence_present"),
+                        "reason": reason,
+                    },
                 },
-            },
-        )
+            )
+        except Exception as exc:  # noqa: BLE001 - alerting must survive event-store failures
+            notification = _alert_paper_evidence_blocked(project_id=project_id, run_id=run_id, paper_id=paper_id, reason=reason)
+            return {
+                **notification,
+                "event_id": None,
+                "event_store_failed": True,
+                "event_store_error": f"{type(exc).__name__}: {exc}"[:300],
+            }
         if not inserted:
             return {"attempted": False, "ok": True, "detail": "duplicate paper evidence alert suppressed", "event_id": event_id}
         notification = _alert_paper_evidence_blocked(project_id=project_id, run_id=run_id, paper_id=paper_id, reason=reason)

@@ -4053,7 +4053,11 @@ def test_missing_evidence_alert_is_bucketed_per_run() -> None:
             calls.append(kwargs)
             return PushoverResult(attempted=True, ok=True, status_code=200, detail="ok")
 
-        with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", return_value={"enabled": True, "synced": False, "reason": "worker_read_failed"}):
+        evidence_results = [
+            {"enabled": True, "synced": False, "reason": "worker_read_failed", "skipped": [{"path": "run_notes.md"}]},
+            {"enabled": True, "synced": False, "reason": "worker_read_failed", "skipped": [{"path": ".enoch/project_decision.json"}]},
+        ]
+        with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", side_effect=evidence_results):
             with patch("enoch_control_plane.control_plane.router.send_pushover", side_effect=fake_send_pushover):
                 first = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
                 second = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
@@ -4066,3 +4070,54 @@ def test_missing_evidence_alert_is_bucketed_per_run() -> None:
         snapshot = client.get("/control/export/snapshot", headers=headers).json()
         events = [event for event in snapshot["events"] if event["event_type"] == "paper.evidence_sync_blocked"]
         assert len(events) == 1
+
+
+def test_missing_evidence_alert_still_notifies_when_event_store_fails() -> None:
+    from enoch_control_plane.control_plane.alerts import PushoverResult
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp).model_copy(update={
+            "paper_evidence_sync_enabled": True,
+            "pushover_alerts_enabled": True,
+            "pushover_api_token": "token",
+            "pushover_user_key": "user",
+        })
+        client = _client_with_config(config)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        response = client.post("/control/import/legacy-snapshot", headers=headers, json={
+            "idempotency_key": "import-alert-event-store-fails",
+            "queue_rows": [{
+                "project_id": "alert-event-store-fails",
+                "project_name": "Alert Event Store Fails",
+                "project_dir": "alert-event-store-fails",
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-alert-event-store-fails",
+                "manual_review_required": False,
+            }],
+            "paper_rows": [],
+        })
+        assert response.status_code == 200
+        calls = []
+
+        def fake_send_pushover(*args, **kwargs):  # noqa: ANN001 - patched function
+            del args
+            calls.append(kwargs)
+            return PushoverResult(attempted=True, ok=True, status_code=200, detail="ok")
+
+        original_append_event = ControlPlaneStore.append_event
+
+        def flaky_append_event(self, *args, **kwargs):  # noqa: ANN001 - patched method
+            if kwargs.get("event_type") == "paper.evidence_sync_blocked":
+                raise OSError("simulated event store failure")
+            return original_append_event(self, *args, **kwargs)
+
+        with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", return_value={"enabled": True, "synced": False, "reason": "worker_read_failed"}):
+            with patch("enoch_control_plane.control_plane.router.send_pushover", side_effect=fake_send_pushover):
+                with patch.object(ControlPlaneStore, "append_event", new=flaky_append_event):
+                    result = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
+
+        assert result.status_code == 200
+        assert result.json()["action"] == "noop"
+        assert len(calls) == 1
