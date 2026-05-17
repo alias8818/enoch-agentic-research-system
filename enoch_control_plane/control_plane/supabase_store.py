@@ -155,7 +155,7 @@ def _project_decision_payload_from_candidate(candidate: dict[str, Any]) -> dict[
 
 
 def _followup_required_evidence_items(candidate: dict[str, Any]) -> list[Any]:
-    return _jsonish_list(candidate.get("followup_required_evidence"))
+    return [_text(item) for item in _jsonish_list(candidate.get("followup_required_evidence")) if _text(item)]
 
 
 def _has_concrete_followup(candidate: dict[str, Any]) -> bool:
@@ -3208,7 +3208,17 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "coalesce(pe.followup_recommended, false) = true",
             "coalesce(pe.followup_title, '') <> ''",
             "coalesce(pe.followup_hypothesis, '') <> ''",
-            "jsonb_array_length(coalesce(pe.followup_required_evidence, '[]'::jsonb)) >= 2",
+            """(
+                select count(*)
+                from jsonb_array_elements_text(
+                    case
+                        when jsonb_typeof(coalesce(pe.followup_required_evidence, '[]'::jsonb)) = 'array'
+                        then coalesce(pe.followup_required_evidence, '[]'::jsonb)
+                        else '[]'::jsonb
+                    end
+                ) as evidence(item)
+                where btrim(evidence.item) <> ''
+            ) >= 2""",
             "coalesce(pe.followup_success_threshold, '') <> ''",
             "coalesce(pe.followup_stop_condition, '') <> ''",
             "greatest(coalesce(pe.followup_depth, 0), case when coalesce(i.source_payload_json->>'followup_depth', '') ~ '^[0-9]+$' then (i.source_payload_json->>'followup_depth')::integer when coalesce(i.source_payload_json->>'parent_followup_depth', '') ~ '^[0-9]+$' then (i.source_payload_json->>'parent_followup_depth')::integer else 0 end) < %s",

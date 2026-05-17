@@ -210,6 +210,12 @@ def _json_list(value: Any) -> list[str]:
     return [str(item) for item in parsed] if isinstance(parsed, list) else []
 
 
+def _concrete_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [_text(item) for item in value if _text(item)]
+
+
 def _json_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return dict(value)
@@ -1801,7 +1807,7 @@ class ControlPlaneStore:
             and not _bool(row.get("manual_review_required"))
             and _text(row.get("followup_title"))
             and _text(row.get("followup_hypothesis"))
-            and len(row.get("followup_required_evidence") or []) >= 2
+            and len(_concrete_string_list(row.get("followup_required_evidence"))) >= 2
             and _text(row.get("followup_success_threshold"))
             and _text(row.get("followup_stop_condition"))
             and _int(row.get("followup_depth"), 0) < max_followup_depth
@@ -1833,7 +1839,7 @@ class ControlPlaneStore:
             "followup_depth": _int(candidate.get("followup_depth"), 0) + 1,
             "followup_type": _text(candidate.get("followup_type")),
             "followup_hypothesis": _text(candidate.get("followup_hypothesis")),
-            "followup_required_evidence": candidate.get("followup_required_evidence") or [],
+            "followup_required_evidence": _concrete_string_list(candidate.get("followup_required_evidence")),
             "followup_success_threshold": _text(candidate.get("followup_success_threshold")),
             "followup_stop_condition": _text(candidate.get("followup_stop_condition")),
         }

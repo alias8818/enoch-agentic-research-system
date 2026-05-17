@@ -28,6 +28,37 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertTrue(flags.queue_paused)
             self.assertTrue(flags.maintenance_mode)
 
+    def test_next_followup_candidate_requires_concrete_evidence_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            base = {
+                "project_id": "parent",
+                "project_name": "Parent",
+                "status": "completed",
+                "manual_review_required": False,
+                "followup_recommended": True,
+                "followup_title": "Medium follow-up",
+                "followup_hypothesis": "The signal holds at medium scale.",
+                "followup_success_threshold": "Beat the baseline.",
+                "followup_stop_condition": "Stop on regression.",
+                "followup_depth": 1,
+                "compute_scale_blocked": False,
+                "followup_launched": False,
+                "updated_at": "2026-05-17T00:00:00Z",
+            }
+
+            malformed = dict(base, followup_required_evidence="metric\nablation")
+            store.operator_queue_rows_sql = lambda: [malformed]  # type: ignore[method-assign]
+            self.assertIsNone(store.next_followup_candidate())
+            self.assertEqual(store.launch_followup_candidate(dry_run=True)["action"], "noop")
+
+            sparse = dict(base, followup_required_evidence=["metric", ""])
+            store.operator_queue_rows_sql = lambda: [sparse]  # type: ignore[method-assign]
+            self.assertIsNone(store.next_followup_candidate())
+
+            concrete = dict(base, followup_required_evidence=["metric", "ablation"])
+            store.operator_queue_rows_sql = lambda: [concrete]  # type: ignore[method-assign]
+            self.assertEqual(store.next_followup_candidate()["project_id"], "parent")
 
     def test_import_snapshot_defaults_missing_origin_status_to_unknown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

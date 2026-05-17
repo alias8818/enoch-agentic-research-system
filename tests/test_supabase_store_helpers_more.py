@@ -28,6 +28,15 @@ def test_followup_payload_helpers() -> None:
     assert s._jsonish_list('{"a":1}') == []
     assert s._project_decision_payload_from_candidate({"decision_payload_json": {"project_decision": {"decision": "x"}}}) == {"decision": "x"}
     assert s._followup_required_evidence_items({"followup_required_evidence": '["a","b"]'}) == ["a", "b"]
+    assert s._followup_required_evidence_items({"followup_required_evidence": "metric\nablation"}) == []
+    assert s._followup_required_evidence_items({"followup_required_evidence": ["metric", ""]}) == ["metric"]
+    assert not s._has_concrete_followup({
+        "followup_title": "Too sparse",
+        "followup_hypothesis": "signal holds",
+        "followup_required_evidence": ["metric", ""],
+        "followup_success_threshold": "beats baseline",
+        "followup_stop_condition": "no lift",
+    })
 
 
 def test_followup_escalation_promising_and_standard() -> None:
