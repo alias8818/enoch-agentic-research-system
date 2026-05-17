@@ -562,6 +562,8 @@ Then run live readiness probe. Expected: readiness `ready` or a clearly understo
 
 **Additional Agentic-PBT sweep:** Executed checked-in proposals for `enoch_core.logic`, store callback invariants, alert behavior, and provider-budget gating under the project virtualenv. All four returned `no_counterexample`; reports were kept under `artifacts/agentic-pbt/`.
 
+**Additional alert/path hardening:** Bucketed paper evidence-sync blocked alerts by project/run/reason/hour so repeated draft attempts do not spam Pushover for the same missing-evidence condition. Also hardened worker paper manifest writes to resolve `run_id` through the same project-relative path guard as artifact writes, blocking path traversal in generated manifest paths.
+
 ## Task 9: Final verification, cleanup, and report
 
 **Timebox:** 25 minutes
