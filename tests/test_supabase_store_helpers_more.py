@@ -323,4 +323,3 @@ def test_supabase_worker_callback_without_identifiers_dedupes_by_payload(monkeyp
     assert first_inserted is True
     assert second_inserted is False
     assert len(events) == 1
-

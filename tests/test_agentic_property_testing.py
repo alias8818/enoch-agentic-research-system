@@ -232,6 +232,30 @@ def test_agentic_property_testing_provider_proposal_writes_json(monkeypatch, tmp
     assert "Authorization" not in seen_headers
 
 
+def test_agentic_property_testing_provider_proposal_rejects_unsafe_url(monkeypatch, tmp_path: Path) -> None:
+    def fake_urlopen(*_args, **_kwargs):
+        raise AssertionError("urlopen should not run for unsafe provider URL")
+
+    monkeypatch.setattr(agentic_property_testing.urllib.request, "urlopen", fake_urlopen)
+
+    try:
+        generate_provider_proposal(
+            prompt_text="prompt",
+            output=tmp_path / "proposal.json",
+            openai_base_url="file:///tmp/provider",
+            model="hf:zai-org/GLM-5.1",
+            api_key="",
+            no_auth=True,
+            temperature=0.1,
+            max_tokens=100,
+            timeout=11,
+        )
+    except ValueError as exc:
+        assert "agentic pbt provider url must use http or https" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected unsafe provider URL rejection")
+
+
 def test_agentic_property_testing_provider_budget_failure_fails_closed(monkeypatch, tmp_path: Path, capsys) -> None:
     target = tmp_path / "sample.py"
     target.write_text("def identity(value):\n    return value\n", encoding="utf-8")

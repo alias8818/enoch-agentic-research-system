@@ -29,6 +29,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from enoch_control_plane.url_safety import validate_http_url
+
 from scripts import research_provider_budget
 
 
@@ -387,8 +389,9 @@ def generate_provider_proposal(
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    safe_url = validate_http_url(openai_base_url.rstrip("/") + "/chat/completions", field_name="agentic pbt provider url")
     req = urllib.request.Request(
-        f"{openai_base_url.rstrip('/')}/chat/completions",
+        safe_url,
         data=json.dumps(body).encode("utf-8"),
         method="POST",
         headers=headers,

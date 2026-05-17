@@ -266,4 +266,3 @@ def test_provider_generate_caps_excess_provider_candidates(monkeypatch) -> None:
     assert result["candidate_count"] == 1
     assert len(result["candidates"]) == 1
     assert result["candidates"][0]["title"] == data["candidates"][0]["title"]
-

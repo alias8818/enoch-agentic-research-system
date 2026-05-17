@@ -689,3 +689,7 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 ---
 
 **Additional malformed callback idempotency hardening:** Made missing-identifier worker callbacks dedupe by deterministic payload hash in both SQLite and Supabase stores instead of timestamp. Exact malformed retries now append one event instead of creating unbounded duplicate unknown callbacks.
+
+---
+
+**Additional Agentic-PBT provider safety hardening:** Applied the shared HTTP URL guard to provider-backed property proposal generation and removed a duplicated `proposal_count` result key. Regression coverage proves unsafe provider URLs are rejected before any network call.
