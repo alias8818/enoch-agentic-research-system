@@ -23,6 +23,23 @@ def test_state_store_roundtrip_and_skips_invalid_json(tmp_path: Path) -> None:
     assert store.events_log.read_text().strip() == '{"a": 1, "b": 2}'
 
 
+def test_state_store_run_path_rejects_escape_and_caps_long_ids(tmp_path: Path) -> None:
+    store = StateStore(tmp_path)
+    escaped = RunRecord(run_id="../escape", session_id="session", project_id="project")
+    long_id = "r" * 400
+    long_record = RunRecord(run_id=long_id, session_id="session", project_id="project")
+
+    store.save_run(escaped)
+    store.save_run(long_record)
+
+    assert not (tmp_path / "escape.json").exists()
+    assert store.load_run("../escape").project_id == "project"
+    long_path = store.run_path(long_id)
+    assert long_path.exists()
+    assert len(long_path.name) <= 120
+    assert store.load_run(long_id).run_id == long_id
+
+
 def test_callback_sender_posts_expected_headers(monkeypatch) -> None:
     config = GateConfig(
         state_dir="/tmp/state",

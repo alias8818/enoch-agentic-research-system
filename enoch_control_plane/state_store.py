@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -13,8 +14,16 @@ class StateStore:
         self.events_log = self.root / "events.log"
         self.runs_dir.mkdir(parents=True, exist_ok=True)
 
+    def _safe_run_id(self, run_id: str) -> str:
+        raw = str(run_id or "")
+        safe = "".join(ch if ch.isalnum() or ch in "._-+" else "_" for ch in raw)
+        if safe and safe == raw and len(safe) <= 100:
+            return safe
+        digest = hashlib.blake2s(raw.encode("utf-8"), digest_size=4).hexdigest()
+        return f"{(safe or 'unknown-run')[:80]}-{digest}"
+
     def run_path(self, run_id: str) -> Path:
-        return self.runs_dir / f"{run_id}.json"
+        return self.runs_dir / f"{self._safe_run_id(run_id)}.json"
 
     def load_run(self, run_id: str) -> RunRecord | None:
         path = self.run_path(run_id)
