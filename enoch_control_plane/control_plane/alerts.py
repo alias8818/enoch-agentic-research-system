@@ -11,6 +11,7 @@ from urllib import parse, request
 from ..config import GateConfig
 from ..enoch_core.store import IdempotencyConflict
 from ..models import utc_now
+from ..timeutils import parse_utc_datetime
 from ..url_safety import validate_http_url
 from .models import DashboardFinding, DashboardStatusResponse
 from .store import ControlPlaneStore
@@ -33,15 +34,7 @@ class PushoverResult:
 
 
 def _parse_ts(raw: str | None) -> datetime | None:
-    if not raw:
-        return None
-    try:
-        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed
+    return parse_utc_datetime(raw)
 
 
 def _observed_at_text(raw: Any) -> str | None:

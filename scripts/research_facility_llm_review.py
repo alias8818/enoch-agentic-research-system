@@ -23,6 +23,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from enoch_control_plane.timeutils import parse_utc_datetime
 from scripts import research_facility_maintenance, research_provider_budget, research_provider_generate
 
 DECISIONS = {"admit", "rewrite_contract", "keep_for_later", "reject"}
@@ -113,10 +114,9 @@ def latest_review_age_minutes(database_url: str, *, event_type: str = "research.
     if not row:
         return None
     created = row["created_at"]
-    if isinstance(created, str):
-        created = datetime.fromisoformat(created.replace("Z", "+00:00"))
-    if created.tzinfo is None:
-        created = created.replace(tzinfo=timezone.utc)
+    created = parse_utc_datetime(created)
+    if created is None:
+        return None
     return max(0.0, (datetime.now(timezone.utc) - created).total_seconds() / 60.0)
 
 

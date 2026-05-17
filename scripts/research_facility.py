@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
+from enoch_control_plane.timeutils import parse_utc_datetime
+
 GENERATION_MODES = {
     "fresh_grounded",
     "followup_from_negative",
@@ -56,13 +58,7 @@ def _parse_datetime(value: Any) -> datetime | None:
     text = _as_text(value)
     if not text:
         return None
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed
+    return parse_utc_datetime(text)
 
 
 def _as_text(value: Any) -> str:

@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from enoch_control_plane.timeutils import parse_utc_datetime
+
 
 def _truthy(value: Any) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
@@ -19,14 +21,7 @@ def _parse_timestamp(value: Any) -> datetime | None:
             return datetime.strptime(text, fmt).astimezone(timezone.utc)
         except ValueError:
             pass
-    try:
-        normalized = text.replace("Z", "+00:00")
-        parsed = datetime.fromisoformat(normalized)
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
-    except ValueError:
-        return None
+    return parse_utc_datetime(text)
 
 
 def _age_seconds(value: Any, now: datetime) -> int | None:

@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import quote
 
 from enoch_control_plane.enoch_core.logic import draft_candidate_payload, eligible_paper_draft_candidates, paper_draft_decision_gate
+from enoch_control_plane.timeutils import parse_utc_datetime
 
 from .models import PaperStatus, QueueStatus
 from .state_contract import (
@@ -598,12 +599,9 @@ def row_age_seconds(row: dict[str, Any]) -> int | None:
     raw = str(row.get("updated_at") or row.get("created_at") or "")
     if not raw:
         return None
-    try:
-        ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    except ValueError:
+    ts = parse_utc_datetime(raw)
+    if ts is None:
         return None
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
     return max(0, int((datetime.now(timezone.utc) - ts).total_seconds()))
 
 

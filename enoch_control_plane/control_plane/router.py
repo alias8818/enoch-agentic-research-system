@@ -22,6 +22,7 @@ from ..enoch_core.logic import bounded_useful_signal_row_gate, draft_candidate_p
 from ..enoch_core.store import IdempotencyConflict
 from ..models import GateCallback, utc_now
 from ..observability import current_rss_mib, peak_rss_mib
+from ..timeutils import parse_utc_datetime
 from .paper_writer import write_paper_artifacts
 from .models import (
     ControlStateResponse,
@@ -673,15 +674,7 @@ def _live_run_id(project_id: str) -> str:
 
 
 def _parse_ts(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed
+    return parse_utc_datetime(value)
 
 
 def _fresh_until(observed_at: str | None, ttl_seconds: int | None) -> str | None:

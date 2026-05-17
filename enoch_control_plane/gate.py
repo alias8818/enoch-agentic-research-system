@@ -6,6 +6,7 @@ from typing import Any
 
 from .config import GateConfig
 from .models import ControlPlaneEvent, GateCallback, GateState, RunRecord, utc_now
+from .timeutils import parse_utc_datetime
 from .process_tracker import ProcessTracker
 from .telemetry import TelemetryCollector
 
@@ -256,7 +257,7 @@ class WakeGate:
             return False
         if not record.idle_seen_at:
             return False
-        idle_seen_at = datetime.fromisoformat(record.idle_seen_at.replace("Z", "+00:00"))
-        if idle_seen_at.tzinfo is None:
-            idle_seen_at = idle_seen_at.replace(tzinfo=timezone.utc)
+        idle_seen_at = parse_utc_datetime(record.idle_seen_at)
+        if idle_seen_at is None:
+            return False
         return (datetime.now(timezone.utc) - idle_seen_at).total_seconds() >= self.config.max_wait_after_idle_sec

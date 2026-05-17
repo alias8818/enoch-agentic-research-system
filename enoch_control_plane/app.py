@@ -23,6 +23,7 @@ from .config import GateConfig
 from .enoch_core.router import create_enoch_core_router
 from .gate import WakeGate
 from .observability import RouteObservationMiddleware
+from .timeutils import parse_utc_datetime
 from .models import (
     DispatchRequest,
     GateCallback,
@@ -1365,15 +1366,7 @@ def _trim_event(event: dict[str, Any], max_chars: int = 1600) -> dict[str, Any]:
 
 
 def _parse_timestamp(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed
+    return parse_utc_datetime(value)
 
 
 def _record_age_seconds(record: RunRecord) -> float | None:
