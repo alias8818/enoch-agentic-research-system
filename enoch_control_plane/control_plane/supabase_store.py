@@ -554,7 +554,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as decision_gate_state,
               (
@@ -562,7 +562,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as decision_summary,
               (
@@ -570,7 +570,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as decision_payload_json,
               (
@@ -578,7 +578,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as project_decision,
               (
@@ -586,7 +586,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as research_outcome,
               (
@@ -594,7 +594,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as bounded_paper_ready,
               (
@@ -602,7 +602,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as hypothesis_status,
               (
@@ -610,7 +610,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as evidence_strength,
               (
@@ -618,7 +618,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as claim_scope,
               (
@@ -626,7 +626,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as scale_limits,
               (
@@ -634,7 +634,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as followup_recommended,
               (
@@ -642,7 +642,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as followup_type,
               (
@@ -650,7 +650,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as followup_title,
               (
@@ -658,7 +658,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as followup_hypothesis,
               (
@@ -666,7 +666,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as followup_required_evidence,
               (
@@ -674,7 +674,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as followup_success_threshold,
               (
@@ -682,7 +682,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as followup_stop_condition,
               (
@@ -690,7 +690,7 @@ class SupabaseReadOnlyControlPlaneStore:
                 from project_decisions d
                 where d.project_id = q.project_id
                   and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by d.decided_at desc nulls last, d.decision_id desc nulls last
+                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
                 limit 1
               ) as followup_depth,
               exists (

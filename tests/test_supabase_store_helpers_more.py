@@ -613,3 +613,11 @@ def test_supabase_import_snapshot_idempotency_replay_does_not_connect(monkeypatc
 
     assert inserted is False
     assert (projects, queue_items, papers) == (0, 0, 0)
+
+
+def test_supabase_queue_rows_query_prefers_run_specific_project_decisions() -> None:
+    store = s.SupabaseReadOnlyControlPlaneStore("postgres://example", connect=lambda: None)
+
+    sql = " ".join(store._queue_rows_query("where q.project_id = %s").split()).lower()
+
+    assert "case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end" in sql
