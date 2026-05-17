@@ -85,6 +85,36 @@ from .worker_adapter import post_worker_json, run_worker_preflight
 RequireBearer = Callable[[str | None], None]
 
 
+def _bounded_int_from_mapping(values: dict[str, Any], name: str, default: int, lower: int, upper: int) -> int:
+    value = values.get(name)
+    if value is None:
+        value = default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(lower, min(parsed, upper))
+
+
+def _bounded_float_from_mapping(values: dict[str, Any], name: str, default: float, lower: float, upper: float) -> float:
+    value = values.get(name)
+    if value is None:
+        value = default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(lower, min(parsed, upper))
+
+
+def _bounded_int_env(name: str, default: int, lower: int, upper: int) -> int:
+    try:
+        parsed = int(os.environ.get(name) or default)
+    except ValueError:
+        parsed = default
+    return max(lower, min(parsed, upper))
+
+
 CONTROL_DASHBOARD_HTML = """
 <!doctype html>
 <html lang="en">
@@ -2673,7 +2703,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
 
         body = payload or {}
         dry_run = bool(body.get("dry_run", True))
-        max_candidates = max(1, min(int(body.get("max_candidates") or 3), 10))
+        max_candidates = _bounded_int_from_mapping(body, "max_candidates", 3, 1, 10)
         requested_by = str(body.get("requested_by") or "dashboard")[:80]
         source_specs = [
             {
@@ -2717,8 +2747,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 default_machine=os.environ.get("ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"),
                 default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
                 default_sandbox=os.environ.get("ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"),
-                admit_threshold=float(body.get("admit_threshold") or 72.0),
-                review_threshold=float(body.get("review_threshold") or 58.0),
+                admit_threshold=_bounded_float_from_mapping(body, "admit_threshold", 72.0, 0.0, 100.0),
+                review_threshold=_bounded_float_from_mapping(body, "review_threshold", 58.0, 0.0, 100.0),
                 history=[],
             ),
         )
@@ -2753,26 +2783,38 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
 
         body = payload or {}
         dry_run = bool(body.get("dry_run", True))
-        max_candidates = max(1, min(int(body.get("max_candidates") or 2), 5))
+        max_candidates = _bounded_int_from_mapping(body, "max_candidates", 2, 1, 5)
         requested_by = str(body.get("requested_by") or "dashboard")[:80]
         provider_base_url = os.environ.get("ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz").rstrip("/")
         provider_openai_base_url = os.environ.get("ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL", f"{provider_base_url}/openai/v1").rstrip("/")
         provider_model = str(body.get("model") or os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL") or "hf:zai-org/GLM-5.1").strip()
         topic = str(body.get("topic") or "").strip()
-        temperature = max(0.0, min(float(body.get("temperature") or 0.8), 1.5))
+        temperature = _bounded_float_from_mapping(body, "temperature", 0.8, 0.0, 1.5)
         seed = str(body.get("seed") or utc_now()).strip()
         estimated_requests = 1
-        reserve_requests = max(1, int(body.get("reserve_requests") or 2))
-        budget_timeout = max(1, min(int(body.get("budget_timeout") or 20), 60))
-        generation_timeout = max(10, min(int(body.get("generation_timeout") or 180), 300))
-        generation_max_tokens = max(1000, min(int(body.get("generation_max_tokens") or os.environ.get("ENOCH_RESEARCH_PROVIDER_MAX_TOKENS") or 8000), 16000))
-        generation_attempts = max(1, min(int(body.get("generation_attempts") or os.environ.get("ENOCH_RESEARCH_PROVIDER_ATTEMPTS") or 2), 3))
+        reserve_requests = _bounded_int_from_mapping(body, "reserve_requests", 2, 1, 100)
+        budget_timeout = _bounded_int_from_mapping(body, "budget_timeout", 20, 1, 60)
+        generation_timeout = _bounded_int_from_mapping(body, "generation_timeout", 180, 10, 300)
+        generation_max_tokens = _bounded_int_from_mapping(
+            body,
+            "generation_max_tokens",
+            _bounded_int_env("ENOCH_RESEARCH_PROVIDER_MAX_TOKENS", 8000, 1000, 16000),
+            1000,
+            16000,
+        )
+        generation_attempts = _bounded_int_from_mapping(
+            body,
+            "generation_attempts",
+            _bounded_int_env("ENOCH_RESEARCH_PROVIDER_ATTEMPTS", 2, 1, 3),
+            1,
+            3,
+        )
         try:
             quota_payload = research_provider_budget.fetch_json(f"{provider_base_url}/v2/quotas", api_key="", timeout=budget_timeout)
             budget = research_provider_budget.synthetic_budget_status(
                 quota_payload,
-                min_remaining_credits=float(body.get("min_remaining_credits") or 5.0),
-                min_rolling_remaining=int(body.get("min_rolling_remaining") or 10),
+                min_remaining_credits=_bounded_float_from_mapping(body, "min_remaining_credits", 5.0, 0.0, 1_000_000.0),
+                min_rolling_remaining=_bounded_int_from_mapping(body, "min_rolling_remaining", 10, 0, 100_000),
                 estimated_requests=estimated_requests,
                 reserve_requests=reserve_requests,
             )
@@ -2876,8 +2918,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 default_machine=os.environ.get("ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"),
                 default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
                 default_sandbox=os.environ.get("ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"),
-                admit_threshold=float(body.get("admit_threshold") or 72.0),
-                review_threshold=float(body.get("review_threshold") or 58.0),
+                admit_threshold=_bounded_float_from_mapping(body, "admit_threshold", 72.0, 0.0, 100.0),
+                review_threshold=_bounded_float_from_mapping(body, "review_threshold", 58.0, 0.0, 100.0),
                 history=[],
             ),
         )
@@ -2917,10 +2959,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         enabled = bool(body.get("enabled", False))
         requested_by = str(body.get("requested_by") or "dashboard")[:80]
         def bounded_int(name: str, default: int, lower: int, upper: int) -> int:
-            value = body.get(name)
-            if value is None:
-                value = default
-            return max(lower, min(int(value), upper))
+            return _bounded_int_from_mapping(body, name, default, lower, upper)
+
+        def bounded_float(name: str, default: float, lower: float, upper: float) -> float:
+            return _bounded_float_from_mapping(body, name, default, lower, upper)
         allowed_models = body.get("allowed_models") if isinstance(body.get("allowed_models"), list) else ["hf:moonshotai/Kimi-K2.6", "hf:zai-org/GLM-5.1"]
         provider_model = str(body.get("model") or os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL") or "hf:zai-org/GLM-5.1").strip()
         if provider_model not in allowed_models:
@@ -2941,20 +2983,20 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         wait_for_completion = bool(body.get("wait_for_completion", False))
         max_wait_seconds = bounded_int("max_wait_seconds", 0, 0, 1800)
         poll_interval_seconds = bounded_int("poll_interval_seconds", 10, 2, 60)
-        min_admission_score = max(0.0, min(float(body.get("min_admission_score") or body.get("admit_threshold") or 72.0), 100.0))
-        max_candidates = max(1, min(int(body.get("max_candidates") or 2), 5))
-        fresh_generation_backlog_threshold = max(0, min(
-            int(body.get("fresh_generation_backlog_threshold") or os.environ.get("ENOCH_RESEARCH_FRESH_GENERATION_BACKLOG_THRESHOLD") or 25),
-            500,
-        ))
+        min_admission_score = bounded_float("min_admission_score", bounded_float("admit_threshold", 72.0, 0.0, 100.0), 0.0, 100.0)
+        max_candidates = bounded_int("max_candidates", 2, 1, 5)
+        default_backlog_threshold = _bounded_int_env("ENOCH_RESEARCH_FRESH_GENERATION_BACKLOG_THRESHOLD", 25, 0, 500)
+        fresh_generation_backlog_threshold = bounded_int("fresh_generation_backlog_threshold", default_backlog_threshold, 0, 500)
         topic = str(body.get("topic") or "").strip()
-        temperature = max(0.0, min(float(body.get("temperature") or 0.6), 1.5))
+        temperature = bounded_float("temperature", 0.6, 0.0, 1.5)
         seed = str(body.get("seed") or utc_now()).strip()
         provider_base_url = os.environ.get("ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz").rstrip("/")
         provider_openai_base_url = os.environ.get("ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL", f"{provider_base_url}/openai/v1").rstrip("/")
-        generation_timeout = max(10, min(int(body.get("generation_timeout") or 240), 300))
-        generation_max_tokens = max(1000, min(int(body.get("generation_max_tokens") or os.environ.get("ENOCH_RESEARCH_PROVIDER_MAX_TOKENS") or 8000), 16000))
-        generation_attempts = max(1, min(int(body.get("generation_attempts") or os.environ.get("ENOCH_RESEARCH_PROVIDER_ATTEMPTS") or 2), 3))
+        generation_timeout = bounded_int("generation_timeout", 240, 10, 300)
+        default_generation_max_tokens = _bounded_int_env("ENOCH_RESEARCH_PROVIDER_MAX_TOKENS", 8000, 1000, 16000)
+        default_generation_attempts = _bounded_int_env("ENOCH_RESEARCH_PROVIDER_ATTEMPTS", 2, 1, 3)
+        generation_max_tokens = bounded_int("generation_max_tokens", default_generation_max_tokens, 1000, 16000)
+        generation_attempts = bounded_int("generation_attempts", default_generation_attempts, 1, 3)
 
         active = store.active_items()
         counts = store.status_counts()
@@ -2971,13 +3013,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         estimated_requests = max_provider_requests
         budget: dict[str, Any]
         try:
-            quota_payload = research_provider_budget.fetch_json(f"{provider_base_url}/v2/quotas", api_key="", timeout=max(1, min(int(body.get("budget_timeout") or 20), 60)))
+            reserve_requests = bounded_int("reserve_requests", 2, 1, 100)
+            quota_payload = research_provider_budget.fetch_json(f"{provider_base_url}/v2/quotas", api_key="", timeout=bounded_int("budget_timeout", 20, 1, 60))
             budget = research_provider_budget.synthetic_budget_status(
                 quota_payload,
-                min_remaining_credits=float(body.get("min_remaining_credits") or 5.0),
-                min_rolling_remaining=int(body.get("min_rolling_remaining") or 10),
+                min_remaining_credits=bounded_float("min_remaining_credits", 5.0, 0.0, 1_000_000.0),
+                min_rolling_remaining=bounded_int("min_rolling_remaining", 10, 0, 100_000),
                 estimated_requests=estimated_requests,
-                reserve_requests=max(1, int(body.get("reserve_requests") or 2)),
+                reserve_requests=reserve_requests,
             )
         except Exception as exc:  # noqa: BLE001 - fail closed if budget cannot be checked
             budget = {
@@ -2985,7 +3028,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 "provider": "synthetic",
                 "checked_at": utc_now(),
                 "estimated_requests": estimated_requests,
-                "reserve_requests": max(1, int(body.get("reserve_requests") or 2)),
+                "reserve_requests": bounded_int("reserve_requests", 2, 1, 100),
                 "failures": [f"provider budget check failed: {exc}"],
             }
         if not budget.get("ok") and max_provider_requests and not backpressure_reasons:
@@ -3276,7 +3319,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                         default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
                         default_sandbox=os.environ.get("ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"),
                         admit_threshold=min_admission_score,
-                        review_threshold=float(body.get("review_threshold") or 58.0),
+                        review_threshold=bounded_float("review_threshold", 58.0, 0.0, 100.0),
                         history=[],
                     ),
                 )

@@ -843,6 +843,150 @@ class ControlPlaneRouterTests(unittest.TestCase):
         generate.assert_not_called()
         self.assertEqual(fake_store.events[0]["event_type"], "research.run_cycle.dry_run")
 
+    def test_research_generate_batch_tolerates_malformed_numeric_knobs(self) -> None:
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+        )
+        client = _client_with_config(config)
+        response = client.post(
+            "/control/api/research/generate-batch",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+            json={"dry_run": True, "max_candidates": "bad", "admit_threshold": "bad", "review_threshold": "bad"},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["candidate_count"], 3)
+
+    def test_research_provider_generate_batch_tolerates_malformed_numeric_knobs(self) -> None:
+        class FakeSupabaseStore:
+            def record_research_facility_plans(self, *_args, **_kwargs):  # pragma: no cover - dry-run must not write
+                raise AssertionError("dry-run should not write ledgers")
+
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=FakeSupabaseStore()), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/generate-provider-batch",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={
+                    "dry_run": True,
+                    "max_candidates": "bad",
+                    "temperature": "bad",
+                    "reserve_requests": "bad",
+                    "budget_timeout": "bad",
+                    "generation_timeout": "bad",
+                    "generation_max_tokens": "bad",
+                    "generation_attempts": "bad",
+                    "min_remaining_credits": "bad",
+                    "min_rolling_remaining": "bad",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["max_candidates"], 2)
+        self.assertEqual(body["temperature"], 0.8)
+        self.assertEqual(body["generation_max_tokens"], 8000)
+        self.assertEqual(body["generation_attempts"], 2)
+
+    def test_research_facility_run_cycle_tolerates_malformed_numeric_knobs(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.events = []
+
+            def active_items(self) -> list[dict[str, str]]:
+                return []
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 0, "active": 0}
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                return []
+
+            def record_research_facility_plans(self, *_args, **_kwargs):  # pragma: no cover - dry run must not write
+                raise AssertionError("dry-run should not write ledgers")
+
+            def promote_research_candidate(self, *_args, **_kwargs):  # pragma: no cover - dry run must not promote
+                raise AssertionError("dry-run should not promote")
+
+            def append_event(self, **kwargs):
+                self.events.append(kwargs)
+                return 1, True
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={
+                    "dry_run": True,
+                    "max_provider_requests_per_run": "not-an-int",
+                    "max_promotions_per_run": None,
+                    "max_wait_seconds": "bad",
+                    "poll_interval_seconds": "also-bad",
+                    "min_admission_score": "bad-float",
+                    "max_candidates": "bad",
+                    "generation_timeout": "bad",
+                    "generation_max_tokens": "bad",
+                    "generation_attempts": "bad",
+                    "fresh_generation_backlog_threshold": "bad",
+                    "temperature": "bad",
+                    "budget_timeout": "bad",
+                    "reserve_requests": "bad",
+                    "min_remaining_credits": "bad",
+                    "min_rolling_remaining": "bad",
+                    "review_threshold": "bad",
+                    "requested_by": "pytest",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["policy"]["max_provider_requests_per_run"], 1)
+        self.assertEqual(body["policy"]["max_promotions_per_run"], 1)
+        self.assertEqual(body["policy"]["min_admission_score"], 72.0)
+        self.assertTrue(body["would_generate"])
+
     def test_research_facility_run_cycle_live_generates_and_promotes_without_dispatch(self) -> None:
         class FakeSupabaseStore:
             def __init__(self) -> None:

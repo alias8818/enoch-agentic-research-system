@@ -441,6 +441,9 @@ Do not commit in sibling repos unless the release validator requires a coordinat
 
 ---
 
+
+**Additional Research Facility robustness fix:** Hardened Research Facility dashboard generation/provider/run-cycle numeric policy knobs against malformed JSON/env values. Before this, bad values such as `"max_provider_requests_per_run": "not-an-int"` could raise a 500 and turn a long-haul tick into an exit-code failure. Added regressions for smoke generation, provider generation, and run-cycle parsing; targeted router tests and ruff passed.
+
 ## Task 7: Static-analysis bug sweep
 
 **Timebox:** 45 minutes
