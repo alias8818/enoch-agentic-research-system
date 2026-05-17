@@ -83,6 +83,55 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(store.project_row("missing-status-queue")["origin_idea_status"], "unknown")
             self.assertEqual(store.project_row("missing-status-paper-project")["origin_idea_status"], "unknown")
 
+    def test_import_snapshot_row_failure_does_not_consume_idempotency_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            original_connect = store._connect
+            fail_project_insert = True
+
+            class FailingConnection:
+                def __init__(self, manager):
+                    self.manager = manager
+                    self.conn = None
+
+                def __enter__(self):
+                    self.conn = self.manager.__enter__()
+                    return self
+
+                def __exit__(self, *args):
+                    return self.manager.__exit__(*args)
+
+                def __getattr__(self, name):
+                    return getattr(self.conn, name)
+
+                def execute(self, sql, params=()):
+                    nonlocal fail_project_insert
+                    if fail_project_insert and "INSERT INTO projects" in str(sql):
+                        fail_project_insert = False
+                        raise RuntimeError("simulated import row write failure")
+                    return self.conn.execute(sql, params)
+
+            def failing_connect():
+                return FailingConnection(original_connect())
+
+            request = ImportSnapshotRequest(
+                idempotency_key="import-row-failure-retry",
+                queue_rows=[{
+                    "project_id": "import-retry-project",
+                    "project_name": "Import Retry Project",
+                    "status": "queued",
+                }],
+                paper_rows=[],
+            )
+            with unittest.mock.patch.object(store, "_connect", side_effect=failing_connect):
+                with self.assertRaises(RuntimeError):
+                    store.import_snapshot(request)
+                inserted, projects, queue_items, papers = store.import_snapshot(request)
+
+            self.assertTrue(inserted)
+            self.assertEqual((projects, queue_items, papers), (1, 1, 0))
+            self.assertIsNotNone(store.queue_row("import-retry-project"))
+
     def test_pause_resume_records_events_and_controls_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

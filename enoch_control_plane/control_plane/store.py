@@ -673,17 +673,18 @@ class ControlPlaneStore:
         event_payload = request.model_dump(mode="json")
         event_payload["normalized_queue_row_count"] = len(queue_rows)
         event_payload["normalized_paper_row_count"] = len(paper_rows)
-        _, inserted = self.append_event(
-            idempotency_key=request.idempotency_key,
-            event_type="legacy.import_snapshot",
-            entity_type="snapshot",
-            entity_id=request.source,
-            payload=event_payload,
-        )
-        if not inserted:
-            return False, 0, 0, 0
         projects = queue_items = papers = 0
         with self._connect() as conn:
+            _, inserted = self._append_event_in_conn(
+                conn,
+                idempotency_key=request.idempotency_key,
+                event_type="legacy.import_snapshot",
+                entity_type="snapshot",
+                entity_id=request.source,
+                payload=event_payload,
+            )
+            if not inserted:
+                return False, 0, 0, 0
             for raw in queue_rows:
                 project_id = _text(raw.get("project_id"))
                 if not project_id:

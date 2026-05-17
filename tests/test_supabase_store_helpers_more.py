@@ -1237,7 +1237,7 @@ def test_supabase_import_snapshot_preserves_active_runtime_with_empty_current_ru
         def cursor(self): return Cursor()
 
     monkeypatch.setattr(store, "_connect", lambda: Conn())
-    monkeypatch.setattr(store, "append_event", lambda **kwargs: (1, True))
+    monkeypatch.setattr(store, "_append_event_in_cursor", lambda *args, **kwargs: (1, True))
 
     store.import_snapshot(ImportSnapshotRequest(
         idempotency_key="supabase-import-preserve-active-empty-run",
@@ -1262,14 +1262,24 @@ def test_supabase_import_snapshot_preserves_active_runtime_with_empty_current_ru
     assert params[13] == "await_callback"
 
 
-def test_supabase_import_snapshot_idempotency_replay_does_not_connect(monkeypatch) -> None:
+def test_supabase_import_snapshot_idempotency_replay_does_not_mutate_rows(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
-    monkeypatch.setattr(store, "append_event", lambda **kwargs: (7, False))
 
-    def fail_connect():
-        raise AssertionError("duplicate import snapshot must not mutate rows")
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            if "insert into projects" in str(sql).lower() or "insert into queue_items" in str(sql).lower():
+                raise AssertionError("duplicate import snapshot must not mutate rows")
+            return self
 
-    monkeypatch.setattr(store, "_connect", fail_connect)
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", lambda *args, **kwargs: (7, False))
 
     inserted, projects, queue_items, papers = store.import_snapshot(ImportSnapshotRequest(
         idempotency_key="supabase-import-replay-no-connect",
@@ -1283,6 +1293,83 @@ def test_supabase_import_snapshot_idempotency_replay_does_not_connect(monkeypatc
 
     assert inserted is False
     assert (projects, queue_items, papers) == (0, 0, 0)
+
+
+def test_supabase_import_snapshot_row_failure_does_not_consume_idempotency_key(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    events: dict[str, tuple[int, str]] = {}
+    projects: set[str] = set()
+    queue_items: set[str] = set()
+    fail_project_insert = True
+
+    class Cursor:
+        def __init__(self, conn):
+            self.conn = conn
+            self._next = None
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            nonlocal fail_project_insert
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("select event_id"):
+                event = self.conn.pending_events.get(params[0])
+                self._next = None if event is None else {"event_id": event[0], "payload_hash": event[1]}
+            elif normalized.startswith("insert into control_events"):
+                event_id = len(self.conn.pending_events) + 1
+                self.conn.pending_events[params[0]] = (event_id, params[5])
+                self._next = {"event_id": event_id}
+            elif normalized.startswith("insert into projects"):
+                if fail_project_insert:
+                    fail_project_insert = False
+                    raise RuntimeError("simulated import row write failure")
+                self.conn.pending_projects.add(params[0])
+            elif normalized.startswith("select status,current_run_id"):
+                self._next = None
+            elif normalized.startswith("insert into queue_items"):
+                self.conn.pending_queue_items.add(params[0])
+            return self
+        def fetchone(self):
+            value = self._next
+            self._next = None
+            return value
+
+    class Conn:
+        def __enter__(self):
+            self.pending_events = dict(events)
+            self.pending_projects = set(projects)
+            self.pending_queue_items = set(queue_items)
+            return self
+        def __exit__(self, exc_type, *_args):
+            if exc_type is None:
+                events.update(self.pending_events)
+                projects.update(self.pending_projects)
+                queue_items.update(self.pending_queue_items)
+            return False
+        def cursor(self): return Cursor(self)
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    request = ImportSnapshotRequest(
+        idempotency_key="supabase-import-row-failure-retry",
+        queue_rows=[{
+            "project_id": "supabase-import-retry-project",
+            "project_name": "Supabase Import Retry Project",
+            "status": "queued",
+        }],
+        paper_rows=[],
+    )
+
+    try:
+        store.import_snapshot(request)
+    except RuntimeError as exc:
+        assert "simulated import row write failure" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected simulated row write failure")
+    inserted, created_projects, created_queue_items, papers = store.import_snapshot(request)
+
+    assert inserted is True
+    assert (created_projects, created_queue_items, papers) == (1, 1, 0)
+    assert projects == {"supabase-import-retry-project"}
+    assert queue_items == {"supabase-import-retry-project"}
 
 
 def test_supabase_queue_rows_query_prefers_run_specific_project_decisions() -> None:
