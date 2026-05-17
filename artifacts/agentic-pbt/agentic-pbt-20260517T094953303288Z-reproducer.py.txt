@@ -1,0 +1,32 @@
+from __future__ import annotations
+import sys
+sys.path.insert(0, '/home/jeremy/Desktop/projects/enoch-release/enoch-agentic-research-system')
+
+# Proposal: test_safe_public_evidence_path_pathlib_invariants
+# Rationale: Ensures _safe_public_evidence_path strictly handles pathlib.Path inputs and returns a safe, non-escaping relative Path without path traversal components.
+from pathlib import Path
+from hypothesis import given, strategies as st
+
+@given(rel_path=st.paths())
+def test_safe_public_evidence_path_pathlib_invariants(rel_path):
+    result = _safe_public_evidence_path(rel_path)
+    assert isinstance(result, Path), "Must return a Path object"
+    assert not result.is_absolute(), "Result must be a relative path"
+    assert ".." not in result.parts, "Result must not contain path traversal '..'"
+
+# Proposal: test_flatten_json_metrics_depth_limit
+# Rationale: Ensures _flatten_json_metrics correctly flattens arbitrary JSON-like structures and respects depth limits, guaranteeing no nested dicts or lists remain in the output.
+from hypothesis import given, strategies as st
+
+json_strat = st.recursive(
+    st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False, allow_infinity=False) | st.text(),
+    lambda children: st.lists(children) | st.dictionaries(st.text(), children),
+    max_leaves=20
+)
+
+@given(value=json_strat, limit=st.integers(min_value=1, max_value=10))
+def test_flatten_json_metrics_depth_limit(value, limit):
+    result = _flatten_json_metrics(value, limit=limit)
+    assert isinstance(result, dict), "Flattened output must be a dict"
+    for v in result.values():
+        assert not isinstance(v, (dict, list)), "Flattened values must be primitives"

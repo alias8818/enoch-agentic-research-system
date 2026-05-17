@@ -64,9 +64,40 @@ property-based testing work:
      --execute-proposals
    ```
 
+3. Run the bounded autonomous loop when one or more proposal files are
+   available:
+
+   ```bash
+   uv run python scripts/agentic_property_testing.py \
+     --target enoch_control_plane/control_plane/router.py \
+     --autonomous-loop \
+     --max-attempts 3 \
+     --loop-proposal-file artifacts/agentic-pbt/router-proposals-1.json \
+     --loop-proposal-file artifacts/agentic-pbt/router-proposals-2.json
+   ```
+
+   The loop retries invalid proposals until the attempt bound is reached, stops
+   on a real counterexample so another agent can minimize/patch/rerun, and
+   exits cleanly on `no_counterexample`.
+
+4. Optionally generate one provider-backed proposal before the loop. Synthetic
+   runs behind the exe.dev HTTP proxy without storing a local key when
+   `--provider-no-auth` is used. The script performs a quota preflight first
+   and fails closed if budget is unavailable:
+
+   ```bash
+   uv run python scripts/agentic_property_testing.py \
+     --target enoch_control_plane/control_plane/router.py \
+     --generate-provider-proposal \
+     --provider-base-url https://synthetic.int.exe.xyz \
+     --openai-base-url https://synthetic.int.exe.xyz/openai/v1 \
+     --provider-no-auth \
+     --autonomous-loop
+   ```
+
 The execution step writes a markdown report under `artifacts/agentic-pbt/`.
-Every report includes an agentic disposition and next action. Nothing in this
-lane waits on the operator:
+Every report includes an agentic disposition and next action. The lane is
+fully automated:
 
 - `no_counterexample` -> advance to the next target or generate more properties.
 - `proposal_error` -> quarantine the invalid proposal and regenerate.
@@ -74,6 +105,6 @@ lane waits on the operator:
 
 A non-zero pytest run is treated as a candidate counterexample, not an
 automatic confirmed bug. Confirmation, minimization, patching, and reruns are
-follow-up agent work, not a human-review queue.
+follow-up agent work, not an operator queue.
 
 Source inspiration: <https://arxiv.org/abs/2510.09907>.
