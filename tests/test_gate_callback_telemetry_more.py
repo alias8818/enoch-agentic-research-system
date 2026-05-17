@@ -140,6 +140,8 @@ def test_timeout_and_reaper_guards() -> None:
     assert gate.is_timed_out(_record(gate_state=GateState.RUNNING)) is False
     old = "2026-01-01T00:00:00+00:00"
     assert gate.is_timed_out(_record(gate_state=GateState.PENDING_IDLE_GATE, idle_seen_at=old)) is True
+    naive_old = "2026-01-01T00:00:00"
+    assert gate.is_timed_out(_record(gate_state=GateState.PENDING_IDLE_GATE, idle_seen_at=naive_old)) is True
 
 
 def test_callback_outbox_reuses_existing_metadata_and_marks_delivered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
