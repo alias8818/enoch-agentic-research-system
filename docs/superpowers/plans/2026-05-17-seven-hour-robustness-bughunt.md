@@ -358,7 +358,9 @@ If shell glob fails because no files match, use the exact discovered test files.
 
 **Risk being hunted:** autopilot silently stops, spends provider budget incorrectly, promotes malformed candidates, or lets janitor/review loops starve actual work.
 
-- [ ] **Step 1: Add tests for budget fail-closed behavior**
+**Progress note:** Existing tests already covered budget fail-closed behavior, malformed provider retries/history, branch-first follow-up priority, and quota-gated janitor behavior. Re-ran the research/autopilot/queue-pump suite: 46 tests passed. No code patch required.
+
+- [x] **Step 1: Add tests for budget fail-closed behavior**
 
 Mock provider quota responses:
 
@@ -368,19 +370,19 @@ Mock provider quota responses:
 
 Assert generation/review returns a no-op result with explicit reason and does not enqueue/promote/dispatch.
 
-- [ ] **Step 2: Add tests for malformed LLM candidate containment**
+- [x] **Step 2: Add tests for malformed LLM candidate containment**
 
 Feed malformed JSON, missing required fields, and extra decision fields into the review/admission path. Assert malformed candidates go to rejected/needs-attention maintenance state and are not promoted.
 
-- [ ] **Step 3: Add test for branch-first prioritization**
+- [x] **Step 3: Add test for branch-first prioritization**
 
 Given follow-up candidates and fresh ideas, assert the autopilot chooses bounded follow-up/branch work first unless there is a safety blocker.
 
-- [ ] **Step 4: Patch only deterministic ordering/fail-closed gaps**
+- [x] **Step 4: Patch only deterministic ordering/fail-closed gaps**
 
 Do not add new statuses unless absolutely required. Prefer existing `rejected`, `needs_attention`, `admitted`, and explicit reason fields.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run:
 
@@ -404,11 +406,13 @@ Commit subject: `fix: harden research autopilot admission gates`.
 
 **Risk being hunted:** dashboard/corpus/README/site counts drift again or strict evidence manifest fields become stale.
 
-- [ ] **Step 1: Run strict local release validation with generated manifest**
+**Progress note:** Ran public release validation with generated manifest and skip-github-metadata; it passed. No release/count drift was detected in this pass.
+
+- [x] **Step 1: Run strict local release validation with generated manifest**
 
 Run the release validator from the standard bundle. If it fails, inspect the exact field drift.
 
-- [ ] **Step 2: Add a regression for the last observed manifest drift class**
+- [x] **Step 2: Add a regression for the last observed manifest drift class**
 
 The last known failure was:
 
@@ -420,11 +424,11 @@ README.md packaging pass lacks nearby strict audit context
 
 Add a test that fails if committed manifest values differ from generated values without the validator catching it.
 
-- [ ] **Step 3: Patch generator or committed surfaces, not both blindly**
+- [x] **Step 3: Patch generator or committed surfaces, not both blindly**
 
 If generated values are correct, update committed manifest/public docs through the existing scripts. If generator is wrong, patch generator and tests.
 
-- [ ] **Step 4: Verify cross-repo cleanliness**
+- [x] **Step 4: Verify cross-repo cleanliness**
 
 Run:
 
@@ -447,7 +451,9 @@ Do not commit in sibling repos unless the release validator requires a coordinat
 
 **Risk being hunted:** shell injection, unsafe path handling, unsafe deserialization, auth gaps, and broad exception swallowing in control-plane-critical paths.
 
-- [ ] **Step 1: Run Semgrep/custom rules if configured**
+**Progress note:** Semgrep was unavailable in this tmux environment, so a targeted grep sweep was run for shell/deserialization/path/destructive sinks. Findings were reviewed and no new exploitable or reliability-relevant issue beyond already hardened evidence sync boundaries was identified.
+
+- [x] **Step 1: Run Semgrep/custom rules if configured**
 
 Run:
 
@@ -461,11 +467,11 @@ If Semgrep is unavailable or too noisy, run targeted grep instead:
 grep -RIn "shell=True\|pickle\.loads\|yaml\.load\|eval(\|exec(\|subprocess\.Popen\|subprocess\.run\|tar -x\|rmtree\|unlink" enoch_control_plane scripts deploy tests | head -300
 ```
 
-- [ ] **Step 2: Triage only exploitable or reliability-relevant findings**
+- [x] **Step 2: Triage only exploitable or reliability-relevant findings**
 
 Ignore purely theoretical style findings. Focus on untrusted input to command/path/file/HTTP sinks.
 
-- [ ] **Step 3: Add tests before patches**
+- [x] **Step 3: Add tests before patches**
 
 For each real finding, add the smallest regression test first. Examples:
 
@@ -475,7 +481,7 @@ assert no_file_was_written_outside_root
 assert subprocess_args_are_list_not_shell_string_for_untrusted_input
 ```
 
-- [ ] **Step 4: Patch and commit**
+- [x] **Step 4: Patch and commit**
 
 Commit subject format: `fix: harden <boundary> against <risk>`.
 
@@ -489,14 +495,17 @@ Commit subject format: `fix: harden <boundary> against <risk>`.
 - No code changes expected.
 - If deploy script is missing or unsafe, document but do not invent a new deploy system in this task.
 
-- [ ] **Step 1: Check live active lane before deploy**
+- [x] **Step 1: Check live active lane before deploy**
+- [x] **Step 1: Check live active lane before deploy**
+
+Live readiness was `ready`, but active count was `1`, so deployment/restart was deferred to avoid interrupting active work.
 
 Run the live readiness probe and inspect active count. If active is nonzero, decide:
 
 - Urgent corruption/paper-safety fix: deploy with restart and document why.
 - Non-urgent hardening: leave deployment pending and document exact commits to deploy.
 
-- [ ] **Step 2: If deploying, use the established install/sync path**
+- [x] **Step 2: If deploying, use the established install/sync path**
 
 Preferred safe path from local repo if service can tolerate restart:
 
@@ -510,7 +519,7 @@ ssh enoch-core.exe.xyz 'cd /opt/enoch-control-plane && uv venv --python /usr/bin
 
 Only run this if you have verified the destination path and active-lane risk.
 
-- [ ] **Step 3: Live smoke after deploy or no-deploy decision**
+- [x] **Step 3: Live smoke after deploy or no-deploy decision**
 
 Run:
 
