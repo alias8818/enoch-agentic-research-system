@@ -294,3 +294,18 @@ def test_sync_worker_http_evidence_skips_invalid_worker_path_bytes(tmp_path) -> 
 
     assert result["ok"] is False
     assert any(item["status"] == "unsafe_path" for item in result["skipped"])
+
+
+def test_sync_worker_http_evidence_reports_unusable_artifact_root(tmp_path) -> None:
+    from enoch_control_plane.control_plane.router import _sync_worker_http_evidence
+
+    config = _config(tmp_path)
+    config.worker_wake_gate_bearer_token = "worker-token"
+    config.worker_wake_gate_url = "http://worker"
+    artifact_root = tmp_path / "artifact"
+    artifact_root.write_text("not a directory", encoding="utf-8")
+
+    result = _sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+
+    assert result["ok"] is False
+    assert result["reason"] == "artifact_root_unusable"

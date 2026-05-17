@@ -568,7 +568,7 @@ Then run live readiness probe. Expected: readiness `ready` or a clearly understo
 
 **Additional Supabase callback parity hardening:** Mirrored the SQLite fallback idempotency-key behavior in the Supabase store so worker callbacks missing explicit keys dedupe exact retries by run/event/session/payload instead of creating timestamp-keyed duplicate control events.
 
-**Additional worker HTTP evidence hardening:** Worker-returned evidence paths now require a real file target under an existing artifact directory. Empty, dot, directory, traversal, absolute escape, and invalid-byte paths are skipped as unsafe instead of creating the artifact root as a file or crashing sync.
+**Additional worker HTTP evidence hardening:** Worker-returned evidence paths now require a real file target under an existing artifact directory. Empty, dot, directory, traversal, absolute escape, and invalid-byte paths are skipped as unsafe instead of creating the artifact root as a file or crashing sync. Sync also fails closed with an operator-readable reason when the artifact root is unusable.
 
 **Additional paper writer path hardening:** The paper writer shared file-emission helper now rejects empty, dot, directory, invalid, and escaping artifact paths with a controlled 400 instead of surfacing filesystem exceptions during paper rewrite/backfill.
 

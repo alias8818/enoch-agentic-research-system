@@ -369,7 +369,12 @@ def _sync_worker_http_evidence(config: GateConfig, *, project_id: str, artifact_
     written = []
     skipped = []
     artifact_root = artifact_root.resolve()
-    artifact_root.mkdir(parents=True, exist_ok=True)
+    try:
+        artifact_root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return {"ok": False, "reason": "artifact_root_unusable", "files": 0, "paths": [], "skipped": [], "error": f"{type(exc).__name__}: {exc}"}
+    if not artifact_root.is_dir():
+        return {"ok": False, "reason": "artifact_root_unusable", "files": 0, "paths": [], "skipped": [], "error": "artifact root is not a directory"}
     # Read each evidence path independently. The GB10 worker read endpoint is
     # intentionally strict and returns a non-2xx response when any requested
     # path is missing. Most projects only have a subset of the optional
