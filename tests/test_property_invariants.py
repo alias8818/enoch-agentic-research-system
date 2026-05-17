@@ -160,3 +160,105 @@ def test_local_paper_evidence_never_counts_symlinked_files(evidence_kind: str) -
             (results_dir / "smoke.json").symlink_to(external / "smoke.json")
 
         assert _local_paper_evidence_present(project_dir) is False
+
+
+callback_event_type = st.sampled_from([
+    "session_started",
+    "wake_ready",
+    "session_finished_ready",
+    "gate_timeout",
+    "gate_error",
+    "question_pending",
+])
+
+
+@given(run_id=run_id_text, event_type=callback_event_type)
+@settings(max_examples=80, deadline=None)
+def test_worker_callback_idempotency_replay_preserves_queue_state(run_id: str, event_type: str) -> None:
+    project_id = "idea-callback-idempotency"
+    with TemporaryDirectory() as tmp:
+        store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+        store.import_snapshot(
+            ImportSnapshotRequest(
+                idempotency_key=f"idempotency-import:{run_id}",
+                queue_rows=[{
+                    "project_id": project_id,
+                    "project_name": "Callback Idempotency",
+                    "project_dir": project_id,
+                    "status": "running",
+                    "current_run_id": run_id,
+                    "current_session_id": "session-current",
+                    "last_run_state": "running",
+                    "next_action_hint": "await_callback",
+                }],
+                paper_rows=[],
+            )
+        )
+
+        callback = {
+            "event_type": event_type,
+            "run_id": run_id,
+            "session_id": "session-callback",
+            "project_id": project_id,
+            "gate_state": event_type,
+            "reason": "idempotency replay",
+            "idempotency_key": f"callback-idempotency:{run_id}:{event_type}",
+        }
+        first_event_id, first_inserted, first_row = store.record_worker_callback(callback)
+        second_event_id, second_inserted, second_row = store.record_worker_callback(callback)
+
+        assert first_event_id == second_event_id
+        assert first_inserted is True
+        assert second_inserted is False
+        assert second_row == first_row
+        events = store.event_rows(limit=10, entity_type="run", entity_id=run_id)
+        assert [event["event_id"] for event in events].count(first_event_id) == 1
+
+
+@given(current_run_id=run_id_text, imported_run_id=st.one_of(st.just(""), run_id_text))
+@settings(max_examples=80, deadline=None)
+def test_import_snapshot_does_not_blank_active_queue_run_fields(current_run_id: str, imported_run_id: str) -> None:
+    project_id = "idea-import-active-preserve"
+    with TemporaryDirectory() as tmp:
+        store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+        store.import_snapshot(
+            ImportSnapshotRequest(
+                idempotency_key=f"active-import-current:{current_run_id}",
+                queue_rows=[{
+                    "project_id": project_id,
+                    "project_name": "Import Active Preserve",
+                    "project_dir": project_id,
+                    "status": "running",
+                    "current_run_id": current_run_id,
+                    "current_session_id": "session-current",
+                    "last_run_state": "running",
+                    "next_action_hint": "await_callback",
+                }],
+                paper_rows=[],
+            )
+        )
+        store.import_snapshot(
+            ImportSnapshotRequest(
+                idempotency_key=f"active-import-stale:{current_run_id}:{imported_run_id}",
+                queue_rows=[{
+                    "project_id": project_id,
+                    "project_name": "Import Active Preserve",
+                    "project_dir": project_id,
+                    "status": "queued",
+                    "current_run_id": imported_run_id,
+                    "current_session_id": "",
+                    "last_run_state": "",
+                    "next_action_hint": "",
+                }],
+                paper_rows=[],
+            )
+        )
+
+        row = store.queue_row(project_id)
+        assert row is not None
+        assert row["project_id"] == project_id
+        assert row["status"] == "running"
+        assert row["current_run_id"] == current_run_id
+        assert row["current_session_id"] == "session-current"
+        assert row["last_run_state"] == "running"
+        assert row["next_action_hint"] == "await_callback"

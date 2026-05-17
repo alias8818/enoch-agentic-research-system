@@ -68,7 +68,7 @@ PY
 - Modify only if needed: `docs/superpowers/plans/2026-05-17-seven-hour-robustness-bughunt.md`
 - Evidence/artifacts if useful: `artifacts/robustness/`
 
-- [ ] **Step 1: Confirm repo and branch state**
+- [x] **Step 1: Confirm repo and branch state**
 
 Run:
 
@@ -80,7 +80,7 @@ git log -5 --oneline
 
 Expected: inside `enoch-agentic-research-system`, branch `main`, clean or only the active plan file.
 
-- [ ] **Step 2: Capture live control-plane state without mutating it**
+- [x] **Step 2: Capture live control-plane state without mutating it**
 
 Run the live readiness probe from the standard bundle. Also capture:
 
@@ -91,7 +91,7 @@ ssh -o BatchMode=yes -o ConnectTimeout=8 enoch-core.exe.xyz \
 
 Expected: service active; timers active. Record active/queued counts and readiness status in the final report.
 
-- [ ] **Step 3: Run a fast local smoke baseline**
+- [x] **Step 3: Run a fast local smoke baseline**
 
 Run:
 
@@ -115,7 +115,9 @@ Expected: pass. If this fails before edits, debug and fix the baseline first.
 
 **Risk being hunted:** queue rows, run rows, and event rows silently disagree after repeated imports, callbacks, idempotent replays, or stale callbacks.
 
-- [ ] **Step 1: Add a property for callback idempotency preserving queue state**
+**Progress note:** Found and fixed active queue row drift from stale imports. Added callback idempotency replay coverage and active-row import preservation coverage. Full test suite passed with 474 tests.
+
+- [x] **Step 1: Add a property for callback idempotency preserving queue state**
 
 Add a Hypothesis test that imports a running queue row, calls `record_worker_callback()` twice with the same `idempotency_key`, and asserts:
 
@@ -129,7 +131,7 @@ assert len(store.event_rows(entity_type="run", entity_id=run_id, limit=10)) == 1
 
 Use generated safe `run_id`, `project_id`, and `event_type` values from a bounded enum: `session_started`, `wake_ready`, `session_finished_ready`, `gate_timeout`, `gate_error`, `question_pending`.
 
-- [ ] **Step 2: Run the new property and verify it fails or passes honestly**
+- [x] **Step 2: Run the new property and verify it fails or passes honestly**
 
 Run:
 
@@ -139,7 +141,7 @@ uv run pytest -q tests/test_property_invariants.py::test_worker_callback_idempot
 
 If it fails, keep the counterexample and fix the smallest root cause. If it passes, keep the test if it protects a real invariant.
 
-- [ ] **Step 3: Add a property for import snapshot not weakening active rows**
+- [x] **Step 3: Add a property for import snapshot not weakening active rows**
 
 Add a property that starts with a running queue row with `current_run_id`, then imports a snapshot for the same `project_id` with older/weaker fields. Assert active fields are not accidentally blanked unless the import logic intentionally owns them. Target invariants:
 
@@ -152,11 +154,11 @@ assert row["next_action_hint"] != ""
 
 If the existing contract intentionally lets imports overwrite, tighten the test to the actual intended contract after reading `import_snapshot()`.
 
-- [ ] **Step 4: Patch store adapters only if the tests reveal drift**
+- [x] **Step 4: Patch store adapters only if the tests reveal drift**
 
 Patch `store.py` first. Mirror the same semantic guard in `supabase_store.py` if the method exists there. Do not invent new status values.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run:
 

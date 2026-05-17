@@ -3404,6 +3404,46 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     )
                     projects += 1
                     cur.execute(
+                        "select status,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,last_dispatch_at,last_callback_at,stale_after from queue_items where project_id = %s",
+                        (project_id,),
+                    )
+                    existing_queue = cur.fetchone()
+                    existing_run_id = _text((existing_queue or {}).get("current_run_id"))
+                    incoming_run_id = _text(raw.get("current_run_id"))
+                    preserve_active_runtime = bool(
+                        existing_queue
+                        and _text(existing_queue["status"]) in ACTIVE_STATUSES
+                        and existing_run_id
+                        and incoming_run_id != existing_run_id
+                    )
+                    if preserve_active_runtime:
+                        status_value = _text(existing_queue["status"])
+                        current_run_id = existing_run_id
+                        current_session_id = _text(existing_queue["current_session_id"])
+                        last_run_state = _text(existing_queue["last_run_state"])
+                        last_event_type = _text(existing_queue["last_event_type"])
+                        next_action_hint = _text(existing_queue["next_action_hint"]) or "await_callback"
+                        manual_review_required = _bool(existing_queue["manual_review_required"])
+                        blocked_reason = _text(existing_queue["blocked_reason"])
+                        last_error = _text(existing_queue["last_error"])
+                        last_result_summary = _text(existing_queue["last_result_summary"])
+                        last_dispatch_at = existing_queue["last_dispatch_at"]
+                        last_callback_at = existing_queue["last_callback_at"]
+                        stale_after = existing_queue["stale_after"]
+                    else:
+                        current_run_id = _text(raw.get("current_run_id"))
+                        current_session_id = _text(raw.get("current_session_id"))
+                        last_run_state = _text(raw.get("last_run_state"))
+                        last_event_type = _text(raw.get("last_event_type"))
+                        next_action_hint = _text(raw.get("next_action_hint")) or "controller_review"
+                        manual_review_required = _bool(raw.get("manual_review_required"))
+                        blocked_reason = _text(raw.get("blocked_reason"))
+                        last_error = _text(raw.get("last_error"))
+                        last_result_summary = _text(raw.get("last_result_summary"))
+                        last_dispatch_at = _first_present(raw, "last_dispatch_at", "last_execution_update")
+                        last_callback_at = raw.get("last_callback_at")
+                        stale_after = raw.get("stale_after")
+                    cur.execute(
                         """
                         insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
                         values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
@@ -3425,13 +3465,11 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             _int(_first_present(raw, "max_continues", "maxContinues"), 0),
                             _int(_first_present(raw, "retry_count", "retryCount"), 0),
                             _int(_first_present(raw, "max_retries", "maxRetries"), 2),
-                            _text(raw.get("current_run_id")), _text(raw.get("current_session_id")),
-                            _text(raw.get("last_run_state")), _text(raw.get("last_event_type")),
-                            _text(raw.get("next_action_hint")) or "controller_review", _bool(raw.get("manual_review_required")),
-                            _text(raw.get("blocked_reason")), _text(raw.get("last_error")), _text(raw.get("last_result_summary")),
+                            current_run_id, current_session_id, last_run_state, last_event_type,
+                            next_action_hint, manual_review_required, blocked_reason, last_error, last_result_summary,
                             _text(raw.get("machine_target")) or "worker.example", _text(raw.get("model")) or "gpt-5.5",
-                            _text(raw.get("sandbox")) or "danger-full-access", _first_present(raw, "last_dispatch_at", "last_execution_update"),
-                            raw.get("last_callback_at"), raw.get("stale_after"), updated_at,
+                            _text(raw.get("sandbox")) or "danger-full-access", last_dispatch_at,
+                            last_callback_at, stale_after, updated_at,
                         ),
                     )
                     queue_items += 1

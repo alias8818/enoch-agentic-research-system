@@ -644,6 +644,33 @@ class ControlPlaneStore:
                     (project.project_id, project.project_name, project.project_dir, project.notion_page_url, project.notion_page_id, project.origin_idea_status, project.created_at, project.updated_at),
                 )
                 projects += 1
+                existing_row = conn.execute(
+                    "SELECT status,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,last_dispatch_at,last_callback_at,stale_after FROM queue_items WHERE project_id=?",
+                    (project_id,),
+                ).fetchone()
+                existing_queue = dict(existing_row) if existing_row else None
+                existing_run_id = _text((existing_queue or {}).get("current_run_id"))
+                incoming_run_id = _text(raw.get("current_run_id"))
+                preserve_active_runtime = bool(
+                    existing_queue
+                    and _text(existing_queue["status"]) in ACTIVE_STATUSES
+                    and existing_run_id
+                    and (incoming_run_id != existing_run_id or qi.status.value not in ACTIVE_STATUSES)
+                )
+                if preserve_active_runtime:
+                    qi.status = QueueStatus(_text(existing_queue["status"]))
+                    qi.current_run_id = existing_run_id
+                    qi.current_session_id = _text(existing_queue["current_session_id"])
+                    qi.last_run_state = _text(existing_queue["last_run_state"])
+                    qi.last_event_type = _text(existing_queue["last_event_type"])
+                    qi.next_action_hint = _text(existing_queue["next_action_hint"]) or "await_callback"
+                    qi.manual_review_required = _bool(existing_queue["manual_review_required"])
+                    qi.blocked_reason = _text(existing_queue["blocked_reason"])
+                    qi.last_error = _text(existing_queue["last_error"])
+                    qi.last_result_summary = _text(existing_queue["last_result_summary"])
+                    qi.last_dispatch_at = existing_queue["last_dispatch_at"]
+                    qi.last_callback_at = existing_queue["last_callback_at"]
+                    qi.stale_after = existing_queue["stale_after"]
                 conn.execute(
                     """INSERT OR REPLACE INTO queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -1014,6 +1041,7 @@ class ControlPlaneStore:
                     (SELECT ci.artifact_slug FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_artifact_slug,
                     (SELECT ci.source_record_fingerprint FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_source_record_fingerprint,
                     (SELECT CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (q.current_run_id = '' OR pa.run_id = q.current_run_id) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_imported,
+                    EXISTS (SELECT 1 FROM events ev WHERE ev.event_type = 'followup.launch' AND ev.entity_type = 'project' AND ev.entity_id = q.project_id) AS followup_launched,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)
