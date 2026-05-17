@@ -784,6 +784,49 @@ def _operator_row_is_active(row: dict[str, Any]) -> bool:
     state = _text(row.get("last_run_state") or row.get("state") or row.get("gate_state"))
     return status in ACTIVE_QUEUE_STATUSES or state in ACTIVE_QUEUE_STATUSES
 
+
+def _strip_related_paper_projection(row: dict[str, Any]) -> dict[str, Any]:
+    stripped = {
+        **row,
+        "related_paper_id": "",
+        "related_paper_status": "",
+        "related_review_status": "",
+        "related_finalization_package_path": "",
+        "related_corpus_imported": False,
+        "related_corpus_import_id": "",
+        "related_artifact_slug": "",
+        "related_source_record_fingerprint": "",
+    }
+    for key in (
+        "operator_stage",
+        "operator_stage_label",
+        "operator_lane",
+        "operator_detail_stage",
+        "operator_detail_stage_label",
+        "operator_tone",
+        "operator_attention",
+        "operator_next_step",
+        "operator_explanation",
+    ):
+        stripped.pop(key, None)
+    return with_operator_stage(stripped)
+
+
+def _has_related_paper_projection(row: dict[str, Any]) -> bool:
+    return any(
+        _text(row.get(key))
+        for key in (
+            "related_paper_id",
+            "related_paper_status",
+            "related_review_status",
+            "related_finalization_package_path",
+            "related_corpus_import_id",
+            "related_artifact_slug",
+            "related_source_record_fingerprint",
+        )
+    ) or _truthy(row.get("related_corpus_imported"))
+
+
 def _queue_is_superseded_by_paper(
     row: dict[str, Any],
     paper_projects: set[str],
@@ -813,6 +856,9 @@ def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]
         related_paper_id = _text(staged.get("related_paper_id"))
         is_queue_row = not _text(staged.get("paper_id"))
         is_active_row = _operator_row_is_active(staged)
+        if is_queue_row and _has_related_paper_projection(staged) and (not related_paper_id or related_paper_id not in paper_ids):
+            staged = _strip_related_paper_projection(staged)
+            related_paper_id = ""
         if is_queue_row and related_paper_id and related_paper_id in paper_ids and not is_active_row:
             continue
         if is_queue_row and not is_active_row and _queue_is_superseded_by_paper(staged, paper_projects, paper_runs):

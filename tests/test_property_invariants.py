@@ -9,6 +9,7 @@ from hypothesis import example, given, settings, strategies as st
 from unittest.mock import patch
 
 from enoch_control_plane.config import GateConfig
+from enoch_control_plane.control_plane import read_models
 from enoch_control_plane.control_plane.router import _local_artifact_root, _local_paper_evidence_present, _remote_evidence_dir, _sync_worker_http_evidence, create_control_plane_router
 from enoch_control_plane.control_plane.store import ControlPlaneStore
 from enoch_control_plane.control_plane.models import ImportSnapshotRequest
@@ -308,6 +309,50 @@ def test_worker_http_evidence_sync_never_writes_outside_artifact_root(rel_path: 
         for path in root.rglob("*"):
             if path.is_file():
                 path.resolve().relative_to(artifact_root.resolve())
+
+
+stale_related_paper_status = st.sampled_from([
+    "publication_draft",
+    "draft_review",
+    "finalized",
+    "approved_for_corpus",
+])
+
+
+@given(
+    related_paper_id=st.one_of(st.just(""), run_id_text),
+    related_paper_status=stale_related_paper_status,
+    related_review_status=st.sampled_from(["", "finalized", "approved_for_finalization"]),
+    has_finalization_package=st.booleans(),
+)
+@settings(max_examples=40, deadline=None)
+def test_operator_counts_ignore_stale_related_paper_references_without_matching_paper_row(
+    related_paper_id: str,
+    related_paper_status: str,
+    related_review_status: str,
+    has_finalization_package: bool,
+) -> None:
+    queue_row = read_models.summarize_queue_row({
+        "project_id": "stale-related-paper",
+        "project_name": "Stale Related Paper",
+        "status": "completed",
+        "last_run_state": "wake_ready",
+        "next_action_hint": "select_next_project",
+        "related_paper_id": related_paper_id,
+        "related_paper_status": related_paper_status,
+        "related_review_status": related_review_status,
+        "related_finalization_package_path": "package.json" if has_finalization_package else "",
+    })
+
+    operator_counts = read_models.operator_counts_from_rows([queue_row])
+    detail_counts = read_models.operator_detail_counts_from_rows([queue_row])
+
+    assert operator_counts.get("ready_to_publish", 0) == 0
+    assert operator_counts.get("automate_publication", 0) == 0
+    assert operator_counts.get("published", 0) == 0
+    assert detail_counts.get("ready_to_publish", 0) == 0
+    assert detail_counts.get("finalization_needed", 0) == 0
+    assert detail_counts.get("draft_created", 0) == 0
 
 
 partial_evidence_kind = st.sampled_from([
