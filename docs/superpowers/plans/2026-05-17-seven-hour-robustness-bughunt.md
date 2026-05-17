@@ -669,3 +669,7 @@ SAFE / SAFE WITH DEPLOY PENDING / NOT SAFE
 | **Total** | **520 min max planned / choose highest-value tasks for 420 min session** |
 
 For a seven-hour run, execute tasks in order and use the buffer by continuing deeper within the current highest-risk boundary. If time runs short, prioritize Tasks 0-4, 8, and 9 over lower-risk release/static-analysis work.
+
+---
+
+**Additional callback outbox path hardening:** Added a containment guard to `deliver_pending_file()` so direct calls cannot replay or mutate JSON files outside the callback outbox. Regression coverage proves an outside path is rejected before payload mutation or network delivery.

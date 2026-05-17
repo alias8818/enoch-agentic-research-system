@@ -118,3 +118,20 @@ def test_successful_delivery_moves_to_delivered_and_marks_worker_state(monkeypat
     worker_state = json.loads((run_dir / "run-1.json").read_text(encoding="utf-8"))
     assert worker_state["gate_state"] == "wake_ready"
     assert worker_state["last_idempotency_key"] == "run-1:wake_ready:codex-runner:done"
+
+def test_deliver_pending_file_rejects_paths_outside_outbox(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps(_payload()), encoding="utf-8")
+
+    result = callback_outbox.deliver_pending_file(
+        outside,
+        state_dir=state,
+        url="http://127.0.0.1/callback",
+        token="token",
+        timeout=1,
+    )
+
+    assert not result.ok
+    assert "outside callback outbox" in result.detail
+    assert "attempt_count" not in json.loads(outside.read_text(encoding="utf-8"))

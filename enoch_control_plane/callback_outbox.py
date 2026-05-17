@@ -134,8 +134,23 @@ def deliver_payload(payload: dict[str, Any], *, url: str, token: str, timeout: f
         return DeliveryResult(ok=False, detail=f"{type(exc).__name__}: {exc}")
 
 
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
 def deliver_pending_file(path: str | Path, *, state_dir: str | Path, url: str, token: str, timeout: float) -> DeliveryResult:
-    pending = Path(path)
+    pending = Path(path).expanduser()
+    try:
+        pending_resolved = pending.resolve(strict=False)
+        outbox_resolved = outbox_dir(state_dir).resolve(strict=False)
+    except Exception as exc:
+        return DeliveryResult(ok=False, detail=f"invalid callback outbox path: {type(exc).__name__}: {exc}", path=str(pending))
+    if not _is_relative_to(pending_resolved, outbox_resolved):
+        return DeliveryResult(ok=False, detail="pending callback path is outside callback outbox", path=str(pending))
     payload = json.loads(pending.read_text(encoding="utf-8"))
     payload["attempt_count"] = int(payload.get("attempt_count") or 0) + 1
     payload["last_attempt_at"] = utc_now()
