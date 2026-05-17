@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+import sys
 
 from scripts import research_facility, research_facility_maintenance
 
@@ -114,3 +116,46 @@ def test_janitor_does_not_promote_borderline_fresh_without_priority_signal() -> 
     )
 
     assert actions[0]["action"] == "rewrite_suggested"
+
+
+def test_janitor_apply_skips_admission_when_promote_update_matches_no_rows(monkeypatch) -> None:
+    admissions: list[tuple] = []
+
+    class Cursor:
+        rowcount = 0
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):
+            normalized = " ".join(sql.lower().split())
+            if normalized.startswith("set search_path"):
+                self.rowcount = 0
+            elif normalized.startswith("update research_candidates") and "status = 'admitted'" in normalized:
+                self.rowcount = 0
+            elif normalized.startswith("insert into research_admissions"):
+                admissions.append(params)
+                self.rowcount = 1
+            elif normalized.startswith("select event_id"):
+                self.rowcount = 0
+                self._fetchone = None
+            elif normalized.startswith("insert into control_events"):
+                self.rowcount = 1
+        def fetchone(self):
+            return getattr(self, "_fetchone", None)
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()))
+
+    result = research_facility_maintenance.apply_actions(
+        "postgres://example",
+        [{"candidate_id": "already-moved", "action": "promote", "reason": "race", "dispatch_priority": {}}],
+        requested_by="unit",
+        apply_rejections=False,
+    )
+
+    assert result["promoted"] == 0
+    assert result["admissions_inserted"] == 0
+    assert admissions == []

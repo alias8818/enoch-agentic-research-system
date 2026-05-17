@@ -580,6 +580,8 @@ Then run live readiness probe. Expected: readiness `ready` or a clearly understo
 
 **Additional provider generation retry hardening:** Provider-backed idea generation now applies the bounded retry loop to transient provider call failures as well as malformed JSON responses, preserving the existing no-ledger-write failure boundary.
 
+**Additional Research Facility janitor race hardening:** Janitor apply now writes admission ledger rows only when the candidate status update actually matched a live needs-review row, preventing stale/racing actions from creating misleading admissions.
+
 ## Task 9: Final verification, cleanup, and report
 
 **Timebox:** 25 minutes

@@ -163,18 +163,19 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                         """,
                         (json.dumps({"janitor_dispatch_priority": action.get("dispatch_priority") or {}}), candidate_id),
                     )
-                    if int(cur.rowcount or 0):
+                    applied = int(cur.rowcount or 0) > 0
+                    if applied:
                         counters["promoted"] += 1
-                    admission_key = f"research-janitor:admit:{candidate_id}"
-                    cur.execute(
-                        """
-                        insert into research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key)
-                        values (%s,'admitted',%s,%s::jsonb,null,%s,%s)
-                        on conflict (idempotency_key) do nothing
-                        """,
-                        (candidate_id, str(action.get("reason") or "janitor admitted needs-review candidate"), json.dumps(action.get("dispatch_priority") or {}), requested_by, admission_key),
-                    )
-                    counters["admissions_inserted"] += int(cur.rowcount or 0)
+                        admission_key = f"research-janitor:admit:{candidate_id}"
+                        cur.execute(
+                            """
+                            insert into research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key)
+                            values (%s,'admitted',%s,%s::jsonb,null,%s,%s)
+                            on conflict (idempotency_key) do nothing
+                            """,
+                            (candidate_id, str(action.get("reason") or "janitor admitted needs-review candidate"), json.dumps(action.get("dispatch_priority") or {}), requested_by, admission_key),
+                        )
+                        counters["admissions_inserted"] += int(cur.rowcount or 0)
                 elif verb == "reject":
                     if not apply_rejections:
                         counters["skipped_rejections"] += 1
@@ -187,18 +188,19 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                         """,
                         (str(action.get("reason") or "janitor rejected stale weak candidate"), candidate_id),
                     )
-                    if int(cur.rowcount or 0):
+                    applied = int(cur.rowcount or 0) > 0
+                    if applied:
                         counters["rejected"] += 1
-                    admission_key = f"research-janitor:reject:{candidate_id}"
-                    cur.execute(
-                        """
-                        insert into research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key)
-                        values (%s,'rejected',%s,%s::jsonb,null,%s,%s)
-                        on conflict (idempotency_key) do nothing
-                        """,
-                        (candidate_id, str(action.get("reason") or "janitor rejected stale weak candidate"), json.dumps(action.get("dispatch_priority") or {}), requested_by, admission_key),
-                    )
-                    counters["admissions_inserted"] += int(cur.rowcount or 0)
+                        admission_key = f"research-janitor:reject:{candidate_id}"
+                        cur.execute(
+                            """
+                            insert into research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key)
+                            values (%s,'rejected',%s,%s::jsonb,null,%s,%s)
+                            on conflict (idempotency_key) do nothing
+                            """,
+                            (candidate_id, str(action.get("reason") or "janitor rejected stale weak candidate"), json.dumps(action.get("dispatch_priority") or {}), requested_by, admission_key),
+                        )
+                        counters["admissions_inserted"] += int(cur.rowcount or 0)
                 if verb in {"promote", "reject", "rewrite_suggested", "keep"}:
                     payload = {"requested_by": requested_by, "janitor_action": action}
                     event_key = f"research-janitor:{verb}:{candidate_id}"
