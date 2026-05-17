@@ -2008,7 +2008,14 @@ class ControlPlaneStore:
                 "INSERT OR IGNORE INTO queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (followup_id, QueueStatus.QUEUED.value, _int(candidate.get("selection_rank"), 50), _int(candidate.get("dispatch_priority"), 50), 1, 0, 0, 0, 2, "", "", "", "", "controller_review", 0, "", "", "", _text(candidate.get("machine_target")), _text(candidate.get("model")), _text(candidate.get("sandbox")), None, None, None, now),
             )
-        event_id, _ = self.append_event(idempotency_key=f"followup.launch:{followup['parent_project_id']}:{followup_id}", event_type="followup.launch", entity_type="project", entity_id=followup["parent_project_id"], payload={"requested_by": requested_by, "followup": followup})
+            event_id, _ = self._append_event_in_conn(
+                conn,
+                idempotency_key=f"followup.launch:{followup['parent_project_id']}:{followup_id}",
+                event_type="followup.launch",
+                entity_type="project",
+                entity_id=followup["parent_project_id"],
+                payload={"requested_by": requested_by, "followup": followup},
+            )
         return {"ok": True, "action": "followup_queued", "reason": "bounded follow-up queued", "candidate": candidate, "followup": followup, "event_id": event_id}
 
     def dispatch_next_dry_run(self, *, requested_by: str) -> tuple[str, dict[str, Any] | None, int | None, str]:

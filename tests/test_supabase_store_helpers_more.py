@@ -211,6 +211,76 @@ def test_launch_followup_candidate_dry_run_and_noop(monkeypatch) -> None:
     assert result["followup"]["promising_escalation"] is True
 
 
+def test_supabase_launch_followup_append_failure_does_not_queue_followup(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    candidate = {
+        "project_id": "parent-supabase-followup-atomic",
+        "project_name": "Parent Supabase Followup Atomic",
+        "current_run_id": "run-parent",
+        "followup_depth": 1,
+        "followup_type": "deepen",
+        "followup_title": "Atomic Supabase Followup",
+        "followup_hypothesis": "signal holds",
+        "followup_required_evidence": ["metric", "ablation"],
+        "followup_success_threshold": "beats baseline",
+        "followup_stop_condition": "no lift",
+        "machine_target": "gb10",
+        "model": "gpt-5.5",
+        "sandbox": "danger-full-access",
+        "selection_rank": 40,
+        "dispatch_priority": 40,
+    }
+    ideas: set[str] = set()
+    projects: set[str] = set()
+    queue_items: set[str] = set()
+    monkeypatch.setattr(store, "next_followup_candidate", lambda **kwargs: candidate)
+
+    class Cursor:
+        def __init__(self, conn): self.conn = conn
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("insert into ideas"):
+                self.conn.pending_ideas.add(params[0])
+            elif normalized.startswith("insert into projects"):
+                self.conn.pending_projects.add(params[0])
+            elif normalized.startswith("insert into queue_items"):
+                self.conn.pending_queue_items.add(params[0])
+            return self
+
+    class Conn:
+        def __enter__(self):
+            self.pending_ideas = set(ideas)
+            self.pending_projects = set(projects)
+            self.pending_queue_items = set(queue_items)
+            return self
+        def __exit__(self, exc_type, *_args):
+            if exc_type is None:
+                ideas.update(self.pending_ideas)
+                projects.update(self.pending_projects)
+                queue_items.update(self.pending_queue_items)
+            return False
+        def cursor(self): return Cursor(self)
+
+    def fail_append_event(*_args, **_kwargs):
+        raise RuntimeError("simulated follow-up event write failure")
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", fail_append_event)
+
+    try:
+        store.launch_followup_candidate(dry_run=False, requested_by="test")
+    except RuntimeError as exc:
+        assert "simulated follow-up event write failure" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected simulated event write failure")
+
+    assert ideas == set()
+    assert projects == set()
+    assert queue_items == set()
+
+
 def test_supabase_store_resolved_artifact_rejects_paths_outside_project(tmp_path) -> None:
     project_dir = tmp_path / "project"
     project_dir.mkdir()

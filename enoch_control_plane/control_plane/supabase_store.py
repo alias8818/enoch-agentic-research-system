@@ -3367,7 +3367,6 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         if dry_run:
             return {"ok": True, "action": "dry_run_followup", "reason": "follow-up candidate selected; no row inserted", "candidate": candidate, "followup": followup_payload}
         now = utc_now()
-        event_id = None
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -3403,13 +3402,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     """,
                     (followup_id, _int(candidate.get("selection_rank"), 50), _int(candidate.get("dispatch_priority"), 50), _text(candidate.get("machine_target")), _text(candidate.get("model")), _text(candidate.get("sandbox")), now),
                 )
-        event_id, _inserted = self.append_event(
-            idempotency_key=f"followup.launch:{parent_id}:{followup_id}",
-            event_type="followup.launch",
-            entity_type="project",
-            entity_id=parent_id,
-            payload={"requested_by": requested_by, "candidate": {"project_id": parent_id}, "followup": followup_payload},
-        )
+                event_id, _inserted = self._append_event_in_cursor(
+                    cur,
+                    idempotency_key=f"followup.launch:{parent_id}:{followup_id}",
+                    event_type="followup.launch",
+                    entity_type="project",
+                    entity_id=parent_id,
+                    payload={"requested_by": requested_by, "candidate": {"project_id": parent_id}, "followup": followup_payload},
+                )
         return {"ok": True, "action": "followup_queued", "reason": "bounded follow-up queued", "candidate": candidate, "followup": followup_payload, "event_id": event_id}
 
     def mark_queue_item_paused(self, *, project_id: str, reason: str, updated_by: str = "operator") -> bool:

@@ -976,6 +976,42 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(after_run["session_id"], before_run["session_id"])
             self.assertEqual(after_run["gate_state"], before_run["gate_state"])
 
+    def test_launch_followup_append_failure_does_not_queue_followup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            parent_id = "parent-followup-atomic"
+            candidate = {
+                "project_id": parent_id,
+                "project_name": "Parent Followup Atomic",
+                "status": "completed",
+                "manual_review_required": False,
+                "followup_recommended": True,
+                "followup_title": "Atomic Followup Branch",
+                "followup_hypothesis": "The signal survives a branch test.",
+                "followup_required_evidence": ["direct metric", "ablation"],
+                "followup_success_threshold": "Beat the baseline.",
+                "followup_stop_condition": "Stop on regression.",
+                "followup_depth": 1,
+                "compute_scale_blocked": False,
+                "followup_launched": False,
+                "selection_rank": 42,
+                "dispatch_priority": 42,
+                "updated_at": "2026-05-17T00:00:00Z",
+            }
+            store.operator_queue_rows_sql = lambda: [candidate]  # type: ignore[method-assign]
+            dry_run = store.launch_followup_candidate(dry_run=True)
+            followup_id = dry_run["followup"]["idea_id"]
+
+            def fail_append_event(*_args, **_kwargs):
+                raise RuntimeError("simulated follow-up event write failure")
+
+            with unittest.mock.patch.object(store, "_append_event_in_conn", side_effect=fail_append_event):
+                with self.assertRaises(RuntimeError):
+                    store.launch_followup_candidate(dry_run=False, requested_by="test")
+
+            self.assertIsNone(store.project_row(followup_id))
+            self.assertIsNone(store.queue_row(followup_id))
+
     def test_worker_callback_without_idempotency_key_replays_by_run_event_and_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
