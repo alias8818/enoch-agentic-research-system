@@ -964,6 +964,41 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(claimed["review_status"], "claimed")
             self.assertEqual(claimed["blocker"], "")
 
+    def test_paper_finalization_rejects_artifacts_outside_project_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project_dir = root / "project"
+            project_dir.mkdir()
+            outside = root / "outside.json"
+            outside.write_text("{}", encoding="utf-8")
+            store = ControlPlaneStore(root / "control.sqlite3")
+            paper_id = "escape:run-1:arxiv_draft"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="paper-finalization-escape-import",
+                    paper_rows=[{
+                        "paper_id": paper_id,
+                        "project_id": "escape",
+                        "project_dir": str(project_dir),
+                        "run_id": "run-1",
+                        "paper_status": "draft_review",
+                        "draft_markdown_path": str(outside),
+                        "draft_latex_path": str(outside),
+                        "evidence_bundle_path": str(outside),
+                        "claim_ledger_path": str(outside),
+                        "manifest_path": str(outside),
+                    }],
+                )
+            )
+            store.backfill_paper_reviews(PaperReviewBackfillRequest(idempotency_key="escape-review-backfill", dry_run=False))
+
+            with self.assertRaisesRegex(ValueError, "readable artifacts"):
+                store.prepare_paper_review_finalization_package(
+                    paper_id,
+                    PaperReviewPrepareFinalizationRequest(idempotency_key="escape-finalize", requested_by="test", dry_run=False),
+                    require_approval=False,
+                )
+
     def test_notion_intake_dry_run_and_commit_preserves_pause_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

@@ -1371,11 +1371,17 @@ class ControlPlaneStore:
         raw_path = _text(paper.get(field))
         project_dir = Path(_text(paper.get("project_dir"))).expanduser() if _text(paper.get("project_dir")) else None
         path = Path(raw_path).expanduser() if raw_path else Path()
-        resolved = path if path.is_absolute() else (project_dir / path if project_dir else path)
+        resolved = (path if path.is_absolute() else (project_dir / path if project_dir else path)).resolve()
+        safe = True
+        if project_dir is not None:
+            try:
+                resolved.relative_to(project_dir.resolve())
+            except (OSError, ValueError):
+                safe = False
         exists = bool(raw_path) and resolved.exists()
-        readable = exists and resolved.is_file()
+        readable = safe and exists and resolved.is_file()
         size_bytes = resolved.stat().st_size if readable else 0
-        return {"field": field, "path": raw_path, "absolute_path": str(resolved), "exists": exists, "readable": readable, "size_bytes": size_bytes}
+        return {"field": field, "path": raw_path, "absolute_path": str(resolved), "exists": exists, "readable": readable, "safe": safe, "size_bytes": size_bytes}
 
     def _finalization_manifest_path(self, paper_id: str, idempotency_key: str) -> Path:
         return self.path.parent / "finalization_packages" / _slug_id(paper_id) / _slug_id(idempotency_key) / "finalization_manifest.json"
