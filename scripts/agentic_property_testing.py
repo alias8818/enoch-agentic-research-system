@@ -173,6 +173,14 @@ def _proposal_module(proposals: list[Proposal], repo_root: Path) -> str:
 def _execution_status(returncode: int, output: str) -> str:
     if returncode == 0:
         return "no_counterexample"
+    execution_error_markers = (
+        "No module named pytest",
+        "ERROR: file or directory not found",
+        "unrecognized arguments:",
+        "pytest: error:",
+    )
+    if returncode in {3, 4, 5} or any(marker in output for marker in execution_error_markers):
+        return "execution_error"
     proposal_error_markers = (
         "ERROR collecting",
         "Interrupted: ",
@@ -195,6 +203,8 @@ def _agentic_next_action(status: str) -> str:
         return "agent_quarantine_invalid_proposal_and_regenerate"
     if status == "counterexample_found":
         return "agent_minimize_reproduce_patch_and_rerun"
+    if status == "execution_error":
+        return "agent_fix_harness_invocation_or_environment_and_rerun"
     if status == "max_attempts_exhausted":
         return "agent_quarantine_attempt_batch_and_regenerate"
     return "agent_route_unknown_status_to_quarantine"
@@ -417,6 +427,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-rolling-remaining", type=int, default=10)
     parser.add_argument("--reserve-requests", type=int, default=1)
     args, passthrough = parser.parse_known_args(argv)
+    if passthrough and passthrough[0] == "--":
+        passthrough = passthrough[1:]
 
     repo_root = args.repo_root.resolve()
     target = (repo_root / args.target).resolve() if not args.target.is_absolute() else args.target.resolve()
@@ -511,12 +523,12 @@ def main(argv: list[str] | None = None) -> int:
             pytest_args=passthrough,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
-        return 1 if result["status"] == "counterexample_found" else 0
+        return 1 if result["status"] in {"counterexample_found", "execution_error", "max_attempts_exhausted"} else 0
 
     if args.proposal_file and args.execute_proposals:
         result = execute_proposals(repo_root, args.proposal_file.resolve(), report_dir, pytest_args=passthrough)
         print(json.dumps(result, indent=2, sort_keys=True))
-        return 1 if result["status"] == "counterexample_found" else 0
+        return 1 if result["status"] in {"counterexample_found", "execution_error"} else 0
 
     output = (repo_root / args.prompt_output).resolve() if not args.prompt_output.is_absolute() else args.prompt_output.resolve()
     write_prompt(repo_root, target, output, max_chars=args.max_chars)

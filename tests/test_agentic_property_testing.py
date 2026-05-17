@@ -84,6 +84,38 @@ def test_agentic_property_testing_classifies_collection_errors_as_proposal_error
     assert Path(result["reproducer_path"]).is_file()
 
 
+
+def test_agentic_property_testing_classifies_pytest_invocation_errors() -> None:
+    assert agentic_property_testing._execution_status(4, "ERROR: file or directory not found: -q") == "execution_error"
+    assert agentic_property_testing._execution_status(1, "/usr/bin/python3: No module named pytest") == "execution_error"
+    assert "agent" in agentic_property_testing._agentic_next_action("execution_error")
+
+
+def test_agentic_property_testing_main_strips_passthrough_separator(tmp_path: Path, capsys) -> None:
+    module = tmp_path / "sample_module.py"
+    module.write_text("def identity(value):\n    return value\n", encoding="utf-8")
+    proposals = tmp_path / "proposal.json"
+    proposals.write_text(
+        json.dumps({"tests": [{"name": "identity", "rationale": "identity", "code": "from sample_module import identity\n\ndef test_identity():\n    assert identity('x') == 'x'\n"}]}),
+        encoding="utf-8",
+    )
+
+    code = agentic_property_testing.main([
+        "--repo-root",
+        str(tmp_path),
+        "--target",
+        str(module),
+        "--proposal-file",
+        str(proposals),
+        "--execute-proposals",
+        "--",
+        "-q",
+    ])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "no_counterexample"
+
 def test_agentic_property_testing_autonomous_loop_retries_proposal_errors(tmp_path: Path) -> None:
     repo = tmp_path
     module = repo / "sample_module.py"
