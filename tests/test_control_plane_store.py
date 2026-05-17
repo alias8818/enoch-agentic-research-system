@@ -753,6 +753,48 @@ class ControlPlaneStoreTests(unittest.TestCase):
                 store.record_worker_callback(subset)
 
 
+    def test_mark_dispatch_started_append_failure_does_not_mutate_runtime_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            project_id = "idea-dispatch-atomic"
+            run_id = "run-dispatch-atomic"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="dispatch-atomic-import",
+                    queue_rows=[{
+                        "project_id": project_id,
+                        "project_name": "Dispatch Atomic",
+                        "project_dir": "dispatch-atomic",
+                        "status": "queued",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            before_queue = store.queue_row(project_id)
+            before_run = store.run_row(run_id)
+
+            def fail_append_event(*_args, **_kwargs):
+                raise RuntimeError("simulated dispatch event write failure")
+
+            with unittest.mock.patch.object(store, "_append_event_in_conn", side_effect=fail_append_event):
+                with self.assertRaises(RuntimeError):
+                    store.mark_dispatch_started(
+                        project_id=project_id,
+                        run_id=run_id,
+                        session_id="session-after",
+                        dispatch_payload={"project_id": project_id},
+                        requested_by="test",
+                    )
+
+            after_queue = store.queue_row(project_id)
+            after_run = store.run_row(run_id)
+            self.assertEqual(after_queue["status"], before_queue["status"])
+            self.assertEqual(after_queue["current_run_id"], before_queue["current_run_id"])
+            self.assertEqual(after_queue["current_session_id"], before_queue["current_session_id"])
+            self.assertEqual(after_queue["last_run_state"], before_queue["last_run_state"])
+            self.assertIsNone(before_run)
+            self.assertIsNone(after_run)
+
     def test_worker_callback_append_failure_does_not_mutate_runtime_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

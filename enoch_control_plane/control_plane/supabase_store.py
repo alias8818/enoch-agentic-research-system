@@ -3009,13 +3009,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     """,
                     (run_id, project_id, session_id, "running", "exec", now, None, None, "running", "dispatched", f"live-dispatch:{run_id}", now),
                 )
-        event_id, _ = self.append_event(
-            idempotency_key=f"live-dispatch:{run_id}",
-            event_type="controller.live_dispatch",
-            entity_type="project",
-            entity_id=project_id,
-            payload={"requested_by": requested_by, "run_id": run_id, "session_id": session_id, "dispatch": dispatch_payload},
-        )
+                event_id, _ = self._append_event_in_cursor(
+                    cur,
+                    idempotency_key=f"live-dispatch:{run_id}",
+                    event_type="controller.live_dispatch",
+                    entity_type="project",
+                    entity_id=project_id,
+                    payload={"requested_by": requested_by, "run_id": run_id, "session_id": session_id, "dispatch": dispatch_payload},
+                )
         return event_id, self.queue_row(project_id) or {}
 
     def _replayed_worker_callback_event_id(self, idempotency_key: str, incoming_payload: dict[str, Any]) -> int | None:

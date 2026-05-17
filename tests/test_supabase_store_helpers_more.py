@@ -608,6 +608,84 @@ def test_supabase_stale_worker_callback_replay_stays_idempotent_after_current_ru
 
 
 
+def test_supabase_mark_dispatch_started_append_failure_does_not_mutate_runtime_state(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    project_id = "idea-dispatch-atomic"
+    run_id = "run-dispatch-atomic"
+    queue = {
+        "project_id": project_id,
+        "status": "queued",
+        "current_run_id": "",
+        "current_session_id": "",
+        "last_run_state": "",
+        "next_action_hint": "start_next_candidate",
+    }
+    runs: dict[str, dict] = {}
+
+    class Cursor:
+        def __init__(self, conn):
+            self.conn = conn
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("update queue_items"):
+                pending_queue = self.conn.pending_queue
+                pending_queue["status"] = params[0]
+                pending_queue["current_run_id"] = params[1]
+                pending_queue["current_session_id"] = params[2]
+                pending_queue["last_run_state"] = params[3]
+                pending_queue["next_action_hint"] = params[5]
+            elif normalized.startswith("insert into runs"):
+                self.conn.pending_runs[params[0]] = {
+                    "run_id": params[0],
+                    "project_id": params[1],
+                    "session_id": params[2],
+                    "state": params[3],
+                    "gate_state": params[8],
+                }
+            return self
+
+    class Conn:
+        def __enter__(self):
+            self.pending_queue = dict(queue)
+            self.pending_runs = {key: dict(value) for key, value in runs.items()}
+            return self
+        def __exit__(self, exc_type, *_args):
+            if exc_type is None:
+                queue.update(self.pending_queue)
+                runs.clear()
+                runs.update(self.pending_runs)
+            return False
+        def cursor(self): return Cursor(self)
+
+    def fail_append_event(*_args, **_kwargs):
+        raise RuntimeError("simulated dispatch event write failure")
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", fail_append_event)
+
+    try:
+        store.mark_dispatch_started(
+            project_id=project_id,
+            run_id=run_id,
+            session_id="session-after",
+            dispatch_payload={"project_id": project_id},
+            requested_by="test",
+        )
+    except RuntimeError as exc:
+        assert "simulated dispatch event write failure" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected simulated event write failure")
+
+    assert queue["status"] == "queued"
+    assert queue["current_run_id"] == ""
+    assert queue["current_session_id"] == ""
+    assert queue["last_run_state"] == ""
+    assert queue["next_action_hint"] == "start_next_candidate"
+    assert runs == {}
+
+
 def test_supabase_worker_callback_append_failure_does_not_mutate_runtime_state(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     project_id = "idea-callback-atomic"
