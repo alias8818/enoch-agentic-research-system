@@ -576,6 +576,8 @@ Then run live readiness probe. Expected: readiness `ready` or a clearly understo
 
 **Additional worker state persistence hardening:** Worker run-state writes now recreate the run-state directory if it disappears and use same-directory atomic replacement, reducing crash/restart corruption risk in the local worker gate state store.
 
+**Additional provider budget fail-closed hardening:** Synthetic quota parsing now treats malformed numeric quota fields as budget failures instead of raising out of the budget status helper, keeping research autopilot decisions operator-readable and fail-closed.
+
 ## Task 9: Final verification, cleanup, and report
 
 **Timebox:** 25 minutes

@@ -56,14 +56,28 @@ def synthetic_budget_status(
     weekly = section("weeklyTokenLimit")
     rolling = section("rollingFiveHourLimit")
     subscription = section("subscription")
-    remaining_credits_raw = str(weekly.get("remainingCredits") or "0").replace("$", "")
-    try:
-        remaining_credits = float(remaining_credits_raw)
-    except ValueError:
-        remaining_credits = 0.0
-    rolling_remaining = int(rolling.get("remaining") or 0)
-    subscription_limit = int(subscription.get("limit") or 0)
-    subscription_remaining = max(0, subscription_limit - int(subscription.get("requests") or 0))
+    def parse_float(section_name: str, field: str, default: float = 0.0) -> float:
+        raw = str(section(section_name).get(field) or str(default)).replace("$", "")
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            failures.append(f"malformed {section_name}.{field}")
+            return default
+
+    def parse_int(section_name: str, field: str, default: int = 0) -> int:
+        raw = section(section_name).get(field)
+        try:
+            return int(raw or default)
+        except (TypeError, ValueError):
+            failures.append(f"malformed {section_name}.{field}")
+            return default
+
+    remaining_credits = parse_float("weeklyTokenLimit", "remainingCredits")
+    rolling_remaining = parse_int("rollingFiveHourLimit", "remaining")
+    rolling_max = parse_int("rollingFiveHourLimit", "max")
+    subscription_limit = parse_int("subscription", "limit")
+    subscription_requests = parse_int("subscription", "requests")
+    subscription_remaining = max(0, subscription_limit - subscription_requests)
     required_rolling = max(0, int(estimated_requests)) + max(0, int(reserve_requests))
     if remaining_credits < min_remaining_credits:
         failures.append(f"weekly remaining credits {remaining_credits:.2f} < minimum {min_remaining_credits:.2f}")
@@ -82,7 +96,7 @@ def synthetic_budget_status(
         "remaining_credits": remaining_credits,
         "min_remaining_credits": min_remaining_credits,
         "rolling_remaining": rolling_remaining,
-        "rolling_max": int(rolling.get("max") or 0),
+        "rolling_max": rolling_max,
         "rolling_limited": bool(rolling.get("limited")),
         "rolling_next_tick_at": rolling.get("nextTickAt") or "",
         "weekly_next_regen_at": weekly.get("nextRegenAt") or "",

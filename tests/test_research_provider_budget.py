@@ -52,6 +52,26 @@ def test_synthetic_budget_fails_closed_on_malformed_sections() -> None:
     assert any("malformed" in item for item in result["failures"])
 
 
+def test_synthetic_budget_fails_closed_on_malformed_numeric_values() -> None:
+    payload = json.loads(json.dumps(SYNTHETIC_QUOTA))
+    payload["rollingFiveHourLimit"]["remaining"] = "not-a-number"
+    payload["rollingFiveHourLimit"]["max"] = "also-bad"
+    payload["subscription"]["limit"] = "bad-limit"
+    payload["subscription"]["requests"] = "bad-requests"
+
+    result = research_provider_budget.synthetic_budget_status(
+        payload,
+        min_remaining_credits=5.0,
+        min_rolling_remaining=10,
+        estimated_requests=1,
+        reserve_requests=1,
+    )
+
+    assert result["ok"] is False
+    assert any("malformed rollingFiveHourLimit.remaining" in failure for failure in result["failures"])
+    assert any("malformed subscription.limit" in failure for failure in result["failures"])
+
+
 def test_synthetic_budget_fails_closed_when_low_or_limited() -> None:
     payload = json.loads(json.dumps(SYNTHETIC_QUOTA))
     payload["weeklyTokenLimit"]["remainingCredits"] = "$1.00"
