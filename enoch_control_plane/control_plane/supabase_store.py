@@ -3012,7 +3012,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             project_id = _text(row.get("project_id") if row else "")
         current_queue_row: dict[str, Any] | None = None
         stale_callback = False
-        if project_id and run_id:
+        if project_id:
             current_queue_row = self._one(
                 "select status,current_run_id,current_session_id,last_run_state,next_action_hint from queue_items where project_id = %s",
                 (project_id,),
@@ -3052,6 +3052,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 "applied_status": status,
                 "applied_next_action_hint": next_action_hint,
                 "stale_callback_ignored": True,
+                "ignore_reason": "missing_run_id_for_active_project" if not run_id else "run_id_mismatch",
                 "current_run_id": _text(current_queue_row.get("current_run_id")),
             }
             replayed_event_id = self._replayed_event_id(idempotency_key, event_payload)

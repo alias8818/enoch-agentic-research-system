@@ -484,6 +484,40 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertIsNone(run["ended_at"])
             self.assertEqual(run["last_callback_at"], row["last_callback_at"])
 
+    def test_worker_callback_missing_run_id_does_not_mutate_active_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="callback-missing-run-import",
+                    queue_rows=[{
+                        "project_id": "idea-active",
+                        "project_name": "Active Project",
+                        "project_dir": "idea-active",
+                        "status": "awaiting_wake",
+                        "current_run_id": "run-active",
+                        "current_session_id": "session-active",
+                        "next_action_hint": "await_callback",
+                    }],
+                    paper_rows=[],
+                )
+            )
+
+            event_id, inserted, row = store.record_worker_callback({
+                "project_id": "idea-active",
+                "event_type": "",
+                "reason": "malformed callback without run id",
+            })
+
+            self.assertTrue(inserted)
+            self.assertIsInstance(event_id, int)
+            self.assertEqual(row["status"], "awaiting_wake")
+            self.assertEqual(row["current_run_id"], "run-active")
+            self.assertEqual(row["next_action_hint"], "await_callback")
+            event = store.event_rows(limit=1, entity_type="run", entity_id="idea-active")[0]
+            self.assertEqual(event["payload"]["stale_callback_ignored"], True)
+            self.assertEqual(event["payload"]["ignore_reason"], "missing_run_id_for_active_project")
+
     def test_worker_callback_without_idempotency_key_replays_by_run_event_and_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
@@ -648,6 +682,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
                         "queue_status": "awaiting_wake",
                         "current_run_id": "run-active",
                         "current_session_id": "session-active",
+                        "next_action_hint": "await_callback",
                         "last_run_state": "dispatch_accepted",
                         "last_event_type": "resume_current",
                         "last_execution_update": "2026-04-28T14:33:35.005Z",

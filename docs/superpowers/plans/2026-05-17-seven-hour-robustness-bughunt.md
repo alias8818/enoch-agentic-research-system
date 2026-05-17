@@ -717,3 +717,9 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Root cause: `_local_paper_evidence_present` treated any local `results/*.json` as enough paper evidence. That could let a paper rewrite proceed with a metric file but no run notes or decision context, recreating the “paper without enough evidence” failure mode.
 - Fix: source-result evidence now requires `run_notes.md` plus at least one safe result JSON. Already-generated paper evidence counts only when both `evidence_bundle.json` and `claim_ledger.json` are present in the same paper directory. Symlink protections remain.
 - Tests: added `test_local_paper_evidence_requires_notes_with_result_files` and reran evidence-sync/property/router paper-gate tests.
+
+## Additional pass: malformed callback cannot disturb active lane
+
+- Root cause: a worker callback containing a `project_id` but no `run_id` could mutate an active queue item into `needs_review` because stale-callback protection only ran when a callback supplied a run id.
+- Fix: callback handling now checks the current queue row whenever `project_id` is present. If the project has an active `current_run_id` and the callback omits or mismatches `run_id`, the callback is recorded as ignored and the queue item is left untouched. Applied to SQLite and Supabase store implementations.
+- Tests: added SQLite and Supabase regression tests for missing-run callbacks against active projects.
