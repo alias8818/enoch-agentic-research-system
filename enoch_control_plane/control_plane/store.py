@@ -1412,6 +1412,46 @@ class ControlPlaneStore:
         size_bytes = resolved.stat().st_size if readable else 0
         return {"field": field, "path": raw_path, "absolute_path": str(resolved), "exists": exists, "readable": readable, "safe": safe, "size_bytes": size_bytes}
 
+    def _read_finalization_json_artifact(self, artifact: dict[str, Any]) -> dict[str, Any]:
+        if not artifact.get("readable"):
+            return {}
+        try:
+            return _json_dict(Path(_text(artifact.get("absolute_path"))).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _semantic_finalization_artifact_failures(self, artifacts: list[dict[str, Any]]) -> list[str]:
+        by_field = {str(artifact.get("field") or ""): artifact for artifact in artifacts}
+        failures: list[str] = []
+
+        evidence = self._read_finalization_json_artifact(by_field.get("evidence_bundle_path", {}))
+        public_files = [item for item in evidence.get("public_evidence_files") or [] if isinstance(item, dict)]
+        if not public_files:
+            failures.append("evidence_bundle_path has no public_evidence_files")
+        elif not any(_text(item.get("source_path")) and _text(item.get("content")) for item in public_files):
+            failures.append("evidence_bundle_path has no public evidence content")
+
+        claim_ledger = self._read_finalization_json_artifact(by_field.get("claim_ledger_path", {}))
+        claims = [item for item in claim_ledger.get("claims") or [] if isinstance(item, dict)]
+        ledger_status = _text(claim_ledger.get("ledger_status"))
+        if not claims:
+            failures.append("claim_ledger_path has no claims")
+        if ledger_status not in {"claims_reference_evidence", "claims_require_review"}:
+            failures.append("claim_ledger_path ledger_status is not an evidence-linked status")
+        if any(not [ref for ref in claim.get("evidence_refs") or [] if isinstance(ref, dict)] for claim in claims):
+            failures.append("claim_ledger_path contains claims without evidence_refs")
+        if _int(claim_ledger.get("unsupported_claim_count"), 0) > 0:
+            failures.append("claim_ledger_path contains unsupported claims")
+
+        manifest = self._read_finalization_json_artifact(by_field.get("manifest_path", {}))
+        if _int(manifest.get("evidence_file_count"), 0) < 1:
+            failures.append("manifest_path evidence_file_count is zero")
+        if _int(manifest.get("claim_count"), 0) < 1:
+            failures.append("manifest_path claim_count is zero")
+        if _text(manifest.get("claim_ledger_status")) not in {"claims_reference_evidence", "claims_require_review"}:
+            failures.append("manifest_path claim_ledger_status is not an evidence-linked status")
+        return failures
+
     def _finalization_manifest_path(self, paper_id: str, idempotency_key: str) -> Path:
         return self.path.parent / "finalization_packages" / _slug_id(paper_id) / _slug_id(idempotency_key) / "finalization_manifest.json"
 
@@ -1434,10 +1474,6 @@ class ControlPlaneStore:
                 item = self.paper_review_row(paper_id) or {}
                 return replayed_event_id, False, item, _text(item.get("finalization_package_path")), self._load_manifest(_text(item.get("finalization_package_path")))
         current = _text(row.get("review_status"))
-        if not request.dry_run and current == ReviewStatus.FINALIZED.value:
-            item = self.paper_review_row(paper_id) or {}
-            path = _text(item.get("finalization_package_path"))
-            return None, False, item, path, self._load_manifest(path)
         if not request.dry_run and require_approval and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value:
             raise ValueError("legacy approval-gated finalization requires internal approved_for_finalization state")
         if not request.dry_run and not require_approval and current == ReviewStatus.REJECTED.value:
@@ -1450,6 +1486,13 @@ class ControlPlaneStore:
         unreadable = [artifact["field"] for artifact in artifacts if not artifact["readable"]]
         if unreadable and not request.dry_run:
             raise ValueError(f"finalization package requires readable artifacts: {', '.join(unreadable)}")
+        semantic_failures = [] if unreadable else self._semantic_finalization_artifact_failures(artifacts)
+        if semantic_failures and not request.dry_run:
+            raise ValueError(f"semantic evidence gate failed: {', '.join(semantic_failures)}")
+        if not request.dry_run and current == ReviewStatus.FINALIZED.value:
+            item = self.paper_review_row(paper_id) or {}
+            path = _text(item.get("finalization_package_path"))
+            return None, False, item, path, self._load_manifest(path)
         package_path = self._finalization_manifest_path(paper_id, request.idempotency_key)
         now = utc_now()
         manifest = {
@@ -1468,6 +1511,7 @@ class ControlPlaneStore:
             "require_approval": require_approval,
             "automated_publication": not require_approval,
             "artifacts": artifacts,
+            "semantic_evidence_gate": {"ok": not semantic_failures, "failures": semantic_failures},
             "checklist": checklist,
             "review_item": self.paper_review_row(paper_id) or {},
             "no_submission_side_effects": True,

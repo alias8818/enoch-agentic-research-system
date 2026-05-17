@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,6 +24,46 @@ def _write_decision(project_dir: Path, decision: str) -> None:
     decision_dir = project_dir / ".omx"
     decision_dir.mkdir(parents=True, exist_ok=True)
     (decision_dir / "project_decision.json").write_text(f'{{"decision":"{decision}"}}\n', encoding="utf-8")
+
+
+def _write_publication_artifacts(project_dir: Path) -> None:
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "paper.md").write_text("Measured result improved over baseline.", encoding="utf-8")
+    (project_dir / "paper.tex").write_text("content", encoding="utf-8")
+    (project_dir / "evidence_bundle.json").write_text(
+        json.dumps({
+            "schema_version": "evidence_bundle.v2",
+            "public_evidence_files": [{
+                "path": "evidence/run_notes.md",
+                "source_path": "run_notes.md",
+                "content": "Measured result improved over baseline.",
+                "sha256": "abc",
+            }],
+        }),
+        encoding="utf-8",
+    )
+    (project_dir / "claim_ledger.json").write_text(
+        json.dumps({
+            "schema_version": "claim_ledger.v2",
+            "ledger_status": "claims_reference_evidence",
+            "claims": [{
+                "id": "C1",
+                "claim": "Measured result improved over baseline.",
+                "support_status": "supported",
+                "evidence_refs": [{"path": "evidence/run_notes.md", "source_path": "run_notes.md", "match_score": 1.0}],
+            }],
+            "unsupported_claim_count": 0,
+        }),
+        encoding="utf-8",
+    )
+    (project_dir / "paper_manifest.json").write_text(
+        json.dumps({
+            "evidence_file_count": 1,
+            "claim_count": 1,
+            "claim_ledger_status": "claims_reference_evidence",
+        }),
+        encoding="utf-8",
+    )
 
 
 def _client(tmp: str) -> TestClient:
@@ -138,8 +179,7 @@ class OperatorStatusTests(unittest.TestCase):
             project_dir = Path(tmp) / "projects" / "idea-ready"
             project_dir.mkdir(parents=True)
             _write_decision(project_dir, "finalize_positive")
-            for artifact_name in ("paper.md", "paper.tex", "evidence_bundle.json", "claim_ledger.json", "paper_manifest.json"):
-                (project_dir / artifact_name).write_text("{}" if artifact_name.endswith(".json") else "paper", encoding="utf-8")
+            _write_publication_artifacts(project_dir)
             imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
                 "idempotency_key": "operator-status-import",
                 "queue_rows": [
@@ -248,8 +288,7 @@ class OperatorStatusTests(unittest.TestCase):
             project_dir = Path(tmp) / "projects" / "idea-imported"
             project_dir.mkdir(parents=True)
             _write_decision(project_dir, "finalize_positive")
-            for artifact_name in ("paper.md", "paper.tex", "evidence_bundle.json", "claim_ledger.json", "paper_manifest.json"):
-                (project_dir / artifact_name).write_text("{}" if artifact_name.endswith(".json") else "paper", encoding="utf-8")
+            _write_publication_artifacts(project_dir)
             imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
                 "idempotency_key": "operator-imported-ledger-import",
                 "queue_rows": [{
@@ -394,8 +433,7 @@ class OperatorStatusTests(unittest.TestCase):
             project_dir = Path(tmp) / "projects" / "idea-unbackfilled"
             project_dir.mkdir(parents=True)
             _write_decision(project_dir, "finalize_positive")
-            for artifact_name in ("paper.md", "paper.tex", "evidence_bundle.json", "claim_ledger.json", "paper_manifest.json"):
-                (project_dir / artifact_name).write_text("{}" if artifact_name.endswith(".json") else "paper", encoding="utf-8")
+            _write_publication_artifacts(project_dir)
             imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
                 "idempotency_key": "operator-unbackfilled-import",
                 "queue_rows": [
@@ -486,8 +524,7 @@ class OperatorStatusTests(unittest.TestCase):
             project_dir = Path(tmp) / "projects" / "idea-with-paper"
             project_dir.mkdir(parents=True)
             _write_decision(project_dir, "provisional_positive_continue")
-            for artifact_name in ("paper.md", "paper.tex", "evidence_bundle.json", "claim_ledger.json", "paper_manifest.json"):
-                (project_dir / artifact_name).write_text("{}" if artifact_name.endswith(".json") else "paper", encoding="utf-8")
+            _write_publication_artifacts(project_dir)
             imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
                 "idempotency_key": "operator-existing-paper-import",
                 "queue_rows": [{

@@ -61,6 +61,37 @@ def _client_with_config(config: GateConfig) -> TestClient:
     return TestClient(app)
 
 
+def _write_publication_artifacts(project_dir: Path, *, evidence_path: str, claim_path: str, manifest_path: str) -> None:
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "paper.md").write_text("Measured result improved over baseline.", encoding="utf-8")
+    (project_dir / "paper.tex").write_text("content", encoding="utf-8")
+    evidence = {
+        "schema_version": "evidence_bundle.v2",
+        "public_evidence_files": [{
+            "path": "evidence/run_notes.md",
+            "source_path": "run_notes.md",
+            "content": "Measured result improved over baseline.",
+            "sha256": "abc",
+        }],
+    }
+    claims = {
+        "schema_version": "claim_ledger.v2",
+        "ledger_status": "claims_reference_evidence",
+        "claims": [{
+            "id": "C1",
+            "claim": "Measured result improved over baseline.",
+            "support_status": "supported",
+            "evidence_refs": [{"path": "evidence/run_notes.md", "source_path": "run_notes.md", "match_score": 1.0}],
+        }],
+        "unsupported_claim_count": 0,
+    }
+    manifest = {"evidence_file_count": 1, "claim_count": 1, "claim_ledger_status": "claims_reference_evidence"}
+    for rel, payload in ((evidence_path, evidence), (claim_path, claims), (manifest_path, manifest)):
+        target = project_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(payload), encoding="utf-8")
+
+
 class ControlPlaneRouterTests(unittest.TestCase):
 
     def test_deterministic_paper_writes_are_atomic(self) -> None:
@@ -3839,8 +3870,12 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "claim_ledger_path": "claims.json",
                 "manifest_path": "manifest.json",
             }
-            for rel in artifact_paths.values():
-                (project_dir / rel).write_text("{}" if rel.endswith(".json") else "content", encoding="utf-8")
+            _write_publication_artifacts(
+                project_dir,
+                evidence_path=artifact_paths["evidence_bundle_path"],
+                claim_path=artifact_paths["claim_ledger_path"],
+                manifest_path=artifact_paths["manifest_path"],
+            )
             paper_id = "router-package:run-1:arxiv_draft"
             audit_path = Path(tmp) / "audit.json"
             audit_path.write_text(json.dumps({"papers": [{"paper_id": paper_id, "ready": True}]}), encoding="utf-8")

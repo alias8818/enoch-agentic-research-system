@@ -1077,8 +1077,43 @@ class ControlPlaneStoreTests(unittest.TestCase):
                 "claim_ledger_path": "claims.json",
                 "manifest_path": "manifest.json",
             }
-            for rel in artifact_paths.values():
-                (project_dir / rel).write_text("{}" if rel.endswith(".json") else "content", encoding="utf-8")
+            (project_dir / "paper.md").write_text("Measured result improved over baseline.", encoding="utf-8")
+            (project_dir / "paper.tex").write_text("content", encoding="utf-8")
+            (project_dir / "evidence.json").write_text(
+                json.dumps({
+                    "schema_version": "evidence_bundle.v2",
+                    "public_evidence_files": [{
+                        "path": "evidence/run_notes.md",
+                        "source_path": "run_notes.md",
+                        "content": "Measured result improved over baseline.",
+                        "sha256": "abc",
+                    }],
+                }),
+                encoding="utf-8",
+            )
+            (project_dir / "claims.json").write_text(
+                json.dumps({
+                    "schema_version": "claim_ledger.v2",
+                    "ledger_status": "claims_reference_evidence",
+                    "claims": [{
+                        "id": "C1",
+                        "claim": "Measured result improved over baseline.",
+                        "support_status": "supported",
+                        "evidence_refs": [{"path": "evidence/run_notes.md", "source_path": "run_notes.md", "match_score": 1.0}],
+                    }],
+                    "unsupported_claim_count": 0,
+                }),
+                encoding="utf-8",
+            )
+            (project_dir / "manifest.json").write_text(
+                json.dumps({
+                    "paper_id": "package:run-1:arxiv_draft",
+                    "evidence_file_count": 1,
+                    "claim_count": 1,
+                    "claim_ledger_status": "claims_reference_evidence",
+                }),
+                encoding="utf-8",
+            )
             paper_id = "package:run-1:arxiv_draft"
             audit_path = Path(tmp) / "audit.json"
             audit_path.write_text(json.dumps({"papers": [{"paper_id": paper_id, "ready": True}]}), encoding="utf-8")
@@ -1109,6 +1144,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertTrue(manifest["no_submission_side_effects"])
             self.assertEqual(len(manifest["artifacts"]), 5)
             self.assertTrue(all(artifact["readable"] for artifact in manifest["artifacts"]))
+            self.assertTrue(manifest["semantic_evidence_gate"]["ok"])
             self.assertEqual(item["review_status"], "claimed")
 
             existing_manifest = Path(package_path)
@@ -1139,6 +1175,87 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(event_id_again, event_id)
             self.assertEqual(package_path_again, package_path)
             self.assertEqual(finalized_again["review_status"], "finalized")
+
+    def test_prepare_finalization_package_rejects_empty_evidence_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            project_dir = Path(tmp) / "project"
+            project_dir.mkdir()
+            artifact_paths = {
+                "draft_markdown_path": "paper.md",
+                "draft_latex_path": "paper.tex",
+                "evidence_bundle_path": "evidence.json",
+                "claim_ledger_path": "claims.json",
+                "manifest_path": "manifest.json",
+            }
+            for rel in artifact_paths.values():
+                (project_dir / rel).write_text("{}" if rel.endswith(".json") else "content", encoding="utf-8")
+            paper_id = "empty-evidence:run-1:arxiv_draft"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="empty-evidence-import",
+                    paper_rows=[{
+                        "paper_id": paper_id,
+                        "project_id": "empty-evidence",
+                        "project_dir": str(project_dir),
+                        "run_id": "run-1",
+                        "paper_status": "publication_draft",
+                        **artifact_paths,
+                    }],
+                )
+            )
+            store.backfill_paper_reviews(PaperReviewBackfillRequest(idempotency_key="empty-evidence-review-backfill", dry_run=False))
+
+            with self.assertRaisesRegex(ValueError, "semantic evidence gate"):
+                store.prepare_paper_review_finalization_package(
+                    paper_id,
+                    PaperReviewPrepareFinalizationRequest(idempotency_key="empty-evidence-finalize", requested_by="test", dry_run=False),
+                    require_approval=False,
+                )
+
+    def test_prepare_finalization_package_rechecks_existing_finalized_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            project_dir = Path(tmp) / "project"
+            project_dir.mkdir()
+            artifact_paths = {
+                "draft_markdown_path": "paper.md",
+                "draft_latex_path": "paper.tex",
+                "evidence_bundle_path": "evidence.json",
+                "claim_ledger_path": "claims.json",
+                "manifest_path": "manifest.json",
+            }
+            for rel in artifact_paths.values():
+                (project_dir / rel).write_text("{}" if rel.endswith(".json") else "content", encoding="utf-8")
+            package_path = Path(tmp) / "old-finalization.json"
+            package_path.write_text('{"semantic_evidence_gate":{"ok":false}}\n', encoding="utf-8")
+            paper_id = "stale-finalized:run-1:arxiv_draft"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="stale-finalized-import",
+                    paper_rows=[{
+                        "paper_id": paper_id,
+                        "project_id": "stale-finalized",
+                        "project_dir": str(project_dir),
+                        "run_id": "run-1",
+                        "paper_status": "publication_draft",
+                        **artifact_paths,
+                    }],
+                )
+            )
+            store.backfill_paper_reviews(PaperReviewBackfillRequest(idempotency_key="stale-finalized-review-backfill", dry_run=False))
+            with store._connect() as conn:
+                conn.execute(
+                    "UPDATE paper_review_items SET review_status='finalized', finalization_package_path=? WHERE paper_id=?",
+                    (str(package_path), paper_id),
+                )
+
+            with self.assertRaisesRegex(ValueError, "semantic evidence gate"):
+                store.prepare_paper_review_finalization_package(
+                    paper_id,
+                    PaperReviewPrepareFinalizationRequest(idempotency_key="stale-finalized-recheck", requested_by="test", dry_run=False),
+                    require_approval=False,
+                )
 
     def test_paper_review_status_validation_blocks_invalid_transitions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
