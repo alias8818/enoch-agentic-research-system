@@ -230,6 +230,65 @@ def test_worker_callback_idempotency_replay_preserves_queue_state(run_id: str, e
         assert [event["event_id"] for event in events].count(first_event_id) == 1
 
 
+late_callback_event_type = st.sampled_from([
+    "session_started",
+    "gate_timeout",
+    "gate_error",
+    "question_pending",
+])
+
+
+@given(run_id=run_id_text, late_event_type=late_callback_event_type)
+@settings(max_examples=80, deadline=None)
+def test_late_worker_callbacks_cannot_downgrade_completed_success(run_id: str, late_event_type: str) -> None:
+    project_id = "idea-callback-terminal-precedence"
+    with TemporaryDirectory() as tmp:
+        store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+        store.import_snapshot(
+            ImportSnapshotRequest(
+                idempotency_key=f"terminal-precedence-import:{run_id}",
+                queue_rows=[{
+                    "project_id": project_id,
+                    "project_name": "Callback Terminal Precedence",
+                    "project_dir": project_id,
+                    "status": "running",
+                    "current_run_id": run_id,
+                    "current_session_id": "session-current",
+                    "last_run_state": "running",
+                    "next_action_hint": "await_callback",
+                }],
+                paper_rows=[],
+            )
+        )
+        store.record_worker_callback({
+            "event_type": "wake_ready",
+            "run_id": run_id,
+            "session_id": "session-current",
+            "project_id": project_id,
+            "gate_state": "wake_ready",
+            "reason": "terminal success",
+            "idempotency_key": f"terminal-precedence-success:{run_id}",
+        })
+
+        _event_id, _inserted, row = store.record_worker_callback({
+            "event_type": late_event_type,
+            "run_id": run_id,
+            "session_id": "session-current",
+            "project_id": project_id,
+            "gate_state": late_event_type,
+            "reason": "late lower-precedence callback",
+            "idempotency_key": f"terminal-precedence-late:{run_id}:{late_event_type}",
+        })
+
+        assert row["status"] == "completed"
+        assert row["last_run_state"] == "wake_ready"
+        assert row["next_action_hint"] == "draft_paper_or_select_next_project"
+        assert row["manual_review_required"] in (0, False)
+        events = store.event_rows(limit=1, entity_type="run", entity_id=run_id)
+        assert events[0]["payload"]["late_callback_ignored"] is True
+        assert events[0]["payload"]["ignore_reason"] == "terminal_success_precedence"
+
+
 @given(current_run_id=run_id_text, imported_run_id=st.one_of(st.just(""), run_id_text))
 @settings(max_examples=80, deadline=None)
 def test_import_snapshot_does_not_blank_active_queue_run_fields(current_run_id: str, imported_run_id: str) -> None:

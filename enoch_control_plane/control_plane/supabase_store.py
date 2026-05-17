@@ -37,10 +37,12 @@ from .store import (
     ALLOWED_STATUS_TRANSITIONS,
     SYSTEM_REVIEW_STATUSES,
     QueueStatus,
+    TERMINAL_SUCCESS_CALLBACK_STATES,
     _atomic_write_text,
     _audit_rows,
     _bool,
     _checklist_progress,
+    _completed_success_queue_row,
     _contract_worker_callback_states,
     _default_review_checklist,
     _first_present,
@@ -3023,6 +3025,31 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 (current_run_id and current_run_id != run_id)
                 or (not run_id and current_queue_row is not None)
             )
+        if (
+            _completed_success_queue_row(current_queue_row, run_id)
+            and event_type not in TERMINAL_SUCCESS_CALLBACK_STATES
+        ):
+            event_payload = {
+                **payload,
+                "received_by": received_by,
+                "applied_status": _text(current_queue_row.get("status") if current_queue_row else ""),
+                "applied_next_action_hint": _text(current_queue_row.get("next_action_hint") if current_queue_row else ""),
+                "late_callback_ignored": True,
+                "ignore_reason": "terminal_success_precedence",
+                "current_run_id": _text(current_queue_row.get("current_run_id") if current_queue_row else ""),
+                "current_last_run_state": _text(current_queue_row.get("last_run_state") if current_queue_row else ""),
+            }
+            replayed_event_id = self._replayed_event_id(idempotency_key, event_payload)
+            if replayed_event_id is not None:
+                return replayed_event_id, False, self.queue_row(project_id) or {}
+            event_id, inserted = self.append_event(
+                idempotency_key=idempotency_key,
+                event_type=f"worker_callback.{event_type}",
+                entity_type="run",
+                entity_id=run_id or project_id or "unknown",
+                payload=event_payload,
+            )
+            return event_id, inserted, self.queue_row(project_id) or {}
 
         status = QueueStatus.COMPLETED.value
         next_action_hint = "select_next_project"

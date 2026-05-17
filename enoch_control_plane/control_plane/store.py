@@ -37,6 +37,7 @@ from .state_contract import RUN_STATES
 
 SCHEMA_VERSION = 1
 ACTIVE_STATUSES = {"dispatching", "running", "awaiting_wake", "wake_received", "reconciling"}
+TERMINAL_SUCCESS_CALLBACK_STATES = {"wake_ready", "session_finished_ready"}
 
 
 def _json(payload: Any) -> str:
@@ -89,6 +90,16 @@ def _contract_worker_callback_states(event_type: str, gate_state: str = "") -> t
         last_run_state = "needs_review"
     persisted_gate_state = raw_gate_state if raw_gate_state in RUN_STATES else run_state
     return last_run_state, run_state, persisted_gate_state
+
+
+def _completed_success_queue_row(row: dict[str, Any] | None, run_id: str) -> bool:
+    if not row:
+        return False
+    return (
+        _text(row.get("status")) == QueueStatus.COMPLETED.value
+        and _text(row.get("current_run_id")) == _text(run_id)
+        and _text(row.get("last_run_state")) in TERMINAL_SUCCESS_CALLBACK_STATES
+    )
 
 
 
@@ -2445,6 +2456,33 @@ class ControlPlaneStore:
                 (current_run_id and current_run_id != run_id)
                 or (not run_id and current_queue_row is not None)
             )
+        if (
+            _completed_success_queue_row(current_queue_row, run_id)
+            and event_type not in TERMINAL_SUCCESS_CALLBACK_STATES
+        ):
+            event_payload = {
+                **payload,
+                "received_by": received_by,
+                "applied_status": _text(current_queue_row.get("status")),
+                "applied_next_action_hint": _text(current_queue_row.get("next_action_hint")),
+                "late_callback_ignored": True,
+                "ignore_reason": "terminal_success_precedence",
+                "current_run_id": _text(current_queue_row.get("current_run_id")),
+                "current_last_run_state": _text(current_queue_row.get("last_run_state")),
+            }
+            replayed_event_id = self._replayed_event_id(idempotency_key, event_payload)
+            if replayed_event_id is not None:
+                row = self.queue_row(project_id) if project_id else {}
+                return replayed_event_id, False, row or {}
+            event_id, inserted = self.append_event(
+                idempotency_key=idempotency_key,
+                event_type=f"worker_callback.{event_type}",
+                entity_type="run",
+                entity_id=run_id or project_id or "unknown",
+                payload=event_payload,
+            )
+            row = self.queue_row(project_id) if project_id else {}
+            return event_id, inserted, row or {}
 
         status = QueueStatus.COMPLETED.value
         next_action_hint = "select_next_project"
