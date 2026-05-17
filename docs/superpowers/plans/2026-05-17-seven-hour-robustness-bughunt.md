@@ -246,7 +246,9 @@ Commit subject if a bug was fixed: `fix: require evidence presence after sync fa
 
 **Risk being hunted:** a paper is written for a negative, proxy-only, malformed, stale, or evidence-missing run.
 
-- [ ] **Step 1: Locate paper draft endpoints and gate functions**
+**Progress note:** Added fail-closed paper gate coverage for legacy positive rows without evidence and proxy/useful-signal `finalize_positive` artifacts. Fixed the decision gate so useful-signal positives require explicit bounded-paper readiness. Full test suite passed with 479 tests.
+
+- [x] **Step 1: Locate paper draft endpoints and gate functions**
 
 Read the relevant sections around:
 
@@ -254,11 +256,11 @@ Read the relevant sections around:
 grep -RIn "draft-next\|rewrite-draft\|paper_draft_decision_gate\|_local_paper_evidence_present" enoch_control_plane tests | head -200
 ```
 
-- [ ] **Step 2: Add tests for no paper without evidence**
+- [x] **Step 2: Add tests for no paper without evidence**
 
 Create or extend a test that imports a `completed`/`wake_ready` queue item with `last_run_state=finalize_positive`, but with no local evidence. Call `/control/papers/draft-next` with `dry_run: false` and assert it returns blocked/noop/424 rather than writing a paper row.
 
-- [ ] **Step 3: Add tests for bounded paper-ready vs broad finalize-positive**
+- [x] **Step 3: Add tests for bounded paper-ready vs broad finalize-positive**
 
 Use decision JSON variants:
 
@@ -274,11 +276,11 @@ and:
 
 Assert the first does not write a paper unless policy explicitly allows useful-signal papers; assert the second can proceed only with evidence present.
 
-- [ ] **Step 4: Patch only to fail closed**
+- [x] **Step 4: Patch only to fail closed**
 
 If ambiguity exists, choose no-paper/noop over paper generation. Do not weaken gates to increase positives.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run:
 

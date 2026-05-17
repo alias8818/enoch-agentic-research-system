@@ -347,3 +347,22 @@ class EnochCoreLogicTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_finalize_positive_proxy_useful_signal_without_bounded_ready_is_not_paper_ready() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / ".enoch").mkdir()
+        payload = {
+            "project_decision": "finalize_positive",
+            "research_outcome": "useful_signal",
+            "bounded_paper_ready": False,
+            "hypothesis_status": "supported",
+            "evidence_strength": "weak",
+            "claim_scope": "short proxy smoke only",
+            "scale_limits": "no direct medium or full validation",
+        }
+        (root / ".enoch" / "project_decision.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        gate = paper_draft_decision_gate(root)
+        assert gate["eligible"] is False
+        assert "bounded" in gate["reason"] or "proxy" in gate["reason"] or "useful" in gate["reason"]

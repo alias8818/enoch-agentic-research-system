@@ -259,6 +259,18 @@ def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
 
     for source, field, value in primary:
         if _has_decision_token(value, PAPER_DRAFT_POSITIVE_DECISION_TOKENS):
+            payload = payload_by_source.get(source) or {}
+            if _normal(payload.get("research_outcome")) == "useful_signal" and not _bounded_useful_signal_ready(payload):
+                return {
+                    "eligible": False,
+                    "reason": "useful signal is not bounded paper-ready",
+                    "source": source,
+                    "field": field,
+                    "decision": value,
+                    "values": values,
+                    "research_outcome": text(payload.get("research_outcome")),
+                    "bounded_paper_ready": truthy(payload.get("bounded_paper_ready")),
+                }
             return {"eligible": True, "reason": "project decision is positive", "source": source, "field": field, "decision": value, "values": values}
 
     if any(value == "continue" for _, _, value in primary):

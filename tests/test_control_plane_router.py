@@ -3610,3 +3610,35 @@ def test_project_prompt_includes_canonical_decision_contract() -> None:
     assert "Do not use `finalize_positive` for a proxy-only result" in prompt
     assert "Follow-up fields are optional adjacent-investigation metadata; they never make this run paper-positive." in prompt
     assert "controller will cap follow-ups at depth 4" in prompt
+
+
+def test_legacy_finalize_positive_without_evidence_does_not_write_paper() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        client = _client(tmp)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        response = client.post("/control/import/legacy-snapshot", headers=headers, json={
+            "idempotency_key": "import-legacy-positive-no-evidence",
+            "queue_rows": [{
+                "project_id": "legacy-positive-no-evidence",
+                "project_name": "Legacy Positive No Evidence",
+                "project_dir": "legacy-positive-no-evidence",
+                "status": "completed",
+                "last_run_state": "finalize_positive",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-legacy-positive-no-evidence",
+                "manual_review_required": False,
+            }],
+            "paper_rows": [],
+        })
+        assert response.status_code == 200
+
+        draft = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
+
+        assert draft.status_code in {200, 424}
+        if draft.status_code == 200:
+            assert draft.json()["action"] == "noop"
+            assert "evidence" in draft.json()["reason"]
+        else:
+            assert "evidence" in str(draft.json()).lower()
+        snapshot = client.get("/control/export/snapshot", headers=headers).json()
+        assert snapshot["paper_rows"] == []
