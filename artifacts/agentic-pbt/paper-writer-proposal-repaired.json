@@ -1,0 +1,14 @@
+{
+  "tests": [
+    {
+      "code": "from pathlib import Path\nfrom hypothesis import given, strategies as st\n\n@given(rel_path=st.paths())\ndef test_safe_public_evidence_path_pathlib_invariants(rel_path):\n    result = _safe_public_evidence_path(rel_path)\n    assert isinstance(result, Path), \"Must return a Path object\"\n    assert not result.is_absolute(), \"Result must be a relative path\"\n    assert \"..\" not in result.parts, \"Result must not contain path traversal '..'\"",
+      "name": "test_safe_public_evidence_path_pathlib_invariants",
+      "rationale": "Ensures _safe_public_evidence_path strictly handles pathlib.Path inputs and returns a safe, non-escaping relative Path without path traversal components."
+    },
+    {
+      "code": "from hypothesis import given, strategies as st\n\njson_strat = st.recursive(\n    st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False, allow_infinity=False) | st.text(),\n    lambda children: st.lists(children) | st.dictionaries(st.text(), children),\n    max_leaves=20\n)\n\n@given(value=json_strat, limit=st.integers(min_value=1, max_value=10))\ndef test_flatten_json_metrics_depth_limit(value, limit):\n    result = _flatten_json_metrics(value, limit=limit)\n    assert isinstance(result, dict), \"Flattened output must be a dict\"\n    for v in result.values():\n        assert not isinstance(v, (dict, list)), \"Flattened values must be primitives\"",
+      "name": "test_flatten_json_metrics_depth_limit",
+      "rationale": "Ensures _flatten_json_metrics correctly flattens arbitrary JSON-like structures and respects depth limits, guaranteeing no nested dicts or lists remain in the output."
+    }
+  ]
+}

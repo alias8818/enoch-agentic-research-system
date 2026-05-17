@@ -15,6 +15,13 @@ Target path: enoch_control_plane/control_plane/paper_writer.py
 - Avoid network calls, sleeps, live credentials, destructive filesystem writes,
   or tests that depend on host-specific state.
 - Each proposed test must be self-contained Python code.
+- Each proposed test must import every target function it uses.
+- Respect function signatures from the source excerpt; for example, pass
+  `pathlib.Path` values to parameters annotated as `Path`.
+- Do not use Hypothesis APIs that may not exist in the installed version.
+  Prefer composing `st.text`, `st.lists`, `st.dictionaries`, and
+  `pathlib.Path` manually over APIs such as `st.paths`.
+- Collection/import/syntax errors are invalid proposals, not counterexamples.
 - Valid output shape:
 
 ```json

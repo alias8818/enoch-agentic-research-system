@@ -1,0 +1,14 @@
+{
+  "tests": [
+    {
+      "code": "import pytest\nfrom hypothesis import given, strategies as st\nfrom enoch_control_plane.control_plane.paper_writer import _safe_public_evidence_path\n\n@given(st.text())\ndef test_safe_public_evidence_path_rejects_parent_traversal(path):\n    # Inject '..' to simulate path traversal attempt\n    test_path = path.replace(\"a\", \"..\")\n    result = _safe_public_evidence_path(test_path)\n    assert \"..\" not in result",
+      "name": "test_safe_public_evidence_path_rejects_parent_traversal",
+      "rationale": "Verifies that the function sanitizes input strings to prevent directory traversal attacks by ensuring '..' is removed."
+    },
+    {
+      "code": "import pytest\nfrom hypothesis import given, strategies as st\nfrom enoch_control_plane.control_plane.paper_writer import _flatten_json_metrics\n\n@given(st.dictionaries(st.text(), st.integers()))\ndef test_flatten_json_metrics_returns_dict(nested_dict):\n    result = _flatten_json_metrics(nested_dict)\n    assert isinstance(result, dict)",
+      "name": "test_flatten_json_metrics_returns_dict",
+      "rationale": "Ensures that the function processes a dictionary input and returns a dictionary output, validating basic type preservation."
+    }
+  ]
+}

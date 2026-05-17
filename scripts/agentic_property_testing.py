@@ -41,6 +41,13 @@ Target path: {target_path}
 - Avoid network calls, sleeps, live credentials, destructive filesystem writes,
   or tests that depend on host-specific state.
 - Each proposed test must be self-contained Python code.
+- Each proposed test must import every target function it uses.
+- Respect function signatures from the source excerpt; for example, pass
+  `pathlib.Path` values to parameters annotated as `Path`.
+- Do not use Hypothesis APIs that may not exist in the installed version.
+  Prefer composing `st.text`, `st.lists`, `st.dictionaries`, and
+  `pathlib.Path` manually over APIs such as `st.paths`.
+- Collection/import/syntax errors are invalid proposals, not counterexamples.
 - Valid output shape:
 
 ```json
@@ -148,6 +155,24 @@ def _proposal_module(proposals: list[Proposal], repo_root: Path) -> str:
     return "\n".join(parts)
 
 
+def _execution_status(returncode: int, output: str) -> str:
+    if returncode == 0:
+        return "no_counterexample"
+    proposal_error_markers = (
+        "ERROR collecting",
+        "Interrupted: ",
+        "SyntaxError:",
+        "IndentationError:",
+        "ImportError:",
+        "ModuleNotFoundError:",
+        "AttributeError: module 'hypothesis.strategies'",
+        "fixture ",
+    )
+    if returncode == 2 or any(marker in output for marker in proposal_error_markers):
+        return "proposal_error"
+    return "counterexample_found"
+
+
 def execute_proposals(repo_root: Path, proposal_file: Path, report_dir: Path, *, pytest_args: list[str] | None = None) -> dict[str, Any]:
     proposals = load_proposals(proposal_file)
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -157,7 +182,7 @@ def execute_proposals(repo_root: Path, proposal_file: Path, report_dir: Path, *,
         test_path.write_text(_proposal_module(proposals, repo_root), encoding="utf-8")
         cmd = [sys.executable, "-m", "pytest", "-q", str(test_path), *(pytest_args or [])]
         proc = subprocess.run(cmd, cwd=repo_root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
-    status = "counterexample_found" if proc.returncode else "no_counterexample"
+    status = _execution_status(proc.returncode, proc.stdout)
     report_path = report_dir / f"agentic-pbt-{timestamp}.md"
     report_path.write_text(
         "\n".join(

@@ -46,3 +46,29 @@ def test_agentic_property_testing_records_counterexample_report(tmp_path: Path) 
     report = Path(result["report_path"]).read_text(encoding="utf-8")
     assert "absolute_is_non_negative" in report
     assert "Exit code: `1`" in report
+
+
+def test_agentic_property_testing_classifies_collection_errors_as_proposal_error(tmp_path: Path) -> None:
+    repo = tmp_path
+    proposals = repo / "proposals.json"
+    proposals.write_text(
+        json.dumps(
+            {
+                "tests": [
+                    {
+                        "name": "invalid_collection_time_api",
+                        "rationale": "invalid generated test code should not count as a product counterexample",
+                        "code": "from hypothesis import given, strategies as st\n\n@given(st.paths())\ndef test_invalid(value):\n    assert value\n",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = execute_proposals(repo, proposals, repo / "reports")
+
+    assert result["status"] == "proposal_error"
+    report = Path(result["report_path"]).read_text(encoding="utf-8")
+    assert "Agentic PBT report - proposal_error" in report
+    assert "Exit code: `2`" in report
