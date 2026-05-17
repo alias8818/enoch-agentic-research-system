@@ -2240,6 +2240,11 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("idea_intake", body["source_freshness"])
             self.assertIn("snapshot_mirror", body["source_freshness"])
 
+    def test_dashboard_freshness_treats_naive_database_timestamps_as_utc(self) -> None:
+        from enoch_control_plane.control_plane.router import _is_stale
+
+        self.assertIs(_is_stale("2026-05-15 10:00:00", 1), True)
+
     def test_dashboard_status_omits_large_non_worker_observation_and_event_payloads(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
