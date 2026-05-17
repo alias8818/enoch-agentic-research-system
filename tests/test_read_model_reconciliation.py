@@ -121,6 +121,73 @@ def test_operator_counts_match_detail_counts_for_mixed_lifecycle_rows() -> None:
 
 
 
+
+
+def test_useful_signal_precedence_over_duplicate_no_paper_rows() -> None:
+    no_paper = {
+        "project_id": "signal-project",
+        "project_name": "signal-project",
+        "status": "completed",
+        "last_run_state": "wake_ready",
+        "current_run_id": "old-run",
+        "next_action_hint": "draft_paper_or_select_next_project",
+        "decision_gate_state": "negative",
+        "decision_summary": "unsupported",
+    }
+    useful_signal = {
+        **no_paper,
+        "current_run_id": "signal-run",
+        "research_outcome": "useful_signal",
+        "hypothesis_status": "mixed",
+        "evidence_strength": "moderate",
+        "bounded_paper_ready": False,
+        "useful_signal_summary": "bounded local signal",
+    }
+
+    for rows in ([no_paper, useful_signal], [useful_signal, no_paper]):
+        counts = operator_counts_from_rows(list(rows))
+        detail = operator_detail_counts_from_rows(list(rows))
+
+        assert counts[OperatorLane.USEFUL_SIGNAL.value] == 1
+        assert counts["total_operator_items"] == 1
+        assert detail["useful_signal"] == 1
+        assert "run_complete_no_paper" not in detail
+
+
+
+
+def test_compute_scale_blocked_precedence_over_duplicate_no_paper_rows() -> None:
+    no_paper = {
+        "project_id": "scale-project",
+        "project_name": "scale-project",
+        "status": "completed",
+        "last_run_state": "wake_ready",
+        "current_run_id": "old-run",
+        "next_action_hint": "draft_paper_or_select_next_project",
+        "decision_gate_state": "negative",
+        "decision_summary": "unsupported",
+    }
+    scale_blocked = {
+        **no_paper,
+        "current_run_id": "scale-run",
+        "research_outcome": "useful_signal",
+        "hypothesis_status": "mixed",
+        "evidence_strength": "moderate",
+        "scale_limits": "requires multi-GPU full-scale validation",
+        "bounded_paper_ready": False,
+        "useful_signal_summary": "promising but larger scale",
+    }
+
+    for rows in ([no_paper, scale_blocked], [scale_blocked, no_paper]):
+        counts = operator_counts_from_rows(list(rows))
+        detail = operator_detail_counts_from_rows(list(rows))
+
+        assert counts[OperatorLane.COMPUTE_SCALE_BLOCKED.value] == 1
+        assert counts["total_operator_items"] == 1
+        assert detail["compute_scale_blocked"] == 1
+        assert "run_complete_no_paper" not in detail
+
+
 def test_active_queue_summary_ignores_stale_related_paper_projection() -> None:
     from enoch_control_plane.control_plane.read_models import summarize_queue_row
 
