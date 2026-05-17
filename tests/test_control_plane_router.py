@@ -1530,6 +1530,108 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertIn("backpressure", dispatch_stage["reason"])
         self.assertEqual(fake_store.events[-1]["event_type"], "research.run_cycle.live")
 
+    def test_research_facility_run_cycle_releases_claim_when_preflight_raises(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.events = []
+                self.observations = []
+                self.claim_released = False
+                self.queue = {
+                    "candidate-ready": {
+                        "project_id": "candidate-ready",
+                        "project_name": "Candidate Ready",
+                        "project_dir": "candidate-ready",
+                        "status": "queued",
+                        "model": "gpt-5.5",
+                        "sandbox": "danger-full-access",
+                    }
+                }
+
+            def active_items(self) -> list[dict[str, str]]:
+                return []
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 1, "active": 0}
+
+            def flags(self):
+                return SimpleNamespace(queue_paused=False, maintenance_mode=False)
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                return [{"candidate_id": "candidate-ready", "admission_decision": "admitted", "admitted_idea_id": "", "total_score": "83.00"}]
+
+            def record_research_facility_plans(self, *_args, **_kwargs):
+                raise AssertionError("provider generation disabled in this test")
+
+            def promote_research_candidate(self, candidate_id: str, *, requested_by: str, dry_run: bool = True) -> dict[str, object]:
+                return {"ok": True, "action": "promote_candidate", "candidate_id": candidate_id, "idea_id": candidate_id, "queued_count": 1, "dispatch_started": False}
+
+            def queue_row(self, project_id: str):
+                return self.queue.get(project_id)
+
+            def claim_dispatch_candidate(self, *, project_id: str, run_id: str, requested_by: str):
+                claimed = dict(self.queue[project_id])
+                claimed.update({"status": "dispatching", "current_run_id": run_id})
+                return claimed
+
+            def release_dispatch_claim(self, *, project_id: str, run_id: str, reason: str):
+                self.claim_released = True
+                self.queue[project_id]["status"] = "queued"
+                self.queue[project_id]["last_error"] = reason
+                return True
+
+            def upsert_dashboard_observation(self, **kwargs):
+                self.observations.append(kwargs)
+
+            def append_event(self, **kwargs):
+                self.events.append(kwargs)
+                return len(self.events), True
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+            live_dispatch_enabled=True,
+            worker_wake_gate_bearer_token="worker-token",
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+             patch("enoch_control_plane.control_plane.router.run_worker_preflight", side_effect=RuntimeError("bad worker telemetry")):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={
+                    "dry_run": False,
+                    "enabled": True,
+                    "max_provider_requests_per_run": 0,
+                    "max_promotions_per_run": 1,
+                    "max_dispatches_per_run": 1,
+                    "max_paper_drafts_per_run": 0,
+                    "requested_by": "pytest",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["dispatched_count"], 0)
+        self.assertTrue(fake_store.claim_released)
+        dispatch_stage = next(stage for stage in body["stages"] if stage["stage"] == "dispatch")
+        self.assertEqual(dispatch_stage["action"], "dispatch_backpressure")
+        self.assertIn("bad worker telemetry", json.dumps(dispatch_stage["detail"]))
+
+
     def test_research_facility_run_cycle_live_records_guardrail_when_queue_paused(self) -> None:
         class FakeSupabaseStore:
             def __init__(self) -> None:

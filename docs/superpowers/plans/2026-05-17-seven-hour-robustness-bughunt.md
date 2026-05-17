@@ -701,3 +701,7 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 ---
 
 **Additional worker-preflight malformed telemetry hardening:** Worker dashboard numeric fields now parse fail-closed instead of raising. Malformed GPU/memory/active-run counts produce failed preflight checks and release the dispatch path cleanly rather than crashing after a dispatch claim.
+
+---
+
+**Additional dispatch-claim release hardening:** Wrapped unexpected worker-preflight exceptions after a queue claim and release the claim with a diagnostic 409 backpressure response. A malformed or crashing preflight can no longer strand a queued item in dispatching state.

@@ -1026,15 +1026,20 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         # Live dispatch is never allowed to bypass fresh worker evidence.  The
         # request field remains for API compatibility, but the control plane
         # always performs the non-mutating worker preflight before prepare/dispatch.
-        preflight = run_worker_preflight(
-            WorkerPreflightRequest(
-                wake_gate_url=config.worker_wake_gate_url,
-                bearer_token=config.worker_wake_gate_bearer_token,
-                require_paused=False,
-                strict=False,
-            ),
-            store.flags(),
-        )
+        try:
+            preflight = run_worker_preflight(
+                WorkerPreflightRequest(
+                    wake_gate_url=config.worker_wake_gate_url,
+                    bearer_token=config.worker_wake_gate_bearer_token,
+                    require_paused=False,
+                    strict=False,
+                ),
+                store.flags(),
+            )
+        except Exception as exc:
+            reason = f"worker preflight failed: {type(exc).__name__}: {exc}"
+            store.release_dispatch_claim(project_id=project_id, run_id=run_id, reason=reason)
+            raise HTTPException(status_code=409, detail={"message": "worker preflight failed", "preflight_error": reason, "force_preflight_ignored": not force_preflight}) from exc
         _record_preflight_observations(preflight)
         if not preflight.ok:
             store.release_dispatch_claim(project_id=project_id, run_id=run_id, reason="worker preflight failed")
