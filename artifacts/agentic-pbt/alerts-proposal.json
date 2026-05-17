@@ -1,0 +1,14 @@
+{
+  "tests": [
+    {
+      "name": "queue_alert_findings_never_alerts_when_intentional_hold",
+      "rationale": "Queue pause or maintenance mode is intentional and should suppress active-lane hang findings for arbitrary stale-looking active rows.",
+      "code": "from datetime import datetime, timezone\nfrom types import SimpleNamespace\nfrom hypothesis import given, strategies as st\nfrom enoch_control_plane.control_plane.alerts import queue_alert_findings\n\n@given(st.booleans(), st.booleans(), st.text(max_size=40), st.text(max_size=40))\ndef test_queue_alert_findings_never_alerts_when_intentional_hold(paused, maintenance, project_id, run_id):\n    if not (paused or maintenance):\n        paused = True\n    status = SimpleNamespace(flags=SimpleNamespace(queue_paused=paused, maintenance_mode=maintenance), config=SimpleNamespace(live_dispatch_enabled=True), conflicts=[], active_items=[{'project_id': project_id, 'current_run_id': run_id, 'updated_at': datetime(2000,1,1,tzinfo=timezone.utc)}], warnings=[], source_freshness={}, observations={})\n    assert queue_alert_findings(status, hang_after_sec=1) == []\n"
+    },
+    {
+      "name": "queue_alert_findings_handles_model_worker_observation_shapes",
+      "rationale": "Worker observations may be model objects or dicts and live run evidence should suppress stale active row findings.",
+      "code": "from datetime import datetime, timezone\nfrom types import SimpleNamespace\nfrom hypothesis import given, strategies as st\nfrom enoch_control_plane.control_plane.alerts import queue_alert_findings\nfrom enoch_control_plane.control_plane.models import DashboardObservationRecord\n\n@given(st.text(min_size=1, max_size=30))\ndef test_queue_alert_findings_handles_model_worker_observation_shapes(run_id):\n    obs = DashboardObservationRecord(source='worker_preflight', status='warn', payload={'checks': [{'name': 'wake_gate_runs', 'data': {'body': {'runs': [{'run_id': run_id, 'is_live': True}]}}}]})\n    status = SimpleNamespace(flags=SimpleNamespace(queue_paused=False, maintenance_mode=False), config=SimpleNamespace(live_dispatch_enabled=True), conflicts=[], active_items=[{'project_id': 'p', 'current_run_id': run_id, 'updated_at': datetime(2000,1,1,tzinfo=timezone.utc)}], warnings=[], source_freshness={}, observations={'worker_preflight': obs})\n    assert queue_alert_findings(status, hang_after_sec=1) == []\n"
+    }
+  ]
+}

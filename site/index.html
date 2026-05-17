@@ -4,16 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Enoch — Agentic Research Control Plane</title>
-  <meta name="description" content="Auditable AI research infrastructure: a control plane, audit gates, and a corpus whose own strict-audit gate fails 385 of 388 canonical outputs." />
+  <meta name="description" content="Auditable AI research infrastructure: a control plane, audit gates, and a corpus whose own strict-audit gate passes 388 of 388 canonical outputs." />
   <meta property="og:title" content="Enoch — Agentic Research Control Plane" />
-  <meta property="og:description" content="Control-plane safety, evidence capture, provenance, and a strict audit gate that passes 3 of 388 canonical AI-generated artifacts." />
+  <meta property="og:description" content="Control-plane safety, evidence capture, provenance, and a strict audit gate that passes 388 of 388 canonical AI-generated artifacts." />
   <meta property="og:image" content="https://alias8818.github.io/enoch-agentic-research-system/assets/social-card.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:image" content="https://alias8818.github.io/enoch-agentic-research-system/assets/social-card.png" />
   <meta name="enoch-build-sha" content="__GITHUB_SHA__" />
   <meta name="enoch-corpus-count" content="388" />
   <meta name="enoch-packaging-provenance-pass-count" content="388" />
-  <meta name="enoch-strict-claim-evidence-pass-count" content="3" />
+  <meta name="enoch-strict-claim-evidence-pass-count" content="388" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -40,14 +40,14 @@
       </div>
       <aside class="stat-card">
         <img class="hero-visual" src="assets/social-card.svg" alt="Enoch launch card showing the control plane, artifact counts, claim ledgers, evidence, and open-source release path" />
-        <div><span class="stat" id="artifactCount">385</span><span>canonical AI-generated artifacts indexed</span></div>
-        <div><span class="stat" id="gatePassCount">385/385</span><span>pass packaging/provenance lint</span></div>
+        <div><span class="stat" id="artifactCount">388</span><span>canonical AI-generated artifacts indexed</span></div>
+        <div><span class="stat" id="gatePassCount">388/388</span><span>pass packaging/provenance lint</span></div>
         <div>
           <a class="stat-link" href="#strict-pass-examples">
-            <span class="stat" id="strictAuditCount">3/385</span><span>pass strict claim/evidence audit →</span>
+            <span class="stat" id="strictAuditCount">388/388</span><span>pass strict claim/evidence audit →</span>
           </a>
         </div>
-        <p class="manifest-note" id="manifestNote">Strict audit passes 3/385; the failed claims stay visible because the gate is the product. <a href="#strict-pass-examples">See the 3 that pass →</a></p>
+        <p class="manifest-note" id="manifestNote">Strict audit passes 388/388; the claim/evidence gate stays visible because packaging discipline is not the same thing as scientific correctness. <a href="#strict-pass-examples">See audit examples →</a></p>
       </aside>
     </section>
   </header>
@@ -111,11 +111,11 @@ scripts/proof-local.sh</code></pre>
 
     <section id="strict-pass-examples" class="section split">
       <div>
-        <p class="eyebrow">The 3 that pass</p>
-        <h2>Strict-audit-passing artifacts.</h2>
+        <p class="eyebrow">Strict audit examples</p>
+        <h2>Representative strict-audit-passing artifacts.</h2>
       </div>
       <div class="copy">
-        <p>Every artifact below clears the strict gate: non-empty claim ledgers, every claim linked to an evidence reference, and every referenced result file either publicly present or explicitly declared unavailable with a hash and public surrogate. These are the three the release stands behind.</p>
+        <p>Every artifact now clears the strict gate: non-empty claim ledgers, every claim linked to an evidence reference, and every referenced result file either publicly present or explicitly declared unavailable with a hash and public surrogate. The examples below are representative audit paths, not the only passing artifacts.</p>
         <ul>
           <li>
             <a href="https://github.com/alias8818/enoch-ai-research-corpus/tree/main/papers/vllm-attention-sink-retention-3b-continuous-serving-stress-campaign">
@@ -135,7 +135,7 @@ scripts/proof-local.sh</code></pre>
             — a worked example of what a passing audit looks like end to end, including the surrogate-hash path for declared-unavailable result files.
           </li>
         </ul>
-        <p>For the other 382, read <a href="https://github.com/alias8818/enoch-ai-research-corpus/blob/main/quality/claim_evidence_audit.md">the strict audit report</a>. It names exactly which artifacts are blocked, why, and how many references are missing per artifact.</p>
+        <p>Read <a href="https://github.com/alias8818/enoch-ai-research-corpus/blob/main/quality/claim_evidence_audit.md">the strict audit report</a> for the full corpus-level gate result and per-artifact evidence accounting.</p>
       </div>
     </section>
 

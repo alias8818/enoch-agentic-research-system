@@ -436,16 +436,27 @@ def main(argv: list[str] | None = None) -> int:
             }
             print(json.dumps(result, indent=2, sort_keys=True))
             return 1
-        budget = synthetic_budget_preflight(
-            base_url=args.provider_base_url,
-            api_key=api_key,
-            no_auth=args.provider_no_auth,
-            timeout=args.provider_timeout,
-            estimated_requests=1,
-            reserve_requests=args.reserve_requests,
-            min_remaining_credits=args.min_remaining_credits,
-            min_rolling_remaining=args.min_rolling_remaining,
-        )
+        try:
+            budget = synthetic_budget_preflight(
+                base_url=args.provider_base_url,
+                api_key=api_key,
+                no_auth=args.provider_no_auth,
+                timeout=args.provider_timeout,
+                estimated_requests=1,
+                reserve_requests=args.reserve_requests,
+                min_remaining_credits=args.min_remaining_credits,
+                min_rolling_remaining=args.min_rolling_remaining,
+            )
+        except Exception as exc:
+            result = {
+                "ok": False,
+                "status": "provider_budget_blocked",
+                "agentic_terminal": True,
+                "next_action": "agent_retry_after_provider_budget_probe_recovers",
+                "failures": [f"{type(exc).__name__}: {exc}"],
+            }
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 1
         if not budget.get("ok"):
             result = {
                 "ok": False,
@@ -458,17 +469,29 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         provider_prompt = report_dir / f"{target.stem}-provider-prompt.md"
         write_prompt(repo_root, target, provider_prompt, max_chars=args.max_chars)
-        generated = generate_provider_proposal(
-            prompt_text=provider_prompt.read_text(encoding="utf-8"),
-            output=report_dir / f"{target.stem}-provider-proposal.json",
-            openai_base_url=args.openai_base_url,
-            model=args.provider_model,
-            api_key=api_key,
-            no_auth=args.provider_no_auth,
-            temperature=args.provider_temperature,
-            max_tokens=args.provider_max_tokens,
-            timeout=args.provider_timeout,
-        )
+        try:
+            generated = generate_provider_proposal(
+                prompt_text=provider_prompt.read_text(encoding="utf-8"),
+                output=report_dir / f"{target.stem}-provider-proposal.json",
+                openai_base_url=args.openai_base_url,
+                model=args.provider_model,
+                api_key=api_key,
+                no_auth=args.provider_no_auth,
+                temperature=args.provider_temperature,
+                max_tokens=args.provider_max_tokens,
+                timeout=args.provider_timeout,
+            )
+        except Exception as exc:
+            result = {
+                "ok": False,
+                "status": "provider_generation_failed",
+                "agentic_terminal": True,
+                "next_action": "agent_retry_with_smaller_prompt_or_next_provider",
+                "failures": [f"{type(exc).__name__}: {exc}"],
+                "prompt_path": str(provider_prompt),
+            }
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 1
         args.loop_proposal_file.append(Path(generated["proposal_file"]))
         if not args.autonomous_loop:
             print(json.dumps({"status": "provider_proposal_written", "budget": budget, **generated}, indent=2, sort_keys=True))

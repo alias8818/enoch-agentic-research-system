@@ -1,0 +1,14 @@
+{
+  "tests": [
+    {
+      "name": "followup_candidate_normalizes_arbitrary_payloads",
+      "rationale": "Worker decision artifacts are external JSON; follow-up normalization should never crash on malformed but JSON-parseable payload fields.",
+      "code": "from hypothesis import given, strategies as st\nfrom enoch_control_plane.enoch_core.logic import followup_candidate_from_decision_payload\n\njsonish = st.recursive(st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False, allow_infinity=False) | st.text(max_size=30), lambda c: st.lists(c, max_size=5) | st.dictionaries(st.text(max_size=20), c, max_size=5), max_leaves=30)\n\n@given(st.dictionaries(st.text(max_size=30), jsonish, max_size=10))\ndef test_followup_candidate_normalizes_arbitrary_payloads(payload):\n    result = followup_candidate_from_decision_payload(payload)\n    assert isinstance(result, dict)\n    assert isinstance(result['followup_recommended'], bool)\n    assert result['followup_type'] in {'', 'deepen', 'branch', 'retry'}\n    assert isinstance(result['followup_required_evidence'], list)\n    assert all(isinstance(item, str) for item in result['followup_required_evidence'])\n"
+    },
+    {
+      "name": "queue_projection_handles_empty_shapes",
+      "rationale": "Queue projection should handle absent queue/paper rows deterministically for dashboard read models.",
+      "code": "from hypothesis import given, strategies as st\nfrom enoch_control_plane.enoch_core.logic import queue_projection\n\n@given(st.text(max_size=20), st.text(max_size=20))\ndef test_queue_projection_handles_empty_shapes(source, captured_at):\n    result = queue_projection({'source': source, 'captured_at': captured_at})\n    assert result['source'] == source.strip()\n    assert result['captured_at'] == captured_at\n    assert result['total_queue_rows'] == 0\n    assert result['total_paper_rows'] == 0\n    assert result['warnings'] == []\n"
+    }
+  ]
+}

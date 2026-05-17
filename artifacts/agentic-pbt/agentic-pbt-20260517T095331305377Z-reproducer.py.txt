@@ -1,0 +1,31 @@
+from __future__ import annotations
+import sys
+sys.path.insert(0, '/home/jeremy/Desktop/projects/enoch-release/enoch-agentic-research-system')
+
+# Proposal: synthetic_budget_status_never_raises_on_provider_payload
+# Rationale: Provider quota payloads are external inputs; malformed fields should fail closed with JSON diagnostics rather than crashing the autopilot.
+from hypothesis import given, strategies as st
+from scripts.research_provider_budget import synthetic_budget_status
+
+jsonish = st.recursive(st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False, allow_infinity=False) | st.text(max_size=20), lambda c: st.lists(c, max_size=5) | st.dictionaries(st.text(max_size=20), c, max_size=5), max_leaves=30)
+
+@given(st.dictionaries(st.text(max_size=20), jsonish, max_size=8))
+def test_synthetic_budget_status_never_raises_on_provider_payload(payload):
+    result = synthetic_budget_status(payload, min_remaining_credits=1.0, min_rolling_remaining=1, estimated_requests=1, reserve_requests=1)
+    assert isinstance(result, dict)
+    assert result.get('provider') == 'synthetic'
+    assert isinstance(result.get('ok'), bool)
+    assert isinstance(result.get('failures'), list)
+
+# Proposal: synthetic_budget_status_low_budget_fails_closed
+# Rationale: Low or malformed rolling budget must never return ok=true when required rolling capacity is unavailable.
+from hypothesis import given, strategies as st
+from scripts.research_provider_budget import synthetic_budget_status
+
+@given(st.integers(min_value=1, max_value=20), st.integers(min_value=0, max_value=20))
+def test_synthetic_budget_status_low_budget_fails_closed(required, rolling_remaining):
+    payload = {'weeklyTokenLimit': {'remainingCredits': '$10.00'}, 'rollingFiveHourLimit': {'remaining': rolling_remaining, 'max': 20, 'limited': False}, 'subscription': {'limit': 100, 'requests': 0}}
+    result = synthetic_budget_status(payload, min_remaining_credits=1.0, min_rolling_remaining=required, estimated_requests=required, reserve_requests=0)
+    if rolling_remaining < required:
+        assert result['ok'] is False
+        assert result['failures']

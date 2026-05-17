@@ -103,25 +103,30 @@ def update_text(text: str, stats: dict[str, int]) -> str:
     text = re.sub(r'(<meta name="enoch-strict-claim-evidence-pass-count" content=")\d+(" />)', rf"\g<1>{sp}\2", text)
 
     # Count phrases covered by validator plus the launch-announcement wording it intentionally allows.
-    count_phrase = re.compile(r"\b\d{2,5}\b(?=\s+(?:canonical AI-generated artifacts indexed|canonical AI-generated artifacts|AI-generated artifacts indexed|AI-generated research artifacts|generated research artifacts|indexed artifacts|canonical AI-generated papers|canonical artifacts|canonical outputs|artifacts|canonical generated research artifacts))", re.I)
+    # HTML landing pages often split the number and phrase across adjacent tags.
+    html_gap = r"(?:\s|<[^>]+>)*"
+    count_phrase = re.compile(rf"\b\d{{2,5}}\b(?={html_gap}(?:canonical AI-generated artifacts indexed|canonical AI-generated artifacts|canonical AI-generated research artifacts|canonical indexed artifacts|AI-generated artifacts indexed|AI-generated research artifacts|generated research artifacts|indexed artifacts|canonical AI-generated papers|canonical artifacts|canonical outputs|artifacts|canonical generated research artifacts))", re.I)
     text = count_phrase.sub(str(n), text)
 
     packaging_patterns = [
-        (re.compile(r"\b\d{2,5}\s*/\s*\d{2,5}(?=\s+(?:pass packaging/provenance|pass packaging and provenance|packaging/provenance passed|pass count|quality))", re.I), f"{p}/{n}"),
+        (re.compile(rf"\b\d{{2,5}}\s*/\s*\d{{2,5}}(?={html_gap}(?:pass packaging/provenance|pass packaging and provenance|packaging/provenance passed|pass count|quality))", re.I), f"{p}/{n}"),
         (re.compile(r"\b\d{2,5}\s+of\s+\d{2,5}(?=\s+pass(?:es)?\s+(?:the\s+)?packaging(?:/| and )provenance)", re.I), f"{p} of {n}"),
-        (re.compile(r"\b\d{2,5}\s*/\s*\d{2,5}(?=\s+packaging/provenance lint passes)", re.I), f"{p}/{n}"),
-        (re.compile(r"\b\d{2,5}\s*/\s*\d{2,5}(?=\s+pass the packaging/provenance lint)", re.I), f"{p}/{n}"),
+        (re.compile(rf"\b\d{{2,5}}\s*/\s*\d{{2,5}}(?={html_gap}packaging/provenance lint passes)", re.I), f"{p}/{n}"),
+        (re.compile(rf"\b\d{{2,5}}\s*/\s*\d{{2,5}}(?={html_gap}pass the packaging/provenance lint)", re.I), f"{p}/{n}"),
     ]
     for pattern, replacement in packaging_patterns:
         text = pattern.sub(replacement, text)
 
     strict_patterns = [
-        (re.compile(r"\b\d{1,5}\s*/\s*\d{2,5}(?=\s+(?:pass strict claim/evidence|pass strict claim/evidence audit|pass my strict audit gate|strict claim/evidence audit passes|strict claim/evidence audit))", re.I), f"{sp}/{n}"),
-        (re.compile(r"\b\d{1,5}\s*/\s*\d{2,5}(?=\s+pass strict claim and evidence audit)", re.I), f"{sp}/{n}"),
+        (re.compile(rf"\b\d{{1,5}}\s*/\s*\d{{2,5}}(?={html_gap}(?:pass strict claim/evidence|pass strict claim/evidence audit|pass my strict audit gate|strict claim/evidence audit passes|strict claim/evidence audit))", re.I), f"{sp}/{n}"),
+        (re.compile(rf"\b\d{{1,5}}\s*/\s*\d{{2,5}}(?={html_gap}pass strict claim and evidence audit)", re.I), f"{sp}/{n}"),
         (re.compile(r"\b\d{1,5}\s*/\s*\d{2,5}(?=; the failure rate is visible)", re.I), f"{sp}/{n}"),
-        (re.compile(r"\b\d{1,5}\s*/\s*\d{2,5}(?=\s+pass the strict claim/evidence audit)", re.I), f"{sp}/{n}"),
-        (re.compile(r"\b\d{1,5}\s*/\s*\d{2,5}(?=\s+pass strict claim/evidence audit)", re.I), f"{sp}/{n}"),
+        (re.compile(rf"\b\d{{1,5}}\s*/\s*\d{{2,5}}(?={html_gap}pass the strict claim/evidence audit)", re.I), f"{sp}/{n}"),
+        (re.compile(rf"\b\d{{1,5}}\s*/\s*\d{{2,5}}(?={html_gap}pass strict claim/evidence audit)", re.I), f"{sp}/{n}"),
         (re.compile(r"\b\d{1,5}\s*/\s*\d{2,5}(?=\s+pass my strict audit gate)", re.I), f"{sp}/{n}"),
+        (re.compile(r"(?<=Strict audit passes )\d{1,5}\s*/\s*\d{2,5}", re.I), f"{sp}/{n}"),
+        (re.compile(r"(?<=Current strict claim/evidence audit status is )\d{1,5}\s*/\s*\d{2,5}", re.I), f"{sp}/{n}"),
+        (re.compile(r"(?<=Current status: \*\*)\d{1,5}\s*/\s*\d{2,5}(?= artifacts pass\*\*)", re.I), f"{sp} / {n}"),
     ]
     for pattern, replacement in strict_patterns:
         text = pattern.sub(replacement, text)
@@ -136,7 +141,7 @@ def update_text(text: str, stats: dict[str, int]) -> str:
     text = re.sub(r"\brejects the other \d{1,5}\b", f"rejects the other {sf}", text, flags=re.I)
     text = re.sub(r"For \d{1,5} of the \d{2,5} papers", f"For {sf} of the {n} papers", text)
     text = re.sub(r"\b\d{1,5}\s+empty claim ledgers\b", f"{empty} empty claim ledgers", text)
-    text = re.sub(r"(?<![\d,])\b\d{1,5}\s+missing public result-file references\b", f"{fmt_int(missing)} missing public result-file references", text)
+    text = re.sub(r"(?<![\d,])\b(?:\d{1,5}|\d{1,3},\d{3})\s+missing public (?:`result_files`|result-file) references\b", f"{fmt_int(missing)} missing public result-file references", text)
     text = re.sub(r"(?<![\d,])\b\d{1,5}\s+result-file references\b", f"{fmt_int(refs)} result-file references", text)
     text = re.sub(r"\b\d{1,5},\d{1,5},\d{3}\s+result-file references\b", f"{fmt_int(refs)} result-file references", text)
     text = re.sub(r"the later corpus import moved the live denominator to \d{2,5}", f"{post_phrase} moved the live denominator to {n}", text)

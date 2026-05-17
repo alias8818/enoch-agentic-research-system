@@ -17,14 +17,22 @@ def test_update_text_rewrites_current_public_count_phrases_without_touching_hist
     text = "\n".join(
         [
             "377 canonical AI-generated artifacts indexed",
+            "<strong>377</strong><span>canonical AI-generated artifacts indexed</span>",
             "377 canonical AI-generated artifacts",
+            "377 canonical AI-generated research artifacts produced by Enoch",
+            "377 canonical indexed artifacts",
             "377/377 pass packaging/provenance lint",
+            "<strong>377/377</strong><span>pass packaging/provenance lint</span>",
             "3/377 pass strict claim/evidence audit",
+            '<span class="stat">3/377</span><span>pass strict claim/evidence audit</span>',
             "3 / 377 pass strict claim and evidence audit.",
+            "Strict audit passes 3/377; the failed claims stay visible.",
+            "Current status: **3 / 377 artifacts pass**.",
             "flags 374 of 377 canonical outputs",
             "My own strict audit gate fails 374 of them.",
             "The strict gate still passes three papers. It rejects the other 374.",
             "For 374 of the 377 papers, the answer is no.",
+            "The audit reports 256 empty claim ledgers and 1,387 missing public `result_files` references.",
             "The audit reports 256 empty claim ledgers and 1,387 missing public result-file references.",
             "The script tracked 1,429 result-file references across the cleaned corpus.",
             "After cleanup, the denominator fell from 497 to 376 and 118 claim ledgers were rescued; one later finalized corpus import moved the live denominator to 377.",
@@ -33,16 +41,24 @@ def test_update_text_rewrites_current_public_count_phrases_without_touching_hist
     )
     updated = update_text(text, stats)
     assert "385 canonical AI-generated artifacts indexed" in updated
+    assert "<strong>385</strong><span>canonical AI-generated artifacts indexed</span>" in updated
     assert "385 canonical AI-generated artifacts" in updated
+    assert "385 canonical AI-generated research artifacts produced by Enoch" in updated
+    assert "385 canonical indexed artifacts" in updated
     assert "385/385 pass packaging/provenance lint" in updated
+    assert "<strong>385/385</strong><span>pass packaging/provenance lint</span>" in updated
     assert "3/385 pass strict claim/evidence audit" in updated
+    assert '<span class="stat">3/385</span><span>pass strict claim/evidence audit</span>' in updated
     assert "3/385 pass strict claim and evidence audit." in updated
+    assert "Strict audit passes 3/385" in updated
+    assert "Current status: **3 / 385 artifacts pass**" in updated
     assert "flags 382 of 385 canonical outputs" in updated
     assert "strict audit gate fails 382 of them" in updated
     assert "rejects the other 382" in updated
     assert "For 382 of the 385 papers" in updated
     assert "264 empty claim ledgers" in updated
     assert "1,387 missing public result-file references" in updated
+    assert "1,387 missing public `result_files` references" not in updated
     assert "1,429 result-file references" in updated
     assert "9 later finalized corpus imports moved the live denominator to 385" in updated
     assert "376 unique topics, not 497 directory entries" in updated

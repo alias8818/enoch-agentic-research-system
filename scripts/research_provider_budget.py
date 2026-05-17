@@ -41,9 +41,18 @@ def synthetic_budget_status(
     estimated_requests: int,
     reserve_requests: int,
 ) -> dict[str, Any]:
-    weekly = payload.get("weeklyTokenLimit") or {}
-    rolling = payload.get("rollingFiveHourLimit") or {}
-    subscription = payload.get("subscription") or {}
+    failures: list[str] = []
+
+    def section(name: str) -> dict[str, Any]:
+        value = payload.get(name) or {}
+        if isinstance(value, dict):
+            return value
+        failures.append(f"malformed {name} section")
+        return {}
+
+    weekly = section("weeklyTokenLimit")
+    rolling = section("rollingFiveHourLimit")
+    subscription = section("subscription")
     remaining_credits_raw = str(weekly.get("remainingCredits") or "0").replace("$", "")
     try:
         remaining_credits = float(remaining_credits_raw)
@@ -52,7 +61,6 @@ def synthetic_budget_status(
     rolling_remaining = int(rolling.get("remaining") or 0)
     subscription_remaining = max(0, int(subscription.get("limit") or 0) - int(subscription.get("requests") or 0))
     required_rolling = max(0, int(estimated_requests)) + max(0, int(reserve_requests))
-    failures: list[str] = []
     if remaining_credits < min_remaining_credits:
         failures.append(f"weekly remaining credits {remaining_credits:.2f} < minimum {min_remaining_credits:.2f}")
     if rolling.get("limited") is True:

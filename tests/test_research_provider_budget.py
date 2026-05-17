@@ -38,6 +38,20 @@ def test_synthetic_budget_accepts_healthy_quota() -> None:
     assert result["failures"] == []
 
 
+def test_synthetic_budget_fails_closed_on_malformed_sections() -> None:
+    result = research_provider_budget.synthetic_budget_status(
+        {"weeklyTokenLimit": True, "rollingFiveHourLimit": "bad", "subscription": []},
+        min_remaining_credits=1.0,
+        min_rolling_remaining=1,
+        estimated_requests=1,
+        reserve_requests=1,
+    )
+
+    assert result["ok"] is False
+    assert result["failures"]
+    assert any("malformed" in item for item in result["failures"])
+
+
 def test_synthetic_budget_fails_closed_when_low_or_limited() -> None:
     payload = json.loads(json.dumps(SYNTHETIC_QUOTA))
     payload["weeklyTokenLimit"]["remainingCredits"] = "$1.00"

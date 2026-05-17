@@ -6,7 +6,7 @@ Enoch is an agentic research control plane: it queues ideas, gates dispatch, sup
 
 ## Short launch post
 
-I’m releasing Enoch, a local agentic research control plane, plus a corpus of 385 canonical AI-generated research artifacts.
+I’m releasing Enoch, a local agentic research control plane, plus a corpus of 388 canonical AI-generated research artifacts.
 
 The interesting part is not that the papers are “human papers.” They are not. They are explicitly AI-generated artifacts, and I do not claim personal authorship of their prose, arguments, or results.
 
@@ -55,7 +55,7 @@ Code repo:
 
 Corpus repo:
 
-> 385 canonical AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim-ledger files, manifests, packaging/provenance reports, and a strict claim/evidence audit report. Current public status: 388/388 packaging/provenance lint passes and 3/388 strict claim/evidence audit pass.
+> 388 canonical AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim-ledger files, manifests, packaging/provenance reports, and a strict claim/evidence audit report. Current public status: 388/388 packaging/provenance lint passes and 388/388 strict claim/evidence audit pass.
 
 Docs repo:
 
@@ -63,7 +63,7 @@ Docs repo:
 
 ## Thread outline
 
-1. “I’m releasing Enoch: an agentic research control plane plus 385 canonical AI-generated research artifacts.”
+1. “I’m releasing Enoch: an agentic research control plane plus 388 canonical AI-generated research artifacts.”
 2. “The papers are not human-authored; that is explicit. The point is the system that generated and bounded them.”
 3. “Why I built it: queues hung, dashboards lied, workers kept running, evidence got scattered.”
 4. “What Enoch does: queue, preflight, pause, worker gate, evidence sync, claim ledgers, paper writer, packaging/provenance lint checks—operated through Codex, with Codex CLI credited as orchestration infrastructure.”

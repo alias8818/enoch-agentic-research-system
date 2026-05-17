@@ -1,0 +1,14 @@
+{
+  "tests": [
+    {
+      "name": "synthetic_budget_status_never_raises_on_provider_payload",
+      "rationale": "Provider quota payloads are external inputs; malformed fields should fail closed with JSON diagnostics rather than crashing the autopilot.",
+      "code": "from hypothesis import given, strategies as st\nfrom scripts.research_provider_budget import synthetic_budget_status\n\njsonish = st.recursive(st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False, allow_infinity=False) | st.text(max_size=20), lambda c: st.lists(c, max_size=5) | st.dictionaries(st.text(max_size=20), c, max_size=5), max_leaves=30)\n\n@given(st.dictionaries(st.text(max_size=20), jsonish, max_size=8))\ndef test_synthetic_budget_status_never_raises_on_provider_payload(payload):\n    result = synthetic_budget_status(payload, min_remaining_credits=1.0, min_rolling_remaining=1, estimated_requests=1, reserve_requests=1)\n    assert isinstance(result, dict)\n    assert result.get('provider') == 'synthetic'\n    assert isinstance(result.get('ok'), bool)\n    assert isinstance(result.get('failures'), list)\n"
+    },
+    {
+      "name": "synthetic_budget_status_low_budget_fails_closed",
+      "rationale": "Low or malformed rolling budget must never return ok=true when required rolling capacity is unavailable.",
+      "code": "from hypothesis import given, strategies as st\nfrom scripts.research_provider_budget import synthetic_budget_status\n\n@given(st.integers(min_value=1, max_value=20), st.integers(min_value=0, max_value=20))\ndef test_synthetic_budget_status_low_budget_fails_closed(required, rolling_remaining):\n    payload = {'weeklyTokenLimit': {'remainingCredits': '$10.00'}, 'rollingFiveHourLimit': {'remaining': rolling_remaining, 'max': 20, 'limited': False}, 'subscription': {'limit': 100, 'requests': 0}}\n    result = synthetic_budget_status(payload, min_remaining_credits=1.0, min_rolling_remaining=required, estimated_requests=required, reserve_requests=0)\n    if rolling_remaining < required:\n        assert result['ok'] is False\n        assert result['failures']\n"
+    }
+  ]
+}

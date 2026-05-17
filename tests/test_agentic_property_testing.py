@@ -198,3 +198,57 @@ def test_agentic_property_testing_provider_proposal_writes_json(monkeypatch, tmp
     assert result["proposal_file"] == str(output)
     assert json.loads(output.read_text(encoding="utf-8"))["tests"][0]["name"] == "sample"
     assert "Authorization" not in seen_headers
+
+
+def test_agentic_property_testing_provider_budget_failure_fails_closed(monkeypatch, tmp_path: Path, capsys) -> None:
+    target = tmp_path / "sample.py"
+    target.write_text("def identity(value):\n    return value\n", encoding="utf-8")
+
+    def fail_budget(**_kwargs):
+        raise TimeoutError("quota timeout")
+
+    monkeypatch.setattr(agentic_property_testing, "synthetic_budget_preflight", fail_budget)
+
+    code = agentic_property_testing.main([
+        "--repo-root",
+        str(tmp_path),
+        "--target",
+        str(target),
+        "--generate-provider-proposal",
+        "--provider-no-auth",
+    ])
+
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "provider_budget_blocked"
+    assert payload["agentic_terminal"] is True
+    assert "quota timeout" in payload["failures"][0]
+    assert "human" not in json.dumps(payload).lower()
+
+
+def test_agentic_property_testing_provider_generation_failure_fails_closed(monkeypatch, tmp_path: Path, capsys) -> None:
+    target = tmp_path / "sample.py"
+    target.write_text("def identity(value):\n    return value\n", encoding="utf-8")
+
+    monkeypatch.setattr(agentic_property_testing, "synthetic_budget_preflight", lambda **_kwargs: {"ok": True})
+
+    def fail_generate(**_kwargs):
+        raise TimeoutError("generation timeout")
+
+    monkeypatch.setattr(agentic_property_testing, "generate_provider_proposal", fail_generate)
+
+    code = agentic_property_testing.main([
+        "--repo-root",
+        str(tmp_path),
+        "--target",
+        str(target),
+        "--generate-provider-proposal",
+        "--provider-no-auth",
+    ])
+
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "provider_generation_failed"
+    assert payload["agentic_terminal"] is True
+    assert "generation timeout" in payload["failures"][0]
+    assert "human" not in json.dumps(payload).lower()

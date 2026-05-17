@@ -17,7 +17,9 @@ function renderManifest(manifest) {
   artifactCount.textContent = total.toLocaleString();
   gatePassCount.textContent = `${Number(manifest.packaging_provenance_pass_count).toLocaleString()}/${total.toLocaleString()}`;
   strictAuditCount.textContent = `${strictPass.toLocaleString()}/${strictTotal.toLocaleString()}`;
-  manifestNote.innerHTML = `Strict audit passes ${strictPass.toLocaleString()}/${strictTotal.toLocaleString()}; ${strictBlocked.toLocaleString()} failed claims stay visible because the gate is the product. <a href="#strict-pass-examples">See the ${strictPass.toLocaleString()} that pass →</a>`;
+  manifestNote.innerHTML = strictBlocked === 0
+    ? `Strict audit passes ${strictPass.toLocaleString()}/${strictTotal.toLocaleString()}; the claim/evidence gate stays visible because packaging discipline is not scientific correctness. <a href="#strict-pass-examples">See audit examples →</a>`
+    : `Strict audit passes ${strictPass.toLocaleString()}/${strictTotal.toLocaleString()}; ${strictBlocked.toLocaleString()} failed claims stay visible because the gate is the product. <a href="#strict-pass-examples">See the ${strictPass.toLocaleString()} that pass →</a>`;
 }
 
 fetch('ecosystem.json', {cache: 'no-cache'})
