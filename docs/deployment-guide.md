@@ -231,6 +231,24 @@ sudo systemctl enable --now enoch-research-autopilot.timer
 
 Each autopilot tick calls `/control/api/research/run-cycle` and is capped at one provider request, one promotion, one dispatch, one paper draft, and one finalization package. It preserves the broad queue pause and the paper stage still blocks negative/non-positive decision artifacts. The checked-in timer interval is not the operator contract; the current `enoch-core` timer cadence should be inspected with `systemctl list-timers enoch-research-autopilot.timer` before reporting live frequency.
 
+## Runtime provenance check
+
+If the deployed runtime is copied into `/opt/enoch-control-plane`, verify it
+against the source checkout before reporting a deploy as live:
+
+```bash
+cd /opt/enoch-release/enoch-agentic-research-system
+python3 scripts/validate_runtime_deploy.py \
+  --source /opt/enoch-release/enoch-agentic-research-system \
+  --runtime /opt/enoch-control-plane \
+  --expected-commit origin/main \
+  --summary-only
+```
+
+This check fails if the source checkout is not at the expected commit, if a
+runtime file is missing, or if any checked runtime file hash differs from the
+source checkout.
+
 ## 8. Smoke-test core API paths
 
 ```bash

@@ -97,6 +97,7 @@ Never commit live config files or credentials.
 uv run pytest -q
 python scripts/validate_versioning.py
 python3 scripts/validate_runtime_snapshot_links.py
+python3 scripts/validate_runtime_deploy.py --source . --runtime /opt/enoch-control-plane --expected-commit HEAD --summary-only
 ```
 
 ## Versioning and release notes

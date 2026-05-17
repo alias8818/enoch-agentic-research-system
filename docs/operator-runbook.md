@@ -32,6 +32,25 @@ uv run python scripts/check_longhaul_readiness.py \
 
 `BLOCKED` means at least one precondition failed. Do not unpause or widen automation until the blocker is understood. The first blocker in the readiness payload is the operator starting point, not the whole diagnosis.
 
+## Runtime provenance
+
+The reference `enoch-core` runtime at `/opt/enoch-control-plane` may be a copied
+tree rather than a Git checkout. Before claiming a deploy is live, prove the
+runtime files match the source checkout and expected commit:
+
+```bash
+cd /opt/enoch-release/enoch-agentic-research-system
+python3 scripts/validate_runtime_deploy.py \
+  --source /opt/enoch-release/enoch-agentic-research-system \
+  --runtime /opt/enoch-control-plane \
+  --expected-commit origin/main \
+  --summary-only
+```
+
+Healthy output has `"ok": true` and no failures. A hash drift, missing runtime
+file, or source commit mismatch means the running service is not proven to match
+the pushed repo and should not be treated as current truth.
+
 ## Dashboard questions
 
 | Question | Trust this | Meaning |
