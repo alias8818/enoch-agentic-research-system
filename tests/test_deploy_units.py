@@ -392,3 +392,10 @@ def test_enoch_worker_skill_uses_codex_description_frontmatter() -> None:
     header = skill.split("---", 2)[1]
     assert "description:" in header
     assert "summary:" not in header
+
+
+def test_control_plane_service_has_bounded_shutdown_for_deploy_restarts() -> None:
+    service = (ROOT / "deploy" / "enoch-worker-gate.service").read_text(encoding="utf-8")
+    assert "TimeoutStopSec=10" in service
+    assert "KillMode=mixed" in service
+    assert "FinalKillSignal=SIGKILL" in service

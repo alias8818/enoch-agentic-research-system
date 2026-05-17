@@ -10,6 +10,9 @@ Environment=ENOCH_CONFIG=/etc/enoch-control-plane/config.json
 ExecStart=/opt/enoch-control-plane/.venv/bin/python -m uvicorn enoch_control_plane.app:app --host 0.0.0.0 --port 8787
 Restart=on-failure
 RestartSec=3
+TimeoutStopSec=10
+KillMode=mixed
+FinalKillSignal=SIGKILL
 User=enoch
 Group=enoch
 
