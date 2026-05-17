@@ -526,6 +526,12 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(second_row, first_row)
             self.assertEqual(len(store.event_rows(limit=10, entity_type="run", entity_id="run-missing-idempotency")), 1)
 
+            changed_callback = {**callback, "reason": "worker ready after retry"}
+            third_event_id, third_inserted, _third_row = store.record_worker_callback(changed_callback)
+            self.assertNotEqual(third_event_id, first_event_id)
+            self.assertTrue(third_inserted)
+            self.assertEqual(len(store.event_rows(limit=10, entity_type="run", entity_id="run-missing-idempotency")), 2)
+
     def test_unknown_worker_callback_requires_manual_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

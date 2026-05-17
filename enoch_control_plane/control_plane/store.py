@@ -2346,8 +2346,9 @@ class ControlPlaneStore:
         idempotency_key = _text(payload.get("idempotency_key"))
         if not idempotency_key:
             session_part = _text(payload.get("session_id")) or "no-session"
+            payload_part = _hash(payload)[:16]
             idempotency_key = (
-                f"worker-callback:{run_id}:{event_type}:{session_part}"
+                f"worker-callback:{run_id}:{event_type}:{session_part}:{payload_part}"
                 if run_id and event_type
                 else f"worker-callback:unknown:{now}"
             )
