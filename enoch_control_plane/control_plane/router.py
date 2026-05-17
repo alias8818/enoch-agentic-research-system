@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 from pathlib import Path, PurePosixPath
 import os
 import re
@@ -113,6 +114,16 @@ def _bounded_int_env(name: str, default: int, lower: int, upper: int) -> int:
     except ValueError:
         parsed = default
     return max(lower, min(parsed, upper))
+
+
+def _event_cooldown_bucket(*, bucket_seconds: int = 3600) -> int:
+    return int(datetime.now(timezone.utc).timestamp() // max(1, bucket_seconds))
+
+
+def _active_lane_signature(active_items: list[dict[str, Any]]) -> str:
+    parts = [f"{item.get('project_id') or ''}:{item.get('current_run_id') or ''}:{item.get('status') or ''}" for item in active_items]
+    payload = "|".join(sorted(parts))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 CONTROL_DASHBOARD_HTML = """
@@ -3179,7 +3190,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             })
             if hasattr(store, "append_event"):
                 store.append_event(
-                    idempotency_key=f"research-cycle:backpressure:{'dry' if dry_run else 'live'}:{requested_by}:{utc_now()}",
+                    idempotency_key=(
+                        f"research-cycle:backpressure:{'dry' if dry_run else 'live'}:{requested_by}:"
+                        f"{_active_lane_signature(active)}:{_event_cooldown_bucket()}"
+                    ),
                     event_type="research.run_cycle.backpressure",
                     entity_type="research",
                     entity_id="run-cycle",

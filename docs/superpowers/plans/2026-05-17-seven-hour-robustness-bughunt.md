@@ -346,6 +346,9 @@ If shell glob fails because no files match, use the exact discovered test files.
 
 ---
 
+
+**Additional alert-noise fix:** Bucketed Research Facility backpressure event idempotency by active lane signature and one-hour cooldown. A normal long-running active lane no longer writes a fresh `research.run_cycle.backpressure` event on every timer tick for the same run. Added a regression that calls the live run-cycle twice under active-lane backpressure and verifies only one event row is inserted.
+
 ## Task 5: Research autopilot fail-safe and budget invariant audit
 
 **Timebox:** 60 minutes

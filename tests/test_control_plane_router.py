@@ -987,6 +987,62 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(body["policy"]["min_admission_score"], 72.0)
         self.assertTrue(body["would_generate"])
 
+    def test_research_facility_run_cycle_backpressure_event_is_bucketed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "state" / "control_plane.sqlite3"
+
+            class FakeSupabaseStore(ControlPlaneStore):
+                def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                    return []
+
+                def record_research_facility_plans(self, *_args, **_kwargs):  # pragma: no cover - backpressure returns before writes
+                    raise AssertionError("backpressure should not write ledgers")
+
+                def promote_research_candidate(self, *_args, **_kwargs):  # pragma: no cover - backpressure returns before promotion
+                    raise AssertionError("backpressure should not promote")
+
+            fake_store = FakeSupabaseStore(db_path)
+            config = GateConfig(
+                state_dir=str(Path(tmp) / "state"),
+                project_root=str(Path(tmp) / "projects"),
+                dispatch_script_path="/tmp/dispatch.sh",
+                control_api_bearer_token=TOKEN,
+                completion_callback_url="http://example.invalid/callback",
+                completion_callback_token="unused",
+                control_plane_store_backend="supabase",
+                supabase_database_url="postgresql://example.invalid/postgres",
+            )
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            quota = {
+                "subscription": {"limit": 2500, "requests": 0},
+                "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+                "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+            }
+            with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+                 patch("scripts.research_provider_budget.fetch_json", return_value=quota):
+                client = _client_with_config(config)
+                client.post("/control/import/legacy-snapshot", headers=headers, json={
+                    "idempotency_key": "research-backpressure-import",
+                    "queue_rows": [{
+                        "project_id": "active-research",
+                        "project_name": "Active Research",
+                        "project_dir": "active-research",
+                        "status": "awaiting_wake",
+                        "current_run_id": "run-active-research",
+                    }],
+                })
+                for _ in range(2):
+                    response = client.post(
+                        "/control/api/research/run-cycle",
+                        headers=headers,
+                        json={"dry_run": False, "enabled": True, "requested_by": "pytest"},
+                    )
+                    self.assertEqual(response.status_code, 200)
+                    self.assertTrue(response.json()["backpressure"])
+
+            events = fake_store.event_rows(event_type="research.run_cycle.backpressure")
+            self.assertEqual(len(events), 1)
+
     def test_research_facility_run_cycle_live_generates_and_promotes_without_dispatch(self) -> None:
         class FakeSupabaseStore:
             def __init__(self) -> None:
