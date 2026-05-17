@@ -11,7 +11,7 @@ from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.models import PaperRecord
 from fastapi import HTTPException
 
-from enoch_control_plane.control_plane.paper_writer import _write_files, write_paper_artifacts
+from enoch_control_plane.control_plane.paper_writer import _build_claim_ledger_data, _write_files, write_paper_artifacts
 
 
 class PaperWriterTests(unittest.TestCase):
@@ -134,6 +134,27 @@ class PaperWriterTests(unittest.TestCase):
             self.assertFalse(meta["fallback_used"])
             payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
             self.assertIn("2026-05-09", payload["messages"][1]["content"])
+
+    def test_claim_ledger_requires_strong_evidence_refs_for_pass_status(self) -> None:
+        paper = self._paper()
+        evidence_bundle = {
+            "public_evidence_files": [
+                {
+                    "path": "evidence/run_notes.md",
+                    "source_path": "run_notes.md",
+                    "sha256": "abc",
+                    "content": "Only generic setup notes with no matching metrics.",
+                }
+            ]
+        }
+        markdown = "The experiment improved latency by 9.99x over the dense baseline."
+
+        ledger = _build_claim_ledger_data(markdown, evidence_bundle, paper, writer_provider={"provider": "unit"})
+
+        self.assertEqual(ledger["ledger_status"], "claims_require_review")
+        self.assertEqual(ledger["claims"][0]["support_status"], "weakly_supported")
+        self.assertEqual(ledger["claims"][0]["evidence_refs"][0]["support_level"], "weak_context")
+
 
     def test_synthetic_writer_rejects_non_http_provider_before_urlopen(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

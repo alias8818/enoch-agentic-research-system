@@ -693,3 +693,7 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 ---
 
 **Additional Agentic-PBT provider safety hardening:** Applied the shared HTTP URL guard to provider-backed property proposal generation and removed a duplicated `proposal_count` result key. Regression coverage proves unsafe provider URLs are rejected before any network call.
+
+---
+
+**Additional paper claim-ledger strictness hardening:** Tightened generated claim ledgers so weak fallback context links do not produce `claims_reference_evidence` pass status. A claim ledger now passes only when every extracted claim has a positive lexical support match, keeping public strict-evidence counts conservative.

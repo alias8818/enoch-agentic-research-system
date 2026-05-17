@@ -329,7 +329,7 @@ def _build_claim_ledger_data(markdown: str, evidence_bundle: dict[str, Any], pap
         })
     return {
         "schema_version": "claim_ledger.v2",
-        "ledger_status": "claims_reference_evidence" if claims and all(item["evidence_refs"] for item in claims) else "claims_require_review",
+        "ledger_status": "claims_reference_evidence" if claims and all(item["support_status"] == "supported" for item in claims) else "claims_require_review",
         "paper_id": paper.paper_id,
         "project_id": paper.project_id,
         "run_id": paper.run_id,
