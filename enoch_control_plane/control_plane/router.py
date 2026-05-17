@@ -328,12 +328,14 @@ def _local_paper_evidence_present(project_dir: Path) -> bool:
         return True
     papers_dir = project_dir / "papers"
     if papers_dir.exists() and not papers_dir.is_symlink():
-        for name in ("evidence_bundle.json", "claim_ledger.json"):
-            if any(_safe_local_evidence_file(project_dir, path) for path in papers_dir.rglob(name)):
+        for paper_dir in sorted(path for path in papers_dir.rglob("*") if path.is_dir()):
+            if _safe_local_evidence_file(project_dir, paper_dir / "evidence_bundle.json") and _safe_local_evidence_file(project_dir, paper_dir / "claim_ledger.json"):
                 return True
+    run_notes_present = _safe_local_evidence_file(project_dir, project_dir / "run_notes.md")
     results_dir = project_dir / "results"
     return (
-        results_dir.exists()
+        run_notes_present
+        and results_dir.exists()
         and not results_dir.is_symlink()
         and any(_safe_local_evidence_file(project_dir, path) for path in results_dir.rglob("*.json"))
     )

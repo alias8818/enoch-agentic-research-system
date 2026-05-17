@@ -94,6 +94,18 @@ def test_local_paper_evidence_rejects_symlinked_paper_and_result_files(tmp_path)
 
     assert _local_paper_evidence_present(project_dir) is False
 
+def test_local_paper_evidence_requires_notes_with_result_files(tmp_path) -> None:
+    project_dir = tmp_path / "project"
+    (project_dir / "results").mkdir(parents=True)
+    (project_dir / "results" / "smoke.json").write_text("{}", encoding="utf-8")
+
+    assert _local_paper_evidence_present(project_dir) is False
+
+    (project_dir / "run_notes.md").write_text("measured result notes", encoding="utf-8")
+
+    assert _local_paper_evidence_present(project_dir) is True
+
+
 def test_sync_remote_evidence_skips_ssh_after_http_sync_has_required_local_evidence(tmp_path) -> None:
     config = _config(tmp_path)
     artifact_root = tmp_path / "artifact"

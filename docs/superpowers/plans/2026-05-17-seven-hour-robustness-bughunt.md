@@ -711,3 +711,9 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Root cause: paper evidence packaging streamed previews of worker artifacts verbatim into public `evidence_bundle.json`. If a worker log, prompt, or run note accidentally contained an API key or bearer token, the paper lane could preserve that token in a public artifact.
 - Fix: redact common secret/token forms before storing public evidence content while preserving raw source file byte counts and source SHA for provenance.
 - Tests: added `test_evidence_bundle_redacts_secret_like_tokens_from_public_content`.
+
+## Additional pass: stricter local paper evidence predicate
+
+- Root cause: `_local_paper_evidence_present` treated any local `results/*.json` as enough paper evidence. That could let a paper rewrite proceed with a metric file but no run notes or decision context, recreating the “paper without enough evidence” failure mode.
+- Fix: source-result evidence now requires `run_notes.md` plus at least one safe result JSON. Already-generated paper evidence counts only when both `evidence_bundle.json` and `claim_ledger.json` are present in the same paper directory. Symlink protections remain.
+- Tests: added `test_local_paper_evidence_requires_notes_with_result_files` and reran evidence-sync/property/router paper-gate tests.
