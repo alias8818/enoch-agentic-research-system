@@ -1711,9 +1711,9 @@ def _build_queue_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
         else _count_queue_field(rows, "last_run_state")
     )
 
-    active_statuses = {"dispatching", "awaiting_wake", "running"}
+    active_statuses = {"dispatching", "awaiting_wake", "running", "wake_received", "reconciling"}
     active_rows = payload.get("active_rows") if isinstance(payload.get("active_rows"), list) else [
-        row for row in rows if row.get("queue_status") in active_statuses
+        row for row in rows if (row.get("queue_status") or row.get("status")) in active_statuses
     ]
     blocked_rows = payload.get("blocked_rows") if isinstance(payload.get("blocked_rows"), list) else [
         row

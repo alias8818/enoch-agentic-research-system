@@ -229,3 +229,25 @@ def test_write_text_preserves_existing_file_when_replace_fails(tmp_path: Path, m
 
     assert target.read_text(encoding="utf-8") == "old"
     assert not list(tmp_path.glob(".paper.md.*.tmp"))
+
+
+def test_queue_snapshot_counts_all_active_lifecycle_statuses() -> None:
+    snapshot = appmod._build_queue_snapshot({
+        "rows": [
+            {"project_id": "dispatching", "queue_status": "dispatching"},
+            {"project_id": "awaiting", "queue_status": "awaiting_wake"},
+            {"project_id": "running", "queue_status": "running"},
+            {"project_id": "wake", "queue_status": "wake_received"},
+            {"project_id": "reconciling", "queue_status": "reconciling"},
+            {"project_id": "queued", "queue_status": "queued"},
+        ],
+    })
+
+    assert snapshot["active_count"] == 5
+    assert {row["project_id"] for row in snapshot["active_rows"]} == {
+        "dispatching",
+        "awaiting",
+        "running",
+        "wake",
+        "reconciling",
+    }

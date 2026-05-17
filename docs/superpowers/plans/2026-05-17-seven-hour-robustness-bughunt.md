@@ -771,3 +771,10 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Fix: SQLite and Supabase callback handlers now treat any callback without a `run_id` for an active-status queue item as ignored/stale, even when the row's `current_run_id` is empty.
 - Tests: added SQLite and Supabase regression coverage for active rows with empty `current_run_id`; existing active-run mismatch coverage still passes.
 - Verification: `uv run ruff check . && uv run pytest -q` passed with `549 passed, 5 warnings, 31 subtests passed`.
+
+### Additional dashboard snapshot hardening: count all active lifecycle states
+
+- Found a dashboard snapshot drift edge: `wake_received` and `reconciling` are active control-plane lifecycle states but the worker dashboard snapshot only counted `dispatching`, `awaiting_wake`, and `running`.
+- Fix: queue snapshot active-row derivation now includes `wake_received` and `reconciling` and accepts either `queue_status` or `status` fields.
+- Test: added `test_queue_snapshot_counts_all_active_lifecycle_statuses`.
+- Verification: `uv run ruff check . && uv run pytest -q` passed with `550 passed, 5 warnings, 31 subtests passed`.
