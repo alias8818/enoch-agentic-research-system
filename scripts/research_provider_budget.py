@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from enoch_control_plane.url_safety import validate_http_url
+
 SYNTHETIC_BASE_URL = "https://api.synthetic.new"
 
 
@@ -28,7 +30,8 @@ def fetch_json(url: str, *, api_key: str = "", timeout: int) -> dict[str, Any]:
     headers = {"User-Agent": "EnochResearchFacility/0.1"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    request = urllib.request.Request(url, headers=headers)
+    safe_url = validate_http_url(url, field_name="provider url")
+    request = urllib.request.Request(safe_url, headers=headers)
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 

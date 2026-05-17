@@ -135,3 +135,16 @@ def test_budget_cli_can_use_exedev_proxy_without_local_api_key(monkeypatch, tmp_
     assert result["ok"] is True
     assert result["auth_mode"] == "exe_http_proxy"
     assert result["base_url"] == "https://synthetic.int.exe.xyz"
+
+
+def test_fetch_json_rejects_non_http_url_before_urlopen(monkeypatch) -> None:
+    def fake_urlopen(*_args, **_kwargs):
+        raise AssertionError("urlopen should not run for unsafe provider URL")
+
+    monkeypatch.setattr(research_provider_budget.urllib.request, "urlopen", fake_urlopen)
+    try:
+        research_provider_budget.fetch_json("file:///etc/passwd", timeout=1)
+    except ValueError as exc:
+        assert "provider url must use http or https" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected unsafe provider URL rejection")

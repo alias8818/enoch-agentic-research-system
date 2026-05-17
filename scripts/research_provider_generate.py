@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from enoch_control_plane.url_safety import validate_http_url
+
 from scripts import research_facility_scan
 
 DEFAULT_OPENAI_BASE_URL = "https://api.synthetic.new/openai/v1"
@@ -178,8 +180,9 @@ def call_openai_compatible_chat(
     headers = {"Content-Type": "application/json", "User-Agent": "EnochResearchFacility/0.1"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+    safe_url = validate_http_url(base_url.rstrip("/") + "/chat/completions", field_name="provider url")
     req = urllib.request.Request(
-        base_url.rstrip("/") + "/chat/completions",
+        safe_url,
         data=json.dumps(payload).encode("utf-8"),
         method="POST",
         headers=headers,

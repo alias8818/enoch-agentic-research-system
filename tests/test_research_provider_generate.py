@@ -194,3 +194,24 @@ def test_generation_prompt_includes_research_quality_policy() -> None:
     assert "supported but still finalize_negative" in prompt
     assert "Do not propose another automatic follow-up at max depth" in prompt
     assert "generation does not queue work until promotion policy allows it" in prompt
+
+
+def test_provider_generate_rejects_non_http_base_url_before_urlopen(monkeypatch) -> None:
+    def fake_urlopen(*_args, **_kwargs):
+        raise AssertionError("urlopen should not run for unsafe provider URL")
+
+    monkeypatch.setattr(research_provider_generate.urllib.request, "urlopen", fake_urlopen)
+    try:
+        research_provider_generate.generate_provider_candidates(
+            base_url="file:///etc/passwd",
+            model="hf:zai-org/GLM-5.1",
+            api_key="",
+            max_candidates=1,
+            topic="quantization",
+            temperature=0.7,
+            seed="seed",
+        )
+    except ValueError as exc:
+        assert "provider url must use http or https" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected unsafe provider URL rejection")
