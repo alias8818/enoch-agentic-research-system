@@ -9,6 +9,8 @@ import tempfile
 from typing import Any
 from urllib import error, request
 
+from .url_safety import validate_http_url
+
 
 OUTBOX_DIRNAME = "callback_outbox"
 DELIVERED_DIRNAME = "callback_delivered"
@@ -110,9 +112,13 @@ class DeliveryResult:
 
 
 def deliver_payload(payload: dict[str, Any], *, url: str, token: str, timeout: float) -> DeliveryResult:
+    try:
+        safe_url = validate_http_url(url, field_name="callback url")
+    except ValueError as exc:
+        return DeliveryResult(ok=False, detail=str(exc))
     data = json.dumps(payload).encode("utf-8")
     req = request.Request(
-        url,
+        safe_url,
         data=data,
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         method="POST",

@@ -451,7 +451,7 @@ Do not commit in sibling repos unless the release validator requires a coordinat
 
 **Risk being hunted:** shell injection, unsafe path handling, unsafe deserialization, auth gaps, and broad exception swallowing in control-plane-critical paths.
 
-**Progress note:** Semgrep was unavailable in this tmux environment, so a targeted grep sweep was run for shell/deserialization/path/destructive sinks. Findings were reviewed and no new exploitable or reliability-relevant issue beyond already hardened evidence sync boundaries was identified.
+**Progress note:** Semgrep was installed through `uvx --from semgrep semgrep --config auto --error --timeout 30 enoch_control_plane scripts deploy tests`. It reported broad URL/SQL audit findings; most were operator-configured URLs or allowlisted SQL composition, but one core reliability/security boundary was hardened: callback delivery and worker HTTP helpers now reject non-HTTP(S) URLs before `urllib` can handle local schemes such as `file://`.
 
 - [x] **Step 1: Run Semgrep/custom rules if configured**
 
@@ -486,6 +486,9 @@ assert subprocess_args_are_list_not_shell_string_for_untrusted_input
 Commit subject format: `fix: harden <boundary> against <risk>`.
 
 ---
+
+
+**Additional static-analysis fix:** Added `enoch_control_plane/url_safety.py` and regression tests so callback delivery, callback sender, and worker HTTP adapter reject `file://`, missing-host, and non-HTTP(S) URLs before network/file handling. Verification: targeted URL/callback/worker tests passed; full suite passed with `496 passed, 5 warnings, 29 subtests passed`; `uv run ruff check .`, runtime snapshot validation, and `git diff --check` passed.
 
 ## Task 8: Deploy decision and live smoke
 

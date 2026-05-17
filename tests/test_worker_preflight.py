@@ -97,3 +97,15 @@ class WorkerPreflightTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+def test_http_request_json_rejects_file_scheme_before_urlopen(monkeypatch) -> None:
+    from enoch_control_plane.control_plane import worker_adapter
+
+    def fake_urlopen(*args, **kwargs):
+        raise AssertionError("urlopen should not run for unsafe worker URL")
+
+    monkeypatch.setattr(worker_adapter.request, "urlopen", fake_urlopen)
+    result = worker_adapter._http_request_json("GET", "file:///etc/passwd", {}, None)
+    assert result.ok is False
+    assert result.status is None
+    assert "worker url must use http or https" in result.error

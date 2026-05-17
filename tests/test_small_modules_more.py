@@ -64,6 +64,40 @@ def test_callback_sender_posts_expected_headers(monkeypatch) -> None:
     assert captured["headers"]["X-idempotency-key"] == "idem"
 
 
+def test_callback_sender_rejects_file_scheme_before_urlopen(monkeypatch) -> None:
+    config = GateConfig(
+        state_dir="/tmp/state",
+        project_root="/tmp/projects",
+        dispatch_script_path="/tmp/dispatch.sh",
+        control_api_bearer_token="control",
+        completion_callback_url="file:///etc/passwd",
+        completion_callback_token="secret",
+    )
+    callback = GateCallback(
+        event_type="wake_ready",
+        run_id="run",
+        session_id="session",
+        project_id="project",
+        source_event="session-idle",
+        gate_state="wake_ready",
+        process_tracking=ProcessSnapshot(),
+        telemetry={},
+        reason="quiet",
+        idempotency_key="idem",
+    )
+
+    def fake_urlopen(*args, **kwargs):
+        raise AssertionError("urlopen should not run for unsafe callback URL")
+
+    monkeypatch.setattr("enoch_control_plane.callbacks.request.urlopen", fake_urlopen)
+    try:
+        CallbackSender(config).send(callback)
+    except ValueError as exc:
+        assert "completion callback url must use http or https" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected unsafe URL rejection")
+
+
 def test_dspy_program_signatures_with_fake_module(monkeypatch) -> None:
     class Signature: pass
     class Field:

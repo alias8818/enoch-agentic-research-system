@@ -206,6 +206,21 @@ def test_deliver_payload_handles_http_and_url_errors(monkeypatch: pytest.MonkeyP
     assert down.ok is False and "RuntimeError" in down.detail
 
 
+def test_deliver_payload_rejects_file_scheme_before_urlopen(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = False
+
+    def fake_urlopen(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("urlopen should not run for unsafe callback URL")
+
+    monkeypatch.setattr(callback_outbox.request, "urlopen", fake_urlopen)
+    result = callback_outbox.deliver_payload({"run_id": "run"}, url="file:///etc/passwd", token="t", timeout=1)
+    assert result.ok is False
+    assert "callback url must use http or https" in result.detail
+    assert called is False
+
+
 def test_process_helpers_cover_benign_and_same_process(monkeypatch: pytest.MonkeyPatch) -> None:
     assert _is_benign_project_process("") is True
     assert _is_benign_project_process("tail -f logs/out") is True
