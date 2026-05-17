@@ -789,11 +789,11 @@ def _queue_is_superseded_by_paper(
     paper_projects: set[str],
     paper_runs: set[str],
 ) -> bool:
+    run_id = _text(row.get("run_id") or row.get("current_run_id"))
+    if run_id and run_id in paper_runs:
+        return True
     if _text(row.get("operator_detail_stage")) != "run_complete_draft_needed":
         return False
-    run_id = _text(row.get("run_id") or row.get("current_run_id"))
-    if run_id:
-        return run_id in paper_runs
     project_id = _text(row.get("project_id"))
     return bool(project_id and project_id in paper_projects)
 
@@ -815,7 +815,7 @@ def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]
         is_active_row = _operator_row_is_active(staged)
         if is_queue_row and related_paper_id and related_paper_id in paper_ids and not is_active_row:
             continue
-        if _queue_is_superseded_by_paper(staged, paper_projects, paper_runs):
+        if is_queue_row and not is_active_row and _queue_is_superseded_by_paper(staged, paper_projects, paper_runs):
             continue
         key = _typed_lifecycle_key(staged)
         if not key:

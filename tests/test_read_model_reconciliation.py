@@ -177,3 +177,25 @@ def test_overview_operator_cards_match_reconciled_pipeline_counts(tmp_path) -> N
     assert overview["operator_counts"]["total_operator_items"] == 3
     assert overview["paper_pipeline"]["raw_completed_no_paper_candidates"] == 1
     assert overview["paper_pipeline"]["next_write_candidate"]["project_id"] == "write-project"
+
+
+def test_completed_queue_with_same_run_paper_without_related_pointer_counts_as_paper_only() -> None:
+    rows = [
+        {
+            "project_id": "paper-project",
+            "project_name": "paper-project",
+            "status": "completed",
+            "last_run_state": "wake_ready",
+            "current_run_id": "paper-run",
+            "next_action_hint": "select_next_project",
+        },
+        _paper("paper-project", "paper-run", "paper-1"),
+    ]
+
+    counts = operator_counts_from_rows(rows)
+    detail = operator_detail_counts_from_rows(rows)
+
+    assert counts[OperatorLane.READY_TO_PUBLISH.value] == 1
+    assert counts["total_operator_items"] == 1
+    assert detail["ready_to_publish"] == 1
+    assert "run_complete_no_paper" not in detail
