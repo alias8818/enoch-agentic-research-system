@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 from hypothesis import example, given, settings, strategies as st
 
 from enoch_control_plane.config import GateConfig
-from enoch_control_plane.control_plane.router import _local_artifact_root, _remote_evidence_dir
+from enoch_control_plane.control_plane.router import _local_artifact_root, _local_paper_evidence_present, _remote_evidence_dir
 from enoch_control_plane.control_plane.store import ControlPlaneStore
 from enoch_control_plane.control_plane.models import ImportSnapshotRequest
 from enoch_control_plane.models import RunRecord
@@ -127,3 +127,36 @@ def test_stale_worker_callback_cannot_complete_different_active_run(current_run_
         events = store.event_rows(limit=1, entity_type="run", entity_id=callback_run_id)
         assert events[0]["payload"]["stale_callback_ignored"] is True
         assert events[0]["payload"]["current_run_id"] == current_run_id
+
+
+@given(evidence_kind=st.sampled_from(["high_enoch", "high_omx", "paper_bundle", "paper_ledger", "result_json"]))
+@settings(max_examples=20, deadline=None)
+def test_local_paper_evidence_never_counts_symlinked_files(evidence_kind: str) -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        project_dir = root / "project"
+        external = root / "external"
+        project_dir.mkdir()
+        external.mkdir()
+
+        if evidence_kind.startswith("high_"):
+            (project_dir / ".enoch").mkdir()
+            (project_dir / ".omx").mkdir()
+            (external / "run_notes.md").write_text("outside notes", encoding="utf-8")
+            (external / "decision.json").write_text('{"project_decision":"finalize_positive"}', encoding="utf-8")
+            (project_dir / "run_notes.md").symlink_to(external / "run_notes.md")
+            decision_dir = ".enoch" if evidence_kind == "high_enoch" else ".omx"
+            (project_dir / decision_dir / "project_decision.json").symlink_to(external / "decision.json")
+        elif evidence_kind in {"paper_bundle", "paper_ledger"}:
+            paper_dir = project_dir / "papers" / "run-1"
+            paper_dir.mkdir(parents=True)
+            name = "evidence_bundle.json" if evidence_kind == "paper_bundle" else "claim_ledger.json"
+            (external / name).write_text("{}", encoding="utf-8")
+            (paper_dir / name).symlink_to(external / name)
+        else:
+            results_dir = project_dir / "results"
+            results_dir.mkdir()
+            (external / "smoke.json").write_text("{}", encoding="utf-8")
+            (results_dir / "smoke.json").symlink_to(external / "smoke.json")
+
+        assert _local_paper_evidence_present(project_dir) is False

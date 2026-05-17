@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from enoch_control_plane.config import GateConfig
-from enoch_control_plane.control_plane.router import _local_artifact_root, _remote_evidence_dir, _sync_remote_project_evidence
+from enoch_control_plane.control_plane.router import _local_artifact_root, _local_paper_evidence_present, _remote_evidence_dir, _sync_remote_project_evidence
 
 
 def _config(tmp_path) -> GateConfig:
@@ -65,6 +65,34 @@ def test_local_artifact_root_rejects_unsafe_project_id_fallback(tmp_path) -> Non
     assert resolved == (config.expanded_project_root / "evil-project").resolve()
     resolved.relative_to(config.expanded_project_root.resolve())
 
+
+
+
+def test_local_paper_evidence_rejects_symlinked_high_signal_files(tmp_path) -> None:
+    project_dir = tmp_path / "project"
+    external = tmp_path / "external"
+    (project_dir / ".enoch").mkdir(parents=True)
+    external.mkdir()
+    (external / "run_notes.md").write_text("external notes", encoding="utf-8")
+    (external / "project_decision.json").write_text('{"project_decision":"finalize_positive"}', encoding="utf-8")
+    (project_dir / "run_notes.md").symlink_to(external / "run_notes.md")
+    (project_dir / ".enoch" / "project_decision.json").symlink_to(external / "project_decision.json")
+
+    assert _local_paper_evidence_present(project_dir) is False
+
+
+def test_local_paper_evidence_rejects_symlinked_paper_and_result_files(tmp_path) -> None:
+    project_dir = tmp_path / "project"
+    external = tmp_path / "external"
+    (project_dir / "papers" / "run-1").mkdir(parents=True)
+    (project_dir / "results").mkdir()
+    external.mkdir()
+    (external / "evidence_bundle.json").write_text("{}", encoding="utf-8")
+    (external / "smoke.json").write_text("{}", encoding="utf-8")
+    (project_dir / "papers" / "run-1" / "evidence_bundle.json").symlink_to(external / "evidence_bundle.json")
+    (project_dir / "results" / "smoke.json").symlink_to(external / "smoke.json")
+
+    assert _local_paper_evidence_present(project_dir) is False
 
 def test_sync_remote_evidence_skips_ssh_after_http_sync_has_required_local_evidence(tmp_path) -> None:
     config = _config(tmp_path)

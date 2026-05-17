@@ -261,20 +261,41 @@ window.addEventListener('hashchange',route); route(); setInterval(autoRefreshCur
 
 
 
+def _safe_local_evidence_file(project_dir: Path, path: Path) -> bool:
+    try:
+        rel = path.relative_to(project_dir)
+        path.resolve().relative_to(project_dir.resolve())
+    except (OSError, ValueError):
+        return False
+    current = project_dir
+    for part in rel.parts:
+        current = current / part
+        if current.is_symlink():
+            return False
+    return path.is_file()
+
+
 def _local_high_signal_evidence_present(project_dir: Path) -> bool:
-    return (project_dir / "run_notes.md").is_file() and any((project_dir / rel).is_file() for rel in (".enoch/project_decision.json", ".omx/project_decision.json"))
+    return _safe_local_evidence_file(project_dir, project_dir / "run_notes.md") and any(
+        _safe_local_evidence_file(project_dir, project_dir / rel)
+        for rel in (".enoch/project_decision.json", ".omx/project_decision.json")
+    )
 
 
 def _local_paper_evidence_present(project_dir: Path) -> bool:
     if _local_high_signal_evidence_present(project_dir):
         return True
     papers_dir = project_dir / "papers"
-    if papers_dir.exists():
+    if papers_dir.exists() and not papers_dir.is_symlink():
         for name in ("evidence_bundle.json", "claim_ledger.json"):
-            if any(papers_dir.rglob(name)):
+            if any(_safe_local_evidence_file(project_dir, path) for path in papers_dir.rglob(name)):
                 return True
     results_dir = project_dir / "results"
-    return results_dir.exists() and any(results_dir.rglob("*.json"))
+    return (
+        results_dir.exists()
+        and not results_dir.is_symlink()
+        and any(_safe_local_evidence_file(project_dir, path) for path in results_dir.rglob("*.json"))
+    )
 
 
 def _sync_worker_http_evidence(config: GateConfig, *, project_id: str, artifact_root: Path, source_run_id: str = "") -> dict[str, Any]:
