@@ -1,14 +1,19 @@
 {
   "tests": [
     {
-      "code": "from pathlib import Path\nfrom hypothesis import given, strategies as st\n\n@given(rel_path=st.paths())\ndef test_safe_public_evidence_path_pathlib_invariants(rel_path):\n    result = _safe_public_evidence_path(rel_path)\n    assert isinstance(result, Path), \"Must return a Path object\"\n    assert not result.is_absolute(), \"Result must be a relative path\"\n    assert \"..\" not in result.parts, \"Result must not contain path traversal '..'\"",
-      "name": "test_safe_public_evidence_path_pathlib_invariants",
-      "rationale": "Ensures _safe_public_evidence_path strictly handles pathlib.Path inputs and returns a safe, non-escaping relative Path without path traversal components."
+      "name": "safe_public_evidence_path_never_escapes_public_dir",
+      "rationale": "The public evidence mapper must turn arbitrary relative Path parts into a safe path under the public evidence directory.",
+      "code": "from pathlib import Path\nfrom hypothesis import given, strategies as st\nfrom enoch_control_plane.control_plane.paper_writer import EVIDENCE_PUBLIC_DIR, _safe_public_evidence_path\n\npart = st.text(min_size=0, max_size=20)\n@given(st.lists(part, min_size=0, max_size=6))\ndef test_safe_public_evidence_path_never_escapes_public_dir(parts):\n    rel_path = Path(*parts) if parts else Path('')\n    result = Path(_safe_public_evidence_path(rel_path))\n    assert not result.is_absolute()\n    assert result.parts[0] == EVIDENCE_PUBLIC_DIR\n    assert '..' not in result.parts\n    assert all(p and p not in {'.', '..'} for p in result.parts)\n"
     },
     {
-      "code": "from hypothesis import given, strategies as st\n\njson_strat = st.recursive(\n    st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False, allow_infinity=False) | st.text(),\n    lambda children: st.lists(children) | st.dictionaries(st.text(), children),\n    max_leaves=20\n)\n\n@given(value=json_strat, limit=st.integers(min_value=1, max_value=10))\ndef test_flatten_json_metrics_depth_limit(value, limit):\n    result = _flatten_json_metrics(value, limit=limit)\n    assert isinstance(result, dict), \"Flattened output must be a dict\"\n    for v in result.values():\n        assert not isinstance(v, (dict, list)), \"Flattened values must be primitives\"",
-      "name": "test_flatten_json_metrics_depth_limit",
-      "rationale": "Ensures _flatten_json_metrics correctly flattens arbitrary JSON-like structures and respects depth limits, guaranteeing no nested dicts or lists remain in the output."
+      "name": "flatten_json_metrics_respects_limit_and_leaf_shapes",
+      "rationale": "Flattening arbitrary JSON-like metrics must stay bounded and only emit scalar leaves or compact scalar-list samples.",
+      "code": "from hypothesis import given, strategies as st\nfrom enoch_control_plane.control_plane.paper_writer import _flatten_json_metrics\n\nscalar = st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False, allow_infinity=False) | st.text(max_size=20)\njsonish = st.recursive(scalar, lambda c: st.lists(c, max_size=8) | st.dictionaries(st.text(max_size=12), c, max_size=8), max_leaves=40)\n@given(jsonish, st.integers(min_value=1, max_value=25))\ndef test_flatten_json_metrics_respects_limit_and_leaf_shapes(value, limit):\n    result = _flatten_json_metrics(value, limit=limit)\n    assert isinstance(result, dict)\n    assert len(result) <= limit\n    for key, val in result.items():\n        assert isinstance(key, str) and key\n        if isinstance(val, list):\n            assert len(val) <= 20\n            assert all(x is None or isinstance(x, (int, float, str, bool)) for x in val)\n        else:\n            assert val is None or isinstance(val, (int, float, str, bool))\n"
+    },
+    {
+      "name": "claim_evidence_matches_is_bounded_and_sorted",
+      "rationale": "Claim-to-evidence matching feeds the claim ledger, so it must return bounded, sorted, normalized match records for arbitrary text.",
+      "code": "from hypothesis import given, strategies as st\nfrom enoch_control_plane.control_plane.paper_writer import _claim_evidence_matches\n\nfile_strategy = st.fixed_dictionaries({'path': st.text(max_size=20), 'source_path': st.text(max_size=20), 'sha256': st.text(max_size=20), 'content': st.text(max_size=200)})\n@given(st.text(max_size=200), st.lists(file_strategy, max_size=8))\ndef test_claim_evidence_matches_is_bounded_and_sorted(claim, public_files):\n    refs = _claim_evidence_matches(claim, public_files)\n    assert len(refs) <= (3 if any(float(r.get('match_score') or 0) > 0 for r in refs) else 2)\n    scores = [float(r.get('match_score') or 0) for r in refs]\n    assert all(0.0 <= s <= 1.0 for s in scores)\n    positives = [s for s in scores if s > 0]\n    assert positives == sorted(positives, reverse=True)\n    for ref in refs:\n        assert {'path', 'source_path', 'sha256', 'match_score', 'quote'} <= set(ref)\n"
     }
   ]
 }
