@@ -764,3 +764,10 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
   - legacy deterministic paper artifact writes.
 - Switched those paths to the existing atomic writer helpers instead of direct `Path.write_text` replacement.
 - Verification: `uv run ruff check . && uv run pytest -q` passed with `547 passed, 5 warnings, 31 subtests passed`.
+
+### Additional callback hardening: project-only callbacks against active rows with missing current run ids
+
+- Found another state-drift edge: if an active queue row had an empty `current_run_id`, a project-only worker callback could still complete or mutate the row.
+- Fix: SQLite and Supabase callback handlers now treat any callback without a `run_id` for an active-status queue item as ignored/stale, even when the row's `current_run_id` is empty.
+- Tests: added SQLite and Supabase regression coverage for active rows with empty `current_run_id`; existing active-run mismatch coverage still passes.
+- Verification: `uv run ruff check . && uv run pytest -q` passed with `549 passed, 5 warnings, 31 subtests passed`.

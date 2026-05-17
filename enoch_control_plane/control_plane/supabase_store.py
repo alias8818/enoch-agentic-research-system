@@ -3018,7 +3018,11 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 (project_id,),
             )
             current_run_id = _text((current_queue_row or {}).get("current_run_id"))
-            stale_callback = bool(current_run_id and current_run_id != run_id)
+            current_status = _text((current_queue_row or {}).get("status"))
+            stale_callback = bool(
+                (current_run_id and current_run_id != run_id)
+                or (not run_id and current_status in ACTIVE_STATUSES)
+            )
 
         status = QueueStatus.COMPLETED.value
         next_action_hint = "select_next_project"

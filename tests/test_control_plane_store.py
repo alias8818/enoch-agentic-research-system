@@ -519,6 +519,40 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(event["payload"]["stale_callback_ignored"], True)
             self.assertEqual(event["payload"]["ignore_reason"], "missing_run_id_for_active_project")
 
+    def test_worker_callback_missing_run_id_does_not_mutate_active_project_with_empty_current_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="callback-missing-run-empty-current-import",
+                    queue_rows=[{
+                        "project_id": "idea-active-empty",
+                        "project_name": "Active Project Empty Current",
+                        "project_dir": "idea-active-empty",
+                        "status": "awaiting_wake",
+                        "current_run_id": "",
+                        "current_session_id": "session-active",
+                        "next_action_hint": "await_callback",
+                    }],
+                    paper_rows=[],
+                )
+            )
+
+            event_id, inserted, row = store.record_worker_callback({
+                "project_id": "idea-active-empty",
+                "event_type": "wake_ready",
+                "reason": "project-only callback without run id",
+            })
+
+            self.assertTrue(inserted)
+            self.assertIsInstance(event_id, int)
+            self.assertEqual(row["status"], "awaiting_wake")
+            self.assertEqual(row["current_run_id"], "")
+            self.assertEqual(row["next_action_hint"], "await_callback")
+            event = store.event_rows(limit=1, entity_type="run", entity_id="idea-active-empty")[0]
+            self.assertEqual(event["payload"]["stale_callback_ignored"], True)
+            self.assertEqual(event["payload"]["ignore_reason"], "missing_run_id_for_active_project")
+
     def test_worker_callback_without_idempotency_key_replays_by_run_event_and_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
