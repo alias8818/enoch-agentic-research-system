@@ -36,6 +36,23 @@ DOMAIN_TABLES = (
     "projects",
 )
 
+SQLITE_TABLE_ORDER_COLUMNS = {
+    "projects": {"project_id"},
+    "queue_items": {"project_id"},
+    "runs": {"run_id"},
+    "papers": {"paper_id"},
+    "paper_review_items": {"paper_id"},
+    "events": {"event_id"},
+    "dashboard_observations": {"observation_id"},
+    "control_flags": set(),
+}
+
+
+def sqlite_identifier(value: str, *, allowed: set[str], kind: str) -> str:
+    if value not in allowed:
+        raise ValueError(f"unsupported sqlite {kind}: {value}")
+    return f'"{value}"'
+
 
 def json_text(value: Any, default: Any) -> str:
     if value in (None, ""):
@@ -60,9 +77,14 @@ def valid_hash(value: Any, payload: Any) -> str:
 
 
 def rows(conn: sqlite3.Connection, table: str, *, order_by: str = "") -> list[dict[str, Any]]:
-    suffix = f" order by {order_by}" if order_by else ""
+    quoted_table = sqlite_identifier(table, allowed=set(SQLITE_TABLE_ORDER_COLUMNS), kind="table")
+    if order_by:
+        quoted_order_by = sqlite_identifier(order_by, allowed=SQLITE_TABLE_ORDER_COLUMNS[table], kind="order_by")
+        suffix = f" order by {quoted_order_by}"
+    else:
+        suffix = ""
     try:
-        return [dict(row) for row in conn.execute(f"select * from {table}{suffix}").fetchall()]
+        return [dict(row) for row in conn.execute(f"select * from {quoted_table}{suffix}").fetchall()]
     except sqlite3.OperationalError:
         return []
 
@@ -72,7 +94,8 @@ def table_counts_sqlite(conn: sqlite3.Connection) -> dict[str, int]:
     counts: dict[str, int] = {}
     for table in tables:
         try:
-            counts[table] = int(conn.execute(f"select count(*) from {table}").fetchone()[0])
+            quoted_table = sqlite_identifier(table, allowed=set(SQLITE_TABLE_ORDER_COLUMNS), kind="table")
+            counts[table] = int(conn.execute(f"select count(*) from {quoted_table}").fetchone()[0])
         except sqlite3.OperationalError:
             counts[table] = 0
     return counts

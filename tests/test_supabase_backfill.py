@@ -31,3 +31,27 @@ def test_reset_target_requires_apply(tmp_path: Path) -> None:
             reset_target=True,
             observation_limit=0,
         )
+
+
+def test_backfill_rows_rejects_unallowlisted_table_name(tmp_path: Path) -> None:
+    import sqlite3
+    from scripts.backfill_control_plane_to_supabase import rows
+
+    db = tmp_path / "state.sqlite3"
+    with sqlite3.connect(db) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute("create table projects(project_id text)")
+        with pytest.raises(ValueError, match="unsupported sqlite table"):
+            rows(conn, "projects; drop table projects")
+
+
+def test_backfill_rows_rejects_unallowlisted_order_by(tmp_path: Path) -> None:
+    import sqlite3
+    from scripts.backfill_control_plane_to_supabase import rows
+
+    db = tmp_path / "state.sqlite3"
+    with sqlite3.connect(db) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute("create table projects(project_id text)")
+        with pytest.raises(ValueError, match="unsupported sqlite order_by"):
+            rows(conn, "projects", order_by="project_id desc; drop table projects")

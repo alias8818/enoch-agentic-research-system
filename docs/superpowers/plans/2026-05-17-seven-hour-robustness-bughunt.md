@@ -496,6 +496,9 @@ Commit subject format: `fix: harden <boundary> against <risk>`.
 
 **Additional static-analysis fix:** Added `enoch_control_plane/url_safety.py` and regression tests so callback delivery, callback sender, and worker HTTP adapter reject `file://`, missing-host, and non-HTTP(S) URLs before network/file handling. Verification: targeted URL/callback/worker tests passed; full suite passed with `496 passed, 5 warnings, 29 subtests passed`; `uv run ruff check .`, runtime snapshot validation, and `git diff --check` passed.
 
+
+**Additional migration-script hardening:** The SQLite-to-Postgres backfill helper now validates table names and `order_by` columns against a fixed allowlist before composing SQLite SQL. Added regressions for malicious table/order strings; targeted backfill tests and ruff passed.
+
 ## Task 8: Deploy decision and live smoke
 
 **Timebox:** 35 minutes
