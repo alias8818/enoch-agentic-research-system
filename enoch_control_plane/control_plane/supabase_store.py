@@ -1728,14 +1728,15 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     """,
                     (maintenance_mode, reason, now, paused_by, now),
                 )
-        flags = self.flags()
-        event_id, _ = self.append_event(
-            idempotency_key=f"pause:{now}",
-            event_type="control.pause",
-            entity_type="control",
-            entity_id="queue",
-            payload=flags.model_dump(mode="json"),
-        )
+                flags = ControlFlags(queue_paused=True, maintenance_mode=maintenance_mode, pause_reason=reason, paused_at=now, paused_by=paused_by, updated_at=now)
+                event_id, _ = self._append_event_in_cursor(
+                    cur,
+                    idempotency_key=f"pause:{now}",
+                    event_type="control.pause",
+                    entity_type="control",
+                    entity_id="queue",
+                    payload=flags.model_dump(mode="json"),
+                )
         return flags, event_id
 
     def resume(self, *, resumed_by: str, maintenance_mode: bool) -> tuple[ControlFlags, int]:
@@ -1750,14 +1751,15 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     """,
                     (maintenance_mode, resumed_by, now),
                 )
-        flags = self.flags()
-        event_id, _ = self.append_event(
-            idempotency_key=f"resume:{now}",
-            event_type="control.resume",
-            entity_type="control",
-            entity_id="queue",
-            payload=flags.model_dump(mode="json"),
-        )
+                flags = ControlFlags(queue_paused=False, maintenance_mode=maintenance_mode, pause_reason="", paused_at=None, paused_by=resumed_by, updated_at=now)
+                event_id, _ = self._append_event_in_cursor(
+                    cur,
+                    idempotency_key=f"resume:{now}",
+                    event_type="control.resume",
+                    entity_type="control",
+                    entity_id="queue",
+                    payload=flags.model_dump(mode="json"),
+                )
         return flags, event_id
 
     def upsert_dashboard_observation(
@@ -3424,13 +3426,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 )
                 if result.rowcount < 1:
                     return False
-        self.append_event(
-            idempotency_key=f"queue-item-paused:{project_id}:{now}",
-            event_type="queue.item_paused",
-            entity_type="project",
-            entity_id=project_id,
-            payload={"reason": reason, "updated_by": updated_by},
-        )
+                self._append_event_in_cursor(
+                    cur,
+                    idempotency_key=f"queue-item-paused:{project_id}:{now}",
+                    event_type="queue.item_paused",
+                    entity_type="project",
+                    entity_id=project_id,
+                    payload={"reason": reason, "updated_by": updated_by},
+                )
         return True
 
     def update_project_dir(self, project_id: str, project_dir: str) -> None:

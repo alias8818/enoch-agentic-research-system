@@ -608,6 +608,163 @@ def test_supabase_stale_worker_callback_replay_stays_idempotent_after_current_ru
 
 
 
+def test_supabase_mark_queue_item_paused_append_failure_does_not_mutate_queue_state(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    project_id = "idea-pause-item-atomic"
+    queue = {
+        "project_id": project_id,
+        "status": "queued",
+        "next_action_hint": "start_next_candidate",
+        "last_result_summary": "",
+    }
+
+    class Cursor:
+        rowcount = 0
+        def __init__(self, conn): self.conn = conn
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            if "update queue_items" in str(sql).lower():
+                self.rowcount = 1
+                self.conn.pending_queue["status"] = params[0]
+                self.conn.pending_queue["next_action_hint"] = params[1]
+                self.conn.pending_queue["last_result_summary"] = params[2]
+            return self
+
+    class Conn:
+        def __enter__(self):
+            self.pending_queue = dict(queue)
+            return self
+        def __exit__(self, exc_type, *_args):
+            if exc_type is None:
+                queue.update(self.pending_queue)
+            return False
+        def cursor(self): return Cursor(self)
+
+    def fail_append_event(*_args, **_kwargs):
+        raise RuntimeError("simulated queue pause event write failure")
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", fail_append_event)
+
+    try:
+        store.mark_queue_item_paused(project_id=project_id, reason="operator pause", updated_by="test")
+    except RuntimeError as exc:
+        assert "simulated queue pause event write failure" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected simulated event write failure")
+
+    assert queue["status"] == "queued"
+    assert queue["next_action_hint"] == "start_next_candidate"
+    assert queue["last_result_summary"] == ""
+
+
+def test_supabase_pause_append_failure_does_not_mutate_control_flags(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    flags = {
+        "queue_paused": False,
+        "maintenance_mode": False,
+        "pause_reason": "",
+        "paused_at": None,
+        "paused_by": "system",
+    }
+
+    class Cursor:
+        def __init__(self, conn): self.conn = conn
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            if "update control_flags" in str(sql).lower():
+                self.conn.pending_flags.update({
+                    "queue_paused": True,
+                    "maintenance_mode": params[0],
+                    "pause_reason": params[1],
+                    "paused_at": params[2],
+                    "paused_by": params[3],
+                })
+            return self
+
+    class Conn:
+        def __enter__(self):
+            self.pending_flags = dict(flags)
+            return self
+        def __exit__(self, exc_type, *_args):
+            if exc_type is None:
+                flags.update(self.pending_flags)
+            return False
+        def cursor(self): return Cursor(self)
+
+    def fail_append_event(*_args, **_kwargs):
+        raise RuntimeError("simulated pause event write failure")
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", fail_append_event)
+
+    try:
+        store.pause(reason="maintenance", paused_by="test", maintenance_mode=True)
+    except RuntimeError as exc:
+        assert "simulated pause event write failure" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected simulated event write failure")
+
+    assert flags["queue_paused"] is False
+    assert flags["maintenance_mode"] is False
+    assert flags["pause_reason"] == ""
+
+
+def test_supabase_resume_append_failure_does_not_mutate_control_flags(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    flags = {
+        "queue_paused": True,
+        "maintenance_mode": True,
+        "pause_reason": "maintenance",
+        "paused_at": "2026-05-17T00:00:00Z",
+        "paused_by": "test",
+    }
+
+    class Cursor:
+        def __init__(self, conn): self.conn = conn
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            if "update control_flags" in str(sql).lower():
+                self.conn.pending_flags.update({
+                    "queue_paused": False,
+                    "maintenance_mode": params[0],
+                    "pause_reason": "",
+                    "paused_at": None,
+                    "paused_by": params[1],
+                })
+            return self
+
+    class Conn:
+        def __enter__(self):
+            self.pending_flags = dict(flags)
+            return self
+        def __exit__(self, exc_type, *_args):
+            if exc_type is None:
+                flags.update(self.pending_flags)
+            return False
+        def cursor(self): return Cursor(self)
+
+    def fail_append_event(*_args, **_kwargs):
+        raise RuntimeError("simulated resume event write failure")
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", fail_append_event)
+
+    try:
+        store.resume(resumed_by="test", maintenance_mode=False)
+    except RuntimeError as exc:
+        assert "simulated resume event write failure" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected simulated event write failure")
+
+    assert flags["queue_paused"] is True
+    assert flags["maintenance_mode"] is True
+    assert flags["pause_reason"] == "maintenance"
+
+
 def test_supabase_dispatch_claim_append_failure_does_not_mutate_queue_state(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     project_id = "idea-claim-atomic"

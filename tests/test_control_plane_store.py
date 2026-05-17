@@ -97,6 +97,41 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(len(store.recent_events(100)), before_events)
             self.assertIn("maintenance", reason)
 
+    def test_pause_append_failure_does_not_mutate_control_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            before = store.flags()
+
+            def fail_append_event(*_args, **_kwargs):
+                raise RuntimeError("simulated pause event write failure")
+
+            with unittest.mock.patch.object(store, "_append_event_in_conn", side_effect=fail_append_event):
+                with self.assertRaises(RuntimeError):
+                    store.pause(reason="maintenance", paused_by="test", maintenance_mode=True)
+
+            after = store.flags()
+            self.assertEqual(after.queue_paused, before.queue_paused)
+            self.assertEqual(after.maintenance_mode, before.maintenance_mode)
+            self.assertEqual(after.pause_reason, before.pause_reason)
+
+    def test_resume_append_failure_does_not_mutate_control_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.pause(reason="maintenance", paused_by="test", maintenance_mode=True)
+            before = store.flags()
+
+            def fail_append_event(*_args, **_kwargs):
+                raise RuntimeError("simulated resume event write failure")
+
+            with unittest.mock.patch.object(store, "_append_event_in_conn", side_effect=fail_append_event):
+                with self.assertRaises(RuntimeError):
+                    store.resume(resumed_by="test", maintenance_mode=False)
+
+            after = store.flags()
+            self.assertEqual(after.queue_paused, before.queue_paused)
+            self.assertEqual(after.maintenance_mode, before.maintenance_mode)
+            self.assertEqual(after.pause_reason, before.pause_reason)
+
     def test_import_snapshot_is_idempotent_and_selects_candidate_after_resume(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
@@ -752,6 +787,36 @@ class ControlPlaneStoreTests(unittest.TestCase):
             with self.assertRaises(IdempotencyConflict):
                 store.record_worker_callback(subset)
 
+
+    def test_mark_queue_item_paused_append_failure_does_not_mutate_queue_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            project_id = "idea-pause-item-atomic"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="pause-item-atomic-import",
+                    queue_rows=[{
+                        "project_id": project_id,
+                        "project_name": "Pause Item Atomic",
+                        "project_dir": "pause-item-atomic",
+                        "status": "queued",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            before = store.queue_row(project_id)
+
+            def fail_append_event(*_args, **_kwargs):
+                raise RuntimeError("simulated queue pause event write failure")
+
+            with unittest.mock.patch.object(store, "_append_event_in_conn", side_effect=fail_append_event):
+                with self.assertRaises(RuntimeError):
+                    store.mark_queue_item_paused(project_id=project_id, reason="operator pause", updated_by="test")
+
+            after = store.queue_row(project_id)
+            self.assertEqual(after["status"], before["status"])
+            self.assertEqual(after["next_action_hint"], before["next_action_hint"])
+            self.assertEqual(after["last_result_summary"], before["last_result_summary"])
 
     def test_dispatch_claim_append_failure_does_not_mutate_queue_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

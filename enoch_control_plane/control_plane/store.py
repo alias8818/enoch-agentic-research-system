@@ -638,6 +638,13 @@ class ControlPlaneStore:
             paused_at=row["paused_at"], paused_by=row["paused_by"], updated_at=row["updated_at"]
         )
 
+    def _flags_from_conn(self, conn: sqlite3.Connection) -> ControlFlags:
+        row = conn.execute("SELECT * FROM control_flags WHERE singleton = 1").fetchone()
+        return ControlFlags(
+            queue_paused=bool(row["queue_paused"]), maintenance_mode=bool(row["maintenance_mode"]), pause_reason=row["pause_reason"],
+            paused_at=row["paused_at"], paused_by=row["paused_by"], updated_at=row["updated_at"]
+        )
+
     def pause(self, *, reason: str, paused_by: str, maintenance_mode: bool) -> tuple[ControlFlags, int]:
         now = utc_now()
         with self._connect() as conn:
@@ -645,8 +652,8 @@ class ControlPlaneStore:
                 "UPDATE control_flags SET queue_paused=1, maintenance_mode=?, pause_reason=?, paused_at=?, paused_by=?, updated_at=? WHERE singleton=1",
                 (int(maintenance_mode), reason, now, paused_by, now),
             )
-        flags = self.flags()
-        event_id, _ = self.append_event(idempotency_key=f"pause:{now}", event_type="control.pause", entity_type="control", entity_id="queue", payload=flags.model_dump(mode="json"))
+            flags = self._flags_from_conn(conn)
+            event_id, _ = self._append_event_in_conn(conn, idempotency_key=f"pause:{now}", event_type="control.pause", entity_type="control", entity_id="queue", payload=flags.model_dump(mode="json"))
         return flags, event_id
 
     def resume(self, *, resumed_by: str, maintenance_mode: bool) -> tuple[ControlFlags, int]:
@@ -656,8 +663,8 @@ class ControlPlaneStore:
                 "UPDATE control_flags SET queue_paused=0, maintenance_mode=?, pause_reason='', paused_at=NULL, paused_by=?, updated_at=? WHERE singleton=1",
                 (int(maintenance_mode), resumed_by, now),
             )
-        flags = self.flags()
-        event_id, _ = self.append_event(idempotency_key=f"resume:{now}", event_type="control.resume", entity_type="control", entity_id="queue", payload=flags.model_dump(mode="json"))
+            flags = self._flags_from_conn(conn)
+            event_id, _ = self._append_event_in_conn(conn, idempotency_key=f"resume:{now}", event_type="control.resume", entity_type="control", entity_id="queue", payload=flags.model_dump(mode="json"))
         return flags, event_id
 
     def import_snapshot(self, request: ImportSnapshotRequest) -> tuple[bool, int, int, int]:
@@ -2656,15 +2663,16 @@ class ControlPlaneStore:
                 WHERE project_id=?""",
                 (QueueStatus.PAUSED.value, "maintenance_cutover_reconcile", reason, now, project_id),
             )
-        if cur.rowcount < 1:
-            return False
-        self.append_event(
-            idempotency_key=f"queue-item-paused:{project_id}:{now}",
-            event_type="queue.item_paused",
-            entity_type="project",
-            entity_id=project_id,
-            payload={"reason": reason, "updated_by": updated_by},
-        )
+            if cur.rowcount < 1:
+                return False
+            self._append_event_in_conn(
+                conn,
+                idempotency_key=f"queue-item-paused:{project_id}:{now}",
+                event_type="queue.item_paused",
+                entity_type="project",
+                entity_id=project_id,
+                payload={"reason": reason, "updated_by": updated_by},
+            )
         return True
 
     def update_project_dir(self, project_id: str, project_dir: str) -> None:
