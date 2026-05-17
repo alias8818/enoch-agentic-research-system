@@ -109,6 +109,10 @@ def test_prepare_project_status_and_paper_artifact_endpoints(tmp_path: Path, mon
     assert written.status_code == 200
     assert written.json()["manifest_path"] == "papers/run-live/paper_manifest.json"
 
+    escaped_manifest = client.post("/project-paper/project-a", headers=headers, json={"run_id": "../escape", "paper_id": "paper-escape", "files": [], "overwrite": True})
+    assert escaped_manifest.status_code == 400
+    assert not (tmp_path / "escape" / "paper_manifest.json").exists()
+
     read = client.post("/project-paper/project-a/read", headers=headers, json={"paths": ["papers/run-live/draft.md"], "max_bytes_per_file": 1000})
     assert read.status_code == 200
     assert read.json()["files"][0]["content"] == "# Draft"

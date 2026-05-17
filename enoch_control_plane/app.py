@@ -2170,7 +2170,7 @@ async def write_project_paper(
             }
         )
 
-    manifest_path = project_dir / "papers" / request.run_id / "paper_manifest.json"
+    manifest_path = _resolve_project_relative_path(project_dir, f"papers/{request.run_id}/paper_manifest.json")
     manifest = {
         "project_id": project_id,
         "run_id": request.run_id,
