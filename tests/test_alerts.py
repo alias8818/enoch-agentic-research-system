@@ -129,6 +129,45 @@ def test_queue_alert_findings_reads_live_worker_run_from_observation_model() -> 
     assert findings == []
 
 
+def test_queue_alert_findings_suppresses_expired_stale_after_when_worker_is_live() -> None:
+    stale_after = datetime(2026, 5, 15, 10, 0, tzinfo=timezone.utc)
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[{"project_id": "p", "current_run_id": "r", "stale_after": stale_after}],
+        warnings=[],
+        source_freshness={},
+        observations={
+            "worker_preflight": {
+                "payload": {
+                    "checks": [
+                        {
+                            "name": "wake_gate_runs",
+                            "data": {
+                                "body": {
+                                    "runs": [
+                                        {
+                                            "run_id": "r",
+                                            "is_live": True,
+                                            "lifecycle_state": "active",
+                                            "active_process_count": 1,
+                                        }
+                                    ]
+                                }
+                            },
+                        }
+                    ]
+                }
+            }
+        },
+    )
+
+    findings = queue_alert_findings(status, hang_after_sec=1)  # type: ignore[arg-type]
+
+    assert findings == []
+
+
 def test_send_pushover_rejects_non_http_api_url_before_urlopen(monkeypatch, tmp_path) -> None:
     from enoch_control_plane.config import GateConfig
     from enoch_control_plane.control_plane import alerts

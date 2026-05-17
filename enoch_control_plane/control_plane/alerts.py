@@ -121,6 +121,8 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
         for row in status.active_items:
             stale_at = _parse_ts(row.get("stale_after"))
             if stale_at and datetime.now(timezone.utc) > stale_at:
+                if _has_live_worker_run(status, str(row.get("current_run_id") or "")):
+                    continue
                 active_lane_findings.append(DashboardFinding(
                     severity="warn",
                     source="control_plane_db",

@@ -673,3 +673,7 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 ---
 
 **Additional callback outbox path hardening:** Added a containment guard to `deliver_pending_file()` so direct calls cannot replay or mutate JSON files outside the callback outbox. Regression coverage proves an outside path is rejected before payload mutation or network delivery.
+
+---
+
+**Additional active-lane alert false-positive hardening:** Suppressed expired `stale_after` queue alerts when the worker observation model proves the matching run is still live. This keeps the alert lane focused on actual hangs rather than long-running but healthy work.
