@@ -43,7 +43,30 @@ def test_llm_review_normalizes_valid_decisions_only():
 
     decisions = research_facility_llm_review.normalize_decisions(raw, batch)
 
-    assert decisions == [{"candidate_id": "a", "decision": "admit", "confidence": "high", "reason": "specific", "rewrite_notes": ""}]
+    assert decisions == [
+        {"candidate_id": "a", "decision": "admit", "confidence": "high", "reason": "specific", "rewrite_notes": ""},
+        {
+            "candidate_id": "b",
+            "decision": "keep_for_later",
+            "confidence": "low",
+            "reason": "LLM review omitted a valid decision; deferred fail-closed for later reconsideration.",
+            "rewrite_notes": "",
+        },
+    ]
+
+
+def test_llm_review_fills_missing_decisions_as_deferred():
+    batch = [
+        {"candidate": {"candidate_id": "a"}, "janitor_action": {}},
+        {"candidate": {"candidate_id": "b"}, "janitor_action": {}},
+    ]
+    raw = {"decisions": [{"candidate_id": "a", "decision": "reject", "confidence": "medium", "reason": "duplicate"}]}
+
+    decisions = research_facility_llm_review.normalize_decisions(raw, batch)
+
+    assert [item["candidate_id"] for item in decisions] == ["a", "b"]
+    assert decisions[1]["decision"] == "keep_for_later"
+    assert decisions[1]["confidence"] == "low"
 
 
 def test_llm_review_prompt_contains_allowed_decisions():

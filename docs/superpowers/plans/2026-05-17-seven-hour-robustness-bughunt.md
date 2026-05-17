@@ -681,3 +681,7 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 ---
 
 **Additional provider-output bounding:** Capped provider-returned candidate lists to the requested `max_candidates` before returning the batch. Regression coverage prevents a provider from over-admitting extra candidates beyond the quota-gated request size.
+
+---
+
+**Additional janitor LLM review closure hardening:** Normalized missing or invalid per-candidate LLM decisions into low-confidence `keep_for_later` decisions. This prevents partial LLM responses from leaving rows indefinitely stuck in `needs_review` while still failing closed instead of admitting uncertain work.

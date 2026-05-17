@@ -200,8 +200,9 @@ def call_review_model(*, base_url: str, model: str, prompt: str, timeout: int, m
 
 
 def normalize_decisions(raw: dict[str, Any], batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    allowed_ids = {str(item["candidate"].get("candidate_id")) for item in batch}
-    out: list[dict[str, Any]] = []
+    ordered_ids = [str(item["candidate"].get("candidate_id")) for item in batch]
+    allowed_ids = set(ordered_ids)
+    by_id: dict[str, dict[str, Any]] = {}
     seen: set[str] = set()
     for item in raw.get("decisions") or []:
         if not isinstance(item, dict):
@@ -211,12 +212,22 @@ def normalize_decisions(raw: dict[str, Any], batch: list[dict[str, Any]]) -> lis
         if candidate_id not in allowed_ids or candidate_id in seen or decision not in DECISIONS:
             continue
         seen.add(candidate_id)
-        out.append({
+        by_id[candidate_id] = {
             "candidate_id": candidate_id,
             "decision": decision,
             "confidence": _as_text(item.get("confidence") or "low")[:20],
             "reason": _as_text(item.get("reason"))[:500],
             "rewrite_notes": _as_text(item.get("rewrite_notes"))[:800],
+        }
+    fallback_reason = "LLM review omitted a valid decision; deferred fail-closed for later reconsideration."
+    out: list[dict[str, Any]] = []
+    for candidate_id in ordered_ids:
+        out.append(by_id.get(candidate_id) or {
+            "candidate_id": candidate_id,
+            "decision": "keep_for_later",
+            "confidence": "low",
+            "reason": fallback_reason,
+            "rewrite_notes": "",
         })
     return out
 
