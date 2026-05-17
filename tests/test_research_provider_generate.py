@@ -142,6 +142,32 @@ def test_provider_generate_calls_openai_compatible_endpoint_without_local_auth_w
     assert "Pure simulations" in prompt
 
 
+def test_provider_generate_retries_provider_call_error_before_succeeding(monkeypatch) -> None:
+    calls = {"count": 0}
+
+    def fake_call(**kwargs):  # noqa: ANN003 - mirrors provider call kwargs
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise TimeoutError("temporary provider timeout")
+        return _provider_payload()
+
+    monkeypatch.setattr(research_provider_generate, "call_openai_compatible_chat", fake_call)
+
+    result = research_provider_generate.generate_provider_candidates(
+        base_url="https://synthetic.int.exe.xyz/openai/v1",
+        model="hf:zai-org/GLM-5.1",
+        api_key="",
+        max_candidates=1,
+        topic="quantization",
+        temperature=0.7,
+        seed="seed-call-retry",
+        attempts=2,
+    )
+
+    assert result["candidate_count"] == 1
+    assert result["attempts_used"] == 2
+
+
 def test_provider_generate_retries_malformed_json_before_succeeding() -> None:
     class FakeResponse:
         calls = 0

@@ -288,16 +288,16 @@ def generate_provider_candidates(
         attempt_used = attempt
         attempt_seed = seed if attempt == 1 else f"{seed}:retry-{attempt}"
         prompt = build_generation_prompt(max_candidates=max_candidates, topic=topic, model=model, temperature=temperature, seed=attempt_seed)
-        provider_payload = call_openai_compatible_chat(
-            base_url=base_url,
-            model=model,
-            prompt=prompt,
-            api_key=api_key,
-            temperature=temperature,
-            timeout=timeout,
-            max_tokens=max_tokens,
-        )
         try:
+            provider_payload = call_openai_compatible_chat(
+                base_url=base_url,
+                model=model,
+                prompt=prompt,
+                api_key=api_key,
+                temperature=temperature,
+                timeout=timeout,
+                max_tokens=max_tokens,
+            )
             candidates = candidates_from_provider_response(
                 provider_payload,
                 provider="synthetic.new",
