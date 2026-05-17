@@ -241,3 +241,29 @@ def test_provider_generate_rejects_non_http_base_url_before_urlopen(monkeypatch)
         assert "provider url must use http or https" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("expected unsafe provider URL rejection")
+
+def test_provider_generate_caps_excess_provider_candidates(monkeypatch) -> None:
+    payload = _provider_payload()
+    first = payload["choices"][0]["message"]["content"]
+    data = json.loads(first)
+    second = dict(data["candidates"][0])
+    second["title"] = "Second Overrun Candidate"
+    data["candidates"].append(second)
+    payload["choices"][0]["message"]["content"] = json.dumps(data)
+
+    monkeypatch.setattr(research_provider_generate, "call_openai_compatible_chat", lambda **_kwargs: payload)
+
+    result = research_provider_generate.generate_provider_candidates(
+        base_url="https://synthetic.int.exe.xyz/openai/v1",
+        model="hf:zai-org/GLM-5.1",
+        api_key="",
+        max_candidates=1,
+        topic="quantization",
+        temperature=0.7,
+        seed="seed-cap",
+    )
+
+    assert result["candidate_count"] == 1
+    assert len(result["candidates"]) == 1
+    assert result["candidates"][0]["title"] == data["candidates"][0]["title"]
+

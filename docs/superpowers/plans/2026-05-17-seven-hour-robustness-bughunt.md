@@ -677,3 +677,7 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 ---
 
 **Additional active-lane alert false-positive hardening:** Suppressed expired `stale_after` queue alerts when the worker observation model proves the matching run is still live. This keeps the alert lane focused on actual hangs rather than long-running but healthy work.
+
+---
+
+**Additional provider-output bounding:** Capped provider-returned candidate lists to the requested `max_candidates` before returning the batch. Regression coverage prevents a provider from over-admitting extra candidates beyond the quota-gated request size.

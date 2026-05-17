@@ -310,6 +310,7 @@ def generate_provider_candidates(
                 default_model=default_model,
                 default_sandbox=default_sandbox,
             )
+            candidates = candidates[:max_candidates]
             break
         except Exception as exc:
             last_error = exc
