@@ -2998,6 +2998,27 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         )
         return event_id, self.queue_row(project_id) or {}
 
+    def _replayed_worker_callback_event_id(self, idempotency_key: str, incoming_payload: dict[str, Any]) -> int | None:
+        """Return existing worker callback event id for an exact incoming retry."""
+
+        row = self._one("select event_id, payload_json from control_events where idempotency_key = %s", (idempotency_key,))
+        if row is None or "payload_json" not in row:
+            return None
+        raw_payload = row.get("payload_json")
+        if isinstance(raw_payload, dict):
+            existing_payload = raw_payload
+        else:
+            try:
+                existing_payload = json.loads(raw_payload or "{}")
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise IdempotencyConflict(f"idempotency key {idempotency_key!r} has unreadable payload") from exc
+        if not isinstance(existing_payload, dict):
+            raise IdempotencyConflict(f"idempotency key {idempotency_key!r} has non-object payload")
+        for key, value in incoming_payload.items():
+            if existing_payload.get(key) != value:
+                raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different callback payload")
+        return int(row["event_id"])
+
     def record_worker_callback(self, callback: Any, *, received_by: str = "worker-callback") -> tuple[int, bool, dict[str, Any]]:
         now = utc_now()
         payload = callback.model_dump(mode="json") if hasattr(callback, "model_dump") else dict(callback)
@@ -3012,6 +3033,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         if not project_id and run_id:
             row = self._one("select project_id from runs where run_id = %s", (run_id,))
             project_id = _text(row.get("project_id") if row else "")
+        replayed_callback_event_id = self._replayed_worker_callback_event_id(idempotency_key, payload)
+        if replayed_callback_event_id is not None:
+            return replayed_callback_event_id, False, self.queue_row(project_id) or {}
         current_queue_row: dict[str, Any] | None = None
         stale_callback = False
         if project_id:

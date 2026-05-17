@@ -525,6 +525,87 @@ def test_supabase_worker_callback_missing_run_id_does_not_complete_queued_projec
     assert event["payload"]["ignore_reason"] == "missing_run_id_for_project_callback"
 
 
+
+def test_supabase_stale_worker_callback_replay_stays_idempotent_after_current_run_completes(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    events: dict[str, dict] = {}
+    executed: list[tuple[tuple, dict]] = []
+    queue = {
+        "project_id": "idea-stale-replay",
+        "status": "awaiting_wake",
+        "current_run_id": "run-current",
+        "current_session_id": "session-current",
+        "last_run_state": "awaiting_wake",
+        "next_action_hint": "await_callback",
+    }
+
+    def fake_one(sql, params=()):  # noqa: ANN001 - lightweight store fake
+        if "from control_events" in sql:
+            key = params[0]
+            event = events.get(key)
+            if event:
+                return {"event_id": event["event_id"], "payload_hash": event["payload_hash"], "payload_json": event["payload"]}
+        if "from queue_items" in sql:
+            return queue
+        return None
+
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, *args, **kwargs):
+            executed.append((args, kwargs))
+            return None
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    def fake_append_event(*, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
+        event_id = len(events) + 1
+        events[idempotency_key] = {
+            "event_id": event_id,
+            "payload_hash": s._hash(payload),
+            "event_type": event_type,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "payload": payload,
+        }
+        return event_id, True
+
+    monkeypatch.setattr(store, "_one", fake_one)
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "append_event", fake_append_event)
+    monkeypatch.setattr(store, "queue_row", lambda project_id: queue)
+
+    stale_callback = {
+        "project_id": "idea-stale-replay",
+        "run_id": "run-old",
+        "session_id": "session-old",
+        "event_type": "wake_ready",
+        "reason": "old worker retry",
+        "idempotency_key": "stale-replay-key",
+    }
+    first_event_id, first_inserted, first_row = store.record_worker_callback(stale_callback)
+    assert first_inserted is True
+    assert first_row["status"] == "awaiting_wake"
+
+    queue.update({
+        "status": "completed",
+        "last_run_state": "wake_ready",
+        "next_action_hint": "draft_paper_or_select_next_project",
+    })
+    executed.clear()
+
+    second_event_id, second_inserted, second_row = store.record_worker_callback(stale_callback)
+
+    assert second_event_id == first_event_id
+    assert second_inserted is False
+    assert second_row["status"] == "completed"
+    assert executed == []
+    assert len(events) == 1
+    assert events["stale-replay-key"]["payload"]["stale_callback_ignored"] is True
+
 def test_supabase_import_snapshot_preserves_active_runtime_with_empty_current_run(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     queue_upserts: list[tuple] = []

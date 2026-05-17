@@ -661,6 +661,55 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(event["payload"]["stale_callback_ignored"], True)
             self.assertEqual(event["payload"]["ignore_reason"], "missing_run_id_for_project_callback")
 
+    def test_stale_worker_callback_replay_stays_idempotent_after_current_run_completes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="callback-stale-replay-import",
+                    queue_rows=[{
+                        "project_id": "idea-stale-replay",
+                        "project_name": "Stale Replay",
+                        "project_dir": "idea-stale-replay",
+                        "status": "awaiting_wake",
+                        "current_run_id": "run-current",
+                        "current_session_id": "session-current",
+                        "next_action_hint": "await_callback",
+                    }],
+                    paper_rows=[],
+                )
+            )
+
+            stale_callback = {
+                "project_id": "idea-stale-replay",
+                "run_id": "run-old",
+                "session_id": "session-old",
+                "event_type": "wake_ready",
+                "reason": "old worker retry",
+                "idempotency_key": "stale-replay-key",
+            }
+            first_event_id, first_inserted, first_row = store.record_worker_callback(stale_callback)
+            self.assertTrue(first_inserted)
+            self.assertEqual(first_row["status"], "awaiting_wake")
+
+            store.record_worker_callback({
+                "project_id": "idea-stale-replay",
+                "run_id": "run-current",
+                "session_id": "session-current",
+                "event_type": "wake_ready",
+                "reason": "current worker ready",
+                "idempotency_key": "current-ready-key",
+            })
+
+            second_event_id, second_inserted, second_row = store.record_worker_callback(stale_callback)
+
+            self.assertEqual(second_event_id, first_event_id)
+            self.assertFalse(second_inserted)
+            self.assertEqual(second_row["status"], "completed")
+            events = store.event_rows(limit=10, entity_type="run", entity_id="run-old")
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0]["payload"]["stale_callback_ignored"], True)
+
     def test_worker_callback_without_idempotency_key_replays_by_run_event_and_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

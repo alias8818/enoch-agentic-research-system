@@ -1322,6 +1322,30 @@ class ControlPlaneStore:
             raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different payload")
         return int(row["event_id"])
 
+    def _replayed_worker_callback_event_id(self, idempotency_key: str, incoming_payload: dict[str, Any]) -> int | None:
+        """Return existing worker callback event id for an exact incoming retry.
+
+        Worker callback event payloads include state-derived audit fields such as
+        applied_status. A retry of the same callback can arrive after the queue
+        has legitimately moved on, so idempotency must compare the immutable
+        incoming callback fields, not a newly derived augmented payload.
+        """
+
+        with self._connect() as conn:
+            row = conn.execute("SELECT event_id, payload_json FROM events WHERE idempotency_key=?", (idempotency_key,)).fetchone()
+        if row is None:
+            return None
+        try:
+            existing_payload = json.loads(row["payload_json"] or "{}")
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise IdempotencyConflict(f"idempotency key {idempotency_key!r} has unreadable payload") from exc
+        if not isinstance(existing_payload, dict):
+            raise IdempotencyConflict(f"idempotency key {idempotency_key!r} has non-object payload")
+        for key, value in incoming_payload.items():
+            if existing_payload.get(key) != value:
+                raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different callback payload")
+        return int(row["event_id"])
+
     def claim_paper_review(self, paper_id: str, request: PaperReviewClaimRequest) -> tuple[int, bool, dict[str, Any]]:
         if not _text(request.reviewer):
             raise ValueError("reviewer is required")
@@ -2441,6 +2465,10 @@ class ControlPlaneStore:
             with self._connect() as conn:
                 found = conn.execute("SELECT project_id FROM runs WHERE run_id=?", (run_id,)).fetchone()
                 project_id = found["project_id"] if found else ""
+        replayed_callback_event_id = self._replayed_worker_callback_event_id(idempotency_key, payload)
+        if replayed_callback_event_id is not None:
+            row = self.queue_row(project_id) if project_id else {}
+            return replayed_callback_event_id, False, row or {}
         current_queue_row: dict[str, Any] | None = None
         stale_callback = False
         if project_id:
