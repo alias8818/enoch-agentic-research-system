@@ -368,6 +368,8 @@ def _sync_worker_http_evidence(config: GateConfig, *, project_id: str, artifact_
         ])
     written = []
     skipped = []
+    artifact_root = artifact_root.resolve()
+    artifact_root.mkdir(parents=True, exist_ok=True)
     # Read each evidence path independently. The GB10 worker read endpoint is
     # intentionally strict and returns a non-2xx response when any requested
     # path is missing. Most projects only have a subset of the optional
@@ -386,13 +388,16 @@ def _sync_worker_http_evidence(config: GateConfig, *, project_id: str, artifact_
             skipped.append({"path": path, "status": result.status, "error": result.error[:300]})
             continue
         for file in result.body.get("files", []):
-            rel = str(file.get("path") or "")
+            rel = str(file.get("path") or "").strip()
             content = str(file.get("content") or "")
-            target = (artifact_root / rel).resolve()
             try:
+                target = (artifact_root / rel).resolve()
                 target.relative_to(artifact_root)
-            except ValueError:
+            except (OSError, ValueError):
                 skipped.append({"path": rel, "status": "unsafe_path", "error": "worker returned path outside artifact root"})
+                continue
+            if not rel or target == artifact_root or (target.exists() and target.is_dir()):
+                skipped.append({"path": rel, "status": "unsafe_path", "error": "worker returned path is not a file target"})
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")

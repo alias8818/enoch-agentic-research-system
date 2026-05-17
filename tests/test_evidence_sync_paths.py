@@ -254,3 +254,43 @@ def test_sync_remote_evidence_reports_failed_when_successful_tar_has_no_required
     assert result["synced"] is False
     assert result["local_evidence_present"] is False
     assert result["reason"] == "synced_without_required_evidence"
+
+
+def test_sync_worker_http_evidence_skips_empty_worker_paths(tmp_path) -> None:
+    from enoch_control_plane.control_plane.router import _sync_worker_http_evidence
+    from enoch_control_plane.control_plane.worker_adapter import HttpResult
+
+    config = _config(tmp_path)
+    config.worker_wake_gate_bearer_token = "worker-token"
+    config.worker_wake_gate_url = "http://worker"
+    artifact_root = tmp_path / "artifact"
+
+    def fake_post_worker_json(base_url, path, token, payload):  # noqa: ANN001 - matches patched function
+        del base_url, path, token, payload
+        return HttpResult(ok=True, status=200, body={"files": [{"path": "", "content": "bad"}, {"path": ".", "content": "bad"}]})
+
+    with patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post_worker_json):
+        result = _sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+
+    assert result["ok"] is False
+    assert result["reason"] == "worker_read_failed"
+    assert any(item["status"] == "unsafe_path" for item in result["skipped"])
+
+
+def test_sync_worker_http_evidence_skips_invalid_worker_path_bytes(tmp_path) -> None:
+    from enoch_control_plane.control_plane.router import _sync_worker_http_evidence
+    from enoch_control_plane.control_plane.worker_adapter import HttpResult
+
+    config = _config(tmp_path)
+    config.worker_wake_gate_bearer_token = "worker-token"
+    config.worker_wake_gate_url = "http://worker"
+
+    def fake_post_worker_json(base_url, path, token, payload):  # noqa: ANN001 - matches patched function
+        del base_url, path, token, payload
+        return HttpResult(ok=True, status=200, body={"files": [{"path": "bad\x00file.json", "content": "bad"}]})
+
+    with patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post_worker_json):
+        result = _sync_worker_http_evidence(config, project_id="project", artifact_root=tmp_path / "artifact")
+
+    assert result["ok"] is False
+    assert any(item["status"] == "unsafe_path" for item in result["skipped"])
