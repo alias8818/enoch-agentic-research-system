@@ -1593,28 +1593,47 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
     SQLite semantics.
     """
 
-    def append_event(self, *, idempotency_key: str, event_type: str, entity_type: str, entity_id: str, payload: dict[str, Any]) -> tuple[int, bool]:
+    def _append_event_in_cursor(
+        self,
+        cur: Any,
+        *,
+        idempotency_key: str,
+        event_type: str,
+        entity_type: str,
+        entity_id: str,
+        payload: dict[str, Any],
+    ) -> tuple[int, bool]:
         payload_json = _json(payload)
         payload_hash = _hash(payload)
+        row = cur.execute(
+            "select event_id, payload_hash from control_events where idempotency_key = %s",
+            (idempotency_key,),
+        ).fetchone()
+        if row:
+            if row["payload_hash"] != payload_hash:
+                raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different payload")
+            return int(row["event_id"]), False
+        inserted = cur.execute(
+            """
+            insert into control_events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at)
+            values (%s,%s,%s,%s,%s::jsonb,%s,%s)
+            returning event_id
+            """,
+            (idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash, utc_now()),
+        ).fetchone()
+        return int(inserted["event_id"]), True
+
+    def append_event(self, *, idempotency_key: str, event_type: str, entity_type: str, entity_id: str, payload: dict[str, Any]) -> tuple[int, bool]:
         with self._connect() as conn:
             with conn.cursor() as cur:
-                row = cur.execute(
-                    "select event_id, payload_hash from control_events where idempotency_key = %s",
-                    (idempotency_key,),
-                ).fetchone()
-                if row:
-                    if row["payload_hash"] != payload_hash:
-                        raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different payload")
-                    return int(row["event_id"]), False
-                inserted = cur.execute(
-                    """
-                    insert into control_events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at)
-                    values (%s,%s,%s,%s,%s::jsonb,%s,%s)
-                    returning event_id
-                    """,
-                    (idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash, utc_now()),
-                ).fetchone()
-                return int(inserted["event_id"]), True
+                return self._append_event_in_cursor(
+                    cur,
+                    idempotency_key=idempotency_key,
+                    event_type=event_type,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    payload=payload,
+                )
 
     def claim_dispatch_candidate(self, *, project_id: str, run_id: str, requested_by: str) -> dict[str, Any] | None:
         now = utc_now()
@@ -3168,13 +3187,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         """,
                         (_text(payload.get("session_id")), run_state, run_ended_at, now, gate_state, "worker_callback", now, run_id),
                     )
-        event_id, inserted = self.append_event(
-            idempotency_key=idempotency_key,
-            event_type=f"worker_callback.{event_type}",
-            entity_type="run",
-            entity_id=run_id or project_id or "unknown",
-            payload=event_payload,
-        )
+                event_id, inserted = self._append_event_in_cursor(
+                    cur,
+                    idempotency_key=idempotency_key,
+                    event_type=f"worker_callback.{event_type}",
+                    entity_type="run",
+                    entity_id=run_id or project_id or "unknown",
+                    payload=event_payload,
+                )
         return event_id, inserted, self.queue_row(project_id) or {}
 
     def record_project_decision_gate(self, *, project_id: str, run_id: str = "", artifact_root: str | Path, decided_at: str | None = None) -> dict[str, Any]:

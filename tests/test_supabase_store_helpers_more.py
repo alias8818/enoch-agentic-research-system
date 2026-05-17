@@ -250,7 +250,7 @@ def test_supabase_worker_callback_without_key_dedupes_exact_retry(monkeypatch) -
     def fake_connect():
         return Conn()
 
-    def fake_append_event(*, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
+    def fake_append_event(_cur, *, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
         del event_type, entity_type, entity_id
         event_id = len(events) + 1
         events[idempotency_key] = (event_id, s._hash(payload))
@@ -258,7 +258,7 @@ def test_supabase_worker_callback_without_key_dedupes_exact_retry(monkeypatch) -
 
     monkeypatch.setattr(store, "_one", fake_one)
     monkeypatch.setattr(store, "_connect", fake_connect)
-    monkeypatch.setattr(store, "append_event", fake_append_event)
+    monkeypatch.setattr(store, "_append_event_in_cursor", fake_append_event)
     monkeypatch.setattr(store, "queue_row", lambda project_id: {})
 
     callback = {
@@ -303,7 +303,7 @@ def test_supabase_worker_callback_without_identifiers_dedupes_by_payload(monkeyp
     def fake_connect():
         return Conn()
 
-    def fake_append_event(*, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
+    def fake_append_event(_cur, *, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
         del event_type, entity_type, entity_id
         event_id = len(events) + 1
         events[idempotency_key] = (event_id, s._hash(payload))
@@ -311,7 +311,7 @@ def test_supabase_worker_callback_without_identifiers_dedupes_by_payload(monkeyp
 
     monkeypatch.setattr(store, "_one", fake_one)
     monkeypatch.setattr(store, "_connect", fake_connect)
-    monkeypatch.setattr(store, "append_event", fake_append_event)
+    monkeypatch.setattr(store, "_append_event_in_cursor", fake_append_event)
     monkeypatch.setattr(store, "queue_row", lambda project_id: {})
 
     callback = {"source_event": "malformed-worker-callback", "reason": "missing worker identifiers"}
@@ -359,7 +359,7 @@ def test_supabase_worker_callback_missing_run_id_does_not_mutate_active_project(
         def __exit__(self, *args): return None
         def cursor(self): return Cursor()
 
-    def fake_append_event(*, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
+    def fake_append_event(_cur, *, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
         event_id = len(events) + 1
         events[idempotency_key] = {
             "event_id": event_id,
@@ -373,7 +373,7 @@ def test_supabase_worker_callback_missing_run_id_does_not_mutate_active_project(
 
     monkeypatch.setattr(store, "_one", fake_one)
     monkeypatch.setattr(store, "_connect", lambda: Conn())
-    monkeypatch.setattr(store, "append_event", fake_append_event)
+    monkeypatch.setattr(store, "_append_event_in_cursor", fake_append_event)
     monkeypatch.setattr(store, "queue_row", lambda project_id: queue)
 
     event_id, inserted, row = store.record_worker_callback({
@@ -426,7 +426,7 @@ def test_supabase_worker_callback_missing_run_id_does_not_mutate_active_project_
         def __exit__(self, *args): return None
         def cursor(self): return Cursor()
 
-    def fake_append_event(*, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
+    def fake_append_event(_cur, *, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
         event_id = len(events) + 1
         events[idempotency_key] = {
             "event_id": event_id,
@@ -440,7 +440,7 @@ def test_supabase_worker_callback_missing_run_id_does_not_mutate_active_project_
 
     monkeypatch.setattr(store, "_one", fake_one)
     monkeypatch.setattr(store, "_connect", lambda: Conn())
-    monkeypatch.setattr(store, "append_event", fake_append_event)
+    monkeypatch.setattr(store, "_append_event_in_cursor", fake_append_event)
     monkeypatch.setattr(store, "queue_row", lambda project_id: queue)
 
     event_id, inserted, row = store.record_worker_callback({
@@ -493,7 +493,7 @@ def test_supabase_worker_callback_missing_run_id_does_not_complete_queued_projec
         def __exit__(self, *args): return None
         def cursor(self): return Cursor()
 
-    def fake_append_event(*, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
+    def fake_append_event(_cur, *, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
         event_id = len(events) + 1
         events[idempotency_key] = {
             "event_id": event_id,
@@ -507,7 +507,7 @@ def test_supabase_worker_callback_missing_run_id_does_not_complete_queued_projec
 
     monkeypatch.setattr(store, "_one", fake_one)
     monkeypatch.setattr(store, "_connect", lambda: Conn())
-    monkeypatch.setattr(store, "append_event", fake_append_event)
+    monkeypatch.setattr(store, "_append_event_in_cursor", fake_append_event)
     monkeypatch.setattr(store, "queue_row", lambda project_id: queue)
 
     event_id, inserted, row = store.record_worker_callback({
@@ -561,7 +561,7 @@ def test_supabase_stale_worker_callback_replay_stays_idempotent_after_current_ru
         def __exit__(self, *args): return None
         def cursor(self): return Cursor()
 
-    def fake_append_event(*, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
+    def fake_append_event(_cur, *, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
         event_id = len(events) + 1
         events[idempotency_key] = {
             "event_id": event_id,
@@ -575,7 +575,7 @@ def test_supabase_stale_worker_callback_replay_stays_idempotent_after_current_ru
 
     monkeypatch.setattr(store, "_one", fake_one)
     monkeypatch.setattr(store, "_connect", lambda: Conn())
-    monkeypatch.setattr(store, "append_event", fake_append_event)
+    monkeypatch.setattr(store, "_append_event_in_cursor", fake_append_event)
     monkeypatch.setattr(store, "queue_row", lambda project_id: queue)
 
     stale_callback = {
@@ -606,6 +606,99 @@ def test_supabase_stale_worker_callback_replay_stays_idempotent_after_current_ru
     assert len(events) == 1
     assert events["stale-replay-key"]["payload"]["stale_callback_ignored"] is True
 
+
+
+def test_supabase_worker_callback_append_failure_does_not_mutate_runtime_state(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    project_id = "idea-callback-atomic"
+    run_id = "run-callback-atomic"
+    queue = {
+        "project_id": project_id,
+        "status": "awaiting_wake",
+        "current_run_id": run_id,
+        "current_session_id": "session-before",
+        "last_run_state": "awaiting_wake",
+        "next_action_hint": "await_callback",
+    }
+    run = {
+        "run_id": run_id,
+        "project_id": project_id,
+        "session_id": "session-before",
+        "state": "running",
+        "gate_state": "running",
+    }
+
+    def fake_one(sql, params=()):  # noqa: ANN001 - lightweight store fake
+        if "from control_events" in sql:
+            return None
+        if "from queue_items" in sql:
+            return dict(queue)
+        if "from runs" in sql:
+            return dict(run)
+        return None
+
+    class Cursor:
+        def __init__(self, conn):
+            self.conn = conn
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("update queue_items"):
+                pending_queue = self.conn.pending_queue
+                pending_queue["status"] = params[0]
+                pending_queue["current_session_id"] = params[1] or pending_queue["current_session_id"]
+                pending_queue["last_run_state"] = params[2]
+                pending_queue["next_action_hint"] = params[4]
+            elif normalized.startswith("update runs"):
+                pending_run = self.conn.pending_run
+                pending_run["session_id"] = params[0] or pending_run["session_id"]
+                pending_run["state"] = params[1]
+                pending_run["gate_state"] = params[4]
+            return self
+
+    class Conn:
+        def __enter__(self):
+            self.pending_queue = dict(queue)
+            self.pending_run = dict(run)
+            return self
+        def __exit__(self, exc_type, *_args):
+            if exc_type is None:
+                queue.update(self.pending_queue)
+                run.update(self.pending_run)
+            return False
+        def cursor(self): return Cursor(self)
+
+    def fail_append_event(*_args, **_kwargs):
+        raise RuntimeError("simulated event write failure")
+
+    monkeypatch.setattr(store, "_one", fake_one)
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", fail_append_event)
+
+    callback = {
+        "event_type": "wake_ready",
+        "run_id": run_id,
+        "session_id": "session-after",
+        "project_id": project_id,
+        "gate_state": "wake_ready",
+        "reason": "worker ready",
+        "idempotency_key": "callback-atomic-key",
+    }
+    try:
+        store.record_worker_callback(callback)
+    except RuntimeError as exc:
+        assert "simulated event write failure" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected simulated event write failure")
+
+    assert queue["status"] == "awaiting_wake"
+    assert queue["current_session_id"] == "session-before"
+    assert queue["last_run_state"] == "awaiting_wake"
+    assert queue["next_action_hint"] == "await_callback"
+    assert run["session_id"] == "session-before"
+    assert run["state"] == "running"
+    assert run["gate_state"] == "running"
 
 
 def test_supabase_worker_callback_idempotency_rejects_payload_subset_reuse(monkeypatch) -> None:
@@ -639,7 +732,7 @@ def test_supabase_worker_callback_idempotency_rejects_payload_subset_reuse(monke
         def __exit__(self, *args): return None
         def cursor(self): return Cursor()
 
-    def fake_append_event(*, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
+    def fake_append_event(_cur, *, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
         event_id = len(events) + 1
         events[idempotency_key] = {
             "event_id": event_id,
@@ -653,7 +746,7 @@ def test_supabase_worker_callback_idempotency_rejects_payload_subset_reuse(monke
 
     monkeypatch.setattr(store, "_one", fake_one)
     monkeypatch.setattr(store, "_connect", lambda: Conn())
-    monkeypatch.setattr(store, "append_event", fake_append_event)
+    monkeypatch.setattr(store, "_append_event_in_cursor", fake_append_event)
     monkeypatch.setattr(store, "queue_row", lambda project_id: queue)
 
     original = {

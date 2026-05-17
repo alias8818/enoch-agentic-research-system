@@ -753,6 +753,59 @@ class ControlPlaneStoreTests(unittest.TestCase):
                 store.record_worker_callback(subset)
 
 
+    def test_worker_callback_append_failure_does_not_mutate_runtime_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            project_id = "idea-callback-atomic"
+            run_id = "run-callback-atomic"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="callback-atomic-import",
+                    queue_rows=[{
+                        "project_id": project_id,
+                        "project_name": "Callback Atomic",
+                        "project_dir": "callback-atomic",
+                        "status": "queued",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            store.mark_dispatch_started(
+                project_id=project_id,
+                run_id=run_id,
+                session_id="session-before",
+                dispatch_payload={"project_id": project_id},
+                requested_by="test",
+            )
+            before_queue = store.queue_row(project_id)
+            before_run = store.run_row(run_id)
+
+            def fail_append_event(*_args, **_kwargs):
+                raise RuntimeError("simulated event write failure")
+
+            callback = {
+                "event_type": "wake_ready",
+                "run_id": run_id,
+                "session_id": "session-after",
+                "project_id": project_id,
+                "gate_state": "wake_ready",
+                "reason": "worker ready",
+                "idempotency_key": "callback-atomic-key",
+            }
+            with unittest.mock.patch.object(store, "_append_event_in_conn", side_effect=fail_append_event):
+                with self.assertRaises(RuntimeError):
+                    store.record_worker_callback(callback)
+
+            after_queue = store.queue_row(project_id)
+            after_run = store.run_row(run_id)
+            self.assertEqual(after_queue["status"], before_queue["status"])
+            self.assertEqual(after_queue["current_session_id"], before_queue["current_session_id"])
+            self.assertEqual(after_queue["last_run_state"], before_queue["last_run_state"])
+            self.assertEqual(after_queue["next_action_hint"], before_queue["next_action_hint"])
+            self.assertEqual(after_run["state"], before_run["state"])
+            self.assertEqual(after_run["session_id"], before_run["session_id"])
+            self.assertEqual(after_run["gate_state"], before_run["gate_state"])
+
     def test_worker_callback_without_idempotency_key_replays_by_run_event_and_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

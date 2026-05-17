@@ -596,20 +596,39 @@ class ControlPlaneStore:
             if "claimed_at" not in review_columns:
                 conn.execute("ALTER TABLE paper_review_items ADD COLUMN claimed_at TEXT NOT NULL DEFAULT ''")
 
-    def append_event(self, *, idempotency_key: str, event_type: str, entity_type: str, entity_id: str, payload: dict[str, Any]) -> tuple[int, bool]:
+    def _append_event_in_conn(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        idempotency_key: str,
+        event_type: str,
+        entity_type: str,
+        entity_id: str,
+        payload: dict[str, Any],
+    ) -> tuple[int, bool]:
         payload_json = _json(payload)
         payload_hash = _hash(payload)
+        row = conn.execute("SELECT event_id, payload_hash FROM events WHERE idempotency_key = ?", (idempotency_key,)).fetchone()
+        if row:
+            if row["payload_hash"] != payload_hash:
+                raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different payload")
+            return int(row["event_id"]), False
+        cur = conn.execute(
+            "INSERT INTO events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at) VALUES (?,?,?,?,?,?,?)",
+            (idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash, utc_now()),
+        )
+        return int(cur.lastrowid), True
+
+    def append_event(self, *, idempotency_key: str, event_type: str, entity_type: str, entity_id: str, payload: dict[str, Any]) -> tuple[int, bool]:
         with self._connect() as conn:
-            row = conn.execute("SELECT event_id, payload_hash FROM events WHERE idempotency_key = ?", (idempotency_key,)).fetchone()
-            if row:
-                if row["payload_hash"] != payload_hash:
-                    raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different payload")
-                return int(row["event_id"]), False
-            cur = conn.execute(
-                "INSERT INTO events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at) VALUES (?,?,?,?,?,?,?)",
-                (idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash, utc_now()),
+            return self._append_event_in_conn(
+                conn,
+                idempotency_key=idempotency_key,
+                event_type=event_type,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                payload=payload,
             )
-            return int(cur.lastrowid), True
 
     def flags(self) -> ControlFlags:
         with self._connect() as conn:
@@ -2613,13 +2632,14 @@ class ControlPlaneStore:
                     WHERE run_id=?""",
                     (_text(payload.get("session_id")), run_state, run_ended_at, now, gate_state, "worker_callback", now, run_id),
                 )
-        event_id, inserted = self.append_event(
-            idempotency_key=idempotency_key,
-            event_type=f"worker_callback.{event_type}",
-            entity_type="run",
-            entity_id=run_id or project_id or "unknown",
-            payload=event_payload,
-        )
+            event_id, inserted = self._append_event_in_conn(
+                conn,
+                idempotency_key=idempotency_key,
+                event_type=f"worker_callback.{event_type}",
+                entity_type="run",
+                entity_id=run_id or project_id or "unknown",
+                payload=event_payload,
+            )
         row = next((item for item in self.queue_rows() if item.get("project_id") == project_id), {})
         return event_id, inserted, row
 
