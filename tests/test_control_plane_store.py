@@ -484,6 +484,48 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertIsNone(run["ended_at"])
             self.assertEqual(run["last_callback_at"], row["last_callback_at"])
 
+    def test_worker_callback_without_idempotency_key_replays_by_run_event_and_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="callback-missing-idempotency-import",
+                    queue_rows=[{
+                        "project_id": "idea-missing-idempotency",
+                        "project_name": "Missing Idempotency",
+                        "project_dir": "idea-missing-idempotency",
+                        "status": "awaiting_wake",
+                        "current_run_id": "run-missing-idempotency",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            store.mark_dispatch_started(
+                project_id="idea-missing-idempotency",
+                run_id="run-missing-idempotency",
+                session_id="session-dispatched",
+                dispatch_payload={"project_id": "idea-missing-idempotency"},
+                requested_by="test",
+            )
+            callback = {
+                "event_type": "wake_ready",
+                "run_id": "run-missing-idempotency",
+                "session_id": "session-missing-idempotency",
+                "project_id": "idea-missing-idempotency",
+                "source_event": "wake-ready",
+                "gate_state": "wake_ready",
+                "reason": "worker ready",
+            }
+
+            first_event_id, first_inserted, first_row = store.record_worker_callback(callback)
+            second_event_id, second_inserted, second_row = store.record_worker_callback(callback)
+
+            self.assertEqual(first_event_id, second_event_id)
+            self.assertTrue(first_inserted)
+            self.assertFalse(second_inserted)
+            self.assertEqual(second_row, first_row)
+            self.assertEqual(len(store.event_rows(limit=10, entity_type="run", entity_id="run-missing-idempotency")), 1)
+
     def test_unknown_worker_callback_requires_manual_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
