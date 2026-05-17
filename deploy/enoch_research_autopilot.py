@@ -529,7 +529,20 @@ def main() -> int:
             return 0
         print(json.dumps({"ok": False, "action": "failed", "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}"}, sort_keys=True), file=sys.stderr)
         return 1
-    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+    except error.HTTPError as exc:
+        print(json.dumps({"ok": False, "action": "failed", "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}"}, sort_keys=True), file=sys.stderr)
+        return 1
+    except error.URLError as exc:
+        if _control_plane_recovered(base_url, token):
+            print(json.dumps({
+                "ok": True,
+                "action": "transient_disconnect",
+                "reason": f"control plane unavailable during bounded research tick and recovered: {type(exc).__name__}: {exc}",
+            }, sort_keys=True))
+            return 0
+        print(json.dumps({"ok": False, "action": "failed", "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}"}, sort_keys=True), file=sys.stderr)
+        return 1
+    except (TimeoutError, json.JSONDecodeError) as exc:
         print(json.dumps({"ok": False, "action": "failed", "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}"}, sort_keys=True), file=sys.stderr)
         return 1
 

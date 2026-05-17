@@ -4,6 +4,7 @@ from http.client import RemoteDisconnected
 import importlib.util
 import json
 from pathlib import Path
+from urllib import error
 from unittest.mock import Mock, patch
 
 
@@ -49,6 +50,51 @@ def test_remote_disconnect_is_success_when_control_plane_recovers(tmp_path, caps
     result = json.loads(capsys.readouterr().out)
     assert result["ok"] is True
     assert result["action"] == "transient_disconnect"
+
+
+def test_connection_refused_is_success_when_control_plane_recovers(tmp_path, capsys, monkeypatch):
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8")
+    monkeypatch.setenv("ENOCH_CONFIG", str(config))
+    monkeypatch.setenv("ENOCH_ENABLE_RESEARCH_AUTOPILOT", "1")
+    monkeypatch.setattr(autopilot.time, "sleep", lambda _seconds: None)
+
+    refused = error.URLError(ConnectionRefusedError(111, "Connection refused"))
+    with (
+        patch.object(autopilot, "_post_json", side_effect=refused),
+        patch.object(autopilot, "_get_json", return_value={"ok": True, "service": "enoch_worker_gate"}),
+    ):
+        assert autopilot.main() == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is True
+    assert result["action"] == "transient_disconnect"
+
+
+def test_http_error_is_not_masked_by_recovery_probe(tmp_path, capsys, monkeypatch):
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8")
+    monkeypatch.setenv("ENOCH_CONFIG", str(config))
+    monkeypatch.setenv("ENOCH_ENABLE_RESEARCH_AUTOPILOT", "1")
+
+    http_error = error.HTTPError(
+        url="http://127.0.0.1:8787/control/api/research/run-cycle",
+        code=500,
+        msg="Internal Server Error",
+        hdrs={},
+        fp=None,
+    )
+    with (
+        patch.object(autopilot, "_post_json", side_effect=http_error),
+        patch.object(autopilot, "_get_json", return_value={"ok": True, "service": "enoch_worker_gate"}) as recovery_probe,
+    ):
+        assert autopilot.main() == 1
+
+    recovery_probe.assert_not_called()
+    result = json.loads(capsys.readouterr().err)
+    assert result["ok"] is False
+    assert result["action"] == "failed"
+    assert "HTTPError" in result["reason"]
 
 
 def test_research_quality_refresh_only_runs_read_only_report(tmp_path, capsys, monkeypatch):
