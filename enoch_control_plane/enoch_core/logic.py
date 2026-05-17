@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-ACTIVE_QUEUE_STATUSES = {"dispatching", "awaiting_wake", "running"}
+ACTIVE_QUEUE_STATUSES = {"dispatching", "awaiting_wake", "running", "wake_received", "reconciling"}
 WAKE_GATE_PAPER_STATES = {"wake_ready", "session_finished_ready"}
 PAPER_DRAFT_NEXT_ACTION = "draft_paper_or_select_next_project"
 EXCLUDED_DRAFT_NAME_FRAGMENT = (

@@ -441,7 +441,7 @@ DASHBOARD_HTML = """
       const queue = snapshot?.queue || {};
       const status = queue.status_counts || {};
       const states = queue.run_state_counts || {};
-      const active = Number(queue.active_count ?? sumCounts(status, ["dispatching", "awaiting_wake", "running"]));
+      const active = Number(queue.active_count ?? sumCounts(status, ["dispatching", "awaiting_wake", "running", "wake_received", "reconciling"]));
       const blocked = Number(queue.blocked_count ?? count(status, "blocked"));
       const queued = Number(queue.queued_count ?? count(status, "queued"));
       const completed = Number(queue.completed_count ?? count(status, "completed"));
@@ -469,7 +469,7 @@ DASHBOARD_HTML = """
     function toneForLabel(label) {
       const value = String(label || "").toLowerCase();
       if (["completed", "finalize_positive", "publication_draft", "ready_for_review"].includes(value)) return cls.good;
-      if (["queued", "awaiting_wake", "running", "dispatching", "continue", "draft_review"].includes(value)) return cls.warn;
+      if (["queued", "awaiting_wake", "running", "dispatching", "wake_received", "reconciling", "continue", "draft_review"].includes(value)) return cls.warn;
       if (["blocked", "needs_review", "finalize_negative", "failed", "error"].includes(value)) return cls.bad;
       if (value.includes("branch") || value.includes("callback")) return cls.purple;
       return cls.info;
@@ -637,7 +637,7 @@ DASHBOARD_HTML = """
       const blocked = queue.blocked_rows || [];
       const activeRows = queue.active_rows || [];
       const blockedCount = Number(counts.blocked || blocked.length || 0);
-      const activeCount = Number(counts.dispatching || 0) + Number(counts.awaiting_wake || 0) + Number(counts.running || 0) || activeRows.length;
+      const activeCount = Number(counts.dispatching || 0) + Number(counts.awaiting_wake || 0) + Number(counts.running || 0) + Number(counts.wake_received || 0) + Number(counts.reconciling || 0) || activeRows.length;
       const panel = document.getElementById("queuePanel");
       panel.style.display = (blockedCount || activeCount) ? "block" : "none";
       document.getElementById("queueHint").textContent = `${blockedCount} blocked · ${activeCount} active · snapshot ${age(queue.updated_at)}`;

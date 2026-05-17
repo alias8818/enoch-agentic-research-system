@@ -304,6 +304,11 @@ class EnochCoreLogicTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("multiple active", message)
 
+    def test_reconciling_states_count_as_active_lane(self) -> None:
+        ok, message = assert_single_active_lane([{"status": "wake_received"}, {"status": "reconciling"}])
+        self.assertFalse(ok)
+        self.assertIn("multiple active", message)
+
     def test_branch_queued_requires_concrete_successor_evidence(self) -> None:
         ok, _ = validate_branch_queued({"next_action_hint": "branch_queued", "last_result_summary": ""})
         self.assertFalse(ok)
