@@ -574,6 +574,8 @@ Then run live readiness probe. Expected: readiness `ready` or a clearly understo
 
 **Additional evidence packaging memory hardening:** Evidence bundle generation now streams source evidence for hashing and only keeps the public preview bytes in memory, preserving full byte counts and hashes while bounding large log/result files during paper rewrite/backfill.
 
+**Additional worker state persistence hardening:** Worker run-state writes now recreate the run-state directory if it disappears and use same-directory atomic replacement, reducing crash/restart corruption risk in the local worker gate state store.
+
 ## Task 9: Final verification, cleanup, and report
 
 **Timebox:** 25 minutes

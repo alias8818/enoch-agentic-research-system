@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import tempfile
 
 from .models import RunRecord
 
@@ -32,9 +33,13 @@ class StateStore:
         return RunRecord.model_validate_json(path.read_text())
 
     def save_run(self, record: RunRecord) -> None:
-        self.run_path(record.run_id).write_text(
-            record.model_dump_json(indent=2, exclude_none=False)
-        )
+        path = self.run_path(record.run_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+            handle.write(record.model_dump_json(indent=2, exclude_none=False))
+            handle.write("\n")
+            tmp = Path(handle.name)
+        tmp.replace(path)
 
     def list_runs(self) -> list[RunRecord]:
         records: list[RunRecord] = []

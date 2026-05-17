@@ -23,6 +23,17 @@ def test_state_store_roundtrip_and_skips_invalid_json(tmp_path: Path) -> None:
     assert store.events_log.read_text().strip() == '{"a": 1, "b": 2}'
 
 
+def test_state_store_save_run_recreates_missing_runs_dir(tmp_path: Path) -> None:
+    store = StateStore(tmp_path)
+    for child in store.runs_dir.iterdir():
+        child.unlink()
+    store.runs_dir.rmdir()
+
+    store.save_run(RunRecord(run_id="run", session_id="session", project_id="project"))
+
+    assert store.load_run("run").project_id == "project"
+
+
 def test_state_store_run_path_rejects_escape_and_caps_long_ids(tmp_path: Path) -> None:
     store = StateStore(tmp_path)
     escaped = RunRecord(run_id="../escape", session_id="session", project_id="project")
