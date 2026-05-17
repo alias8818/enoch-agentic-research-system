@@ -118,3 +118,62 @@ def test_operator_counts_match_detail_counts_for_mixed_lifecycle_rows() -> None:
     assert counts[OperatorLane.PUBLISHED.value] == detail["published"] == 1
     assert counts["needs_attention"] == 1
     assert counts["total_operator_items"] == 5
+
+class _OverviewStore:
+    def __init__(self, queue_rows: list[dict[str, object]], paper_rows: list[dict[str, object]]) -> None:
+        self._queue_rows = queue_rows
+        self._paper_rows = paper_rows
+
+    def queue_counts_sql(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for row in self._queue_rows:
+            status = str(row.get("status") or "unknown")
+            counts[status] = counts.get(status, 0) + 1
+        return counts
+
+    def paper_counts_sql(self) -> dict[str, int]:
+        return {"all": len(self._paper_rows)}
+
+    def active_items_sql(self, *, limit: int) -> list[dict[str, object]]:
+        del limit
+        return [row for row in self._queue_rows if row.get("status") in {"dispatching", "awaiting_wake", "running", "wake_received", "reconciling"}]
+
+    def next_candidate_sql(self) -> dict[str, object] | None:
+        for row in self._queue_rows:
+            if row.get("status") == "queued":
+                return row
+        return None
+
+    def operator_queue_rows_sql(self) -> list[dict[str, object]]:
+        return self._queue_rows
+
+    def operator_paper_rows_sql(self) -> list[dict[str, object]]:
+        return self._paper_rows
+
+    def event_page(self, **kwargs: object) -> tuple[list[dict[str, object]], None, bool]:
+        del kwargs
+        return [], None, False
+
+
+def test_overview_operator_cards_match_reconciled_pipeline_counts(tmp_path) -> None:
+    from enoch_control_plane.control_plane import read_models
+
+    project_dir = tmp_path / "write-project"
+    (project_dir / ".enoch").mkdir(parents=True)
+    (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+    queue_rows = [
+        _active_queue("active-project", "active-run", related_paper_id="stale-paper"),
+        _completed_draft_ready("write-project", "write-run", project_dir=str(project_dir)),
+        _completed_draft_ready("paper-project", "paper-run", related_paper_id="paper-1"),
+    ]
+    paper_rows = [_paper("paper-project", "paper-run", "paper-1")]
+    store = _OverviewStore(queue_rows, paper_rows)
+
+    overview = read_models.overview(store)  # type: ignore[arg-type]
+
+    assert overview["operator_counts"][OperatorLane.RUNNING.value] == 1
+    assert overview["operator_counts"][OperatorLane.WRITE_PAPER.value] == overview["paper_pipeline"]["write_needed"] == 1
+    assert overview["operator_counts"][OperatorLane.READY_TO_PUBLISH.value] == overview["paper_pipeline"]["publish_ready"] == 1
+    assert overview["operator_counts"]["total_operator_items"] == 3
+    assert overview["paper_pipeline"]["raw_completed_no_paper_candidates"] == 1
+    assert overview["paper_pipeline"]["next_write_candidate"]["project_id"] == "write-project"
