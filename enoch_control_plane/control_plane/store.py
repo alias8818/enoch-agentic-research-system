@@ -2050,15 +2050,17 @@ class ControlPlaneStore:
                 ),
             )
             claimed = cur.rowcount == 1
+            if claimed:
+                self._append_event_in_conn(
+                    conn,
+                    idempotency_key=f"dispatch-claim:{run_id}",
+                    event_type="controller.dispatch_claimed",
+                    entity_type="project",
+                    entity_id=project_id,
+                    payload={"requested_by": requested_by, "run_id": run_id},
+                )
         if not claimed:
             return None
-        self.append_event(
-            idempotency_key=f"dispatch-claim:{run_id}",
-            event_type="controller.dispatch_claimed",
-            entity_type="project",
-            entity_id=project_id,
-            payload={"requested_by": requested_by, "run_id": run_id},
-        )
         return self.queue_row(project_id)
 
     def release_dispatch_claim(self, *, project_id: str, run_id: str, reason: str) -> dict[str, Any]:
@@ -2080,13 +2082,14 @@ class ControlPlaneStore:
                     QueueStatus.DISPATCHING.value,
                 ),
             )
-        self.append_event(
-            idempotency_key=f"dispatch-claim-release:{run_id}",
-            event_type="controller.dispatch_claim_released",
-            entity_type="project",
-            entity_id=project_id,
-            payload={"run_id": run_id, "reason": reason},
-        )
+            self._append_event_in_conn(
+                conn,
+                idempotency_key=f"dispatch-claim-release:{run_id}",
+                event_type="controller.dispatch_claim_released",
+                entity_type="project",
+                entity_id=project_id,
+                payload={"run_id": run_id, "reason": reason},
+            )
         return self.queue_row(project_id) or {}
 
 

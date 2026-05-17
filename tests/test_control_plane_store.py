@@ -753,6 +753,69 @@ class ControlPlaneStoreTests(unittest.TestCase):
                 store.record_worker_callback(subset)
 
 
+    def test_dispatch_claim_append_failure_does_not_mutate_queue_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            project_id = "idea-claim-atomic"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="claim-atomic-import",
+                    queue_rows=[{
+                        "project_id": project_id,
+                        "project_name": "Claim Atomic",
+                        "project_dir": "claim-atomic",
+                        "status": "queued",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            before = store.queue_row(project_id)
+
+            def fail_append_event(*_args, **_kwargs):
+                raise RuntimeError("simulated claim event write failure")
+
+            with unittest.mock.patch.object(store, "_append_event_in_conn", side_effect=fail_append_event):
+                with self.assertRaises(RuntimeError):
+                    store.claim_dispatch_candidate(project_id=project_id, run_id="run-claim-atomic", requested_by="test")
+
+            after = store.queue_row(project_id)
+            self.assertEqual(after["status"], before["status"])
+            self.assertEqual(after["current_run_id"], before["current_run_id"])
+            self.assertEqual(after["next_action_hint"], before["next_action_hint"])
+
+    def test_dispatch_claim_release_append_failure_does_not_mutate_queue_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            project_id = "idea-release-atomic"
+            run_id = "run-release-atomic"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="release-atomic-import",
+                    queue_rows=[{
+                        "project_id": project_id,
+                        "project_name": "Release Atomic",
+                        "project_dir": "release-atomic",
+                        "status": "queued",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            claimed = store.claim_dispatch_candidate(project_id=project_id, run_id=run_id, requested_by="test")
+            self.assertIsNotNone(claimed)
+            before = store.queue_row(project_id)
+
+            def fail_append_event(*_args, **_kwargs):
+                raise RuntimeError("simulated release event write failure")
+
+            with unittest.mock.patch.object(store, "_append_event_in_conn", side_effect=fail_append_event):
+                with self.assertRaises(RuntimeError):
+                    store.release_dispatch_claim(project_id=project_id, run_id=run_id, reason="worker preflight failed")
+
+            after = store.queue_row(project_id)
+            self.assertEqual(after["status"], before["status"])
+            self.assertEqual(after["current_run_id"], before["current_run_id"])
+            self.assertEqual(after["next_action_hint"], before["next_action_hint"])
+
     def test_mark_dispatch_started_append_failure_does_not_mutate_runtime_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

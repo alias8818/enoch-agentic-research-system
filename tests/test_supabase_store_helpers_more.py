@@ -608,6 +608,117 @@ def test_supabase_stale_worker_callback_replay_stays_idempotent_after_current_ru
 
 
 
+def test_supabase_dispatch_claim_append_failure_does_not_mutate_queue_state(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    project_id = "idea-claim-atomic"
+    queue = {
+        "project_id": project_id,
+        "status": "queued",
+        "current_run_id": "",
+        "next_action_hint": "start_next_candidate",
+    }
+
+    class Cursor:
+        rowcount = 0
+        def __init__(self, conn): self.conn = conn
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("update queue_items"):
+                if self.conn.pending_queue["status"] == params[11]:
+                    self.rowcount = 1
+                    self.conn.pending_queue["status"] = params[0]
+                    self.conn.pending_queue["current_run_id"] = params[1]
+                    self.conn.pending_queue["next_action_hint"] = params[5]
+                else:
+                    self.rowcount = 0
+            return self
+
+    class Conn:
+        def __enter__(self):
+            self.pending_queue = dict(queue)
+            return self
+        def __exit__(self, exc_type, *_args):
+            if exc_type is None:
+                queue.update(self.pending_queue)
+            return False
+        def cursor(self): return Cursor(self)
+
+    def fail_append_event(*_args, **_kwargs):
+        raise RuntimeError("simulated claim event write failure")
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", fail_append_event)
+
+    try:
+        store.claim_dispatch_candidate(project_id=project_id, run_id="run-claim-atomic", requested_by="test")
+    except RuntimeError as exc:
+        assert "simulated claim event write failure" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected simulated event write failure")
+
+    assert queue["status"] == "queued"
+    assert queue["current_run_id"] == ""
+    assert queue["next_action_hint"] == "start_next_candidate"
+
+
+def test_supabase_dispatch_claim_release_append_failure_does_not_mutate_queue_state(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    project_id = "idea-release-atomic"
+    run_id = "run-release-atomic"
+    queue = {
+        "project_id": project_id,
+        "status": "dispatching",
+        "current_run_id": run_id,
+        "current_session_id": "",
+        "last_run_state": "dispatching",
+        "next_action_hint": "prepare_worker_dispatch",
+    }
+
+    class Cursor:
+        def __init__(self, conn): self.conn = conn
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("update queue_items"):
+                self.conn.pending_queue["status"] = params[0]
+                self.conn.pending_queue["current_run_id"] = ""
+                self.conn.pending_queue["current_session_id"] = ""
+                self.conn.pending_queue["last_run_state"] = ""
+                self.conn.pending_queue["next_action_hint"] = params[2]
+            return self
+
+    class Conn:
+        def __enter__(self):
+            self.pending_queue = dict(queue)
+            return self
+        def __exit__(self, exc_type, *_args):
+            if exc_type is None:
+                queue.update(self.pending_queue)
+            return False
+        def cursor(self): return Cursor(self)
+
+    def fail_append_event(*_args, **_kwargs):
+        raise RuntimeError("simulated release event write failure")
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", fail_append_event)
+
+    try:
+        store.release_dispatch_claim(project_id=project_id, run_id=run_id, reason="worker preflight failed")
+    except RuntimeError as exc:
+        assert "simulated release event write failure" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected simulated event write failure")
+
+    assert queue["status"] == "dispatching"
+    assert queue["current_run_id"] == run_id
+    assert queue["last_run_state"] == "dispatching"
+    assert queue["next_action_hint"] == "prepare_worker_dispatch"
+
+
 def test_supabase_mark_dispatch_started_append_failure_does_not_mutate_runtime_state(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     project_id = "idea-dispatch-atomic"
