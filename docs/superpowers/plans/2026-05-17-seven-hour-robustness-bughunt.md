@@ -747,3 +747,9 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Root cause: finalization manifest writes used direct target writes in the SQLite and Supabase review stores. A filesystem failure during manifest overwrite could leave a partial finalization package on disk.
 - Fix: added shared `_atomic_write_text` for finalization manifests and used it in both store adapters.
 - Tests: extended finalization package commit/retry coverage to prove existing manifests survive write failure.
+
+## Additional worker HTTP evidence atomic-write hardening
+
+- Root cause: worker HTTP evidence sync wrote returned artifact content directly to target paths. A partial filesystem failure could corrupt previously synced evidence before a paper rewrite.
+- Fix: worker HTTP evidence sync now uses the shared same-directory atomic writer for each copied evidence file.
+- Tests: added `test_sync_worker_http_evidence_preserves_existing_file_when_write_fails`.

@@ -79,7 +79,7 @@ from .graphs import build_dispatch_graph
 from .longhaul_readiness import evaluate_longhaul_readiness
 from ..research_quality.status import DEFAULT_AUTOPILOT_HISTORY_PATH, DEFAULT_REPORT_PATHS, DEFAULT_WINDOW_REPORT_PATH, load_latest_quality_status
 from . import read_models
-from .store import ControlPlaneStore
+from .store import ControlPlaneStore, _atomic_write_text
 from .supabase_store import SupabaseControlPlaneStore, SupabaseReadOnlyControlPlaneStore, resolve_supabase_database_url
 from .worker_adapter import post_worker_json, run_worker_preflight
 
@@ -406,8 +406,7 @@ def _sync_worker_http_evidence(config: GateConfig, *, project_id: str, artifact_
             if not rel or target == artifact_root or (target.exists() and target.is_dir()):
                 skipped.append({"path": rel, "status": "unsafe_path", "error": "worker returned path is not a file target"})
                 continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            _atomic_write_text(target, content)
             written.append(rel)
     if not written:
         return {"ok": False, "reason": "worker_read_failed", "files": 0, "paths": [], "skipped": skipped[:30]}

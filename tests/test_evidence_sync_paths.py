@@ -321,3 +321,30 @@ def test_sync_worker_http_evidence_reports_unusable_artifact_root(tmp_path) -> N
 
     assert result["ok"] is False
     assert result["reason"] == "artifact_root_unusable"
+
+
+def test_sync_worker_http_evidence_preserves_existing_file_when_write_fails(tmp_path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    config.worker_wake_gate_bearer_token = "worker-token"
+    artifact_root = tmp_path / "artifact"
+    artifact_root.mkdir()
+    target = artifact_root / "run_notes.md"
+    target.write_text("old evidence", encoding="utf-8")
+
+    class Result:
+        ok = True
+        status = 200
+        error = ""
+        body = {"files": [{"path": "run_notes.md", "content": "new evidence"}]}
+
+    import enoch_control_plane.control_plane.router as router
+
+    monkeypatch.setattr(router, "post_worker_json", lambda *args, **kwargs: Result())
+    monkeypatch.setattr(router, "_atomic_write_text", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("simulated evidence write failure")))
+
+    try:
+        router._sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+    except OSError:
+        pass
+
+    assert target.read_text(encoding="utf-8") == "old evidence"
