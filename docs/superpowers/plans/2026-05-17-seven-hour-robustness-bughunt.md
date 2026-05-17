@@ -582,6 +582,8 @@ Then run live readiness probe. Expected: readiness `ready` or a clearly understo
 
 **Additional Research Facility janitor race hardening:** Janitor apply now writes admission ledger rows only when the candidate status update actually matched a live needs-review row, preventing stale/racing actions from creating misleading admissions.
 
+**Additional Research Facility contract hardening:** Candidate normalization now strips blank list entries and rejects explicitly blank artifact/evidence/failure-mode contracts instead of silently defaulting them into admitted candidates.
+
 ## Task 9: Final verification, cleanup, and report
 
 **Timebox:** 25 minutes

@@ -77,8 +77,8 @@ def _as_list(value: Any) -> list[Any]:
     if value is None or value == "":
         return []
     if isinstance(value, list):
-        return value
-    return [value]
+        return [item for item in value if _as_text(item)]
+    return [value] if _as_text(value) else []
 
 
 def _as_float(value: Any, default: float = 0.0) -> float:
@@ -407,8 +407,8 @@ def normalize_candidate(raw: dict[str, Any], *, default_machine: str, default_mo
     row["parent_run_id"] = _as_text(row.get("parent_run_id"))
     for key in ("hypothesis", "mechanism", "description", "implementation", "baseline_to_beat", "success_threshold", "kill_condition", "accessibility_delta", "novelty_comparison", "risk_notes"):
         row[key] = _as_text(row.get(key))
-    row["expected_artifacts"] = _as_list(row.get("expected_artifacts")) or DEFAULT_ARTIFACTS
-    row["required_evidence"] = _as_list(row.get("required_evidence")) or DEFAULT_EVIDENCE
+    row["expected_artifacts"] = _as_list(row.get("expected_artifacts")) if "expected_artifacts" in row else DEFAULT_ARTIFACTS
+    row["required_evidence"] = _as_list(row.get("required_evidence")) if "required_evidence" in row else DEFAULT_EVIDENCE
     row["likely_failure_modes"] = _as_list(row.get("likely_failure_modes"))
     row["estimated_runtime_class"] = _runtime_class(row.get("estimated_runtime_class"))
     row["expected_token_budget"] = _token_budget(row.get("expected_token_budget"))

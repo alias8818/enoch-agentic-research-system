@@ -267,3 +267,21 @@ def test_research_facility_cli_loads_history_json(tmp_path: Path) -> None:
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["history_count"] == 1
     assert payload["plans"][0]["admission_decision"] == "merged"
+
+
+def test_research_facility_rejects_blank_contract_arrays() -> None:
+    plan = research_facility.plan_candidates(
+        [
+            _strong_candidate(
+                expected_artifacts=["", "   "],
+                required_evidence=[""],
+                likely_failure_modes=["   "],
+            )
+        ],
+        _args(),
+    )[0]
+
+    assert plan.admission_decision == "rejected"
+    assert "missing expected_artifacts" in plan.hard_failures
+    assert "missing required_evidence" in plan.hard_failures
+    assert "missing likely_failure_modes" in plan.hard_failures
