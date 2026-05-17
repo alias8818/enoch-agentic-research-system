@@ -3,11 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from hypothesis import example, given, settings, strategies as st
 from unittest.mock import patch
 
 from enoch_control_plane.config import GateConfig
-from enoch_control_plane.control_plane.router import _local_artifact_root, _local_paper_evidence_present, _remote_evidence_dir, _sync_worker_http_evidence
+from enoch_control_plane.control_plane.router import _local_artifact_root, _local_paper_evidence_present, _remote_evidence_dir, _sync_worker_http_evidence, create_control_plane_router
 from enoch_control_plane.control_plane.store import ControlPlaneStore
 from enoch_control_plane.control_plane.models import ImportSnapshotRequest
 from enoch_control_plane.control_plane.worker_adapter import HttpResult
@@ -26,6 +28,16 @@ def _config(tmp_path: Path) -> GateConfig:
         paper_evidence_sync_enabled=True,
         paper_evidence_sync_remote_root="/remote/projects",
     )
+
+
+def _client(config: GateConfig) -> TestClient:
+    app = FastAPI()
+
+    def require(_auth: str | None) -> None:
+        return None
+
+    app.include_router(create_control_plane_router(config, require))
+    return TestClient(app)
 
 
 unsafe_text = st.text(
@@ -296,3 +308,144 @@ def test_worker_http_evidence_sync_never_writes_outside_artifact_root(rel_path: 
         for path in root.rglob("*"):
             if path.is_file():
                 path.resolve().relative_to(artifact_root.resolve())
+
+
+partial_evidence_kind = st.sampled_from([
+    "none",
+    "run_notes_only",
+    "decision_only",
+    "result_only",
+    "paper_bundle_only",
+    "paper_ledger_only",
+])
+
+
+def _write_partial_evidence(project_dir: Path, kind: str) -> None:
+    if kind == "run_notes_only":
+        project_dir.mkdir(parents=True, exist_ok=True)
+        (project_dir / "run_notes.md").write_text("notes without decision or result artifacts\n", encoding="utf-8")
+    elif kind == "decision_only":
+        (project_dir / ".enoch").mkdir(parents=True, exist_ok=True)
+        (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+    elif kind == "result_only":
+        (project_dir / "results").mkdir(parents=True, exist_ok=True)
+        (project_dir / "results" / "smoke.json").write_text('{"ok":true}\n', encoding="utf-8")
+    elif kind == "paper_bundle_only":
+        (project_dir / "papers" / "run-missing-evidence").mkdir(parents=True, exist_ok=True)
+        (project_dir / "papers" / "run-missing-evidence" / "evidence_bundle.json").write_text("{}\n", encoding="utf-8")
+    elif kind == "paper_ledger_only":
+        (project_dir / "papers" / "run-missing-evidence").mkdir(parents=True, exist_ok=True)
+        (project_dir / "papers" / "run-missing-evidence" / "claim_ledger.json").write_text("{}\n", encoding="utf-8")
+
+
+@given(kind=partial_evidence_kind, existing_paper=st.booleans())
+@settings(max_examples=24, deadline=None)
+def test_draft_next_partial_evidence_never_creates_or_advances_paper(kind: str, existing_paper: bool) -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        config = _config(root).model_copy(update={"paper_evidence_sync_enabled": False})
+        client = _client(config)
+        project_dir = config.expanded_project_root / "missing-evidence"
+        _write_partial_evidence(project_dir, kind)
+        paper_rows = []
+        if existing_paper:
+            paper_rows.append({
+                "paper_id": "existing:other-run:arxiv_draft",
+                "project_id": "other-project",
+                "run_id": "other-run",
+                "paper_status": "publication_draft",
+                "draft_markdown_path": "papers/other/paper.md",
+                "draft_latex_path": "papers/other/paper.tex",
+                "evidence_bundle_path": "papers/other/evidence_bundle.json",
+                "claim_ledger_path": "papers/other/claim_ledger.json",
+                "manifest_path": "papers/other/manifest.json",
+            })
+        imported = client.post("/control/import/legacy-snapshot", json={
+            "idempotency_key": f"partial-evidence:{kind}:{existing_paper}",
+            "queue_rows": [{
+                "project_id": "missing-evidence",
+                "project_name": "Missing Evidence",
+                "project_dir": "missing-evidence",
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-missing-evidence",
+                "manual_review_required": False,
+                "bounded_paper_ready": True,
+                "evidence_strength": "strong",
+                "claim_scope": "local",
+                "hypothesis_status": "supported",
+            }],
+            "paper_rows": paper_rows,
+        })
+        assert imported.status_code == 200
+        before = client.get("/control/export/snapshot").json()
+        before_files = sorted(str(path.relative_to(project_dir)) for path in project_dir.rglob("*") if path.is_file())
+
+        response = client.post("/control/papers/draft-next", json={"force": True})
+        after = client.get("/control/export/snapshot").json()
+        after_files = sorted(str(path.relative_to(project_dir)) for path in project_dir.rglob("*") if path.is_file())
+
+        assert response.status_code == 200
+        assert response.json()["action"] == "noop"
+        assert after["paper_rows"] == before["paper_rows"]
+        assert after_files == before_files
+
+
+def test_draft_next_skips_partial_evidence_candidate_and_drafts_later_valid_candidate() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        config = _config(root).model_copy(update={"paper_evidence_sync_enabled": False})
+        client = _client(config)
+        partial_dir = config.expanded_project_root / "partial-candidate"
+        valid_dir = config.expanded_project_root / "valid-candidate"
+        _write_partial_evidence(partial_dir, "run_notes_only")
+        (valid_dir / ".enoch").mkdir(parents=True)
+        (valid_dir / "run_notes.md").write_text("measured positive result with local baseline evidence\n", encoding="utf-8")
+        (valid_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+
+        imported = client.post("/control/import/legacy-snapshot", json={
+            "idempotency_key": "mixed-partial-valid-evidence",
+            "queue_rows": [
+                {
+                    "project_id": "partial-candidate",
+                    "project_name": "Partial Candidate",
+                    "project_dir": "partial-candidate",
+                    "status": "completed",
+                    "last_run_state": "wake_ready",
+                    "next_action_hint": "draft_paper_or_select_next_project",
+                    "current_run_id": "run-partial",
+                    "bounded_paper_ready": True,
+                    "evidence_strength": "strong",
+                    "claim_scope": "local",
+                    "hypothesis_status": "supported",
+                    "updated_at": "2026-05-17T00:00:00Z",
+                },
+                {
+                    "project_id": "valid-candidate",
+                    "project_name": "Valid Candidate",
+                    "project_dir": "valid-candidate",
+                    "status": "completed",
+                    "last_run_state": "wake_ready",
+                    "next_action_hint": "draft_paper_or_select_next_project",
+                    "current_run_id": "run-valid",
+                    "bounded_paper_ready": True,
+                    "evidence_strength": "strong",
+                    "claim_scope": "local",
+                    "hypothesis_status": "supported",
+                    "updated_at": "2026-05-17T00:01:00Z",
+                },
+            ],
+            "paper_rows": [],
+        })
+        assert imported.status_code == 200
+
+        response = client.post("/control/papers/draft-next", json={"force": True})
+        snapshot = client.get("/control/export/snapshot").json()
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["action"] == "drafted"
+        assert body["candidate"]["project_id"] == "valid-candidate"
+        assert [row["project_id"] for row in snapshot["paper_rows"]] == ["valid-candidate"]
+        assert not list(partial_dir.glob("papers/run-partial/*"))
