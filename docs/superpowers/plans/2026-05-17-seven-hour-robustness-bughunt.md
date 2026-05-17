@@ -813,3 +813,10 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Fix: `ControlPlaneStore._connect` and `EnochCoreStore._connect` are now context managers that preserve SQLite transaction semantics and always close the connection in `finally`.
 - Tests: added explicit connection-close regression coverage for both stores.
 - Verification: `uv run ruff check . && uv run pytest -q` passed with `557 passed, 5 warnings, 31 subtests passed`.
+
+### Deploy note: enoch-core updated after active lane cleared
+
+- Live active lane cleared to `active=0`, so the accumulated hardening commits through `17c3a1b` were deployed to `/opt/enoch-control-plane` on `enoch-core`.
+- Initial rsync hit a root-owned `targeted_paper_intakes` directory and `.venv` recreation issue; service was immediately restarted, then deployment was rerun safely excluding `targeted_paper_intakes` and reusing the existing `.venv`.
+- Post-deploy smoke: `/healthz` returned ok, `enoch-control-plane.service` was active, and automation readiness was `Long-haul mode: READY` with active=0, queued=0, blocked=0, needs_attention=0, write_needed=0, publish_ready=0, imported=388.
+- Remote code spot-check: deployed files contain the SQLite contextmanager close fix and paper evidence event-store failure alert handling.
