@@ -1181,3 +1181,28 @@ class ControlPlaneStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_control_plane_store_closes_sqlite_connections_after_context(monkeypatch) -> None:
+    closed = 0
+
+    class FakeConnection:
+        row_factory = None
+        def execute(self, *_args, **_kwargs):
+            return self
+        def executescript(self, *_args, **_kwargs):
+            return self
+        def fetchall(self):
+            return []
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return None
+        def close(self):
+            nonlocal closed
+            closed += 1
+
+    monkeypatch.setattr("enoch_control_plane.control_plane.store.sqlite3.connect", lambda *_args, **_kwargs: FakeConnection())
+    ControlPlaneStore(Path("/tmp/fake-control-plane.sqlite3"))
+
+    assert closed == 1

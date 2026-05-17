@@ -371,3 +371,31 @@ def test_finalize_positive_proxy_useful_signal_without_bounded_ready_is_not_pape
         gate = paper_draft_decision_gate(root)
         assert gate["eligible"] is False
         assert "bounded" in gate["reason"] or "proxy" in gate["reason"] or "useful" in gate["reason"]
+
+
+def test_enoch_core_store_closes_sqlite_connections_after_context(monkeypatch) -> None:
+    from pathlib import Path
+    from enoch_control_plane.enoch_core.store import EnochCoreStore
+
+    closed = 0
+
+    class FakeConnection:
+        row_factory = None
+        def execute(self, *_args, **_kwargs):
+            return self
+        def executescript(self, *_args, **_kwargs):
+            return self
+        def fetchall(self):
+            return []
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return None
+        def close(self):
+            nonlocal closed
+            closed += 1
+
+    monkeypatch.setattr("enoch_control_plane.enoch_core.store.sqlite3.connect", lambda *_args, **_kwargs: FakeConnection())
+    EnochCoreStore(Path("/tmp/fake-enoch-core.sqlite3"))
+
+    assert closed == 1

@@ -806,3 +806,10 @@ For a seven-hour run, execute tasks in order and use the buffer by continuing de
 - Fix: SQLite and Supabase snapshot imports now preserve active runtime state for active rows even when `current_run_id` is empty, unless the incoming snapshot is a safe active continuation.
 - Tests: added SQLite and Supabase regression coverage for stale completed imports over active rows with empty `current_run_id`.
 - Verification: `uv run ruff check . && uv run pytest -q` passed with `555 passed, 5 warnings, 31 subtests passed`.
+
+### Additional SQLite lifecycle hardening: close store connections after each context
+
+- Coverage/resource-warning run exposed that SQLite store helpers used `with sqlite3.Connection` for transaction control but did not close the connection afterward.
+- Fix: `ControlPlaneStore._connect` and `EnochCoreStore._connect` are now context managers that preserve SQLite transaction semantics and always close the connection in `finally`.
+- Tests: added explicit connection-close regression coverage for both stores.
+- Verification: `uv run ruff check . && uv run pytest -q` passed with `557 passed, 5 warnings, 31 subtests passed`.
