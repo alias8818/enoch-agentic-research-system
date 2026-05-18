@@ -158,3 +158,31 @@ def test_atomic_write_json_preserves_existing_file_and_cleans_temp_on_replace_fa
 
     assert target.read_text(encoding="utf-8") == '{"old": true}\n'
     assert sorted(path.name for path in tmp_path.iterdir()) == ["pending.json"]
+
+
+def test_successful_delivery_records_worker_state_update_errors(monkeypatch, tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    run_dir = state / "runs"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run-1.json").write_text("{not-json", encoding="utf-8")
+    callback_outbox.write_pending(state, _payload())
+
+    monkeypatch.setattr(
+        callback_outbox,
+        "deliver_payload",
+        lambda payload, **kwargs: callback_outbox.DeliveryResult(ok=True, status_code=204, detail="ok"),
+    )
+
+    result = callback_outbox.deliver_pending_file(
+        callback_outbox.pending_path(state, "run-1"),
+        state_dir=state,
+        url="http://127.0.0.1/callback",
+        token="token",
+        timeout=1,
+    )
+
+    assert result.ok
+    assert "local worker state update failed" in result.detail
+    delivered = json.loads((state / callback_outbox.DELIVERED_DIRNAME / "run-1.json").read_text(encoding="utf-8"))
+    assert "local_worker_state_error" in delivered
+    assert "JSONDecodeError" in delivered["local_worker_state_error"]

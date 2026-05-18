@@ -91,25 +91,26 @@ def write_pending(state_dir: str | Path, payload: dict[str, Any]) -> Path:
     return path
 
 
-def _mark_local_worker_state_delivered(state_dir: str | Path, payload: dict[str, Any]) -> None:
+def _mark_local_worker_state_delivered(state_dir: str | Path, payload: dict[str, Any]) -> str:
     run_id = str(payload.get("run_id") or "")
     if not run_id:
-        return
+        return ""
     run_dir = Path(state_dir).expanduser() / "runs"
     path = run_dir / f"{_safe_run_id(run_id)}.json"
     legacy_path = run_dir / f"{_legacy_safe_run_id(run_id)}.json"
     if not path.exists() and legacy_path != path and legacy_path.exists():
         path = legacy_path
     if not path.exists():
-        return
+        return ""
     try:
         record = json.loads(path.read_text(encoding="utf-8"))
         record["gate_state"] = payload.get("gate_state") or record.get("gate_state")
         record["last_idempotency_key"] = payload.get("idempotency_key") or record.get("last_idempotency_key")
         record["updated_at"] = utc_now()
         _atomic_write_json(path, record)
-    except Exception:
-        return
+        return ""
+    except Exception as exc:
+        return f"local worker state update failed: {type(exc).__name__}: {exc}"
 
 
 @dataclass(frozen=True)
@@ -173,7 +174,12 @@ def deliver_pending_file(path: str | Path, *, state_dir: str | Path, url: str, t
             pending.unlink()
         except FileNotFoundError:
             pass
-        _mark_local_worker_state_delivered(state_dir, payload)
+        local_state_error = _mark_local_worker_state_delivered(state_dir, payload)
+        if local_state_error:
+            payload["local_worker_state_error"] = local_state_error
+            _atomic_write_json(dest, payload)
+            detail = f"{result.detail}\n{local_state_error}" if result.detail else local_state_error
+            return DeliveryResult(ok=True, status_code=result.status_code, detail=detail, path=str(dest))
         return DeliveryResult(ok=True, status_code=result.status_code, detail=result.detail, path=str(dest))
     payload["last_error"] = result.detail
     _atomic_write_json(pending, payload)
