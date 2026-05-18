@@ -839,6 +839,39 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(row["next_action_hint"], "await_callback")
             self.assertEqual(row["last_run_state"], "wake_received")
 
+    def test_active_queue_with_blank_current_run_does_not_attach_stale_project_paper(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="import-active-blank-run-with-old-paper",
+                    queue_rows=[{
+                        "project_id": "idea-active-blank-paper",
+                        "project_name": "Active Blank Paper",
+                        "project_dir": "idea-active-blank-paper",
+                        "status": "awaiting_wake",
+                        "current_run_id": "",
+                        "next_action_hint": "await_callback",
+                    }],
+                    paper_rows=[{
+                        "paper_id": "idea-active-blank-paper:run-old:arxiv_draft",
+                        "project_id": "idea-active-blank-paper",
+                        "run_id": "run-old",
+                        "paper_status": "publication_draft",
+                        "draft_markdown_path": "papers/run-old/final_paper.md",
+                    }],
+                )
+            )
+
+            row = store.queue_row("idea-active-blank-paper")
+            self.assertEqual(row["status"], "awaiting_wake")
+            self.assertEqual(row["current_run_id"], "")
+            self.assertFalse(row["related_paper_id"])
+            page_rows, _cursor, _has_more = store.queue_page(queue="active")
+            self.assertFalse(page_rows[0]["related_paper_id"])
+            operator_rows = store.operator_queue_rows_sql()
+            self.assertFalse(operator_rows[0]["related_paper_id"])
+
     def test_mark_dispatch_started_clears_stale_error_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
@@ -992,6 +1025,49 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(run["gate_state"], "wake_ready")
             event = store.event_rows(limit=1, entity_type="run", entity_id="run-normalized-callback")[0]
             self.assertEqual(event["event_type"], "worker_callback.wake_ready")
+
+    def test_worker_callback_creates_missing_run_row_when_queue_claim_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="callback-missing-run-row-import",
+                    queue_rows=[{
+                        "project_id": "idea-missing-run-row",
+                        "project_name": "Missing Run Row",
+                        "project_dir": "idea-missing-run-row",
+                        "status": "awaiting_wake",
+                        "current_run_id": "run-missing-row",
+                        "current_session_id": "session-imported",
+                        "next_action_hint": "await_callback",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            self.assertIsNone(store.run_row("run-missing-row"))
+
+            event_id, inserted, row = store.record_worker_callback({
+                "event_type": "wake_ready",
+                "run_id": "run-missing-row",
+                "session_id": "session-callback",
+                "project_id": "idea-missing-run-row",
+                "gate_state": "wake_ready",
+                "reason": "worker ready after restore",
+                "idempotency_key": "run-missing-row:wake-ready",
+            })
+
+            self.assertTrue(inserted)
+            self.assertIsInstance(event_id, int)
+            self.assertEqual(row["status"], "completed")
+            run = store.run_row("run-missing-row")
+            self.assertIsNotNone(run)
+            assert run is not None
+            self.assertEqual(run["project_id"], "idea-missing-run-row")
+            self.assertEqual(run["session_id"], "session-callback")
+            self.assertEqual(run["state"], "wake_ready")
+            self.assertEqual(run["gate_state"], "wake_ready")
+            self.assertEqual(run["current_activity"], "worker_callback")
+            self.assertEqual(run["idempotency_key"], "run-missing-row:wake-ready")
 
     def test_dispatch_started_idempotent_replay_does_not_regress_completed_queue(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
