@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 
 import pytest
 
@@ -21,6 +22,66 @@ def test_record_project_decision_gate_is_decided_at_guarded() -> None:
         "where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at"
         in source
     )
+
+
+def test_record_project_decision_gate_reports_stale_skipped_write(tmp_path) -> None:
+    artifact_root = tmp_path / "project"
+    decision_dir = artifact_root / ".enoch"
+    decision_dir.mkdir(parents=True)
+    (decision_dir / "project_decision.json").write_text(
+        json.dumps({"decision": "finalize_positive"}),
+        encoding="utf-8",
+    )
+
+    class Cursor:
+        rowcount = -1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):  # noqa: ANN002, ANN003 - test double
+            return False
+
+        def execute(self, sql, params=()):  # noqa: ANN001 - cursor test double
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("set search_path"):
+                self.rowcount = -1
+                self._row = None
+                return self
+            if normalized.startswith("select source_payload_json from ideas"):
+                self.rowcount = 1
+                self._row = {"source_payload_json": {}}
+                return self
+            if normalized.startswith("insert into project_decisions"):
+                self.rowcount = 0
+                self._row = None
+                return self
+            raise AssertionError(f"unexpected sql: {sql}")
+
+        def fetchone(self):
+            return self._row
+
+    class Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):  # noqa: ANN002, ANN003 - test double
+            return False
+
+        def cursor(self):
+            return Cursor()
+
+    store = s.SupabaseControlPlaneStore("postgres://example", connect=lambda: Conn())
+
+    result = store.record_project_decision_gate(
+        project_id="stale-decision-project",
+        run_id="",
+        artifact_root=artifact_root,
+        decided_at="2026-05-17T00:00:00+00:00",
+    )
+
+    assert result["persisted"] is False
+    assert result["reason"] == "stale project decision ignored"
 
 
 def test_decision_gate_state_and_summary_variants() -> None:

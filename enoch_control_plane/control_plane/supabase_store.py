@@ -3460,6 +3460,18 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         followup_depth,
                     ),
                 )
+                persisted = getattr(cur, "rowcount", None) != 0
+        if not persisted:
+            return {
+                "ok": True,
+                "persisted": False,
+                "project_id": project_id,
+                "run_id": run_id_value or "",
+                "reason": "stale project decision ignored",
+                "decision_gate_state": _decision_gate_state(gate),
+                "decision_summary": _decision_summary(gate),
+                "artifact_path": str(artifact_path),
+            }
         return {
             "ok": True,
             "persisted": True,
