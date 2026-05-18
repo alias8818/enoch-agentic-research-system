@@ -2814,6 +2814,18 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         }
         return PaperReviewRewriteDraftResponse(inserted_event=inserted, event_id=event_id, item=refreshed, paper=store.paper_row(paper_id), writer=writer_with_sync, artifact_root=str(artifact_root))
 
+    def _require_safe_paper_artifact_root(paper_id: str) -> None:
+        paper = store.paper_row(paper_id)
+        if paper is None:
+            raise HTTPException(status_code=404, detail="paper not found")
+        project_id = str(paper.get("project_id") or "").strip()
+        project_dir_text = str(paper.get("project_dir") or project_id).strip()
+        safe_root = _local_artifact_root(config, project_id=project_id, project_dir_text=project_dir_text)
+        candidate = Path(project_dir_text).expanduser()
+        candidate_root = (candidate if candidate.is_absolute() else config.expanded_project_root / candidate).resolve()
+        if candidate_root != safe_root:
+            raise HTTPException(status_code=400, detail="paper finalization artifacts must resolve inside the configured project root")
+
     @router.post("/api/publication-automation/rewrite-batch", response_model=PaperReviewBulkRewriteResponse)
     @router.post("/api/paper-reviews/rewrite-batch", response_model=PaperReviewBulkRewriteResponse)
     def dashboard_paper_reviews_rewrite_batch(payload: PaperReviewBulkRewriteRequest, authorization: str | None = Header(default=None)) -> PaperReviewBulkRewriteResponse:
@@ -2865,6 +2877,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     def dashboard_paper_review_prepare_finalization_package(paper_id: str, payload: PaperReviewPrepareFinalizationRequest, authorization: str | None = Header(default=None)) -> PaperReviewFinalizationPackageResponse:
         authorize(authorization)
         _require_writable_store("publication automation finalization package")
+        _require_safe_paper_artifact_root(paper_id)
         try:
             event_id, inserted, item, package_path, manifest = store.prepare_paper_review_finalization_package(paper_id, payload, require_approval=False)
         except IdempotencyConflict as exc:

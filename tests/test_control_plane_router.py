@@ -3320,7 +3320,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "queue_rows": [{
                     "project_id": "idea-callback-project-dir-escape",
                     "project_name": "Callback Project Dir Escape",
-                    "project_dir": "../outside",
+                    "project_dir": str(outside),
                     "status": "awaiting_wake",
                     "current_run_id": "run-callback-project-dir-escape",
                 }],
@@ -4503,7 +4503,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "paper_id": paper_id,
                     "project_id": "artifact-escape",
                     "run_id": "run-escape",
-                    "project_dir": "../outside",
+                    "project_dir": str(outside),
                     "paper_status": "publication_draft",
                     "draft_markdown_path": "paper.md",
                 }],
@@ -4829,6 +4829,52 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(repeated.json()["event_id"], committed.json()["event_id"])
             paper = client.get(f"/control/api/papers/{paper_id}", headers=headers).json()
             self.assertEqual(paper["paper"]["paper_status"], "publication_draft")
+
+    def test_paper_review_prepare_finalization_rejects_project_dir_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            outside = Path(tmp) / "outside"
+            outside.mkdir()
+            artifact_paths = {
+                "draft_markdown_path": "paper.md",
+                "draft_latex_path": "paper.tex",
+                "evidence_bundle_path": "evidence.json",
+                "claim_ledger_path": "claims.json",
+                "manifest_path": "manifest.json",
+            }
+            _write_publication_artifacts(
+                outside,
+                evidence_path=artifact_paths["evidence_bundle_path"],
+                claim_path=artifact_paths["claim_ledger_path"],
+                manifest_path=artifact_paths["manifest_path"],
+            )
+            paper_id = "router-package-escape:run-1:arxiv_draft"
+            audit_path = Path(tmp) / "audit.json"
+            audit_path.write_text(json.dumps({"papers": [{"paper_id": paper_id, "ready": True}]}), encoding="utf-8")
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "router-package-escape-import",
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": "router-package-escape",
+                    "project_name": "Router Package Escape",
+                    "project_dir": str(outside),
+                    "run_id": "run-1",
+                    "paper_status": "publication_draft",
+                    **artifact_paths,
+                }],
+            })
+            client.post("/control/api/paper-reviews/backfill", headers=headers, json={"idempotency_key": "router-package-escape-backfill", "source_audit_path": str(audit_path), "dry_run": False})
+
+            committed = client.post(f"/control/api/paper-reviews/{paper_id}/prepare-finalization-package", headers=headers, json={
+                "idempotency_key": "router-package-escape-commit",
+                "requested_by": "alice",
+                "target_label": "escape",
+                "dry_run": False,
+            })
+
+            self.assertNotEqual(committed.status_code, 200)
+            self.assertIn("artifact", committed.text.lower())
 
     def test_paper_review_status_endpoint_maps_defer_to_explicit_blocked_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
