@@ -561,6 +561,23 @@ def emit_sql(plans: list[CandidatePlan], *, requested_by: str, queue_admitted: b
             source_id = _as_text(source.get("source_id")) or "source-" + stable_hash(_as_text(source.get("url") or source.get("title")), 24)
             source_kind = _as_text(source.get("source_kind") or c.get("source_kind") or "other")
             lines.append(
+                sql_raise_if_exists(
+                    "\n".join(
+                        [
+                            "    select 1",
+                            "    from enoch.research_sources",
+                            f"    where source_id = {sql_literal(source_id)}",
+                            "      and (",
+                            f"        source_kind is distinct from {sql_literal(source_kind)}",
+                            f"        or url is distinct from {sql_literal(_as_text(source.get('url')))}",
+                            f"        or external_id is distinct from {sql_literal(_as_text(source.get('external_id')))}",
+                            "      )",
+                        ]
+                    ),
+                    "conflicting research source identity",
+                )
+            )
+            lines.append(
                 "insert into enoch.research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash) values "
                 f"({sql_literal(source_id)}, {sql_literal(source_kind)}, {sql_literal(_as_text(source.get('title') or c['title']))}, {sql_literal(_as_text(source.get('url')))}, {sql_literal(_as_text(source.get('external_id')))}, "
                 f"nullif({sql_literal(_as_text(source.get('retrieved_at')))}, '')::timestamptz, {sql_literal(_as_text(source.get('summary')))}, {sql_json(source.get('payload_json') or {})}, {sql_literal(_as_text(source.get('content_hash')) or stable_hash(json.dumps(source, sort_keys=True), 64))}) "
@@ -568,6 +585,22 @@ def emit_sql(plans: list[CandidatePlan], *, requested_by: str, queue_admitted: b
             )
         for url in c["source_urls"]:
             source_id = "url-" + stable_hash(_as_text(url), 24)
+            lines.append(
+                sql_raise_if_exists(
+                    "\n".join(
+                        [
+                            "    select 1",
+                            "    from enoch.research_sources",
+                            f"    where source_id = {sql_literal(source_id)}",
+                            "      and (",
+                            f"        source_kind is distinct from {sql_literal(c['source_kind'] or 'other')}",
+                            f"        or url is distinct from {sql_literal(_as_text(url))}",
+                            "      )",
+                        ]
+                    ),
+                    "conflicting research source identity",
+                )
+            )
             lines.append(
                 "insert into enoch.research_sources(source_id, source_kind, title, url, content_hash, payload_json) values "
                 f"({sql_literal(source_id)}, {sql_literal(c['source_kind'] or 'other')}, {sql_literal(c['title'])}, {sql_literal(_as_text(url))}, {sql_literal(stable_hash(_as_text(url), 64))}, {sql_json({'url': _as_text(url)})}) "

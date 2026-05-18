@@ -160,6 +160,34 @@ def test_research_facility_emit_sql_guards_candidate_and_admission_identity_conf
     assert "raise exception" in sql.lower()
 
 
+def test_research_facility_emit_sql_guards_source_identity_conflicts() -> None:
+    plan = research_facility.plan_candidates(
+        [
+            _strong_candidate(
+                source_ids=["arxiv-abc"],
+                source_records=[
+                    {
+                        "source_id": "arxiv-abc",
+                        "source_kind": "arxiv",
+                        "title": "Source Title",
+                        "url": "https://arxiv.org/abs/2401.00000",
+                        "external_id": "2401.00000",
+                        "summary": "Source summary",
+                    }
+                ],
+            )
+        ],
+        _args(),
+    )[0]
+
+    sql = research_facility.emit_sql([plan], requested_by="pytest", queue_admitted=False)
+
+    assert "conflicting research source identity" in sql
+    assert "where source_id = 'arxiv-abc'" in sql
+    assert "source_kind is distinct from 'arxiv'" in sql
+    assert "url is distinct from 'https://arxiv.org/abs/2401.00000'" in sql
+
+
 def test_research_facility_emit_sql_guards_admitted_queue_identity_conflicts() -> None:
     plan = research_facility.plan_candidates([_strong_candidate()], _args())[0]
 
