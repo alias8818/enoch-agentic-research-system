@@ -1998,19 +1998,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         )
         if should_sync_decision and row:
             project_id = str(row.get("project_id") or callback.project_id or "").strip()
-            project_dir_text = str(row.get("project_dir") or project_id).strip()
-            root = config.expanded_project_root.resolve()
-            artifact_root = (root / project_id).resolve()
-            if project_dir_text:
-                candidate_root = Path(project_dir_text).expanduser()
-                if not candidate_root.is_absolute():
-                    artifact_root = (root / candidate_root).resolve()
-                else:
-                    try:
-                        candidate_root.resolve().relative_to(root)
-                        artifact_root = candidate_root.resolve()
-                    except ValueError:
-                        artifact_root = (root / project_id).resolve()
+            artifact_root, project_dir_text = _artifact_root_for_queue_row(row)
             evidence_sync = _sync_remote_project_evidence(
                 config,
                 project_id=project_id,

@@ -3306,6 +3306,53 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIsNone(replay.json()["decision_sync"])
             self.assertEqual(sync.call_count, 1)
 
+    def test_worker_callback_evidence_sync_rejects_project_dir_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            config.paper_evidence_sync_enabled = True
+            config.paper_evidence_sync_remote_root = "/remote/projects"
+            outside = Path(tmp) / "outside"
+            outside.mkdir()
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "worker-callback-project-dir-escape-import",
+                "queue_rows": [{
+                    "project_id": "idea-callback-project-dir-escape",
+                    "project_name": "Callback Project Dir Escape",
+                    "project_dir": "../outside",
+                    "status": "awaiting_wake",
+                    "current_run_id": "run-callback-project-dir-escape",
+                }],
+            })
+            seen: dict[str, Path] = {}
+
+            def fake_sync(_config, *, project_id: str, artifact_root: Path, **kwargs):  # noqa: ANN001 - patched sync boundary
+                del _config, project_id, kwargs
+                seen["artifact_root"] = artifact_root
+                return {"enabled": True, "synced": False, "reason": "worker_read_failed", "local_evidence_present": False}
+
+            with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", side_effect=fake_sync):
+                response = client.post("/control/api/worker-callback", headers=headers, json={
+                    "event_type": "wake_ready",
+                    "run_id": "run-callback-project-dir-escape",
+                    "session_id": "session-callback-project-dir-escape",
+                    "project_id": "idea-callback-project-dir-escape",
+                    "project_name": "Callback Project Dir Escape",
+                    "source_event": "session-idle",
+                    "gate_state": "wake_ready",
+                    "process_tracking": {"root_pid": None, "process_group_id": None, "processes": [], "live_process_count": 0},
+                    "telemetry": {},
+                    "reason": "idle_sustain_met",
+                    "idempotency_key": "run-callback-project-dir-escape:wake_ready:test",
+                })
+
+            self.assertEqual(response.status_code, 200)
+            artifact_root = seen["artifact_root"].resolve()
+            artifact_root.relative_to(config.expanded_project_root.resolve())
+            self.assertNotEqual(artifact_root, outside.resolve())
+            self.assertIn("idea-callback-project-dir-escape", artifact_root.as_posix())
+
     def test_stale_worker_callback_does_not_trigger_evidence_sync(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp)
