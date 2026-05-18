@@ -3658,7 +3658,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "select project_id, run_id, paper_type from papers where paper_id=%s",
+                    "select project_id, run_id, paper_type, updated_at from papers where paper_id=%s",
                     (paper.paper_id,),
                 )
                 existing = cur.fetchone()
@@ -3672,6 +3672,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     or self._row_value(existing, "paper_type", 2) != _text(paper.paper_type)
                 ):
                     raise IdempotencyConflict(f"paper id {paper.paper_id!r} was reused with different paper identity")
+                if existing and _is_older_timestamp(paper.updated_at, existing.get("updated_at")):
+                    return
                 cur.execute(
                     """
                     insert into papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)

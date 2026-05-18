@@ -1579,6 +1579,44 @@ class ControlPlaneStoreTests(unittest.TestCase):
 
             self.assertEqual(store.paper_row(paper_id)["project_id"], "project-a")
 
+    def test_upsert_paper_ignores_stale_existing_paper(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            paper_id = "paper-upsert-stale:run-1:arxiv_draft"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="paper-upsert-stale-project",
+                    queue_rows=[{"project_id": "project-a", "project_name": "Project A", "status": "completed"}],
+                )
+            )
+            store.upsert_paper(
+                PaperRecord(
+                    paper_id=paper_id,
+                    project_id="project-a",
+                    run_id="run-1",
+                    paper_status=PaperStatus.PUBLICATION_DRAFT,
+                    draft_markdown_path="papers/run-1/new.md",
+                    generated_at="2026-05-18T12:00:00+00:00",
+                    updated_at="2026-05-18T12:00:00+00:00",
+                )
+            )
+
+            store.upsert_paper(
+                PaperRecord(
+                    paper_id=paper_id,
+                    project_id="project-a",
+                    run_id="run-1",
+                    paper_status=PaperStatus.ARCHIVED,
+                    draft_markdown_path="papers/run-1/old.md",
+                    generated_at="2026-05-18T11:00:00+00:00",
+                    updated_at="2026-05-18T11:00:00+00:00",
+                )
+            )
+
+            paper = store.paper_row(paper_id)
+            self.assertEqual(paper["paper_status"], "publication_draft")
+            self.assertEqual(paper["draft_markdown_path"], "papers/run-1/new.md")
+
 
     def test_unknown_worker_callback_requires_manual_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -2727,7 +2727,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             for path, (existed, content) in artifact_snapshots.items():
                 _restore_or_remove_path(path, existed=existed, content=content)
             try:
-                store.upsert_paper(original_record)
+                store.upsert_paper(original_record.model_copy(update={"updated_at": utc_now()}))
                 if original_project_dir:
                     store.update_project_dir(project_id, original_project_dir)
             except Exception as exc:
