@@ -101,8 +101,8 @@ def test_research_quality_refresh_only_runs_read_only_report(tmp_path, capsys, m
     output = tmp_path / "reports" / "latest-report.json"
     calls: list[dict] = []
 
-    def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check):
-        calls.append({"cmd": cmd, "cwd": cwd, "timeout": timeout, "check": check})
+    def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check, env):
+        calls.append({"cmd": cmd, "cwd": cwd, "timeout": timeout, "check": check, "env": env})
         return Mock(returncode=0, stdout='{"ok": true}', stderr="")
 
     monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_REFRESH_ONLY", "1")
@@ -120,14 +120,35 @@ def test_research_quality_refresh_only_runs_read_only_report(tmp_path, capsys, m
     assert calls
     cmd = calls[0]["cmd"]
     assert str(MODULE_PATH.parents[1] / "scripts" / "dspy_research_quality.py") in cmd
-    assert "--database-url" in cmd
-    assert "postgresql://user:secret@host/db" in cmd
+    assert "--database-url" not in cmd
+    assert "postgresql://user:secret@host/db" not in cmd
+    assert calls[0]["env"]["DATABASE_URL"] == "postgresql://user:secret@host/db"
+    assert "ENOCH_SUPABASE_DATABASE_URL" not in calls[0]["env"]
     assert "--limit" in cmd
     assert "7" in cmd
     assert calls[0]["timeout"] == 90
     assert "postgresql://user:secret@host/db" not in json.dumps(result["command"])
-    assert "<redacted-database-url>" in result["command"]
+    assert "--database-url" not in result["command"]
 
+
+
+def test_research_quality_refresh_timeout_does_not_report_secret(tmp_path, monkeypatch):
+    secret = "postgresql://user:timeout-secret@host/db"
+
+    def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check, env):
+        raise autopilot.subprocess.TimeoutExpired(cmd=cmd + [secret], timeout=timeout)
+
+    monkeypatch.setenv("ENOCH_SUPABASE_DATABASE_URL", secret)
+    monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_REPORT_PATH", str(tmp_path / "latest-report.json"))
+    monkeypatch.setattr(autopilot.subprocess, "run", fake_run)
+
+    result = autopilot.refresh_research_quality_report()
+
+    encoded = json.dumps(result)
+    assert result["ok"] is False
+    assert result["reason"] == "timeout after 90s"
+    assert secret not in encoded
+    assert "--database-url" not in result["command"]
 
 def test_research_autopilot_includes_quality_refresh_result(tmp_path, capsys, monkeypatch):
     config = tmp_path / "config.json"
@@ -183,8 +204,8 @@ def test_research_quality_window_comparison_runs_read_only_script(tmp_path, monk
     output = tmp_path / "window.json"
     calls: list[dict] = []
 
-    def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check):
-        calls.append({"cmd": cmd, "cwd": cwd, "timeout": timeout, "check": check})
+    def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check, env):
+        calls.append({"cmd": cmd, "cwd": cwd, "timeout": timeout, "check": check, "env": env})
         return Mock(returncode=0, stdout='{"ok": true}', stderr="")
 
     monkeypatch.setenv("ENOCH_SUPABASE_DATABASE_URL", "postgresql://user:secret@host/db")
@@ -203,7 +224,9 @@ def test_research_quality_window_comparison_runs_read_only_script(tmp_path, monk
     assert "--cutoff" in cmd
     assert "2026-05-11T09:58:00Z" in cmd
     assert "postgresql://user:secret@host/db" not in json.dumps(result["command"])
-    assert "<redacted-database-url>" in result["command"]
+    assert "--database-url" not in result["command"]
+    assert calls[0]["env"]["DATABASE_URL"] == "postgresql://user:secret@host/db"
+    assert "ENOCH_SUPABASE_DATABASE_URL" not in calls[0]["env"]
 
 
 def test_research_quality_refresh_missing_database_url_is_fail_soft(monkeypatch):
@@ -228,8 +251,8 @@ def test_janitor_llm_review_runs_quota_gated_script(tmp_path, monkeypatch):
     output = tmp_path / "janitor-llm.json"
     calls: list[dict] = []
 
-    def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check):
-        calls.append({"cmd": cmd, "cwd": cwd, "timeout": timeout, "check": check})
+    def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check, env):
+        calls.append({"cmd": cmd, "cwd": cwd, "timeout": timeout, "check": check, "env": env})
         output.write_text(
             json.dumps(
                 {
@@ -264,4 +287,6 @@ def test_janitor_llm_review_runs_quota_gated_script(tmp_path, monkeypatch):
     assert "--min-rolling-remaining" in cmd
     assert "150" in cmd
     assert "postgresql://user:secret@host/db" not in json.dumps(result["command"])
-    assert "<redacted-database-url>" in result["command"]
+    assert "--database-url" not in result["command"]
+    assert calls[0]["env"]["DATABASE_URL"] == "postgresql://user:secret@host/db"
+    assert "ENOCH_SUPABASE_DATABASE_URL" not in calls[0]["env"]

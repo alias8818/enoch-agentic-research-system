@@ -138,6 +138,24 @@ def _database_url() -> str:
     ).strip()
 
 
+def _database_url_env(database_url: str) -> dict[str, str]:
+    """Return a subprocess environment with the database URL kept out of argv."""
+
+    env = os.environ.copy()
+    for name in (
+        "ENOCH_RESEARCH_QUALITY_DATABASE_URL",
+        "ENOCH_SUPABASE_DATABASE_URL",
+        "ENOCH_CONTROL_DATABASE_URL",
+    ):
+        env.pop(name, None)
+    env["DATABASE_URL"] = database_url
+    return env
+
+
+def _timeout_reason(timeout: int) -> str:
+    return f"timeout after {timeout}s"
+
+
 def refresh_research_quality_report() -> dict:
     """Refresh the read-only Research Facility quality report.
 
@@ -167,8 +185,6 @@ def refresh_research_quality_report() -> dict:
     cmd = [
         sys.executable,
         str(script),
-        "--database-url",
-        database_url,
         "--limit",
         str(limit),
         "--output",
@@ -176,8 +192,6 @@ def refresh_research_quality_report() -> dict:
         "--pretty",
     ]
     display_cmd = [*cmd]
-    if database_url in display_cmd:
-        display_cmd[display_cmd.index(database_url)] = "<redacted-database-url>"
 
     try:
         proc = subprocess.run(
@@ -188,12 +202,13 @@ def refresh_research_quality_report() -> dict:
             stderr=subprocess.PIPE,
             timeout=timeout,
             check=False,
+            env=_database_url_env(database_url),
         )
-    except subprocess.TimeoutExpired as exc:
+    except subprocess.TimeoutExpired:
         return {
             "ok": False,
             "action": "research_quality_refresh_failed",
-            "reason": f"timeout after {timeout}s: {exc}",
+            "reason": _timeout_reason(timeout),
             "command": display_cmd,
             "output": str(output),
         }
@@ -244,8 +259,6 @@ def refresh_research_quality_window_comparison() -> dict:
     cmd = [
         sys.executable,
         str(script),
-        "--database-url",
-        database_url,
         "--cutoff",
         cutoff,
         "--limit",
@@ -254,8 +267,6 @@ def refresh_research_quality_window_comparison() -> dict:
         str(output),
     ]
     display_cmd = [*cmd]
-    if database_url in display_cmd:
-        display_cmd[display_cmd.index(database_url)] = "<redacted-database-url>"
 
     try:
         proc = subprocess.run(
@@ -266,12 +277,13 @@ def refresh_research_quality_window_comparison() -> dict:
             stderr=subprocess.PIPE,
             timeout=timeout,
             check=False,
+            env=_database_url_env(database_url),
         )
-    except subprocess.TimeoutExpired as exc:
+    except subprocess.TimeoutExpired:
         return {
             "ok": False,
             "action": "research_quality_window_comparison_failed",
-            "reason": f"timeout after {timeout}s: {exc}",
+            "reason": _timeout_reason(timeout),
             "command": display_cmd,
             "output": str(output),
         }
@@ -324,8 +336,6 @@ def run_quota_gated_janitor_llm_review() -> dict:
     cmd = [
         sys.executable,
         str(script),
-        "--database-url",
-        database_url,
         "--provider-base-url",
         os.environ.get("ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"),
         "--openai-base-url",
@@ -370,8 +380,6 @@ def run_quota_gated_janitor_llm_review() -> dict:
             str(_bounded_int("ENOCH_RESEARCH_JANITOR_LLM_STORED_LIMIT", 500, 1, 2000)),
         ])
     display_cmd = [*cmd]
-    if database_url in display_cmd:
-        display_cmd[display_cmd.index(database_url)] = "<redacted-database-url>"
     try:
         proc = subprocess.run(
             cmd,
@@ -381,9 +389,10 @@ def run_quota_gated_janitor_llm_review() -> dict:
             stderr=subprocess.PIPE,
             timeout=timeout + 30,
             check=False,
+            env=_database_url_env(database_url),
         )
-    except subprocess.TimeoutExpired as exc:
-        return {"ok": False, "action": "research_janitor_llm_review_failed", "reason": f"timeout after {timeout + 30}s: {exc}", "command": display_cmd, "output": str(output)}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "action": "research_janitor_llm_review_failed", "reason": _timeout_reason(timeout + 30), "command": display_cmd, "output": str(output)}
     except OSError as exc:
         return {"ok": False, "action": "research_janitor_llm_review_failed", "reason": f"{type(exc).__name__}: {exc}", "command": display_cmd, "output": str(output)}
     payload: dict = {}
