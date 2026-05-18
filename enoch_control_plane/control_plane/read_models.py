@@ -229,6 +229,10 @@ def _truthy(value: Any) -> bool:
     return False
 
 
+def _normal(value: Any) -> str:
+    return _text(value).lower().replace("-", "_").replace(" ", "_")
+
+
 def _listish(value: Any) -> list[str]:
     if isinstance(value, list):
         return [_text(item) for item in value if _text(item)]
@@ -374,8 +378,8 @@ def _paper_draft_gate_from_row_decision(row: dict[str, Any]) -> dict[str, Any] |
         state == "negative"
         and _research_outcome(row) == "useful_signal"
         and _truthy(row.get("bounded_paper_ready"))
-        and _text(row.get("hypothesis_status")) in {"supported", "mixed"}
-        and _text(row.get("evidence_strength")) in {"moderate", "strong"}
+        and _normal(row.get("hypothesis_status")) in {"supported", "mixed"}
+        and _normal(row.get("evidence_strength")) in {"moderate", "strong"}
         and _text(row.get("claim_scope"))
         and _text(row.get("scale_limits"))
     ):

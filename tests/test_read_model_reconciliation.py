@@ -185,6 +185,33 @@ def test_useful_signal_precedence_over_duplicate_no_paper_rows() -> None:
 
 
 
+
+
+def test_bounded_useful_signal_row_gate_normalizes_status_fields() -> None:
+    row = {
+        "project_id": "bounded-signal",
+        "project_name": "bounded-signal",
+        "status": "completed",
+        "last_run_state": "wake_ready",
+        "current_run_id": "bounded-run",
+        "next_action_hint": "draft_paper_or_select_next_project",
+        "decision_gate_state": "negative",
+        "decision_summary": "negative but bounded useful signal",
+        "research_outcome": "Useful Signal",
+        "hypothesis_status": "Mixed",
+        "evidence_strength": "Moderate",
+        "bounded_paper_ready": "TRUE",
+        "claim_scope": "bounded local claim",
+        "scale_limits": "larger validation needs multi-GPU",
+    }
+
+    counts = operator_counts_from_rows([row])
+    detail = operator_detail_counts_from_rows([row])
+
+    assert counts[OperatorLane.WRITE_PAPER.value] == 1
+    assert counts["total_operator_items"] == 1
+    assert detail["run_complete_draft_needed"] == 1
+
 def test_compute_scale_blocked_precedence_over_duplicate_no_paper_rows() -> None:
     no_paper = {
         "project_id": "scale-project",
