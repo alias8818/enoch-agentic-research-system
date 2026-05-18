@@ -1449,6 +1449,42 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(paper["draft_markdown_path"], "papers/run-1/rewritten.md")
             self.assertIsNotNone(store.paper_review_row(paper_id))
 
+    def test_upsert_paper_rejects_conflicting_paper_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            paper_id = "paper-upsert-conflict:run-1:arxiv_draft"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="paper-upsert-conflict-projects",
+                    queue_rows=[
+                        {"project_id": "project-a", "project_name": "Project A", "status": "completed"},
+                        {"project_id": "project-b", "project_name": "Project B", "status": "completed"},
+                    ],
+                )
+            )
+            store.upsert_paper(
+                PaperRecord(
+                    paper_id=paper_id,
+                    project_id="project-a",
+                    run_id="run-1",
+                    paper_status=PaperStatus.PUBLICATION_DRAFT,
+                    draft_markdown_path="papers/run-1/paper.md",
+                )
+            )
+
+            with self.assertRaises(IdempotencyConflict):
+                store.upsert_paper(
+                    PaperRecord(
+                        paper_id=paper_id,
+                        project_id="project-b",
+                        run_id="run-1",
+                        paper_status=PaperStatus.PUBLICATION_DRAFT,
+                        draft_markdown_path="papers/run-1/paper.md",
+                    )
+                )
+
+            self.assertEqual(store.paper_row(paper_id)["project_id"], "project-a")
+
 
     def test_unknown_worker_callback_requires_manual_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

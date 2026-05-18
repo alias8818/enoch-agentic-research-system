@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from enoch_control_plane.control_plane import supabase_store as s
-from enoch_control_plane.control_plane.models import ControlFlags, ImportSnapshotRequest
+from enoch_control_plane.control_plane.models import ControlFlags, ImportSnapshotRequest, PaperRecord, PaperStatus
 from enoch_control_plane.control_plane.store import QueueStatus
 
 
@@ -110,6 +110,49 @@ def test_readonly_store_basic_query_methods() -> None:
 
 from enoch_control_plane.control_plane.models import IdeaIntakeRequest, NotionIntakeRequest
 from enoch_control_plane.control_plane.supabase_store import SupabaseControlPlaneStore
+
+
+def test_supabase_upsert_paper_rejects_conflicting_paper_identity() -> None:
+    class Cursor:
+        def __init__(self):
+            self.insert_attempted = False
+
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("select project_id, run_id, paper_type from papers"):
+                self._fetchone = {"project_id": "project-a", "run_id": "run-1", "paper_type": "arxiv_draft"}
+                return self
+            if normalized.startswith("insert into papers"):
+                self.insert_attempted = True
+                raise AssertionError("conflicting paper identity must not upsert")
+            return self
+        def fetchone(self):
+            return getattr(self, "_fetchone", None)
+
+    class Conn:
+        def __init__(self):
+            self.cursor_obj = Cursor()
+
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return self.cursor_obj
+
+    conn = Conn()
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: conn)
+
+    with pytest.raises(s.IdempotencyConflict):
+        store.upsert_paper(
+            PaperRecord(
+                paper_id="paper-1",
+                project_id="project-b",
+                run_id="run-1",
+                paper_status=PaperStatus.PUBLICATION_DRAFT,
+            )
+        )
+
+    assert conn.cursor_obj.insert_attempted is False
 
 
 def test_write_store_dry_run_intakes_build_candidates_and_skips_rows() -> None:
