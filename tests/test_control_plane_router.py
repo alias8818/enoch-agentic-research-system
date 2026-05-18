@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from enoch_control_plane.config import GateConfig
@@ -132,6 +132,26 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     )
 
             self.assertEqual(paper_path.read_text(encoding="utf-8"), "old draft")
+
+    def test_deterministic_paper_rejects_invalid_project_dir_without_value_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            paper = PaperRecord(
+                paper_id="paper-1",
+                project_id="project-a",
+                run_id="run-1",
+            )
+
+            with self.assertRaises(HTTPException) as raised:
+                _write_deterministic_paper(
+                    config,
+                    {"project_id": "project-a", "project_name": "Project A", "project_dir": "bad\0project"},
+                    paper,
+                    force=True,
+                )
+
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertIn("project_dir", str(raised.exception.detail))
 
     def test_health_supports_supabase_backend_without_sqlite_path(self) -> None:
         class FakeSupabaseStore:
@@ -4922,6 +4942,46 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn(artifact.status_code, {400, 404})
             self.assertNotEqual(artifact.status_code, 500)
 
+    def test_paper_rewrite_rejects_invalid_project_id_without_500(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            paper_id = "router-invalid-project-id:run-1:arxiv_draft"
+            audit_path = Path(tmp) / "audit.json"
+            audit_path.write_text(json.dumps({"papers": [{"paper_id": paper_id, "ready": True}]}), encoding="utf-8")
+            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "router-invalid-project-id-import",
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": "bad\0router-invalid-project-id",
+                    "project_name": "Router Invalid Project ID",
+                    "run_id": "run-1",
+                    "paper_status": "publication_draft",
+                    "draft_markdown_path": "paper.md",
+                    "draft_latex_path": "paper.tex",
+                    "evidence_bundle_path": "evidence.json",
+                    "claim_ledger_path": "claims.json",
+                    "manifest_path": "manifest.json",
+                }],
+            })
+            self.assertEqual(imported.status_code, 200)
+            backfill = client.post("/control/api/paper-reviews/backfill", headers=headers, json={
+                "idempotency_key": "router-invalid-project-id-backfill",
+                "source_audit_path": str(audit_path),
+                "dry_run": False,
+            })
+            self.assertEqual(backfill.status_code, 200)
+
+            response = client.post(f"/control/api/paper-reviews/{paper_id}/rewrite-draft", headers=headers, json={
+                "idempotency_key": "router-invalid-project-id-rewrite",
+                "requested_by": "alice",
+                "force": True,
+            })
+
+            self.assertEqual(response.status_code, 400)
+            self.assertNotEqual(response.status_code, 500)
+
 
     def test_paper_review_rewrite_event_failure_restores_state_and_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -5322,6 +5382,47 @@ class ControlPlaneRouterTests(unittest.TestCase):
             artifact = client.get(f"/control/api/papers/{paper_id}/artifact/draft_markdown_path", headers=headers)
             self.assertIn(artifact.status_code, {400, 404})
             self.assertNotEqual(artifact.status_code, 500)
+
+    def test_paper_finalization_rejects_invalid_project_dir_without_500(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            paper_id = "router-invalid-dir:run-1:arxiv_draft"
+            audit_path = Path(tmp) / "audit.json"
+            audit_path.write_text(json.dumps({"papers": [{"paper_id": paper_id, "ready": True}]}), encoding="utf-8")
+            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "router-invalid-dir-import",
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": "router-invalid-dir",
+                    "project_name": "Router Invalid Dir",
+                    "project_dir": "bad\0router-invalid-dir",
+                    "run_id": "run-1",
+                    "paper_status": "publication_draft",
+                    "draft_markdown_path": "paper.md",
+                    "draft_latex_path": "paper.tex",
+                    "evidence_bundle_path": "evidence.json",
+                    "claim_ledger_path": "claims.json",
+                    "manifest_path": "manifest.json",
+                }],
+            })
+            self.assertEqual(imported.status_code, 200)
+            backfill = client.post("/control/api/paper-reviews/backfill", headers=headers, json={
+                "idempotency_key": "router-invalid-dir-backfill",
+                "source_audit_path": str(audit_path),
+                "dry_run": False,
+            })
+            self.assertEqual(backfill.status_code, 200)
+
+            finalized = client.post(f"/control/api/paper-reviews/{paper_id}/prepare-finalization-package", headers=headers, json={
+                "idempotency_key": "router-invalid-dir-finalize",
+                "requested_by": "alice",
+                "target_label": "bad-project-dir",
+                "dry_run": False,
+            })
+
+            self.assertEqual(finalized.status_code, 400)
+            self.assertNotEqual(finalized.status_code, 500)
 
     def test_paper_review_rejected_status_is_normalized_before_rewrite_or_finalize(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

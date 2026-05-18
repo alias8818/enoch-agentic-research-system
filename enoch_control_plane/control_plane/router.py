@@ -1115,14 +1115,17 @@ def _write_deterministic_paper(config: GateConfig, candidate: dict, paper: Paper
     project_dir_text = str(candidate.get("project_dir") or "").strip()
     if not project_dir_text:
         raise HTTPException(status_code=400, detail="candidate lacks project_dir")
-    root = config.expanded_project_root.resolve()
+    try:
+        root = config.expanded_project_root.resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="configured project root could not be resolved") from exc
     project_dir = _expanduser_path_or_http(project_dir_text, detail="project_dir contains an unexpandable user home")
     if not project_dir.is_absolute():
         project_dir = root / project_dir
-    project_dir = project_dir.resolve()
     try:
+        project_dir = project_dir.resolve()
         project_dir.relative_to(root)
-    except ValueError as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail="project_dir escapes configured project root") from exc
     title = str(candidate.get("project_name") or paper.project_id).strip()
     files = {
@@ -1133,10 +1136,10 @@ def _write_deterministic_paper(config: GateConfig, candidate: dict, paper: Paper
         paper.manifest_path: '{\n  "paper_id": "' + paper.paper_id + '",\n  "generated_at": "' + paper.generated_at + '"\n}\n',
     }
     for rel_path, content in files.items():
-        target = (project_dir / rel_path).resolve()
         try:
+            target = (project_dir / rel_path).resolve()
             target.relative_to(project_dir)
-        except ValueError as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=f"paper path escapes project dir: {rel_path}") from exc
         if target.exists() and not force:
             continue
@@ -2703,7 +2706,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             raise HTTPException(status_code=400, detail="rejected publication automation items cannot be rewritten or auto-published")
         project_id = str(paper.get("project_id") or "")
         project = store.project_row(project_id) if project_id else None
-        configured_root = config.expanded_project_root.resolve()
+        try:
+            configured_root = config.expanded_project_root.resolve()
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="configured project root could not be resolved") from exc
         try:
             current_project_dir = Path(str((project or {}).get("project_dir") or "")).expanduser() if project else Path()
         except RuntimeError:
@@ -2716,7 +2722,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 use_current_dir = resolved_current.exists()
             except (OSError, ValueError):
                 use_current_dir = False
-        artifact_root = (current_project_dir.resolve() if use_current_dir else (configured_root / project_id).resolve())
+        try:
+            artifact_root = current_project_dir.resolve() if use_current_dir else (configured_root / project_id).resolve()
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="paper artifact root could not be resolved") from exc
         existing_event_reader = getattr(store, "event_by_idempotency_key", None)
         if callable(existing_event_reader):
             existing_event = existing_event_reader(payload.idempotency_key)
@@ -2857,7 +2866,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         project_dir_text = str(paper.get("project_dir") or project_id).strip()
         safe_root = _local_artifact_root(config, project_id=project_id, project_dir_text=project_dir_text)
         candidate = _expanduser_path_or_http(project_dir_text, detail="paper project_dir contains an unexpandable user home")
-        candidate_root = (candidate if candidate.is_absolute() else config.expanded_project_root / candidate).resolve()
+        try:
+            candidate_root = (candidate if candidate.is_absolute() else config.expanded_project_root / candidate).resolve()
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="paper finalization artifact root could not be resolved") from exc
         if candidate_root != safe_root:
             raise HTTPException(status_code=400, detail="paper finalization artifacts must resolve inside the configured project root")
 

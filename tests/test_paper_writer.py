@@ -11,7 +11,7 @@ from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.models import PaperRecord
 from fastapi import HTTPException
 
-from enoch_control_plane.control_plane.paper_writer import _build_claim_ledger_data, _write_files, write_paper_artifacts
+from enoch_control_plane.control_plane.paper_writer import _build_claim_ledger_data, _write_files, backfill_paper_evidence_artifacts, write_paper_artifacts
 
 
 class PaperWriterTests(unittest.TestCase):
@@ -73,6 +73,22 @@ class PaperWriterTests(unittest.TestCase):
                         "project_id": "idea",
                         "project_name": "Idea",
                         "project_dir": "~enoch-user-that-should-not-exist/idea",
+                    },
+                    self._paper(),
+                    force=True,
+                )
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertIn("project_dir", str(raised.exception.detail))
+
+    def test_writer_rejects_invalid_project_dir_without_value_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(HTTPException) as raised:
+                write_paper_artifacts(
+                    self._config(tmp),
+                    {
+                        "project_id": "idea",
+                        "project_name": "Idea",
+                        "project_dir": "bad\0idea",
                     },
                     self._paper(),
                     force=True,
@@ -341,6 +357,27 @@ class PaperWriterTests(unittest.TestCase):
 
             self.assertEqual(target.read_text(encoding="utf-8"), "old")
             self.assertEqual(list(target.parent.glob(".paper.md.*.tmp")), [])
+
+    def test_backfill_rejects_invalid_manifest_path_without_value_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            (project / "run_notes.md").write_text("Measured useful evidence.\n", encoding="utf-8")
+            paper_dir = project / "papers" / "run"
+            paper_dir.mkdir(parents=True)
+            (paper_dir / "paper.md").write_text("Measured useful evidence.\n", encoding="utf-8")
+            paper = self._paper().model_copy(update={"manifest_path": "bad\0manifest.json"})
+
+            with self.assertRaises(HTTPException) as raised:
+                backfill_paper_evidence_artifacts(
+                    self._config(tmp),
+                    {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"},
+                    paper,
+                    force=True,
+                )
+
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertIn("paper path", str(raised.exception.detail))
 
     def test_synthetic_writer_falls_back_without_key_when_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

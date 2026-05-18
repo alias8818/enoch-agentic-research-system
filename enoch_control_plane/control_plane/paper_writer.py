@@ -64,29 +64,38 @@ def _resolve_project_dir(config: GateConfig, candidate: dict[str, Any]) -> Path:
     project_dir_text = str(candidate.get("project_dir") or "").strip()
     if not project_dir_text:
         raise HTTPException(status_code=400, detail="candidate lacks project_dir")
-    root = config.expanded_project_root.resolve()
+    try:
+        root = config.expanded_project_root.resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="configured project root could not be resolved") from exc
     try:
         project_dir = Path(project_dir_text).expanduser()
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail="project_dir contains an unexpandable user home") from exc
     if not project_dir.is_absolute():
         project_dir = root / project_dir
-    project_dir = project_dir.resolve()
+    try:
+        project_dir = project_dir.resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="project_dir could not be resolved") from exc
     try:
         project_dir.relative_to(root)
-    except ValueError as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail="project_dir escapes configured project root") from exc
     return project_dir
 
 
 def _write_files(project_dir: Path, files: dict[str, str], *, force: bool) -> None:
-    project_dir = project_dir.resolve()
+    try:
+        project_dir = project_dir.resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="project_dir could not be resolved") from exc
     for rel_path, content in files.items():
         raw_rel_path = str(rel_path or "").strip()
         try:
             target = (project_dir / raw_rel_path).resolve()
             target.relative_to(project_dir)
-        except (OSError, ValueError) as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=f"paper path escapes project dir: {rel_path}") from exc
         if not raw_rel_path or target == project_dir or (target.exists() and target.is_dir()):
             raise HTTPException(status_code=400, detail=f"paper path is not a file target: {rel_path}")
@@ -410,10 +419,10 @@ def _build_claim_ledger_data(markdown: str, evidence_bundle: dict[str, Any], pap
 
 
 def _maybe_preserve_existing_artifact(project_dir: Path, files: dict[str, str], rel_path: str) -> None:
-    target = (project_dir / rel_path).resolve()
     try:
+        target = (project_dir / rel_path).resolve()
         target.relative_to(project_dir)
-    except ValueError as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"paper path escapes project dir: {rel_path}") from exc
     if target.exists() and target.is_file():
         files.pop(rel_path, None)
@@ -618,10 +627,10 @@ def backfill_paper_evidence_artifacts(
     writer_note: str = "evidence_backfill",
 ) -> dict[str, Any]:
     project_dir = _resolve_project_dir(config, candidate)
-    paper_path = (project_dir / paper.draft_markdown_path).resolve()
     try:
+        paper_path = (project_dir / paper.draft_markdown_path).resolve()
         paper_path.relative_to(project_dir)
-    except ValueError as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"paper path escapes project dir: {paper.draft_markdown_path}") from exc
     if not paper_path.exists():
         raise HTTPException(status_code=404, detail=f"paper markdown not found: {paper.draft_markdown_path}")
@@ -640,13 +649,16 @@ def backfill_paper_evidence_artifacts(
         paper.evidence_bundle_path: json.dumps(evidence_bundle, indent=2, sort_keys=True) + "\n",
         paper.claim_ledger_path: json.dumps(claim_ledger, indent=2, sort_keys=True) + "\n",
     }
-    manifest_path = (project_dir / paper.manifest_path).resolve()
     manifest: dict[str, Any] = {}
-    if manifest_path.exists():
-        try:
+    try:
+        manifest_path = (project_dir / paper.manifest_path).resolve()
+        manifest_path.relative_to(project_dir)
+        if manifest_path.exists():
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception:
-            manifest = {}
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"paper path escapes project dir: {paper.manifest_path}") from exc
+    except Exception:
+        manifest = {}
     manifest.update({
         "paper_id": paper.paper_id,
         "evidence_backfilled": True,
