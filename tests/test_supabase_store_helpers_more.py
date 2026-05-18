@@ -145,6 +145,22 @@ def test_resolved_artifact_treats_filesystem_access_failure_as_unreadable(tmp_pa
     assert artifact["size_bytes"] == 0
 
 
+def test_load_manifest_treats_filesystem_access_failure_as_empty(tmp_path, monkeypatch) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text('{"ok": true}', encoding="utf-8")
+    store = s.SupabaseControlPlaneStore("postgres://example", connect=lambda: pytest.fail("should not connect"))
+    real_exists = Path.exists
+
+    def blocked_exists(path: Path) -> bool:
+        if path == manifest_path:
+            raise PermissionError("simulated manifest access failure")
+        return real_exists(path)
+
+    monkeypatch.setattr(Path, "exists", blocked_exists)
+
+    assert store._load_manifest(str(manifest_path)) == {}
+
+
 def test_decision_gate_state_and_summary_variants() -> None:
     assert s._decision_gate_state({"eligible": True}) == "positive"
     assert s._decision_gate_state({"reason": "missing project_decision"}) == "missing"

@@ -2361,6 +2361,21 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertTrue(artifact["safe"])
             self.assertEqual(artifact["size_bytes"], 0)
 
+    def test_load_manifest_treats_filesystem_access_failure_as_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            manifest_path = Path(tmp) / "manifest.json"
+            manifest_path.write_text('{"ok": true}', encoding="utf-8")
+            real_exists = Path.exists
+
+            def blocked_exists(path: Path) -> bool:
+                if path == manifest_path:
+                    raise PermissionError("simulated manifest access failure")
+                return real_exists(path)
+
+            with unittest.mock.patch.object(Path, "exists", blocked_exists):
+                self.assertEqual(store._load_manifest(str(manifest_path)), {})
+
     def test_prepare_finalization_package_rejects_empty_evidence_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
