@@ -2472,6 +2472,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/api/paper-reviews/backfill", response_model=PaperReviewBackfillResponse)
     def dashboard_paper_reviews_backfill(payload: PaperReviewBackfillRequest, authorization: str | None = Header(default=None)) -> PaperReviewBackfillResponse:
         authorize(authorization)
+        _require_writable_store("publication automation backfill")
         try:
             inserted, created, updated, skipped, errors = store.backfill_paper_reviews(payload)
         except IdempotencyConflict as exc:
@@ -2623,6 +2624,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/api/paper-reviews/{paper_id}/claim", response_model=PaperReviewMutationResponse)
     def dashboard_paper_review_claim(paper_id: str, payload: PaperReviewClaimRequest, authorization: str | None = Header(default=None)) -> PaperReviewMutationResponse:
         authorize(authorization)
+        _require_writable_store("publication automation claim")
         try:
             event_id, inserted, item = store.claim_paper_review(paper_id, payload)
         except IdempotencyConflict as exc:
@@ -2635,6 +2637,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/api/paper-reviews/{paper_id}/checklist/{item_id}", response_model=PaperReviewMutationResponse)
     def dashboard_paper_review_checklist(paper_id: str, item_id: str, payload: PaperReviewChecklistUpdateRequest, authorization: str | None = Header(default=None)) -> PaperReviewMutationResponse:
         authorize(authorization)
+        _require_writable_store("publication automation checklist update")
         try:
             event_id, inserted, item = store.update_paper_review_checklist(paper_id, item_id, payload)
         except IdempotencyConflict as exc:
@@ -2647,6 +2650,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/api/paper-reviews/{paper_id}/status", response_model=PaperReviewMutationResponse)
     def dashboard_paper_review_status(paper_id: str, payload: PaperReviewStatusUpdateRequest, authorization: str | None = Header(default=None)) -> PaperReviewMutationResponse:
         authorize(authorization)
+        _require_writable_store("publication automation status update")
         try:
             event_id, inserted, item = store.update_paper_review_status(paper_id, payload)
         except IdempotencyConflict as exc:
@@ -2659,6 +2663,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/api/paper-reviews/{paper_id}/approve-finalization", response_model=PaperReviewMutationResponse)
     def dashboard_paper_review_approve_finalization(paper_id: str, payload: PaperReviewApproveFinalizationRequest, authorization: str | None = Header(default=None)) -> PaperReviewMutationResponse:
         authorize(authorization)
+        _require_writable_store("publication automation finalization approval")
         try:
             event_id, inserted, item = store.approve_paper_review_finalization(paper_id, payload)
         except IdempotencyConflict as exc:
@@ -2823,6 +2828,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/api/paper-reviews/rewrite-batch", response_model=PaperReviewBulkRewriteResponse)
     def dashboard_paper_reviews_rewrite_batch(payload: PaperReviewBulkRewriteRequest, authorization: str | None = Header(default=None)) -> PaperReviewBulkRewriteResponse:
         authorize(authorization)
+        if not payload.dry_run:
+            _require_writable_store("publication automation rewrite batch")
         rows = store.paper_review_rows(include_rank_reasons=True)
         if payload.review_status:
             rows = [row for row in rows if str(row.get("review_status") or "") == payload.review_status]
@@ -2860,12 +2867,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/api/paper-reviews/{paper_id}/rewrite-draft", response_model=PaperReviewRewriteDraftResponse)
     def dashboard_paper_review_rewrite_draft(paper_id: str, payload: PaperReviewRewriteDraftRequest, authorization: str | None = Header(default=None)) -> PaperReviewRewriteDraftResponse:
         authorize(authorization)
+        _require_writable_store("publication automation draft rewrite")
         return _rewrite_paper_review_draft(paper_id, payload)
 
     @router.post("/api/publication-automation/{paper_id}/prepare-finalization-package", response_model=PaperReviewFinalizationPackageResponse)
     @router.post("/api/paper-reviews/{paper_id}/prepare-finalization-package", response_model=PaperReviewFinalizationPackageResponse)
     def dashboard_paper_review_prepare_finalization_package(paper_id: str, payload: PaperReviewPrepareFinalizationRequest, authorization: str | None = Header(default=None)) -> PaperReviewFinalizationPackageResponse:
         authorize(authorization)
+        _require_writable_store("publication automation finalization package")
         try:
             event_id, inserted, item, package_path, manifest = store.prepare_paper_review_finalization_package(paper_id, payload, require_approval=False)
         except IdempotencyConflict as exc:

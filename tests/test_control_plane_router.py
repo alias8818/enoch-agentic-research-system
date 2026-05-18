@@ -2964,6 +2964,35 @@ class ControlPlaneRouterTests(unittest.TestCase):
             assert "writable control-plane store" in response.text
             assert fake_store.append_attempted is False
 
+    def test_publication_claim_rejects_supabase_readonly_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "control_plane_store_backend": "supabase_readonly",
+                    "supabase_database_url": "postgres://example",
+                }
+            )
+
+            class FakeReadOnlyStore:
+                claim_attempted = False
+
+                def claim_paper_review(self, *_args, **_kwargs):  # noqa: ANN001 - must not be called
+                    self.claim_attempted = True
+                    raise AssertionError("read-only publication claim must reject before mutation")
+
+            fake_store = FakeReadOnlyStore()
+            with patch("enoch_control_plane.control_plane.router.SupabaseReadOnlyControlPlaneStore", return_value=fake_store):
+                client = _client_with_config(config)
+                response = client.post(
+                    "/control/api/publication-automation/paper-1/claim",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    json={"requested_by": "test", "reviewer": "agent"},
+                )
+
+            assert response.status_code == 501
+            assert "writable control-plane store" in response.text
+            assert fake_store.claim_attempted is False
+
     def test_worker_callback_clears_active_lane(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client_with_config(_live_config(tmp))
