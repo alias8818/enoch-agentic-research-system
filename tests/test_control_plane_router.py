@@ -2892,6 +2892,47 @@ class ControlPlaneRouterTests(unittest.TestCase):
             status = client.get("/control/api/status", headers=headers).json()
             self.assertEqual(status["active_items"], [])
 
+    def test_queue_alert_auto_reconcile_requires_local_paper_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            config.paper_evidence_sync_enabled = True
+            config.paper_evidence_sync_remote_root = "/remote/projects"
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_dir = Path(config.project_root) / "idea-auto-reconcile-missing-evidence"
+            (project_dir / ".enoch").mkdir(parents=True)
+            (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "auto-reconcile-missing-evidence-import",
+                "queue_rows": [{
+                    "project_id": "idea-auto-reconcile-missing-evidence",
+                    "project_name": "Auto Reconcile Missing Evidence",
+                    "project_dir": "idea-auto-reconcile-missing-evidence",
+                    "status": "awaiting_wake",
+                    "current_run_id": "run-auto-reconcile-missing-evidence",
+                }],
+            })
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                payload={"ok": True, "checks": [{"name": "worker_no_live_runs", "ok": True, "detail": "active_or_waiting=0, live=0", "data": {"active_or_waiting": 0, "live": 0}}]},
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+
+            with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", return_value={"enabled": True, "synced": False, "reason": "worker_read_failed", "local_evidence_present": False}):
+                alert = client.post("/control/api/alerts/queue-check", headers=headers, json={"dry_run": False, "requested_by": "test"}).json()
+
+            self.assertTrue(alert["auto_reconcile"])
+            self.assertFalse(alert["auto_reconcile"][0]["ok"])
+            self.assertEqual(alert["auto_reconcile"][0]["reason"], "missing paper evidence")
+            status = client.get("/control/api/status", headers=headers).json()
+            self.assertEqual(len(status["active_items"]), 1)
+            self.assertEqual(status["active_items"][0]["current_run_id"], "run-auto-reconcile-missing-evidence")
+            snapshot = client.get("/control/export/snapshot", headers=headers).json()
+            events = [event for event in snapshot["events"] if event["event_type"] == "paper.evidence_sync_blocked"]
+            self.assertEqual(len(events), 1)
+
     def test_worker_callback_clears_active_lane(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client_with_config(_live_config(tmp))

@@ -1814,6 +1814,25 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 source_project_dir=project_dir_text,
                 source_run_id=run_id,
             )
+            if config.paper_evidence_sync_enabled and not _local_paper_evidence_present(artifact_root):
+                evidence_alert = _record_paper_evidence_blocked(
+                    entity_type="project",
+                    entity_id=project_id,
+                    project_id=project_id,
+                    run_id=run_id,
+                    artifact_root=str(artifact_root),
+                    evidence_sync=evidence_sync,
+                )
+                reconciled.append({
+                    "ok": False,
+                    "project_id": project_id,
+                    "run_id": run_id,
+                    "reason": "missing paper evidence",
+                    "artifact_root": str(artifact_root),
+                    "evidence_sync": evidence_sync,
+                    "evidence_alert": evidence_alert,
+                })
+                continue
             gate = paper_draft_decision_gate(artifact_root)
             if not gate.get("values"):
                 reconciled.append({
