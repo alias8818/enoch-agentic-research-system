@@ -86,19 +86,32 @@ def _paper_imported(row: dict[str, Any]) -> bool:
     )
 
 
+RELATED_PAPER_ARTIFACT_FIELDS = {
+    "draft_markdown_path": "related_draft_markdown_path",
+    "evidence_bundle_path": "related_evidence_bundle_path",
+    "claim_ledger_path": "related_claim_ledger_path",
+    "manifest_path": "related_manifest_path",
+}
+
+
+def _related_artifact_paths_present(row: dict[str, Any]) -> dict[str, bool]:
+    return {name: bool(_text(row.get(field))) for name, field in RELATED_PAPER_ARTIFACT_FIELDS.items()}
+
+
+def _drop_related_artifact_paths(summary: dict[str, Any]) -> dict[str, Any]:
+    summary["related_artifact_paths_present"] = _related_artifact_paths_present(summary)
+    for field in RELATED_PAPER_ARTIFACT_FIELDS.values():
+        summary.pop(field, None)
+    return summary
+
+
 def _paper_publication_artifacts_present(row: dict[str, Any]) -> bool:
     artifact_flags = row.get("artifact_paths_present")
     required = ("draft_markdown_path", "evidence_bundle_path", "claim_ledger_path", "manifest_path")
     if isinstance(artifact_flags, dict):
         return all(bool(artifact_flags.get(name)) for name in required)
     if _text(row.get("related_paper_id")):
-        related_required = (
-            "related_draft_markdown_path",
-            "related_evidence_bundle_path",
-            "related_claim_ledger_path",
-            "related_manifest_path",
-        )
-        return all(bool(_text(row.get(name))) for name in related_required)
+        return all(_related_artifact_paths_present(row).values())
     return all(bool(_text(row.get(name))) for name in required)
 
 
@@ -656,7 +669,7 @@ def paper_links(row: dict[str, Any]) -> dict[str, str]:
 
 def summarize_queue_row(row: dict[str, Any]) -> dict[str, Any]:
     decision_fields = _decision_payload_fields(row)
-    return with_operator_stage({
+    return _drop_related_artifact_paths(with_operator_stage({
         "project_id": row.get("project_id", ""),
         "project_name": row.get("project_name", ""),
         "status": row.get("status", ""),
@@ -697,7 +710,7 @@ def summarize_queue_row(row: dict[str, Any]) -> dict[str, Any]:
         "updated_at": row.get("updated_at", ""),
         "age_seconds": row_age_seconds(row),
         "links": queue_links(row),
-    })
+    }))
 
 
 def summarize_paper_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -746,7 +759,7 @@ def summarize_paper_row(row: dict[str, Any]) -> dict[str, Any]:
 def summarize_run_row(row: dict[str, Any]) -> dict[str, Any]:
     run_id = str(row.get("run_id") or "")
     project_id = str(row.get("project_id") or "")
-    return with_operator_stage({
+    return _drop_related_artifact_paths(with_operator_stage({
         "run_id": run_id,
         "project_id": project_id,
         "project_name": row.get("project_name", ""),
@@ -773,7 +786,7 @@ def summarize_run_row(row: dict[str, Any]) -> dict[str, Any]:
             "project": f"/control/api/v1/projects/{project_id}" if project_id else "",
             "legacy_run": f"/control/api/runs/{run_id}" if run_id else "",
         },
-    })
+    }))
 
 
 OPERATOR_STAGE_PRECEDENCE = {

@@ -424,3 +424,74 @@ def test_overview_batched_parts_count_active_items_even_when_raw_queue_is_trimme
     assert overview["operator_counts"][OperatorLane.RUNNING.value] == 1
     assert overview["operator_counts"]["total_operator_items"] == 1
     assert overview["operator_detail_counts"]["running"] == 1
+
+
+def test_queue_summary_uses_related_artifact_paths_without_exposing_them() -> None:
+    from enoch_control_plane.control_plane.read_models import summarize_queue_row
+
+    summary = summarize_queue_row({
+        "project_id": "ready-project",
+        "project_name": "Ready Project",
+        "status": "completed",
+        "last_run_state": "wake_ready",
+        "current_run_id": "ready-run",
+        "related_paper_id": "paper-ready",
+        "related_paper_status": "publication_draft",
+        "related_review_status": "finalized",
+        "related_finalization_package_path": "package.json",
+        "related_draft_markdown_path": "/private/projects/ready/paper.md",
+        "related_evidence_bundle_path": "/private/projects/ready/evidence_bundle.json",
+        "related_claim_ledger_path": "/private/projects/ready/claim_ledger.json",
+        "related_manifest_path": "/private/projects/ready/paper_manifest.json",
+    })
+
+    assert summary["operator_lane"] == OperatorLane.READY_TO_PUBLISH.value
+    assert summary["operator_detail_stage"] == "ready_to_publish"
+    assert summary["related_artifact_paths_present"] == {
+        "draft_markdown_path": True,
+        "evidence_bundle_path": True,
+        "claim_ledger_path": True,
+        "manifest_path": True,
+    }
+    for field in (
+        "related_draft_markdown_path",
+        "related_evidence_bundle_path",
+        "related_claim_ledger_path",
+        "related_manifest_path",
+    ):
+        assert field not in summary
+
+
+def test_run_summary_uses_related_artifact_paths_without_exposing_them() -> None:
+    from enoch_control_plane.control_plane.read_models import summarize_run_row
+
+    summary = summarize_run_row({
+        "run_id": "ready-run",
+        "project_id": "ready-project",
+        "state": "wake_ready",
+        "gate_state": "wake_ready",
+        "related_paper_id": "paper-ready",
+        "related_paper_status": "publication_draft",
+        "related_review_status": "finalized",
+        "related_finalization_package_path": "package.json",
+        "related_draft_markdown_path": "/private/projects/ready/paper.md",
+        "related_evidence_bundle_path": "/private/projects/ready/evidence_bundle.json",
+        "related_claim_ledger_path": "/private/projects/ready/claim_ledger.json",
+        "related_manifest_path": "/private/projects/ready/paper_manifest.json",
+    })
+
+    assert summary["operator_lane"] == OperatorLane.READY_TO_PUBLISH.value
+    assert summary["operator_detail_stage"] == "ready_to_publish"
+    assert summary["related_artifact_paths_present"] == {
+        "draft_markdown_path": True,
+        "evidence_bundle_path": True,
+        "claim_ledger_path": True,
+        "manifest_path": True,
+    }
+    for field in (
+        "related_draft_markdown_path",
+        "related_evidence_bundle_path",
+        "related_claim_ledger_path",
+        "related_manifest_path",
+    ):
+        assert field not in summary
