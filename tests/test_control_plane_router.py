@@ -3369,6 +3369,35 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(missing.status_code, 200)
             self.assertEqual(missing.json()["observation"]["status"], "warn")
 
+    def test_intake_observation_rejects_supabase_readonly_before_store_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "control_plane_store_backend": "supabase_readonly",
+                    "supabase_database_url": "postgres://example",
+                }
+            )
+
+            class FakeReadOnlyStore:
+                observation_attempted = False
+
+                def upsert_dashboard_observation(self, **_kwargs):  # noqa: ANN001 - must not be called
+                    self.observation_attempted = True
+                    raise AssertionError("read-only observation endpoint must reject before mutation")
+
+            fake_store = FakeReadOnlyStore()
+            with patch("enoch_control_plane.control_plane.router.SupabaseReadOnlyControlPlaneStore", return_value=fake_store):
+                client = _client_with_config(config)
+                response = client.post(
+                    "/control/api/intake/ideas-observation",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    json={"status": "ok", "payload": {"reason": "test"}},
+                )
+
+            assert response.status_code == 501
+            assert "writable control-plane store" in response.text
+            assert fake_store.observation_attempted is False
+
     def test_worker_preflight_endpoint_requires_auth_and_returns_checks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)

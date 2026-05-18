@@ -4025,6 +4025,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     def record_notion_observation(payload: dict[str, Any], authorization: str | None = Header(default=None)) -> dict[str, Any]:
         authorize(authorization)
         _require_legacy_notion_api_enabled()
+        _require_writable_store("intake observation")
         status = str(payload.get("status") or "ok")
         if status not in {"ok", "warn", "error", "unavailable"}:
             status = "warn"
@@ -4039,6 +4040,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/api/intake/ideas-observation")
     def record_ideas_observation(payload: dict[str, Any], authorization: str | None = Header(default=None)) -> dict[str, Any]:
         authorize(authorization)
+        _require_writable_store("intake observation")
         status = str(payload.get("status") or "ok")
         if status not in {"ok", "warn", "error", "unavailable"}:
             status = "warn"
