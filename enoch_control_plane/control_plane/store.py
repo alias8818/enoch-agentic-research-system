@@ -120,6 +120,13 @@ def _normal(value: Any) -> str:
     return _text(value).lower().replace("-", "_").replace(" ", "_")
 
 
+def _expanduser_or_none(value: str) -> Path | None:
+    try:
+        return Path(value).expanduser()
+    except RuntimeError:
+        return None
+
+
 def _is_older_timestamp(incoming: Any, existing: Any) -> bool:
     incoming_dt = parse_utc_datetime(incoming)
     existing_dt = parse_utc_datetime(existing)
@@ -1659,8 +1666,14 @@ class ControlPlaneStore:
 
     def _resolved_artifact(self, paper: dict[str, Any], field: str) -> dict[str, Any]:
         raw_path = _text(paper.get(field))
-        project_dir = Path(_text(paper.get("project_dir"))).expanduser() if _text(paper.get("project_dir")) else None
-        path = Path(raw_path).expanduser() if raw_path else Path()
+        project_dir_text = _text(paper.get("project_dir"))
+        project_dir = _expanduser_or_none(project_dir_text) if project_dir_text else None
+        path = _expanduser_or_none(raw_path) if raw_path else Path()
+        if project_dir_text and project_dir is None:
+            return {"field": field, "path": raw_path, "absolute_path": "", "exists": False, "readable": False, "safe": False, "size_bytes": 0}
+        if raw_path and path is None:
+            return {"field": field, "path": raw_path, "absolute_path": "", "exists": False, "readable": False, "safe": False, "size_bytes": 0}
+        path = path or Path()
         resolved = (path if path.is_absolute() else (project_dir / path if project_dir else path)).resolve()
         safe = True
         if project_dir is not None:

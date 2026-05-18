@@ -5169,6 +5169,48 @@ class ControlPlaneRouterTests(unittest.TestCase):
             paper = client.get(f"/control/api/papers/{paper_id}", headers=headers).json()
             self.assertEqual(paper["paper"]["paper_status"], "publication_draft")
 
+    def test_paper_finalization_rejects_unexpandable_artifact_path_without_500(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_dir = Path(tmp) / "projects" / "router-unexpandable-artifact"
+            project_dir.mkdir(parents=True)
+            paper_id = "router-unexpandable-artifact:run-1:arxiv_draft"
+            audit_path = Path(tmp) / "audit.json"
+            audit_path.write_text(json.dumps({"papers": [{"paper_id": paper_id, "ready": True}]}), encoding="utf-8")
+            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "router-unexpandable-artifact-import",
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": "router-unexpandable-artifact",
+                    "project_name": "Router Unexpandable Artifact",
+                    "project_dir": str(project_dir),
+                    "run_id": "run-1",
+                    "paper_status": "publication_draft",
+                    "draft_markdown_path": "~enoch-user-that-should-not-exist/paper.md",
+                    "draft_latex_path": "paper.tex",
+                    "evidence_bundle_path": "evidence.json",
+                    "claim_ledger_path": "claims.json",
+                    "manifest_path": "manifest.json",
+                }],
+            })
+            self.assertEqual(imported.status_code, 200)
+            backfill = client.post("/control/api/paper-reviews/backfill", headers=headers, json={
+                "idempotency_key": "router-unexpandable-artifact-backfill",
+                "source_audit_path": str(audit_path),
+                "dry_run": False,
+            })
+            self.assertEqual(backfill.status_code, 200)
+
+            finalized = client.post(f"/control/api/paper-reviews/{paper_id}/prepare-finalization-package", headers=headers, json={
+                "idempotency_key": "router-unexpandable-artifact-finalize",
+                "requested_by": "alice",
+                "target_label": "bad-artifact-path",
+                "dry_run": False,
+            })
+            self.assertEqual(finalized.status_code, 400)
+            self.assertIn("artifact", finalized.text.lower())
+
     def test_paper_finalization_rejects_unexpandable_project_dir_without_500(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
