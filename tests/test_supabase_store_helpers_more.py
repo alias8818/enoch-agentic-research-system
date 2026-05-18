@@ -599,14 +599,13 @@ def test_supabase_store_resolved_artifact_rejects_paths_outside_project(tmp_path
 
 def test_supabase_worker_callback_without_key_dedupes_exact_retry(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
-    events: dict[str, tuple[int, str]] = {}
+    events: dict[str, dict] = {}
 
     def fake_one(sql, params=()):  # noqa: ANN001 - lightweight store fake
         if "from control_events" in sql:
-            key = params[0]
-            if key in events:
-                event_id, payload_hash = events[key]
-                return {"event_id": event_id, "payload_hash": payload_hash}
+                key = params[0]
+                if key in events:
+                    return events[key]
         return None
 
     class Cursor:
@@ -623,9 +622,14 @@ def test_supabase_worker_callback_without_key_dedupes_exact_retry(monkeypatch) -
         return Conn()
 
     def fake_append_event(_cur, *, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
-        del event_type, entity_type, entity_id
         event_id = len(events) + 1
-        events[idempotency_key] = (event_id, s._hash(payload))
+        events[idempotency_key] = {
+            "event_id": event_id,
+            "event_type": event_type,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "payload_hash": s._hash(payload),
+        }
         return event_id, True
 
     monkeypatch.setattr(store, "_one", fake_one)
@@ -649,6 +653,60 @@ def test_supabase_worker_callback_without_key_dedupes_exact_retry(monkeypatch) -
     assert first_inserted is True
     assert second_inserted is False
     assert len(events) == 1
+
+
+def test_supabase_replayed_event_id_conflicts_on_different_event_identity(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    payload = {"same": True}
+
+    def fake_one(sql, params=()):  # noqa: ANN001 - focused helper invariant
+        assert "from control_events" in sql
+        assert params == ("same-key",)
+        return {
+            "event_id": 7,
+            "event_type": "first.event",
+            "entity_type": "project",
+            "entity_id": "project-1",
+            "payload_hash": s._hash(payload),
+        }
+
+    monkeypatch.setattr(store, "_one", fake_one)
+
+    assert (
+        store._replayed_event_id(  # noqa: SLF001 - focused invariant test
+            "same-key",
+            payload,
+            event_type="first.event",
+            entity_type="project",
+            entity_id="project-1",
+        )
+        == 7
+    )
+    try:
+        store._replayed_event_id(  # noqa: SLF001 - focused invariant test
+            "same-key",
+            payload,
+            event_type="second.event",
+            entity_type="project",
+            entity_id="project-1",
+        )
+    except s.IdempotencyConflict:
+        pass
+    else:
+        raise AssertionError("different event_type must conflict")
+
+    try:
+        store._replayed_event_id(  # noqa: SLF001 - focused invariant test
+            "same-key",
+            payload,
+            event_type="first.event",
+            entity_type="run",
+            entity_id="run-1",
+        )
+    except s.IdempotencyConflict:
+        pass
+    else:
+        raise AssertionError("different entity identity must conflict")
 
 
 def test_supabase_dispatch_started_replay_does_not_mutate_queue(monkeypatch) -> None:
@@ -710,7 +768,7 @@ def test_supabase_dispatch_claim_replay_does_not_mutate_queue(monkeypatch) -> No
         def cursor(self): return Cursor()
 
     monkeypatch.setattr(store, "_connect", lambda: Conn())
-    monkeypatch.setattr(store, "_replayed_event_id", lambda _key, _payload: 7)
+    monkeypatch.setattr(store, "_replayed_event_id", lambda _key, _payload, **_identity: 7)
     monkeypatch.setattr(store, "queue_row", lambda project_id: {"project_id": project_id, "status": "queued", "current_run_id": ""})
 
     replay = store.claim_dispatch_candidate(
@@ -762,14 +820,13 @@ def test_supabase_release_dispatch_claim_does_not_emit_event_without_update(monk
 
 def test_supabase_worker_callback_without_identifiers_dedupes_by_payload(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
-    events: dict[str, tuple[int, str]] = {}
+    events: dict[str, dict] = {}
 
     def fake_one(sql, params=()):  # noqa: ANN001 - lightweight store fake
         if "from control_events" in sql:
-            key = params[0]
-            if key in events:
-                event_id, payload_hash = events[key]
-                return {"event_id": event_id, "payload_hash": payload_hash}
+                key = params[0]
+                if key in events:
+                    return events[key]
         return None
 
     class Cursor:
@@ -786,9 +843,14 @@ def test_supabase_worker_callback_without_identifiers_dedupes_by_payload(monkeyp
         return Conn()
 
     def fake_append_event(_cur, *, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
-        del event_type, entity_type, entity_id
         event_id = len(events) + 1
-        events[idempotency_key] = (event_id, s._hash(payload))
+        events[idempotency_key] = {
+            "event_id": event_id,
+            "event_type": event_type,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "payload_hash": s._hash(payload),
+        }
         return event_id, True
 
     monkeypatch.setattr(store, "_one", fake_one)
@@ -1288,7 +1350,7 @@ def test_supabase_dispatch_claim_append_failure_does_not_mutate_queue_state(monk
         raise RuntimeError("simulated claim event write failure")
 
     monkeypatch.setattr(store, "_connect", lambda: Conn())
-    monkeypatch.setattr(store, "_replayed_event_id", lambda _key, _payload: None)
+    monkeypatch.setattr(store, "_replayed_event_id", lambda _key, _payload, **_identity: None)
     monkeypatch.setattr(store, "_append_event_in_cursor", fail_append_event)
 
     try:

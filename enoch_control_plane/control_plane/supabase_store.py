@@ -1690,7 +1690,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
 
     def claim_dispatch_candidate(self, *, project_id: str, run_id: str, requested_by: str) -> dict[str, Any] | None:
         payload = {"requested_by": requested_by, "run_id": run_id}
-        if self._replayed_event_id(f"dispatch-claim:{run_id}", payload) is not None:
+        if self._replayed_event_id(
+            f"dispatch-claim:{run_id}",
+            payload,
+            event_type="controller.dispatch_claimed",
+            entity_type="project",
+            entity_id=project_id,
+        ) is not None:
             return None
         now = utc_now()
         active_placeholders = ",".join(["%s"] * len(ACTIVE_STATUSES))
@@ -2180,7 +2186,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         payload = self._mutation_payload(request, action="prepare_finalization_package")
         payload.update({"to_status": ReviewStatus.FINALIZED.value, "require_approval": require_approval})
         if not request.dry_run:
-            replayed_event_id = self._replayed_event_id(request.idempotency_key, payload)
+            replayed_event_id = self._replayed_event_id(
+                request.idempotency_key,
+                payload,
+                event_type="paper_review.finalization_package_prepared",
+                entity_type="paper_review",
+                entity_id=paper_id,
+            )
             if replayed_event_id is not None:
                 item = self.paper_review_row(paper_id) or {}
                 return replayed_event_id, False, item, _text(item.get("finalization_package_path")), self._load_manifest(_text(item.get("finalization_package_path")))
@@ -3041,16 +3053,29 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "updated_at": paper.get("updated_at") or "",
         } for paper in self.paper_rows()]
 
-    def _replayed_event_id(self, idempotency_key: str, payload: dict[str, Any]) -> int | None:
+    def _replayed_event_id(
+        self,
+        idempotency_key: str,
+        payload: dict[str, Any],
+        *,
+        event_type: str,
+        entity_type: str,
+        entity_id: str,
+    ) -> int | None:
         payload_hash = _hash(payload)
         row = self._one(
-            "select event_id, payload_hash from control_events where idempotency_key = %s",
+            "select event_id, event_type, entity_type, entity_id, payload_hash from control_events where idempotency_key = %s",
             (idempotency_key,),
         )
         if row is None:
             return None
-        if row["payload_hash"] != payload_hash:
-            raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different payload")
+        if (
+            row["event_type"] != event_type
+            or row["entity_type"] != entity_type
+            or row["entity_id"] != entity_id
+            or row["payload_hash"] != payload_hash
+        ):
+            raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different event identity")
         return int(row["event_id"])
 
     def mark_dispatch_started(
@@ -3177,7 +3202,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 "current_run_id": _text(current_queue_row.get("current_run_id") if current_queue_row else ""),
                 "current_last_run_state": _text(current_queue_row.get("last_run_state") if current_queue_row else ""),
             }
-            replayed_event_id = self._replayed_event_id(idempotency_key, event_payload)
+            replayed_event_id = self._replayed_event_id(
+                idempotency_key,
+                event_payload,
+                event_type=f"worker_callback.{event_type}",
+                entity_type="run",
+                entity_id=run_id or project_id or "unknown",
+            )
             if replayed_event_id is not None:
                 return replayed_event_id, False, self.queue_row(project_id) or {}
             event_id, inserted = self.append_event(
@@ -3230,7 +3261,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 ),
                 "current_run_id": _text(current_queue_row.get("current_run_id")),
             }
-            replayed_event_id = self._replayed_event_id(idempotency_key, event_payload)
+            replayed_event_id = self._replayed_event_id(
+                idempotency_key,
+                event_payload,
+                event_type=f"worker_callback.{event_type}",
+                entity_type="run",
+                entity_id=run_id or project_id or "unknown",
+            )
             if replayed_event_id is not None:
                 return replayed_event_id, False, self.queue_row(project_id) or {}
             event_id, inserted = self.append_event(
@@ -3248,7 +3285,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "applied_status": status,
             "applied_next_action_hint": next_action_hint,
         }
-        replayed_event_id = self._replayed_event_id(idempotency_key, event_payload)
+        replayed_event_id = self._replayed_event_id(
+            idempotency_key,
+            event_payload,
+            event_type=f"worker_callback.{event_type}",
+            entity_type="run",
+            entity_id=run_id or project_id or "unknown",
+        )
         if replayed_event_id is not None:
             return replayed_event_id, False, self.queue_row(project_id) or {}
         summary = f"worker callback {event_type}: {_text(payload.get('reason')) or 'worker reported ready'}"

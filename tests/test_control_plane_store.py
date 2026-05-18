@@ -64,6 +64,44 @@ class ControlPlaneStoreTests(unittest.TestCase):
                     entity_id="run-1",
                     payload={"same": True},
                 )
+
+    def test_replayed_event_id_conflicts_on_different_event_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            payload = {"same": True}
+            event_id, _inserted = store.append_event(
+                idempotency_key="same-key",
+                event_type="first.event",
+                entity_type="project",
+                entity_id="project-1",
+                payload=payload,
+            )
+
+            replay_id = store._replayed_event_id(  # noqa: SLF001 - focused invariant test
+                "same-key",
+                payload,
+                event_type="first.event",
+                entity_type="project",
+                entity_id="project-1",
+            )
+            self.assertEqual(replay_id, event_id)
+
+            with self.assertRaises(IdempotencyConflict):
+                store._replayed_event_id(  # noqa: SLF001 - focused invariant test
+                    "same-key",
+                    payload,
+                    event_type="second.event",
+                    entity_type="project",
+                    entity_id="project-1",
+                )
+            with self.assertRaises(IdempotencyConflict):
+                store._replayed_event_id(  # noqa: SLF001 - focused invariant test
+                    "same-key",
+                    payload,
+                    event_type="first.event",
+                    entity_type="run",
+                    entity_id="run-1",
+                )
     def test_control_plane_defaults_to_paused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
