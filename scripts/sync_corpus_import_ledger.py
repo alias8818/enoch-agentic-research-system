@@ -189,6 +189,48 @@ def sync_records(
                 )
                 cur.execute(
                     """
+                    create temp table tmp_conflicting_public_projects as
+                    select p.project_id
+                    from enoch.projects p
+                    join tmp_resolved_public_index r on r.project_id = p.project_id
+                    where r.project_id like 'public-corpus:%'
+                      and (
+                        coalesce(p.project_name, '') <> coalesce(nullif(r.title, ''), r.artifact_slug)
+                        or coalesce(p.project_dir, '') <> r.artifact_slug
+                        or coalesce(p.origin_idea_status, '') <> 'validated'
+                      )
+                    """
+                )
+                cur.execute("select count(*) as count from tmp_conflicting_public_projects")
+                project_conflicts = int((cur.fetchone() or {}).get("count") or 0)
+                if project_conflicts:
+                    raise RuntimeError(f"conflicting public-corpus project identity rows: {project_conflicts}")
+                cur.execute(
+                    """
+                    create temp table tmp_conflicting_public_papers as
+                    select p.paper_id
+                    from enoch.papers p
+                    join tmp_resolved_public_index r on r.paper_id = p.paper_id
+                    where r.paper_id like 'public-corpus:%'
+                      and (
+                        coalesce(p.project_id, '') <> r.project_id
+                        or coalesce(p.paper_type, '') <> 'arxiv_draft'
+                        or coalesce(p.paper_status, '') <> 'publication_draft'
+                        or coalesce(p.draft_markdown_path, '') <> 'papers/' || r.artifact_slug || '/paper.md'
+                        or coalesce(p.draft_latex_path, '') <> 'papers/' || r.artifact_slug || '/paper.tex'
+                        or coalesce(p.evidence_bundle_path, '') <> 'papers/' || r.artifact_slug || '/evidence_bundle.json'
+                        or coalesce(p.claim_ledger_path, '') <> 'papers/' || r.artifact_slug || '/claim_ledger.json'
+                        or coalesce(p.manifest_path, '') <> r.public_manifest_path
+                        or coalesce(p.artifact_root, '') <> 'papers/' || r.artifact_slug
+                      )
+                    """
+                )
+                cur.execute("select count(*) as count from tmp_conflicting_public_papers")
+                paper_conflicts = int((cur.fetchone() or {}).get("count") or 0)
+                if paper_conflicts:
+                    raise RuntimeError(f"conflicting public-corpus paper identity rows: {paper_conflicts}")
+                cur.execute(
+                    """
                     insert into enoch.projects(project_id, project_name, project_dir, origin_idea_status)
                     select project_id, coalesce(nullif(title, ''), artifact_slug), artifact_slug, 'validated'
                     from tmp_resolved_public_index r
@@ -483,6 +525,41 @@ select
 from tmp_public_index pi
 left join enoch.papers p
   on pi.source_record_fingerprint = left(encode(extensions.digest(p.paper_id, 'sha256'), 'hex'), 16);
+create temp table tmp_conflicting_public_projects as
+select p.project_id
+from enoch.projects p
+join tmp_resolved_public_index r on r.project_id = p.project_id
+where r.project_id like 'public-corpus:%'
+  and (
+    coalesce(p.project_name, '') <> coalesce(nullif(r.title, ''), r.artifact_slug)
+    or coalesce(p.project_dir, '') <> r.artifact_slug
+    or coalesce(p.origin_idea_status, '') <> 'validated'
+  );
+create temp table tmp_conflicting_public_papers as
+select p.paper_id
+from enoch.papers p
+join tmp_resolved_public_index r on r.paper_id = p.paper_id
+where r.paper_id like 'public-corpus:%'
+  and (
+    coalesce(p.project_id, '') <> r.project_id
+    or coalesce(p.paper_type, '') <> 'arxiv_draft'
+    or coalesce(p.paper_status, '') <> 'publication_draft'
+    or coalesce(p.draft_markdown_path, '') <> 'papers/' || r.artifact_slug || '/paper.md'
+    or coalesce(p.draft_latex_path, '') <> 'papers/' || r.artifact_slug || '/paper.tex'
+    or coalesce(p.evidence_bundle_path, '') <> 'papers/' || r.artifact_slug || '/evidence_bundle.json'
+    or coalesce(p.claim_ledger_path, '') <> 'papers/' || r.artifact_slug || '/claim_ledger.json'
+    or coalesce(p.manifest_path, '') <> r.public_manifest_path
+    or coalesce(p.artifact_root, '') <> 'papers/' || r.artifact_slug
+  );
+do $$
+begin
+  if exists (select 1 from tmp_conflicting_public_projects) then
+    raise exception 'conflicting public-corpus project identity';
+  end if;
+  if exists (select 1 from tmp_conflicting_public_papers) then
+    raise exception 'conflicting public-corpus paper identity';
+  end if;
+end $$;
 insert into enoch.projects(project_id, project_name, project_dir, origin_idea_status)
 select project_id, coalesce(nullif(title, ''), artifact_slug), artifact_slug, 'validated'
 from tmp_resolved_public_index r

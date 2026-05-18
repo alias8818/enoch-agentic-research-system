@@ -1,4 +1,7 @@
 import json
+
+import pytest
+
 from pathlib import Path
 
 from scripts.sync_corpus_import_ledger import (
@@ -6,6 +9,7 @@ from scripts.sync_corpus_import_ledger import (
     match_public_records_to_live_papers,
     render_supabase_cli_sql,
     source_fingerprint,
+    sync_records,
 )
 from scripts.validate_corpus_import_ledger import render_validation_sql, validate_metrics
 
@@ -147,3 +151,139 @@ def test_validate_corpus_import_ledger_metrics_fail_on_drift() -> None:
     assert "dashboard_corpus_imported 493 != public_index_rows 376" in failures
     assert "stale_corpus_imports 117 != 0" in failures
     assert "missing_public_records 1 != 0" in failures
+
+
+def test_render_supabase_cli_sql_guards_public_placeholder_identity() -> None:
+    records = [
+        type("Record", (), {
+            "source_record_fingerprint": "fp1",
+            "artifact_slug": "paper-one",
+            "public_artifact_id": "enoch-paper-0001",
+            "public_manifest_path": "papers/paper-one/paper_manifest.json",
+            "title": "Paper One",
+        })(),
+    ]
+
+    sql = render_supabase_cli_sql(records)
+
+    assert "tmp_conflicting_public_projects" in sql
+    assert "tmp_conflicting_public_papers" in sql
+    assert "conflicting public-corpus project identity" in sql
+    assert "conflicting public-corpus paper identity" in sql
+    assert "raise exception" in sql.lower()
+    assert "on conflict (project_id) do nothing" in sql
+    assert "on conflict (paper_id) do nothing" in sql
+
+
+def test_sync_records_rejects_public_placeholder_project_conflicts(monkeypatch) -> None:
+    from scripts import sync_corpus_import_ledger as module
+
+    records = [
+        type("Record", (), {
+            "source_record_fingerprint": "fp1",
+            "artifact_slug": "paper-one",
+            "public_artifact_id": "enoch-paper-0001",
+            "public_manifest_path": "papers/paper-one/paper_manifest.json",
+            "title": "Paper One",
+        })(),
+    ]
+    executed: list[str] = []
+
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):
+            normalized = " ".join(str(sql).lower().split())
+            executed.append(normalized)
+            self._fetchone = None
+            if normalized.startswith("select paper_id, project_id from enoch.papers"):
+                self._fetchall = []
+            elif normalized.startswith("select count(*) as count from tmp_conflicting_public_projects"):
+                self._fetchone = {"count": 1}
+            elif normalized.startswith("insert into enoch.projects"):
+                raise AssertionError("project insert must not run after identity conflict")
+            return self
+        def executemany(self, sql, params):
+            executed.append("executemany " + " ".join(str(sql).lower().split()))
+            return self
+        def fetchall(self):
+            return getattr(self, "_fetchall", [])
+        def fetchone(self):
+            return getattr(self, "_fetchone", None)
+
+    class Conn:
+        def __init__(self):
+            self.rolled_back = False
+
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+        def commit(self): raise AssertionError("conflicting sync must not commit")
+        def rollback(self): self.rolled_back = True
+
+    conn = Conn()
+    monkeypatch.setattr(module, "_connect", lambda _database_url: conn)
+
+    with pytest.raises(RuntimeError, match="conflicting public-corpus project identity"):
+        sync_records(database_url="postgres://example", records=records, apply=True)
+
+    assert any("tmp_conflicting_public_projects" in item for item in executed)
+    assert conn.rolled_back is True
+
+
+def test_sync_records_rejects_public_placeholder_paper_conflicts(monkeypatch) -> None:
+    from scripts import sync_corpus_import_ledger as module
+
+    records = [
+        type("Record", (), {
+            "source_record_fingerprint": "fp1",
+            "artifact_slug": "paper-one",
+            "public_artifact_id": "enoch-paper-0001",
+            "public_manifest_path": "papers/paper-one/paper_manifest.json",
+            "title": "Paper One",
+        })(),
+    ]
+    executed: list[str] = []
+
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):
+            normalized = " ".join(str(sql).lower().split())
+            executed.append(normalized)
+            self._fetchone = None
+            if normalized.startswith("select paper_id, project_id from enoch.papers"):
+                self._fetchall = []
+            elif normalized.startswith("select count(*) as count from tmp_conflicting_public_projects"):
+                self._fetchone = {"count": 0}
+            elif normalized.startswith("select count(*) as count from tmp_conflicting_public_papers"):
+                self._fetchone = {"count": 1}
+            elif normalized.startswith("insert into enoch.papers"):
+                raise AssertionError("paper insert must not run after identity conflict")
+            return self
+        def executemany(self, sql, params):
+            executed.append("executemany " + " ".join(str(sql).lower().split()))
+            return self
+        def fetchall(self):
+            return getattr(self, "_fetchall", [])
+        def fetchone(self):
+            return getattr(self, "_fetchone", None)
+
+    class Conn:
+        def __init__(self):
+            self.rolled_back = False
+
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+        def commit(self): raise AssertionError("conflicting sync must not commit")
+        def rollback(self): self.rolled_back = True
+
+    conn = Conn()
+    monkeypatch.setattr(module, "_connect", lambda _database_url: conn)
+
+    with pytest.raises(RuntimeError, match="conflicting public-corpus paper identity"):
+        sync_records(database_url="postgres://example", records=records, apply=True)
+
+    assert any("tmp_conflicting_public_papers" in item for item in executed)
+    assert conn.rolled_back is True
