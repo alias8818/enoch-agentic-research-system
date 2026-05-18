@@ -1844,7 +1844,9 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 source_project_dir=project_dir_text,
                 source_run_id=run_id,
             )
-            if config.paper_evidence_sync_enabled and not _local_paper_evidence_present(artifact_root):
+            gate = paper_draft_decision_gate(artifact_root)
+            local_evidence_present = _local_paper_evidence_present(artifact_root)
+            if config.paper_evidence_sync_enabled and not local_evidence_present and gate.get("eligible"):
                 evidence_alert = _record_paper_evidence_blocked(
                     entity_type="project",
                     entity_id=project_id,
@@ -1860,10 +1862,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     "reason": "missing paper evidence",
                     "artifact_root": str(artifact_root),
                     "evidence_sync": evidence_sync,
+                    "decision_gate": gate,
                     "evidence_alert": evidence_alert,
                 })
                 continue
-            gate = paper_draft_decision_gate(artifact_root)
             if not gate.get("values"):
                 reconciled.append({
                     "ok": False,
@@ -1901,6 +1903,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     "queue_status": (updated or {}).get("status"),
                     "artifact_root": str(artifact_root),
                     "evidence_sync": evidence_sync,
+                    "decision_gate": gate,
                     "decision_record": decision_record,
                 })
             except Exception as exc:
@@ -2018,9 +2021,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 source_project_dir=project_dir_text,
                 source_run_id=str(callback.run_id or ""),
             )
-            decision_sync = {"artifact_root": str(artifact_root), "evidence_sync": evidence_sync}
+            decision_gate = paper_draft_decision_gate(artifact_root)
+            decision_sync = {"artifact_root": str(artifact_root), "evidence_sync": evidence_sync, "decision_gate": decision_gate}
             local_evidence_present = _local_paper_evidence_present(artifact_root)
-            if config.paper_evidence_sync_enabled and not local_evidence_present:
+            if config.paper_evidence_sync_enabled and not local_evidence_present and decision_gate.get("eligible"):
                 decision_sync["evidence_alert"] = _record_paper_evidence_blocked(
                     entity_type="project",
                     entity_id=project_id,

@@ -3157,6 +3157,47 @@ class ControlPlaneRouterTests(unittest.TestCase):
             events = [event for event in snapshot["events"] if event["event_type"] == "paper.evidence_sync_blocked"]
             self.assertEqual(len(events), 1)
 
+
+    def test_queue_alert_auto_reconcile_negative_decision_without_paper_evidence_does_not_alert(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            config.paper_evidence_sync_enabled = True
+            config.paper_evidence_sync_remote_root = "/remote/projects"
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_dir = Path(config.project_root) / "idea-auto-reconcile-negative-no-paper"
+            (project_dir / ".enoch").mkdir(parents=True)
+            (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"negative","stop_reason":"no measured signal"}\n', encoding="utf-8")
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "auto-reconcile-negative-no-paper-import",
+                "queue_rows": [{
+                    "project_id": "idea-auto-reconcile-negative-no-paper",
+                    "project_name": "Auto Reconcile Negative No Paper",
+                    "project_dir": "idea-auto-reconcile-negative-no-paper",
+                    "status": "awaiting_wake",
+                    "current_run_id": "run-auto-reconcile-negative-no-paper",
+                }],
+            })
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                payload={"ok": True, "checks": [{"name": "worker_no_live_runs", "ok": True, "detail": "active_or_waiting=0, live=0", "data": {"active_or_waiting": 0, "live": 0}}]},
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+
+            with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", return_value={"enabled": True, "synced": False, "reason": "worker_read_failed", "local_evidence_present": False}):
+                alert = client.post("/control/api/alerts/queue-check", headers=headers, json={"dry_run": False, "requested_by": "test"}).json()
+
+            self.assertTrue(alert["auto_reconcile"])
+            self.assertTrue(alert["auto_reconcile"][0]["ok"])
+            self.assertEqual(alert["auto_reconcile"][0]["decision_gate"]["reason"], "project decision is not positive")
+            status = client.get("/control/api/status", headers=headers).json()
+            self.assertEqual(status["active_items"], [])
+            snapshot = client.get("/control/export/snapshot", headers=headers).json()
+            events = [event for event in snapshot["events"] if event["event_type"] == "paper.evidence_sync_blocked"]
+            self.assertEqual(events, [])
+
     def test_queue_alert_live_check_rejects_supabase_readonly_before_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp).model_copy(
@@ -3544,6 +3585,53 @@ class ControlPlaneRouterTests(unittest.TestCase):
             events = [event for event in snapshot["events"] if event["event_type"] == "paper.evidence_sync_blocked"]
             self.assertEqual(len(events), 1)
             self.assertEqual(snapshot["paper_rows"], [])
+
+
+    def test_worker_callback_negative_decision_missing_run_notes_does_not_alert_paper_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            config.paper_evidence_sync_enabled = True
+            config.paper_evidence_sync_remote_root = "/remote/projects"
+            project_dir = Path(tmp) / "projects" / "idea-callback-negative-no-paper"
+            (project_dir / ".enoch").mkdir(parents=True)
+            (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"negative","stop_reason":"no measured signal"}\n', encoding="utf-8")
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "worker-callback-negative-no-paper-import",
+                "queue_rows": [{
+                    "project_id": "idea-callback-negative-no-paper",
+                    "project_name": "Callback Negative No Paper",
+                    "project_dir": "idea-callback-negative-no-paper",
+                    "status": "awaiting_wake",
+                    "current_run_id": "run-callback-negative-no-paper",
+                }],
+            })
+
+            with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", return_value={"enabled": True, "synced": False, "reason": "worker_read_failed", "local_evidence_present": False}):
+                response = client.post("/control/api/worker-callback", headers=headers, json={
+                    "event_type": "wake_ready",
+                    "run_id": "run-callback-negative-no-paper",
+                    "session_id": "session-callback-negative-no-paper",
+                    "project_id": "idea-callback-negative-no-paper",
+                    "project_name": "Callback Negative No Paper",
+                    "source_event": "session-idle",
+                    "gate_state": "wake_ready",
+                    "process_tracking": {"root_pid": None, "process_group_id": None, "processes": [], "live_process_count": 0},
+                    "telemetry": {},
+                    "reason": "idle_sustain_met",
+                    "idempotency_key": "run-callback-negative-no-paper:wake-ready-test",
+                })
+
+            self.assertEqual(response.status_code, 200)
+            decision_sync = response.json()["decision_sync"]
+            self.assertIsNotNone(decision_sync)
+            self.assertEqual(decision_sync["decision_gate"]["reason"], "project decision is not positive")
+            snapshot = client.get("/control/export/snapshot", headers=headers).json()
+            events = [event for event in snapshot["events"] if event["event_type"] == "paper.evidence_sync_blocked"]
+            self.assertEqual(events, [])
+            overview = client.get("/control/api/v1/overview", headers=headers).json()
+            self.assertEqual(overview["operator_counts"]["write_paper"], 0)
 
     def test_worker_callback_decision_persist_failure_does_not_500_after_accepting_callback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
