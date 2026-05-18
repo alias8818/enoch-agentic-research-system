@@ -444,6 +444,34 @@ def test_sync_worker_http_evidence_preserves_existing_file_when_write_fails(tmp_
     assert target.read_text(encoding="utf-8") == "old evidence"
 
 
+
+def test_sync_worker_http_evidence_skips_malformed_success_bodies(tmp_path) -> None:
+    from enoch_control_plane.control_plane.router import _sync_worker_http_evidence
+    from enoch_control_plane.control_plane.worker_adapter import HttpResult
+
+    config = _config(tmp_path)
+    config.worker_wake_gate_bearer_token = "worker-token"
+    config.worker_wake_gate_url = "http://worker"
+    artifact_root = tmp_path / "artifact"
+    responses = [
+        HttpResult(ok=True, status=200, body={"files": "not-a-list"}),
+        HttpResult(ok=True, status=200, body={"files": ["not-a-dict"]}),
+        HttpResult(ok=True, status=200, body=[]),  # type: ignore[arg-type]
+    ]
+
+    def fake_post_worker_json(base_url, path, token, payload):  # noqa: ANN001 - matches patched function
+        del base_url, path, token, payload
+        return responses.pop(0) if responses else HttpResult(ok=False, status=404, body=None, error="missing")
+
+    with patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post_worker_json):
+        result = _sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+
+    assert result["ok"] is False
+    assert result["reason"] == "worker_read_failed"
+    statuses = [item.get("status") for item in result["skipped"]]
+    assert "malformed_response" in statuses
+    assert "malformed_file" in statuses
+
 def test_worker_http_evidence_sync_times_out_slow_worker_reads(tmp_path, monkeypatch):
     from enoch_control_plane.config import GateConfig
     from enoch_control_plane.control_plane import router

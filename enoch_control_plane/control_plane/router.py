@@ -536,9 +536,19 @@ def _sync_worker_http_evidence(
             is_timeout = "TimeoutError:" in (result.error or "")
             if is_timeout:
                 timeouts += 1
-            skipped.append({"path": path, "status": "timeout" if is_timeout else result.status, "error": result.error[:300]})
+            skipped.append({"path": path, "status": "timeout" if is_timeout else result.status, "error": (result.error or str(result.status))[:300]})
             continue
-        for file in result.body.get("files", []):
+        if not isinstance(result.body, dict):
+            skipped.append({"path": path, "status": "malformed_response", "error": "worker read response body is not an object"})
+            continue
+        files = result.body.get("files", [])
+        if not isinstance(files, list):
+            skipped.append({"path": path, "status": "malformed_response", "error": "worker read response files field is not a list"})
+            continue
+        for file in files:
+            if not isinstance(file, dict):
+                skipped.append({"path": path, "status": "malformed_file", "error": "worker read response file entry is not an object"})
+                continue
             rel = str(file.get("path") or "").strip()
             content = str(file.get("content") or "")
             if not content:
@@ -1276,6 +1286,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if not prepare.ok:
             store.release_dispatch_claim(project_id=project_id, run_id=run_id, reason="worker prepare-project failed")
             raise HTTPException(status_code=502, detail={"message": "worker prepare-project failed", "status": prepare.status, "error": prepare.error, "body": prepare.body})
+        prepare_body = prepare.body if isinstance(prepare.body, dict) else {}
         dispatch_payload = {
             "run_id": run_id,
             "project_id": project_id,
@@ -1290,7 +1301,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if not dispatch.ok:
             store.release_dispatch_claim(project_id=project_id, run_id=run_id, reason="worker dispatch failed")
             raise HTTPException(status_code=502, detail={"message": "worker dispatch failed", "status": dispatch.status, "error": dispatch.error, "body": dispatch.body})
-        body = dispatch.body or {}
+        body = dispatch.body if isinstance(dispatch.body, dict) else {}
         session_id = str(((body.get("dispatch") or {}) if isinstance(body.get("dispatch"), dict) else {}).get("session_id") or "")
         # Persist the exact worker directory slug used for prepare/dispatch.
         # Research-facility IDs can exceed the safe worker path length and are
@@ -1305,7 +1316,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "project_id": project_id,
             "project_dir": project_dir,
             "prompt_file": prompt_file,
-            "prepare": prepare.body or {},
+            "prepare": prepare_body,
             "dispatch": body,
             "preflight": preflight.model_dump(mode="json") if preflight else None,
         }, event_id, updated_candidate

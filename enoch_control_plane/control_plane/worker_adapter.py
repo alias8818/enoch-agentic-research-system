@@ -94,24 +94,31 @@ def run_worker_preflight(
 
     base = payload.wake_gate_url.rstrip("/")
     health = transport(f"{base}/healthz", {})
+    health_body = health.body if isinstance(health.body, dict) else None
+    health_detail = (
+        "wake gate health endpoint returned malformed JSON body"
+        if health.ok and health.body is not None and health_body is None
+        else ("wake gate health endpoint returned ok" if health.ok else f"wake gate health failed: {health.error or health.status}")
+    )
     checks.append(
         _check(
             "wake_gate_healthz",
-            bool(health.ok and health.body and health.body.get("ok") is True),
-            "wake gate health endpoint returned ok" if health.ok else f"wake gate health failed: {health.error or health.status}",
-            {"status": health.status, "body": health.body or {}},
+            bool(health.ok and health_body and health_body.get("ok") is True),
+            health_detail,
+            {"status": health.status, "body": health_body or {}},
         )
     )
 
     dashboard_body: dict[str, Any] | None = None
     if payload.bearer_token:
         dashboard = transport(f"{base}/dashboard/api?limit=5&event_limit=5", _auth_headers(payload.bearer_token))
-        dashboard_body = dashboard.body if dashboard.ok and dashboard.body else None
+        malformed_dashboard = dashboard.ok and dashboard.body is not None and not isinstance(dashboard.body, dict)
+        dashboard_body = dashboard.body if dashboard.ok and isinstance(dashboard.body, dict) and dashboard.body else None
         checks.append(
             _check(
                 "wake_gate_dashboard_api",
                 bool(dashboard_body),
-                "dashboard API reachable" if dashboard_body else f"dashboard API unavailable: {dashboard.error or dashboard.status}",
+                "dashboard API returned malformed JSON body" if malformed_dashboard else ("dashboard API reachable" if dashboard_body else f"dashboard API unavailable: {dashboard.error or dashboard.status}"),
                 {"status": dashboard.status, "body": dashboard_body or {}},
             )
         )

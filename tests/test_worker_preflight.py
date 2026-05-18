@@ -127,6 +127,46 @@ class WorkerPreflightTests(unittest.TestCase):
         self.assertFalse(checks["worker_queue_snapshot_no_active"].ok)
 
 
+    def test_preflight_malformed_health_body_fails_closed_without_exception(self) -> None:
+        def transport(url: str, headers: dict[str, str]) -> HttpResult:
+            if url.endswith("/healthz"):
+                return HttpResult(ok=True, status=200, body=[{"ok": True}])  # type: ignore[arg-type]
+            raise AssertionError("dashboard API should not be required to prove malformed health handling")
+
+        response = run_worker_preflight(
+            WorkerPreflightRequest(wake_gate_url="http://worker:8787", bearer_token=""),
+            ControlFlags(queue_paused=True, maintenance_mode=True),
+            transport=transport,
+        )
+
+        self.assertFalse(response.ok)
+        checks = {check.name: check for check in response.checks}
+        self.assertFalse(checks["wake_gate_healthz"].ok)
+        self.assertIn("malformed", checks["wake_gate_healthz"].detail)
+
+
+    def test_preflight_malformed_dashboard_body_fails_closed_without_exception(self) -> None:
+        bodies = [[{"not": "an-object"}]]
+
+        def transport(url: str, headers: dict[str, str]) -> HttpResult:
+            if url.endswith("/healthz"):
+                return HttpResult(ok=True, status=200, body={"ok": True})
+            if "/dashboard/api" in url:
+                return HttpResult(ok=True, status=200, body=bodies.pop(0))  # type: ignore[arg-type]
+            raise AssertionError(f"unexpected url {url}")
+
+        response = run_worker_preflight(
+            WorkerPreflightRequest(wake_gate_url="http://worker:8787", bearer_token="secret"),
+            ControlFlags(queue_paused=True, maintenance_mode=True),
+            transport=transport,
+        )
+
+        self.assertFalse(response.ok)
+        checks = {check.name: check for check in response.checks}
+        self.assertFalse(checks["wake_gate_dashboard_api"].ok)
+        self.assertIn("malformed", checks["wake_gate_dashboard_api"].detail)
+
+
     def test_post_worker_json_uses_bearer_and_json_transport(self) -> None:
         calls = []
 

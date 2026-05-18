@@ -3981,6 +3981,43 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(rows["idea-two"]["status"], "queued")
             self.assertFalse(rows["idea-two"].get("current_run_id"))
 
+    def test_dispatch_one_live_tolerates_malformed_dispatch_success_body(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "dispatch-malformed-body-import",
+                "queue_rows": [{
+                    "project_id": "idea-malformed-dispatch-body",
+                    "project_name": "Malformed Dispatch Body",
+                    "project_dir": "idea-malformed-dispatch-body",
+                    "status": "queued",
+                }],
+            })
+            client.post("/control/pause", headers=headers, json={"paused_by": "test", "reason": "paused but not maintenance", "maintenance_mode": False})
+            preflight = WorkerPreflightResponse(ok=True, target=config.worker_wake_gate_url, summary="ok", checks=[])
+
+            def fake_post(_base: str, path: str, _token: str, payload: dict) -> HttpResult:
+                if path == "/prepare-project":
+                    return HttpResult(ok=True, status=200, body={"prepared": payload["project_id"]})
+                if path == "/dispatch":
+                    return HttpResult(ok=True, status=200, body=[{"accepted": True}])  # type: ignore[arg-type]
+                return HttpResult(ok=False, status=404, body=None, error="unexpected path")
+
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=preflight), \
+                 patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post):
+                response = client.post("/control/dispatch-one", headers=headers, json={"project_id": "idea-malformed-dispatch-body", "dry_run": False})
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertEqual(body["action"], "live_dispatch_one")
+            self.assertEqual(body["live"]["dispatch"], {})
+            rows = {row["project_id"]: row for row in client.get("/control/queue", headers=headers).json()["rows"]}
+            self.assertEqual(rows["idea-malformed-dispatch-body"]["status"], "awaiting_wake")
+            self.assertTrue(rows["idea-malformed-dispatch-body"].get("current_run_id"))
+
+
     def test_live_dispatch_persists_safe_worker_project_dir_for_long_ids(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp)
