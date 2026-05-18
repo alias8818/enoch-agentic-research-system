@@ -22,6 +22,9 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 include = ["enoch_control_plane*"]
 
+[tool.setuptools.package-data]
+enoch_control_plane = ["control_plane/*.css"]
+
 [dependency-groups]
 dev = [
     "coverage[toml]>=7.14.0",
