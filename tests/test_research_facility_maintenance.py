@@ -123,6 +123,7 @@ def test_janitor_does_not_promote_borderline_fresh_without_priority_signal() -> 
 
 def test_janitor_apply_skips_admission_when_promote_update_matches_no_rows(monkeypatch) -> None:
     admissions: list[tuple] = []
+    events: list[tuple] = []
 
     class Cursor:
         rowcount = 0
@@ -141,6 +142,7 @@ def test_janitor_apply_skips_admission_when_promote_update_matches_no_rows(monke
                 self.rowcount = 0
                 self._fetchone = None
             elif normalized.startswith("insert into control_events"):
+                events.append(params)
                 self.rowcount = 1
         def fetchone(self):
             return getattr(self, "_fetchone", None)
@@ -161,11 +163,71 @@ def test_janitor_apply_skips_admission_when_promote_update_matches_no_rows(monke
 
     assert result["promoted"] == 0
     assert result["admissions_inserted"] == 0
+    assert result["events_inserted"] == 0
     assert admissions == []
+    assert events == []
+
+
+def test_janitor_non_mutating_events_allow_changed_observation_payloads(monkeypatch) -> None:
+    action = {"candidate_id": "candidate-1", "action": "keep", "reason": "still reviewable", "dispatch_priority": {"age_days": 3.0}}
+    old_payload = {
+        "requested_by": "unit",
+        "janitor_action": {**action, "dispatch_priority": {"age_days": 2.0}},
+    }
+    old_hash = research_facility_maintenance._payload_hash(old_payload)
+    selected_keys: list[str] = []
+    inserted_keys: list[str] = []
+
+    class Cursor:
+        rowcount = 0
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):
+            normalized = " ".join(sql.lower().split())
+            if normalized.startswith("set search_path"):
+                return self
+            if normalized.startswith("select event_id"):
+                selected_keys.append(params[0])
+                if params[0] == "research-janitor:keep:candidate-1":
+                    self._fetchone = {
+                        "event_id": 11,
+                        "event_type": "research.janitor.keep",
+                        "entity_type": "research_candidate",
+                        "entity_id": "candidate-1",
+                        "payload_hash": old_hash,
+                    }
+                else:
+                    self._fetchone = None
+                return self
+            if normalized.startswith("insert into control_events"):
+                inserted_keys.append(params[0])
+                self.rowcount = 1
+                return self
+            raise AssertionError(normalized)
+        def fetchone(self):
+            return getattr(self, "_fetchone", None)
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()))
+
+    result = research_facility_maintenance.apply_actions(
+        "postgres://example",
+        [action],
+        requested_by="unit",
+        apply_rejections=False,
+    )
+
+    assert result["events_inserted"] == 1
+    assert selected_keys == [inserted_keys[0]]
+    assert inserted_keys[0].startswith("research-janitor:keep:candidate-1:")
 
 
 def test_janitor_apply_conflicts_on_reused_event_key_with_different_identity(monkeypatch) -> None:
-    action = {"candidate_id": "candidate-1", "action": "keep", "reason": "still reviewable", "dispatch_priority": {}}
+    action = {"candidate_id": "candidate-1", "action": "promote", "reason": "admit now", "dispatch_priority": {"score": 90}}
     payload = {"requested_by": "unit", "janitor_action": action}
     existing_payload_hash = research_facility_maintenance._payload_hash(payload)
 
@@ -175,19 +237,30 @@ def test_janitor_apply_conflicts_on_reused_event_key_with_different_identity(mon
         def __exit__(self, *args): return None
         def execute(self, sql, params=()):
             normalized = " ".join(sql.lower().split())
+            if normalized.startswith("set search_path"):
+                return self
+            if normalized.startswith("update research_candidates") and "status = 'admitted'" in normalized:
+                self.rowcount = 1
+                return self
+            if normalized.startswith("select admission_id"):
+                self._fetchone = None
+                return self
+            if normalized.startswith("insert into research_admissions"):
+                self.rowcount = 1
+                return self
             if normalized.startswith("select event_id"):
-                assert params == ("research-janitor:keep:candidate-1",)
+                assert params == ("research-janitor:promote:candidate-1",)
                 self._fetchone = {
                     "event_id": 11,
-                    "event_type": "research.janitor.promote",
+                    "event_type": "research.janitor.keep",
                     "entity_type": "research_candidate",
                     "entity_id": "candidate-1",
                     "payload_hash": existing_payload_hash,
                 }
-            elif normalized.startswith("insert into control_events"):
+                return self
+            if normalized.startswith("insert into control_events"):
                 raise AssertionError("conflicting replay must not insert a new event")
-            else:
-                self._fetchone = None
+            raise AssertionError(normalized)
         def fetchone(self):
             return getattr(self, "_fetchone", None)
 

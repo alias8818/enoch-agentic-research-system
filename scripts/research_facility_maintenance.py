@@ -216,6 +216,8 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                 verb = _as_text(action.get("action"))
                 if not candidate_id:
                     continue
+
+                record_event = verb in {"rewrite_suggested", "keep"}
                 if verb == "promote":
                     cur.execute(
                         """
@@ -226,6 +228,7 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                         (json.dumps({"janitor_dispatch_priority": action.get("dispatch_priority") or {}}), candidate_id),
                     )
                     applied = int(cur.rowcount or 0) > 0
+                    record_event = applied
                     if applied:
                         counters["promoted"] += 1
                         admission_key = f"research-janitor:admit:{candidate_id}"
@@ -252,6 +255,7 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                         (str(action.get("reason") or "janitor rejected stale weak candidate"), candidate_id),
                     )
                     applied = int(cur.rowcount or 0) > 0
+                    record_event = applied
                     if applied:
                         counters["rejected"] += 1
                         admission_key = f"research-janitor:reject:{candidate_id}"
@@ -265,9 +269,13 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                             operator=requested_by,
                             idempotency_key=admission_key,
                         )
-                if verb in {"promote", "reject", "rewrite_suggested", "keep"}:
+
+                if record_event:
                     payload = {"requested_by": requested_by, "janitor_action": action}
+                    payload_hash = _payload_hash(payload)
                     event_key = f"research-janitor:{verb}:{candidate_id}"
+                    if verb in {"rewrite_suggested", "keep"}:
+                        event_key = f"{event_key}:{payload_hash}"
                     event_type = f"research.janitor.{verb}"
                     entity_type = "research_candidate"
                     cur.execute(
@@ -275,7 +283,6 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                         (event_key,),
                     )
                     existing = cur.fetchone()
-                    payload_hash = _payload_hash(payload)
                     existing_event_type = existing.get("event_type") if isinstance(existing, dict) else existing[1] if existing else ""
                     existing_entity_type = existing.get("entity_type") if isinstance(existing, dict) else existing[2] if existing else ""
                     existing_entity_id = existing.get("entity_id") if isinstance(existing, dict) else existing[3] if existing else ""
