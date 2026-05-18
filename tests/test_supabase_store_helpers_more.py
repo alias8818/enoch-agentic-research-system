@@ -348,6 +348,82 @@ def test_supabase_prepare_finalization_event_failure_restores_manifest(monkeypat
     assert review_row["automation_status"] == "claimed"
 
 
+def test_supabase_claim_paper_review_update_failure_does_not_consume_idempotency_key(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    paper_id = "supabase-claim-atomic:run-1:arxiv_draft"
+    review_row = {
+        "paper_id": paper_id,
+        "automation_status": "queued",
+        "automation_actor": "",
+        "blocker": "",
+        "checklist_json": {},
+    }
+    events: dict[str, tuple[int, str]] = {}
+    fail_review_update = True
+    monkeypatch.setattr(store, "_require_paper_review", lambda _paper_id: review_row)
+    monkeypatch.setattr(store, "paper_review_row", lambda _paper_id: dict(review_row, review_status=review_row["automation_status"], reviewer=review_row["automation_actor"]))
+
+    class Cursor:
+        def __init__(self, conn):
+            self.conn = conn
+            self._next = None
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            nonlocal fail_review_update
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("select event_id"):
+                event = self.conn.pending_events.get(params[0])
+                self._next = None if event is None else {"event_id": event[0], "payload_hash": event[1]}
+            elif normalized.startswith("insert into control_events"):
+                event_id = len(self.conn.pending_events) + 1
+                self.conn.pending_events[params[0]] = (event_id, params[5])
+                self._next = {"event_id": event_id}
+            elif normalized.startswith("update publication_automation_items"):
+                if fail_review_update:
+                    fail_review_update = False
+                    raise RuntimeError("simulated paper review claim update failure")
+                self.conn.pending_review.update({
+                    "automation_status": params[0],
+                    "automation_actor": params[1],
+                    "blocker": params[2],
+                    "claimed_at": params[3],
+                    "checklist_json": params[4],
+                })
+            return self
+        def fetchone(self):
+            value = self._next
+            self._next = None
+            return value
+
+    class Conn:
+        def __enter__(self):
+            self.pending_events = dict(events)
+            self.pending_review = dict(review_row)
+            return self
+        def __exit__(self, exc_type, *_args):
+            if exc_type is None:
+                events.update(self.pending_events)
+                review_row.update(self.pending_review)
+            return False
+        def cursor(self): return Cursor(self)
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+
+    try:
+        store.claim_paper_review(paper_id, s.PaperReviewClaimRequest(idempotency_key="supabase-claim-atomic-key", requested_by="alice", reviewer="alice"))
+    except RuntimeError as exc:
+        assert "simulated paper review claim update failure" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected simulated update failure")
+    event_id, inserted, item = store.claim_paper_review(paper_id, s.PaperReviewClaimRequest(idempotency_key="supabase-claim-atomic-key", requested_by="alice", reviewer="alice"))
+
+    assert inserted is True
+    assert event_id == 1
+    assert item["review_status"] == "claimed"
+    assert item["reviewer"] == "alice"
+
+
 def test_supabase_store_resolved_artifact_rejects_paths_outside_project(tmp_path) -> None:
     project_dir = tmp_path / "project"
     project_dir.mkdir()

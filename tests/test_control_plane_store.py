@@ -1777,6 +1777,57 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(claimed["review_status"], "claimed")
             self.assertEqual(claimed["blocker"], "")
 
+    def test_claim_paper_review_update_failure_does_not_consume_idempotency_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            paper_id = "claim-atomic:run-1:arxiv_draft"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="claim-atomic-import",
+                    paper_rows=[{
+                        "paper_id": paper_id,
+                        "project_id": "claim-atomic",
+                        "run_id": "run-1",
+                        "paper_status": "publication_draft",
+                    }],
+                )
+            )
+            store.backfill_paper_reviews(PaperReviewBackfillRequest(idempotency_key="claim-atomic-backfill", dry_run=False))
+            original_connect = store._connect
+            fail_review_update = True
+
+            class FailingConnection:
+                def __init__(self, manager):
+                    self.manager = manager
+                    self.conn = None
+
+                def __enter__(self):
+                    self.conn = self.manager.__enter__()
+                    return self
+
+                def __exit__(self, *args):
+                    return self.manager.__exit__(*args)
+
+                def __getattr__(self, name):
+                    return getattr(self.conn, name)
+
+                def execute(self, sql, params=()):
+                    nonlocal fail_review_update
+                    if fail_review_update and "UPDATE paper_review_items" in str(sql):
+                        fail_review_update = False
+                        raise RuntimeError("simulated paper review claim update failure")
+                    return self.conn.execute(sql, params)
+
+            with unittest.mock.patch.object(store, "_connect", side_effect=lambda: FailingConnection(original_connect())):
+                with self.assertRaises(RuntimeError):
+                    store.claim_paper_review(paper_id, PaperReviewClaimRequest(idempotency_key="claim-atomic-key", requested_by="alice", reviewer="alice"))
+                event_id, inserted, item = store.claim_paper_review(paper_id, PaperReviewClaimRequest(idempotency_key="claim-atomic-key", requested_by="alice", reviewer="alice"))
+
+            self.assertTrue(inserted)
+            self.assertEqual(item["review_status"], "claimed")
+            self.assertEqual(item["reviewer"], "alice")
+            self.assertTrue(any(event["event_id"] == event_id and event["event_type"] == "paper_review.claimed" for event in store.event_rows(entity_id=paper_id, limit=50)))
+
     def test_paper_finalization_rejects_artifacts_outside_project_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

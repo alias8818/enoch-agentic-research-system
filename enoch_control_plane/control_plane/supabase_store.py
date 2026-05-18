@@ -2013,12 +2013,12 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             raise ValueError(f"cannot claim paper review from {current}")
         payload = self._mutation_payload(request, action="claim")
         payload.update({"to_status": ReviewStatus.CLAIMED.value})
-        event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.claimed", entity_type="paper_review", entity_id=paper_id, payload=payload)
-        if inserted:
-            now = utc_now()
-            checklist = _normalize_review_checklist(_json_dict(row.get("checklist_json")))
-            with self._connect() as conn:
-                with conn.cursor() as cur:
+        now = utc_now()
+        checklist = _normalize_review_checklist(_json_dict(row.get("checklist_json")))
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                event_id, inserted = self._append_event_in_cursor(cur, idempotency_key=request.idempotency_key, event_type="paper_review.claimed", entity_type="paper_review", entity_id=paper_id, payload=payload)
+                if inserted:
                     cur.execute(
                         "update publication_automation_items set automation_status=%s, automation_actor=%s, blocker=%s, claimed_at=%s, checklist_json=%s::jsonb, updated_at=%s where paper_id=%s",
                         (ReviewStatus.CLAIMED.value, _text(request.reviewer), "" if request.clear_blocker else _text(row.get("blocker")), now, _json(checklist), now, paper_id),
@@ -2041,13 +2041,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             raise ValueError(f"{target} requires blocker or note")
         payload = self._mutation_payload(request, action="status_update")
         payload.update({"to_status": target})
-        event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.status_changed", entity_type="paper_review", entity_id=paper_id, payload=payload)
-        if inserted:
-            now = utc_now()
-            next_blocker = blocker if target == ReviewStatus.BLOCKED.value else ""
-            decision_summary = note if target in {ReviewStatus.REJECTED.value, ReviewStatus.CHANGES_REQUESTED.value} else _text(row.get("decision_summary"))
-            with self._connect() as conn:
-                with conn.cursor() as cur:
+        now = utc_now()
+        next_blocker = blocker if target == ReviewStatus.BLOCKED.value else ""
+        decision_summary = note if target in {ReviewStatus.REJECTED.value, ReviewStatus.CHANGES_REQUESTED.value} else _text(row.get("decision_summary"))
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                event_id, inserted = self._append_event_in_cursor(cur, idempotency_key=request.idempotency_key, event_type="paper_review.status_changed", entity_type="paper_review", entity_id=paper_id, payload=payload)
+                if inserted:
                     cur.execute("update publication_automation_items set automation_status=%s, blocker=%s, decision_summary=%s, updated_at=%s where paper_id=%s", (target, next_blocker, decision_summary, now, paper_id))
         return event_id, inserted, self.paper_review_row(paper_id) or {}
 
@@ -2069,17 +2069,17 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             raise ValueError("not_applicable on a required item requires a note")
         payload = self._mutation_payload(request, action="checklist_update")
         payload["item_id"] = item_id
-        event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.checklist_updated", entity_type="paper_review", entity_id=paper_id, payload=payload)
-        if inserted:
-            now = utc_now()
-            item.update({"status": status, "note": note, "updated_at": now, "updated_by": _text(request.requested_by)})
-            risks = [risk for risk in checklist.get("accepted_risks", []) if isinstance(risk, dict) and risk.get("item_id") != item_id]
-            if status == "accepted_risk":
-                risks.append({"item_id": item_id, "risk": note, "accepted_by": _text(request.requested_by), "accepted_at": now})
-            checklist["accepted_risks"] = risks
-            checklist["progress"] = _progress_for_items(checklist["items"])
-            with self._connect() as conn:
-                with conn.cursor() as cur:
+        now = utc_now()
+        item.update({"status": status, "note": note, "updated_at": now, "updated_by": _text(request.requested_by)})
+        risks = [risk for risk in checklist.get("accepted_risks", []) if isinstance(risk, dict) and risk.get("item_id") != item_id]
+        if status == "accepted_risk":
+            risks.append({"item_id": item_id, "risk": note, "accepted_by": _text(request.requested_by), "accepted_at": now})
+        checklist["accepted_risks"] = risks
+        checklist["progress"] = _progress_for_items(checklist["items"])
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                event_id, inserted = self._append_event_in_cursor(cur, idempotency_key=request.idempotency_key, event_type="paper_review.checklist_updated", entity_type="paper_review", entity_id=paper_id, payload=payload)
+                if inserted:
                     cur.execute("update publication_automation_items set checklist_json=%s::jsonb, updated_at=%s where paper_id=%s", (_json(checklist), now, paper_id))
         return event_id, inserted, self.paper_review_row(paper_id) or {}
 
