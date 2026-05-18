@@ -350,16 +350,16 @@ def _safe_tar_target(artifact_root: Path, member_name: str) -> Path | None:
     try:
         target = (artifact_root / Path(*raw.parts)).resolve()
         target.relative_to(artifact_root.resolve())
-    except (OSError, ValueError):
+    except (OSError, RuntimeError, ValueError):
         return None
     return target
 
 
 def _extract_safe_tar_bytes(payload: bytes, artifact_root: Path, *, max_file_bytes: int = 8_000_000, max_total_bytes: int = 64_000_000) -> dict[str, Any]:
-    artifact_root = artifact_root.resolve()
     try:
+        artifact_root = artifact_root.resolve()
         artifact_root.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         return {"ok": False, "reason": "artifact_root_unusable", "files": 0, "paths": [], "skipped": [], "error": f"{type(exc).__name__}: {exc}"}
     written: list[str] = []
     skipped: list[dict[str, Any]] = []
@@ -391,7 +391,7 @@ def _extract_safe_tar_bytes(payload: bytes, artifact_root: Path, *, max_file_byt
                 _atomic_write_bytes(target, content)
                 total_bytes += len(content)
                 written.append(member.name)
-    except (tarfile.TarError, OSError) as exc:
+    except (tarfile.TarError, OSError, RuntimeError, ValueError) as exc:
         return {"ok": False, "reason": "extract_failed", "files": len(written), "paths": written[:30], "skipped": skipped[:30], "error": f"{type(exc).__name__}: {exc}"}
     return {"ok": bool(written), "reason": "safe_tar_extracted" if written else "no_safe_tar_evidence", "files": len(written), "paths": written[:30], "skipped": skipped[:30]}
 
@@ -518,10 +518,10 @@ def _sync_worker_http_evidence(
         ])
     written = []
     skipped = []
-    artifact_root = artifact_root.resolve()
     try:
+        artifact_root = artifact_root.resolve()
         artifact_root.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         return {"ok": False, "reason": "artifact_root_unusable", "files": 0, "paths": [], "skipped": [], "error": f"{type(exc).__name__}: {exc}"}
     if not artifact_root.is_dir():
         return {"ok": False, "reason": "artifact_root_unusable", "files": 0, "paths": [], "skipped": [], "error": "artifact root is not a directory"}
@@ -573,7 +573,7 @@ def _sync_worker_http_evidence(
             try:
                 target = (artifact_root / rel).resolve()
                 target.relative_to(artifact_root)
-            except (OSError, ValueError):
+            except (OSError, RuntimeError, ValueError):
                 skipped.append({"path": rel, "status": "unsafe_path", "error": "worker returned path outside artifact root"})
                 continue
             if not rel or target == artifact_root or (target.exists() and target.is_dir()):
@@ -601,11 +601,14 @@ def _remote_evidence_dir(config: GateConfig, *, project_id: str, source_project_
             source_path = Path(source).expanduser()
         except RuntimeError:
             return f"{remote_root}/{_safe_project_artifact_name(project_id)}"
-        local_root = config.expanded_project_root.resolve()
+        try:
+            local_root = config.expanded_project_root.resolve()
+        except (OSError, RuntimeError, ValueError):
+            return f"{remote_root}/{_safe_project_artifact_name(project_id)}"
         if source_path.is_absolute():
             try:
                 source_path.resolve().relative_to(local_root)
-            except (OSError, ValueError):
+            except (OSError, RuntimeError, ValueError):
                 return source
         else:
             if not remote_source.is_absolute():
@@ -637,7 +640,7 @@ def _safe_artifact_candidate(root: Path, candidate: Path) -> Path | None:
     try:
         resolved = candidate.resolve()
         resolved.relative_to(root)
-    except (OSError, ValueError):
+    except (OSError, RuntimeError, ValueError):
         return None
     if _has_symlink_component(root, candidate):
         return None
@@ -659,7 +662,10 @@ def _safe_fallback_artifact_root(root: Path, project_id: str) -> Path:
 
 
 def _local_artifact_root(config: GateConfig, *, project_id: str, project_dir_text: str = "") -> Path:
-    root = config.expanded_project_root.resolve()
+    try:
+        root = config.expanded_project_root.resolve()
+    except (OSError, RuntimeError, ValueError):
+        root = Path(".").resolve()
     fallback = _safe_fallback_artifact_root(root, project_id)
     source = str(project_dir_text or "").strip()
     if not source:

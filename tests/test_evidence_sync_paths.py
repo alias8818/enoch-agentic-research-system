@@ -392,6 +392,28 @@ def test_sync_worker_http_evidence_reports_unusable_artifact_root(tmp_path) -> N
     assert result["reason"] == "artifact_root_unusable"
 
 
+def test_sync_worker_http_evidence_reports_unresolvable_artifact_root(tmp_path) -> None:
+    from enoch_control_plane.control_plane.router import _sync_worker_http_evidence
+
+    config = _config(tmp_path)
+    config.worker_wake_gate_bearer_token = "worker-token"
+    config.worker_wake_gate_url = "http://worker"
+
+    result = _sync_worker_http_evidence(config, project_id="project", artifact_root=tmp_path / "bad\0artifact")
+
+    assert result["ok"] is False
+    assert result["reason"] == "artifact_root_unusable"
+
+
+def test_extract_safe_tar_reports_unresolvable_artifact_root(tmp_path) -> None:
+    from enoch_control_plane.control_plane.router import _extract_safe_tar_bytes
+
+    result = _extract_safe_tar_bytes(b"not-a-tar", tmp_path / "bad\0artifact")
+
+    assert result["ok"] is False
+    assert result["reason"] == "artifact_root_unusable"
+
+
 def test_sync_worker_http_evidence_preserves_existing_file_when_worker_returns_empty_content(tmp_path) -> None:
     from enoch_control_plane.control_plane.router import _sync_worker_http_evidence
     from enoch_control_plane.control_plane.worker_adapter import HttpResult
