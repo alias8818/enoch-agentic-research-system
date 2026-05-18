@@ -92,6 +92,15 @@ from .worker_adapter import HttpResult, post_worker_json, run_worker_preflight
 RequireBearer = Callable[[str | None], None]
 
 
+
+def _normal_status(value: Any) -> str:
+    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _truthy_flag(value: Any) -> bool:
+    return value is True or value in {1, "1", "true", "True", "TRUE", "yes", "YES", "on", "ON"}
+
+
 def _bounded_int_from_mapping(values: dict[str, Any], name: str, default: int, lower: int, upper: int) -> int:
     value = values.get(name)
     if value is None:
@@ -1684,13 +1693,13 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         return {source: _freshness_for_observation(source, authority, observation)}
 
     def _classify_queue(row: dict[str, Any]) -> set[str]:
-        status = str(row.get("status") or "")
+        status = _normal_status(row.get("status"))
         groups = {"all", status}
         if status in {"dispatching", "running", "awaiting_wake", "wake_received", "reconciling"}:
             groups.add("active")
         if status == "queued":
             groups.add("queued")
-        if status in {"blocked", "needs_review", "dispatch_error"} or row.get("manual_review_required"):
+        if status in {"blocked", "needs_review", "dispatch_error"} or _truthy_flag(row.get("manual_review_required")):
             groups.add("blocked")
         if status == "paused":
             groups.add("paused")
@@ -2363,7 +2372,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         all_rows = [_enrich_queue_row(row) for row in store.queue_rows()]
         selected = [row for row in all_rows if queue in _classify_queue(row)] if queue != "all" else all_rows
         if status:
-            selected = [row for row in selected if str(row.get("status") or "") == status]
+            selected = [row for row in selected if _normal_status(row.get("status")) == _normal_status(status)]
         selected = _sort_rows(_search_rows(selected, search), sort)
         page_rows, safe_page, safe_size = _paginate(selected, page=page, page_size=page_size)
         return DashboardQueueResponse(
@@ -4173,9 +4182,9 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         candidate = store.queue_row(project_id)
         if not candidate:
             raise HTTPException(status_code=404, detail="project_id was not found in the queue")
-        if str(candidate.get("status") or "").strip() != "queued":
+        if _normal_status(candidate.get("status")) != "queued":
             raise HTTPException(status_code=409, detail="project_id is not queued")
-        manual_review = str(candidate.get("manual_review_required") or "").strip().lower() in {"1", "true", "yes", "on"}
+        manual_review = _truthy_flag(candidate.get("manual_review_required"))
         if manual_review:
             raise HTTPException(status_code=409, detail="project_id is blocked by manual_review_required")
         if payload.dry_run:

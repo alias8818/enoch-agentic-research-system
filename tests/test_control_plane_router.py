@@ -314,6 +314,28 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 self.assertEqual(event_filtered.json()["page"]["filters"]["sort"], "type")
                 self.assertEqual(event_filtered.json()["page"]["filters"]["search"], "import")
 
+    def test_dashboard_queue_filter_normalizes_status_and_manual_review_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            rows = [{
+                "project_id": "queued-string-false",
+                "project_name": "Queued String False",
+                "status": "Queued",
+                "manual_review_required": "false",
+                "dispatch_priority": 1,
+                "selection_rank": 1,
+            }]
+
+            with patch.object(ControlPlaneStore, "queue_rows", return_value=rows):
+                queued = client.get("/control/api/queues/queued", headers=headers)
+                blocked = client.get("/control/api/queues/blocked", headers=headers)
+
+            self.assertEqual(queued.status_code, 200)
+            self.assertEqual(blocked.status_code, 200)
+            self.assertEqual(queued.json()["page"]["total"], 1)
+            self.assertEqual(blocked.json()["page"]["total"], 0)
+
     def test_export_and_native_ideas_projection_endpoints(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
