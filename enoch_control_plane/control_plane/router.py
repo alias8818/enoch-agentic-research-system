@@ -85,7 +85,7 @@ from .graphs import build_dispatch_graph
 from .longhaul_readiness import evaluate_longhaul_readiness
 from ..research_quality.status import DEFAULT_AUTOPILOT_HISTORY_PATH, DEFAULT_REPORT_PATHS, DEFAULT_WINDOW_REPORT_PATH, load_latest_quality_status
 from . import read_models
-from .store import ControlPlaneStore, _atomic_write_text
+from .store import ControlPlaneStore, _atomic_write_text, _restore_or_remove_path
 from .supabase_store import SupabaseControlPlaneStore, SupabaseReadOnlyControlPlaneStore, resolve_supabase_database_url
 from .worker_adapter import HttpResult, post_worker_json, run_worker_preflight
 
@@ -2651,7 +2651,9 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     writer={"idempotent_replay": True},
                     artifact_root=str(artifact_root),
                 )
-        record = _paper_record_from_row(paper).model_copy(update={"paper_status": PaperStatus.PUBLICATION_DRAFT, "updated_at": utc_now()})
+        original_record = _paper_record_from_row(paper)
+        original_project_dir = str((project or {}).get("project_dir") or paper.get("project_dir") or "")
+        record = original_record.model_copy(update={"paper_status": PaperStatus.PUBLICATION_DRAFT, "updated_at": utc_now()})
         candidate = {
             "project_id": project_id,
             "project_name": str((project or paper or item).get("project_name") or project_id),
@@ -2668,6 +2670,29 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 "disclaimer": "AI-generated and AI-written from automated research artifacts; released with no personal authorship credit claimed by the operator.",
             },
         }
+        artifact_snapshots: dict[Path, tuple[bool, bytes]] = {}
+        for rel_path in {
+            record.draft_markdown_path,
+            record.draft_latex_path,
+            record.evidence_bundle_path,
+            record.claim_ledger_path,
+            record.manifest_path,
+        }:
+            try:
+                target = (artifact_root / rel_path).resolve()
+                target.relative_to(artifact_root)
+            except (OSError, ValueError):
+                continue
+            artifact_snapshots[target] = (target.exists(), target.read_bytes() if target.exists() and target.is_file() else b"")
+        def restore_rewrite_side_effects() -> None:
+            for path, (existed, content) in artifact_snapshots.items():
+                _restore_or_remove_path(path, existed=existed, content=content)
+            try:
+                store.upsert_paper(original_record)
+                if original_project_dir:
+                    store.update_project_dir(project_id, original_project_dir)
+            except Exception:
+                pass
         try:
             writer = write_paper_artifacts(config, candidate, record, force=payload.force)
             if not use_current_dir:
@@ -2701,9 +2726,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 require_approval=False,
             )
         except IdempotencyConflict as exc:
+            restore_rewrite_side_effects()
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
+            restore_rewrite_side_effects()
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception:
+            restore_rewrite_side_effects()
+            raise
         refreshed = store.paper_review_row(paper_id, include_rank_reasons=True) or finalized_item or item
         writer_with_sync = {
             **writer,
