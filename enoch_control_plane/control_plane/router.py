@@ -4156,7 +4156,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 )
             evidence = _prepare_draft_evidence(candidate)
             legacy_finalize_positive = str(candidate.get("last_run_state") or "").strip() == "finalize_positive"
-            if not legacy_finalize_positive and not evidence["local_evidence_present"]:
+            if not evidence["local_evidence_present"]:
                 _record_paper_evidence_blocked(
                     entity_type="project",
                     entity_id=str(candidate.get("project_id") or ""),
