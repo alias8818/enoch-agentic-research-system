@@ -2133,7 +2133,7 @@ class ControlPlaneStore:
     def release_dispatch_claim(self, *, project_id: str, run_id: str, reason: str) -> dict[str, Any]:
         now = utc_now()
         with self._connect() as conn:
-            conn.execute(
+            cur = conn.execute(
                 """UPDATE queue_items
                 SET status=?, current_run_id='', current_session_id='', last_run_state='',
                     last_event_type=?, next_action_hint=?, last_error=?, updated_at=?
@@ -2149,14 +2149,15 @@ class ControlPlaneStore:
                     QueueStatus.DISPATCHING.value,
                 ),
             )
-            self._append_event_in_conn(
-                conn,
-                idempotency_key=f"dispatch-claim-release:{run_id}",
-                event_type="controller.dispatch_claim_released",
-                entity_type="project",
-                entity_id=project_id,
-                payload={"run_id": run_id, "reason": reason},
-            )
+            if cur.rowcount == 1:
+                self._append_event_in_conn(
+                    conn,
+                    idempotency_key=f"dispatch-claim-release:{run_id}",
+                    event_type="controller.dispatch_claim_released",
+                    entity_type="project",
+                    entity_id=project_id,
+                    payload={"run_id": run_id, "reason": reason},
+                )
         return self.queue_row(project_id) or {}
 
 

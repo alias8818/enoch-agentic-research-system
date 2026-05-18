@@ -741,6 +741,33 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(replay_row["last_run_state"], "wake_ready")
             self.assertEqual(replay_row["next_action_hint"], "draft_paper_or_select_next_project")
 
+    def test_release_dispatch_claim_does_not_emit_event_when_no_claim_released(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="release-stale-claim-import",
+                    queue_rows=[{
+                        "project_id": "idea-release-stale",
+                        "project_name": "Release Stale Claim",
+                        "project_dir": "idea-release-stale",
+                        "status": "queued",
+                        "current_run_id": "",
+                    }],
+                    paper_rows=[],
+                )
+            )
+
+            row = store.release_dispatch_claim(
+                project_id="idea-release-stale",
+                run_id="stale-run",
+                reason="stale worker preflight failure",
+            )
+
+            self.assertEqual(row["status"], "queued")
+            events = store.event_rows(limit=10, entity_type="project", entity_id="idea-release-stale")
+            self.assertEqual([event["event_type"] for event in events], [])
+
     def test_worker_callback_missing_run_id_does_not_mutate_active_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

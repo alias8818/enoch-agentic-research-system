@@ -689,6 +689,43 @@ def test_supabase_dispatch_started_replay_does_not_mutate_queue(monkeypatch) -> 
     assert executed == []
 
 
+def test_supabase_release_dispatch_claim_does_not_emit_event_without_update(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    append_calls: list[dict] = []
+
+    class Result:
+        rowcount = 0
+
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, *args, **kwargs):  # noqa: ANN001 - lightweight cursor fake
+            del args, kwargs
+            return Result()
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    def fake_append_event(_cur, **kwargs):  # noqa: ANN001 - signature mirrors store
+        append_calls.append(kwargs)
+        return 1, True
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", fake_append_event)
+    monkeypatch.setattr(store, "queue_row", lambda project_id: {"project_id": project_id, "status": "queued"})
+
+    row = store.release_dispatch_claim(
+        project_id="idea-release-stale",
+        run_id="stale-run",
+        reason="stale worker preflight failure",
+    )
+
+    assert row["status"] == "queued"
+    assert append_calls == []
+
+
 def test_supabase_worker_callback_without_identifiers_dedupes_by_payload(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     events: dict[str, tuple[int, str]] = {}

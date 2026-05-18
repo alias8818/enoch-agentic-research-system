@@ -1700,7 +1700,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         now = utc_now()
         with self._connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(
+                result = cur.execute(
                     """
                     update queue_items
                     set status=%s, current_run_id='', current_session_id='', last_run_state='',
@@ -1718,14 +1718,16 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         QueueStatus.DISPATCHING.value,
                     ),
                 )
-                self._append_event_in_cursor(
-                    cur,
-                    idempotency_key=f"dispatch-claim-release:{run_id}",
-                    event_type="controller.dispatch_claim_released",
-                    entity_type="project",
-                    entity_id=project_id,
-                    payload={"run_id": run_id, "reason": reason},
-                )
+                rowcount = int(getattr(result, "rowcount", getattr(cur, "rowcount", 1)) or 0)
+                if rowcount == 1:
+                    self._append_event_in_cursor(
+                        cur,
+                        idempotency_key=f"dispatch-claim-release:{run_id}",
+                        event_type="controller.dispatch_claim_released",
+                        entity_type="project",
+                        entity_id=project_id,
+                        payload={"run_id": run_id, "reason": reason},
+                    )
         return self.queue_row(project_id) or {}
 
     def pause(self, *, reason: str, paused_by: str, maintenance_mode: bool) -> tuple[ControlFlags, int]:
