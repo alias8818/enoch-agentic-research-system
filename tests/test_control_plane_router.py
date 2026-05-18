@@ -3152,6 +3152,51 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(len(events), 1)
             self.assertEqual(snapshot["paper_rows"], [])
 
+    def test_worker_callback_decision_persist_failure_does_not_500_after_accepting_callback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "projects" / "idea-callback-decision-fail"
+            (project_dir / ".enoch").mkdir(parents=True)
+            (project_dir / "run_notes.md").write_text("Verified useful result.\n", encoding="utf-8")
+            (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+            client = _client_with_config(_live_config(tmp))
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "worker-callback-decision-fail-import",
+                "queue_rows": [{
+                    "project_id": "idea-callback-decision-fail",
+                    "project_name": "Callback Decision Fail",
+                    "project_dir": "idea-callback-decision-fail",
+                    "status": "awaiting_wake",
+                    "current_run_id": "run-callback-decision-fail",
+                }],
+            })
+
+            def fail_decision_persist(self, **_kwargs):  # noqa: ANN001 - monkeypatched method
+                raise RuntimeError("simulated decision persist failure")
+
+            with patch.object(ControlPlaneStore, "record_project_decision_gate", fail_decision_persist, create=True):
+                response = client.post("/control/api/worker-callback", headers=headers, json={
+                    "event_type": "wake_ready",
+                    "run_id": "run-callback-decision-fail",
+                    "session_id": "session-callback-decision-fail",
+                    "project_id": "idea-callback-decision-fail",
+                    "project_name": "Callback Decision Fail",
+                    "source_event": "session-idle",
+                    "gate_state": "wake_ready",
+                    "process_tracking": {"root_pid": None, "process_group_id": None, "processes": [], "live_process_count": 0},
+                    "telemetry": {},
+                    "reason": "idle_sustain_met",
+                    "idempotency_key": "run-callback-decision-fail:wake-ready-test",
+                })
+
+            assert response.status_code == 200
+            body = response.json()
+            assert body["inserted_event"] is True
+            assert body["decision_sync"]["decision_record"]["persisted"] is False
+            assert "simulated decision persist failure" in body["decision_sync"]["decision_record"]["reason"]
+            queue = client.get("/control/queue", headers=headers).json()["rows"][0]
+            assert queue["last_run_state"] == "wake_ready"
+
     def test_worker_callback_wake_ready_can_draft_paper_when_evidence_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "projects" / "idea-callback-draft"

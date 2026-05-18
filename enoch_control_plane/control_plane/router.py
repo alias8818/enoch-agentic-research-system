@@ -2017,11 +2017,18 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     evidence_sync=evidence_sync,
                 )
             if local_evidence_present and hasattr(store, "record_project_decision_gate"):
-                decision_record = store.record_project_decision_gate(
-                    project_id=project_id,
-                    run_id=str(callback.run_id or ""),
-                    artifact_root=artifact_root,
-                )
+                try:
+                    decision_record = store.record_project_decision_gate(
+                        project_id=project_id,
+                        run_id=str(callback.run_id or ""),
+                        artifact_root=artifact_root,
+                    )
+                except Exception as exc:
+                    decision_record = {
+                        "ok": False,
+                        "persisted": False,
+                        "reason": f"{type(exc).__name__}: {exc}",
+                    }
                 decision_sync["decision_record"] = decision_record
                 if decision_record.get("persisted") and project_id:
                     store.update_project_dir(project_id, str(artifact_root))
