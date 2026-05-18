@@ -147,6 +147,32 @@ def test_research_facility_emits_auditable_ledgers_and_optional_queue_sql() -> N
     assert "on conflict (project_id) do update" in sql
 
 
+def test_research_facility_emit_sql_guards_candidate_and_admission_identity_conflicts() -> None:
+    plan = research_facility.plan_candidates([_strong_candidate()], _args())[0]
+
+    sql = research_facility.emit_sql([plan], requested_by="pytest", queue_admitted=True)
+
+    assert "conflicting research candidate identity" in sql
+    assert "conflicting research admission idempotency key" in sql
+    assert "where candidate_id = 'ssm-anchor-memory-test'" in sql
+    assert "where idempotency_key = 'research-admission:ssm-anchor-memory-test:admitted'" in sql
+    assert "score_breakdown is distinct from" in sql
+    assert "raise exception" in sql.lower()
+
+
+def test_research_facility_emit_sql_guards_admitted_queue_identity_conflicts() -> None:
+    plan = research_facility.plan_candidates([_strong_candidate()], _args())[0]
+
+    sql = research_facility.emit_sql([plan], requested_by="pytest", queue_admitted=True)
+
+    assert "conflicting research facility idea identity" in sql
+    assert "conflicting research facility project identity" in sql
+    assert "conflicting research facility queue promotion identity" in sql
+    assert "where idea_id = 'ssm-anchor-memory-test'" in sql
+    assert "where project_id = 'ssm-anchor-memory-test'" in sql
+    assert "where project_id = 'ssm-anchor-memory-test'" in sql
+
+
 def test_research_facility_cli_extracts_json_from_markdown(tmp_path: Path) -> None:
     source = tmp_path / "ideas.md"
     output = tmp_path / "plan.json"

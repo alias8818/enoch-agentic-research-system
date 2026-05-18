@@ -40,6 +40,46 @@ def load_snapshot(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value if isinstance(value, dict | list) else {}, sort_keys=True, separators=(",", ":"))
+
+
+def _reject_conflicting_snapshot_replays(
+    rows: list[dict[str, Any]],
+    *,
+    key_name: str,
+    identity_fields: tuple[str, ...],
+    label: str,
+) -> None:
+    seen: dict[str, tuple[str, ...]] = {}
+    for row in rows:
+        key = text(row.get(key_name))
+        if not key:
+            continue
+        identity = tuple(text(row.get(field)) for field in identity_fields)
+        existing = seen.get(key)
+        if existing is not None and existing != identity:
+            raise ValueError(f"conflicting {label} identity for {key_name} {key!r}")
+        seen[key] = identity
+
+
+def _reject_conflicting_event_replays(rows: list[dict[str, Any]]) -> None:
+    seen: dict[str, tuple[str, str, str, str]] = {}
+    for row in rows:
+        key = text(row.get("idempotency_key")) or f"snapshot-event:{row.get('event_id')}"
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+        identity = (
+            text(row.get("event_type")) or "unknown",
+            text(row.get("entity_type")) or "unknown",
+            text(row.get("entity_id")),
+            _canonical_json(payload),
+        )
+        existing = seen.get(key)
+        if existing is not None and existing != identity:
+            raise ValueError(f"conflicting event idempotency key {key!r}")
+        seen[key] = identity
+
+
 def convert(snapshot_path: Path, output_path: Path) -> dict[str, Any]:
     snapshot = load_snapshot(snapshot_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -52,6 +92,29 @@ def convert(snapshot_path: Path, output_path: Path) -> dict[str, Any]:
     event_rows = [row for row in snapshot.get("events") or [] if isinstance(row, dict)]
     flags = snapshot.get("flags") if isinstance(snapshot.get("flags"), dict) else {}
     run_project: dict[str, dict[str, str]] = {}
+    _reject_conflicting_snapshot_replays(
+        queue_rows,
+        key_name="project_id",
+        identity_fields=("project_name", "project_dir", "status", "current_run_id"),
+        label="queue project",
+    )
+    _reject_conflicting_snapshot_replays(
+        paper_rows,
+        key_name="paper_id",
+        identity_fields=(
+            "project_id",
+            "run_id",
+            "paper_type",
+            "paper_status",
+            "draft_markdown_path",
+            "draft_latex_path",
+            "evidence_bundle_path",
+            "claim_ledger_path",
+            "manifest_path",
+        ),
+        label="paper",
+    )
+    _reject_conflicting_event_replays(event_rows)
 
     with store._connect() as conn:  # noqa: SLF001 - migration utility intentionally writes the store schema directly.
         conn.executescript(
