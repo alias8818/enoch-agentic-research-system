@@ -1841,6 +1841,54 @@ def test_supabase_import_snapshot_rejects_conflicting_duplicate_rows_before_conn
         ))
 
 
+def test_supabase_import_snapshot_rejects_existing_paper_identity_conflict(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+
+    class Cursor:
+        def __init__(self):
+            self._next = None
+            self.paper_insert_attempted = False
+
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("select project_id, run_id, paper_type from papers"):
+                self._next = {"project_id": "project-a", "run_id": "run-1", "paper_type": "arxiv_draft"}
+            elif normalized.startswith("select status,current_run_id"):
+                self._next = None
+            elif normalized.startswith("insert into papers"):
+                self.paper_insert_attempted = True
+                raise AssertionError("conflicting paper identity must not upsert")
+            return self
+        def fetchone(self):
+            value = self._next
+            self._next = None
+            return value
+
+    class Conn:
+        def __init__(self):
+            self.cursor_obj = Cursor()
+
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return self.cursor_obj
+
+    conn = Conn()
+    monkeypatch.setattr(store, "_connect", lambda: conn)
+    monkeypatch.setattr(store, "_append_event_in_cursor", lambda *args, **kwargs: (1, True))
+
+    with pytest.raises(s.IdempotencyConflict):
+        store.import_snapshot(ImportSnapshotRequest(
+            idempotency_key="supabase-existing-paper-conflict",
+            paper_rows=[
+                {"paper_id": "paper-1", "project_id": "project-b", "run_id": "run-1", "paper_status": "publication_draft"}
+            ],
+        ))
+
+    assert conn.cursor_obj.paper_insert_attempted is False
+
+
 def test_supabase_import_snapshot_row_failure_does_not_consume_idempotency_key(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     events: dict[str, tuple[int, str]] = {}

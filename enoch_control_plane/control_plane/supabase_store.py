@@ -60,6 +60,7 @@ from .store import (
     _notion_status,
     _notion_title,
     _notion_url,
+    _paper_identity_conflicts,
     _normalize_review_checklist,
     _priority_rank,
     _progress_for_items,
@@ -3862,6 +3863,16 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     status = _text(raw.get("paper_status")) or PaperStatus.DRAFT_REVIEW.value
                     if status not in PaperStatus._value2member_map_:
                         status = PaperStatus.DRAFT_REVIEW.value
+                    cur.execute(
+                        "select project_id, run_id, paper_type from papers where paper_id=%s",
+                        (paper_id,),
+                    )
+                    if _paper_identity_conflicts(cur.fetchone(), {
+                        "project_id": project_id,
+                        "run_id": _text(raw.get("run_id")),
+                        "paper_type": _text(raw.get("paper_type")) or "arxiv_draft",
+                    }):
+                        raise IdempotencyConflict(f"paper id {paper_id!r} was reused with different paper identity")
                     cur.execute(
                         """
                         insert into papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)

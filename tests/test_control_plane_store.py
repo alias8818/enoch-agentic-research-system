@@ -197,6 +197,30 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(store.recent_events(10), [])
             self.assertEqual(store.paper_rows(), [])
 
+    def test_import_snapshot_rejects_existing_paper_identity_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="import-paper-identity-base",
+                    paper_rows=[
+                        {"paper_id": "paper-1", "project_id": "project-a", "run_id": "run-1", "paper_status": "publication_draft"}
+                    ],
+                )
+            )
+
+            with self.assertRaises(IdempotencyConflict):
+                store.import_snapshot(
+                    ImportSnapshotRequest(
+                        idempotency_key="import-paper-identity-conflict",
+                        paper_rows=[
+                            {"paper_id": "paper-1", "project_id": "project-b", "run_id": "run-1", "paper_status": "publication_draft"}
+                        ],
+                    )
+                )
+
+            self.assertEqual(store.paper_row("paper-1")["project_id"], "project-a")
+
     def test_import_snapshot_row_failure_does_not_consume_idempotency_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

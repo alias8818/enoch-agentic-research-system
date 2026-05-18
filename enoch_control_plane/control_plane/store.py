@@ -194,6 +194,19 @@ def _reject_conflicting_snapshot_rows(
         seen[key] = identity
 
 
+def _paper_identity_conflicts(existing: Any, paper: PaperRecord | dict[str, Any]) -> bool:
+    if not existing:
+        return False
+    project_id = _text(paper.project_id if isinstance(paper, PaperRecord) else paper.get("project_id"))
+    run_id = _text(paper.run_id if isinstance(paper, PaperRecord) else paper.get("run_id"))
+    paper_type = _text(paper.paper_type if isinstance(paper, PaperRecord) else paper.get("paper_type")) or "arxiv_draft"
+    return (
+        _text(existing["project_id"]) != project_id
+        or (_text(existing["run_id"]) and run_id and _text(existing["run_id"]) != run_id)
+        or _text(existing["paper_type"]) != paper_type
+    )
+
+
 def _slug_id(value: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")[:80]
 
@@ -864,6 +877,16 @@ class ControlPlaneStore:
                 status = _text(raw.get("paper_status")) or PaperStatus.DRAFT_REVIEW.value
                 if status not in PaperStatus._value2member_map_:
                     status = PaperStatus.DRAFT_REVIEW.value
+                existing_paper = conn.execute(
+                    "SELECT project_id, run_id, paper_type FROM papers WHERE paper_id=?",
+                    (paper_id,),
+                ).fetchone()
+                if _paper_identity_conflicts(existing_paper, {
+                    "project_id": project_id,
+                    "run_id": _text(raw.get("run_id")),
+                    "paper_type": _text(raw.get("paper_type")) or "arxiv_draft",
+                }):
+                    raise IdempotencyConflict(f"paper id {paper_id!r} was reused with different paper identity")
                 conn.execute(
                     """INSERT OR REPLACE INTO papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -2898,11 +2921,7 @@ class ControlPlaneStore:
                 "SELECT project_id, run_id, paper_type FROM papers WHERE paper_id=?",
                 (paper.paper_id,),
             ).fetchone()
-            if existing and (
-                _text(existing["project_id"]) != _text(paper.project_id)
-                or (_text(existing["run_id"]) and _text(paper.run_id) and _text(existing["run_id"]) != _text(paper.run_id))
-                or _text(existing["paper_type"]) != _text(paper.paper_type)
-            ):
+            if _paper_identity_conflicts(existing, paper):
                 raise IdempotencyConflict(f"paper id {paper.paper_id!r} was reused with different paper identity")
             conn.execute(
                 """INSERT OR REPLACE INTO papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
