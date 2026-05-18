@@ -51,11 +51,13 @@ GITHUB_REPO_METADATA = [
 SECRET_LIKE_TOKEN = re.compile(
     r"("
     r"sk-proj-[A-Za-z0-9_-]{20,}"
+    r"|sk-ant-api03-[A-Za-z0-9_-]{40,}"
     r"|sk-[A-Za-z0-9]{24,}"
     r"|syn_[A-Za-z0-9]{20,}"
+    r"|hf_[A-Za-z0-9]{20,}"
     r"|gh[pousr]_[A-Za-z0-9_]{20,}"
-    r"|Authorization:\s*Bearer\s*(?:sk-proj-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{24,}|syn_[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9_]{20,})"
-    r"|(?:OPENAI|ANTHROPIC|SYNTHETIC|GITHUB|HF|HUGGINGFACE|SUPABASE)[_-]?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[=:]\s*(?:sk-proj-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{24,}|syn_[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9_]{20,})"
+    r"|Authorization:\s*Bearer\s*(?:sk-proj-[A-Za-z0-9_-]{20,}|sk-ant-api03-[A-Za-z0-9_-]{40,}|sk-[A-Za-z0-9]{24,}|syn_[A-Za-z0-9]{20,}|hf_[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9_]{20,})"
+    r"|(?:OPENAI|ANTHROPIC|SYNTHETIC|GITHUB|HF|HUGGINGFACE|SUPABASE)[_-]?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[=:]\s*(?:sk-proj-[A-Za-z0-9_-]{20,}|sk-ant-api03-[A-Za-z0-9_-]{40,}|sk-[A-Za-z0-9]{24,}|syn_[A-Za-z0-9]{20,}|hf_[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9_]{20,})"
     r")"
 )
 PUBLIC_SECRET_SCAN_EXTENSIONS = {".html", ".js", ".json", ".jsonl", ".md", ".mdx", ".svg", ".txt", ".csv"}

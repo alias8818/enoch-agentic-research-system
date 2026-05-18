@@ -152,6 +152,23 @@ def test_public_secret_token_check_rejects_high_confidence_tokens(tmp_path) -> N
     assert failures == [f"secret-like token in public release surface {paper}:1"]
 
 
+def test_public_secret_token_check_rejects_hf_and_anthropic_tokens(tmp_path) -> None:
+    paper = tmp_path / "paper.md"
+    paper.write_text(
+        "HF_TOKEN=hf_abcdefghijklmnopqrstuvwxyz1234567890\n"
+        "ANTHROPIC_API_KEY=sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqrstuvwxyz1234567890\n",
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_public_secret_tokens([paper], failures)
+
+    assert failures == [
+        f"secret-like token in public release surface {paper}:1",
+        f"secret-like token in public release surface {paper}:2",
+    ]
+
+
 def test_public_secret_token_check_ignores_redacted_tokens_and_slugs(tmp_path) -> None:
     paper = tmp_path / "paper.md"
     paper.write_text(
