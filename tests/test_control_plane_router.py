@@ -4402,6 +4402,57 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("paper_review.draft_rewritten", event_types)
             self.assertIn("paper_review.finalization_package_prepared", event_types)
 
+    def test_paper_review_rewrite_replay_does_not_repeat_evidence_sync(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            config.paper_evidence_sync_enabled = True
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            paper_id = "router-rewrite-replay:run-1:arxiv_draft"
+            project_id = "router-rewrite-replay"
+            evidence_dir = config.expanded_project_root / project_id
+            evidence_dir.mkdir(parents=True, exist_ok=True)
+            (evidence_dir / "run_notes.md").write_text("Replay rewrite has source evidence.\n", encoding="utf-8")
+            (evidence_dir / ".enoch").mkdir()
+            (evidence_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+            audit_path = Path(tmp) / "audit.json"
+            audit_path.write_text(json.dumps({"papers": [{"paper_id": paper_id, "ready": True}]}), encoding="utf-8")
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "router-rewrite-replay-import",
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": project_id,
+                    "project_name": "Router Rewrite Replay",
+                    "project_dir": str(evidence_dir),
+                    "run_id": "run-1",
+                    "paper_status": "publication_draft",
+                    "draft_markdown_path": "papers/run-1/final_paper.md",
+                    "draft_latex_path": "papers/run-1/final_paper.tex",
+                    "evidence_bundle_path": "papers/run-1/evidence.json",
+                    "claim_ledger_path": "papers/run-1/claims.json",
+                    "manifest_path": "papers/run-1/manifest.json",
+                }],
+            })
+            client.post("/control/api/paper-reviews/backfill", headers=headers, json={"idempotency_key": "router-rewrite-replay-backfill", "source_audit_path": str(audit_path), "dry_run": False})
+
+            with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", return_value={"enabled": True, "synced": True, "reason": "test", "local_evidence_present": True}) as sync:
+                first = client.post(f"/control/api/paper-reviews/{paper_id}/rewrite-draft", headers=headers, json={
+                    "idempotency_key": "router-rewrite-replay-1",
+                    "requested_by": "alice",
+                    "force": True,
+                })
+                replay = client.post(f"/control/api/paper-reviews/{paper_id}/rewrite-draft", headers=headers, json={
+                    "idempotency_key": "router-rewrite-replay-1",
+                    "requested_by": "alice",
+                    "force": True,
+                })
+
+            self.assertEqual(first.status_code, 200)
+            self.assertTrue(first.json()["inserted_event"])
+            self.assertEqual(replay.status_code, 200)
+            self.assertFalse(replay.json()["inserted_event"])
+            self.assertEqual(sync.call_count, 1)
+
     def test_paper_review_rewrite_accepts_supabase_datetime_paper_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _config(tmp)

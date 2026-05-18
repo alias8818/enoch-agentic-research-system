@@ -2682,20 +2682,6 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             except (OSError, ValueError):
                 use_current_dir = False
         artifact_root = (current_project_dir.resolve() if use_current_dir else (configured_root / project_id).resolve())
-        artifact_root.mkdir(parents=True, exist_ok=True)
-        source_project_dir = str((project or {}).get("project_dir") or "")
-        evidence_sync = _sync_remote_project_evidence(config, project_id=project_id, artifact_root=artifact_root, source_project_dir=source_project_dir if source_project_dir and not use_current_dir else "", source_run_id=str(paper.get("run_id") or ""))
-        if config.paper_evidence_sync_enabled and not _local_paper_evidence_present(artifact_root):
-            _record_paper_evidence_blocked(
-                entity_type="paper",
-                entity_id=paper_id,
-                project_id=project_id,
-                run_id=str(paper.get("run_id") or ""),
-                paper_id=paper_id,
-                artifact_root=str(artifact_root),
-                evidence_sync=evidence_sync,
-            )
-            raise HTTPException(status_code=424, detail={"message": "paper rewrite requires synced project evidence", "evidence_sync": evidence_sync})
         existing_event_reader = getattr(store, "event_by_idempotency_key", None)
         if callable(existing_event_reader):
             existing_event = existing_event_reader(payload.idempotency_key)
@@ -2713,6 +2699,20 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     writer={"idempotent_replay": True},
                     artifact_root=str(artifact_root),
                 )
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        source_project_dir = str((project or {}).get("project_dir") or "")
+        evidence_sync = _sync_remote_project_evidence(config, project_id=project_id, artifact_root=artifact_root, source_project_dir=source_project_dir if source_project_dir and not use_current_dir else "", source_run_id=str(paper.get("run_id") or ""))
+        if config.paper_evidence_sync_enabled and not _local_paper_evidence_present(artifact_root):
+            _record_paper_evidence_blocked(
+                entity_type="paper",
+                entity_id=paper_id,
+                project_id=project_id,
+                run_id=str(paper.get("run_id") or ""),
+                paper_id=paper_id,
+                artifact_root=str(artifact_root),
+                evidence_sync=evidence_sync,
+            )
+            raise HTTPException(status_code=424, detail={"message": "paper rewrite requires synced project evidence", "evidence_sync": evidence_sync})
         original_record = _paper_record_from_row(paper)
         original_project_dir = str((project or {}).get("project_dir") or paper.get("project_dir") or "")
         record = original_record.model_copy(update={"paper_status": PaperStatus.PUBLICATION_DRAFT, "updated_at": utc_now()})
