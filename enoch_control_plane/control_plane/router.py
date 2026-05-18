@@ -541,6 +541,9 @@ def _sync_worker_http_evidence(
         for file in result.body.get("files", []):
             rel = str(file.get("path") or "").strip()
             content = str(file.get("content") or "")
+            if not content:
+                skipped.append({"path": rel, "status": "empty_content", "error": "worker returned empty evidence content"})
+                continue
             try:
                 target = (artifact_root / rel).resolve()
                 target.relative_to(artifact_root)

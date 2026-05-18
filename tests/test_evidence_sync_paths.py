@@ -392,6 +392,31 @@ def test_sync_worker_http_evidence_reports_unusable_artifact_root(tmp_path) -> N
     assert result["reason"] == "artifact_root_unusable"
 
 
+def test_sync_worker_http_evidence_preserves_existing_file_when_worker_returns_empty_content(tmp_path) -> None:
+    from enoch_control_plane.control_plane.router import _sync_worker_http_evidence
+    from enoch_control_plane.control_plane.worker_adapter import HttpResult
+
+    config = _config(tmp_path)
+    config.worker_wake_gate_bearer_token = "worker-token"
+    config.worker_wake_gate_url = "http://worker"
+    artifact_root = tmp_path / "artifact"
+    artifact_root.mkdir()
+    target = artifact_root / "run_notes.md"
+    target.write_text("existing measured evidence", encoding="utf-8")
+
+    def fake_post_worker_json(base_url, path, token, payload):  # noqa: ANN001 - matches patched function
+        del base_url, path, token, payload
+        return HttpResult(ok=True, status=200, body={"files": [{"path": "run_notes.md", "content": ""}]})
+
+    with patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post_worker_json):
+        result = _sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+
+    assert result["ok"] is False
+    assert result["reason"] == "worker_read_failed"
+    assert any(item["status"] == "empty_content" for item in result["skipped"])
+    assert target.read_text(encoding="utf-8") == "existing measured evidence"
+
+
 def test_sync_worker_http_evidence_preserves_existing_file_when_write_fails(tmp_path, monkeypatch) -> None:
     config = _config(tmp_path)
     config.worker_wake_gate_bearer_token = "worker-token"
