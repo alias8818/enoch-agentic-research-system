@@ -2646,7 +2646,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "current_run_id": row.get("current_run_id") or "",
             "current_session_id": row.get("current_session_id") or "",
             "machine_target": row.get("machine_target") or "",
-            "manual_review_required": bool(row.get("manual_review_required")),
+            "manual_review_required": _bool(row.get("manual_review_required")),
             "blocked_reason": row.get("blocked_reason") or "",
             "last_result_summary": row.get("last_result_summary") or "",
             "notion_page_url": row.get("notion_page_url") or "",

@@ -306,6 +306,22 @@ def test_active_queue_summary_ignores_stale_related_paper_projection() -> None:
     assert summary["operator_detail_stage"] == "running"
     assert summary["operator_next_step"] == "Wait for worker callback or gate completion."
 
+
+def test_queue_summary_normalizes_manual_review_flag() -> None:
+    from enoch_control_plane.control_plane.read_models import summarize_queue_row
+
+    summary = summarize_queue_row({
+        "project_id": "queued-false-review",
+        "project_name": "Queued False Review",
+        "status": "queued",
+        "manual_review_required": "false",
+    })
+
+    assert summary["manual_review_required"] is False
+    assert summary["operator_lane"] == OperatorLane.READY_QUEUE.value
+    assert summary["operator_attention"] is False
+
+
 class _OverviewStore:
     def __init__(self, queue_rows: list[dict[str, object]], paper_rows: list[dict[str, object]]) -> None:
         self._queue_rows = queue_rows

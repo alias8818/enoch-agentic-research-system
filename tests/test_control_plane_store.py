@@ -109,6 +109,22 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertTrue(flags.queue_paused)
             self.assertTrue(flags.maintenance_mode)
 
+    def test_next_dispatch_candidate_normalizes_status_and_review_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.resume(resumed_by="test", maintenance_mode=False)
+            store.queue_rows = lambda: [  # type: ignore[method-assign]
+                {
+                    "project_id": "queued-string-false",
+                    "status": "Queued",
+                    "manual_review_required": "false",
+                    "dispatch_priority": 1,
+                    "selection_rank": 1,
+                }
+            ]
+
+            self.assertEqual(store.next_dispatch_candidate()["project_id"], "queued-string-false")
+
     def test_next_followup_candidate_requires_concrete_evidence_list(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

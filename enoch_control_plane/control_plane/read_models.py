@@ -421,7 +421,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     paper_status = _normal(row.get("paper_status") or row.get("related_paper_status"))
     review_status = _normal(row.get("review_status") or row.get("related_review_status"))
     has_paper = bool(_text(row.get("paper_id") or row.get("related_paper_id")) or paper_status)
-    manual_review = bool(row.get("manual_review_required"))
+    manual_review = _truthy(row.get("manual_review_required"))
 
     if queue_status == QueueStatus.CANCELED.value and not manual_review:
         return _stage(
@@ -701,7 +701,7 @@ def summarize_queue_row(row: dict[str, Any]) -> dict[str, Any]:
         "current_session_id": row.get("current_session_id", ""),
         "last_run_state": row.get("last_run_state", ""),
         "next_action_hint": row.get("next_action_hint", ""),
-        "manual_review_required": bool(row.get("manual_review_required")),
+        "manual_review_required": _truthy(row.get("manual_review_required")),
         "blocked_reason": row.get("blocked_reason", ""),
         "decision_gate_state": row.get("decision_gate_state", ""),
         "decision_summary": row.get("decision_summary", ""),

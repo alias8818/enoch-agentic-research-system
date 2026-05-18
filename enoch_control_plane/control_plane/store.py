@@ -2163,7 +2163,7 @@ class ControlPlaneStore:
             return None
         candidates = [
             row for row in self.queue_rows()
-            if row.get("status") == QueueStatus.QUEUED.value and not row.get("manual_review_required")
+            if _normal(row.get("status")) == QueueStatus.QUEUED.value and not _bool(row.get("manual_review_required"))
         ]
         candidates.sort(key=lambda row: (_int(row.get("dispatch_priority"), 9999), _int(row.get("selection_rank"), 9999), _text(row.get("updated_at"))))
         return candidates[0] if candidates else None
@@ -2620,7 +2620,7 @@ class ControlPlaneStore:
                     "Enoch Current Session ID": row.get("current_session_id") or "",
                     "Enoch Last Result Summary": row.get("last_result_summary") or "",
                     "Enoch Last Error": row.get("last_error") or "",
-                    "Enoch Manual Review Required": "__YES__" if row.get("manual_review_required") else "__NO__",
+                    "Enoch Manual Review Required": "__YES__" if _bool(row.get("manual_review_required")) else "__NO__",
                     "Enoch Dispatch Priority": row.get("dispatch_priority") or 0,
                     "Enoch Selection Rank": row.get("selection_rank") or 0,
                     "Enoch Paper ID": row.get("paper_id") or "",
@@ -2657,7 +2657,7 @@ class ControlPlaneStore:
                 "current_run_id": row.get("current_run_id") or "",
                 "current_session_id": row.get("current_session_id") or "",
                 "machine_target": row.get("machine_target") or "",
-                "manual_review_required": bool(row.get("manual_review_required")),
+                "manual_review_required": _bool(row.get("manual_review_required")),
                 "blocked_reason": row.get("blocked_reason") or "",
                 "last_result_summary": row.get("last_result_summary") or "",
                 "notion_page_url": row.get("notion_page_url") or "",

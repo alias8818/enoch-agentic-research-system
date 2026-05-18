@@ -157,6 +157,13 @@ class OperatorStatusTests(unittest.TestCase):
                 self.assertEqual(translated["operator_stage"], lane)
                 self.assertEqual(translated["operator_detail_stage"], detail_stage)
 
+    def test_operator_stage_normalizes_boolean_flags(self) -> None:
+        translated = operator_stage_for_record({"status": "queued", "manual_review_required": "false"})
+
+        self.assertEqual(translated["operator_stage"], "ready_queue")
+        self.assertEqual(translated["operator_detail_stage"], "idea_queued")
+        self.assertIs(translated["operator_attention"], False)
+
 
     def test_row_age_seconds_handles_naive_database_timestamps(self) -> None:
         age = row_age_seconds({"updated_at": "2026-05-17 13:25:57.966354"})
