@@ -206,10 +206,10 @@ def test_file_discovery_helpers_treat_access_failures_as_empty(tmp_path: Path, m
             raise PermissionError("simulated results access failure")
         return real_exists(path)
 
-    def blocked_stat(path: Path):  # noqa: ANN202 - pathlib-compatible test double
+    def blocked_stat(path: Path, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202 - pathlib-compatible test double
         if path == src_dir / "main.py":
             raise PermissionError("simulated file stat failure")
-        return real_stat(path)
+        return real_stat(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "exists", blocked_exists)
     monkeypatch.setattr(Path, "stat", blocked_stat)
