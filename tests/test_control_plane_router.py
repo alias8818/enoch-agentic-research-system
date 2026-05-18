@@ -2967,6 +2967,43 @@ class ControlPlaneRouterTests(unittest.TestCase):
             status = client.get("/control/api/status", headers=headers).json()
             self.assertEqual(status["active_items"], [])
 
+    def test_worker_callback_rejects_supabase_readonly_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "control_plane_store_backend": "supabase_readonly",
+                    "supabase_database_url": "postgres://example",
+                }
+            )
+
+            class FakeReadOnlyStore:
+                callback_attempted = False
+
+                def record_worker_callback(self, *_args, **_kwargs):  # noqa: ANN001 - must not be called
+                    self.callback_attempted = True
+                    raise AssertionError("read-only callback must reject before mutation")
+
+            fake_store = FakeReadOnlyStore()
+            with patch("enoch_control_plane.control_plane.router.SupabaseReadOnlyControlPlaneStore", return_value=fake_store):
+                client = _client_with_config(config)
+                response = client.post("/control/api/worker-callback", headers={"Authorization": f"Bearer {TOKEN}"}, json={
+                    "event_type": "wake_ready",
+                    "run_id": "run-readonly-callback",
+                    "session_id": "session-readonly-callback",
+                    "project_id": "readonly-callback",
+                    "project_name": "Readonly Callback",
+                    "source_event": "session-idle",
+                    "gate_state": "wake_ready",
+                    "process_tracking": {"root_pid": None, "process_group_id": None, "processes": [], "live_process_count": 0},
+                    "telemetry": {},
+                    "reason": "idle_sustain_met",
+                    "idempotency_key": "run-readonly-callback:wake_ready:test",
+                })
+
+            assert response.status_code == 501
+            assert "writable control-plane store" in response.text
+            assert fake_store.callback_attempted is False
+
     def test_worker_callback_idempotency_replay_and_conflict_are_side_effect_safe(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client_with_config(_live_config(tmp))

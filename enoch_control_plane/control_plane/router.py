@@ -1973,6 +1973,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/api/worker-callback")
     def worker_callback(callback: GateCallback, authorization: str | None = Header(default=None)) -> dict[str, Any]:
         authorize(authorization)
+        if config.control_plane_store_backend == "supabase_readonly":
+            raise HTTPException(
+                status_code=501,
+                detail="worker callback recording requires a writable control-plane store; supabase_readonly is read-only",
+            )
         try:
             event_id, inserted, row = store.record_worker_callback(callback)
         except IdempotencyConflict as exc:
