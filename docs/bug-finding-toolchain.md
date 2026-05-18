@@ -91,8 +91,7 @@ property-based testing work:
      --generate-provider-proposal \
      --provider-base-url https://synthetic.int.exe.xyz \
      --openai-base-url https://synthetic.int.exe.xyz/openai/v1 \
-     --provider-no-auth \
-     --autonomous-loop
+     --provider-no-auth
    ```
 
 The execution step writes a markdown report under `artifacts/agentic-pbt/`.

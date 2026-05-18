@@ -282,6 +282,35 @@ def test_agentic_property_testing_provider_budget_failure_fails_closed(monkeypat
     assert "human" not in json.dumps(payload).lower()
 
 
+
+
+def test_agentic_property_testing_provider_autonomous_loop_requires_review(monkeypatch, tmp_path: Path, capsys) -> None:
+    target = tmp_path / "sample.py"
+    target.write_text("def identity(value):\n    return value\n", encoding="utf-8")
+
+    monkeypatch.setattr(agentic_property_testing, "synthetic_budget_preflight", lambda **_kwargs: {"ok": True})
+    monkeypatch.setattr(
+        agentic_property_testing,
+        "generate_provider_proposal",
+        lambda **_kwargs: {"ok": True, "proposal_file": str(tmp_path / "provider-proposal.json"), "model": "m", "response_id": "r"},
+    )
+
+    code = agentic_property_testing.main([
+        "--repo-root",
+        str(tmp_path),
+        "--target",
+        str(target),
+        "--generate-provider-proposal",
+        "--provider-no-auth",
+        "--autonomous-loop",
+    ])
+
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "provider_proposal_requires_review"
+    assert payload["agentic_terminal"] is True
+    assert payload["proposal_file"].endswith("provider-proposal.json")
+
 def test_agentic_property_testing_provider_generation_failure_fails_closed(monkeypatch, tmp_path: Path, capsys) -> None:
     target = tmp_path / "sample.py"
     target.write_text("def identity(value):\n    return value\n", encoding="utf-8")
