@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
+import sys
 
+import pytest
+
+from enoch_control_plane.enoch_core.store import IdempotencyConflict
 from scripts import research_facility_llm_review
 
 
@@ -113,3 +118,52 @@ def test_llm_review_cli_exposes_stored_decision_backfill_flags():
     assert args.apply is True
     assert args.apply_stored_decisions_only is True
     assert args.stored_decision_limit == 25
+
+
+def test_llm_review_record_conflicts_on_reused_event_key_with_different_identity(monkeypatch):
+    decision = {"candidate_id": "candidate-1", "decision": "keep_for_later", "confidence": "medium", "reason": "later", "rewrite_notes": ""}
+    batch = [{"candidate": {"candidate_id": "candidate-1"}, "janitor_action": {}}]
+
+    class Cursor:
+        rowcount = 1
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("set search_path"):
+                return self
+            if normalized.startswith("select event_id"):
+                self._fetchone = {
+                    "event_id": 12,
+                    "event_type": "research.janitor.other",
+                    "entity_type": "research_candidate",
+                    "entity_id": "candidate-1",
+                    "payload_hash": "same-hash-not-enough",
+                }
+                return self
+            if normalized.startswith("insert into control_events"):
+                raise AssertionError("conflicting replay must not insert")
+            if normalized.startswith("update research_candidates"):
+                return self
+            if normalized.startswith("insert into research_admissions"):
+                return self
+            raise AssertionError(normalized)
+        def fetchone(self):
+            return getattr(self, "_fetchone", None)
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()))
+
+    with pytest.raises(IdempotencyConflict):
+        research_facility_llm_review.record_review(
+            "postgres://example",
+            decisions=[decision],
+            batch=batch,
+            requested_by="unit",
+            provider_model="model",
+            dry_run=False,
+        )
