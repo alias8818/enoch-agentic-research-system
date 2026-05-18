@@ -4240,6 +4240,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/worker/preflight", response_model=WorkerPreflightResponse)
     def worker_preflight(payload: WorkerPreflightRequest, authorization: str | None = Header(default=None)) -> WorkerPreflightResponse:
         authorize(authorization)
+        if not config.worker_wake_gate_url:
+            raise HTTPException(status_code=503, detail="worker preflight requires configured worker_wake_gate_url")
+        payload = payload.model_copy(
+            update={
+                "wake_gate_url": config.worker_wake_gate_url,
+                "bearer_token": config.worker_wake_gate_bearer_token,
+            }
+        )
         response = run_worker_preflight(payload, store.flags())
         _record_preflight_observations(response)
         return response
