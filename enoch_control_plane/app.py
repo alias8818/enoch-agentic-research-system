@@ -914,6 +914,13 @@ def _write_text(path: Path, text: str, overwrite: bool) -> None:
             pass
 
 
+def _checked_exists(path: Path, *, label: str, status_code: int = 500) -> bool:
+    try:
+        return path.exists()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=status_code, detail=f"{label} could not be inspected: {path}") from exc
+
+
 def _normalize_prepare_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(metadata or {})
     try:
@@ -926,13 +933,15 @@ def _normalize_prepare_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
 
 def _load_project_metadata(project_dir: Path) -> dict[str, Any]:
     path = project_dir / ".enoch" / "project.json"
-    if not path.exists():
+    if not _checked_exists(path, label="project metadata"):
         legacy_path = project_dir / ".omx" / "project.json"
-        if not legacy_path.exists():
+        if not _checked_exists(legacy_path, label="project metadata"):
             return {}
         path = legacy_path
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(status_code=500, detail=f"project metadata could not be read: {path}") from exc
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=500, detail=f"invalid project metadata JSON: {path}") from exc
     if not isinstance(payload, dict):
@@ -1037,6 +1046,8 @@ def _safe_read_json(path: Path) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise ValueError(f"decision file not found: {path}") from exc
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(f"decision file could not be read: {path}") from exc
     except json.JSONDecodeError as exc:
         raise ValueError(f"invalid JSON in decision file: {path}") from exc
 
@@ -1149,7 +1160,11 @@ def _load_project_decision(
     include_summary_fallback: bool = True,
 ) -> tuple[ProjectDecision | None, str | None]:
     for explicit_path in (project_dir / ".enoch" / "project_decision.json", project_dir / ".omx" / "project_decision.json"):
-        if explicit_path.exists():
+        try:
+            explicit_exists = explicit_path.exists()
+        except (OSError, RuntimeError, ValueError):
+            return None, f"project decision file could not be inspected: {explicit_path}"
+        if explicit_exists:
             try:
                 return _coerce_project_decision(_safe_read_json(explicit_path), "codex_turn", explicit_path), None
             except ValueError as exc:
@@ -1158,7 +1173,10 @@ def _load_project_decision(
     if not include_summary_fallback:
         return None, None
 
-    summary_candidates = sorted(project_dir.glob("results/**/project_decision_summary/summary.json"))
+    try:
+        summary_candidates = sorted(project_dir.glob("results/**/project_decision_summary/summary.json"))
+    except (OSError, RuntimeError, ValueError) as exc:
+        return None, f"project decision summary files could not be listed: {exc}"
     for candidate in summary_candidates:
         try:
             return _project_decision_from_summary(_safe_read_json(candidate), candidate), None

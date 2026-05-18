@@ -94,6 +94,46 @@ def test_project_artifact_relative_paths_reject_escape(tmp_path: Path) -> None:
             appmod._resolve_project_relative_path(project, bad)
 
 
+
+def test_project_metadata_access_failure_is_controlled_http_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = tmp_path / "project-a"
+    enoch_metadata = project / ".enoch" / "project.json"
+    enoch_metadata.parent.mkdir(parents=True)
+    enoch_metadata.write_text(json.dumps({"metadata": {"workload_class": "training"}}), encoding="utf-8")
+    real_exists = Path.exists
+
+    def blocked_exists(path: Path) -> bool:
+        if path == enoch_metadata:
+            raise PermissionError("simulated metadata access failure")
+        return real_exists(path)
+
+    monkeypatch.setattr(Path, "exists", blocked_exists)
+
+    with pytest.raises(HTTPException) as exc:
+        appmod._load_project_metadata(project)
+    assert exc.value.status_code == 500
+    assert "project metadata" in str(exc.value.detail)
+
+
+def test_project_decision_access_failure_returns_error_not_raw_exception(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = tmp_path / "p"
+    decision_path = project / ".enoch" / "project_decision.json"
+    decision_path.parent.mkdir(parents=True)
+    decision_path.write_text(json.dumps({"project_decision": "finalize_negative"}), encoding="utf-8")
+    real_exists = Path.exists
+
+    def blocked_exists(path: Path) -> bool:
+        if path == decision_path:
+            raise PermissionError("simulated decision access failure")
+        return real_exists(path)
+
+    monkeypatch.setattr(Path, "exists", blocked_exists)
+
+    decision, error = appmod._load_project_decision(project)
+    assert decision is None
+    assert error is not None
+    assert "project decision" in error
+
 def test_project_decision_loading_native_legacy_and_summary(tmp_path: Path) -> None:
     project = tmp_path / "p"
     (project / ".enoch").mkdir(parents=True)
