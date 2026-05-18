@@ -271,6 +271,19 @@ def test_sync_remote_evidence_kills_started_ssh_on_timeout(tmp_path) -> None:
     assert result["reason"] == "timeout"
     assert ssh_proc.killed is True
 
+def test_sync_remote_evidence_reports_unusable_artifact_root_before_ssh(tmp_path) -> None:
+    config = _config(tmp_path)
+    artifact_root = tmp_path / "artifact"
+    artifact_root.write_text("not a directory", encoding="utf-8")
+
+    with patch("enoch_control_plane.control_plane.router._sync_worker_http_evidence", return_value={"ok": False, "reason": "artifact_root_unusable"}):
+        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", side_effect=AssertionError("ssh must not run for unusable artifact root")):
+            result = _sync_remote_project_evidence(config, project_id="project", artifact_root=artifact_root)
+
+    assert result["enabled"] is True
+    assert result["synced"] is False
+    assert result["reason"] == "artifact_root_unusable"
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

@@ -769,7 +769,21 @@ def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifa
         config.paper_evidence_sync_ssh_host,
         remote_cmd,
     ]
-    artifact_root.mkdir(parents=True, exist_ok=True)
+    try:
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        if not artifact_root.is_dir():
+            raise NotADirectoryError(str(artifact_root))
+    except (OSError, RuntimeError, ValueError) as exc:
+        return {
+            "enabled": True,
+            "synced": _local_paper_evidence_present(artifact_root),
+            "local_evidence_present": _local_paper_evidence_present(artifact_root),
+            "reason": "artifact_root_unusable",
+            "remote_dir": remote_dir,
+            "error": f"{type(exc).__name__}: {exc}",
+            "http_sync": http_sync,
+            "method": "worker_http+ssh",
+        }
     known_hosts.parent.mkdir(parents=True, exist_ok=True)
     ssh_proc: subprocess.Popen | None = None
     try:
