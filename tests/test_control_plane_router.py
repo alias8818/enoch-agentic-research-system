@@ -3091,6 +3091,35 @@ class ControlPlaneRouterTests(unittest.TestCase):
             assert "writable control-plane store" in response.text
             assert fake_store.append_attempted is False
 
+    def test_followup_launch_live_rejects_supabase_readonly_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "control_plane_store_backend": "supabase_readonly",
+                    "supabase_database_url": "postgres://example",
+                }
+            )
+
+            class FakeReadOnlyStore:
+                launch_attempted = False
+
+                def launch_followup_candidate(self, *_args, **_kwargs):  # noqa: ANN001 - must not be called
+                    self.launch_attempted = True
+                    raise AssertionError("read-only follow-up launch must reject before mutation")
+
+            fake_store = FakeReadOnlyStore()
+            with patch("enoch_control_plane.control_plane.router.SupabaseReadOnlyControlPlaneStore", return_value=fake_store):
+                client = _client_with_config(config)
+                response = client.post(
+                    "/control/api/v1/followups/launch-next",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    json={"dry_run": False, "requested_by": "test"},
+                )
+
+            assert response.status_code == 501
+            assert "writable control-plane store" in response.text
+            assert fake_store.launch_attempted is False
+
     def test_publication_claim_rejects_supabase_readonly_before_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp).model_copy(

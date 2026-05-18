@@ -2101,6 +2101,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/api/v1/followups/launch-next", response_model=FollowupLaunchResponse)
     def launch_next_followup(payload: FollowupLaunchRequest, authorization: str | None = Header(default=None)) -> FollowupLaunchResponse:
         authorize(authorization)
+        if not payload.dry_run:
+            _require_writable_store("follow-up launch")
         launcher = getattr(store, "launch_followup_candidate", None)
         if not callable(launcher):
             return FollowupLaunchResponse(ok=True, action="noop", reason="store does not support follow-up branching")
