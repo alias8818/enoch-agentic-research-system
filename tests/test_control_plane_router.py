@@ -4982,6 +4982,61 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(response.status_code, 400)
             self.assertNotEqual(response.status_code, 500)
 
+    def test_paper_rewrite_rejects_unreadable_snapshot_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            paper_id = "router-unreadable-snapshot:run-1:arxiv_draft"
+            project_dir = config.expanded_project_root / "router-unreadable-snapshot"
+            artifact_paths = {
+                "draft_markdown_path": "paper.md",
+                "draft_latex_path": "paper.tex",
+                "evidence_bundle_path": "evidence.json",
+                "claim_ledger_path": "claims.json",
+                "manifest_path": "manifest.json",
+            }
+            _write_publication_artifacts(
+                project_dir,
+                evidence_path=artifact_paths["evidence_bundle_path"],
+                claim_path=artifact_paths["claim_ledger_path"],
+                manifest_path=artifact_paths["manifest_path"],
+            )
+            (project_dir / artifact_paths["draft_latex_path"]).write_text("latex", encoding="utf-8")
+            original_markdown = (project_dir / artifact_paths["draft_markdown_path"]).read_text(encoding="utf-8")
+            audit_path = Path(tmp) / "audit.json"
+            audit_path.write_text(json.dumps({"papers": [{"paper_id": paper_id, "ready": True}]}), encoding="utf-8")
+            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "router-unreadable-snapshot-import",
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": "router-unreadable-snapshot",
+                    "project_name": "Router Unreadable Snapshot",
+                    "project_dir": str(project_dir),
+                    "run_id": "run-1",
+                    "paper_status": "publication_draft",
+                    **artifact_paths,
+                }],
+            })
+            self.assertEqual(imported.status_code, 200)
+            backfill = client.post("/control/api/paper-reviews/backfill", headers=headers, json={
+                "idempotency_key": "router-unreadable-snapshot-backfill",
+                "source_audit_path": str(audit_path),
+                "dry_run": False,
+            })
+            self.assertEqual(backfill.status_code, 200)
+
+            with patch("pathlib.Path.read_bytes", side_effect=PermissionError("blocked snapshot read")):
+                response = client.post(f"/control/api/paper-reviews/{paper_id}/rewrite-draft", headers=headers, json={
+                    "idempotency_key": "router-unreadable-snapshot-rewrite",
+                    "requested_by": "alice",
+                    "force": True,
+                })
+
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("snapshot", response.text.lower())
+            self.assertEqual((project_dir / artifact_paths["draft_markdown_path"]).read_text(encoding="utf-8"), original_markdown)
+
 
     def test_paper_review_rewrite_event_failure_restores_state_and_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

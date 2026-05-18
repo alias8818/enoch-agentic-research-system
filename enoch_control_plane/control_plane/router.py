@@ -2787,9 +2787,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             try:
                 target = (artifact_root / rel_path).resolve()
                 target.relative_to(artifact_root)
-            except (OSError, ValueError):
+            except (OSError, RuntimeError, ValueError):
                 continue
-            artifact_snapshots[target] = (target.exists(), target.read_bytes() if target.exists() and target.is_file() else b"")
+            try:
+                existed = target.exists()
+                content = target.read_bytes() if existed and target.is_file() else b""
+            except OSError as exc:
+                raise HTTPException(status_code=400, detail=f"paper artifact snapshot could not be read: {rel_path}") from exc
+            artifact_snapshots[target] = (existed, content)
         def restore_rewrite_side_effects() -> None:
             for path, (existed, content) in artifact_snapshots.items():
                 _restore_or_remove_path(path, existed=existed, content=content)
