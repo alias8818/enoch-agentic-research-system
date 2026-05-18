@@ -1,10 +1,26 @@
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 from enoch_control_plane.control_plane import supabase_store as s
-from enoch_control_plane.control_plane.models import ControlFlags, ImportSnapshotRequest, PaperRecord, PaperStatus
+from enoch_control_plane.control_plane.models import (
+    ControlFlags,
+    ImportSnapshotRequest,
+    PaperRecord,
+    PaperStatus,
+)
 from enoch_control_plane.control_plane.store import QueueStatus
+
+
+def test_record_project_decision_gate_is_decided_at_guarded() -> None:
+    source = inspect.getsource(s.SupabaseControlPlaneStore.record_project_decision_gate)
+
+    assert (
+        "where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at"
+        in source
+    )
 
 
 def test_decision_gate_state_and_summary_variants() -> None:

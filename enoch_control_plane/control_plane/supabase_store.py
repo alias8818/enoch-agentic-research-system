@@ -3439,6 +3439,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                       followup_stop_condition=excluded.followup_stop_condition,
                       followup_depth=excluded.followup_depth,
                       updated_at=now()
+                    where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at
                     """,
                     (
                         project_id,
