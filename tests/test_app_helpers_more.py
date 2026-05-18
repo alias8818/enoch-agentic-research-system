@@ -149,6 +149,27 @@ def test_file_discovery_helpers_ignore_internal_state(tmp_path: Path) -> None:
     assert appmod._latest_session(project).session_id == "new"
 
 
+def test_file_read_helpers_treat_access_failures_as_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = tmp_path / "project-a"
+    log_dir = project / ".enoch" / "logs"
+    log_dir.mkdir(parents=True)
+    run_notes = project / "run_notes.md"
+    session_history = log_dir / "session-history.jsonl"
+    run_notes.write_text("notes", encoding="utf-8")
+    session_history.write_text(json.dumps({"session_id": "new", "run_id": "run", "timestamp": "2026-01-02T00:00:00Z"}) + "\n")
+    real_exists = Path.exists
+
+    def blocked_exists(path: Path) -> bool:
+        if path in {run_notes, session_history}:
+            raise PermissionError("simulated filesystem access failure")
+        return real_exists(path)
+
+    monkeypatch.setattr(Path, "exists", blocked_exists)
+
+    assert appmod._tail_lines(run_notes) == []
+    assert appmod._latest_session(project) is None
+
+
 def test_activity_and_event_helpers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert appmod._activity_from_processes([], "idle") == "idle"
     assert appmod._activity_from_processes([ProcessInfo(pid=1, cmdline="tail -f log"), ProcessInfo(pid=2, cmdline="python train.py")], "running") == "running python train.py"
@@ -166,6 +187,31 @@ def test_activity_and_event_helpers(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     trimmed = appmod._trim_event(large, max_chars=200)
     assert trimmed["truncated"] is True
     assert "raw_preview" in trimmed
+
+
+def test_snapshot_and_event_reads_treat_access_failures_as_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    state = tmp_path / "state"
+    state.mkdir()
+    queue_snapshot = state / "queue_snapshot.json"
+    paper_snapshot = state / "paper_snapshot.json"
+    events_log = state / "events.jsonl"
+    queue_snapshot.write_text("{}", encoding="utf-8")
+    paper_snapshot.write_text("{}", encoding="utf-8")
+    events_log.write_text('{"kind":"event"}\n', encoding="utf-8")
+    monkeypatch.setattr(appmod.config, "state_dir", str(state))
+    monkeypatch.setattr(appmod.store, "events_log", events_log)
+    real_exists = Path.exists
+
+    def blocked_exists(path: Path) -> bool:
+        if path in {queue_snapshot, paper_snapshot, events_log}:
+            raise PermissionError("simulated snapshot access failure")
+        return real_exists(path)
+
+    monkeypatch.setattr(Path, "exists", blocked_exists)
+
+    assert appmod._read_queue_snapshot() == {}
+    assert appmod._read_paper_snapshot() == {}
+    assert appmod._read_recent_events(limit=5) == []
 
 
 def test_timestamp_and_dashboard_state_edges() -> None:

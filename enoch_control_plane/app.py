@@ -1169,7 +1169,10 @@ def _load_project_decision(
 
 
 def _tail_lines(path: Path, limit: int = 30) -> list[str]:
-    if not path.exists() or not path.is_file():
+    try:
+        if not path.exists() or not path.is_file():
+            return []
+    except (OSError, RuntimeError, ValueError):
         return []
     try:
         with path.open("r", encoding="utf-8", errors="ignore") as handle:
@@ -1284,8 +1287,15 @@ def _result_files(
     return [path for _, path in sorted(collected, key=lambda item: item[0], reverse=True)]
 
 
+def _path_exists(path: Path) -> bool:
+    try:
+        return path.exists()
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
 def _tail_jsonl(path: Path, limit: int = 80) -> list[str]:
-    if not path.exists():
+    if not _path_exists(path):
         return []
     try:
         with path.open("r", encoding="utf-8", errors="ignore") as handle:
@@ -1296,9 +1306,11 @@ def _tail_jsonl(path: Path, limit: int = 80) -> list[str]:
 
 def _latest_session(project_dir: Path) -> SessionHistoryEntry | None:
     history_path = project_dir / ".enoch" / "logs" / "session-history.jsonl"
-    if not history_path.exists():
+    history_exists = _path_exists(history_path)
+    if not history_exists:
         legacy_history_path = project_dir / ".omx" / "logs" / "session-history.jsonl"
-        if not legacy_history_path.exists():
+        legacy_exists = _path_exists(legacy_history_path)
+        if not legacy_exists:
             return None
         history_path = legacy_history_path
     latest: dict[str, Any] | None = None
@@ -1336,7 +1348,7 @@ def _activity_from_processes(processes: list[ProcessInfo], gate_state: str | Non
 
 
 def _read_recent_events(limit: int = 80) -> list[dict[str, Any]]:
-    if not store.events_log.exists():
+    if not _path_exists(store.events_log):
         return []
 
     events: list[dict[str, Any]] = []
@@ -1644,7 +1656,7 @@ def _queue_snapshot_path() -> Path:
 
 def _read_queue_snapshot() -> dict[str, Any]:
     path = _queue_snapshot_path()
-    if not path.exists():
+    if not _path_exists(path):
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -1769,7 +1781,7 @@ def _paper_snapshot_path() -> Path:
 
 def _read_paper_snapshot() -> dict[str, Any]:
     path = _paper_snapshot_path()
-    if not path.exists():
+    if not _path_exists(path):
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
