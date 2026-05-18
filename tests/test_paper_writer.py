@@ -124,6 +124,31 @@ class PaperWriterTests(unittest.TestCase):
             self.assertTrue(inventory["truncated"])
             self.assertEqual(inventory["bytes"], len(large_text.encode("utf-8")))
 
+    def test_evidence_and_claim_metadata_redact_secret_like_tokens(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            (project / "run_notes.md").write_text("Measured result exists.\n", encoding="utf-8")
+
+            write_paper_artifacts(
+                self._config(tmp),
+                {
+                    "project_id": "idea",
+                    "project_name": "Idea",
+                    "project_dir": "idea",
+                    "evidence_sync": {"error": "Authorization: Bearer syn_abcdefghijklmnopqrstuvwxyz1234567890"},
+                },
+                self._paper(),
+                force=True,
+            )
+
+            evidence_text = (project / "papers/run/evidence.json").read_text(encoding="utf-8")
+            claims_text = (project / "papers/run/claims.json").read_text(encoding="utf-8")
+            self.assertIn("Authorization: Bearer [REDACTED_TOKEN]", evidence_text)
+            self.assertNotIn("syn_abcdefghijklmnopqrstuvwxyz", evidence_text)
+            self.assertNotIn("syn_abcdefghijklmnopqrstuvwxyz", claims_text)
+
+
     def test_synthetic_writer_uses_openai_compatible_response(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "projects" / "idea"

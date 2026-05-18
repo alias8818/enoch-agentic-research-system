@@ -50,6 +50,16 @@ def _redact_public_evidence_text(text: str) -> str:
     return redacted
 
 
+def _redact_metadata(value: Any) -> Any:
+    if isinstance(value, str):
+        return _redact_public_evidence_text(value)
+    if isinstance(value, list):
+        return [_redact_metadata(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _redact_metadata(child) for key, child in value.items()}
+    return value
+
+
 def _resolve_project_dir(config: GateConfig, candidate: dict[str, Any]) -> Path:
     project_dir_text = str(candidate.get("project_dir") or "").strip()
     if not project_dir_text:
@@ -287,8 +297,8 @@ def _build_evidence_bundle_data(
         "run_id": paper.run_id,
         "source_run_id": str(candidate.get("run_id") or paper.run_id or ""),
         "source_project_dir": str(candidate.get("source_project_dir") or candidate.get("project_dir") or ""),
-        "sync_metadata": candidate.get("evidence_sync") or {},
-        "writer_provider": writer_provider,
+        "sync_metadata": _redact_metadata(candidate.get("evidence_sync") or {}),
+        "writer_provider": _redact_metadata(writer_provider),
         "file_inventory": inventory,
         "result_file_refs": result_refs,
         "result_artifacts": result_refs,
@@ -391,7 +401,7 @@ def _build_claim_ledger_data(markdown: str, evidence_bundle: dict[str, Any], pap
         "claims": claims,
         "unsupported_claim_count": sum(1 for item in claims if item["support_status"] == "unsupported"),
         "evidence_bundle_path": paper.evidence_bundle_path,
-        "writer_provider": writer_provider,
+        "writer_provider": _redact_metadata(writer_provider),
         "limitations": [] if claims else ["No atomic claims were extracted from the draft."],
     }
 
