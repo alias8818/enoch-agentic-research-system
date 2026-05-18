@@ -11,6 +11,7 @@ ENOCH_CORPUS_IMPORT_PUSH=1.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -211,14 +212,24 @@ def _copy_release_root(src_root: Path, dst_root: Path) -> None:
         _copy_repo_tree(src_root / name, dst_root / name)
 
 
-def _import_cmd(*, base_url: str, token: str, limit: int, dry_run: bool) -> list[str]:
+IMPORT_WRAPPER = (
+    "import os, runpy, sys; "
+    "script = sys.argv[1]; "
+    "sys.argv = sys.argv[1:]; "
+    "token_file = os.environ.pop('ENOCH_CONTROL_TOKEN_FILE'); "
+    "os.environ['ENOCH_CONTROL_TOKEN'] = open(token_file, encoding='utf-8').read().strip(); "
+    "runpy.run_path(script, run_name='__main__')"
+)
+
+
+def _import_cmd(*, base_url: str, limit: int, dry_run: bool) -> list[str]:
     cmd = [
         sys.executable,
+        "-c",
+        IMPORT_WRAPPER,
         "scripts/import_from_control_plane.py",
         "--control-url",
         base_url,
-        "--token",
-        token,
         "--paper-status",
         "publication_draft",
         "--review-status",
@@ -231,6 +242,24 @@ def _import_cmd(*, base_url: str, token: str, limit: int, dry_run: bool) -> list
     return cmd
 
 
+@contextmanager
+def _control_token_file(token: str):
+    fd, path = tempfile.mkstemp(prefix="enoch-control-token-", text=True)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(token)
+        yield Path(path)
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
+def _import_env(token_file: Path) -> dict[str, str]:
+    # Pass only the pathname in the child initial environment. The wrapper reads
+    # the 0600 token file and injects ENOCH_CONTROL_TOKEN in-process before
+    # running the corpus importer, avoiding bearer-token exposure in argv,
+    # subprocess exceptions, and the child's initial /proc environment.
+    return {"ENOCH_CONTROL_TOKEN_FILE": str(token_file), "ENOCH_CONTROL_TOKEN": ""}
 
 
 def _redact_command(cmd: object) -> object:
@@ -265,13 +294,13 @@ def _exception_summary(exc: Exception) -> str:
     return f"{type(exc).__name__}: {exc}"
 
 
-def _run_import_dry_run_with_retries(cmd: list[str], *, cwd: Path) -> tuple[subprocess.CompletedProcess[str], int]:
+def _run_import_dry_run_with_retries(cmd: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> tuple[subprocess.CompletedProcess[str], int]:
     attempts = _bounded_int("ENOCH_CORPUS_IMPORT_DRY_RUN_RETRIES", 3, 1, 5)
     delay = _bounded_float("ENOCH_CORPUS_IMPORT_DRY_RUN_RETRY_DELAY_SEC", 3.0, 0.0, 30.0)
     last_exc: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
-            return _run(cmd, cwd=cwd), attempt
+            return _run(cmd, cwd=cwd, env=env), attempt
         except Exception as exc:  # noqa: BLE001 - retry bounded preflight only
             last_exc = exc
             if attempt >= attempts:
@@ -393,71 +422,73 @@ def main() -> int:
     corpus = root / "enoch-ai-research-corpus"
     skip_github = _truthy("ENOCH_CORPUS_IMPORT_SKIP_GITHUB_METADATA", "1")
 
-    try:
-        dry, dry_run_attempts = _run_import_dry_run_with_retries(_import_cmd(base_url=base_url, token=token, limit=limit, dry_run=True), cwd=corpus)
-        dry_payload = json.loads(dry.stdout)
-    except Exception as exc:  # noqa: BLE001 - fail closed without writes
-        print(json.dumps({"ok": False, "action": "dry_run_failed", "reason": _exception_summary(exc)}, sort_keys=True), file=sys.stderr)
-        return 1
-    if dry_payload.get("failed"):
-        print(json.dumps({"ok": False, "action": "blocked", "reason": "bounded import dry-run failed", "dry_run": dry_payload}, sort_keys=True), file=sys.stderr)
-        return 1
-    if not dry_payload.get("imported"):
-        if _is_clean_noop_dry_run(dry_payload):
-            ledger_sync: dict[str, Any] = {}
-            if _truthy("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "0"):
-                ledger_sync = _sync_corpus_ledger(system, corpus)
-            print(json.dumps({"ok": True, "action": "skipped", "reason": "no clean importable papers", "dry_run": dry_payload, "dry_run_attempts": dry_run_attempts, "fast_forwarded": fast_forwarded, "ledger_sync": ledger_sync}, sort_keys=True))
-            return 0
-        print(json.dumps({"ok": False, "action": "blocked", "reason": "bounded import dry-run found no clean importable papers", "dry_run": dry_payload, "dry_run_attempts": dry_run_attempts, "fast_forwarded": fast_forwarded}, sort_keys=True), file=sys.stderr)
-        return 1
+    with _control_token_file(token) as token_file:
 
-    with tempfile.TemporaryDirectory(prefix="enoch-corpus-import-preflight-") as tmp:
-        tmp_root = Path(tmp)
-        _copy_release_root(root, tmp_root)
-        tmp_system = tmp_root / "enoch-agentic-research-system"
-        tmp_corpus = tmp_root / "enoch-ai-research-corpus"
-        live_preflight = _run(_import_cmd(base_url=base_url, token=token, limit=limit, dry_run=False), cwd=tmp_corpus)
-        live_payload = json.loads(live_preflight.stdout)
-        if live_payload.get("failed"):
-            print(json.dumps({"ok": False, "action": "preflight_import_failed", "preflight": live_payload}, sort_keys=True), file=sys.stderr)
+        try:
+            dry, dry_run_attempts = _run_import_dry_run_with_retries(_import_cmd(base_url=base_url, limit=limit, dry_run=True), cwd=corpus, env=_import_env(token_file))
+            dry_payload = json.loads(dry.stdout)
+        except Exception as exc:  # noqa: BLE001 - fail closed without writes
+            print(json.dumps({"ok": False, "action": "dry_run_failed", "reason": _exception_summary(exc)}, sort_keys=True), file=sys.stderr)
             return 1
-        checks = _corpus_rebuild(tmp_corpus)
-        count_update = _update_public_counts(tmp_system, tmp_root, tmp_root / "enoch-ecosystem.generated.json")
-        checks.extend(_corpus_trust_checks(tmp_corpus))
-        release_validation = _validate_release(tmp_system, tmp_root, tmp_corpus, tmp_root / "enoch-ecosystem.generated.json", skip_github_metadata=True)
+        if dry_payload.get("failed"):
+            print(json.dumps({"ok": False, "action": "blocked", "reason": "bounded import dry-run failed", "dry_run": dry_payload}, sort_keys=True), file=sys.stderr)
+            return 1
+        if not dry_payload.get("imported"):
+            if _is_clean_noop_dry_run(dry_payload):
+                ledger_sync: dict[str, Any] = {}
+                if _truthy("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "0"):
+                    ledger_sync = _sync_corpus_ledger(system, corpus)
+                print(json.dumps({"ok": True, "action": "skipped", "reason": "no clean importable papers", "dry_run": dry_payload, "dry_run_attempts": dry_run_attempts, "fast_forwarded": fast_forwarded, "ledger_sync": ledger_sync}, sort_keys=True))
+                return 0
+            print(json.dumps({"ok": False, "action": "blocked", "reason": "bounded import dry-run found no clean importable papers", "dry_run": dry_payload, "dry_run_attempts": dry_run_attempts, "fast_forwarded": fast_forwarded}, sort_keys=True), file=sys.stderr)
+            return 1
 
-    if _truthy("ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY", "0"):
-        print(json.dumps({"ok": True, "action": "preflight_only", "limit": limit, "dry_run": dry_payload, "dry_run_attempts": dry_run_attempts, "preflight_import": live_payload, "count_update": count_update, "corpus_checks": checks, "release_validation": release_validation, "fast_forwarded": fast_forwarded}, sort_keys=True))
+        with tempfile.TemporaryDirectory(prefix="enoch-corpus-import-preflight-") as tmp:
+            tmp_root = Path(tmp)
+            _copy_release_root(root, tmp_root)
+            tmp_system = tmp_root / "enoch-agentic-research-system"
+            tmp_corpus = tmp_root / "enoch-ai-research-corpus"
+            live_preflight = _run(_import_cmd(base_url=base_url, limit=limit, dry_run=False), cwd=tmp_corpus, env=_import_env(token_file))
+            live_payload = json.loads(live_preflight.stdout)
+            if live_payload.get("failed"):
+                print(json.dumps({"ok": False, "action": "preflight_import_failed", "preflight": live_payload}, sort_keys=True), file=sys.stderr)
+                return 1
+            checks = _corpus_rebuild(tmp_corpus)
+            count_update = _update_public_counts(tmp_system, tmp_root, tmp_root / "enoch-ecosystem.generated.json")
+            checks.extend(_corpus_trust_checks(tmp_corpus))
+            release_validation = _validate_release(tmp_system, tmp_root, tmp_corpus, tmp_root / "enoch-ecosystem.generated.json", skip_github_metadata=True)
+
+        if _truthy("ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY", "0"):
+            print(json.dumps({"ok": True, "action": "preflight_only", "limit": limit, "dry_run": dry_payload, "dry_run_attempts": dry_run_attempts, "preflight_import": live_payload, "count_update": count_update, "corpus_checks": checks, "release_validation": release_validation, "fast_forwarded": fast_forwarded}, sort_keys=True))
+            return 0
+
+        live = _run(_import_cmd(base_url=base_url, limit=limit, dry_run=False), cwd=corpus, env=_import_env(token_file))
+        live_payload = json.loads(live.stdout)
+        checks = _corpus_rebuild(corpus)
+        count_update = _update_public_counts(system, root, Path(os.environ.get("ENOCH_ECOSYSTEM_MANIFEST", "/tmp/enoch-ecosystem.generated.json")))
+        checks.extend(_corpus_trust_checks(corpus))
+        github_metadata: dict[str, Any] = {}
+        if _truthy("ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA", "0"):
+            stats = count_update.get("stats") if isinstance(count_update.get("stats"), dict) else {}
+            artifact_count = int(stats.get("artifact_count") or count_update.get("artifact_count") or 0)
+            if artifact_count <= 0:
+                raise RuntimeError("could not determine artifact count for GitHub metadata update")
+            github_metadata = _update_github_metadata(artifact_count)
+        release_validation = _validate_release(system, root, corpus, Path(os.environ.get("ENOCH_ECOSYSTEM_MANIFEST", "/tmp/enoch-ecosystem.generated.json")), skip_github_metadata=skip_github)
+        changed_repos = _git_changed_repos(root)
+        commits: list[dict[str, str]] = []
+        pushed: list[dict[str, str]] = []
+        if _truthy("ENOCH_CORPUS_IMPORT_AUTOCOMMIT", "0"):
+            commits = _commit_changed_repos(root, live_payload, count_update)
+            if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0"):
+                pushed = _push_commits(root, commits)
+        ledger_sync: dict[str, Any] = {}
+        if _truthy("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "0"):
+            if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0") and not pushed:
+                raise RuntimeError("ledger sync requires pushed commits when ENOCH_CORPUS_IMPORT_PUSH=1")
+            ledger_sync = _sync_corpus_ledger(system, corpus)
+        print(json.dumps({"ok": True, "action": "corpus_imported", "limit": limit, "dry_run": dry_payload, "dry_run_attempts": dry_run_attempts, "import_result": live_payload, "count_update": count_update, "corpus_checks": checks, "github_metadata": github_metadata, "release_validation": release_validation, "changed_repos": changed_repos, "commits": commits, "pushed": pushed, "ledger_sync": ledger_sync, "fast_forwarded": fast_forwarded}, sort_keys=True))
         return 0
-
-    live = _run(_import_cmd(base_url=base_url, token=token, limit=limit, dry_run=False), cwd=corpus)
-    live_payload = json.loads(live.stdout)
-    checks = _corpus_rebuild(corpus)
-    count_update = _update_public_counts(system, root, Path(os.environ.get("ENOCH_ECOSYSTEM_MANIFEST", "/tmp/enoch-ecosystem.generated.json")))
-    checks.extend(_corpus_trust_checks(corpus))
-    github_metadata: dict[str, Any] = {}
-    if _truthy("ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA", "0"):
-        stats = count_update.get("stats") if isinstance(count_update.get("stats"), dict) else {}
-        artifact_count = int(stats.get("artifact_count") or count_update.get("artifact_count") or 0)
-        if artifact_count <= 0:
-            raise RuntimeError("could not determine artifact count for GitHub metadata update")
-        github_metadata = _update_github_metadata(artifact_count)
-    release_validation = _validate_release(system, root, corpus, Path(os.environ.get("ENOCH_ECOSYSTEM_MANIFEST", "/tmp/enoch-ecosystem.generated.json")), skip_github_metadata=skip_github)
-    changed_repos = _git_changed_repos(root)
-    commits: list[dict[str, str]] = []
-    pushed: list[dict[str, str]] = []
-    if _truthy("ENOCH_CORPUS_IMPORT_AUTOCOMMIT", "0"):
-        commits = _commit_changed_repos(root, live_payload, count_update)
-        if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0"):
-            pushed = _push_commits(root, commits)
-    ledger_sync: dict[str, Any] = {}
-    if _truthy("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "0"):
-        if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0") and not pushed:
-            raise RuntimeError("ledger sync requires pushed commits when ENOCH_CORPUS_IMPORT_PUSH=1")
-        ledger_sync = _sync_corpus_ledger(system, corpus)
-    print(json.dumps({"ok": True, "action": "corpus_imported", "limit": limit, "dry_run": dry_payload, "dry_run_attempts": dry_run_attempts, "import_result": live_payload, "count_update": count_update, "corpus_checks": checks, "github_metadata": github_metadata, "release_validation": release_validation, "changed_repos": changed_repos, "commits": commits, "pushed": pushed, "ledger_sync": ledger_sync, "fast_forwarded": fast_forwarded}, sort_keys=True))
-    return 0
 
 
 if __name__ == "__main__":

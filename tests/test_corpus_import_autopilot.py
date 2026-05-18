@@ -25,6 +25,13 @@ def test_dry_run_transient_failure_retries_before_blocking(tmp_path, capsys):
 
     def fake_run(cmd, *, cwd, env=None):
         assert "scripts/import_from_control_plane.py" in cmd
+        assert "--token" not in cmd
+        assert "token" not in cmd
+        assert env is not None
+        assert env.get("ENOCH_CONTROL_TOKEN") == ""
+        token_file = Path(env["ENOCH_CONTROL_TOKEN_FILE"])
+        assert token_file.read_text(encoding="utf-8") == "token"
+        assert token_file.stat().st_mode & 0o777 == 0o600
         calls["count"] += 1
         if calls["count"] == 1:
             raise CalledProcessError(1, cmd, output="", stderr="connection refused")
@@ -53,6 +60,11 @@ def test_dry_run_failure_redacts_control_token(tmp_path, capsys):
         (tmp_path / name).mkdir()
 
     def fake_run(cmd, *, cwd, env=None):
+        assert "--token" not in cmd
+        assert "super-secret-token" not in cmd
+        assert env is not None
+        assert env.get("ENOCH_CONTROL_TOKEN") == ""
+        assert Path(env["ENOCH_CONTROL_TOKEN_FILE"]).read_text(encoding="utf-8") == "super-secret-token"
         raise CalledProcessError(1, cmd, output="", stderr="connection refused")
 
     with (
@@ -67,7 +79,7 @@ def test_dry_run_failure_redacts_control_token(tmp_path, capsys):
 
     captured = capsys.readouterr()
     assert "super-secret-token" not in captured.err
-    assert "<redacted>" in captured.err
+    assert "--token" not in captured.err
     payload = json.loads(captured.err)
     assert payload["action"] == "dry_run_failed"
 
@@ -90,6 +102,11 @@ def test_clean_noop_syncs_ledger_when_enabled(tmp_path, capsys):
 
     def fake_run(cmd, *, cwd, env=None):
         assert "scripts/import_from_control_plane.py" in cmd
+        assert "--token" not in cmd
+        assert "token" not in cmd
+        assert env is not None
+        assert env.get("ENOCH_CONTROL_TOKEN") == ""
+        assert Path(env["ENOCH_CONTROL_TOKEN_FILE"]).read_text(encoding="utf-8") == "token"
         return CompletedProcess(cmd, 0, stdout=json.dumps(dry_payload), stderr="")
 
     with (
