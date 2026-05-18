@@ -3932,6 +3932,23 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(body["ok"])
             self.assertTrue(any(check["name"] == "wake_gate_healthz" for check in body["checks"]))
 
+    def test_worker_preflight_endpoint_uses_configured_worker_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp).model_copy(update={"worker_wake_gate_url": "http://configured-worker:8787"})
+            expected = WorkerPreflightResponse(ok=True, target=config.worker_wake_gate_url, summary="ok", checks=[])
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=expected) as mocked_preflight:
+                client = _client_with_config(config)
+                response = client.post(
+                    "/control/worker/preflight",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    json={"wake_gate_url": "http://attacker-controlled:8080"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            called_payload = mocked_preflight.call_args.args[0]
+            self.assertEqual(called_payload.wake_gate_url, config.worker_wake_gate_url)
+            self.assertEqual(response.json()["target"], config.worker_wake_gate_url)
+
     def test_worker_preflight_supabase_readonly_skips_observation_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp).model_copy(
