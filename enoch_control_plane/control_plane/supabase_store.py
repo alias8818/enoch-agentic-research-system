@@ -1643,11 +1643,16 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         payload_json = _json(payload)
         payload_hash = _hash(payload)
         row = cur.execute(
-            "select event_id, payload_hash from control_events where idempotency_key = %s",
+            "select event_id, event_type, entity_type, entity_id, payload_hash from control_events where idempotency_key = %s",
             (idempotency_key,),
         ).fetchone()
         if row:
-            if row["payload_hash"] != payload_hash:
+            if (
+                row["event_type"] != event_type
+                or row["entity_type"] != entity_type
+                or row["entity_id"] != entity_id
+                or row["payload_hash"] != payload_hash
+            ):
                 raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different payload")
             return int(row["event_id"]), False
         inserted = cur.execute(

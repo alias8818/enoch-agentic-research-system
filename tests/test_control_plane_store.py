@@ -24,6 +24,46 @@ from enoch_control_plane.enoch_core.store import IdempotencyConflict
 
 
 class ControlPlaneStoreTests(unittest.TestCase):
+
+    def test_append_event_idempotency_key_conflicts_on_different_event_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            event_id, inserted = store.append_event(
+                idempotency_key="same-key",
+                event_type="first.event",
+                entity_type="project",
+                entity_id="project-1",
+                payload={"same": True},
+            )
+            self.assertTrue(inserted)
+
+            replay_id, replay_inserted = store.append_event(
+                idempotency_key="same-key",
+                event_type="first.event",
+                entity_type="project",
+                entity_id="project-1",
+                payload={"same": True},
+            )
+            self.assertEqual(replay_id, event_id)
+            self.assertFalse(replay_inserted)
+
+            with self.assertRaises(IdempotencyConflict):
+                store.append_event(
+                    idempotency_key="same-key",
+                    event_type="second.event",
+                    entity_type="project",
+                    entity_id="project-1",
+                    payload={"same": True},
+                )
+
+            with self.assertRaises(IdempotencyConflict):
+                store.append_event(
+                    idempotency_key="same-key",
+                    event_type="first.event",
+                    entity_type="run",
+                    entity_id="run-1",
+                    payload={"same": True},
+                )
     def test_control_plane_defaults_to_paused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

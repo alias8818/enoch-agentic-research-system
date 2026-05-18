@@ -1800,3 +1800,72 @@ def test_supabase_queue_rows_query_treats_null_current_run_as_project_level_pape
 
     assert "coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id" in sql
     assert "q.current_run_id = '' or pa.run_id = q.current_run_id" not in sql
+
+
+def test_supabase_append_event_idempotency_conflicts_on_different_event_identity() -> None:
+    class Cursor:
+        def __init__(self) -> None:
+            self.row = None
+            self.inserted = {"event_id": 123}
+            self._last_query = ""
+
+        def execute(self, sql, params=()):  # noqa: ANN001 - cursor test double
+            lowered = " ".join(str(sql).lower().split())
+            self._last_query = lowered
+            if lowered.startswith("select event_id"):
+                return self
+            if lowered.startswith("insert into control_events"):
+                self.last_insert = params
+                return self
+            raise AssertionError(f"unexpected sql: {sql}")
+
+        def fetchone(self):
+            if self._last_query.startswith("select event_id"):
+                return self.row
+            return self.inserted
+
+    store = s.SupabaseControlPlaneStore("postgresql://example")
+    cur = Cursor()
+    event_id, inserted = store._append_event_in_cursor(  # noqa: SLF001 - focused adapter invariant
+        cur,
+        idempotency_key="same-key",
+        event_type="first.event",
+        entity_type="project",
+        entity_id="project-1",
+        payload={"same": True},
+    )
+    assert event_id == 123
+    assert inserted is True
+
+    payload_hash = s._hash({"same": True})
+    cur.row = {
+        "event_id": 123,
+        "event_type": "first.event",
+        "entity_type": "project",
+        "entity_id": "project-1",
+        "payload_hash": payload_hash,
+    }
+    replay_id, replay_inserted = store._append_event_in_cursor(  # noqa: SLF001
+        cur,
+        idempotency_key="same-key",
+        event_type="first.event",
+        entity_type="project",
+        entity_id="project-1",
+        payload={"same": True},
+    )
+    assert replay_id == 123
+    assert replay_inserted is False
+
+    try:
+        store._append_event_in_cursor(  # noqa: SLF001
+            cur,
+            idempotency_key="same-key",
+            event_type="second.event",
+            entity_type="project",
+            entity_id="project-1",
+            payload={"same": True},
+        )
+    except s.IdempotencyConflict:
+        pass
+    else:  # pragma: no cover - regression guard
+        raise AssertionError("expected idempotency conflict for changed event_type")

@@ -638,9 +638,17 @@ class ControlPlaneStore:
     ) -> tuple[int, bool]:
         payload_json = _json(payload)
         payload_hash = _hash(payload)
-        row = conn.execute("SELECT event_id, payload_hash FROM events WHERE idempotency_key = ?", (idempotency_key,)).fetchone()
+        row = conn.execute(
+            "SELECT event_id, event_type, entity_type, entity_id, payload_hash FROM events WHERE idempotency_key = ?",
+            (idempotency_key,),
+        ).fetchone()
         if row:
-            if row["payload_hash"] != payload_hash:
+            if (
+                row["event_type"] != event_type
+                or row["entity_type"] != entity_type
+                or row["entity_id"] != entity_id
+                or row["payload_hash"] != payload_hash
+            ):
                 raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different payload")
             return int(row["event_id"]), False
         cur = conn.execute(
