@@ -2726,7 +2726,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 resolved_current = current_project_dir.resolve()
                 resolved_current.relative_to(configured_root)
                 use_current_dir = resolved_current.exists()
-            except (OSError, ValueError):
+            except (OSError, RuntimeError, ValueError):
                 use_current_dir = False
         try:
             artifact_root = current_project_dir.resolve() if use_current_dir else (configured_root / project_id).resolve()
@@ -2798,7 +2798,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             try:
                 existed = target.exists()
                 content = target.read_bytes() if existed and target.is_file() else b""
-            except OSError as exc:
+            except (OSError, RuntimeError, ValueError) as exc:
                 raise HTTPException(status_code=400, detail=f"paper artifact snapshot could not be read: {rel_path}") from exc
             artifact_snapshots[target] = (existed, content)
         def restore_rewrite_side_effects() -> None:
@@ -2998,7 +2998,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 resolved.relative_to(project_dir.resolve())
             except (OSError, RuntimeError, ValueError) as exc:
                 raise HTTPException(status_code=400, detail="paper artifact path escapes project directory") from exc
-        if not resolved.exists() or not resolved.is_file():
+        try:
+            artifact_readable = resolved.exists() and resolved.is_file()
+        except (OSError, RuntimeError, ValueError):
+            artifact_readable = False
+        if not artifact_readable:
             raise HTTPException(status_code=404, detail=f"paper artifact is not readable: {field}")
         return resolved
 
@@ -3010,7 +3014,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             raise HTTPException(status_code=404, detail="paper not found")
         path = _resolve_paper_artifact(paper, field)
         max_bytes = 1_000_000
-        data = path.read_bytes()
+        try:
+            data = path.read_bytes()
+            size_bytes = path.stat().st_size
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail=f"paper artifact is not readable: {field}") from exc
         truncated = len(data) > max_bytes
         if truncated:
             data = data[:max_bytes]
@@ -3022,7 +3030,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "field": field,
             "path": str(paper.get(field) or ""),
             "absolute_path": str(path),
-            "size_bytes": path.stat().st_size,
+            "size_bytes": size_bytes,
             "truncated": truncated,
             "content": data.decode("utf-8", errors="replace"),
         }

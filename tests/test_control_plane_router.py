@@ -4942,6 +4942,41 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn(artifact.status_code, {400, 404})
             self.assertNotEqual(artifact.status_code, 500)
 
+    def test_paper_artifact_endpoint_rejects_access_failure_without_500(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_dir = config.expanded_project_root / "artifact-access-failure"
+            project_dir.mkdir(parents=True)
+            artifact_path = project_dir / "paper.md"
+            artifact_path.write_text("# Access Failure\n", encoding="utf-8")
+            paper_id = "artifact-access-failure:run-access:arxiv_draft"
+            response = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "artifact-access-failure-import",
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": "artifact-access-failure",
+                    "run_id": "run-access",
+                    "project_dir": str(project_dir),
+                    "paper_status": "publication_draft",
+                    "draft_markdown_path": "paper.md",
+                }],
+            })
+            self.assertEqual(response.status_code, 200)
+            real_exists = Path.exists
+
+            def blocked_exists(path: Path) -> bool:
+                if path == artifact_path:
+                    raise PermissionError("simulated artifact access failure")
+                return real_exists(path)
+
+            with patch("pathlib.Path.exists", blocked_exists):
+                artifact = client.get(f"/control/api/papers/{paper_id}/artifact/draft_markdown_path", headers=headers)
+
+            self.assertEqual(artifact.status_code, 404)
+            self.assertNotEqual(artifact.status_code, 500)
+
     def test_paper_rewrite_rejects_invalid_project_id_without_500(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _config(tmp)
@@ -5029,6 +5064,24 @@ class ControlPlaneRouterTests(unittest.TestCase):
             with patch("pathlib.Path.read_bytes", side_effect=PermissionError("blocked snapshot read")):
                 response = client.post(f"/control/api/paper-reviews/{paper_id}/rewrite-draft", headers=headers, json={
                     "idempotency_key": "router-unreadable-snapshot-rewrite",
+                    "requested_by": "alice",
+                    "force": True,
+                })
+
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("snapshot", response.text.lower())
+            self.assertEqual((project_dir / artifact_paths["draft_markdown_path"]).read_text(encoding="utf-8"), original_markdown)
+
+            real_exists = Path.exists
+
+            def blocked_exists(path: Path) -> bool:
+                if path == project_dir / artifact_paths["draft_markdown_path"]:
+                    raise PermissionError("blocked snapshot inspect")
+                return real_exists(path)
+
+            with patch("pathlib.Path.exists", blocked_exists):
+                response = client.post(f"/control/api/paper-reviews/{paper_id}/rewrite-draft", headers=headers, json={
+                    "idempotency_key": "router-unreadable-snapshot-rewrite-exists",
                     "requested_by": "alice",
                     "force": True,
                 })
