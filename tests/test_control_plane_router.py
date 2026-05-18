@@ -3388,6 +3388,39 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(state["counts"]["queued"], 1)
             self.assertEqual(state["counts"].get("dispatching", 0), 0)
 
+    def test_live_dispatch_rejects_supabase_readonly_before_claim_or_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "control_plane_store_backend": "supabase_readonly",
+                    "supabase_database_url": "postgres://example",
+                }
+            )
+
+            class FakeReadOnlyStore:
+                claim_attempted = False
+
+                def active_items(self) -> list[dict[str, object]]:
+                    return []
+
+                def next_dispatch_candidate(self) -> dict[str, object]:
+                    return {"project_id": "readonly-dispatch", "project_name": "Readonly Dispatch", "project_dir": "readonly-dispatch"}
+
+                def claim_dispatch_candidate(self, **_kwargs):  # noqa: ANN001 - must not be called
+                    self.claim_attempted = True
+                    raise AssertionError("read-only dispatch must reject before claiming")
+
+            fake_store = FakeReadOnlyStore()
+            with (
+                patch("enoch_control_plane.control_plane.router.SupabaseReadOnlyControlPlaneStore", return_value=fake_store),
+                patch("enoch_control_plane.control_plane.router.run_worker_preflight", side_effect=AssertionError("preflight must not run")),
+            ):
+                client = _client_with_config(config)
+                response = client.post("/control/dispatch-next", headers={"Authorization": f"Bearer {TOKEN}"}, json={"dry_run": False})
+
+            assert response.status_code == 501
+            assert "writable control-plane store" in response.text
+            assert fake_store.claim_attempted is False
 
     def test_dispatch_one_dry_run_works_while_paused_without_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

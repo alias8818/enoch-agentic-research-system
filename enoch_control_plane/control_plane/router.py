@@ -1211,6 +1211,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     def _live_dispatch(candidate: dict, requested_by: str, force_preflight: bool, *, allow_paused: bool = False) -> tuple[dict, int | None, dict]:
         if not config.live_dispatch_enabled:
             raise HTTPException(status_code=501, detail="live dispatch is disabled by config.live_dispatch_enabled")
+        if config.control_plane_store_backend == "supabase_readonly":
+            raise HTTPException(
+                status_code=501,
+                detail="live dispatch requires a writable control-plane store; supabase_readonly is read-only",
+            )
         flags = store.flags()
         if flags.maintenance_mode:
             raise HTTPException(status_code=409, detail="control plane must be out of maintenance mode before live dispatch")
