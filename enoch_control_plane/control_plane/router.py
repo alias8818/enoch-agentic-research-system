@@ -1180,7 +1180,11 @@ def _write_deterministic_paper(config: GateConfig, candidate: dict, paper: Paper
             target.relative_to(project_dir)
         except (OSError, RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=f"paper path escapes project dir: {rel_path}") from exc
-        if target.exists() and not force:
+        try:
+            target_exists = target.exists()
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"paper path could not be inspected: {rel_path}") from exc
+        if target_exists and not force:
             continue
         _atomic_write_text(target, content)
 

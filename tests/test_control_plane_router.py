@@ -133,6 +133,43 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
             self.assertEqual(paper_path.read_text(encoding="utf-8"), "old draft")
 
+
+    def test_deterministic_paper_rejects_uninspectable_target_without_raw_permission_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            project_dir = Path(config.project_root) / "project-a"
+            project_dir.mkdir(parents=True)
+            paper = PaperRecord(
+                paper_id="paper-1",
+                project_id="project-a",
+                run_id="run-1",
+                draft_markdown_path="papers/run-1/draft.md",
+                draft_latex_path="papers/run-1/draft.tex",
+                evidence_bundle_path="papers/run-1/evidence_bundle.json",
+                claim_ledger_path="papers/run-1/claim_ledger.json",
+                manifest_path="papers/run-1/manifest.json",
+            )
+            target = (project_dir / "papers" / "run-1" / "draft.md").resolve()
+            original_exists = Path.exists
+
+            def fake_exists(path: Path) -> bool:
+                if path == target:
+                    raise PermissionError("denied")
+                return original_exists(path)
+
+            with patch.object(Path, "exists", fake_exists):
+                with self.assertRaises(HTTPException) as raised:
+                    _write_deterministic_paper(
+                        config,
+                        {"project_name": "Project A", "project_dir": "project-a"},
+                        paper,
+                        force=False,
+                    )
+
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertIn("paper path", str(raised.exception.detail))
+            self.assertFalse(target.exists())
+
     def test_deterministic_paper_rejects_invalid_project_dir_without_value_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _config(tmp)
