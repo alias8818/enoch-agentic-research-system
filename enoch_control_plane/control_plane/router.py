@@ -2730,8 +2730,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 store.upsert_paper(original_record)
                 if original_project_dir:
                     store.update_project_dir(project_id, original_project_dir)
-            except Exception:
-                pass
+            except Exception as exc:
+                raise RuntimeError("failed to restore paper rewrite side effects") from exc
         draft_event_committed = False
         try:
             writer = write_paper_artifacts(config, candidate, record, force=payload.force)
