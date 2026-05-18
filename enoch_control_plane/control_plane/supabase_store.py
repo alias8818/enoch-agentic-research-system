@@ -3663,40 +3663,68 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     (_text(project_dir), now, project_id),
                 )
 
-    def upsert_paper(self, paper: PaperRecord) -> None:
+    def _upsert_paper_in_cursor(self, cur: Any, paper: PaperRecord) -> None:
         status = paper.paper_status.value if hasattr(paper.paper_status, "value") else str(paper.paper_status)
+        cur.execute(
+            "select project_id, run_id, paper_type, updated_at from papers where paper_id=%s",
+            (paper.paper_id,),
+        )
+        existing = cur.fetchone()
+        existing_run_id = _text(self._row_value(existing, "run_id", 1)) if existing else ""
+        if existing and (
+            self._row_value(existing, "project_id", 0) != _text(paper.project_id)
+            or (existing_run_id and existing_run_id != _text(paper.run_id))
+            or self._row_value(existing, "paper_type", 2) != _text(paper.paper_type)
+        ):
+            raise IdempotencyConflict(f"paper id {paper.paper_id!r} was reused with different paper identity")
+        if existing and _is_older_timestamp(paper.updated_at, existing.get("updated_at")):
+            return
+        cur.execute(
+            """
+            insert into papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
+            values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            on conflict (paper_id) do update set
+              project_id=excluded.project_id, run_id=excluded.run_id, paper_type=excluded.paper_type,
+              paper_status=excluded.paper_status, draft_markdown_path=excluded.draft_markdown_path,
+              draft_latex_path=excluded.draft_latex_path, evidence_bundle_path=excluded.evidence_bundle_path,
+              claim_ledger_path=excluded.claim_ledger_path, manifest_path=excluded.manifest_path,
+              generated_at=excluded.generated_at, updated_at=excluded.updated_at
+            """,
+            (
+                paper.paper_id, paper.project_id, _text(paper.run_id) or None, paper.paper_type, status,
+                paper.draft_markdown_path, paper.draft_latex_path, paper.evidence_bundle_path,
+                paper.claim_ledger_path, paper.manifest_path, paper.generated_at, paper.updated_at,
+            ),
+        )
+
+    def upsert_paper(self, paper: PaperRecord) -> None:
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                self._upsert_paper_in_cursor(cur, paper)
+
+    def record_paper_draft(
+        self,
+        *,
+        paper: PaperRecord,
+        project_dir: str,
+        idempotency_key: str,
+        event_payload: dict[str, Any],
+    ) -> tuple[int, bool]:
+        now = utc_now()
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "select project_id, run_id, paper_type, updated_at from papers where paper_id=%s",
-                    (paper.paper_id,),
+                    "update projects set project_dir=%s, updated_at=%s where project_id=%s",
+                    (_text(project_dir), now, paper.project_id),
                 )
-                existing = cur.fetchone()
-                existing_run_id = _text(self._row_value(existing, "run_id", 1)) if existing else ""
-                if existing and (
-                    self._row_value(existing, "project_id", 0) != _text(paper.project_id)
-                    or (existing_run_id and existing_run_id != _text(paper.run_id))
-                    or self._row_value(existing, "paper_type", 2) != _text(paper.paper_type)
-                ):
-                    raise IdempotencyConflict(f"paper id {paper.paper_id!r} was reused with different paper identity")
-                if existing and _is_older_timestamp(paper.updated_at, existing.get("updated_at")):
-                    return
-                cur.execute(
-                    """
-                    insert into papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
-                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    on conflict (paper_id) do update set
-                      project_id=excluded.project_id, run_id=excluded.run_id, paper_type=excluded.paper_type,
-                      paper_status=excluded.paper_status, draft_markdown_path=excluded.draft_markdown_path,
-                      draft_latex_path=excluded.draft_latex_path, evidence_bundle_path=excluded.evidence_bundle_path,
-                      claim_ledger_path=excluded.claim_ledger_path, manifest_path=excluded.manifest_path,
-                      generated_at=excluded.generated_at, updated_at=excluded.updated_at
-                    """,
-                    (
-                        paper.paper_id, paper.project_id, _text(paper.run_id) or None, paper.paper_type, status,
-                        paper.draft_markdown_path, paper.draft_latex_path, paper.evidence_bundle_path,
-                        paper.claim_ledger_path, paper.manifest_path, paper.generated_at, paper.updated_at,
-                    ),
+                self._upsert_paper_in_cursor(cur, paper)
+                return self._append_event_in_cursor(
+                    cur,
+                    idempotency_key=idempotency_key,
+                    event_type="paper.drafted",
+                    entity_type="paper",
+                    entity_id=paper.paper_id,
+                    payload=event_payload,
                 )
 
     def import_snapshot(self, request: ImportSnapshotRequest) -> tuple[bool, int, int, int]:

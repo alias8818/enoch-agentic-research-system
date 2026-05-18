@@ -2927,18 +2927,45 @@ class ControlPlaneStore:
                 (_text(project_dir), now, project_id),
             )
 
+    def _upsert_paper_in_conn(self, conn: sqlite3.Connection, paper: PaperRecord) -> None:
+        existing = conn.execute(
+            "SELECT project_id, run_id, paper_type, updated_at FROM papers WHERE paper_id=?",
+            (paper.paper_id,),
+        ).fetchone()
+        if _paper_identity_conflicts(existing, paper):
+            raise IdempotencyConflict(f"paper id {paper.paper_id!r} was reused with different paper identity")
+        if existing and _is_older_timestamp(paper.updated_at, existing["updated_at"]):
+            return
+        conn.execute(
+            """INSERT OR REPLACE INTO papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (paper.paper_id, paper.project_id, paper.run_id, paper.paper_type, paper.paper_status.value, paper.draft_markdown_path, paper.draft_latex_path, paper.evidence_bundle_path, paper.claim_ledger_path, paper.manifest_path, paper.generated_at, paper.updated_at),
+        )
+
     def upsert_paper(self, paper: PaperRecord) -> None:
         with self._connect() as conn:
-            existing = conn.execute(
-                "SELECT project_id, run_id, paper_type, updated_at FROM papers WHERE paper_id=?",
-                (paper.paper_id,),
-            ).fetchone()
-            if _paper_identity_conflicts(existing, paper):
-                raise IdempotencyConflict(f"paper id {paper.paper_id!r} was reused with different paper identity")
-            if existing and _is_older_timestamp(paper.updated_at, existing["updated_at"]):
-                return
+            self._upsert_paper_in_conn(conn, paper)
+
+    def record_paper_draft(
+        self,
+        *,
+        paper: PaperRecord,
+        project_dir: str,
+        idempotency_key: str,
+        event_payload: dict[str, Any],
+    ) -> tuple[int, bool]:
+        now = utc_now()
+        with self._connect() as conn:
             conn.execute(
-                """INSERT OR REPLACE INTO papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (paper.paper_id, paper.project_id, paper.run_id, paper.paper_type, paper.paper_status.value, paper.draft_markdown_path, paper.draft_latex_path, paper.evidence_bundle_path, paper.claim_ledger_path, paper.manifest_path, paper.generated_at, paper.updated_at),
+                "UPDATE projects SET project_dir=?, updated_at=? WHERE project_id=?",
+                (_text(project_dir), now, paper.project_id),
+            )
+            self._upsert_paper_in_conn(conn, paper)
+            return self._append_event_in_conn(
+                conn,
+                idempotency_key=idempotency_key,
+                event_type="paper.drafted",
+                entity_type="paper",
+                entity_id=paper.paper_id,
+                payload=event_payload,
             )

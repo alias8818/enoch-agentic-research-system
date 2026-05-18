@@ -4232,8 +4232,25 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             candidate_for_write = {**candidate, "project_dir": evidence.get("artifact_root") or candidate.get("project_dir"), "evidence_sync": evidence.get("evidence_sync")}
             writer = write_paper_artifacts(config, candidate_for_write, paper, force=payload.force)
             writer = {**writer, "evidence_sync": evidence.get("evidence_sync"), "artifact_root": evidence.get("artifact_root"), "decision_gate": decision_gate}
-            store.update_project_dir(str(candidate.get("project_id") or ""), str(candidate_for_write["project_dir"]))
-            store.upsert_paper(paper)
+            paper_event_payload = {"requested_by": payload.requested_by, "paper": paper.model_dump(mode="json"), "writer": writer}
+            record_paper_draft = getattr(store, "record_paper_draft", None)
+            if callable(record_paper_draft):
+                record_paper_draft(
+                    paper=paper,
+                    project_dir=str(candidate_for_write["project_dir"]),
+                    idempotency_key=f"paper-draft:{paper.paper_id}:{paper.updated_at}",
+                    event_payload=paper_event_payload,
+                )
+            else:
+                store.update_project_dir(str(candidate.get("project_id") or ""), str(candidate_for_write["project_dir"]))
+                store.upsert_paper(paper)
+                store.append_event(
+                    idempotency_key=f"paper-draft:{paper.paper_id}:{paper.updated_at}",
+                    event_type="paper.drafted",
+                    entity_type="paper",
+                    entity_id=paper.paper_id,
+                    payload=paper_event_payload,
+                )
             try:
                 backfill_inserted, backfill_created, backfill_updated, backfill_skipped, backfill_errors = store.backfill_paper_reviews(
                     PaperReviewBackfillRequest(
@@ -4252,7 +4269,6 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 }
             except IdempotencyConflict as exc:
                 writer["review_backfill"] = {"inserted_event": False, "created": 0, "updated": 0, "skipped": 0, "errors": [{"reason": str(exc)}]}
-            store.append_event(idempotency_key=f"paper-draft:{paper.paper_id}:{paper.updated_at}", event_type="paper.drafted", entity_type="paper", entity_id=paper.paper_id, payload={"requested_by": payload.requested_by, "paper": paper.model_dump(mode="json"), "writer": writer})
             reason = f"paper draft created with {writer.get('provider')} / {writer.get('model')}"
             if writer.get("fallback_used"):
                 reason += " (fallback used)"

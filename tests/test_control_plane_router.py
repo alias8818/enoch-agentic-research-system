@@ -9,6 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -4711,3 +4713,44 @@ def test_missing_evidence_alert_still_notifies_when_event_store_fails() -> None:
         assert result.status_code == 200
         assert result.json()["action"] == "noop"
         assert len(calls) == 1
+
+def test_paper_draft_event_failure_does_not_publish_partial_paper_row() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        client = _client(tmp)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        project_dir = Path(tmp) / "projects" / "paper-event-fail"
+        (project_dir / ".enoch").mkdir(parents=True)
+        (project_dir / "run_notes.md").write_text("Verified useful result with measured baseline evidence.\n", encoding="utf-8")
+        (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+        response = client.post("/control/import/legacy-snapshot", headers=headers, json={
+            "idempotency_key": "import-paper-event-fail",
+            "queue_rows": [{
+                "project_id": "paper-event-fail",
+                "project_name": "Paper Event Fail",
+                "project_dir": "paper-event-fail",
+                "status": "completed",
+                "last_run_state": "finalize_positive",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-paper-event-fail",
+                "manual_review_required": False,
+            }],
+            "paper_rows": [],
+        })
+        assert response.status_code == 200
+        original_append_event = ControlPlaneStore._append_event_in_conn
+
+        def fail_paper_drafted(self, conn, **kwargs):  # noqa: ANN001 - patched method
+            if kwargs.get("event_type") == "paper.drafted":
+                raise RuntimeError("simulated paper drafted event failure")
+            return original_append_event(self, conn, **kwargs)
+
+        with patch.object(ControlPlaneStore, "_append_event_in_conn", new=fail_paper_drafted):
+            with pytest.raises(RuntimeError, match="simulated paper drafted event failure"):
+                client.post("/control/papers/draft-next", headers=headers, json={"force": True})
+
+        snapshot = client.get("/control/export/snapshot", headers=headers).json()
+        assert snapshot["paper_rows"] == []
+        assert client.get("/control/api/paper-reviews", headers=headers).json()["page"]["total"] == 0
+        event_types = [event["event_type"] for event in snapshot["events"]]
+        assert "paper.drafted" not in event_types
+        assert "paper_review.backfill" not in event_types
