@@ -32,7 +32,10 @@ def _http_request_json(method: str, url: str, headers: dict[str, str], payload: 
     try:
         with request.urlopen(req, timeout=5) as resp:
             raw = resp.read().decode("utf-8")
-            return HttpResult(ok=200 <= resp.status < 300, status=resp.status, body=json.loads(raw) if raw else {})
+            body = json.loads(raw) if raw else {}
+            if not isinstance(body, dict):
+                return HttpResult(ok=False, status=resp.status, body=None, error="worker response JSON body is not an object")
+            return HttpResult(ok=200 <= resp.status < 300, status=resp.status, body=body)
     except error.HTTPError as exc:
         raw = exc.read().decode("utf-8")
         return HttpResult(ok=False, status=exc.code, body=None, error=raw or str(exc))

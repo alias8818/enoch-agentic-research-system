@@ -197,3 +197,28 @@ def test_http_request_json_rejects_file_scheme_before_urlopen(monkeypatch) -> No
     assert result.ok is False
     assert result.status is None
     assert "worker url must use http or https" in result.error
+
+
+def test_http_request_json_rejects_non_object_json(monkeypatch) -> None:
+    from enoch_control_plane.control_plane import worker_adapter
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return b'[{"ok": true}]'
+
+    monkeypatch.setattr(worker_adapter.request, "urlopen", lambda *_args, **_kwargs: Response())
+
+    result = worker_adapter._http_request_json("GET", "http://worker.example/healthz", {}, None)
+
+    assert result.ok is False
+    assert result.status == 200
+    assert "JSON body is not an object" in result.error
+
