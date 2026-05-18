@@ -2104,10 +2104,11 @@ async def project_status(
     if record is not None:
         active_processes = gate.process_tracker.describe_processes(record)
 
+    project_available = _checked_exists(resolved_project_dir, label="project directory", status_code=403)
     response = ProjectStatusResponse(
         project_id=project_id,
         project_dir=resolved_project_dir.as_posix(),
-        available=resolved_project_dir.exists(),
+        available=project_available,
         run_id=record.run_id if record is not None else run_id,
         session_id=record.session_id if record is not None else None,
         project_name=(record.project_name if record is not None else None) or project_id,
