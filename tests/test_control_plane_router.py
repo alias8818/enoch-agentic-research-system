@@ -4167,6 +4167,58 @@ def test_missing_evidence_alert_is_bucketed_per_run() -> None:
         assert len(events) == 1
 
 
+
+def test_missing_evidence_alert_suppresses_reason_changes_for_same_candidate_day() -> None:
+    from enoch_control_plane.control_plane.alerts import PushoverResult
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp).model_copy(update={
+            "paper_evidence_sync_enabled": True,
+            "pushover_alerts_enabled": True,
+            "pushover_api_token": "token",
+            "pushover_user_key": "user",
+        })
+        client = _client_with_config(config)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        response = client.post("/control/import/legacy-snapshot", headers=headers, json={
+            "idempotency_key": "import-alert-reason-change",
+            "queue_rows": [{
+                "project_id": "alert-reason-change",
+                "project_name": "Alert Reason Change",
+                "project_dir": "alert-reason-change",
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-alert-reason-change",
+                "manual_review_required": False,
+            }],
+            "paper_rows": [],
+        })
+        assert response.status_code == 200
+        calls = []
+
+        def fake_send_pushover(*args, **kwargs):  # noqa: ANN001 - patched function
+            del args
+            calls.append(kwargs)
+            return PushoverResult(attempted=True, ok=True, status_code=200, detail="ok")
+
+        evidence_results = [
+            {"enabled": True, "synced": False, "reason": "worker_read_failed"},
+            {"enabled": True, "synced": False, "reason": "timeout"},
+        ]
+        with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", side_effect=evidence_results):
+            with patch("enoch_control_plane.control_plane.router.send_pushover", side_effect=fake_send_pushover):
+                with patch("enoch_control_plane.control_plane.router.utc_now", side_effect=["2026-05-17T18:10:00Z", "2026-05-17T19:10:00Z"]):
+                    first = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
+                    second = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert len(calls) == 1
+        snapshot = client.get("/control/export/snapshot", headers=headers).json()
+        events = [event for event in snapshot["events"] if event["event_type"] == "paper.evidence_sync_blocked"]
+        assert len(events) == 1
+
 def test_missing_evidence_alert_suppresses_same_candidate_across_same_day() -> None:
     from enoch_control_plane.control_plane.alerts import PushoverResult
 

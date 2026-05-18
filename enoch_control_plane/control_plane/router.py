@@ -1153,7 +1153,6 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 entity_type,
                 _safe_slug(entity_id, "unknown"),
                 _safe_slug(run_id or paper_id or "unknown", "unknown"),
-                _safe_slug(reason, "reason"),
                 bucket,
             ]
         )
@@ -1178,6 +1177,15 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     },
                 },
             )
+        except IdempotencyConflict as exc:
+            return {
+                "attempted": False,
+                "ok": True,
+                "detail": "duplicate paper evidence alert suppressed",
+                "event_id": None,
+                "event_store_conflict": True,
+                "event_store_error": str(exc)[:300],
+            }
         except Exception as exc:  # noqa: BLE001 - alerting must survive event-store failures
             notification = _alert_paper_evidence_blocked(project_id=project_id, run_id=run_id, paper_id=paper_id, reason=reason)
             return {
