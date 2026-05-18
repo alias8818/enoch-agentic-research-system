@@ -245,6 +245,33 @@ def test_prepare_project_status_and_paper_artifact_endpoints(tmp_path: Path, mon
     assert "# Draft" in html.text
 
 
+
+def test_write_project_paper_rejects_uninspectable_project_dir_without_raw_error(tmp_path: Path, monkeypatch) -> None:
+    _, token = _client(tmp_path, monkeypatch)
+    project = tmp_path / "project-a"
+    project.mkdir(parents=True)
+    real_exists = appmod.Path.exists
+    resolved_project = project.resolve()
+
+    def blocked_exists(path, *args, **kwargs):  # noqa: ANN001 - monkeypatch-compatible Path method
+        if path == resolved_project:
+            raise PermissionError("simulated inaccessible project dir")
+        return real_exists(path)
+
+    monkeypatch.setattr(appmod.Path, "exists", blocked_exists)
+    client = TestClient(appmod.app, raise_server_exceptions=False)
+
+    response = client.post(
+        "/project-paper/project-a",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"run_id": "run", "paper_id": "paper", "files": [{"path": "paper.md", "content": "# Paper"}]},
+    )
+
+    assert response.status_code == 403
+    assert "project directory" in response.json()["detail"]
+    assert not real_exists(project / "paper.md")
+
+
 def test_dispatch_endpoint_handles_success_and_bad_output(tmp_path: Path, monkeypatch) -> None:
     client, token = _client(tmp_path, monkeypatch)
     headers = {"Authorization": f"Bearer {token}"}

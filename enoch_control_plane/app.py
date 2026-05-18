@@ -2231,7 +2231,7 @@ async def write_project_paper(
         raise HTTPException(status_code=400, detail="too many paper artifact files; max 20")
 
     project_dir = _resolve_project_dir(project_id, None)
-    if not project_dir.exists() or not project_dir.is_dir():
+    if not _checked_exists(project_dir, label="project directory", status_code=403) or not _checked_is_dir(project_dir, label="project directory", status_code=403):
         raise HTTPException(status_code=404, detail=f"project directory not found: {project_id}")
 
     written: list[dict[str, Any]] = []
