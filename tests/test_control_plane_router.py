@@ -2969,6 +2969,95 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(queue["last_run_state"], "wake_ready")
             self.assertEqual(queue["next_action_hint"], "draft_paper_or_select_next_project")
 
+    def test_worker_callback_replay_does_not_repeat_evidence_sync(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            config.paper_evidence_sync_enabled = True
+            config.paper_evidence_sync_remote_root = "/remote/projects"
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "worker-callback-replay-evidence-import",
+                "queue_rows": [{
+                    "project_id": "idea-callback-replay-evidence",
+                    "project_name": "Callback Replay Evidence",
+                    "project_dir": "idea-callback-replay-evidence",
+                    "status": "awaiting_wake",
+                    "current_run_id": "run-callback-replay-evidence",
+                }],
+            })
+            callback = {
+                "event_type": "wake_ready",
+                "run_id": "run-callback-replay-evidence",
+                "session_id": "session-callback-replay-evidence",
+                "project_id": "idea-callback-replay-evidence",
+                "project_name": "Callback Replay Evidence",
+                "source_event": "session-idle",
+                "gate_state": "wake_ready",
+                "process_tracking": {"root_pid": None, "process_group_id": None, "processes": [], "live_process_count": 0},
+                "telemetry": {},
+                "reason": "idle_sustain_met",
+                "idempotency_key": "run-callback-replay-evidence:wake_ready:test",
+            }
+
+            with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", return_value={"ok": True, "synced": True}) as sync:
+                first = client.post("/control/api/worker-callback", headers=headers, json=callback)
+                replay = client.post("/control/api/worker-callback", headers=headers, json=callback)
+
+            self.assertEqual(first.status_code, 200)
+            self.assertTrue(first.json()["inserted_event"])
+            self.assertIsNotNone(first.json()["decision_sync"])
+            self.assertEqual(replay.status_code, 200)
+            self.assertFalse(replay.json()["inserted_event"])
+            self.assertIsNone(replay.json()["decision_sync"])
+            self.assertEqual(sync.call_count, 1)
+
+    def test_stale_worker_callback_does_not_trigger_evidence_sync(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            config.paper_evidence_sync_enabled = True
+            config.paper_evidence_sync_remote_root = "/remote/projects"
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "worker-callback-stale-evidence-import",
+                "queue_rows": [{
+                    "project_id": "idea-callback-stale-evidence",
+                    "project_name": "Callback Stale Evidence",
+                    "project_dir": "idea-callback-stale-evidence",
+                    "status": "running",
+                    "current_run_id": "run-current",
+                    "current_session_id": "session-current",
+                    "last_run_state": "running",
+                    "next_action_hint": "await_callback",
+                }],
+            })
+            callback = {
+                "event_type": "wake_ready",
+                "run_id": "run-old",
+                "session_id": "session-old",
+                "project_id": "idea-callback-stale-evidence",
+                "project_name": "Callback Stale Evidence",
+                "source_event": "session-idle",
+                "gate_state": "wake_ready",
+                "process_tracking": {"root_pid": None, "process_group_id": None, "processes": [], "live_process_count": 0},
+                "telemetry": {},
+                "reason": "old callback arrived late",
+                "idempotency_key": "run-old:wake_ready:stale-evidence-test",
+            }
+
+            with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", return_value={"ok": True, "synced": True}) as sync:
+                response = client.post("/control/api/worker-callback", headers=headers, json=callback)
+
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json()["inserted_event"])
+            self.assertIsNone(response.json()["decision_sync"])
+            self.assertEqual(sync.call_count, 0)
+            queue = client.get("/control/queue", headers=headers).json()["rows"][0]
+            self.assertEqual(queue["current_run_id"], "run-current")
+            self.assertEqual(queue["last_run_state"], "running")
+            self.assertEqual(queue["next_action_hint"], "await_callback")
+
     def test_worker_callback_wake_ready_can_draft_paper_when_evidence_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "projects" / "idea-callback-draft"

@@ -39,7 +39,9 @@ SCHEMA_VERSION = 1
 ACTIVE_STATUSES = {"dispatching", "running", "awaiting_wake", "wake_received", "reconciling"}
 TERMINAL_SUCCESS_CALLBACK_STATES = {"wake_ready", "session_finished_ready"}
 WORKER_CALLBACK_AUDIT_KEYS = {
+    "delivered_at",
     "received_by",
+    "seen_at",
     "applied_status",
     "applied_next_action_hint",
     "stale_callback_ignored",
@@ -1442,7 +1444,12 @@ class ControlPlaneStore:
             for key, value in existing_payload.items()
             if key not in WORKER_CALLBACK_AUDIT_KEYS
         }
-        if existing_callback_payload != incoming_payload:
+        incoming_callback_payload = {
+            key: value
+            for key, value in incoming_payload.items()
+            if key not in WORKER_CALLBACK_AUDIT_KEYS
+        }
+        if existing_callback_payload != incoming_callback_payload:
             raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different callback payload")
         return int(row["event_id"])
 

@@ -1946,7 +1946,17 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         except IdempotencyConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         decision_sync: dict[str, Any] | None = None
-        if callback.event_type in {"wake_ready", "session_finished_ready"} and row:
+        callback_run_id = str(callback.run_id or "").strip()
+        row_run_id = str((row or {}).get("current_run_id") or "").strip()
+        row_last_run_state = str((row or {}).get("last_run_state") or "").strip()
+        should_sync_decision = (
+            inserted
+            and callback.event_type in {"wake_ready", "session_finished_ready"}
+            and bool(row)
+            and row_run_id == callback_run_id
+            and row_last_run_state in {"wake_ready", "session_finished_ready"}
+        )
+        if should_sync_decision and row:
             project_id = str(row.get("project_id") or callback.project_id or "").strip()
             project_dir_text = str(row.get("project_dir") or project_id).strip()
             root = config.expanded_project_root.resolve()

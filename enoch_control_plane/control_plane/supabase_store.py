@@ -3119,7 +3119,12 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             for key, value in existing_payload.items()
             if key not in WORKER_CALLBACK_AUDIT_KEYS
         }
-        if existing_callback_payload != incoming_payload:
+        incoming_callback_payload = {
+            key: value
+            for key, value in incoming_payload.items()
+            if key not in WORKER_CALLBACK_AUDIT_KEYS
+        }
+        if existing_callback_payload != incoming_callback_payload:
             raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different callback payload")
         return int(row["event_id"])
 
