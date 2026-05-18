@@ -111,9 +111,26 @@ def _paper_publication_artifacts_present(row: dict[str, Any]) -> bool:
     required = ("draft_markdown_path", "evidence_bundle_path", "claim_ledger_path", "manifest_path")
     if isinstance(artifact_flags, dict):
         return all(bool(artifact_flags.get(name)) for name in required)
+    related_artifact_flags = row.get("related_artifact_paths_present")
+    if isinstance(related_artifact_flags, dict):
+        related_required = (
+            "finalization_package_path",
+            "draft_markdown_path",
+            "evidence_bundle_path",
+            "claim_ledger_path",
+            "manifest_path",
+        )
+        return all(bool(related_artifact_flags.get(name)) for name in related_required)
     if _text(row.get("related_paper_id")):
         return all(_related_artifact_paths_present(row).values())
     return all(bool(_text(row.get(name))) for name in required)
+
+
+def _paper_finalization_package_present(row: dict[str, Any]) -> bool:
+    if _text(row.get("finalization_package_path") or row.get("related_finalization_package_path")):
+        return True
+    artifact_flags = row.get("related_artifact_paths_present")
+    return isinstance(artifact_flags, dict) and bool(artifact_flags.get("finalization_package_path"))
 
 
 def _stage(
@@ -459,7 +476,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     if (
         paper_status in {PaperStatus.PUBLICATION_DRAFT.value, PaperStatus.DRAFT_REVIEW.value}
         and review_status in READY_REVIEW_STATUSES
-        and _text(row.get("finalization_package_path") or row.get("related_finalization_package_path"))
+        and _paper_finalization_package_present(row)
         and _paper_publication_artifacts_present(row)
     ):
         return _stage(
@@ -617,7 +634,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
 
 def with_operator_stage(row: dict[str, Any]) -> dict[str, Any]:
     stage = operator_stage_for_record(row)
-    return {**stage, **row}
+    return {**row, **stage}
 
 from .store import ControlPlaneStore
 
@@ -913,7 +930,7 @@ def _queue_is_superseded_by_paper(
 
 
 def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    staged_rows = [row if row.get("operator_stage") else with_operator_stage(row) for row in rows]
+    staged_rows = [with_operator_stage(row) for row in rows]
     paper_projects = {
         _text(row.get("project_id"))
         for row in staged_rows

@@ -499,3 +499,70 @@ def test_run_summary_uses_related_artifact_paths_without_exposing_them() -> None
         "related_manifest_path",
     ):
         assert field not in summary
+
+
+def test_operator_counts_recompute_stale_operator_stage_fields_from_raw_lifecycle() -> None:
+    row = {
+        "project_id": "stale-stage-project",
+        "project_name": "stale-stage-project",
+        "status": "completed",
+        "last_run_state": "wake_ready",
+        "current_run_id": "stale-stage-run",
+        "next_action_hint": "select_next_project",
+        "operator_stage": OperatorLane.RUNNING.value,
+        "operator_lane": OperatorLane.RUNNING.value,
+        "operator_detail_stage": "running",
+        "operator_attention": False,
+    }
+
+    counts = operator_counts_from_rows([row])
+    detail = operator_detail_counts_from_rows([row])
+
+    assert counts.get(OperatorLane.RUNNING.value, 0) == 0
+    assert counts[OperatorLane.COMPLETE_NO_PAPER.value] == 1
+    assert counts["total_operator_items"] == 1
+    assert detail["run_complete_no_paper"] == 1
+    assert "running" not in detail
+
+
+def test_reconciliation_preserves_sanitized_ready_to_publish_queue_summary() -> None:
+    from enoch_control_plane.control_plane.read_models import operator_stage_for_record, summarize_queue_row
+
+    summary = summarize_queue_row({
+        "project_id": "sanitized-ready-project",
+        "project_name": "Sanitized Ready Project",
+        "status": "completed",
+        "last_run_state": "wake_ready",
+        "current_run_id": "sanitized-ready-run",
+        "related_paper_id": "paper-ready",
+        "related_paper_status": "publication_draft",
+        "related_review_status": "finalized",
+        "related_finalization_package_path": "package.json",
+        "related_draft_markdown_path": "/private/projects/ready/paper.md",
+        "related_evidence_bundle_path": "/private/projects/ready/evidence_bundle.json",
+        "related_claim_ledger_path": "/private/projects/ready/claim_ledger.json",
+        "related_manifest_path": "/private/projects/ready/paper_manifest.json",
+    })
+    paper_summary = _paper("sanitized-ready-project", "sanitized-ready-run", "paper-ready")
+
+    recomputed_stage = operator_stage_for_record(summary)
+    counts = operator_counts_from_rows([summary, paper_summary])
+    detail = operator_detail_counts_from_rows([summary, paper_summary])
+
+    assert recomputed_stage["operator_detail_stage"] == "ready_to_publish"
+    assert counts[OperatorLane.READY_TO_PUBLISH.value] == 1
+    assert counts["total_operator_items"] == 1
+    assert detail["ready_to_publish"] == 1
+
+
+def test_reconciliation_preserves_sanitized_ready_to_publish_paper_summary() -> None:
+    from enoch_control_plane.control_plane.read_models import summarize_paper_row
+
+    summary = summarize_paper_row(_paper("paper-project", "paper-run", "paper-1"))
+
+    counts = operator_counts_from_rows([summary])
+    detail = operator_detail_counts_from_rows([summary])
+
+    assert counts[OperatorLane.READY_TO_PUBLISH.value] == 1
+    assert counts["total_operator_items"] == 1
+    assert detail["ready_to_publish"] == 1
