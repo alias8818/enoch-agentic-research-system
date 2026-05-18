@@ -101,6 +101,13 @@ def _truthy_flag(value: Any) -> bool:
     return value is True or value in {1, "1", "true", "True", "TRUE", "yes", "YES", "on", "ON"}
 
 
+def _expanduser_path_or_http(value: str, *, detail: str = "path contains an unexpandable user home") -> Path:
+    try:
+        return Path(value).expanduser()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=detail) from exc
+
+
 def _bounded_int_from_mapping(values: dict[str, Any], name: str, default: int, lower: int, upper: int) -> int:
     value = values.get(name)
     if value is None:
@@ -1109,7 +1116,7 @@ def _write_deterministic_paper(config: GateConfig, candidate: dict, paper: Paper
     if not project_dir_text:
         raise HTTPException(status_code=400, detail="candidate lacks project_dir")
     root = config.expanded_project_root.resolve()
-    project_dir = Path(project_dir_text).expanduser()
+    project_dir = _expanduser_path_or_http(project_dir_text, detail="project_dir contains an unexpandable user home")
     if not project_dir.is_absolute():
         project_dir = root / project_dir
     project_dir = project_dir.resolve()
@@ -2697,7 +2704,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         project_id = str(paper.get("project_id") or "")
         project = store.project_row(project_id) if project_id else None
         configured_root = config.expanded_project_root.resolve()
-        current_project_dir = Path(str((project or {}).get("project_dir") or "")).expanduser() if project else Path()
+        try:
+            current_project_dir = Path(str((project or {}).get("project_dir") or "")).expanduser() if project else Path()
+        except RuntimeError:
+            current_project_dir = Path()
         use_current_dir = False
         if str(current_project_dir):
             try:
@@ -2846,7 +2856,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         project_id = str(paper.get("project_id") or "").strip()
         project_dir_text = str(paper.get("project_dir") or project_id).strip()
         safe_root = _local_artifact_root(config, project_id=project_id, project_dir_text=project_dir_text)
-        candidate = Path(project_dir_text).expanduser()
+        candidate = _expanduser_path_or_http(project_dir_text, detail="paper project_dir contains an unexpandable user home")
         candidate_root = (candidate if candidate.is_absolute() else config.expanded_project_root / candidate).resolve()
         if candidate_root != safe_root:
             raise HTTPException(status_code=400, detail="paper finalization artifacts must resolve inside the configured project root")
@@ -2954,7 +2964,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             project_id=str(paper.get("project_id") or "").strip(),
             project_dir_text=project_dir_text,
         ) if project_dir_text else None
-        path = Path(raw_path).expanduser()
+        path = _expanduser_path_or_http(raw_path, detail="paper artifact path contains an unexpandable user home")
         resolved = path if path.is_absolute() else ((project_dir / path) if project_dir else path)
         resolved = resolved.resolve()
         if project_dir is not None:
