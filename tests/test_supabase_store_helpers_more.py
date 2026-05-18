@@ -650,6 +650,45 @@ def test_supabase_worker_callback_without_key_dedupes_exact_retry(monkeypatch) -
     assert second_inserted is False
     assert len(events) == 1
 
+
+def test_supabase_dispatch_started_replay_does_not_mutate_queue(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    executed: list[str] = []
+
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight cursor fake
+            del params
+            executed.append(str(sql))
+            return None
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    def fake_append_event(_cur, *, idempotency_key, event_type, entity_type, entity_id, payload):  # noqa: ANN001 - signature mirrors store
+        del idempotency_key, event_type, entity_type, entity_id, payload
+        return 7, False
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", fake_append_event)
+    monkeypatch.setattr(store, "queue_row", lambda project_id: {"project_id": project_id, "status": "completed", "last_run_state": "wake_ready"})
+
+    event_id, row = store.mark_dispatch_started(
+        project_id="idea-dispatch-replay",
+        run_id="run-dispatch-replay",
+        session_id="session-dispatch-replay",
+        dispatch_payload={"project_id": "idea-dispatch-replay"},
+        requested_by="test",
+    )
+
+    assert event_id == 7
+    assert row["status"] == "completed"
+    assert executed == []
+
+
 def test_supabase_worker_callback_without_identifiers_dedupes_by_payload(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     events: dict[str, tuple[int, str]] = {}

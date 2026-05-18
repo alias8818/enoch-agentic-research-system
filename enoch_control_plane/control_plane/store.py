@@ -2521,7 +2521,19 @@ class ControlPlaneStore:
         requested_by: str,
     ) -> tuple[int, dict[str, Any]]:
         now = utc_now()
+        event_payload = {"requested_by": requested_by, "run_id": run_id, "session_id": session_id, "dispatch": dispatch_payload}
         with self._connect() as conn:
+            event_id, inserted = self._append_event_in_conn(
+                conn,
+                idempotency_key=f"live-dispatch:{run_id}",
+                event_type="controller.live_dispatch",
+                entity_type="project",
+                entity_id=project_id,
+                payload=event_payload,
+            )
+            if not inserted:
+                row = next((item for item in self.queue_rows() if item.get("project_id") == project_id), {})
+                return event_id, row
             conn.execute(
                 """UPDATE queue_items
                 SET status=?, current_run_id=?, current_session_id=?, last_run_state=?, last_event_type=?, next_action_hint=?, last_error=?, last_result_summary=?, last_dispatch_at=?, updated_at=?
@@ -2544,14 +2556,6 @@ class ControlPlaneStore:
                 """INSERT OR REPLACE INTO runs(run_id,project_id,session_id,state,dispatch_mode,started_at,ended_at,last_callback_at,gate_state,current_activity,idempotency_key,updated_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (run_id, project_id, session_id, "running", "exec", now, None, None, "running", "dispatched", f"live-dispatch:{run_id}", now),
-            )
-            event_id, _ = self._append_event_in_conn(
-                conn,
-                idempotency_key=f"live-dispatch:{run_id}",
-                event_type="controller.live_dispatch",
-                entity_type="project",
-                entity_id=project_id,
-                payload={"requested_by": requested_by, "run_id": run_id, "session_id": session_id, "dispatch": dispatch_payload},
             )
         row = next((item for item in self.queue_rows() if item.get("project_id") == project_id), {})
         return event_id, row

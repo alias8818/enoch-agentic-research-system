@@ -10,12 +10,14 @@ from enoch_control_plane.control_plane.models import (
     IdeaIntakeRequest,
     ImportSnapshotRequest,
     NotionIntakeRequest,
+    PaperRecord,
     PaperReviewApproveFinalizationRequest,
     PaperReviewBackfillRequest,
     PaperReviewChecklistUpdateRequest,
     PaperReviewClaimRequest,
     PaperReviewPrepareFinalizationRequest,
     PaperReviewStatusUpdateRequest,
+    PaperStatus,
 )
 from enoch_control_plane.control_plane.store import ControlPlaneStore
 from enoch_control_plane.enoch_core.store import IdempotencyConflict
@@ -691,6 +693,54 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertIsNone(run["ended_at"])
             self.assertEqual(run["last_callback_at"], row["last_callback_at"])
 
+    def test_dispatch_started_idempotent_replay_does_not_regress_completed_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="dispatch-replay-import",
+                    queue_rows=[{
+                        "project_id": "idea-dispatch-replay",
+                        "project_name": "Dispatch Replay",
+                        "project_dir": "idea-dispatch-replay",
+                        "status": "queued",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            dispatch_payload = {"project_id": "idea-dispatch-replay", "worker": "gb10"}
+            first_event_id, first_row = store.mark_dispatch_started(
+                project_id="idea-dispatch-replay",
+                run_id="run-dispatch-replay",
+                session_id="session-dispatch-replay",
+                dispatch_payload=dispatch_payload,
+                requested_by="test",
+            )
+            self.assertEqual(first_row["status"], "awaiting_wake")
+            _callback_event_id, _inserted, completed_row = store.record_worker_callback({
+                "event_type": "wake_ready",
+                "run_id": "run-dispatch-replay",
+                "session_id": "session-dispatch-replay",
+                "project_id": "idea-dispatch-replay",
+                "gate_state": "wake_ready",
+                "reason": "worker ready",
+                "idempotency_key": "run-dispatch-replay:wake-ready",
+            })
+            self.assertEqual(completed_row["status"], "completed")
+
+            replay_event_id, replay_row = store.mark_dispatch_started(
+                project_id="idea-dispatch-replay",
+                run_id="run-dispatch-replay",
+                session_id="session-dispatch-replay",
+                dispatch_payload=dispatch_payload,
+                requested_by="test",
+            )
+
+            self.assertEqual(replay_event_id, first_event_id)
+            self.assertEqual(replay_row["status"], "completed")
+            self.assertEqual(replay_row["last_run_state"], "wake_ready")
+            self.assertEqual(replay_row["next_action_hint"], "draft_paper_or_select_next_project")
+
     def test_worker_callback_missing_run_id_does_not_mutate_active_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
@@ -1172,6 +1222,57 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertTrue(first_inserted)
             self.assertFalse(second_inserted)
             self.assertEqual(len(store.event_rows(limit=10, entity_type="run", entity_id="unknown")), 1)
+
+
+    def test_upsert_paper_preserves_existing_review_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            paper_id = "paper-upsert-preserve-review:run-1:arxiv_draft"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="paper-upsert-preserve-review-import",
+                    paper_rows=[{
+                        "paper_id": paper_id,
+                        "project_id": "paper-upsert-preserve-review",
+                        "project_name": "Paper Upsert Preserve Review",
+                        "run_id": "run-1",
+                        "paper_status": "publication_draft",
+                        "draft_markdown_path": "papers/run-1/original.md",
+                        "draft_latex_path": "papers/run-1/original.tex",
+                        "evidence_bundle_path": "papers/run-1/evidence.json",
+                        "claim_ledger_path": "papers/run-1/claims.json",
+                        "manifest_path": "papers/run-1/manifest.json",
+                    }],
+                )
+            )
+            inserted, created, _updated, _skipped, errors = store.backfill_paper_reviews(
+                PaperReviewBackfillRequest(
+                    idempotency_key="paper-upsert-preserve-review-backfill",
+                    dry_run=False,
+                )
+            )
+            self.assertTrue(inserted)
+            self.assertEqual(created, 1)
+            self.assertEqual(errors, [])
+            self.assertIsNotNone(store.paper_review_row(paper_id))
+
+            store.upsert_paper(
+                PaperRecord(
+                    paper_id=paper_id,
+                    project_id="paper-upsert-preserve-review",
+                    run_id="run-1",
+                    paper_status=PaperStatus.PUBLICATION_DRAFT,
+                    draft_markdown_path="papers/run-1/rewritten.md",
+                    draft_latex_path="papers/run-1/rewritten.tex",
+                    evidence_bundle_path="papers/run-1/evidence.json",
+                    claim_ledger_path="papers/run-1/claims.json",
+                    manifest_path="papers/run-1/manifest.json",
+                )
+            )
+
+            paper = store.paper_row(paper_id)
+            self.assertEqual(paper["draft_markdown_path"], "papers/run-1/rewritten.md")
+            self.assertIsNotNone(store.paper_review_row(paper_id))
 
 
     def test_unknown_worker_callback_requires_manual_review(self) -> None:
