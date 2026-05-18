@@ -121,7 +121,7 @@ def test_supabase_upsert_paper_rejects_conflicting_paper_identity() -> None:
         def __exit__(self, *args): return None
         def execute(self, sql, params=()):
             normalized = " ".join(str(sql).lower().split())
-            if normalized.startswith("select project_id, run_id, paper_type from papers"):
+            if normalized.startswith("select project_id, run_id, paper_type") and " from papers" in normalized:
                 self._fetchone = {"project_id": "project-a", "run_id": "run-1", "paper_type": "arxiv_draft"}
                 return self
             if normalized.startswith("insert into papers"):
@@ -1853,7 +1853,7 @@ def test_supabase_import_snapshot_rejects_existing_paper_identity_conflict(monke
         def __exit__(self, *args): return None
         def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
             normalized = " ".join(str(sql).lower().split())
-            if normalized.startswith("select project_id, run_id, paper_type from papers"):
+            if normalized.startswith("select project_id, run_id, paper_type") and " from papers" in normalized:
                 self._next = {"project_id": "project-a", "run_id": "run-1", "paper_type": "arxiv_draft"}
             elif normalized.startswith("select status,current_run_id"):
                 self._next = None
@@ -1887,6 +1887,88 @@ def test_supabase_import_snapshot_rejects_existing_paper_identity_conflict(monke
         ))
 
     assert conn.cursor_obj.paper_insert_attempted is False
+
+
+def test_supabase_import_snapshot_ignores_stale_queue_and_paper_rows(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    queue_upserts: list[tuple[object, ...]] = []
+    paper_upserts: list[tuple[object, ...]] = []
+    project_updates = 0
+
+    class Cursor:
+        def __init__(self) -> None:
+            self._next = None
+
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            nonlocal project_updates
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("select status,current_run_id"):
+                self._next = {
+                    "status": "completed",
+                    "current_run_id": "run-new",
+                    "current_session_id": "",
+                    "last_run_state": "negative",
+                    "last_event_type": "",
+                    "next_action_hint": "select_next_project",
+                    "manual_review_required": False,
+                    "blocked_reason": "",
+                    "last_error": "",
+                    "last_result_summary": "",
+                    "last_dispatch_at": None,
+                    "last_callback_at": None,
+                    "stale_after": None,
+                    "updated_at": "2026-05-18T12:00:00+00:00",
+                }
+            elif normalized.startswith("select project_id, run_id, paper_type"):
+                self._next = {
+                    "project_id": "project-1",
+                    "run_id": "run-new",
+                    "paper_type": "arxiv_draft",
+                    "updated_at": "2026-05-18T12:00:00+00:00",
+                }
+            elif normalized.startswith("insert into projects") and "do update" in normalized:
+                project_updates += 1
+            elif normalized.startswith("insert into queue_items"):
+                queue_upserts.append(tuple(params))
+            elif normalized.startswith("insert into papers"):
+                paper_upserts.append(tuple(params))
+            return self
+        def fetchone(self):
+            value = self._next
+            self._next = None
+            return value
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", lambda *args, **kwargs: (1, True))
+
+    store.import_snapshot(ImportSnapshotRequest(
+        idempotency_key="supabase-import-older-state",
+        queue_rows=[{
+            "project_id": "project-1",
+            "project_name": "Older Name",
+            "status": "running",
+            "current_run_id": "run-old",
+            "updated_at": "2026-05-18T11:00:00+00:00",
+        }],
+        paper_rows=[{
+            "paper_id": "paper-1",
+            "project_id": "project-1",
+            "run_id": "run-new",
+            "paper_status": "archived",
+            "updated_at": "2026-05-18T11:00:00+00:00",
+        }],
+    ))
+
+    assert project_updates == 1
+    assert queue_upserts == []
+    assert paper_upserts == []
 
 
 def test_supabase_import_snapshot_row_failure_does_not_consume_idempotency_key(monkeypatch) -> None:

@@ -52,6 +52,7 @@ from .store import (
     _idea_status,
     _idea_title,
     _int,
+    _is_older_timestamp,
     _json,
     _json_dict,
     _json_list,
@@ -3755,6 +3756,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                           notion_page_id=coalesce(nullif(excluded.notion_page_id,''), projects.notion_page_id),
                           origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
                           updated_at=excluded.updated_at
+                        where excluded.updated_at >= projects.updated_at
                         """,
                         (
                             project_id,
@@ -3770,10 +3772,12 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     )
                     projects += 1
                     cur.execute(
-                        "select status,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,last_dispatch_at,last_callback_at,stale_after from queue_items where project_id = %s",
+                        "select status,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,last_dispatch_at,last_callback_at,stale_after,updated_at from queue_items where project_id = %s",
                         (project_id,),
                     )
                     existing_queue = cur.fetchone()
+                    if existing_queue and _is_older_timestamp(updated_at, existing_queue.get("updated_at")):
+                        continue
                     existing_run_id = _text((existing_queue or {}).get("current_run_id"))
                     incoming_run_id = _text(raw.get("current_run_id"))
                     preserve_active_runtime = bool(
@@ -3864,15 +3868,18 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     if status not in PaperStatus._value2member_map_:
                         status = PaperStatus.DRAFT_REVIEW.value
                     cur.execute(
-                        "select project_id, run_id, paper_type from papers where paper_id=%s",
+                        "select project_id, run_id, paper_type, updated_at from papers where paper_id=%s",
                         (paper_id,),
                     )
-                    if _paper_identity_conflicts(cur.fetchone(), {
+                    existing_paper = cur.fetchone()
+                    if _paper_identity_conflicts(existing_paper, {
                         "project_id": project_id,
                         "run_id": _text(raw.get("run_id")),
                         "paper_type": _text(raw.get("paper_type")) or "arxiv_draft",
                     }):
                         raise IdempotencyConflict(f"paper id {paper_id!r} was reused with different paper identity")
+                    if existing_paper and _is_older_timestamp(raw.get("updated_at"), existing_paper["updated_at"]):
+                        continue
                     cur.execute(
                         """
                         insert into papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
