@@ -2758,15 +2758,23 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         except RuntimeError:
             current_project_dir = Path()
         use_current_dir = False
+        resolved_current_project_dir: Path | None = None
         if str(current_project_dir):
             try:
-                resolved_current = current_project_dir.resolve()
-                resolved_current.relative_to(configured_root)
-                use_current_dir = resolved_current.exists()
-            except (OSError, RuntimeError, ValueError):
+                resolved_current_project_dir = current_project_dir.resolve()
+                resolved_current_project_dir.relative_to(configured_root)
+            except ValueError:
                 use_current_dir = False
+                resolved_current_project_dir = None
+            except (OSError, RuntimeError) as exc:
+                raise HTTPException(status_code=400, detail="paper artifact root could not be resolved") from exc
+            else:
+                try:
+                    use_current_dir = resolved_current_project_dir.exists()
+                except (OSError, RuntimeError) as exc:
+                    raise HTTPException(status_code=400, detail="paper artifact root could not be inspected") from exc
         try:
-            artifact_root = current_project_dir.resolve() if use_current_dir else (configured_root / project_id).resolve()
+            artifact_root = resolved_current_project_dir if use_current_dir and resolved_current_project_dir is not None else (configured_root / project_id).resolve()
         except (OSError, RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail="paper artifact root could not be resolved") from exc
         existing_event_reader = getattr(store, "event_by_idempotency_key", None)

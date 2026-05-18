@@ -4790,6 +4790,58 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("paper_review.draft_rewritten", event_types)
             self.assertIn("paper_review.finalization_package_prepared", event_types)
 
+    def test_paper_review_rewrite_rejects_uninspectable_current_project_dir_without_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_id = "router-rewrite-uninspectable"
+            paper_id = f"{project_id}:run-1:arxiv_draft"
+            current_artifact_root = config.expanded_project_root / "custom-artifact-root"
+            current_artifact_root.mkdir(parents=True, exist_ok=True)
+            (current_artifact_root / "run_notes.md").write_text("Uninspectable rewrite evidence.\n", encoding="utf-8")
+            audit_path = Path(tmp) / "audit.json"
+            audit_path.write_text(json.dumps({"papers": [{"paper_id": paper_id, "ready": True}]}), encoding="utf-8")
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "router-rewrite-uninspectable-import",
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": project_id,
+                    "project_name": "Router Rewrite Uninspectable",
+                    "project_dir": str(current_artifact_root),
+                    "run_id": "run-1",
+                    "paper_status": "draft_review",
+                    "draft_markdown_path": "papers/run-1/final_paper.md",
+                    "draft_latex_path": "papers/run-1/final_paper.tex",
+                    "evidence_bundle_path": "papers/run-1/evidence.json",
+                    "claim_ledger_path": "papers/run-1/claims.json",
+                    "manifest_path": "papers/run-1/manifest.json",
+                }],
+            })
+            client.post("/control/api/paper-reviews/backfill", headers=headers, json={
+                "idempotency_key": "router-rewrite-uninspectable-backfill",
+                "source_audit_path": str(audit_path),
+                "dry_run": False,
+            })
+            original_exists = Path.exists
+
+            def guarded_exists(path: Path, *args, **kwargs) -> bool:
+                if path == current_artifact_root:
+                    raise PermissionError("no permission to inspect current project dir")
+                return original_exists(path, *args, **kwargs)
+
+            with patch.object(Path, "exists", guarded_exists):
+                response = client.post(f"/control/api/paper-reviews/{paper_id}/rewrite-draft", headers=headers, json={
+                    "idempotency_key": "router-rewrite-uninspectable-1",
+                    "requested_by": "alice",
+                    "force": True,
+                })
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json()["detail"], "paper artifact root could not be inspected")
+            fallback_root = config.expanded_project_root / project_id
+            self.assertFalse((fallback_root / "papers/run-1/final_paper.md").exists())
+            self.assertFalse((current_artifact_root / "papers/run-1/final_paper.md").exists())
+
     def test_paper_review_rewrite_replay_does_not_repeat_evidence_sync(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _config(tmp)
