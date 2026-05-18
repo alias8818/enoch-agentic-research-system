@@ -153,6 +153,86 @@ def test_write_store_dry_run_intakes_build_candidates_and_skips_rows() -> None:
     assert {row["reason"] for row in idea_skipped_rows} == {"status 'archived' not included", "missing title"}
 
 
+def test_supabase_native_intake_row_failure_does_not_consume_idempotency_key(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    events: dict[str, tuple[int, str]] = {}
+    projects: set[str] = set()
+    queue_items: set[str] = set()
+    fail_project_insert = True
+
+    class Cursor:
+        def __init__(self, conn):
+            self.conn = conn
+            self._next = None
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            nonlocal fail_project_insert
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("select event_id"):
+                event = self.conn.pending_events.get(params[0])
+                self._next = None if event is None else {"event_id": event[0], "payload_hash": event[1]}
+            elif normalized.startswith("insert into control_events"):
+                event_id = len(self.conn.pending_events) + 1
+                self.conn.pending_events[params[0]] = (event_id, params[5])
+                self._next = {"event_id": event_id}
+            elif normalized.startswith("select 1 from queue_items"):
+                self._next = None
+            elif normalized.startswith("insert into ideas"):
+                return self
+            elif normalized.startswith("insert into projects"):
+                if fail_project_insert:
+                    fail_project_insert = False
+                    raise RuntimeError("simulated native intake project write failure")
+                self.conn.pending_projects.add(params[0])
+            elif normalized.startswith("insert into queue_items"):
+                self.conn.pending_queue_items.add(params[0])
+            return self
+        def fetchone(self):
+            value = self._next
+            self._next = None
+            return value
+
+    class Conn:
+        def __enter__(self):
+            self.pending_events = dict(events)
+            self.pending_projects = set(projects)
+            self.pending_queue_items = set(queue_items)
+            return self
+        def __exit__(self, exc_type, *_args):
+            if exc_type is None:
+                events.update(self.pending_events)
+                projects.update(self.pending_projects)
+                queue_items.update(self.pending_queue_items)
+            return False
+        def cursor(self): return Cursor(self)
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    request = IdeaIntakeRequest(
+        idempotency_key="supabase-native-intake-atomic-key",
+        dry_run=False,
+        ideas=[{
+            "idea_id": "supabase-native-intake-atomic",
+            "title": "Supabase Native Intake Atomic",
+            "idea_status": "testing",
+        }],
+    )
+
+    try:
+        store.ingest_ideas(request)
+    except RuntimeError as exc:
+        assert "simulated native intake project write failure" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected simulated project write failure")
+    inserted, created, updated, skipped, _candidates, skipped_rows = store.ingest_ideas(request)
+
+    assert inserted is True
+    assert (created, updated, skipped) == (1, 0, 0)
+    assert skipped_rows == []
+    assert projects == {"supabase-native-intake-atomic"}
+    assert queue_items == {"supabase-native-intake-atomic"}
+
+
 def test_write_store_dispatch_and_projection_helpers(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     monkeypatch.setattr(store, "flags", lambda: ControlFlags(queue_paused=True, pause_reason="maintenance"))

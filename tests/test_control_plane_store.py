@@ -362,6 +362,53 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(after["notion_page_id"], before["notion_page_id"])
             self.assertEqual(after["project_name"], "Preserve Provenance Renamed")
 
+    def test_native_intake_row_failure_does_not_consume_idempotency_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            original_connect = store._connect
+            fail_project_insert = True
+
+            class FailingConnection:
+                def __init__(self, manager):
+                    self.manager = manager
+                    self.conn = None
+
+                def __enter__(self):
+                    self.conn = self.manager.__enter__()
+                    return self
+
+                def __exit__(self, *args):
+                    return self.manager.__exit__(*args)
+
+                def __getattr__(self, name):
+                    return getattr(self.conn, name)
+
+                def execute(self, sql, params=()):
+                    nonlocal fail_project_insert
+                    if fail_project_insert and "INSERT INTO projects" in str(sql):
+                        fail_project_insert = False
+                        raise RuntimeError("simulated native intake project write failure")
+                    return self.conn.execute(sql, params)
+
+            request = IdeaIntakeRequest(
+                idempotency_key="native-intake-atomic-key",
+                dry_run=False,
+                ideas=[{
+                    "idea_id": "native-intake-atomic",
+                    "title": "Native Intake Atomic",
+                    "idea_status": "testing",
+                }],
+            )
+            with unittest.mock.patch.object(store, "_connect", side_effect=lambda: FailingConnection(original_connect())):
+                with self.assertRaises(RuntimeError):
+                    store.ingest_ideas(request)
+                inserted, created, updated, skipped, _candidates, skipped_rows = store.ingest_ideas(request)
+
+            self.assertTrue(inserted)
+            self.assertEqual((created, updated, skipped), (1, 0, 0))
+            self.assertEqual(skipped_rows, [])
+            self.assertIsNotNone(store.queue_row("native-intake-atomic"))
+
     def test_legacy_notion_reingest_preserves_runtime_project_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

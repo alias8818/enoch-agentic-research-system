@@ -2234,19 +2234,20 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         event_payload = request.model_dump(mode="json")
         event_payload["candidate_count"] = len(candidates)
         event_payload["skipped_count"] = len(skipped_rows)
-        _event_id, inserted = self.append_event(
-            idempotency_key=request.idempotency_key,
-            event_type="notion.intake",
-            entity_type="snapshot",
-            entity_id=request.source,
-            payload=event_payload,
-        )
         created = updated = 0
-        if not inserted:
-            return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
         now = utc_now()
         with self._connect() as conn:
             with conn.cursor() as cur:
+                _event_id, inserted = self._append_event_in_cursor(
+                    cur,
+                    idempotency_key=request.idempotency_key,
+                    event_type="notion.intake",
+                    entity_type="snapshot",
+                    entity_id=request.source,
+                    payload=event_payload,
+                )
+                if not inserted:
+                    return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
                 for candidate in candidates:
                     existed = cur.execute("select 1 from queue_items where project_id = %s", (candidate["project_id"],)).fetchone() is not None
                     cur.execute(
@@ -2338,19 +2339,20 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         event_payload = request.model_dump(mode="json")
         event_payload["candidate_count"] = len(candidates)
         event_payload["skipped_count"] = len(skipped_rows)
-        _event_id, inserted = self.append_event(
-            idempotency_key=request.idempotency_key,
-            event_type="ideas.intake",
-            entity_type="snapshot",
-            entity_id=request.source,
-            payload=event_payload,
-        )
         created = updated = 0
-        if not inserted:
-            return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
         now = utc_now()
         with self._connect() as conn:
             with conn.cursor() as cur:
+                _event_id, inserted = self._append_event_in_cursor(
+                    cur,
+                    idempotency_key=request.idempotency_key,
+                    event_type="ideas.intake",
+                    entity_type="snapshot",
+                    entity_id=request.source,
+                    payload=event_payload,
+                )
+                if not inserted:
+                    return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
                 for candidate in candidates:
                     existed = cur.execute("select 1 from queue_items where project_id = %s", (candidate["project_id"],)).fetchone() is not None
                     raw = candidate["source_row"]
