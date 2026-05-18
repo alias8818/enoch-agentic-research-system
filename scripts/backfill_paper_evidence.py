@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.models import PaperRecord, PaperStatus, utc_now
 from enoch_control_plane.control_plane.paper_writer import backfill_paper_evidence_artifacts
-from enoch_control_plane.control_plane.router import _local_paper_evidence_present, _sync_remote_project_evidence
+from enoch_control_plane.control_plane.router import _local_artifact_root, _local_paper_evidence_present, _sync_remote_project_evidence
 from enoch_control_plane.control_plane.store import ControlPlaneStore
 from enoch_control_plane.control_plane.supabase_store import (
     SupabaseControlPlaneStore,
@@ -52,17 +52,8 @@ def paper_record_from_row(row: dict[str, Any]) -> PaperRecord:
 
 def artifact_root_for_row(config: GateConfig, row: dict[str, Any]) -> Path:
     project_id = str(row.get("project_id") or "").strip()
-    root = config.expanded_project_root.resolve()
-    current = Path(str(row.get("project_dir") or "")).expanduser()
-    if str(current):
-        try:
-            resolved = current.resolve()
-            resolved.relative_to(root)
-            if resolved.exists():
-                return resolved
-        except (OSError, ValueError):
-            pass
-    return (root / project_id).resolve()
+    project_dir = str(row.get("project_dir") or "").strip()
+    return _local_artifact_root(config, project_id=project_id, project_dir_text=project_dir)
 
 
 def main() -> int:
