@@ -161,7 +161,14 @@ def deliver_pending_file(path: str | Path, *, state_dir: str | Path, url: str, t
         return DeliveryResult(ok=False, detail=f"invalid callback outbox path: {type(exc).__name__}: {exc}", path=str(pending))
     if not _is_relative_to(pending_resolved, outbox_resolved):
         return DeliveryResult(ok=False, detail="pending callback path is outside callback outbox", path=str(pending))
-    payload = json.loads(pending.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(pending.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return DeliveryResult(
+            ok=False,
+            detail=f"pending callback payload unreadable: {type(exc).__name__}: {exc}",
+            path=str(pending),
+        )
     payload["attempt_count"] = int(payload.get("attempt_count") or 0) + 1
     payload["last_attempt_at"] = utc_now()
     result = deliver_payload(payload, url=url, token=token, timeout=timeout)

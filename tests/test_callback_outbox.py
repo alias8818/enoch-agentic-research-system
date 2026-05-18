@@ -137,6 +137,25 @@ def test_deliver_pending_file_rejects_paths_outside_outbox(tmp_path: Path) -> No
     assert "attempt_count" not in json.loads(outside.read_text(encoding="utf-8"))
 
 
+def test_deliver_pending_file_reports_corrupt_pending_json_without_crashing(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    pending = callback_outbox.pending_path(state, "run-corrupt")
+    pending.write_text("{not-json", encoding="utf-8")
+
+    result = callback_outbox.deliver_pending_file(
+        pending,
+        state_dir=state,
+        url="http://127.0.0.1/callback",
+        token="token",
+        timeout=1,
+    )
+
+    assert not result.ok
+    assert "pending callback payload unreadable" in result.detail
+    assert result.path == str(pending)
+    assert pending.exists()
+
+
 def test_atomic_write_json_preserves_existing_file_and_cleans_temp_on_replace_failure(monkeypatch, tmp_path: Path) -> None:
     target = tmp_path / "pending.json"
     target.write_text('{"old": true}\n', encoding="utf-8")
