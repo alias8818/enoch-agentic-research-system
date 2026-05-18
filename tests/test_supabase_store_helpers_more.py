@@ -2071,3 +2071,122 @@ def test_supabase_followup_launch_conflicts_on_reused_idea_id_with_different_pay
 
     with pytest.raises(IdempotencyConflict):
         store.launch_followup_candidate(dry_run=False, requested_by="unit")
+
+
+def test_supabase_followup_launch_conflicts_on_reused_project_id_with_different_identity(monkeypatch) -> None:
+    from enoch_control_plane.enoch_core.store import IdempotencyConflict
+    from enoch_control_plane.control_plane.supabase_store import SupabaseControlPlaneStore
+
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    candidate = {
+        "project_id": "parent-project",
+        "project_name": "Parent Project",
+        "current_run_id": "parent-run",
+        "followup_title": "Follow Up",
+        "followup_hypothesis": "Signal survives a direct test.",
+        "followup_type": "deepen",
+        "followup_required_evidence": ["metric", "ablation"],
+        "followup_success_threshold": "beats baseline",
+        "followup_stop_condition": "no lift",
+        "followup_depth": 0,
+        "machine_target": "gb10",
+        "model": "gpt-5.5",
+        "sandbox": "danger-full-access",
+        "selection_rank": 50,
+        "dispatch_priority": 50,
+    }
+    monkeypatch.setattr(store, "next_followup_candidate", lambda **_kwargs: candidate)
+
+    class Cursor:
+        rowcount = 0
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("select idea_id"):
+                self._fetchone = None
+                return self
+            if normalized.startswith("insert into ideas"):
+                self.rowcount = 1
+                return self
+            if normalized.startswith("select project_id"):
+                self._fetchone = {"project_id": params[0], "project_name": "Different Project", "project_dir": params[0], "origin_idea_status": "testing"}
+                return self
+            if normalized.startswith("insert into projects"):
+                raise AssertionError("conflicting follow-up project must not insert")
+            if normalized.startswith("insert into queue_items") or normalized.startswith("insert into control_events"):
+                raise AssertionError("conflict must stop before queue/event rows")
+            raise AssertionError(normalized)
+        def fetchone(self):
+            return getattr(self, "_fetchone", None)
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    store._connect = lambda: Conn()  # type: ignore[method-assign]
+
+    with pytest.raises(IdempotencyConflict):
+        store.launch_followup_candidate(dry_run=False, requested_by="unit")
+
+
+def test_supabase_followup_launch_conflicts_on_reused_queue_id_with_active_state(monkeypatch) -> None:
+    from enoch_control_plane.enoch_core.store import IdempotencyConflict
+    from enoch_control_plane.control_plane.supabase_store import SupabaseControlPlaneStore
+
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    candidate = {
+        "project_id": "parent-project",
+        "project_name": "Parent Project",
+        "current_run_id": "parent-run",
+        "followup_title": "Follow Up",
+        "followup_hypothesis": "Signal survives a direct test.",
+        "followup_type": "deepen",
+        "followup_required_evidence": ["metric", "ablation"],
+        "followup_success_threshold": "beats baseline",
+        "followup_stop_condition": "no lift",
+        "followup_depth": 0,
+        "machine_target": "gb10",
+        "model": "gpt-5.5",
+        "sandbox": "danger-full-access",
+        "selection_rank": 50,
+        "dispatch_priority": 50,
+    }
+    monkeypatch.setattr(store, "next_followup_candidate", lambda **_kwargs: candidate)
+
+    class Cursor:
+        rowcount = 0
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("select idea_id"):
+                self._fetchone = None
+                return self
+            if normalized.startswith("insert into ideas") or normalized.startswith("insert into projects"):
+                self.rowcount = 1
+                return self
+            if normalized.startswith("select project_id, project_name"):
+                self._fetchone = None
+                return self
+            if normalized.startswith("select project_id, status"):
+                self._fetchone = {"project_id": params[0], "status": "running", "current_run_id": "other-run", "next_action_hint": "await_callback"}
+                return self
+            if normalized.startswith("insert into queue_items"):
+                raise AssertionError("conflicting follow-up queue row must not insert")
+            if normalized.startswith("insert into control_events"):
+                raise AssertionError("conflict must stop before launch event")
+            raise AssertionError(normalized)
+        def fetchone(self):
+            return getattr(self, "_fetchone", None)
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    store._connect = lambda: Conn()  # type: ignore[method-assign]
+
+    with pytest.raises(IdempotencyConflict):
+        store.launch_followup_candidate(dry_run=False, requested_by="unit")

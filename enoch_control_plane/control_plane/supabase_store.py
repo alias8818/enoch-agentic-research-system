@@ -3566,6 +3566,19 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     ),
                 )
                 cur.execute(
+                    "select project_id, project_name, project_dir, origin_idea_status from projects where project_id = %s",
+                    (followup_id,),
+                )
+                existing_project = cur.fetchone()
+                if existing_project and (
+                    self._row_value(existing_project, "project_name", 1) != title
+                    or self._row_value(existing_project, "project_dir", 2) != followup_id
+                    or self._row_value(existing_project, "origin_idea_status", 3) != "testing"
+                ):
+                    raise IdempotencyConflict(
+                        f"follow-up project id {followup_id!r} was reused with different project identity"
+                    )
+                cur.execute(
                     """
                     insert into projects(project_id, project_name, project_dir, notion_page_url, notion_page_id, origin_idea_status, created_at, updated_at)
                     values (%s,%s,%s,'','','testing',%s,%s)
@@ -3573,6 +3586,19 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     """,
                     (followup_id, title, followup_id, now, now),
                 )
+                cur.execute(
+                    "select project_id, status, current_run_id, next_action_hint from queue_items where project_id = %s",
+                    (followup_id,),
+                )
+                existing_queue = cur.fetchone()
+                if existing_queue and (
+                    self._row_value(existing_queue, "status", 1) != QueueStatus.QUEUED.value
+                    or self._row_value(existing_queue, "current_run_id", 2)
+                    or self._row_value(existing_queue, "next_action_hint", 3) != "controller_review"
+                ):
+                    raise IdempotencyConflict(
+                        f"follow-up queue id {followup_id!r} was reused with different queue identity"
+                    )
                 cur.execute(
                     """
                     insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
