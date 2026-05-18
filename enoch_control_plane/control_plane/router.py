@@ -3104,6 +3104,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         dry_run = bool(body.get("dry_run", True))
         max_candidates = _bounded_int_from_mapping(body, "max_candidates", 3, 1, 10)
         requested_by = str(body.get("requested_by") or "dashboard")[:80]
+        if not dry_run:
+            _require_writable_store("Research Facility candidate generation")
         source_specs = [
             {
                 "title": "Provider-budget-aware idea generation scheduler",
@@ -3184,6 +3186,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         dry_run = bool(body.get("dry_run", True))
         max_candidates = _bounded_int_from_mapping(body, "max_candidates", 2, 1, 5)
         requested_by = str(body.get("requested_by") or "dashboard")[:80]
+        if not dry_run:
+            _require_writable_store("Research Facility provider generation")
         provider_base_url = os.environ.get("ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz").rstrip("/")
         provider_openai_base_url = os.environ.get("ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL", f"{provider_base_url}/openai/v1").rstrip("/")
         provider_model = str(body.get("model") or os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL") or "hf:zai-org/GLM-5.1").strip()
@@ -3350,13 +3354,15 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         from argparse import Namespace
         from scripts import research_facility, research_facility_maintenance, research_provider_budget, research_provider_generate
 
-        if not hasattr(store, "research_facility_workbench_projection") or not hasattr(store, "record_research_facility_plans") or not hasattr(store, "promote_research_candidate"):
-            raise HTTPException(status_code=501, detail="Research Facility run-cycle requires the Supabase control-plane store")
-
         body = payload or {}
         dry_run = bool(body.get("dry_run", True))
         enabled = bool(body.get("enabled", False))
         requested_by = str(body.get("requested_by") or "dashboard")[:80]
+        if not dry_run:
+            _require_writable_store("Research Facility run-cycle")
+        if not hasattr(store, "research_facility_workbench_projection") or not hasattr(store, "record_research_facility_plans") or not hasattr(store, "promote_research_candidate"):
+            raise HTTPException(status_code=501, detail="Research Facility run-cycle requires the Supabase control-plane store")
+
         def bounded_int(name: str, default: int, lower: int, upper: int) -> int:
             return _bounded_int_from_mapping(body, name, default, lower, upper)
 
@@ -3866,6 +3872,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             raise HTTPException(status_code=400, detail="candidate_id is required")
         dry_run = bool(body.get("dry_run", True))
         requested_by = str(body.get("requested_by") or "dashboard")[:80]
+        if not dry_run:
+            _require_writable_store("Research Facility candidate promotion")
         if not hasattr(store, "promote_research_candidate"):
             raise HTTPException(status_code=501, detail="Research Facility promotion requires the Supabase control-plane store")
         return store.promote_research_candidate(candidate_id, requested_by=requested_by, dry_run=dry_run)

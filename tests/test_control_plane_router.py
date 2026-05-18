@@ -639,6 +639,30 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(response.status_code, 501)
             self.assertIn("Supabase control-plane store", response.text)
 
+    def test_research_facility_generate_batch_live_rejects_readonly_before_ledger_work(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "control_plane_store_backend": "supabase_readonly",
+                    "supabase_database_url": "postgres://example",
+                }
+            )
+
+            class FakeReadOnlyStore:
+                def record_research_facility_plans(self, *_args, **_kwargs):  # noqa: ANN001 - must not be called
+                    raise AssertionError("read-only candidate generation must reject before ledger writes")
+
+            with patch("enoch_control_plane.control_plane.router.SupabaseReadOnlyControlPlaneStore", return_value=FakeReadOnlyStore()):
+                client = _client_with_config(config)
+                response = client.post(
+                    "/control/api/research/generate-batch",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    json={"dry_run": False, "max_candidates": 1, "requested_by": "pytest"},
+                )
+
+            self.assertEqual(response.status_code, 501)
+            self.assertIn("writable control-plane store", response.text)
+
     def test_research_facility_provider_generate_dry_run_checks_budget_without_provider_spend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
@@ -686,6 +710,31 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(body["action"], "provider_generation_blocked")
             self.assertIn("quota down", body["reason"])
             generate.assert_not_called()
+
+    def test_research_facility_provider_generate_live_rejects_readonly_before_budget_or_spend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "control_plane_store_backend": "supabase_readonly",
+                    "supabase_database_url": "postgres://example",
+                }
+            )
+
+            class FakeReadOnlyStore:
+                pass
+
+            with patch("enoch_control_plane.control_plane.router.SupabaseReadOnlyControlPlaneStore", return_value=FakeReadOnlyStore()), \
+                 patch("scripts.research_provider_budget.fetch_json", side_effect=AssertionError("budget check must not run on readonly live generation")), \
+                 patch("scripts.research_provider_generate.generate_provider_candidates", side_effect=AssertionError("provider spend must not run on readonly live generation")):
+                client = _client_with_config(config)
+                response = client.post(
+                    "/control/api/research/generate-provider-batch",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    json={"dry_run": False, "max_candidates": 1, "requested_by": "pytest"},
+                )
+
+            self.assertEqual(response.status_code, 501)
+            self.assertIn("writable control-plane store", response.text)
 
     def test_research_facility_provider_generate_live_writes_ledgers_only_with_supabase_store(self) -> None:
         class FakeSupabaseStore:
@@ -913,6 +962,56 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(body["queued_count"], 0)
         generate.assert_not_called()
         self.assertEqual(fake_store.events[0]["event_type"], "research.run_cycle.dry_run")
+
+    def test_research_facility_run_cycle_live_rejects_readonly_before_budget_or_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "control_plane_store_backend": "supabase_readonly",
+                    "supabase_database_url": "postgres://example",
+                }
+            )
+
+            class FakeReadOnlyStore:
+                def append_event(self, **_kwargs):  # noqa: ANN003 - must not be called
+                    raise AssertionError("read-only run-cycle must reject before event writes")
+
+            with patch("enoch_control_plane.control_plane.router.SupabaseReadOnlyControlPlaneStore", return_value=FakeReadOnlyStore()), \
+                 patch("scripts.research_provider_budget.fetch_json", side_effect=AssertionError("budget check must not run on readonly live run-cycle")), \
+                 patch("scripts.research_provider_generate.generate_provider_candidates", side_effect=AssertionError("provider spend must not run on readonly live run-cycle")):
+                client = _client_with_config(config)
+                response = client.post(
+                    "/control/api/research/run-cycle",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    json={"dry_run": False, "enabled": True, "requested_by": "pytest"},
+                )
+
+            self.assertEqual(response.status_code, 501)
+            self.assertIn("writable control-plane store", response.text)
+
+    def test_research_facility_promote_candidate_live_rejects_readonly_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "control_plane_store_backend": "supabase_readonly",
+                    "supabase_database_url": "postgres://example",
+                }
+            )
+
+            class FakeReadOnlyStore:
+                def promote_research_candidate(self, *_args, **_kwargs):  # noqa: ANN001 - must not be called
+                    raise AssertionError("read-only candidate promotion must reject before mutation")
+
+            with patch("enoch_control_plane.control_plane.router.SupabaseReadOnlyControlPlaneStore", return_value=FakeReadOnlyStore()):
+                client = _client_with_config(config)
+                response = client.post(
+                    "/control/api/research/promote-candidate",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    json={"dry_run": False, "candidate_id": "candidate-1", "requested_by": "pytest"},
+                )
+
+            self.assertEqual(response.status_code, 501)
+            self.assertIn("writable control-plane store", response.text)
 
     def test_research_generate_batch_tolerates_malformed_numeric_knobs(self) -> None:
         config = GateConfig(
