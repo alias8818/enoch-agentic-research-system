@@ -154,6 +154,61 @@ class PaperWriterTests(unittest.TestCase):
             self.assertNotIn("Mark missing external references as TODO", prompt)
             self.assertIn("# Model Draft", (project / "papers/run/paper.md").read_text())
 
+    def test_synthetic_writer_redacts_secret_like_tokens_from_provider_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            (project / "run_notes.md").write_text(
+                "SYNTHETIC_API_KEY=syn_abcdefghijklmnopqrstuvwxyz1234567890\n"
+                "Measured throughput improved by 1.20x against baseline.\n",
+                encoding="utf-8",
+            )
+            cfg = self._config(tmp, paper_writer_provider="synthetic.new", paper_writer_api_key="test-key")
+
+            class FakeResponse:
+                status = 200
+                def __enter__(self): return self
+                def __exit__(self, *args): return False
+                def read(self): return b'{"id":"cmpl-test","choices":[{"message":{"content":"# Model Draft\n\nMeasured result."}}]}'
+
+            with patch("enoch_control_plane.control_plane.paper_writer.request.urlopen", return_value=FakeResponse()) as urlopen:
+                write_paper_artifacts(cfg, {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"}, self._paper(), force=True)
+
+            payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+            prompt = payload["messages"][1]["content"]
+            self.assertIn("Measured throughput improved", prompt)
+            self.assertIn("SYNTHETIC_API_KEY=[REDACTED_TOKEN]", prompt)
+            self.assertNotIn("syn_abcdefghijklmnopqrstuvwxyz", prompt)
+
+
+    def test_synthetic_writer_redacts_secret_like_tokens_from_candidate_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            (project / "run_notes.md").write_text("Measured evidence exists.\n", encoding="utf-8")
+            cfg = self._config(tmp, paper_writer_provider="synthetic.new", paper_writer_api_key="test-key")
+
+            class FakeResponse:
+                status = 200
+                def __enter__(self): return self
+                def __exit__(self, *args): return False
+                def read(self): return b'{"id":"cmpl-test","choices":[{"message":{"content":"# Model Draft\n\nMeasured result."}}]}'
+
+            candidate = {
+                "project_id": "idea",
+                "project_name": "Idea",
+                "project_dir": "idea",
+                "source_payload_json": {"operator_note": "OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwxyz1234567890abcdefghijkl"},
+            }
+            with patch("enoch_control_plane.control_plane.paper_writer.request.urlopen", return_value=FakeResponse()) as urlopen:
+                write_paper_artifacts(cfg, candidate, self._paper(), force=True)
+
+            payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+            prompt = payload["messages"][1]["content"]
+            self.assertIn("OPENAI_API_KEY=[REDACTED_TOKEN]", prompt)
+            self.assertNotIn("sk-proj-abcdefghijklmnopqrstuvwxyz", prompt)
+
+
     def test_synthetic_writer_serializes_datetime_candidate_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "projects" / "idea"

@@ -432,7 +432,7 @@ def _candidate_context(config: GateConfig, candidate: dict[str, Any], paper: Pap
             return
         seen.add(path)
         text = path.read_text(encoding="utf-8", errors="replace")[:limit]
-        snippets.append(f"## {display}\n{text}")
+        snippets.append(f"## {display}\n{_redact_public_evidence_text(text)}")
 
     # High-signal project-level evidence. These are copied from the GB10 worker
     # when legacy paper reviews are rewritten on the VM. Do not omit them: the
@@ -508,7 +508,7 @@ Requirements:
 - Include a clear AI provenance / no-human-credit note near the top: this draft was AI-generated from automated research artifacts, the operator claims no personal authorship credit for the writing or results beyond releasing the artifact, and readers should treat it as an unreviewed AI-generated research artifact. Do not require a human reviewer in the note, and do not use the phrase "No human reviewer has validated".
 
 Project metadata:
-{json.dumps(candidate, indent=2, sort_keys=True, default=str)}
+{_redact_public_evidence_text(json.dumps(candidate, indent=2, sort_keys=True, default=str))}
 
 Paper id: {paper.paper_id}
 
