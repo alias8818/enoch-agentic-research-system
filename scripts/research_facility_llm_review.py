@@ -293,6 +293,8 @@ def _apply_non_admit_decision(
         (status, status, str(reason), json.dumps(payload, sort_keys=True, default=str), candidate_id),
     )
     status_updates = int(cur.rowcount or 0)
+    if status_updates <= 0:
+        return {"status_updates": 0, "admissions_inserted": 0}
     admission_key = f"research-janitor-llm-admission:{candidate_id}:{admission_decision}"
     admissions_inserted = _insert_research_admission(
         cur,

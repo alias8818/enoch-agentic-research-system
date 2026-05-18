@@ -206,3 +206,36 @@ def test_llm_review_non_admit_conflicts_on_reused_admission_key_with_different_i
             provider_model="model",
             janitor_action={},
         )
+
+
+def test_llm_review_non_admit_does_not_record_admission_when_status_update_skips(monkeypatch) -> None:
+    decision = {"candidate_id": "candidate-1", "decision": "keep_for_later", "confidence": "medium", "reason": "defer", "rewrite_notes": ""}
+    calls = []
+
+    def fake_insert(*args, **kwargs):  # noqa: ANN002, ANN003 - monkeypatch target
+        calls.append((args, kwargs))
+        return 1
+
+    class Cursor:
+        rowcount = 0
+
+        def execute(self, sql, params=()):  # noqa: ANN001 - cursor test double
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("update research_candidates"):
+                self.rowcount = 0
+                return self
+            raise AssertionError(normalized)
+
+    monkeypatch.setattr(research_facility_llm_review, "_insert_research_admission", fake_insert)
+
+    result = research_facility_llm_review._apply_non_admit_decision(
+        Cursor(),
+        candidate_id="candidate-1",
+        decision=decision,
+        requested_by="unit",
+        provider_model="model",
+        janitor_action={},
+    )
+
+    assert result == {"status_updates": 0, "admissions_inserted": 0}
+    assert calls == []
