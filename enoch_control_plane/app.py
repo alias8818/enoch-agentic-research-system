@@ -886,8 +886,11 @@ def _resolve_under_root(path_str: str, root: Path) -> Path:
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=f"path contains an unexpandable user home: {path_str}") from exc
     candidate = raw if raw.is_absolute() else root / raw
-    resolved = candidate.resolve()
-    root_resolved = root.expanduser().resolve()
+    try:
+        resolved = candidate.resolve()
+        root_resolved = root.expanduser().resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"path could not be resolved under configured project root: {path_str}") from exc
     try:
         resolved.relative_to(root_resolved)
     except ValueError as exc:

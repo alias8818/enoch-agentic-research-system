@@ -40,6 +40,9 @@ def test_path_resolution_and_writes_are_safe(tmp_path: Path) -> None:
     with pytest.raises(HTTPException) as exc:
         appmod._resolve_under_root("../escape", root)
     assert exc.value.status_code == 400
+    with pytest.raises(HTTPException) as invalid:
+        appmod._resolve_under_root("bad\0path", root)
+    assert invalid.value.status_code == 400
 
     target = root / "out.txt"
     appmod._write_text(target, "first", overwrite=False)
