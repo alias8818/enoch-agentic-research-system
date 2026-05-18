@@ -1464,7 +1464,7 @@ class ControlPlaneStore:
                 rank_reasons_json = _json(record.rank_reasons)
                 missing_signals_json = _json(record.missing_signals)
                 if existing:
-                    existing_review_status = _text(existing["review_status"])
+                    existing_review_status = _normal(existing["review_status"])
                     next_review_status = (
                         record.review_status.value
                         if existing_review_status in SYSTEM_REVIEW_STATUSES
@@ -1576,7 +1576,7 @@ class ControlPlaneStore:
         if not _text(request.reviewer):
             raise ValueError("reviewer is required")
         row = self._require_paper_review(paper_id)
-        current = _text(row.get("review_status"))
+        current = _normal(row.get("review_status"))
         if current in {ReviewStatus.FINALIZED.value, ReviewStatus.REJECTED.value, ReviewStatus.APPROVED_FOR_FINALIZATION.value}:
             raise ValueError(f"cannot claim paper review from {current}")
         if current == ReviewStatus.BLOCKED.value and _text(row.get("blocker")) and not request.clear_blocker:
@@ -1631,7 +1631,7 @@ class ControlPlaneStore:
 
     def update_paper_review_status(self, paper_id: str, request: PaperReviewStatusUpdateRequest) -> tuple[int, bool, dict[str, Any]]:
         row = self._require_paper_review(paper_id)
-        current = _text(row.get("review_status"))
+        current = _normal(row.get("review_status"))
         target = request.review_status.value
         if target == ReviewStatus.APPROVED_FOR_FINALIZATION.value:
             raise ValueError("use approve-finalization endpoint for approval")
@@ -1740,7 +1740,7 @@ class ControlPlaneStore:
             if replayed_event_id is not None:
                 item = self.paper_review_row(paper_id) or {}
                 return replayed_event_id, False, item, _text(item.get("finalization_package_path")), self._load_manifest(_text(item.get("finalization_package_path")))
-        current = _text(row.get("review_status"))
+        current = _normal(row.get("review_status"))
         if not request.dry_run and require_approval and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value:
             raise ValueError("legacy approval-gated finalization requires internal approved_for_finalization state")
         if not request.dry_run and not require_approval and current == ReviewStatus.REJECTED.value:

@@ -1766,7 +1766,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     def _paper_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
         counts: dict[str, int] = {"all": len(rows)}
         for row in rows:
-            key = str(row.get("paper_status") or "unknown")
+            key = _normal_status(row.get("paper_status")) or "unknown"
             counts[key] = counts.get(key, 0) + 1
         return counts
 
@@ -1774,7 +1774,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         counts: dict[str, int] = {"all": len(rows)}
         for row in rows:
             for key_name in ("review_status", "paper_status", "rank_bucket"):
-                key = str(row.get(key_name) or "unknown")
+                key = (_normal_status(row.get(key_name)) if key_name in {"review_status", "paper_status"} else str(row.get(key_name) or "unknown")) or "unknown"
                 counts[key] = counts.get(key, 0) + 1
         return counts
 
@@ -2510,9 +2510,9 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         rows = store.paper_review_rows(include_rank_reasons=include_rank_reasons)
         all_counts = _review_counts(rows)
         if review_status:
-            rows = [row for row in rows if str(row.get("review_status") or "") == review_status]
+            rows = [row for row in rows if _normal_status(row.get("review_status")) == _normal_status(review_status)]
         if paper_status:
-            rows = [row for row in rows if str(row.get("paper_status") or "") == paper_status]
+            rows = [row for row in rows if _normal_status(row.get("paper_status")) == _normal_status(paper_status)]
         rows = _sort_rows(_search_rows(rows, search), sort)
         page_rows, safe_page, safe_size = _paginate(rows, page=page, page_size=page_size)
         return DashboardPaperReviewsResponse(
@@ -2597,11 +2597,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         authorize(authorization)
         rows = store.paper_review_rows(include_rank_reasons=True)
         if review_status:
-            rows = [row for row in rows if str(row.get("review_status") or "") == review_status]
+            rows = [row for row in rows if _normal_status(row.get("review_status")) == _normal_status(review_status)]
         else:
-            rows = [row for row in rows if str(row.get("review_status") or "") not in {"finalized", "rejected"}]
+            rows = [row for row in rows if _normal_status(row.get("review_status")) not in {"finalized", "rejected"}]
         if paper_status:
-            rows = [row for row in rows if str(row.get("paper_status") or "") == paper_status]
+            rows = [row for row in rows if _normal_status(row.get("paper_status")) == _normal_status(paper_status)]
         rows = _sort_rows(_search_rows(rows, search), "-rank_score")
         if not rows:
             raise HTTPException(status_code=404, detail="no matching publication automation item")
@@ -2692,7 +2692,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         item = store.paper_review_row(paper_id, include_rank_reasons=True)
         if paper is None or item is None:
             raise HTTPException(status_code=404, detail="publication automation item not found")
-        if str(item.get("review_status") or "") == "rejected":
+        if _normal_status(item.get("review_status")) == "rejected":
             raise HTTPException(status_code=400, detail="rejected publication automation items cannot be rewritten or auto-published")
         project_id = str(paper.get("project_id") or "")
         project = store.project_row(project_id) if project_id else None
@@ -2859,11 +2859,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             _require_writable_store("publication automation rewrite batch")
         rows = store.paper_review_rows(include_rank_reasons=True)
         if payload.review_status:
-            rows = [row for row in rows if str(row.get("review_status") or "") == payload.review_status]
+            rows = [row for row in rows if _normal_status(row.get("review_status")) == _normal_status(payload.review_status)]
         else:
-            rows = [row for row in rows if str(row.get("review_status") or "") not in {"finalized", "rejected"}]
+            rows = [row for row in rows if _normal_status(row.get("review_status")) not in {"finalized", "rejected"}]
         if payload.paper_status:
-            rows = [row for row in rows if str(row.get("paper_status") or "") == payload.paper_status]
+            rows = [row for row in rows if _normal_status(row.get("paper_status")) == _normal_status(payload.paper_status)]
         if payload.skip_rewritten:
             rows = [row for row in rows if not store.event_rows(limit=1, entity_id=str(row.get("paper_id") or ""), event_type="paper_review.draft_rewritten")]
         rows = _sort_rows(_search_rows(rows, payload.search), "-rank_score")
@@ -2924,7 +2924,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         rows = store.paper_rows()
         all_counts = _paper_counts(rows)
         if status:
-            rows = [row for row in rows if str(row.get("paper_status") or "") == status]
+            rows = [row for row in rows if _normal_status(row.get("paper_status")) == _normal_status(status)]
         rows = _sort_rows(_search_rows(rows, search), sort)
         page_rows, safe_page, safe_size = _paginate(rows, page=page, page_size=page_size)
         for row in page_rows:

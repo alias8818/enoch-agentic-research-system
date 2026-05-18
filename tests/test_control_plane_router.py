@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -4435,6 +4436,51 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(repeated.json()["updated"], 0)
             self.assertEqual(repeated.json()["skipped"], 242)
 
+    def test_paper_review_list_filters_normalize_status_variants(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            paper_id = "router-filter-normalized:run-1:arxiv_draft"
+            audit_path = Path(tmp) / "audit.json"
+            audit_path.write_text(json.dumps({"papers": [{"paper_id": paper_id, "ready": True}]}), encoding="utf-8")
+            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "router-filter-normalized-import",
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": "router-filter-normalized",
+                    "run_id": "run-1",
+                    "paper_status": "publication_draft",
+                    "draft_markdown_path": "paper.md",
+                    "draft_latex_path": "paper.tex",
+                    "evidence_bundle_path": "evidence.json",
+                    "claim_ledger_path": "claims.json",
+                    "manifest_path": "manifest.json",
+                }],
+            })
+            self.assertEqual(imported.status_code, 200)
+            backfill = client.post("/control/api/paper-reviews/backfill", headers=headers, json={
+                "idempotency_key": "router-filter-normalized-backfill",
+                "source_audit_path": str(audit_path),
+                "dry_run": False,
+            })
+            self.assertEqual(backfill.status_code, 200)
+            with sqlite3.connect(Path(tmp) / "state" / "control_plane.sqlite3") as conn:
+                conn.execute("UPDATE papers SET paper_status=? WHERE paper_id=?", (" Publication Draft ", paper_id))
+                conn.execute("UPDATE paper_review_items SET review_status=? WHERE paper_id=?", (" Queued ", paper_id))
+
+            papers = client.get("/control/api/papers?status=publication_draft", headers=headers)
+            self.assertEqual(papers.status_code, 200)
+            self.assertEqual(papers.json()["page"]["total"], 1)
+            self.assertEqual(papers.json()["counts"].get("publication_draft"), 1)
+            reviews = client.get("/control/api/publication-automation?paper_status=publication_draft&review_status=queued", headers=headers)
+            self.assertEqual(reviews.status_code, 200)
+            self.assertEqual(reviews.json()["page"]["total"], 1)
+            self.assertEqual(reviews.json()["counts"].get("queued"), 1)
+            self.assertEqual(reviews.json()["counts"].get("publication_draft"), 1)
+            next_review = client.get("/control/api/paper-reviews/next?paper_status=publication_draft&review_status=queued", headers=headers)
+            self.assertEqual(next_review.status_code, 200)
+            self.assertEqual(next_review.json()["paper_id"], paper_id)
+
     def test_paper_review_mutation_endpoints_validate_and_log_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
@@ -5122,6 +5168,74 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(repeated.json()["event_id"], committed.json()["event_id"])
             paper = client.get(f"/control/api/papers/{paper_id}", headers=headers).json()
             self.assertEqual(paper["paper"]["paper_status"], "publication_draft")
+
+    def test_paper_review_rejected_status_is_normalized_before_rewrite_or_finalize(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_dir = Path(tmp) / "projects" / "router-rejected-normalized"
+            project_dir.mkdir(parents=True)
+            artifact_paths = {
+                "draft_markdown_path": "paper.md",
+                "draft_latex_path": "paper.tex",
+                "evidence_bundle_path": "evidence.json",
+                "claim_ledger_path": "claims.json",
+                "manifest_path": "manifest.json",
+            }
+            _write_publication_artifacts(
+                project_dir,
+                evidence_path=artifact_paths["evidence_bundle_path"],
+                claim_path=artifact_paths["claim_ledger_path"],
+                manifest_path=artifact_paths["manifest_path"],
+            )
+            (project_dir / ".enoch").mkdir(parents=True, exist_ok=True)
+            (project_dir / "run_notes.md").write_text("Measured useful result with grounded evidence.\n", encoding="utf-8")
+            (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+            paper_id = "router-rejected-normalized:run-1:arxiv_draft"
+            audit_path = Path(tmp) / "audit.json"
+            audit_path.write_text(json.dumps({"papers": [{"paper_id": paper_id, "ready": True}]}), encoding="utf-8")
+            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "router-rejected-normalized-import",
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": "router-rejected-normalized",
+                    "project_name": "Router Rejected Normalized",
+                    "project_dir": str(project_dir),
+                    "run_id": "run-1",
+                    "paper_status": "publication_draft",
+                    **artifact_paths,
+                }],
+            })
+            self.assertEqual(imported.status_code, 200)
+            backfill = client.post("/control/api/paper-reviews/backfill", headers=headers, json={
+                "idempotency_key": "router-rejected-normalized-backfill",
+                "source_audit_path": str(audit_path),
+                "dry_run": False,
+            })
+            self.assertEqual(backfill.status_code, 200)
+            with sqlite3.connect(Path(tmp) / "state" / "control_plane.sqlite3") as conn:
+                conn.execute("UPDATE paper_review_items SET review_status=? WHERE paper_id=?", (" Rejected ", paper_id))
+
+            rewrite = client.post(f"/control/api/paper-reviews/{paper_id}/rewrite-draft", headers=headers, json={
+                "idempotency_key": "router-rejected-normalized-rewrite",
+                "requested_by": "alice",
+                "force": True,
+            })
+            self.assertEqual(rewrite.status_code, 400)
+            self.assertIn("rejected", rewrite.text.lower())
+
+            finalized = client.post(f"/control/api/paper-reviews/{paper_id}/prepare-finalization-package", headers=headers, json={
+                "idempotency_key": "router-rejected-normalized-finalize",
+                "requested_by": "alice",
+                "target_label": "reject-variant",
+                "dry_run": False,
+            })
+            self.assertEqual(finalized.status_code, 400)
+            self.assertIn("rejected", finalized.text.lower())
+            events = client.get(f"/control/api/events?entity_id={paper_id}", headers=headers).json()["rows"]
+            event_types = {row["event_type"] for row in events}
+            self.assertNotIn("paper_review.draft_rewritten", event_types)
+            self.assertNotIn("paper_review.finalization_package_prepared", event_types)
 
     def test_paper_review_prepare_finalization_rejects_project_dir_escape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
