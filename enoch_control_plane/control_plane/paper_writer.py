@@ -474,7 +474,14 @@ def _maybe_preserve_existing_artifact(project_dir: Path, files: dict[str, str], 
         target.relative_to(project_dir)
     except (OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"paper path escapes project dir: {rel_path}") from exc
-    if target.exists() and target.is_file():
+    artifact_name = Path(rel_path).name
+    if artifact_name.startswith("evidence"):
+        label = "paper evidence artifact"
+    elif "claim" in artifact_name:
+        label = "paper claim artifact"
+    else:
+        label = "paper artifact"
+    if _path_exists_for_paper(target, label=label) and _path_is_file_for_paper(target, label=label):
         files.pop(rel_path, None)
 
 
@@ -640,6 +647,8 @@ def write_paper_artifacts(config: GateConfig, candidate: dict[str, Any], paper: 
             _maybe_preserve_existing_artifact(project_dir, files, paper.evidence_bundle_path)
             _maybe_preserve_existing_artifact(project_dir, files, paper.claim_ledger_path)
             meta = {**provider_meta, "fallback_used": False}
+        except HTTPException:
+            raise
         except Exception as exc:
             if not config.paper_writer_fallback_enabled:
                 raise HTTPException(status_code=502, detail=f"paper writer provider failed: {type(exc).__name__}: {exc}") from exc

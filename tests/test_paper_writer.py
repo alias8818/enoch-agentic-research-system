@@ -487,6 +487,51 @@ class PaperWriterTests(unittest.TestCase):
             self.assertFalse((paper_dir / "claims.json").exists())
             self.assertEqual((paper_dir / "manifest.json").read_text(encoding="utf-8"), '{"existing": true}\n')
 
+
+    def test_synthetic_writer_blocks_uninspectable_existing_evidence_without_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            (project / "run_notes.md").write_text("Measured useful evidence.\n", encoding="utf-8")
+            evidence_path = project / "papers" / "run" / "evidence.json"
+            evidence_path.parent.mkdir(parents=True)
+            evidence_path.write_text('{"existing": true}\n', encoding="utf-8")
+            cfg = self._config(
+                tmp,
+                paper_writer_provider="synthetic.new",
+                paper_writer_api_key="test-key",
+                paper_writer_fallback_enabled=True,
+            )
+
+            class FakeResponse:
+                status = 200
+                def __enter__(self): return self
+                def __exit__(self, *args): return False
+                def read(self): return b'{"id":"cmpl-test","choices":[{"message":{"content":"# Model Draft\\n\\nEvidence-grounded."}}]}'
+
+            original_exists = Path.exists
+            resolved_evidence_path = evidence_path.resolve()
+
+            def fake_exists(path: Path) -> bool:
+                if path == resolved_evidence_path:
+                    raise PermissionError("denied")
+                return original_exists(path)
+
+            with patch("enoch_control_plane.control_plane.paper_writer.request.urlopen", return_value=FakeResponse()):
+                with patch.object(Path, "exists", fake_exists):
+                    with self.assertRaises(HTTPException) as raised:
+                        write_paper_artifacts(
+                            cfg,
+                            {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"},
+                            self._paper(),
+                            force=True,
+                        )
+
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertIn("paper evidence", str(raised.exception.detail))
+            self.assertEqual(evidence_path.read_text(encoding="utf-8"), '{"existing": true}\n')
+            self.assertFalse((project / "papers/run/paper.md").exists())
+
     def test_synthetic_writer_falls_back_without_key_when_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "projects" / "idea"
