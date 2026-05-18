@@ -240,6 +240,57 @@ class ControlPlaneStoreTests(unittest.TestCase):
 
             self.assertEqual(store.paper_row("paper-1")["project_id"], "project-a")
 
+    def test_import_snapshot_ignores_stale_queue_and_paper_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="import-newer-state",
+                    queue_rows=[{
+                        "project_id": "project-1",
+                        "project_name": "Newer Name",
+                        "status": "completed",
+                        "current_run_id": "run-new",
+                        "updated_at": "2026-05-18T12:00:00+00:00",
+                    }],
+                    paper_rows=[{
+                        "paper_id": "paper-1",
+                        "project_id": "project-1",
+                        "run_id": "run-new",
+                        "paper_status": "publication_draft",
+                        "updated_at": "2026-05-18T12:00:00+00:00",
+                    }],
+                )
+            )
+
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="import-older-state",
+                    queue_rows=[{
+                        "project_id": "project-1",
+                        "project_name": "Older Name",
+                        "status": "running",
+                        "current_run_id": "run-old",
+                        "updated_at": "2026-05-18T11:00:00+00:00",
+                    }],
+                    paper_rows=[{
+                        "paper_id": "paper-1",
+                        "project_id": "project-1",
+                        "run_id": "run-new",
+                        "paper_status": "archived",
+                        "updated_at": "2026-05-18T11:00:00+00:00",
+                    }],
+                )
+            )
+
+            queue = store.queue_row("project-1")
+            paper = store.paper_row("paper-1")
+            project = store.project_row("project-1")
+            self.assertEqual(queue["status"], "completed")
+            self.assertEqual(queue["current_run_id"], "run-new")
+            self.assertEqual(project["project_name"], "Newer Name")
+            self.assertEqual(paper["paper_status"], "publication_draft")
+
     def test_import_snapshot_row_failure_does_not_consume_idempotency_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

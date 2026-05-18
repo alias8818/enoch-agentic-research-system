@@ -11,6 +11,7 @@ from typing import Any, Iterator
 
 from ..enoch_core.store import IdempotencyConflict
 from ..models import utc_now
+from ..timeutils import parse_utc_datetime
 from .models import (
     ControlFlags,
     DashboardObservationRecord,
@@ -107,6 +108,12 @@ def _hash(payload: Any) -> str:
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _is_older_timestamp(incoming: Any, existing: Any) -> bool:
+    incoming_dt = parse_utc_datetime(incoming)
+    existing_dt = parse_utc_datetime(existing)
+    return bool(incoming_dt and existing_dt and incoming_dt < existing_dt)
 
 
 def _contract_worker_callback_states(event_type: str, gate_state: str = "") -> tuple[str, str, str]:
@@ -827,15 +834,18 @@ class ControlPlaneStore:
                         notion_page_url=COALESCE(NULLIF(excluded.notion_page_url,''), projects.notion_page_url),
                         notion_page_id=COALESCE(NULLIF(excluded.notion_page_id,''), projects.notion_page_id),
                         origin_idea_status=COALESCE(NULLIF(excluded.origin_idea_status,''), projects.origin_idea_status),
-                        updated_at=excluded.updated_at""",
+                        updated_at=excluded.updated_at
+                    WHERE excluded.updated_at >= projects.updated_at""",
                     (project.project_id, project.project_name, project.project_dir, project.notion_page_url, project.notion_page_id, project.origin_idea_status, project.created_at, project.updated_at),
                 )
                 projects += 1
                 existing_row = conn.execute(
-                    "SELECT status,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,last_dispatch_at,last_callback_at,stale_after FROM queue_items WHERE project_id=?",
+                    "SELECT status,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,last_dispatch_at,last_callback_at,stale_after,updated_at FROM queue_items WHERE project_id=?",
                     (project_id,),
                 ).fetchone()
                 existing_queue = dict(existing_row) if existing_row else None
+                if existing_queue and _is_older_timestamp(qi.updated_at, existing_queue.get("updated_at")):
+                    continue
                 existing_run_id = _text((existing_queue or {}).get("current_run_id"))
                 incoming_run_id = _text(raw.get("current_run_id"))
                 preserve_active_runtime = bool(
@@ -880,7 +890,7 @@ class ControlPlaneStore:
                 if status not in PaperStatus._value2member_map_:
                     status = PaperStatus.DRAFT_REVIEW.value
                 existing_paper = conn.execute(
-                    "SELECT project_id, run_id, paper_type FROM papers WHERE paper_id=?",
+                    "SELECT project_id, run_id, paper_type, updated_at FROM papers WHERE paper_id=?",
                     (paper_id,),
                 ).fetchone()
                 if _paper_identity_conflicts(existing_paper, {
@@ -889,6 +899,8 @@ class ControlPlaneStore:
                     "paper_type": _text(raw.get("paper_type")) or "arxiv_draft",
                 }):
                     raise IdempotencyConflict(f"paper id {paper_id!r} was reused with different paper identity")
+                if existing_paper and _is_older_timestamp(raw.get("updated_at"), existing_paper["updated_at"]):
+                    continue
                 conn.execute(
                     """INSERT OR REPLACE INTO papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
