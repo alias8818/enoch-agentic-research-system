@@ -439,6 +439,39 @@ def test_sync_worker_http_evidence_preserves_existing_file_when_worker_returns_e
     assert target.read_text(encoding="utf-8") == "existing measured evidence"
 
 
+
+def test_sync_worker_http_evidence_skips_uninspectable_worker_target(tmp_path, monkeypatch) -> None:
+    from enoch_control_plane.control_plane import router
+
+    config = _config(tmp_path)
+    config.worker_wake_gate_bearer_token = "worker-token"
+    config.worker_wake_gate_url = "http://worker"
+    artifact_root = tmp_path / "artifact"
+    artifact_root.mkdir()
+    target = (artifact_root / "run_notes.md").resolve()
+    real_exists = Path.exists
+
+    class Result:
+        ok = True
+        status = 200
+        error = ""
+        body = {"files": [{"path": "run_notes.md", "content": "new evidence"}]}
+
+    def blocked_exists(path: Path) -> bool:
+        if path == target:
+            raise PermissionError("simulated target access failure")
+        return real_exists(path)
+
+    monkeypatch.setattr(router, "post_worker_json", lambda *args, **kwargs: Result())
+    monkeypatch.setattr(Path, "exists", blocked_exists)
+
+    result = router._sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+
+    assert result["ok"] is False
+    assert result["reason"] == "worker_read_failed"
+    assert any(item["status"] == "unsafe_path" and "could not be inspected" in item["error"] for item in result["skipped"])
+    assert not real_exists(target)
+
 def test_sync_worker_http_evidence_preserves_existing_file_when_write_fails(tmp_path, monkeypatch) -> None:
     config = _config(tmp_path)
     config.worker_wake_gate_bearer_token = "worker-token"

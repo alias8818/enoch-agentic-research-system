@@ -440,6 +440,15 @@ def _local_paper_evidence_present(project_dir: Path) -> bool:
     )
 
 
+def _target_is_existing_dir(path: Path) -> tuple[bool, str]:
+    try:
+        if not path.exists():
+            return False, ""
+        return path.is_dir(), ""
+    except (OSError, RuntimeError, ValueError) as exc:
+        return False, f"{type(exc).__name__}: evidence target could not be inspected: {exc}"
+
+
 def _post_worker_json_with_deadline(
     base_url: str,
     path: str,
@@ -576,7 +585,11 @@ def _sync_worker_http_evidence(
             except (OSError, RuntimeError, ValueError):
                 skipped.append({"path": rel, "status": "unsafe_path", "error": "worker returned path outside artifact root"})
                 continue
-            if not rel or target == artifact_root or (target.exists() and target.is_dir()):
+            target_is_dir, target_error = _target_is_existing_dir(target)
+            if target_error:
+                skipped.append({"path": rel, "status": "unsafe_path", "error": target_error[:300]})
+                continue
+            if not rel or target == artifact_root or target_is_dir:
                 skipped.append({"path": rel, "status": "unsafe_path", "error": "worker returned path is not a file target"})
                 continue
             try:
