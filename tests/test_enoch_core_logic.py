@@ -309,6 +309,16 @@ class EnochCoreLogicTests(unittest.TestCase):
                 "project_id": "p2",
                 "paper_status": "draft_review",
                 "draft_markdown_path": "papers/r2/paper.md",
+                "evidence_bundle_path": "papers/r2/evidence_bundle.json",
+                "claim_ledger_path": "papers/r2/claim_ledger.json",
+                "manifest_path": "papers/r2/paper_manifest.json",
+            },
+            {
+                "paper_id": "p3:r3:arxiv_draft",
+                "project_id": "p3",
+                "paper_status": "draft_review",
+                "draft_markdown_path": "papers/r3/paper.md",
+                "manifest_path": "papers/r3/paper_manifest.json",
             },
         ]
         candidates = eligible_paper_polish_candidates(paper_rows)
@@ -357,6 +367,9 @@ class EnochCoreLogicTests(unittest.TestCase):
                         "project_id": "p2",
                         "paper_status": "draft_review",
                         "draft_markdown_path": "papers/r2/paper.md",
+                        "evidence_bundle_path": "papers/r2/evidence_bundle.json",
+                        "claim_ledger_path": "papers/r2/claim_ledger.json",
+                        "manifest_path": "papers/r2/paper_manifest.json",
                     }
                 ],
             }

@@ -411,6 +411,9 @@ def eligible_paper_polish_candidates(paper_rows: list[dict[str, Any]]) -> list[d
         and text(row.get("project_id"))
         and text(row.get("paper_id"))
         and text(row.get("draft_markdown_path"))
+        and text(row.get("evidence_bundle_path"))
+        and text(row.get("claim_ledger_path"))
+        and text(row.get("manifest_path"))
         and f"{text(row.get('paper_id'))}:publication_v1" not in publication_ids
     ]
     return sorted(

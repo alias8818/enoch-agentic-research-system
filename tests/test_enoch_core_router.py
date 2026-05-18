@@ -61,6 +61,9 @@ class EnochCoreRouterTests(unittest.TestCase):
                         "run_id": "r2",
                         "paper_status": "draft_review",
                         "draft_markdown_path": "papers/r2/paper.md",
+                        "evidence_bundle_path": "papers/r2/evidence_bundle.json",
+                        "claim_ledger_path": "papers/r2/claim_ledger.json",
+                        "manifest_path": "papers/r2/paper_manifest.json",
                     }
                 ],
             )
