@@ -44,7 +44,11 @@ from .telemetry import TelemetryCollector
 
 
 def load_config(path: Path | None = None) -> GateConfig:
-    env_path = os.environ.get("ENOCH_CONFIG") or os.environ.get("ENOCH_CONTROL_PLANE_CONFIG")
+    env_path = (
+        os.environ.get("ENOCH_CONFIG")
+        or os.environ.get("ENOCH_CONTROL_PLANE_CONFIG")
+        or os.environ.get("OMX_WAKE_GATE_CONFIG")
+    )
     config_path = path or (
         Path(env_path).expanduser()
         if env_path
