@@ -1819,6 +1819,28 @@ def test_supabase_import_snapshot_idempotency_replay_does_not_mutate_rows(monkey
     assert (projects, queue_items, papers) == (0, 0, 0)
 
 
+def test_supabase_import_snapshot_rejects_conflicting_duplicate_rows_before_connect() -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: (_ for _ in ()).throw(AssertionError("must not connect")))
+
+    with pytest.raises(ValueError, match="conflicting queue project identity"):
+        store.import_snapshot(ImportSnapshotRequest(
+            idempotency_key="supabase-conflicting-queue-snapshot",
+            queue_rows=[
+                {"project_id": "project-1", "project_name": "Project One", "status": "queued"},
+                {"project_id": "project-1", "project_name": "Project One", "status": "running"},
+            ],
+        ))
+
+    with pytest.raises(ValueError, match="conflicting paper identity"):
+        store.import_snapshot(ImportSnapshotRequest(
+            idempotency_key="supabase-conflicting-paper-snapshot",
+            paper_rows=[
+                {"paper_id": "paper-1", "project_id": "project-a", "paper_status": "publication_draft"},
+                {"paper_id": "paper-1", "project_id": "project-b", "paper_status": "publication_draft"},
+            ],
+        ))
+
+
 def test_supabase_import_snapshot_row_failure_does_not_consume_idempotency_key(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     events: dict[str, tuple[int, str]] = {}
