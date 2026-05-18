@@ -99,6 +99,36 @@ def test_dashboard_run_detail_treats_unexpandable_project_dir_as_unreadable(tmp_
     assert body["run_notes_tail"] == []
 
 
+def test_dashboard_run_detail_does_not_read_project_dir_outside_root(tmp_path: Path, monkeypatch) -> None:
+    client, token = _client(tmp_path, monkeypatch)
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    try:
+        (outside / "run_notes.md").write_text("outside secret note\n", encoding="utf-8")
+        fake_store = appmod.store
+        fake_store.records.append(
+            RunRecord(
+                run_id="run-outside",
+                session_id="session-outside",
+                project_id="project-outside",
+                project_name="Project Outside",
+                gate_state=GateState.WAKE_READY,
+                project_dir=str(outside),
+            )
+        )
+
+        run = client.get("/dashboard/api/run/run-outside", headers={"Authorization": f"Bearer {token}"})
+
+        assert run.status_code == 200
+        body = run.json()["run"]
+        assert body["run_id"] == "run-outside"
+        assert body["run_notes_tail"] == []
+        assert body["recent_files"] == []
+    finally:
+        (outside / "run_notes.md").unlink(missing_ok=True)
+        outside.rmdir()
+
+
 def test_dashboard_snapshot_writes_preserve_existing_files_on_replace_failure(tmp_path: Path, monkeypatch) -> None:
     client, token = _client(tmp_path, monkeypatch)
     headers = {"Authorization": f"Bearer {token}"}

@@ -1561,10 +1561,7 @@ def _run_dashboard_item(
         try:
             project_dir = _resolve_under_root(record.project_dir, config.expanded_project_root)
         except HTTPException:
-            try:
-                project_dir = Path(record.project_dir).expanduser()
-            except RuntimeError:
-                project_dir = None
+            project_dir = None
 
     latest_session = _latest_session(project_dir) if detail and project_dir is not None else None
     project_decision: ProjectDecision | None = None
