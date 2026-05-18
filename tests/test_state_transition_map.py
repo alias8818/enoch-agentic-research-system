@@ -101,11 +101,13 @@ def test_transition_map_matches_publication_readiness_invariants() -> None:
             "paper_id": "p1",
             "paper_status": "publication_draft",
             "review_status": "finalized",
-            "finalization_package_path": "package.json",
-            "draft_markdown_path": "paper.md",
-            "evidence_bundle_path": "evidence_bundle.json",
-            "claim_ledger_path": "claim_ledger.json",
-            "manifest_path": "paper_manifest.json",
+            "artifact_paths_present": {
+                "finalization_package_path": True,
+                "draft_markdown_path": True,
+                "evidence_bundle_path": True,
+                "claim_ledger_path": True,
+                "manifest_path": True,
+            },
         }
     )
     assert finalized["operator_stage"] == "ready_to_publish"

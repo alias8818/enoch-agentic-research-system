@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from enoch_control_plane.config import GateConfig
-from enoch_control_plane.control_plane.read_models import OPERATOR_DETAIL_LABELS, OPERATOR_LANE_LABELS, operator_stage_for_record, paper_links, paper_source_fingerprint, queue_links, row_age_seconds
+from enoch_control_plane.control_plane.read_models import OPERATOR_DETAIL_LABELS, OPERATOR_LANE_LABELS, operator_stage_for_record, paper_links, paper_source_fingerprint, queue_links, row_age_seconds, summarize_paper_row
 from enoch_control_plane.control_plane.state_contract import OperatorLane
 from enoch_control_plane.control_plane.store import REVIEW_CHECKLIST_DEFINITION
 from enoch_control_plane.control_plane.router import create_control_plane_router
@@ -98,7 +98,7 @@ class OperatorStatusTests(unittest.TestCase):
             ({"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project", "decision_summary": "finalize_negative", "research_outcome": "promising_if_scaled", "hypothesis_status": "supported", "evidence_strength": "moderate", "compute_scale_blocked": True, "scale_limits": "requires datacenter validation"}, "compute_scale_blocked", "compute_scale_blocked", False),
             ({"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project", "decision_summary": "finalize_negative", "followup_recommended": True, "followup_type": "deepen", "followup_title": "Adjacent test", "followup_hypothesis": "A bounded adjacent hypothesis.", "followup_required_evidence": ["baseline", "metrics"], "followup_success_threshold": "beat baseline", "followup_stop_condition": "stop on miss"}, "followup_investigation", "followup_candidate", False),
             ({"paper_id": "paper-1", "paper_status": "draft_review"}, "automate_publication", "draft_created", False),
-            ({"paper_id": "paper-2", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json", "draft_markdown_path": "paper.md", "evidence_bundle_path": "evidence.json", "claim_ledger_path": "claims.json", "manifest_path": "manifest.json"}, "ready_to_publish", "ready_to_publish", False),
+            ({"paper_id": "paper-2", "paper_status": "publication_draft", "review_status": "finalized", "artifact_paths_present": {"finalization_package_path": True, "draft_markdown_path": True, "evidence_bundle_path": True, "claim_ledger_path": True, "manifest_path": True}}, "ready_to_publish", "ready_to_publish", False),
             ({"paper_id": "paper-finalized-missing-evidence", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json", "draft_markdown_path": "paper.md", "manifest_path": "manifest.json"}, "automate_publication", "finalization_needed", False),
             ({"paper_id": "paper-imported", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json", "corpus_imported": True}, "published", "published", False),
             ({"paper_id": "paper-approved", "paper_status": "publication_draft", "review_status": "approved_for_finalization"}, "automate_publication", "finalization_needed", False),
@@ -118,6 +118,58 @@ class OperatorStatusTests(unittest.TestCase):
                 self.assertEqual(translated["operator_detail_stage"], detail_stage)
                 self.assertIs(translated["operator_attention"], attention)
 
+    def test_operator_stage_does_not_treat_path_strings_as_publish_evidence(self) -> None:
+        row = {
+            "paper_id": "paper-path-strings",
+            "paper_status": "publication_draft",
+            "review_status": "finalized",
+            "finalization_package_path": "package.json",
+            "draft_markdown_path": "paper.md",
+            "evidence_bundle_path": "evidence.json",
+            "claim_ledger_path": "claims.json",
+            "manifest_path": "manifest.json",
+        }
+
+        translated = operator_stage_for_record(row)
+
+        self.assertEqual(translated["operator_stage"], "automate_publication")
+        self.assertEqual(translated["operator_detail_stage"], "finalization_needed")
+
+    def test_summarize_paper_row_requires_readable_publish_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "paper-project"
+            project_dir.mkdir()
+            row = {
+                "paper_id": "paper-missing-files",
+                "project_id": "paper-project",
+                "project_dir": str(project_dir),
+                "paper_status": "publication_draft",
+                "review_status": "finalized",
+                "finalization_package_path": "package.json",
+                "draft_markdown_path": "paper.md",
+                "evidence_bundle_path": "evidence.json",
+                "claim_ledger_path": "claims.json",
+                "manifest_path": "manifest.json",
+            }
+
+            missing = summarize_paper_row(row)
+            self.assertEqual(missing["operator_stage"], "automate_publication")
+            self.assertEqual(missing["operator_detail_stage"], "finalization_needed")
+            self.assertFalse(missing["artifact_paths_present"]["draft_markdown_path"])
+
+            for rel in ("package.json", "paper.md", "evidence.json", "claims.json", "manifest.json"):
+                (project_dir / rel).write_text("verified artifact\n", encoding="utf-8")
+            present = summarize_paper_row(row)
+            self.assertEqual(present["operator_stage"], "ready_to_publish")
+            for name in (
+                "finalization_package_path",
+                "draft_markdown_path",
+                "evidence_bundle_path",
+                "claim_ledger_path",
+                "manifest_path",
+            ):
+                self.assertTrue(present["artifact_paths_present"][name])
+
     def test_operator_stage_normalizes_status_like_fields(self) -> None:
         cases = [
             ({"status": "Queued"}, "ready_queue", "idea_queued"),
@@ -136,11 +188,13 @@ class OperatorStatusTests(unittest.TestCase):
                     "paper_id": "paper-2",
                     "paper_status": "Publication Draft",
                     "review_status": "Finalized",
-                    "finalization_package_path": "package.json",
-                    "draft_markdown_path": "paper.md",
-                    "evidence_bundle_path": "evidence.json",
-                    "claim_ledger_path": "claims.json",
-                    "manifest_path": "manifest.json",
+                    "artifact_paths_present": {
+                        "finalization_package_path": True,
+                        "draft_markdown_path": True,
+                        "evidence_bundle_path": True,
+                        "claim_ledger_path": True,
+                        "manifest_path": True,
+                    },
                 },
                 "ready_to_publish",
                 "ready_to_publish",

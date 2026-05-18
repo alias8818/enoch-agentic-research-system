@@ -95,42 +95,108 @@ RELATED_PAPER_ARTIFACT_FIELDS = {
 }
 
 
+PUBLICATION_ARTIFACT_FIELDS = (
+    "finalization_package_path",
+    "draft_markdown_path",
+    "draft_latex_path",
+    "evidence_bundle_path",
+    "claim_ledger_path",
+    "manifest_path",
+)
+REQUIRED_PUBLICATION_ARTIFACT_FIELDS = (
+    "finalization_package_path",
+    "draft_markdown_path",
+    "evidence_bundle_path",
+    "claim_ledger_path",
+    "manifest_path",
+)
+
+
+def _artifact_file_is_readable(project_dir: Any, raw_path: Any, *, allow_absolute_outside_root: bool = False) -> bool:
+    project_dir_text = _text(project_dir)
+    path_text = _text(raw_path)
+    if not path_text:
+        return False
+    try:
+        candidate = Path(path_text).expanduser()
+        if candidate.is_absolute() and allow_absolute_outside_root:
+            return candidate.resolve(strict=False).is_file()
+        if not project_dir_text:
+            return False
+        root = Path(project_dir_text).expanduser().resolve(strict=True)
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        resolved = candidate.resolve(strict=False)
+        resolved.relative_to(root)
+        return resolved.is_file()
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _paper_artifact_flags(row: dict[str, Any]) -> dict[str, bool]:
+    existing_flags = row.get("artifact_paths_present")
+    if isinstance(existing_flags, dict):
+        return {name: bool(existing_flags.get(name)) for name in PUBLICATION_ARTIFACT_FIELDS}
+    project_dir = row.get("project_dir")
+    return {
+        name: _artifact_file_is_readable(
+            project_dir,
+            row.get(name),
+            allow_absolute_outside_root=(name == "finalization_package_path"),
+        )
+        for name in PUBLICATION_ARTIFACT_FIELDS
+    }
+
+
 def _related_artifact_paths_present(row: dict[str, Any]) -> dict[str, bool]:
-    return {name: bool(_text(row.get(field))) for name, field in RELATED_PAPER_ARTIFACT_FIELDS.items()}
+    project_dir = row.get("project_dir")
+    return {
+        name: _artifact_file_is_readable(
+            project_dir,
+            row.get(field),
+            allow_absolute_outside_root=(name == "finalization_package_path"),
+        )
+        for name, field in RELATED_PAPER_ARTIFACT_FIELDS.items()
+    }
 
 
 def _drop_related_artifact_paths(summary: dict[str, Any]) -> dict[str, Any]:
     summary["related_artifact_paths_present"] = _related_artifact_paths_present(summary)
     for field in RELATED_PAPER_ARTIFACT_FIELDS.values():
         summary.pop(field, None)
-    return summary
+    for key in (
+        "operator_stage",
+        "operator_stage_label",
+        "operator_lane",
+        "operator_detail_stage",
+        "operator_detail_stage_label",
+        "operator_tone",
+        "operator_attention",
+        "operator_next_step",
+        "operator_explanation",
+    ):
+        summary.pop(key, None)
+    return with_operator_stage(summary)
 
 
 def _paper_publication_artifacts_present(row: dict[str, Any]) -> bool:
     artifact_flags = row.get("artifact_paths_present")
-    required = ("draft_markdown_path", "evidence_bundle_path", "claim_ledger_path", "manifest_path")
     if isinstance(artifact_flags, dict):
-        return all(bool(artifact_flags.get(name)) for name in required)
+        return all(bool(artifact_flags.get(name)) for name in REQUIRED_PUBLICATION_ARTIFACT_FIELDS)
     related_artifact_flags = row.get("related_artifact_paths_present")
     if isinstance(related_artifact_flags, dict):
-        related_required = (
-            "finalization_package_path",
-            "draft_markdown_path",
-            "evidence_bundle_path",
-            "claim_ledger_path",
-            "manifest_path",
-        )
-        return all(bool(related_artifact_flags.get(name)) for name in related_required)
-    if _text(row.get("related_paper_id")):
-        return all(_related_artifact_paths_present(row).values())
-    return all(bool(_text(row.get(name))) for name in required)
+        return all(bool(related_artifact_flags.get(name)) for name in REQUIRED_PUBLICATION_ARTIFACT_FIELDS)
+    return False
 
 
 def _paper_finalization_package_present(row: dict[str, Any]) -> bool:
-    if _text(row.get("finalization_package_path") or row.get("related_finalization_package_path")):
-        return True
-    artifact_flags = row.get("related_artifact_paths_present")
-    return isinstance(artifact_flags, dict) and bool(artifact_flags.get("finalization_package_path"))
+    artifact_flags = row.get("artifact_paths_present")
+    if isinstance(artifact_flags, dict):
+        return bool(artifact_flags.get("finalization_package_path"))
+    related_artifact_flags = row.get("related_artifact_paths_present")
+    if isinstance(related_artifact_flags, dict):
+        return bool(related_artifact_flags.get("finalization_package_path"))
+    return False
 
 
 def _stage(
@@ -772,10 +838,7 @@ def summarize_paper_row(row: dict[str, Any]) -> dict[str, Any]:
         "generated_at": row.get("generated_at", ""),
         "updated_at": row.get("updated_at", ""),
         "age_seconds": row_age_seconds(row),
-        "artifact_paths_present": {
-            name: bool(row.get(name))
-            for name in ("draft_markdown_path", "draft_latex_path", "evidence_bundle_path", "claim_ledger_path", "manifest_path")
-        },
+        "artifact_paths_present": _paper_artifact_flags(row),
         "links": paper_links(row),
     })
     for private_path_field in (
@@ -796,6 +859,7 @@ def summarize_run_row(row: dict[str, Any]) -> dict[str, Any]:
         "run_id": run_id,
         "project_id": project_id,
         "project_name": row.get("project_name", ""),
+        "project_dir": row.get("project_dir", ""),
         "session_id": row.get("session_id", ""),
         "related_paper_id": row.get("related_paper_id", ""),
         "related_paper_status": row.get("related_paper_status", ""),

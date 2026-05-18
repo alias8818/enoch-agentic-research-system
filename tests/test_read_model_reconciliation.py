@@ -49,6 +49,13 @@ def _paper(project_id: str, run_id: str, paper_id: str, **extra: object) -> dict
         "evidence_bundle_path": "evidence_bundle.json",
         "claim_ledger_path": "claim_ledger.json",
         "manifest_path": "paper_manifest.json",
+        "artifact_paths_present": {
+            "finalization_package_path": True,
+            "draft_markdown_path": True,
+            "evidence_bundle_path": True,
+            "claim_ledger_path": True,
+            "manifest_path": True,
+        },
         **extra,
     }
 
@@ -590,7 +597,7 @@ def test_overview_batched_parts_count_active_items_even_when_raw_queue_is_trimme
     assert overview["operator_detail_counts"]["running"] == 1
 
 
-def test_queue_summary_uses_related_artifact_paths_without_exposing_them() -> None:
+def test_queue_summary_hides_unverified_related_artifact_paths_without_publish_promotion() -> None:
     from enoch_control_plane.control_plane.read_models import summarize_queue_row
 
     summary = summarize_queue_row({
@@ -609,14 +616,14 @@ def test_queue_summary_uses_related_artifact_paths_without_exposing_them() -> No
         "related_manifest_path": "/private/projects/ready/paper_manifest.json",
     })
 
-    assert summary["operator_lane"] == OperatorLane.READY_TO_PUBLISH.value
-    assert summary["operator_detail_stage"] == "ready_to_publish"
+    assert summary["operator_lane"] == OperatorLane.AUTOMATE_PUBLICATION.value
+    assert summary["operator_detail_stage"] == "finalization_needed"
     assert summary["related_artifact_paths_present"] == {
-        "finalization_package_path": True,
-        "draft_markdown_path": True,
-        "evidence_bundle_path": True,
-        "claim_ledger_path": True,
-        "manifest_path": True,
+        "finalization_package_path": False,
+        "draft_markdown_path": False,
+        "evidence_bundle_path": False,
+        "claim_ledger_path": False,
+        "manifest_path": False,
     }
     for field in (
         "related_finalization_package_path",
@@ -628,7 +635,7 @@ def test_queue_summary_uses_related_artifact_paths_without_exposing_them() -> No
         assert field not in summary
 
 
-def test_run_summary_uses_related_artifact_paths_without_exposing_them() -> None:
+def test_run_summary_hides_unverified_related_artifact_paths_without_publish_promotion() -> None:
     from enoch_control_plane.control_plane.read_models import summarize_run_row
 
     summary = summarize_run_row({
@@ -646,14 +653,14 @@ def test_run_summary_uses_related_artifact_paths_without_exposing_them() -> None
         "related_manifest_path": "/private/projects/ready/paper_manifest.json",
     })
 
-    assert summary["operator_lane"] == OperatorLane.READY_TO_PUBLISH.value
-    assert summary["operator_detail_stage"] == "ready_to_publish"
+    assert summary["operator_lane"] == OperatorLane.AUTOMATE_PUBLICATION.value
+    assert summary["operator_detail_stage"] == "finalization_needed"
     assert summary["related_artifact_paths_present"] == {
-        "finalization_package_path": True,
-        "draft_markdown_path": True,
-        "evidence_bundle_path": True,
-        "claim_ledger_path": True,
-        "manifest_path": True,
+        "finalization_package_path": False,
+        "draft_markdown_path": False,
+        "evidence_bundle_path": False,
+        "claim_ledger_path": False,
+        "manifest_path": False,
     }
     for field in (
         "related_finalization_package_path",
@@ -713,7 +720,7 @@ def test_reconciliation_preserves_sanitized_ready_to_publish_queue_summary() -> 
     counts = operator_counts_from_rows([summary, paper_summary])
     detail = operator_detail_counts_from_rows([summary, paper_summary])
 
-    assert recomputed_stage["operator_detail_stage"] == "ready_to_publish"
+    assert recomputed_stage["operator_detail_stage"] == "finalization_needed"
     assert counts[OperatorLane.READY_TO_PUBLISH.value] == 1
     assert counts["total_operator_items"] == 1
     assert detail["ready_to_publish"] == 1
