@@ -4792,3 +4792,43 @@ def test_paper_draft_backfill_failure_is_reported_without_losing_draft() -> None
         assert [row["project_id"] for row in snapshot["paper_rows"]] == ["paper-backfill-fail"]
         event_types = [event["event_type"] for event in snapshot["events"]]
         assert "paper.drafted" in event_types
+
+
+def test_draft_next_live_rejects_supabase_readonly_before_artifact_writes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp).model_copy(
+            update={
+                "control_plane_store_backend": "supabase_readonly",
+                "supabase_database_url": "postgres://example",
+            }
+        )
+        project_dir = config.expanded_project_root / "readonly-draft"
+        (project_dir / ".enoch").mkdir(parents=True)
+        (project_dir / "run_notes.md").write_text("Measured useful result.\n", encoding="utf-8")
+        (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+
+        class FakeReadOnlyStore:
+            def queue_rows(self) -> list[dict[str, object]]:
+                return [
+                    {
+                        "project_id": "readonly-draft",
+                        "project_name": "Readonly Draft",
+                        "project_dir": "readonly-draft",
+                        "status": "completed",
+                        "last_run_state": "finalize_positive",
+                        "next_action_hint": "draft_paper_or_select_next_project",
+                        "current_run_id": "run-readonly-draft",
+                        "manual_review_required": False,
+                    }
+                ]
+
+            def paper_rows(self) -> list[dict[str, object]]:
+                return []
+
+        with patch("enoch_control_plane.control_plane.router.SupabaseReadOnlyControlPlaneStore", return_value=FakeReadOnlyStore()):
+            client = _client_with_config(config)
+            response = client.post("/control/papers/draft-next", headers={"Authorization": f"Bearer {TOKEN}"}, json={"force": True})
+
+        assert response.status_code == 501
+        assert "writable control-plane store" in response.text
+        assert not (project_dir / "papers").exists()

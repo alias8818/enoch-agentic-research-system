@@ -322,6 +322,69 @@ def test_supabase_upsert_paper_ignores_stale_existing_paper() -> None:
     assert conn.cursor_obj.insert_attempted is False
 
 
+def test_supabase_record_paper_draft_rolls_back_rows_when_event_fails() -> None:
+    from enoch_control_plane.control_plane.supabase_store import SupabaseControlPlaneStore
+
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+
+    class Cursor:
+        def __init__(self):
+            self.operations = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            normalized = " ".join(str(sql).lower().split())
+            self.operations.append(normalized)
+            if normalized.startswith("select project_id, run_id, paper_type") and " from papers" in normalized:
+                self._fetchone = None
+                return self
+            if normalized.startswith("insert into control_events"):
+                raise RuntimeError("simulated event insert failure")
+            return self
+
+        def fetchone(self):
+            return getattr(self, "_fetchone", None)
+
+    class Conn:
+        def __init__(self):
+            self.cursor_obj = Cursor()
+            self.commits = 0
+            self.rollbacks = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, *_args):
+            if exc_type is None:
+                self.commits += 1
+            else:
+                self.rollbacks += 1
+            return False
+
+        def cursor(self):
+            return self.cursor_obj
+
+    conn = Conn()
+    store._connect = lambda: conn  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="simulated event insert failure"):
+        store.record_paper_draft(
+            paper=PaperRecord(paper_id="paper-1", project_id="project-a", run_id="run-1"),
+            project_dir="project-a",
+            idempotency_key="paper-draft:paper-1",
+            event_payload={"paper": "payload"},
+        )
+
+    assert any(op.startswith("update projects set project_dir") for op in conn.cursor_obj.operations)
+    assert any(op.startswith("insert into papers") for op in conn.cursor_obj.operations)
+    assert conn.commits == 0
+    assert conn.rollbacks == 1
+
 def test_write_store_dry_run_intakes_build_candidates_and_skips_rows() -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     notion_inserted, notion_created, notion_updated, notion_skipped, notion_candidates, notion_skipped_rows = store.ingest_notion_ideas(

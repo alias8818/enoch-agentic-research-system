@@ -4201,6 +4201,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     paper=paper,
                     candidate=dry_candidate,
                 )
+            if config.control_plane_store_backend == "supabase_readonly":
+                raise HTTPException(
+                    status_code=501,
+                    detail="paper draft-next requires a writable control-plane store; supabase_readonly is read-only",
+                )
             evidence = _prepare_draft_evidence(candidate)
             legacy_finalize_positive = str(candidate.get("last_run_state") or "").strip() == "finalize_positive"
             if not evidence["local_evidence_present"]:
