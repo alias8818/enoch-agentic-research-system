@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+from pathlib import Path
 
 import pytest
 
@@ -112,6 +113,36 @@ def test_resolved_artifact_treats_invalid_path_as_unreadable() -> None:
     assert artifact["field"] == "draft_markdown_path"
     assert artifact["readable"] is False
     assert artifact["safe"] is False
+
+
+def test_resolved_artifact_treats_filesystem_access_failure_as_unreadable(tmp_path, monkeypatch) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    target = project_dir / "draft.md"
+    target.write_text("draft", encoding="utf-8")
+    store = s.SupabaseControlPlaneStore("postgres://example", connect=lambda: pytest.fail("should not connect"))
+    real_is_file = Path.is_file
+
+    def blocked_is_file(path: Path) -> bool:
+        if path == target:
+            raise PermissionError("simulated artifact access failure")
+        return real_is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", blocked_is_file)
+
+    artifact = store._resolved_artifact(
+        {
+            "project_dir": str(project_dir),
+            "draft_markdown_path": "draft.md",
+        },
+        "draft_markdown_path",
+    )
+
+    assert artifact["field"] == "draft_markdown_path"
+    assert artifact["exists"] is True
+    assert artifact["readable"] is False
+    assert artifact["safe"] is True
+    assert artifact["size_bytes"] == 0
 
 
 def test_decision_gate_state_and_summary_variants() -> None:

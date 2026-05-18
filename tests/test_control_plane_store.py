@@ -2332,6 +2332,35 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertFalse(artifact["readable"])
             self.assertFalse(artifact["safe"])
 
+    def test_resolved_artifact_treats_filesystem_access_failure_as_unreadable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            project_dir = Path(tmp) / "project"
+            project_dir.mkdir()
+            target = project_dir / "draft.md"
+            target.write_text("draft", encoding="utf-8")
+            real_is_file = Path.is_file
+
+            def blocked_is_file(path: Path) -> bool:
+                if path == target:
+                    raise PermissionError("simulated artifact access failure")
+                return real_is_file(path)
+
+            with unittest.mock.patch.object(Path, "is_file", blocked_is_file):
+                artifact = store._resolved_artifact(
+                    {
+                        "project_dir": str(project_dir),
+                        "draft_markdown_path": "draft.md",
+                    },
+                    "draft_markdown_path",
+                )
+
+            self.assertEqual(artifact["field"], "draft_markdown_path")
+            self.assertTrue(artifact["exists"])
+            self.assertFalse(artifact["readable"])
+            self.assertTrue(artifact["safe"])
+            self.assertEqual(artifact["size_bytes"], 0)
+
     def test_prepare_finalization_package_rejects_empty_evidence_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

@@ -2226,11 +2226,16 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         if project_dir is not None:
             try:
                 resolved.relative_to(project_dir.resolve())
-            except (OSError, ValueError):
+            except (OSError, RuntimeError, ValueError):
                 safe = False
-        exists = bool(raw_path) and resolved.exists()
-        readable = safe and exists and resolved.is_file()
-        size_bytes = resolved.stat().st_size if readable else 0
+        try:
+            exists = bool(raw_path) and resolved.exists()
+            readable = safe and exists and resolved.is_file()
+            size_bytes = resolved.stat().st_size if readable else 0
+        except (OSError, RuntimeError, ValueError):
+            exists = bool(raw_path)
+            readable = False
+            size_bytes = 0
         return {"field": field, "path": raw_path, "absolute_path": str(resolved), "exists": exists, "readable": readable, "safe": safe, "size_bytes": size_bytes}
 
     def _finalization_manifest_path(self, paper_id: str, idempotency_key: str) -> Path:
