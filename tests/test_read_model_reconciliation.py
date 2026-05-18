@@ -98,6 +98,31 @@ def test_active_queue_precedence_over_completed_duplicate_rows(project_id: str, 
     assert "run_complete_draft_needed" not in detail
 
 
+def test_active_queue_does_not_hide_same_project_attention_row() -> None:
+    rows = [
+        _active_queue("drift-project", "active-run"),
+        {
+            "project_id": "drift-project",
+            "project_name": "drift-project",
+            "status": "blocked",
+            "last_run_state": "gate_error",
+            "current_run_id": "blocked-run",
+            "next_action_hint": "inspect_worker_gate_failure",
+            "manual_review_required": True,
+        },
+    ]
+
+    counts = operator_counts_from_rows(rows)
+    detail = operator_detail_counts_from_rows(rows)
+
+    assert counts[OperatorLane.RUNNING.value] == 1
+    assert counts[OperatorLane.NEEDS_OPERATOR.value] == 1
+    assert counts["needs_attention"] == 1
+    assert counts["total_operator_items"] == 2
+    assert detail["running"] == 1
+    assert detail["blocked_needs_operator"] == 1
+
+
 def test_operator_counts_match_detail_counts_for_mixed_lifecycle_rows() -> None:
     rows = [
         _active_queue("active-project", "active-run"),
@@ -264,6 +289,63 @@ def test_overview_operator_cards_match_reconciled_pipeline_counts(tmp_path) -> N
     assert overview["operator_counts"]["total_operator_items"] == 3
     assert overview["paper_pipeline"]["raw_completed_no_paper_candidates"] == 1
     assert overview["paper_pipeline"]["next_write_candidate"]["project_id"] == "write-project"
+
+
+def test_overview_last_import_result_uses_same_import_predicate_as_published_count() -> None:
+    from enoch_control_plane.control_plane import read_models
+
+    paper_rows = [
+        {
+            "paper_id": "ledger-imported-paper",
+            "project_id": "ledger-imported-project",
+            "run_id": "ledger-imported-run",
+            "paper_status": "publication_draft",
+            "review_status": "finalized",
+            "finalization_package_path": "package.json",
+            "corpus_imported": False,
+            "corpus_import_id": "ledger-import-1",
+            "artifact_slug": "ledger-imported-paper",
+            "corpus_imported_at": "2026-05-17T12:00:00Z",
+        }
+    ]
+    store = _OverviewStore([], paper_rows)
+
+    overview = read_models.overview(store)  # type: ignore[arg-type]
+
+    assert overview["operator_counts"][OperatorLane.PUBLISHED.value] == 1
+    assert overview["paper_pipeline"]["published_imported"] == 1
+    assert overview["paper_pipeline"]["last_import_result"]["paper_id"] == "ledger-imported-paper"
+
+
+def test_overview_investigation_pipeline_uses_reconciled_rows() -> None:
+    from enoch_control_plane.control_plane import read_models
+
+    stale_signal = {
+        "project_id": "duplicate-signal",
+        "project_name": "duplicate-signal",
+        "status": "completed",
+        "last_run_state": "wake_ready",
+        "current_run_id": "old-signal-run",
+        "next_action_hint": "draft_paper_or_select_next_project",
+        "decision_gate_state": "negative",
+        "research_outcome": "useful_signal",
+        "hypothesis_status": "mixed",
+        "evidence_strength": "moderate",
+        "bounded_paper_ready": False,
+        "useful_signal_summary": "older local signal",
+    }
+    newer_signal = {
+        **stale_signal,
+        "current_run_id": "newer-signal-run",
+        "useful_signal_summary": "newer local signal",
+    }
+    store = _OverviewStore([stale_signal, newer_signal], [])
+
+    overview = read_models.overview(store)  # type: ignore[arg-type]
+
+    assert overview["operator_counts"][OperatorLane.USEFUL_SIGNAL.value] == 1
+    assert overview["operator_counts"]["total_operator_items"] == 1
+    assert overview["investigation_pipeline"]["useful_signals"] == 1
 
 
 def test_completed_queue_with_same_run_paper_without_related_pointer_counts_as_paper_only() -> None:

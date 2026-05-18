@@ -772,6 +772,10 @@ def _typed_lifecycle_key(row: dict[str, Any]) -> str:
         return f"paper:{paper_id}"
     project_id = _text(row.get("project_id"))
     if project_id:
+        if bool(row.get("operator_attention")):
+            run_id = _text(row.get("run_id") or row.get("current_run_id"))
+            status = _text(row.get("status") or row.get("queue_status") or row.get("last_run_state") or row.get("state") or row.get("gate_state"))
+            return f"queue_attention:{project_id}:{run_id or status}"
         return f"queue:{project_id}"
     run_id = _text(row.get("run_id") or row.get("current_run_id"))
     if run_id:
@@ -973,12 +977,13 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         operator_detail_counts["run_complete_draft_needed"] = len(write_candidates)
     else:
         operator_detail_counts.pop("run_complete_draft_needed", None)
-    followup_rows = [row for row in queue_rows if _is_followup_candidate(row) and not _compute_scale_blocked(row)]
+    reconciled_queue_rows = _reconciled_operator_rows(queue_rows)
+    followup_rows = [row for row in reconciled_queue_rows if _text(row.get("operator_detail_stage")) == "followup_candidate"]
     followup_rows.sort(key=lambda row: (1 if _is_useful_signal(row) else 0, _text(row.get("updated_at"))), reverse=True)
-    useful_signal_rows = [row for row in queue_rows if _is_useful_signal(row) and not _compute_scale_blocked(row)]
-    compute_scale_blocked_rows = [row for row in queue_rows if _compute_scale_blocked(row)]
+    useful_signal_rows = [row for row in reconciled_queue_rows if _text(row.get("operator_lane")) == OperatorLane.USEFUL_SIGNAL.value]
+    compute_scale_blocked_rows = [row for row in reconciled_queue_rows if _text(row.get("operator_lane")) == OperatorLane.COMPUTE_SCALE_BLOCKED.value]
     publish_candidates = [row for row in paper_rows if _text(row.get("operator_stage")) == "ready_to_publish"]
-    imported_candidates = [row for row in paper_rows if bool(row.get("corpus_imported"))]
+    imported_candidates = [row for row in paper_rows if _paper_imported(row)]
     imported_candidates.sort(key=lambda row: _text(row.get("corpus_imported_at") or row.get("updated_at")), reverse=True)
     publication_ready_total = operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0) + operator_counts.get(OperatorLane.PUBLISHED.value, 0)
     investigation_pipeline = {
