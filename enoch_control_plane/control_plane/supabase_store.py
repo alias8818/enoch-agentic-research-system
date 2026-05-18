@@ -65,6 +65,7 @@ from .store import (
     _progress_for_items,
     _readiness_passed,
     _review_rank,
+    _restore_or_remove_path,
     _slug_id,
     _snapshot_rows,
     _text,
@@ -2164,15 +2165,28 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         }
         if request.dry_run:
             return None, False, self.paper_review_row(paper_id) or {}, str(package_path), manifest
+        previous_manifest_exists = package_path.exists()
+        previous_manifest_content = package_path.read_bytes() if previous_manifest_exists and package_path.is_file() else b""
         _atomic_write_text(package_path, _json(manifest))
-        event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.finalization_package_prepared", entity_type="paper_review", entity_id=paper_id, payload=payload)
-        if inserted:
+        try:
             with self._connect() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        "update publication_automation_items set automation_status=%s, finalization_package_path=%s, finalized_at=%s, updated_at=%s where paper_id=%s",
-                        (ReviewStatus.FINALIZED.value, str(package_path), now, now, paper_id),
+                    event_id, inserted = self._append_event_in_cursor(
+                        cur,
+                        idempotency_key=request.idempotency_key,
+                        event_type="paper_review.finalization_package_prepared",
+                        entity_type="paper_review",
+                        entity_id=paper_id,
+                        payload=payload,
                     )
+                    if inserted:
+                        cur.execute(
+                            "update publication_automation_items set automation_status=%s, finalization_package_path=%s, finalized_at=%s, updated_at=%s where paper_id=%s",
+                            (ReviewStatus.FINALIZED.value, str(package_path), now, now, paper_id),
+                        )
+        except Exception:
+            _restore_or_remove_path(package_path, existed=previous_manifest_exists, content=previous_manifest_content)
+            raise
         item = self.paper_review_row(paper_id) or {}
         return event_id, inserted, item, str(package_path), manifest
 

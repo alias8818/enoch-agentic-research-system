@@ -281,6 +281,73 @@ def test_supabase_launch_followup_append_failure_does_not_queue_followup(monkeyp
     assert queue_items == set()
 
 
+def test_supabase_prepare_finalization_event_failure_restores_manifest(monkeypatch, tmp_path) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    monkeypatch.setenv("ENOCH_SUPABASE_FINALIZATION_ROOT", str(tmp_path / "packages"))
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    for filename in ["paper.md", "paper.tex", "evidence.json", "claims.json", "manifest.json"]:
+        (project_dir / filename).write_text("{}" if filename.endswith(".json") else "content", encoding="utf-8")
+    paper_id = "supabase-package-event-fail:run-1:arxiv_draft"
+    review_row = {
+        "paper_id": paper_id,
+        "automation_status": "claimed",
+        "automation_actor": "alice",
+        "decision_summary": "",
+        "checklist_json": {},
+    }
+    paper = {
+        "paper_id": paper_id,
+        "project_id": "supabase-package-event-fail",
+        "project_name": "Supabase Package Event Fail",
+        "paper_status": "publication_draft",
+        "project_dir": str(project_dir),
+        "draft_markdown_path": "paper.md",
+        "draft_latex_path": "paper.tex",
+        "evidence_bundle_path": "evidence.json",
+        "claim_ledger_path": "claims.json",
+        "manifest_path": "manifest.json",
+    }
+    monkeypatch.setattr(store, "_require_paper_review", lambda _paper_id: review_row)
+    monkeypatch.setattr(store, "paper_row", lambda _paper_id: paper)
+    monkeypatch.setattr(store, "paper_review_checklist", lambda _paper_id: {})
+    monkeypatch.setattr(store, "paper_review_row", lambda _paper_id: dict(review_row, review_status=review_row["automation_status"], finalization_package_path=""))
+    package_path = store._finalization_manifest_path(paper_id, "supabase-package-event-fails")
+    package_path.parent.mkdir(parents=True, exist_ok=True)
+    package_path.write_text("previous manifest", encoding="utf-8")
+
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, *_args, **_kwargs): return self
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    def fail_append_event(*_args, **_kwargs):
+        raise RuntimeError("simulated finalization event write failure")
+
+    monkeypatch.setattr(store, "_replayed_event_id", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", fail_append_event)
+
+    try:
+        store.prepare_paper_review_finalization_package(
+            paper_id,
+            s.PaperReviewPrepareFinalizationRequest(idempotency_key="supabase-package-event-fails", requested_by="alice", target_label="first-paper", dry_run=False),
+            require_approval=False,
+        )
+    except RuntimeError as exc:
+        assert "simulated finalization event write failure" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected simulated event write failure")
+
+    assert package_path.read_text(encoding="utf-8") == "previous manifest"
+    assert review_row["automation_status"] == "claimed"
+
+
 def test_supabase_store_resolved_artifact_rejects_paths_outside_project(tmp_path) -> None:
     project_dir = tmp_path / "project"
     project_dir.mkdir()

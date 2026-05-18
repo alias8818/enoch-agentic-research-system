@@ -1576,6 +1576,93 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(package_path_again, package_path)
             self.assertEqual(finalized_again["review_status"], "finalized")
 
+    def test_prepare_finalization_package_event_failure_restores_manifest_and_review_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            project_dir = Path(tmp) / "project"
+            project_dir.mkdir()
+            artifact_paths = {
+                "draft_markdown_path": "paper.md",
+                "draft_latex_path": "paper.tex",
+                "evidence_bundle_path": "evidence.json",
+                "claim_ledger_path": "claims.json",
+                "manifest_path": "manifest.json",
+            }
+            (project_dir / "paper.md").write_text("Measured result improved over baseline.", encoding="utf-8")
+            (project_dir / "paper.tex").write_text("content", encoding="utf-8")
+            (project_dir / "evidence.json").write_text(
+                json.dumps({
+                    "schema_version": "evidence_bundle.v2",
+                    "public_evidence_files": [{
+                        "path": "evidence/run_notes.md",
+                        "source_path": "run_notes.md",
+                        "content": "Measured result improved over baseline.",
+                        "sha256": "abc",
+                    }],
+                }),
+                encoding="utf-8",
+            )
+            (project_dir / "claims.json").write_text(
+                json.dumps({
+                    "schema_version": "claim_ledger.v2",
+                    "ledger_status": "claims_reference_evidence",
+                    "claims": [{
+                        "id": "C1",
+                        "claim": "Measured result improved over baseline.",
+                        "support_status": "supported",
+                        "evidence_refs": [{"path": "evidence/run_notes.md", "source_path": "run_notes.md", "match_score": 1.0}],
+                    }],
+                    "unsupported_claim_count": 0,
+                }),
+                encoding="utf-8",
+            )
+            (project_dir / "manifest.json").write_text(
+                json.dumps({
+                    "paper_id": "package-event-fail:run-1:arxiv_draft",
+                    "evidence_file_count": 1,
+                    "claim_count": 1,
+                    "claim_ledger_status": "claims_reference_evidence",
+                }),
+                encoding="utf-8",
+            )
+            paper_id = "package-event-fail:run-1:arxiv_draft"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="paper-review-package-event-fail-import",
+                    paper_rows=[{
+                        "paper_id": paper_id,
+                        "project_id": "package-event-fail",
+                        "project_name": "Package Event Fail Project",
+                        "project_dir": str(project_dir),
+                        "run_id": "run-1",
+                        "paper_status": "publication_draft",
+                        **artifact_paths,
+                    }],
+                )
+            )
+            store.backfill_paper_reviews(PaperReviewBackfillRequest(idempotency_key="package-event-fail-backfill", dry_run=False))
+            store.claim_paper_review(paper_id, PaperReviewClaimRequest(idempotency_key="package-event-fail-claim", requested_by="alice", reviewer="alice"))
+            package_path = store._finalization_manifest_path(paper_id, "package-event-fails")
+            package_path.parent.mkdir(parents=True, exist_ok=True)
+            package_path.write_text("previous manifest", encoding="utf-8")
+
+            def fail_append_event(*_args, **_kwargs):
+                raise RuntimeError("simulated finalization event write failure")
+
+            with unittest.mock.patch.object(store, "_append_event_in_conn", side_effect=fail_append_event):
+                with self.assertRaises(RuntimeError):
+                    store.prepare_paper_review_finalization_package(
+                        paper_id,
+                        PaperReviewPrepareFinalizationRequest(idempotency_key="package-event-fails", requested_by="alice", target_label="first-paper", dry_run=False),
+                        require_approval=False,
+                    )
+
+            self.assertEqual(package_path.read_text(encoding="utf-8"), "previous manifest")
+            item = store.paper_review_row(paper_id) or {}
+            self.assertEqual(item["review_status"], "claimed")
+            self.assertEqual(item["finalization_package_path"], "")
+            self.assertFalse(any(event["event_type"] == "paper_review.finalization_package_prepared" for event in store.event_rows(entity_id=paper_id, limit=50)))
+
     def test_prepare_finalization_package_rejects_empty_evidence_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

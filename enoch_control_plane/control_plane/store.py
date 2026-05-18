@@ -71,6 +71,34 @@ def _atomic_write_text(path: Path, text: str) -> None:
                 pass
 
 
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile("wb", dir=path.parent, delete=False) as handle:
+            handle.write(data)
+            tmp = Path(handle.name)
+        tmp.replace(path)
+    finally:
+        if tmp is not None:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
+
+
+def _restore_or_remove_path(path: Path, *, existed: bool, content: bytes) -> None:
+    if existed:
+        _atomic_write_bytes(path, content)
+        return
+    try:
+        if path.exists():
+            path.unlink()
+    except OSError:
+        pass
+
+
 def _hash(payload: Any) -> str:
     return hashlib.sha256(_json(payload).encode("utf-8")).hexdigest()
 
@@ -1594,14 +1622,27 @@ class ControlPlaneStore:
         }
         if request.dry_run:
             return None, False, self.paper_review_row(paper_id) or {}, str(package_path), manifest
+        previous_manifest_exists = package_path.exists()
+        previous_manifest_content = package_path.read_bytes() if previous_manifest_exists and package_path.is_file() else b""
         _atomic_write_text(package_path, _json(manifest))
-        event_id, inserted = self.append_event(idempotency_key=request.idempotency_key, event_type="paper_review.finalization_package_prepared", entity_type="paper_review", entity_id=paper_id, payload=payload)
-        if inserted:
+        try:
             with self._connect() as conn:
-                conn.execute(
-                    "UPDATE paper_review_items SET review_status=?, finalization_package_path=?, finalized_at=?, updated_at=? WHERE paper_id=?",
-                    (ReviewStatus.FINALIZED.value, str(package_path), now, now, paper_id),
+                event_id, inserted = self._append_event_in_conn(
+                    conn,
+                    idempotency_key=request.idempotency_key,
+                    event_type="paper_review.finalization_package_prepared",
+                    entity_type="paper_review",
+                    entity_id=paper_id,
+                    payload=payload,
                 )
+                if inserted:
+                    conn.execute(
+                        "UPDATE paper_review_items SET review_status=?, finalization_package_path=?, finalized_at=?, updated_at=? WHERE paper_id=?",
+                        (ReviewStatus.FINALIZED.value, str(package_path), now, now, paper_id),
+                    )
+        except Exception:
+            _restore_or_remove_path(package_path, existed=previous_manifest_exists, content=previous_manifest_content)
+            raise
         item = self.paper_review_row(paper_id) or {}
         return event_id, inserted, item, str(package_path), manifest
 
