@@ -87,6 +87,7 @@ def _paper_imported(row: dict[str, Any]) -> bool:
 
 
 RELATED_PAPER_ARTIFACT_FIELDS = {
+    "finalization_package_path": "related_finalization_package_path",
     "draft_markdown_path": "related_draft_markdown_path",
     "evidence_bundle_path": "related_evidence_bundle_path",
     "claim_ledger_path": "related_claim_ledger_path",

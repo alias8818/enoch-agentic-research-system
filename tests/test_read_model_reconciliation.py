@@ -448,12 +448,14 @@ def test_queue_summary_uses_related_artifact_paths_without_exposing_them() -> No
     assert summary["operator_lane"] == OperatorLane.READY_TO_PUBLISH.value
     assert summary["operator_detail_stage"] == "ready_to_publish"
     assert summary["related_artifact_paths_present"] == {
+        "finalization_package_path": True,
         "draft_markdown_path": True,
         "evidence_bundle_path": True,
         "claim_ledger_path": True,
         "manifest_path": True,
     }
     for field in (
+        "related_finalization_package_path",
         "related_draft_markdown_path",
         "related_evidence_bundle_path",
         "related_claim_ledger_path",
@@ -483,12 +485,14 @@ def test_run_summary_uses_related_artifact_paths_without_exposing_them() -> None
     assert summary["operator_lane"] == OperatorLane.READY_TO_PUBLISH.value
     assert summary["operator_detail_stage"] == "ready_to_publish"
     assert summary["related_artifact_paths_present"] == {
+        "finalization_package_path": True,
         "draft_markdown_path": True,
         "evidence_bundle_path": True,
         "claim_ledger_path": True,
         "manifest_path": True,
     }
     for field in (
+        "related_finalization_package_path",
         "related_draft_markdown_path",
         "related_evidence_bundle_path",
         "related_claim_ledger_path",
