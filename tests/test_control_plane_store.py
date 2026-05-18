@@ -2317,6 +2317,21 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(item["finalization_package_path"], "")
             self.assertFalse(any(event["event_type"] == "paper_review.finalization_package_prepared" for event in store.event_rows(entity_id=paper_id, limit=50)))
 
+    def test_resolved_artifact_treats_invalid_path_as_unreadable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            artifact = store._resolved_artifact(
+                {
+                    "project_dir": str(Path(tmp) / "project"),
+                    "draft_markdown_path": "bad\0paper.md",
+                },
+                "draft_markdown_path",
+            )
+
+            self.assertEqual(artifact["field"], "draft_markdown_path")
+            self.assertFalse(artifact["readable"])
+            self.assertFalse(artifact["safe"])
+
     def test_prepare_finalization_package_rejects_empty_evidence_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

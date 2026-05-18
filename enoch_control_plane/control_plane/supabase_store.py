@@ -2218,7 +2218,10 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         if raw_path and path is None:
             return {"field": field, "path": raw_path, "absolute_path": "", "exists": False, "readable": False, "safe": False, "size_bytes": 0}
         path = path or Path()
-        resolved = (path if path.is_absolute() else (project_dir / path if project_dir else path)).resolve()
+        try:
+            resolved = (path if path.is_absolute() else (project_dir / path if project_dir else path)).resolve()
+        except (OSError, RuntimeError, ValueError):
+            return {"field": field, "path": raw_path, "absolute_path": "", "exists": False, "readable": False, "safe": False, "size_bytes": 0}
         safe = True
         if project_dir is not None:
             try:

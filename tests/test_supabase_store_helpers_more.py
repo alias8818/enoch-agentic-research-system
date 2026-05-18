@@ -98,6 +98,22 @@ def test_record_project_decision_gate_rejects_unexpandable_artifact_root() -> No
     assert result["reason"] == "artifact root contains an unexpandable user home"
 
 
+def test_resolved_artifact_treats_invalid_path_as_unreadable() -> None:
+    store = s.SupabaseControlPlaneStore("postgres://example", connect=lambda: pytest.fail("should not connect"))
+
+    artifact = store._resolved_artifact(
+        {
+            "project_dir": "/tmp/project",
+            "draft_markdown_path": "bad\0paper.md",
+        },
+        "draft_markdown_path",
+    )
+
+    assert artifact["field"] == "draft_markdown_path"
+    assert artifact["readable"] is False
+    assert artifact["safe"] is False
+
+
 def test_decision_gate_state_and_summary_variants() -> None:
     assert s._decision_gate_state({"eligible": True}) == "positive"
     assert s._decision_gate_state({"reason": "missing project_decision"}) == "missing"
