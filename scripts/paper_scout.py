@@ -188,28 +188,6 @@ def apply_ready(database_url: str, results: list[ScoutResult], *, max_apply: int
         with conn.cursor() as cur:
             cur.execute("set search_path to enoch, public")
             for result in selected:
-                payload = dict(result.row.payload)
-                nested = payload.get("project_decision") if isinstance(payload.get("project_decision"), dict) else payload
-                nested["bounded_paper_ready"] = True
-                nested["paper_scout_review"] = {
-                    "reviewed_at": datetime.now(timezone.utc).isoformat(),
-                    "requested_by": requested_by,
-                    "score": result.score,
-                    "reasons": result.reasons,
-                    "mode": "bounded_paper_ready_only",
-                }
-                if isinstance(payload.get("project_decision"), dict):
-                    payload["project_decision"] = nested
-                else:
-                    payload = nested
-                cur.execute(
-                    """
-                    update project_decisions
-                    set payload_json = %s::jsonb, updated_at = now()
-                    where decision_id = %s
-                    """,
-                    (json.dumps(payload, sort_keys=True), result.row.decision_id),
-                )
                 event_payload = {
                     "decision_id": result.row.decision_id,
                     "project_id": result.row.project_id,
@@ -240,6 +218,30 @@ def apply_ready(database_url: str, results: list[ScoutResult], *, max_apply: int
                     raise IdempotencyConflict(
                         f"idempotency key {event_key!r} was reused with different event identity"
                     )
+                if existing:
+                    continue
+                payload = dict(result.row.payload)
+                nested = payload.get("project_decision") if isinstance(payload.get("project_decision"), dict) else payload
+                nested["bounded_paper_ready"] = True
+                nested["paper_scout_review"] = {
+                    "reviewed_at": datetime.now(timezone.utc).isoformat(),
+                    "requested_by": requested_by,
+                    "score": result.score,
+                    "reasons": result.reasons,
+                    "mode": "bounded_paper_ready_only",
+                }
+                if isinstance(payload.get("project_decision"), dict):
+                    payload["project_decision"] = nested
+                else:
+                    payload = nested
+                cur.execute(
+                    """
+                    update project_decisions
+                    set payload_json = %s::jsonb, updated_at = now()
+                    where decision_id = %s
+                    """,
+                    (json.dumps(payload, sort_keys=True), result.row.decision_id),
+                )
                 cur.execute(
                     """
                     insert into control_events(idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash)
