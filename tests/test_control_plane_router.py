@@ -4754,3 +4754,41 @@ def test_paper_draft_event_failure_does_not_publish_partial_paper_row() -> None:
         event_types = [event["event_type"] for event in snapshot["events"]]
         assert "paper.drafted" not in event_types
         assert "paper_review.backfill" not in event_types
+
+def test_paper_draft_backfill_failure_is_reported_without_losing_draft() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        client = _client(tmp)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        project_dir = Path(tmp) / "projects" / "paper-backfill-fail"
+        (project_dir / ".enoch").mkdir(parents=True)
+        (project_dir / "run_notes.md").write_text("Verified useful result with measured baseline evidence.\n", encoding="utf-8")
+        (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+        imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
+            "idempotency_key": "import-paper-backfill-fail",
+            "queue_rows": [{
+                "project_id": "paper-backfill-fail",
+                "project_name": "Paper Backfill Fail",
+                "project_dir": "paper-backfill-fail",
+                "status": "completed",
+                "last_run_state": "finalize_positive",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-paper-backfill-fail",
+                "manual_review_required": False,
+            }],
+            "paper_rows": [],
+        })
+        assert imported.status_code == 200
+
+        with patch.object(ControlPlaneStore, "backfill_paper_reviews", side_effect=RuntimeError("simulated backfill outage")):
+            response = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["action"] == "drafted"
+        assert body["candidate"]["project_id"] == "paper-backfill-fail"
+        errors = body["candidate"].get("writer", {}).get("review_backfill", {}).get("errors", [])
+        assert any("simulated backfill outage" in str(error.get("reason")) for error in errors)
+        snapshot = client.get("/control/export/snapshot", headers=headers).json()
+        assert [row["project_id"] for row in snapshot["paper_rows"]] == ["paper-backfill-fail"]
+        event_types = [event["event_type"] for event in snapshot["events"]]
+        assert "paper.drafted" in event_types

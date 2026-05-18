@@ -4269,10 +4269,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 }
             except IdempotencyConflict as exc:
                 writer["review_backfill"] = {"inserted_event": False, "created": 0, "updated": 0, "skipped": 0, "errors": [{"reason": str(exc)}]}
+            except Exception as exc:
+                writer["review_backfill"] = {"inserted_event": False, "created": 0, "updated": 0, "skipped": 0, "errors": [{"reason": f"{type(exc).__name__}: {exc}"}]}
             reason = f"paper draft created with {writer.get('provider')} / {writer.get('model')}"
             if writer.get("fallback_used"):
                 reason += " (fallback used)"
-            return DraftNextResponse(ok=True, action="drafted", reason=reason, paper=paper, candidate=draft_candidate_payload(candidate))
+            response_candidate = draft_candidate_payload(candidate)
+            response_candidate["writer"] = writer
+            return DraftNextResponse(ok=True, action="drafted", reason=reason, paper=paper, candidate=response_candidate)
         return DraftNextResponse(ok=True, action="noop", reason="eligible paper-draft candidates lacked sufficient positive local or synced evidence", candidate={"skipped": skipped[:10]})
 
     return router
