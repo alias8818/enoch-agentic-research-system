@@ -175,6 +175,25 @@ def _snapshot_rows(snapshot: dict[str, Any] | list[dict[str, Any]] | None, *, pa
     return rows
 
 
+def _reject_conflicting_snapshot_rows(
+    rows: list[dict[str, Any]],
+    *,
+    key_fields: tuple[str, ...],
+    identity_fields: tuple[tuple[str, ...], ...],
+    label: str,
+) -> None:
+    seen: dict[str, tuple[str, ...]] = {}
+    for row in rows:
+        key = _text(_first_present(row, *key_fields))
+        if not key:
+            continue
+        identity = tuple(_text(_first_present(row, *fields)) for fields in identity_fields)
+        existing = seen.get(key)
+        if existing is not None and existing != identity:
+            raise ValueError(f"conflicting {label} identity for {key!r}")
+        seen[key] = identity
+
+
 def _slug_id(value: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")[:80]
 
@@ -716,6 +735,33 @@ class ControlPlaneStore:
     def import_snapshot(self, request: ImportSnapshotRequest) -> tuple[bool, int, int, int]:
         queue_rows = [*request.queue_rows, *_snapshot_rows(request.queue_snapshot)]
         paper_rows = [*request.paper_rows, *_snapshot_rows(request.paper_snapshot, paper=True)]
+        _reject_conflicting_snapshot_rows(
+            queue_rows,
+            key_fields=("project_id",),
+            identity_fields=(
+                ("project_name", "name", "title"),
+                ("project_dir", "project_path"),
+                ("status", "queue_status"),
+                ("current_run_id",),
+            ),
+            label="queue project",
+        )
+        _reject_conflicting_snapshot_rows(
+            paper_rows,
+            key_fields=("paper_id",),
+            identity_fields=(
+                ("project_id",),
+                ("run_id",),
+                ("paper_type",),
+                ("paper_status",),
+                ("draft_markdown_path",),
+                ("draft_latex_path",),
+                ("evidence_bundle_path",),
+                ("claim_ledger_path",),
+                ("manifest_path",),
+            ),
+            label="paper",
+        )
         event_payload = request.model_dump(mode="json")
         event_payload["normalized_queue_row_count"] = len(queue_rows)
         event_payload["normalized_paper_row_count"] = len(paper_rows)

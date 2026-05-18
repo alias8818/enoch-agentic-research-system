@@ -163,6 +163,40 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(store.project_row("missing-status-queue")["origin_idea_status"], "unknown")
             self.assertEqual(store.project_row("missing-status-paper-project")["origin_idea_status"], "unknown")
 
+    def test_import_snapshot_rejects_conflicting_duplicate_queue_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            request = ImportSnapshotRequest(
+                idempotency_key="import-conflicting-queue-rows",
+                queue_rows=[
+                    {"project_id": "project-1", "project_name": "Project One", "status": "queued"},
+                    {"project_id": "project-1", "project_name": "Project One", "status": "running"},
+                ],
+            )
+
+            with self.assertRaisesRegex(ValueError, "conflicting queue project identity"):
+                store.import_snapshot(request)
+
+            self.assertEqual(store.recent_events(10), [])
+            self.assertIsNone(store.queue_row("project-1"))
+
+    def test_import_snapshot_rejects_conflicting_duplicate_paper_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            request = ImportSnapshotRequest(
+                idempotency_key="import-conflicting-paper-rows",
+                paper_rows=[
+                    {"paper_id": "paper-1", "project_id": "project-a", "paper_status": "publication_draft"},
+                    {"paper_id": "paper-1", "project_id": "project-b", "paper_status": "publication_draft"},
+                ],
+            )
+
+            with self.assertRaisesRegex(ValueError, "conflicting paper identity"):
+                store.import_snapshot(request)
+
+            self.assertEqual(store.recent_events(10), [])
+            self.assertEqual(store.paper_rows(), [])
+
     def test_import_snapshot_row_failure_does_not_consume_idempotency_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
