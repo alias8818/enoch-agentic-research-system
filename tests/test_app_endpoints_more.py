@@ -463,6 +463,35 @@ def test_misc_endpoint_error_branches(tmp_path: Path, monkeypatch) -> None:
     assert client.post("/project-paper/project-a", headers=headers, json={"run_id": "run", "paper_id": "paper", "files": [{"path": "too-big.md", "content": "x" * 2_000_001}]}).status_code == 413
 
 
+
+def test_paper_artifact_endpoints_reject_uninspectable_project_dir_without_raw_error(tmp_path: Path, monkeypatch) -> None:
+    _, token = _client(tmp_path, monkeypatch)
+    project = tmp_path / "project-a"
+    project.mkdir(parents=True)
+    real_exists = appmod.Path.exists
+    resolved_project = project.resolve()
+
+    def blocked_exists(path, *args, **kwargs):  # noqa: ANN001 - monkeypatch-compatible Path method
+        if path == resolved_project:
+            raise PermissionError("simulated inaccessible project dir")
+        return real_exists(path)
+
+    monkeypatch.setattr(appmod.Path, "exists", blocked_exists)
+    client = TestClient(appmod.app, raise_server_exceptions=False)
+
+    read_response = client.post(
+        "/project-paper/project-a/read",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"paths": ["paper.md"]},
+    )
+    preview_response = client.get(f"/dashboard/api/paper-artifact/project-a?token={token}&path=paper.md")
+
+    assert read_response.status_code == 403
+    assert "project directory" in read_response.json()["detail"]
+    assert preview_response.status_code == 403
+    assert "project directory" in preview_response.json()["detail"]
+
+
 def test_evaluator_registry_does_not_duplicate_running_task(monkeypatch) -> None:
     class RunningTask:
         def __init__(self):

@@ -921,6 +921,13 @@ def _checked_exists(path: Path, *, label: str, status_code: int = 500) -> bool:
         raise HTTPException(status_code=status_code, detail=f"{label} could not be inspected: {path}") from exc
 
 
+def _checked_is_dir(path: Path, *, label: str, status_code: int = 500) -> bool:
+    try:
+        return path.is_dir()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=status_code, detail=f"{label} could not be inspected: {path}") from exc
+
+
 def _normalize_prepare_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(metadata or {})
     try:
@@ -1910,7 +1917,7 @@ def dashboard_api_paper_artifact(
 ) -> dict[str, Any]:
     _require_dashboard_bearer(authorization, token)
     project_dir = _resolve_project_dir(project_id, None)
-    if not project_dir.exists() or not project_dir.is_dir():
+    if not _checked_exists(project_dir, label="project directory", status_code=403) or not _checked_is_dir(project_dir, label="project directory", status_code=403):
         raise HTTPException(status_code=404, detail=f"project directory not found: {project_id}")
     artifact_path = _resolve_project_relative_path(project_dir, path)
     try:
@@ -2184,7 +2191,7 @@ async def read_project_paper(
         raise HTTPException(status_code=400, detail="max_bytes_per_file must be between 1 and 2000000")
 
     project_dir = _resolve_project_dir(project_id, None)
-    if not project_dir.exists() or not project_dir.is_dir():
+    if not _checked_exists(project_dir, label="project directory", status_code=403) or not _checked_is_dir(project_dir, label="project directory", status_code=403):
         raise HTTPException(status_code=404, detail=f"project directory not found: {project_id}")
 
     files: list[dict[str, Any]] = []
