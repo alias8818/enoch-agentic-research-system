@@ -943,7 +943,8 @@ def _project_escalation_prompt(candidate: dict[str, Any]) -> str:
     label = str(source.get("research_ladder_label") or "").strip()
     budget = str(source.get("research_ladder_budget_hint") or "").strip()
     promising = source.get("promising_escalation") is True
-    guidance = source.get("worker_prompt_guidance") if isinstance(source.get("worker_prompt_guidance"), list) else []
+    raw_guidance = source.get("worker_prompt_guidance")
+    guidance = raw_guidance if isinstance(raw_guidance, list) else []
     if tier is None and not label and not guidance:
         return ""
     lines = ["", "## Controller escalation ladder"]
@@ -3374,7 +3375,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
 
         def bounded_float(name: str, default: float, lower: float, upper: float) -> float:
             return _bounded_float_from_mapping(body, name, default, lower, upper)
-        allowed_models = body.get("allowed_models") if isinstance(body.get("allowed_models"), list) else ["hf:moonshotai/Kimi-K2.6", "hf:zai-org/GLM-5.1"]
+        raw_allowed_models = body.get("allowed_models")
+        allowed_models = (
+            [str(item).strip() for item in raw_allowed_models if item is not None and str(item).strip()]
+            if isinstance(raw_allowed_models, list)
+            else ["hf:moonshotai/Kimi-K2.6", "hf:zai-org/GLM-5.1"]
+        )
+        if not allowed_models:
+            allowed_models = ["hf:moonshotai/Kimi-K2.6", "hf:zai-org/GLM-5.1"]
         provider_model = str(body.get("model") or os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL") or "hf:zai-org/GLM-5.1").strip()
         if provider_model not in allowed_models:
             return {

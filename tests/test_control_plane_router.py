@@ -991,6 +991,61 @@ class ControlPlaneRouterTests(unittest.TestCase):
         generate.assert_not_called()
         self.assertEqual(fake_store.events[0]["event_type"], "research.run_cycle.dry_run")
 
+    def test_research_facility_run_cycle_ignores_empty_allowed_model_list(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.events = []
+
+            def active_items(self) -> list[dict[str, str]]:
+                return []
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 0, "active": 0}
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                return []
+
+            def record_research_facility_plans(self, *_args, **_kwargs):  # pragma: no cover - dry-run must not write
+                raise AssertionError("dry-run should not write ledgers")
+
+            def promote_research_candidate(self, *_args, **_kwargs):  # pragma: no cover - dry-run must not promote
+                raise AssertionError("dry-run should not promote")
+
+            def append_event(self, **kwargs):
+                self.events.append(kwargs)
+                return 1, True
+
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=FakeSupabaseStore()), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+             patch("scripts.research_provider_generate.generate_provider_candidates") as generate:
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={"dry_run": True, "allowed_models": ["", None], "requested_by": "pytest"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertNotEqual(body["action"], "research_cycle_blocked")
+        generate.assert_not_called()
+
     def test_research_facility_run_cycle_live_rejects_readonly_before_budget_or_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp).model_copy(

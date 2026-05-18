@@ -62,3 +62,19 @@ def test_worker_prompt_includes_controller_escalation_ladder() -> None:
     assert "Tier 2: medium confirmation" in prompt
     assert "Promising escalation: yes" in prompt
     assert "Use direct target metrics and a real baseline." in prompt
+
+
+def test_worker_prompt_rejects_malformed_escalation_guidance() -> None:
+    prompt = _project_prompt({
+        "project_id": "followup-3",
+        "project_name": "Follow-up Three",
+        "idea_source_kind": "followup_branch",
+        "idea_source_payload_json": {
+            "research_ladder_tier": 2,
+            "worker_prompt_guidance": "do not iterate this string as guidance",
+        },
+    })
+
+    assert "## Controller escalation ladder" in prompt
+    assert "do not iterate this string as guidance" not in prompt
+    assert "Preserve the strict paper gate" in prompt

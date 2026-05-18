@@ -5,7 +5,7 @@ import os
 import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import quote
 
 from enoch_control_plane.enoch_core.logic import draft_candidate_payload, eligible_paper_draft_candidates, paper_draft_decision_gate
@@ -1010,11 +1010,46 @@ def page_response(*, rows: list[dict[str, Any]], next_cursor: str | None, has_mo
     }
 
 
+_OVERVIEW_BATCH_KEYS = {
+    "counts",
+    "paper_counts",
+    "active_items",
+    "next_candidate",
+    "raw_queue_rows",
+    "raw_paper_rows",
+    "events_page",
+}
+
+
+def _valid_overview_batch(value: Any) -> Mapping[str, Any] | None:
+    """Return a usable optimized overview batch or None to use canonical reads.
+
+    The batched overview path is an optimization used by live adapters. It must
+    not become a single malformed-response failure point for the operator
+    dashboard; canonical read methods remain the source of truth fallback.
+    """
+
+    if not isinstance(value, Mapping):
+        return None
+    if not _OVERVIEW_BATCH_KEYS.issubset(value.keys()):
+        return None
+    events_page = value.get("events_page")
+    if not isinstance(events_page, tuple) or len(events_page) != 3:
+        return None
+    for rows_key in ("active_items", "raw_queue_rows", "raw_paper_rows"):
+        rows = value.get(rows_key)
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            return None
+    if not isinstance(value.get("counts"), dict) or not isinstance(value.get("paper_counts"), dict):
+        return None
+    return value
+
+
 def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: int = 10) -> dict[str, Any]:
     batched_parts = None
     batched_reader = getattr(store, "overview_read_model_parts", None)
     if callable(batched_reader):
-        batched_parts = batched_reader(active_limit=active_limit, event_limit=event_limit)
+        batched_parts = _valid_overview_batch(batched_reader(active_limit=active_limit, event_limit=event_limit))
 
     if batched_parts is not None:
         counts = batched_parts["counts"]

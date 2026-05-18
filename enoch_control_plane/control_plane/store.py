@@ -106,6 +106,12 @@ def _hash(payload: Any) -> str:
     return hashlib.sha256(_json(payload).encode("utf-8")).hexdigest()
 
 
+def _required_lastrowid(cursor: sqlite3.Cursor, *, operation: str) -> int:
+    if cursor.lastrowid is None:
+        raise RuntimeError(f"{operation} did not return a sqlite lastrowid")
+    return int(cursor.lastrowid)
+
+
 def _text(value: Any) -> str:
     return str(value or "").strip()
 
@@ -697,7 +703,7 @@ class ControlPlaneStore:
             "INSERT INTO events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at) VALUES (?,?,?,?,?,?,?)",
             (idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash, utc_now()),
         )
-        return int(cur.lastrowid), True
+        return _required_lastrowid(cur, operation="append_event"), True
 
     def append_event(self, *, idempotency_key: str, event_type: str, entity_type: str, entity_id: str, payload: dict[str, Any]) -> tuple[int, bool]:
         with self._connect() as conn:
@@ -859,6 +865,7 @@ class ControlPlaneStore:
                     )
                 )
                 if preserve_active_runtime:
+                    assert existing_queue is not None
                     qi.status = QueueStatus(_text(existing_queue["status"]))
                     qi.current_run_id = existing_run_id
                     qi.current_session_id = _text(existing_queue["current_session_id"])
@@ -2039,7 +2046,7 @@ class ControlPlaneStore:
                 VALUES (?,?,?,?,?,?,?,?)""",
                 (source, scope, observed_at or now, ttl_seconds, status, payload_json, payload_hash, now),
             )
-            observation_id = int(cur.lastrowid)
+            observation_id = _required_lastrowid(cur, operation="upsert_dashboard_observation")
         return DashboardObservationRecord(
             observation_id=observation_id,
             source=source,  # type: ignore[arg-type]
@@ -2758,6 +2765,7 @@ class ControlPlaneStore:
             _completed_success_queue_row(current_queue_row, run_id)
             and event_type not in TERMINAL_SUCCESS_CALLBACK_STATES
         ):
+            assert current_queue_row is not None
             event_payload = {
                 **payload,
                 "received_by": received_by,

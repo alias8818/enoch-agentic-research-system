@@ -461,6 +461,30 @@ class _BatchedOverviewStore(_OverviewStore):
         }
 
 
+class _MalformedBatchedOverviewStore(_OverviewStore):
+    def overview_read_model_parts(self, *, active_limit: int, event_limit: int) -> dict[str, object]:
+        del active_limit, event_limit
+        return {
+            "counts": self.queue_counts_sql(),
+            "paper_counts": self.paper_counts_sql(),
+            # Missing active/raw rows and events_page. The optimized batched
+            # read path is not allowed to make the operator dashboard less
+            # reliable than the canonical SQL read methods.
+        }
+
+
+def test_overview_falls_back_when_batched_parts_are_incomplete() -> None:
+    from enoch_control_plane.control_plane import read_models
+
+    store = _MalformedBatchedOverviewStore([_active_queue("active-project", "active-run")], [])
+
+    overview = read_models.overview(store)  # type: ignore[arg-type]
+
+    assert overview["active_items"][0]["project_id"] == "active-project"
+    assert overview["operator_counts"][OperatorLane.RUNNING.value] == 1
+    assert overview["operator_counts"]["total_operator_items"] == 1
+
+
 def test_overview_batched_parts_count_active_items_even_when_raw_queue_is_trimmed() -> None:
     from enoch_control_plane.control_plane import read_models
 
