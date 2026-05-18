@@ -4436,6 +4436,49 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(repeated.json()["updated"], 0)
             self.assertEqual(repeated.json()["skipped"], 242)
 
+    def test_paper_review_backfill_treats_unexpandable_audit_path_as_missing_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            imported = client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "paper-review-router-unexpandable-audit-import",
+                    "paper_rows": [
+                        {
+                            "paper_id": "idea-audit-path:run-audit-path:arxiv_draft",
+                            "project_id": "idea-audit-path",
+                            "project_name": "Audit Path",
+                            "run_id": "run-audit-path",
+                            "paper_status": "publication_draft",
+                            "paper_type": "arxiv_draft",
+                            "draft_markdown_path": "papers/run-audit-path/paper.md",
+                            "draft_latex_path": "papers/run-audit-path/paper.tex",
+                            "evidence_bundle_path": "papers/run-audit-path/evidence.json",
+                            "claim_ledger_path": "papers/run-audit-path/claims.json",
+                            "manifest_path": "papers/run-audit-path/manifest.json",
+                        }
+                    ],
+                },
+            )
+            self.assertEqual(imported.status_code, 200)
+
+            response = client.post(
+                "/control/api/paper-reviews/backfill",
+                headers=headers,
+                json={
+                    "idempotency_key": "paper-review-router-unexpandable-audit",
+                    "requested_by": "test",
+                    "source_audit_path": "~enoch-user-that-should-not-exist/audit.json",
+                    "dry_run": True,
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertEqual(body["created"], 1)
+            self.assertEqual(body["errors"], [])
+
     def test_paper_review_list_filters_normalize_status_variants(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)

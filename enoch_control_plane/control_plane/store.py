@@ -419,7 +419,9 @@ def _checklist_progress(checklist: dict[str, Any]) -> dict[str, int]:
 def _audit_rows(source_audit_path: str) -> dict[str, dict[str, Any]]:
     if not source_audit_path:
         return {}
-    path = Path(source_audit_path).expanduser()
+    path = _expanduser_or_none(source_audit_path)
+    if path is None:
+        return {}
     if not path.exists():
         return {}
     try:

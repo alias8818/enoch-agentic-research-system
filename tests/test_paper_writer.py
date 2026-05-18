@@ -64,6 +64,22 @@ class PaperWriterTests(unittest.TestCase):
             self.assertTrue(ledger["claims"])
             self.assertTrue(ledger["claims"][0]["evidence_refs"])
 
+    def test_writer_rejects_unexpandable_project_dir_without_runtime_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(HTTPException) as raised:
+                write_paper_artifacts(
+                    self._config(tmp),
+                    {
+                        "project_id": "idea",
+                        "project_name": "Idea",
+                        "project_dir": "~enoch-user-that-should-not-exist/idea",
+                    },
+                    self._paper(),
+                    force=True,
+                )
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertIn("project_dir", str(raised.exception.detail))
+
     def test_evidence_bundle_public_paths_are_unique_after_sanitization(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "projects" / "idea"

@@ -382,6 +382,27 @@ def test_overview_operator_cards_match_reconciled_pipeline_counts(tmp_path) -> N
     assert overview["paper_pipeline"]["next_write_candidate"]["project_id"] == "write-project"
 
 
+def test_overview_treats_unexpandable_project_dir_as_missing_decision_artifact() -> None:
+    from enoch_control_plane.control_plane import read_models
+
+    queue_rows = [
+        _completed_draft_ready(
+            "unexpandable-project-dir",
+            "unexpandable-run",
+            project_dir="~enoch-user-that-should-not-exist/project",
+            decision_gate_state="",
+        )
+    ]
+    store = _OverviewStore(queue_rows, [])
+
+    overview = read_models.overview(store)  # type: ignore[arg-type]
+
+    assert overview["operator_counts"].get(OperatorLane.WRITE_PAPER.value, 0) == 0
+    assert overview["operator_counts"][OperatorLane.COMPLETE_NO_PAPER.value] == 1
+    rejected = overview["paper_pipeline"]["gate_rejected_sample"]
+    assert rejected[0]["project_id"] == "unexpandable-project-dir"
+
+
 def test_overview_last_import_result_uses_same_import_predicate_as_published_count() -> None:
     from enoch_control_plane.control_plane import read_models
 

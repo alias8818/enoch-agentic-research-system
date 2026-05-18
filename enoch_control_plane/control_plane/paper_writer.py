@@ -65,7 +65,10 @@ def _resolve_project_dir(config: GateConfig, candidate: dict[str, Any]) -> Path:
     if not project_dir_text:
         raise HTTPException(status_code=400, detail="candidate lacks project_dir")
     root = config.expanded_project_root.resolve()
-    project_dir = Path(project_dir_text).expanduser()
+    try:
+        project_dir = Path(project_dir_text).expanduser()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail="project_dir contains an unexpandable user home") from exc
     if not project_dir.is_absolute():
         project_dir = root / project_dir
     project_dir = project_dir.resolve()

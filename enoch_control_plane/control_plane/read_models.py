@@ -168,13 +168,24 @@ def _configured_project_root() -> str:
     return _text(payload.get("project_root"))
 
 
+def _expanduser_or_none(value: str) -> Path | None:
+    try:
+        return Path(value).expanduser()
+    except RuntimeError:
+        return None
+
+
 def _project_dir_candidates(project_dir: str) -> list[Path]:
-    raw = Path(project_dir).expanduser()
+    raw = _expanduser_or_none(project_dir)
+    if raw is None:
+        return []
     candidates = [raw]
     if not raw.is_absolute():
         configured_root = _configured_project_root()
         if configured_root:
-            candidates.append(Path(configured_root).expanduser() / raw)
+            root = _expanduser_or_none(configured_root)
+            if root is not None:
+                candidates.append(root / raw)
         candidates.append(Path("/var/lib/enoch-control-plane/projects") / raw)
     deduped: list[Path] = []
     seen: set[str] = set()
