@@ -1001,9 +1001,13 @@ def _resolve_project_relative_path(project_dir: Path, relative_path: str) -> Pat
     if any(part in {"", ".", ".."} for part in raw.parts):
         raise HTTPException(status_code=400, detail=f"paper artifact path contains unsafe segment: {relative_path}")
 
-    resolved = (project_dir / raw).resolve()
     try:
-        resolved.relative_to(project_dir.resolve())
+        resolved = (project_dir / raw).resolve()
+        project_root = project_dir.resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"paper artifact path could not be resolved: {relative_path}") from exc
+    try:
+        resolved.relative_to(project_root)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"paper artifact path escapes project directory: {relative_path}") from exc
     return resolved

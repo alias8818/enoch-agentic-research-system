@@ -238,6 +238,8 @@ def test_prepare_project_status_and_paper_artifact_endpoints(tmp_path: Path, mon
     preview = client.get(f"/dashboard/api/paper-artifact/project-a?token={token}&path=papers/run-live/draft.md")
     assert preview.status_code == 200
     assert preview.json()["content"] == "# Draft"
+    bad_preview = client.get(f"/dashboard/api/paper-artifact/project-a?token={token}&path=bad%00path")
+    assert bad_preview.status_code == 400
     html = client.get(f"/dashboard/paper-artifact/project-a?token={token}&path=papers/run-live/draft.md")
     assert html.status_code == 200
     assert "# Draft" in html.text
