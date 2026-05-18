@@ -477,7 +477,7 @@ def apply_stored_llm_decisions(database_url: str, *, requested_by: str, limit: i
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--database-url", required=True)
+    parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL", ""))
     parser.add_argument("--provider-base-url", default=os.environ.get("ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"))
     parser.add_argument("--openai-base-url", default=os.environ.get("ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL", "https://synthetic.int.exe.xyz/openai/v1"))
     parser.add_argument("--model", default=os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL", DEFAULT_MODEL))
@@ -504,6 +504,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
+    if not args.database_url:
+        raise SystemExit("--database-url or DATABASE_URL is required")
     dry_run = not args.apply or args.dry_run
     report: dict[str, Any] = {"ok": False, "action": "research_janitor_llm_review", "dry_run": dry_run, "checked_at": utc_now()}
     if args.apply_stored_decisions or args.apply_stored_decisions_only:
