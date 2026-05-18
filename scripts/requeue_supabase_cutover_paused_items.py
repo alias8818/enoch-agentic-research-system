@@ -22,6 +22,8 @@ import sys
 from datetime import datetime, UTC
 from typing import Any
 
+from enoch_control_plane.enoch_core.store import IdempotencyConflict
+
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat(timespec="microseconds")
@@ -66,6 +68,12 @@ def _jsonable(value: Any) -> Any:
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return value
+
+
+def _row_get(row: Any, key: str, index: int) -> Any:
+    if isinstance(row, dict):
+        return row.get(key)
+    return row[index]
 
 
 def _candidate_rows(conn: Any) -> list[dict[str, Any]]:
@@ -137,13 +145,32 @@ def reconcile(args: argparse.Namespace) -> dict[str, Any]:
             import hashlib
             payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
             payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+            event_key = args.idempotency_key or f"queue-cutover-requeue:{now}"
+            cur.execute(
+                """
+                select event_id, event_type, entity_type, entity_id, payload_hash
+                from control_events
+                where idempotency_key = %s
+                """,
+                (event_key,),
+            )
+            existing = cur.fetchone()
+            if existing and (
+                _row_get(existing, "event_type", 1) != "queue.cutover_requeue"
+                or _row_get(existing, "entity_type", 2) != "control"
+                or _row_get(existing, "entity_id", 3) != "queue"
+                or _row_get(existing, "payload_hash", 4) != payload_hash
+            ):
+                raise IdempotencyConflict(
+                    f"idempotency key {event_key!r} was reused with different event identity"
+                )
             cur.execute(
                 """
                 insert into control_events(idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash, created_at)
                 values (%s, 'queue.cutover_requeue', 'control', 'queue', %s::jsonb, %s, %s)
                 on conflict (idempotency_key) do nothing
                 """,
-                (args.idempotency_key or f"queue-cutover-requeue:{now}", payload_json, payload_hash, now),
+                (event_key, payload_json, payload_hash, now),
             )
         conn.commit()
     return {"ok": True, "applied": True, "updated_count": len(updated), "updated_project_ids": [row["project_id"] for row in updated]}
