@@ -207,8 +207,8 @@ path = pathlib.Path(payload_file)
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY_CALLBACK_PAYLOAD
-  python3 -m enoch_control_plane.callback_outbox write --state-dir "$WORKER_STATE_DIR" --payload-file "$CALLBACK_PAYLOAD_FILE" >/dev/null
-  if python3 -m enoch_control_plane.callback_outbox deliver --state-dir "$WORKER_STATE_DIR" --run-id "$RUN_ID" --url "$CALLBACK_URL" --token "$CALLBACK_TOKEN" --timeout "$CALLBACK_TIMEOUT"; then
+  python3 "$REPO_ROOT/enoch_control_plane/callback_outbox.py" write --state-dir "$WORKER_STATE_DIR" --payload-file "$CALLBACK_PAYLOAD_FILE" >/dev/null
+  if python3 "$REPO_ROOT/enoch_control_plane/callback_outbox.py" deliver --state-dir "$WORKER_STATE_DIR" --run-id "$RUN_ID" --url "$CALLBACK_URL" --token "$CALLBACK_TOKEN" --timeout "$CALLBACK_TIMEOUT"; then
     true
   else
     echo "callback delivery failed; durable callback outbox will retry: $WORKER_STATE_DIR/callback_outbox/${RUN_ID}.json" >&2

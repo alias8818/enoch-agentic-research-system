@@ -371,9 +371,9 @@ def test_codex_runner_uses_durable_callback_outbox() -> None:
     app = (ROOT / "enoch_control_plane" / "app.py").read_text(encoding="utf-8")
     outbox = (ROOT / "enoch_control_plane" / "callback_outbox.py").read_text(encoding="utf-8")
     assert '"ENOCH_WORKER_STATE_DIR": str(config.expanded_state_dir)' in app
-    assert "python3 -m enoch_control_plane.callback_outbox write" in runner
+    assert "python3 \"$REPO_ROOT/enoch_control_plane/callback_outbox.py\" write" in runner
     assert 'export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"' in runner
-    assert "python3 -m enoch_control_plane.callback_outbox deliver" in runner
+    assert "python3 \"$REPO_ROOT/enoch_control_plane/callback_outbox.py\" deliver" in runner
     assert "callback delivery failed; durable callback outbox will retry" in runner
     assert "def _mark_local_worker_state_delivered" in outbox
     assert 'record["last_idempotency_key"] = payload.get("idempotency_key")' in outbox
