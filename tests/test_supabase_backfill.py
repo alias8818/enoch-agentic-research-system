@@ -126,3 +126,9 @@ def test_backfill_conflict_updates_are_timestamp_guarded() -> None:
         "where excluded.updated_at >= publication_automation_items.updated_at",
     ):
         assert guard in source
+
+
+def test_backfill_project_decision_conflict_update_is_decided_at_guarded() -> None:
+    source = inspect.getsource(backfill_control_plane_to_supabase.import_sqlite_to_postgres)
+
+    assert "where excluded.decided_at >= project_decisions.decided_at" in source

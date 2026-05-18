@@ -513,6 +513,7 @@ def import_sqlite_to_postgres(
                   payload_json=excluded.payload_json,
                   payload_hash=excluded.payload_hash,
                   decided_at=excluded.decided_at
+                where excluded.decided_at >= project_decisions.decided_at
                 """,
                 (
                     (
