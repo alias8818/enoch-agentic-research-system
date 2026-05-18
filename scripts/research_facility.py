@@ -642,7 +642,9 @@ def emit_sql(plans: list[CandidatePlan], *, requested_by: str, queue_admitted: b
             f"{sql_json(c['score_breakdown'])}, {sql_literal(c['dedupe_key'])}, {sql_json(c['similar_prior_projects'])}, {sql_literal(c['novelty_comparison'])}, {sql_literal(c['risk_notes'])}, "
             f"{sql_literal(plan.admission_reason if plan.admission_decision == 'rejected' else '')}, {sql_literal(c['provider'])}, {sql_literal(c['provider_model'])}, {sql_literal(c['prompt_version'])}, {sql_literal(c['generated_by'])}, {sql_json(c['raw_candidate_json'])}"
             ") on conflict (candidate_id) do update set "
-            "status = excluded.status, total_score = excluded.total_score, score_breakdown = excluded.score_breakdown, updated_at = now();"
+            "status = case when enoch.research_candidates.status not in ('admitted', 'rejected', 'merged') then excluded.status else enoch.research_candidates.status end, "
+            "total_score = excluded.total_score, score_breakdown = excluded.score_breakdown, updated_at = now() "
+            "where enoch.research_candidates.status not in ('admitted', 'rejected', 'merged');"
         )
         idempotency_key = f"research-admission:{c['candidate_id']}:{plan.admission_decision}"
         for source_id in c["source_ids"]:

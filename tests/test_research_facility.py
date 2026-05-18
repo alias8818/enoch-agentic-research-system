@@ -160,6 +160,16 @@ def test_research_facility_emit_sql_guards_candidate_and_admission_identity_conf
     assert "raise exception" in sql.lower()
 
 
+def test_research_facility_emit_sql_does_not_overwrite_terminal_candidate_statuses() -> None:
+    plan = research_facility.plan_candidates([_strong_candidate()], _args())[0]
+
+    sql = research_facility.emit_sql([plan], requested_by="pytest", queue_admitted=True)
+    normalized = " ".join(sql.lower().split())
+
+    assert "status = excluded.status" not in normalized
+    assert "where enoch.research_candidates.status not in ('admitted', 'rejected', 'merged')" in normalized
+
+
 def test_research_facility_emit_sql_guards_source_identity_conflicts() -> None:
     plan = research_facility.plan_candidates(
         [
