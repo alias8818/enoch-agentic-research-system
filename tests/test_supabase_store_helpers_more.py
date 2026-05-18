@@ -424,6 +424,85 @@ def test_supabase_claim_paper_review_update_failure_does_not_consume_idempotency
     assert item["reviewer"] == "alice"
 
 
+def test_supabase_backfill_paper_reviews_row_failure_does_not_consume_idempotency_key(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    paper_id = "supabase-backfill-atomic:run-1:arxiv_draft"
+    monkeypatch.setattr(store, "paper_rows", lambda: [{
+        "paper_id": paper_id,
+        "project_id": "supabase-backfill-atomic",
+        "paper_status": "publication_draft",
+        "draft_markdown_path": "paper.md",
+        "draft_latex_path": "paper.tex",
+        "evidence_bundle_path": "evidence.json",
+        "claim_ledger_path": "claims.json",
+        "manifest_path": "manifest.json",
+    }])
+    monkeypatch.setattr(store, "queue_row", lambda _project_id: {})
+    events: dict[str, tuple[int, str]] = {}
+    reviews: dict[str, dict] = {}
+    fail_review_insert = True
+
+    class Cursor:
+        def __init__(self, conn):
+            self.conn = conn
+            self._next = None
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            nonlocal fail_review_insert
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("select event_id"):
+                event = self.conn.pending_events.get(params[0])
+                self._next = None if event is None else {"event_id": event[0], "payload_hash": event[1]}
+            elif normalized.startswith("insert into control_events"):
+                event_id = len(self.conn.pending_events) + 1
+                self.conn.pending_events[params[0]] = (event_id, params[5])
+                self._next = {"event_id": event_id}
+            elif normalized.startswith("select * from publication_automation_items"):
+                self._next = self.conn.pending_reviews.get(params[0])
+            elif normalized.startswith("insert into publication_automation_items"):
+                if fail_review_insert:
+                    fail_review_insert = False
+                    raise RuntimeError("simulated paper review backfill insert failure")
+                self.conn.pending_reviews[params[0]] = {
+                    "paper_id": params[0],
+                    "automation_status": params[1],
+                }
+            return self
+        def fetchone(self):
+            value = self._next
+            self._next = None
+            return value
+
+    class Conn:
+        def __enter__(self):
+            self.pending_events = dict(events)
+            self.pending_reviews = dict(reviews)
+            return self
+        def __exit__(self, exc_type, *_args):
+            if exc_type is None:
+                events.update(self.pending_events)
+                reviews.update(self.pending_reviews)
+            return False
+        def cursor(self): return Cursor(self)
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    request = s.PaperReviewBackfillRequest(idempotency_key="supabase-backfill-atomic-key", dry_run=False)
+
+    try:
+        store.backfill_paper_reviews(request)
+    except RuntimeError as exc:
+        assert "simulated paper review backfill insert failure" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected simulated insert failure")
+    inserted, created, updated, skipped, errors = store.backfill_paper_reviews(request)
+
+    assert inserted is True
+    assert (created, updated, skipped) == (1, 0, 0)
+    assert errors == []
+    assert reviews[paper_id]["automation_status"] == "queued"
+
+
 def test_supabase_store_resolved_artifact_rejects_paths_outside_project(tmp_path) -> None:
     project_dir = tmp_path / "project"
     project_dir.mkdir()

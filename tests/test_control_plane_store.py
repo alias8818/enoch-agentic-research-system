@@ -1828,6 +1828,62 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(item["reviewer"], "alice")
             self.assertTrue(any(event["event_id"] == event_id and event["event_type"] == "paper_review.claimed" for event in store.event_rows(entity_id=paper_id, limit=50)))
 
+    def test_backfill_paper_reviews_row_failure_does_not_consume_idempotency_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            paper_id = "backfill-atomic:run-1:arxiv_draft"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="backfill-atomic-import",
+                    paper_rows=[{
+                        "paper_id": paper_id,
+                        "project_id": "backfill-atomic",
+                        "run_id": "run-1",
+                        "paper_status": "publication_draft",
+                        "draft_markdown_path": "paper.md",
+                        "draft_latex_path": "paper.tex",
+                        "evidence_bundle_path": "evidence.json",
+                        "claim_ledger_path": "claims.json",
+                        "manifest_path": "manifest.json",
+                    }],
+                )
+            )
+            original_connect = store._connect
+            fail_review_insert = True
+
+            class FailingConnection:
+                def __init__(self, manager):
+                    self.manager = manager
+                    self.conn = None
+
+                def __enter__(self):
+                    self.conn = self.manager.__enter__()
+                    return self
+
+                def __exit__(self, *args):
+                    return self.manager.__exit__(*args)
+
+                def __getattr__(self, name):
+                    return getattr(self.conn, name)
+
+                def execute(self, sql, params=()):
+                    nonlocal fail_review_insert
+                    if fail_review_insert and "INSERT INTO paper_review_items" in str(sql):
+                        fail_review_insert = False
+                        raise RuntimeError("simulated paper review backfill insert failure")
+                    return self.conn.execute(sql, params)
+
+            request = PaperReviewBackfillRequest(idempotency_key="backfill-atomic-key", dry_run=False)
+            with unittest.mock.patch.object(store, "_connect", side_effect=lambda: FailingConnection(original_connect())):
+                with self.assertRaises(RuntimeError):
+                    store.backfill_paper_reviews(request)
+                inserted, created, updated, skipped, errors = store.backfill_paper_reviews(request)
+
+            self.assertTrue(inserted)
+            self.assertEqual((created, updated, skipped), (1, 0, 0))
+            self.assertEqual(errors, [])
+            self.assertEqual(store.paper_review_row(paper_id)["review_status"], "queued")
+
     def test_paper_finalization_rejects_artifacts_outside_project_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

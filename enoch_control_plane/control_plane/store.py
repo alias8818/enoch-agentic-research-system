@@ -1313,16 +1313,19 @@ class ControlPlaneStore:
             return False, len(candidates), 0, 0, errors
         event_payload = request.model_dump(mode="json")
         event_payload.update({"candidate_count": len(candidates), "error_count": len(errors)})
-        _, inserted = self.append_event(
-            idempotency_key=request.idempotency_key,
-            event_type="paper_review.backfill",
-            entity_type="paper_reviews",
-            entity_id="backfill",
-            payload=event_payload,
-        )
         created = updated = skipped = 0
         now = utc_now()
         with self._connect() as conn:
+            _, inserted = self._append_event_in_conn(
+                conn,
+                idempotency_key=request.idempotency_key,
+                event_type="paper_review.backfill",
+                entity_type="paper_reviews",
+                entity_id="backfill",
+                payload=event_payload,
+            )
+            if not inserted:
+                return False, 0, 0, 0, errors
             for record in candidates:
                 existing = conn.execute("SELECT * FROM paper_review_items WHERE paper_id=?", (record.paper_id,)).fetchone()
                 rank_reasons_json = _json(record.rank_reasons)
