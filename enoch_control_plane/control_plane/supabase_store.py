@@ -518,6 +518,38 @@ class SupabaseReadOnlyControlPlaneStore:
                 limit 1
               ) as related_finalization_package_path,
               (
+                select pa.draft_markdown_path
+                from papers pa
+                where pa.project_id = q.project_id
+                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
+                order by pa.updated_at desc
+                limit 1
+              ) as related_draft_markdown_path,
+              (
+                select pa.evidence_bundle_path
+                from papers pa
+                where pa.project_id = q.project_id
+                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
+                order by pa.updated_at desc
+                limit 1
+              ) as related_evidence_bundle_path,
+              (
+                select pa.claim_ledger_path
+                from papers pa
+                where pa.project_id = q.project_id
+                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
+                order by pa.updated_at desc
+                limit 1
+              ) as related_claim_ledger_path,
+              (
+                select pa.manifest_path
+                from papers pa
+                where pa.project_id = q.project_id
+                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
+                order by pa.updated_at desc
+                limit 1
+              ) as related_manifest_path,
+              (
                 select ci.corpus_import_id
                 from papers pa
                 left join corpus_imports ci using(paper_id)
@@ -1142,6 +1174,10 @@ class SupabaseReadOnlyControlPlaneStore:
                               ''::text as related_paper_status,
                               ''::text as related_review_status,
                               ''::text as related_finalization_package_path,
+                              ''::text as related_draft_markdown_path,
+                              ''::text as related_evidence_bundle_path,
+                              ''::text as related_claim_ledger_path,
+                              ''::text as related_manifest_path,
                               false as related_corpus_imported,
                               ''::text as related_corpus_import_id,
                               ''::text as related_artifact_slug,

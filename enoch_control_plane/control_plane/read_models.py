@@ -86,6 +86,22 @@ def _paper_imported(row: dict[str, Any]) -> bool:
     )
 
 
+def _paper_publication_artifacts_present(row: dict[str, Any]) -> bool:
+    artifact_flags = row.get("artifact_paths_present")
+    required = ("draft_markdown_path", "evidence_bundle_path", "claim_ledger_path", "manifest_path")
+    if isinstance(artifact_flags, dict):
+        return all(bool(artifact_flags.get(name)) for name in required)
+    if _text(row.get("related_paper_id")):
+        related_required = (
+            "related_draft_markdown_path",
+            "related_evidence_bundle_path",
+            "related_claim_ledger_path",
+            "related_manifest_path",
+        )
+        return all(bool(_text(row.get(name))) for name in related_required)
+    return all(bool(_text(row.get(name))) for name in required)
+
+
 def _stage(
     detail_label: str,
     *,
@@ -426,7 +442,12 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
             next_step="No corpus-import action is needed; this paper is already represented by the import ledger.",
             explanation="The corpus import ledger contains this paper, so it is public/imported rather than publish work.",
         )
-    if paper_status in {PaperStatus.PUBLICATION_DRAFT.value, PaperStatus.DRAFT_REVIEW.value} and review_status in READY_REVIEW_STATUSES and _text(row.get("finalization_package_path") or row.get("related_finalization_package_path")):
+    if (
+        paper_status in {PaperStatus.PUBLICATION_DRAFT.value, PaperStatus.DRAFT_REVIEW.value}
+        and review_status in READY_REVIEW_STATUSES
+        and _text(row.get("finalization_package_path") or row.get("related_finalization_package_path"))
+        and _paper_publication_artifacts_present(row)
+    ):
         return _stage(
             "ready_to_publish",
             lane=OperatorLane.READY_TO_PUBLISH,
@@ -665,6 +686,10 @@ def summarize_queue_row(row: dict[str, Any]) -> dict[str, Any]:
         "related_paper_status": row.get("related_paper_status", ""),
         "related_review_status": row.get("related_review_status", ""),
         "related_finalization_package_path": row.get("related_finalization_package_path", ""),
+        "related_draft_markdown_path": row.get("related_draft_markdown_path", ""),
+        "related_evidence_bundle_path": row.get("related_evidence_bundle_path", ""),
+        "related_claim_ledger_path": row.get("related_claim_ledger_path", ""),
+        "related_manifest_path": row.get("related_manifest_path", ""),
         "related_corpus_imported": row.get("related_corpus_imported", False),
         "related_corpus_import_id": row.get("related_corpus_import_id", ""),
         "related_artifact_slug": row.get("related_artifact_slug", ""),
@@ -676,13 +701,18 @@ def summarize_queue_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def summarize_paper_row(row: dict[str, Any]) -> dict[str, Any]:
-    return with_operator_stage({
+    summary = with_operator_stage({
         "paper_id": row.get("paper_id", ""),
         "project_id": row.get("project_id", ""),
         "project_name": row.get("project_name", ""),
         "run_id": row.get("run_id", ""),
         "paper_type": row.get("paper_type", ""),
         "paper_status": row.get("paper_status", ""),
+        "draft_markdown_path": row.get("draft_markdown_path", ""),
+        "draft_latex_path": row.get("draft_latex_path", ""),
+        "evidence_bundle_path": row.get("evidence_bundle_path", ""),
+        "claim_ledger_path": row.get("claim_ledger_path", ""),
+        "manifest_path": row.get("manifest_path", ""),
         "review_status": row.get("review_status", ""),
         "finalization_package_path": row.get("finalization_package_path", ""),
         "corpus_imported": row.get("corpus_imported", False),
@@ -702,6 +732,15 @@ def summarize_paper_row(row: dict[str, Any]) -> dict[str, Any]:
         },
         "links": paper_links(row),
     })
+    for private_path_field in (
+        "draft_markdown_path",
+        "draft_latex_path",
+        "evidence_bundle_path",
+        "claim_ledger_path",
+        "manifest_path",
+    ):
+        summary.pop(private_path_field, None)
+    return summary
 
 
 def summarize_run_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -716,6 +755,10 @@ def summarize_run_row(row: dict[str, Any]) -> dict[str, Any]:
         "related_paper_status": row.get("related_paper_status", ""),
         "related_review_status": row.get("related_review_status", ""),
         "related_finalization_package_path": row.get("related_finalization_package_path", ""),
+        "related_draft_markdown_path": row.get("related_draft_markdown_path", ""),
+        "related_evidence_bundle_path": row.get("related_evidence_bundle_path", ""),
+        "related_claim_ledger_path": row.get("related_claim_ledger_path", ""),
+        "related_manifest_path": row.get("related_manifest_path", ""),
         "state": row.get("state", ""),
         "gate_state": row.get("gate_state", ""),
         "dispatch_mode": row.get("dispatch_mode", ""),
@@ -798,6 +841,10 @@ def _strip_related_paper_projection(row: dict[str, Any]) -> dict[str, Any]:
         "related_paper_status": "",
         "related_review_status": "",
         "related_finalization_package_path": "",
+        "related_draft_markdown_path": "",
+        "related_evidence_bundle_path": "",
+        "related_claim_ledger_path": "",
+        "related_manifest_path": "",
         "related_corpus_imported": False,
         "related_corpus_import_id": "",
         "related_artifact_slug": "",
@@ -826,6 +873,10 @@ def _has_related_paper_projection(row: dict[str, Any]) -> bool:
             "related_paper_status",
             "related_review_status",
             "related_finalization_package_path",
+            "related_draft_markdown_path",
+            "related_evidence_bundle_path",
+            "related_claim_ledger_path",
+            "related_manifest_path",
             "related_corpus_import_id",
             "related_artifact_slug",
             "related_source_record_fingerprint",
