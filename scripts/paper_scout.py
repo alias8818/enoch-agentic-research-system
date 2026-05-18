@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from enoch_control_plane.enoch_core.store import IdempotencyConflict
+
 
 def _text(value: Any) -> str:
     return "" if value is None else str(value).strip()
@@ -162,6 +164,20 @@ def scout(rows: list[ScoutRow], *, threshold: int) -> list[ScoutResult]:
     return results
 
 
+def _canonical_event_json(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, sort_keys=True)
+
+
+def _event_hash(event_json: str) -> str:
+    return hashlib.sha256(event_json.encode("utf-8")).hexdigest()
+
+
+def _row_get(row: Any, key: str, index: int) -> Any:
+    if isinstance(row, dict):
+        return row.get(key)
+    return row[index]
+
+
 def apply_ready(database_url: str, results: list[ScoutResult], *, max_apply: int, requested_by: str) -> list[dict[str, Any]]:
     import psycopg
     applied: list[dict[str, Any]] = []
@@ -203,15 +219,34 @@ def apply_ready(database_url: str, results: list[ScoutResult], *, max_apply: int
                     "effect": "bounded_paper_ready_true",
                     "requested_by": requested_by,
                 }
-                event_json = json.dumps(event_payload, sort_keys=True)
-                event_hash = hashlib.sha256(event_json.encode("utf-8")).hexdigest()
+                event_json = _canonical_event_json(event_payload)
+                event_hash = _event_hash(event_json)
+                event_key = f"paper-scout:{result.row.decision_id}:bounded-ready"
+                cur.execute(
+                    """
+                    select event_id, event_type, entity_type, entity_id, payload_hash
+                    from control_events
+                    where idempotency_key = %s
+                    """,
+                    (event_key,),
+                )
+                existing = cur.fetchone()
+                if existing and (
+                    _row_get(existing, "event_type", 1) != "paper_scout.mark_ready"
+                    or _row_get(existing, "entity_type", 2) != "project"
+                    or _row_get(existing, "entity_id", 3) != result.row.project_id
+                    or _row_get(existing, "payload_hash", 4) != event_hash
+                ):
+                    raise IdempotencyConflict(
+                        f"idempotency key {event_key!r} was reused with different event identity"
+                    )
                 cur.execute(
                     """
                     insert into control_events(idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash)
                     values (%s, 'paper_scout.mark_ready', 'project', %s, %s::jsonb, %s)
                     on conflict (idempotency_key) do nothing
                     """,
-                    (f"paper-scout:{result.row.decision_id}:bounded-ready", result.row.project_id, event_json, event_hash),
+                    (event_key, result.row.project_id, event_json, event_hash),
                 )
                 applied.append(event_payload)
         conn.commit()
