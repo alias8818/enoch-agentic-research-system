@@ -413,6 +413,46 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(projection.status_code, 200)
             self.assertIn("testing", projection.json()["counts"])
 
+    def test_ideas_intake_dashboard_falls_back_when_batched_parts_are_malformed(self) -> None:
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+
+        class FakeSupabaseStore:
+            def dashboard_ideas_intake_parts(self, *, page_size: int = 50, include_latest_payload: bool = False):
+                del page_size, include_latest_payload
+                return None
+
+            def latest_dashboard_observation(self, **_kwargs):
+                return None
+
+            def idea_workbench_projection(self, *, limit: int = 200):
+                del limit
+                return [{"idea_id": "fallback-idea", "title": "Fallback Idea", "idea_status": "testing"}]
+
+            def event_rows(self, **_kwargs):
+                return []
+
+            def status_counts(self):
+                return {"queued": 1}
+
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=FakeSupabaseStore()):
+            client = _client_with_config(config)
+            response = client.get("/control/api/intake/ideas", headers={"Authorization": f"Bearer {TOKEN}"})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["projection_counts"]["queued"], 1)
+        self.assertEqual(body["queued_projection"][0]["idea_id"], "fallback-idea")
+        self.assertFalse(body["warnings"])
+
     def test_supabase_native_ideas_intake_live_rejects_readonly_before_store_write(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp).model_copy(

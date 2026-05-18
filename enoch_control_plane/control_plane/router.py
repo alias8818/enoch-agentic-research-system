@@ -13,7 +13,7 @@ import tarfile
 import tempfile
 import threading
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query
@@ -3009,31 +3009,51 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         )
 
     def _dashboard_ideas_intake_response(*, legacy_notion_alias: bool = False, page_size: int = 50, include_latest_payload: bool = False) -> DashboardIntakeResponse:
+        def dict_rows(value: Any) -> list[dict[str, Any]]:
+            return [dict(row) for row in value if isinstance(row, dict)] if isinstance(value, list) else []
+
+        def fallback_parts() -> tuple[DashboardObservationRecord | None, list[dict[str, Any]], list[dict[str, Any]], dict[str, int], dict[str, DashboardFreshness]]:
+            latest = store.latest_dashboard_observation(source="idea_intake") if include_latest_payload else _latest_dashboard_observation_metadata("idea_intake")
+            idea_projection_reader = getattr(store, "idea_workbench_projection", None)
+            legacy_projection_reader = getattr(store, "queue_notion_projection", None)
+            raw_projection: Any
+            if callable(idea_projection_reader):
+                try:
+                    raw_projection = idea_projection_reader(limit=page_size)
+                except TypeError:
+                    raw_projection = idea_projection_reader()
+            elif callable(legacy_projection_reader):
+                raw_projection = legacy_projection_reader()
+            else:
+                raw_projection = []
+            projection = dict_rows(raw_projection)[:page_size]
+            recent = dict_rows(store.event_rows(limit=20, event_type="ideas.intake"))
+            if not recent:
+                recent = dict_rows(store.event_rows(limit=20, event_type="notion.intake"))
+            raw_counts = store.status_counts()
+            projection_counts = {str(key): int(value or 0) for key, value in raw_counts.items()} if isinstance(raw_counts, dict) else {}
+            return latest, projection, recent, projection_counts, _intake_freshness()
+
         intake_reader = getattr(store, "dashboard_ideas_intake_parts", None)
         if callable(intake_reader):
             intake_parts = intake_reader(page_size=page_size, include_latest_payload=include_latest_payload)
-            latest = intake_parts.get("latest_sync")
-            projection = intake_parts.get("queued_projection") or []
-            recent = intake_parts.get("recent_events") or []
-            projection_counts = intake_parts.get("projection_counts") or {}
-            freshness = {
-                **_db_freshness("Supabase-native ideas workbench"),
-                "idea_intake": _freshness_for_observation("idea_intake", "latest Supabase-native ideas intake observation", latest),
-            }
-        else:
-            latest = store.latest_dashboard_observation(source="idea_intake") if include_latest_payload else _latest_dashboard_observation_metadata("idea_intake")
-            if hasattr(store, "idea_workbench_projection"):
-                try:
-                    projection = store.idea_workbench_projection(limit=page_size)
-                except TypeError:
-                    projection = store.idea_workbench_projection()[:page_size]
+            if isinstance(intake_parts, Mapping):
+                raw_latest = intake_parts.get("latest_sync")
+                latest = raw_latest if raw_latest is None or isinstance(raw_latest, DashboardObservationRecord) else None
+                raw_projection = intake_parts.get("queued_projection")
+                projection = dict_rows(raw_projection)
+                raw_recent = intake_parts.get("recent_events")
+                recent = dict_rows(raw_recent)
+                raw_counts = intake_parts.get("projection_counts")
+                projection_counts = {str(key): int(value or 0) for key, value in raw_counts.items()} if isinstance(raw_counts, dict) else {}
+                freshness = {
+                    **_db_freshness("Supabase-native ideas workbench"),
+                    "idea_intake": _freshness_for_observation("idea_intake", "latest Supabase-native ideas intake observation", latest),
+                }
             else:
-                projection = store.queue_notion_projection()[:page_size]
-            recent = store.event_rows(limit=20, event_type="ideas.intake")
-            if not recent:
-                recent = store.event_rows(limit=20, event_type="notion.intake")
-            projection_counts = store.status_counts()
-            freshness = _intake_freshness()
+                latest, projection, recent, projection_counts, freshness = fallback_parts()
+        else:
+            latest, projection, recent, projection_counts, freshness = fallback_parts()
         skipped_reasons: dict[str, int] = {}
         if latest:
             payload = latest.payload or {}
