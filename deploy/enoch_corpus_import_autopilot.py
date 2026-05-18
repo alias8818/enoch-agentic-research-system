@@ -381,7 +381,7 @@ def main() -> int:
     if dirty:
         print(json.dumps({"ok": False, "action": "blocked", "reason": "release repos are dirty before import", "dirty_repos": dirty}, sort_keys=True), file=sys.stderr)
         return 2
-    fast_forwarded = _ff_only_repos(root)
+    fast_forwarded: list[str] = []
 
     config = _load_config()
     token = os.environ.get("ENOCH_CONTROL_TOKEN") or str(config.get("control_api_bearer_token") or "")
