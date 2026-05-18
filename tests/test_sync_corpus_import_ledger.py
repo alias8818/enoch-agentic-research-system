@@ -55,6 +55,23 @@ def test_render_supabase_cli_sql_escapes_values(tmp_path: Path) -> None:
     assert "operator_dashboard_counts" in sql
 
 
+def test_render_supabase_cli_sql_scopes_import_totals_to_corpus_repo(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus"
+    (corpus / "papers").mkdir(parents=True)
+    (corpus / "papers" / "index.json").write_text(
+        json.dumps({"papers": [{"source_record_fingerprint": "fp1", "slug": "paper-one", "public_id": "id"}]}),
+        encoding="utf-8",
+    )
+    records = load_public_records(corpus)
+
+    sql = render_supabase_cli_sql(records, corpus_repo="custom-corpus")
+
+    assert "where ci.corpus_repo = 'custom-corpus'" in sql
+    assert "as corpus_imports_total" in sql
+    total_expr = sql.split("as corpus_imports_total", 1)[0].rsplit("(", 1)[-1]
+    assert "where ci.corpus_repo = 'custom-corpus'" in total_expr
+
+
 def test_render_supabase_cli_sql_can_prune_stale_rows_and_roll_back(tmp_path: Path) -> None:
     corpus = tmp_path / "corpus"
     (corpus / "papers").mkdir(parents=True)

@@ -338,7 +338,11 @@ def sync_records(
                         join tmp_resolved_public_index pi
                           on pi.paper_id = p.paper_id
                       ) as matched_live_papers,
-                      (select count(*) from enoch.corpus_imports) as corpus_imports_total,
+                      (
+                        select count(*)
+                        from enoch.corpus_imports ci
+                        where ci.corpus_repo = %s
+                      ) as corpus_imports_total,
                       odc.publication_ready,
                       odc.publication_ready_total,
                       odc.corpus_imported,
@@ -365,7 +369,7 @@ def sync_records(
                       ) as missing_public_records
                     from enoch.operator_dashboard_counts odc
                     """,
-                    (len(records), corpus_repo, corpus_repo),
+                    (len(records), corpus_repo, corpus_repo, corpus_repo),
                 )
                 summary = dict(cur.fetchone() or {})
                 summary["changed_rows"] = int(changed or 0)
@@ -562,7 +566,11 @@ select
     join tmp_resolved_public_index pi
       on pi.paper_id = p.paper_id
   ) as matched_live_papers,
-  (select count(*) from enoch.corpus_imports) as corpus_imports_total,
+  (
+    select count(*)
+    from enoch.corpus_imports ci
+    where ci.corpus_repo = {sql_literal(corpus_repo)}
+  ) as corpus_imports_total,
   (select coalesce(sum(pruned_rows), 0) from tmp_pruned_rows) as pruned_rows,
   {str(prune_stale).lower()}::boolean as prune_stale,
   (
