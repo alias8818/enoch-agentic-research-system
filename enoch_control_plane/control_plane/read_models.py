@@ -842,9 +842,13 @@ OPERATOR_LANE_PRECEDENCE = {
 
 def _typed_lifecycle_key(row: dict[str, Any]) -> str:
     paper_id = _text(row.get("paper_id"))
-    if paper_id:
-        return f"paper:{paper_id}"
     project_id = _text(row.get("project_id"))
+    if paper_id:
+        run_id = _text(row.get("run_id") or row.get("current_run_id"))
+        paper_type = _text(row.get("paper_type")) or "arxiv_draft"
+        if project_id and run_id:
+            return f"paper_identity:{project_id}:{run_id}:{paper_type}"
+        return f"paper:{paper_id}"
     if project_id:
         if bool(row.get("operator_attention")):
             run_id = _text(row.get("run_id") or row.get("current_run_id"))
@@ -967,6 +971,11 @@ def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]
         current_detail_stage = _text((current or {}).get("operator_detail_stage"))
         lane = _text(staged.get("operator_lane") or staged.get("operator_stage"))
         current_lane = _text((current or {}).get("operator_lane") or (current or {}).get("operator_stage"))
+        if current is not None and current_lane == OperatorLane.PUBLISHED.value and lane != OperatorLane.NEEDS_OPERATOR.value:
+            continue
+        if current is not None and lane == OperatorLane.PUBLISHED.value and current_lane != OperatorLane.NEEDS_OPERATOR.value:
+            by_key[key] = staged
+            continue
         precedence = max(OPERATOR_STAGE_PRECEDENCE.get(detail_stage, 0), OPERATOR_LANE_PRECEDENCE.get(lane, 0))
         current_precedence = max(OPERATOR_STAGE_PRECEDENCE.get(current_detail_stage, 0), OPERATOR_LANE_PRECEDENCE.get(current_lane, 0))
         if current is None or precedence > current_precedence:
