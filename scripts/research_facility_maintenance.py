@@ -22,6 +22,7 @@ from typing import Any, Iterable
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts import research_facility
+from enoch_control_plane.enoch_core.store import IdempotencyConflict
 
 
 def _as_text(value: Any) -> str:
@@ -204,19 +205,34 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                 if verb in {"promote", "reject", "rewrite_suggested", "keep"}:
                     payload = {"requested_by": requested_by, "janitor_action": action}
                     event_key = f"research-janitor:{verb}:{candidate_id}"
+                    event_type = f"research.janitor.{verb}"
+                    entity_type = "research_candidate"
                     cur.execute(
-                        "select event_id, payload_hash from control_events where idempotency_key = %s",
+                        "select event_id, event_type, entity_type, entity_id, payload_hash from control_events where idempotency_key = %s",
                         (event_key,),
                     )
                     existing = cur.fetchone()
                     payload_hash = _payload_hash(payload)
+                    existing_event_type = existing.get("event_type") if isinstance(existing, dict) else existing[1] if existing else ""
+                    existing_entity_type = existing.get("entity_type") if isinstance(existing, dict) else existing[2] if existing else ""
+                    existing_entity_id = existing.get("entity_id") if isinstance(existing, dict) else existing[3] if existing else ""
+                    existing_payload_hash = existing.get("payload_hash") if isinstance(existing, dict) else existing[4] if existing else ""
+                    if existing and (
+                        existing_event_type != event_type
+                        or existing_entity_type != entity_type
+                        or existing_entity_id != candidate_id
+                        or existing_payload_hash != payload_hash
+                    ):
+                        raise IdempotencyConflict(
+                            f"idempotency key {event_key!r} was reused with different event identity"
+                        )
                     if not existing:
                         cur.execute(
                             """
                             insert into control_events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at)
                             values (%s,%s,'research_candidate',%s,%s::jsonb,%s,%s)
                             """,
-                            (event_key, f"research.janitor.{verb}", candidate_id, json.dumps(payload, default=_json_default), payload_hash, datetime.now(timezone.utc).isoformat()),
+                            (event_key, event_type, candidate_id, json.dumps(payload, default=_json_default), payload_hash, datetime.now(timezone.utc).isoformat()),
                         )
                         counters["events_inserted"] += int(cur.rowcount or 0)
     return counters

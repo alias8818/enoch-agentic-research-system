@@ -4,6 +4,9 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 import sys
 
+import pytest
+
+from enoch_control_plane.enoch_core.store import IdempotencyConflict
 from scripts import research_facility, research_facility_maintenance
 
 
@@ -159,3 +162,46 @@ def test_janitor_apply_skips_admission_when_promote_update_matches_no_rows(monke
     assert result["promoted"] == 0
     assert result["admissions_inserted"] == 0
     assert admissions == []
+
+
+def test_janitor_apply_conflicts_on_reused_event_key_with_different_identity(monkeypatch) -> None:
+    action = {"candidate_id": "candidate-1", "action": "keep", "reason": "still reviewable", "dispatch_priority": {}}
+    payload = {"requested_by": "unit", "janitor_action": action}
+    existing_payload_hash = research_facility_maintenance._payload_hash(payload)
+
+    class Cursor:
+        rowcount = 0
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):
+            normalized = " ".join(sql.lower().split())
+            if normalized.startswith("select event_id"):
+                assert params == ("research-janitor:keep:candidate-1",)
+                self._fetchone = {
+                    "event_id": 11,
+                    "event_type": "research.janitor.promote",
+                    "entity_type": "research_candidate",
+                    "entity_id": "candidate-1",
+                    "payload_hash": existing_payload_hash,
+                }
+            elif normalized.startswith("insert into control_events"):
+                raise AssertionError("conflicting replay must not insert a new event")
+            else:
+                self._fetchone = None
+        def fetchone(self):
+            return getattr(self, "_fetchone", None)
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()))
+
+    with pytest.raises(IdempotencyConflict):
+        research_facility_maintenance.apply_actions(
+            "postgres://example",
+            [action],
+            requested_by="unit",
+            apply_rejections=False,
+        )
