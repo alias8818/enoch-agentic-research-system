@@ -30,7 +30,10 @@ class StateStore:
         path = self.run_path(run_id)
         if not path.exists():
             return None
-        return RunRecord.model_validate_json(path.read_text())
+        try:
+            return RunRecord.model_validate_json(path.read_text())
+        except Exception:
+            return None
 
     def save_run(self, record: RunRecord) -> None:
         path = self.run_path(record.run_id)

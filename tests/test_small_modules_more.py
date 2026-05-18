@@ -23,6 +23,14 @@ def test_state_store_roundtrip_and_skips_invalid_json(tmp_path: Path) -> None:
     assert store.events_log.read_text().strip() == '{"a": 1, "b": 2}'
 
 
+
+def test_state_store_load_run_treats_corrupt_file_as_missing(tmp_path: Path) -> None:
+    store = StateStore(tmp_path)
+    store.run_path("corrupt-run").write_text("not-json", encoding="utf-8")
+
+    assert store.load_run("corrupt-run") is None
+
+
 def test_state_store_save_run_recreates_missing_runs_dir(tmp_path: Path) -> None:
     store = StateStore(tmp_path)
     for child in store.runs_dir.iterdir():
