@@ -372,6 +372,58 @@ class SupabaseReadOnlyControlPlaneStore:
             return value
         return json.dumps(value if value is not None else {}, sort_keys=True, separators=(",", ":"))
 
+    @staticmethod
+    def _row_value(row: Any, key: str, index: int) -> Any:
+        if isinstance(row, dict):
+            return row.get(key)
+        return row[index]
+
+    def _insert_research_admission(
+        self,
+        cur: Any,
+        *,
+        candidate_id: str,
+        admission_decision: str,
+        admission_reason: str,
+        score_breakdown: Any,
+        admitted_idea_id: str | None,
+        operator: str,
+        idempotency_key: str,
+    ) -> int:
+        score_json = self._json_text(score_breakdown)
+        cur.execute(
+            """
+            select admission_id, candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator
+            from research_admissions
+            where idempotency_key = %s
+            """,
+            (idempotency_key,),
+        )
+        existing = cur.fetchone()
+        expected_idea_id = admitted_idea_id or None
+        if existing and (
+            self._row_value(existing, "candidate_id", 1) != candidate_id
+            or self._row_value(existing, "admission_decision", 2) != admission_decision
+            or self._row_value(existing, "admission_reason", 3) != admission_reason
+            or self._json_text(self._row_value(existing, "score_breakdown", 4)) != score_json
+            or (self._row_value(existing, "admitted_idea_id", 5) or None) != expected_idea_id
+            or self._row_value(existing, "operator", 6) != operator
+        ):
+            raise IdempotencyConflict(
+                f"idempotency key {idempotency_key!r} was reused with different admission identity"
+            )
+        if existing:
+            return 0
+        cur.execute(
+            """
+            insert into research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key)
+            values (%s,%s,%s,%s::jsonb,%s,%s,%s)
+            on conflict (idempotency_key) do nothing
+            """,
+            (candidate_id, admission_decision, admission_reason, score_json, admitted_idea_id, operator, idempotency_key),
+        )
+        return int(cur.rowcount or 0)
+
     def _read_only(self, *_args: Any, **_kwargs: Any) -> None:
         raise ReadOnlyStoreError("Supabase control-plane adapter is read-only in this migration phase")
 
@@ -2836,22 +2888,16 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 )
                 queue_rowcount = int(cur.rowcount or 0)
                 promotion_key = f"research-promotion:{candidate_id}:{idea_id}"
-                cur.execute(
-                    """
-                    insert into research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key)
-                    values (%s,'admitted',%s,%s::jsonb,%s,%s,%s)
-                    on conflict (idempotency_key) do nothing
-                    """,
-                    (
-                        candidate_id,
-                        f"promoted to queued idea/project rows by {requested_by}",
-                        self._json_text(candidate.get("score_breakdown") or {}),
-                        idea_id,
-                        requested_by,
-                        promotion_key,
-                    ),
+                admission_inserted = self._insert_research_admission(
+                    cur,
+                    candidate_id=candidate_id,
+                    admission_decision="admitted",
+                    admission_reason=f"promoted to queued idea/project rows by {requested_by}",
+                    score_breakdown=candidate.get("score_breakdown") or {},
+                    admitted_idea_id=idea_id,
+                    operator=requested_by,
+                    idempotency_key=promotion_key,
                 )
-                admission_inserted = int(cur.rowcount or 0)
                 cur.execute(
                     """
                     insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
@@ -3018,22 +3064,16 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         )
                         counters["lineage_inserted"] += int(cur.rowcount or 0)
                     idempotency_key = f"research-admission:{candidate_id}:{plan_json.get('admission_decision')}"
-                    cur.execute(
-                        """
-                        insert into research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key)
-                        values (%s,%s,%s,%s::jsonb,null,%s,%s)
-                        on conflict (idempotency_key) do nothing
-                        """,
-                        (
-                            candidate_id,
-                            str(plan_json.get("admission_decision") or "needs_review"),
-                            str(plan_json.get("admission_reason") or ""),
-                            self._json_text(plan_json.get("score_breakdown") or {}),
-                            requested_by,
-                            idempotency_key,
-                        ),
+                    counters["admissions_inserted"] += self._insert_research_admission(
+                        cur,
+                        candidate_id=candidate_id,
+                        admission_decision=str(plan_json.get("admission_decision") or "needs_review"),
+                        admission_reason=str(plan_json.get("admission_reason") or ""),
+                        score_breakdown=plan_json.get("score_breakdown") or {},
+                        admitted_idea_id=None,
+                        operator=requested_by,
+                        idempotency_key=idempotency_key,
                     )
-                    counters["admissions_inserted"] += int(cur.rowcount or 0)
         return counters
 
     def paper_notion_projection(self) -> list[dict[str, Any]]:

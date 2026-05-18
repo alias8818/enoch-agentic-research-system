@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from enoch_control_plane.control_plane import supabase_store as s
 from enoch_control_plane.control_plane.models import ControlFlags, ImportSnapshotRequest
 from enoch_control_plane.control_plane.store import QueueStatus
@@ -1931,3 +1933,85 @@ def test_supabase_append_event_idempotency_conflicts_on_different_event_identity
         pass
     else:  # pragma: no cover - regression guard
         raise AssertionError("expected idempotency conflict for changed event_type")
+
+
+def test_supabase_promote_candidate_conflicts_on_reused_admission_key_with_different_identity() -> None:
+    from enoch_control_plane.enoch_core.store import IdempotencyConflict
+    from enoch_control_plane.control_plane.supabase_store import SupabaseControlPlaneStore
+
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+
+    class Cursor:
+        rowcount = 0
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            normalized = " ".join(str(sql).lower().split())
+            if "from research_facility_workbench" in normalized:
+                self._fetchone = {
+                    "candidate_id": "candidate-1",
+                    "status": "admitted",
+                    "title": "Candidate 1",
+                    "admission_decision": "admitted",
+                    "admission_reason": "ready",
+                    "admitted_idea_id": "",
+                }
+                return self
+            if "from research_candidates" in normalized:
+                self._fetchone = {
+                    "candidate_id": "candidate-1",
+                    "title": "Candidate 1",
+                    "category": "systems",
+                    "priority": "High",
+                    "source_urls": [],
+                    "description": "desc",
+                    "hypothesis": "hyp",
+                    "implementation": "impl",
+                    "baseline_to_beat": "base",
+                    "kill_condition": "kill",
+                    "accessibility_delta": "access",
+                    "expected_token_budget": "small",
+                    "novelty_score": 8,
+                    "machine_target": "gb10",
+                    "model": "gpt-5.5",
+                    "sandbox": "danger-full-access",
+                    "score_breakdown": {"score": 90},
+                    "raw_candidate_json": {},
+                }
+                return self
+            if normalized.startswith("insert into ideas") or normalized.startswith("insert into projects"):
+                self.rowcount = 1
+                return self
+            if normalized.startswith("insert into queue_items"):
+                self.rowcount = 1
+                return self
+            if normalized.startswith("select admission_id"):
+                assert params == ("research-promotion:candidate-1:candidate-1",)
+                self._fetchone = {
+                    "admission_id": 13,
+                    "candidate_id": "candidate-1",
+                    "admission_decision": "rejected",
+                    "admission_reason": "old contrary decision",
+                    "score_breakdown": {},
+                    "admitted_idea_id": None,
+                    "operator": "unit",
+                }
+                return self
+            if normalized.startswith("insert into research_admissions"):
+                raise AssertionError("conflicting admission replay must not insert")
+            if normalized.startswith("insert into research_lineage"):
+                self.rowcount = 1
+                return self
+            raise AssertionError(normalized)
+        def fetchone(self):
+            return getattr(self, "_fetchone", None)
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    store._connect = lambda: Conn()  # type: ignore[method-assign]
+
+    with pytest.raises(IdempotencyConflict):
+        store.promote_research_candidate("candidate-1", requested_by="unit", dry_run=False)

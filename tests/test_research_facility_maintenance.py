@@ -205,3 +205,57 @@ def test_janitor_apply_conflicts_on_reused_event_key_with_different_identity(mon
             requested_by="unit",
             apply_rejections=False,
         )
+
+
+def test_janitor_apply_conflicts_on_reused_admission_key_with_different_identity(monkeypatch) -> None:
+    action = {"candidate_id": "candidate-1", "action": "promote", "reason": "admit now", "dispatch_priority": {"score": 90}}
+
+    class Cursor:
+        rowcount = 0
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):
+            normalized = " ".join(sql.lower().split())
+            if normalized.startswith("set search_path"):
+                return self
+            if normalized.startswith("update research_candidates") and "status = 'admitted'" in normalized:
+                self.rowcount = 1
+                return self
+            if normalized.startswith("select admission_id"):
+                assert params == ("research-janitor:admit:candidate-1",)
+                self._fetchone = {
+                    "admission_id": 7,
+                    "candidate_id": "candidate-1",
+                    "admission_decision": "rejected",
+                    "admission_reason": "old contrary decision",
+                    "score_breakdown": {},
+                    "admitted_idea_id": None,
+                    "operator": "unit",
+                }
+                return self
+            if normalized.startswith("insert into research_admissions"):
+                raise AssertionError("conflicting admission replay must not insert")
+            if normalized.startswith("select event_id"):
+                self._fetchone = None
+                return self
+            if normalized.startswith("insert into control_events"):
+                self.rowcount = 1
+                return self
+            raise AssertionError(normalized)
+        def fetchone(self):
+            return getattr(self, "_fetchone", None)
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()))
+
+    with pytest.raises(IdempotencyConflict):
+        research_facility_maintenance.apply_actions(
+            "postgres://example",
+            [action],
+            requested_by="unit",
+            apply_rejections=False,
+        )

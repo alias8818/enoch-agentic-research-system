@@ -167,3 +167,42 @@ def test_llm_review_record_conflicts_on_reused_event_key_with_different_identity
             provider_model="model",
             dry_run=False,
         )
+
+
+def test_llm_review_non_admit_conflicts_on_reused_admission_key_with_different_identity() -> None:
+    decision = {"candidate_id": "candidate-1", "decision": "keep_for_later", "confidence": "medium", "reason": "defer", "rewrite_notes": ""}
+
+    class Cursor:
+        rowcount = 1
+        def execute(self, sql, params=()):
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("update research_candidates"):
+                self.rowcount = 1
+                return self
+            if normalized.startswith("select admission_id"):
+                assert params == ("research-janitor-llm-admission:candidate-1:deferred",)
+                self._fetchone = {
+                    "admission_id": 9,
+                    "candidate_id": "candidate-1",
+                    "admission_decision": "rejected",
+                    "admission_reason": "old contrary decision",
+                    "score_breakdown": {},
+                    "admitted_idea_id": None,
+                    "operator": "unit",
+                }
+                return self
+            if normalized.startswith("insert into research_admissions"):
+                raise AssertionError("conflicting admission replay must not insert")
+            raise AssertionError(normalized)
+        def fetchone(self):
+            return getattr(self, "_fetchone", None)
+
+    with pytest.raises(IdempotencyConflict):
+        research_facility_llm_review._apply_non_admit_decision(
+            Cursor(),
+            candidate_id="candidate-1",
+            decision=decision,
+            requested_by="unit",
+            provider_model="model",
+            janitor_action={},
+        )

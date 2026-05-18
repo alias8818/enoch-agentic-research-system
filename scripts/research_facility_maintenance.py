@@ -51,6 +51,67 @@ def _payload_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
+def _row_get(row: Any, key: str, index: int) -> Any:
+    if isinstance(row, dict):
+        return row.get(key)
+    return row[index]
+
+
+def _canonical_json_text(value: Any) -> str:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return json.dumps(value or {}, sort_keys=True, separators=(",", ":"), default=_json_default)
+
+
+def _insert_research_admission(
+    cur: Any,
+    *,
+    candidate_id: str,
+    admission_decision: str,
+    admission_reason: str,
+    score_breakdown: Any,
+    admitted_idea_id: str | None,
+    operator: str,
+    idempotency_key: str,
+) -> int:
+    score_json = _canonical_json_text(score_breakdown)
+    cur.execute(
+        """
+        select admission_id, candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator
+        from research_admissions
+        where idempotency_key = %s
+        """,
+        (idempotency_key,),
+    )
+    existing = cur.fetchone()
+    expected_idea_id = admitted_idea_id or None
+    if existing and (
+        _row_get(existing, "candidate_id", 1) != candidate_id
+        or _row_get(existing, "admission_decision", 2) != admission_decision
+        or _row_get(existing, "admission_reason", 3) != admission_reason
+        or _canonical_json_text(_row_get(existing, "score_breakdown", 4)) != score_json
+        or (_row_get(existing, "admitted_idea_id", 5) or None) != expected_idea_id
+        or _row_get(existing, "operator", 6) != operator
+    ):
+        raise IdempotencyConflict(
+            f"idempotency key {idempotency_key!r} was reused with different admission identity"
+        )
+    if existing:
+        return 0
+    cur.execute(
+        """
+        insert into research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key)
+        values (%s,%s,%s,%s::jsonb,%s,%s,%s)
+        on conflict (idempotency_key) do nothing
+        """,
+        (candidate_id, admission_decision, admission_reason, score_json, admitted_idea_id, operator, idempotency_key),
+    )
+    return int(cur.rowcount or 0)
+
+
 @dataclass(frozen=True)
 class JanitorPolicy:
     promote_score_floor: float = 71.5
@@ -168,15 +229,16 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                     if applied:
                         counters["promoted"] += 1
                         admission_key = f"research-janitor:admit:{candidate_id}"
-                        cur.execute(
-                            """
-                            insert into research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key)
-                            values (%s,'admitted',%s,%s::jsonb,null,%s,%s)
-                            on conflict (idempotency_key) do nothing
-                            """,
-                            (candidate_id, str(action.get("reason") or "janitor admitted needs-review candidate"), json.dumps(action.get("dispatch_priority") or {}), requested_by, admission_key),
+                        counters["admissions_inserted"] += _insert_research_admission(
+                            cur,
+                            candidate_id=candidate_id,
+                            admission_decision="admitted",
+                            admission_reason=str(action.get("reason") or "janitor admitted needs-review candidate"),
+                            score_breakdown=action.get("dispatch_priority") or {},
+                            admitted_idea_id=None,
+                            operator=requested_by,
+                            idempotency_key=admission_key,
                         )
-                        counters["admissions_inserted"] += int(cur.rowcount or 0)
                 elif verb == "reject":
                     if not apply_rejections:
                         counters["skipped_rejections"] += 1
@@ -193,15 +255,16 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                     if applied:
                         counters["rejected"] += 1
                         admission_key = f"research-janitor:reject:{candidate_id}"
-                        cur.execute(
-                            """
-                            insert into research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key)
-                            values (%s,'rejected',%s,%s::jsonb,null,%s,%s)
-                            on conflict (idempotency_key) do nothing
-                            """,
-                            (candidate_id, str(action.get("reason") or "janitor rejected stale weak candidate"), json.dumps(action.get("dispatch_priority") or {}), requested_by, admission_key),
+                        counters["admissions_inserted"] += _insert_research_admission(
+                            cur,
+                            candidate_id=candidate_id,
+                            admission_decision="rejected",
+                            admission_reason=str(action.get("reason") or "janitor rejected stale weak candidate"),
+                            score_breakdown=action.get("dispatch_priority") or {},
+                            admitted_idea_id=None,
+                            operator=requested_by,
+                            idempotency_key=admission_key,
                         )
-                        counters["admissions_inserted"] += int(cur.rowcount or 0)
                 if verb in {"promote", "reject", "rewrite_suggested", "keep"}:
                     payload = {"requested_by": requested_by, "janitor_action": action}
                     event_key = f"research-janitor:{verb}:{candidate_id}"

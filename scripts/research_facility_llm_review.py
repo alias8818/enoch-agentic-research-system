@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from enoch_control_plane.enoch_core.store import IdempotencyConflict
 from enoch_control_plane.timeutils import parse_utc_datetime
 from scripts import research_facility_maintenance, research_provider_budget, research_provider_generate
+from scripts.research_facility_maintenance import _insert_research_admission
 
 DECISIONS = {"admit", "rewrite_contract", "keep_for_later", "reject"}
 NON_ADMIT_STATUS_BY_DECISION = {"reject": "rejected", "rewrite_contract": "rewrite_needed", "keep_for_later": "deferred"}
@@ -293,15 +294,17 @@ def _apply_non_admit_decision(
     )
     status_updates = int(cur.rowcount or 0)
     admission_key = f"research-janitor-llm-admission:{candidate_id}:{admission_decision}"
-    cur.execute(
-        """
-        insert into research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key)
-        values (%s,%s,%s,%s::jsonb,null,%s,%s)
-        on conflict (idempotency_key) do nothing
-        """,
-        (candidate_id, admission_decision, str(reason), json.dumps(payload, sort_keys=True, default=str), requested_by, admission_key),
+    admissions_inserted = _insert_research_admission(
+        cur,
+        candidate_id=candidate_id,
+        admission_decision=admission_decision,
+        admission_reason=str(reason),
+        score_breakdown=payload,
+        admitted_idea_id=None,
+        operator=requested_by,
+        idempotency_key=admission_key,
     )
-    return {"status_updates": status_updates, "admissions_inserted": int(cur.rowcount or 0)}
+    return {"status_updates": status_updates, "admissions_inserted": admissions_inserted}
 
 
 def record_review(database_url: str, *, decisions: list[dict[str, Any]], batch: list[dict[str, Any]], requested_by: str, provider_model: str, dry_run: bool) -> dict[str, Any]:
