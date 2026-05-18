@@ -3058,6 +3058,57 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(queue["last_run_state"], "running")
             self.assertEqual(queue["next_action_hint"], "await_callback")
 
+    def test_worker_callback_missing_evidence_is_visible_but_not_writable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            config.paper_evidence_sync_enabled = True
+            config.paper_evidence_sync_remote_root = "/remote/projects"
+            project_dir = Path(tmp) / "projects" / "idea-callback-missing-evidence"
+            (project_dir / ".enoch").mkdir(parents=True)
+            (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "worker-callback-missing-evidence-import",
+                "queue_rows": [{
+                    "project_id": "idea-callback-missing-evidence",
+                    "project_name": "Callback Missing Evidence",
+                    "project_dir": "idea-callback-missing-evidence",
+                    "status": "awaiting_wake",
+                    "current_run_id": "run-callback-missing-evidence",
+                }],
+            })
+
+            with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", return_value={"enabled": True, "synced": False, "reason": "worker_read_failed", "local_evidence_present": False}):
+                response = client.post("/control/api/worker-callback", headers=headers, json={
+                    "event_type": "wake_ready",
+                    "run_id": "run-callback-missing-evidence",
+                    "session_id": "session-callback-missing-evidence",
+                    "project_id": "idea-callback-missing-evidence",
+                    "project_name": "Callback Missing Evidence",
+                    "source_event": "session-idle",
+                    "gate_state": "wake_ready",
+                    "process_tracking": {"root_pid": None, "process_group_id": None, "processes": [], "live_process_count": 0},
+                    "telemetry": {},
+                    "reason": "idle_sustain_met",
+                    "idempotency_key": "run-callback-missing-evidence:wake-ready-test",
+                })
+
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json()["inserted_event"])
+            decision_sync = response.json()["decision_sync"]
+            self.assertIsNotNone(decision_sync)
+            self.assertEqual(decision_sync["evidence_sync"]["reason"], "worker_read_failed")
+            if "decision_record" in decision_sync:
+                self.assertEqual(decision_sync["decision_record"]["persisted"], False)
+            overview = client.get("/control/api/v1/overview", headers=headers).json()
+            self.assertEqual(overview["paper_pipeline"]["write_needed"], 0)
+            self.assertEqual(overview["operator_counts"]["write_paper"], 0)
+            snapshot = client.get("/control/export/snapshot", headers=headers).json()
+            events = [event for event in snapshot["events"] if event["event_type"] == "paper.evidence_sync_blocked"]
+            self.assertEqual(len(events), 1)
+            self.assertEqual(snapshot["paper_rows"], [])
+
     def test_worker_callback_wake_ready_can_draft_paper_when_evidence_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "projects" / "idea-callback-draft"

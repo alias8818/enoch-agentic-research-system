@@ -1979,7 +1979,17 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 source_run_id=str(callback.run_id or ""),
             )
             decision_sync = {"artifact_root": str(artifact_root), "evidence_sync": evidence_sync}
-            if hasattr(store, "record_project_decision_gate"):
+            local_evidence_present = _local_paper_evidence_present(artifact_root)
+            if config.paper_evidence_sync_enabled and not local_evidence_present:
+                decision_sync["evidence_alert"] = _record_paper_evidence_blocked(
+                    entity_type="project",
+                    entity_id=project_id,
+                    project_id=project_id,
+                    run_id=str(callback.run_id or ""),
+                    artifact_root=str(artifact_root),
+                    evidence_sync=evidence_sync,
+                )
+            if local_evidence_present and hasattr(store, "record_project_decision_gate"):
                 decision_record = store.record_project_decision_gate(
                     project_id=project_id,
                     run_id=str(callback.run_id or ""),
