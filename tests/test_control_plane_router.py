@@ -2820,7 +2820,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
     def test_preflight_persists_cached_observation_for_status_page(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            client = _client(tmp)
+            config = _config(tmp).model_copy(update={"worker_wake_gate_url": "http://127.0.0.1:1"})
+            client = _client_with_config(config)
             headers = {"Authorization": f"Bearer {TOKEN}"}
             preflight = client.post("/control/api/preflight", headers=headers, json={"wake_gate_url": "http://127.0.0.1:1"})
             self.assertEqual(preflight.status_code, 200)
@@ -3924,7 +3925,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
     def test_worker_preflight_endpoint_requires_auth_and_returns_checks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            client = _client(tmp)
+            config = _config(tmp).model_copy(update={"worker_wake_gate_url": "http://127.0.0.1:1"})
+            client = _client_with_config(config)
             headers = {"Authorization": f"Bearer {TOKEN}"}
             response = client.post("/control/worker/preflight", headers=headers, json={"wake_gate_url": "http://127.0.0.1:1"})
             self.assertEqual(response.status_code, 200)
@@ -3970,12 +3972,28 @@ class ControlPlaneRouterTests(unittest.TestCase):
             called_payload = mocked_preflight.call_args.args[0]
             self.assertEqual(called_payload.bearer_token, config.worker_wake_gate_bearer_token)
 
+    def test_worker_preflight_rejects_placeholder_worker_url_with_token(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp).model_copy(update={"worker_wake_gate_bearer_token": "configured-worker-token"})
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight") as mocked_preflight:
+                client = _client_with_config(config)
+                response = client.post(
+                    "/control/worker/preflight",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    json={"wake_gate_url": "http://attacker-controlled:8080"},
+                )
+
+            self.assertEqual(response.status_code, 503)
+            self.assertIn("configured worker_wake_gate_url", response.text)
+            mocked_preflight.assert_not_called()
+
     def test_worker_preflight_supabase_readonly_skips_observation_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp).model_copy(
                 update={
                     "control_plane_store_backend": "supabase_readonly",
                     "supabase_database_url": "postgres://example",
+                    "worker_wake_gate_url": "http://worker",
                 }
             )
 
