@@ -5,7 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from scripts.backfill_control_plane_to_supabase import json_text, stable_hash, valid_hash, import_sqlite_to_postgres
+from scripts.backfill_control_plane_to_supabase import (
+    import_sqlite_to_postgres,
+    json_text,
+    reject_target_identity_conflicts,
+    stable_hash,
+    valid_hash,
+)
 
 
 def test_json_text_normalizes_invalid_or_empty_payloads() -> None:
@@ -55,3 +61,52 @@ def test_backfill_rows_rejects_unallowlisted_order_by(tmp_path: Path) -> None:
         conn.execute("create table projects(project_id text)")
         with pytest.raises(ValueError, match="unsupported sqlite order_by"):
             rows(conn, "projects", order_by="project_id desc; drop table projects")
+
+
+class _FakeCursor:
+    def __init__(self, existing: dict[str, object] | None) -> None:
+        self.existing = existing
+        self.queries: list[tuple[str, tuple[object, ...]]] = []
+
+    def execute(self, sql: str, params: tuple[object, ...]) -> "_FakeCursor":
+        self.queries.append((sql, params))
+        return self
+
+    def fetchone(self) -> dict[str, object] | None:
+        return self.existing
+
+
+def test_backfill_target_identity_guard_rejects_existing_paper_drift() -> None:
+    cur = _FakeCursor({"project_id": "project-a", "run_id": "run-a", "paper_type": "arxiv_draft"})
+
+    with pytest.raises(ValueError, match="conflicting target papers identity"):
+        reject_target_identity_conflicts(
+            cur,
+            table="papers",
+            key_columns=("paper_id",),
+            identity_columns=("project_id", "run_id", "paper_type"),
+            source_rows=[
+                {
+                    "paper_id": "paper-1",
+                    "project_id": "project-a",
+                    "run_id": "run-b",
+                    "paper_type": "arxiv_draft",
+                }
+            ],
+        )
+
+
+def test_backfill_target_identity_guard_allows_same_existing_identity() -> None:
+    cur = _FakeCursor({"project_id": "project-a"})
+
+    reject_target_identity_conflicts(
+        cur,
+        table="runs",
+        key_columns=("run_id",),
+        identity_columns=("project_id",),
+        source_rows=[{"run_id": "run-a", "project_id": "project-a"}],
+    )
+
+    assert cur.queries
+    assert "from runs" in cur.queries[0][0]
+    assert cur.queries[0][1] == ("run-a",)

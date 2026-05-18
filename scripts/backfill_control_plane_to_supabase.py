@@ -36,6 +36,19 @@ DOMAIN_TABLES = (
     "projects",
 )
 
+POSTGRES_TABLE_COLUMNS = {
+    "control_events": {
+        "idempotency_key",
+        "event_type",
+        "entity_type",
+        "entity_id",
+        "payload_hash",
+    },
+    "papers": {"paper_id", "project_id", "run_id", "paper_type"},
+    "publication_automation_items": {"paper_id"},
+    "runs": {"run_id", "project_id"},
+}
+
 SQLITE_TABLE_ORDER_COLUMNS = {
     "projects": {"project_id"},
     "queue_items": {"project_id"},
@@ -52,6 +65,12 @@ def sqlite_identifier(value: str, *, allowed: set[str], kind: str) -> str:
     if value not in allowed:
         raise ValueError(f"unsupported sqlite {kind}: {value}")
     return f'"{value}"'
+
+
+def postgres_identifier(value: str, *, allowed: set[str], kind: str) -> str:
+    if value not in allowed:
+        raise ValueError(f"unsupported postgres {kind}: {value}")
+    return value
 
 
 def json_text(value: Any, default: Any) -> str:
@@ -107,6 +126,47 @@ def execute_many(cur: Any, sql: str, params: Iterable[Sequence[Any]]) -> int:
         cur.execute(sql, tuple(item))
         count += 1
     return count
+
+
+def reject_target_identity_conflicts(
+    cur: Any,
+    *,
+    table: str,
+    key_columns: Sequence[str],
+    identity_columns: Sequence[str],
+    source_rows: Iterable[dict[str, Any]],
+) -> None:
+    """Fail closed when target upserts would rewrite immutable identity fields."""
+
+    allowed_columns = POSTGRES_TABLE_COLUMNS.get(table)
+    if allowed_columns is None:
+        raise ValueError(f"unsupported postgres table: {table}")
+    table_sql = postgres_identifier(table, allowed=set(POSTGRES_TABLE_COLUMNS), kind="table")
+    key_sql = [
+        postgres_identifier(column, allowed=allowed_columns, kind="column")
+        for column in key_columns
+    ]
+    identity_sql = [
+        postgres_identifier(column, allowed=allowed_columns, kind="column")
+        for column in identity_columns
+    ]
+    select_columns = ", ".join(identity_sql)
+    where_clause = " and ".join(f"{column} = %s" for column in key_sql)
+    sql = f"select {select_columns} from {table_sql} where {where_clause}"
+    for row in source_rows:
+        key_values = tuple(row.get(column) for column in key_columns)
+        if any(value in (None, "") for value in key_values):
+            continue
+        existing = cur.execute(sql, key_values).fetchone()
+        if not existing:
+            continue
+        for column in identity_columns:
+            if existing.get(column) != row.get(column):
+                key_text = ", ".join(f"{name}={value!r}" for name, value in zip(key_columns, key_values, strict=True))
+                raise ValueError(
+                    f"conflicting target {table} identity for {key_text}: "
+                    f"{column} target={existing.get(column)!r} source={row.get(column)!r}"
+                )
 
 
 def decision_file_candidates(project: dict[str, Any], project_roots: Sequence[Path]) -> list[Path]:
@@ -227,6 +287,29 @@ def import_sqlite_to_postgres(
     run_ids = {str(row.get("run_id") or "") for row in run_rows if row.get("run_id")}
     queue_by_project = {str(row.get("project_id") or ""): row for row in queue_rows}
     decision_rows = load_project_decisions(project_rows, queue_by_project, project_roots)
+    run_identity_rows = [
+        {"run_id": row.get("run_id"), "project_id": row.get("project_id")}
+        for row in run_rows
+    ]
+    paper_identity_rows = [
+        {
+            "paper_id": row.get("paper_id"),
+            "project_id": row.get("project_id"),
+            "run_id": row.get("run_id") if row.get("run_id") in run_ids else None,
+            "paper_type": row.get("paper_type") or "arxiv_draft",
+        }
+        for row in paper_rows
+    ]
+    event_identity_rows = [
+        {
+            "idempotency_key": row.get("idempotency_key") or f"sqlite-event:{row.get('event_id')}",
+            "event_type": row.get("event_type") or "unknown",
+            "entity_type": row.get("entity_type") or "unknown",
+            "entity_id": row.get("entity_id") or "",
+            "payload_hash": valid_hash(row.get("payload_hash"), row.get("payload_json") or "{}"),
+        }
+        for row in event_rows
+    ]
 
     imported: dict[str, int] = {
         "projects": 0,
@@ -245,6 +328,28 @@ def import_sqlite_to_postgres(
             if reset_target:
                 cur.execute("truncate table " + ", ".join(f"enoch.{table}" for table in DOMAIN_TABLES) + " restart identity cascade")
                 cur.execute("delete from enoch.control_flags where singleton = true")
+
+            reject_target_identity_conflicts(
+                cur,
+                table="runs",
+                key_columns=("run_id",),
+                identity_columns=("project_id",),
+                source_rows=run_identity_rows,
+            )
+            reject_target_identity_conflicts(
+                cur,
+                table="papers",
+                key_columns=("paper_id",),
+                identity_columns=("project_id", "run_id", "paper_type"),
+                source_rows=paper_identity_rows,
+            )
+            reject_target_identity_conflicts(
+                cur,
+                table="control_events",
+                key_columns=("idempotency_key",),
+                identity_columns=("event_type", "entity_type", "entity_id", "payload_hash"),
+                source_rows=event_identity_rows,
+            )
 
             if flags:
                 flag = flags[0]
