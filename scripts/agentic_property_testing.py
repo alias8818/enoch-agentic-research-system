@@ -417,7 +417,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--execute-proposals", action="store_true", help="Run Python test code from --proposal-file")
     parser.add_argument("--autonomous-loop", action="store_true", help="run bounded operator-free proposal execution loop")
     parser.add_argument("--max-attempts", type=int, default=3)
-    parser.add_argument("--generate-provider-proposal", action="store_true", help="generate one proposal via an OpenAI-compatible provider before loop execution")
+    parser.add_argument("--generate-provider-proposal", action="store_true", help="generate one proposal via an OpenAI-compatible provider")
     parser.add_argument("--provider-base-url", default=os.environ.get("ENOCH_AGENTIC_PBT_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"))
     parser.add_argument("--openai-base-url", default=os.environ.get("ENOCH_AGENTIC_PBT_OPENAI_BASE_URL", "https://synthetic.int.exe.xyz/openai/v1"))
     parser.add_argument("--provider-no-auth", action="store_true", help="use exe.dev HTTP proxy auth injection instead of local API key")
@@ -507,10 +507,20 @@ def main(argv: list[str] | None = None) -> int:
             }
             print(json.dumps(result, indent=2, sort_keys=True))
             return 1
-        args.loop_proposal_file.append(Path(generated["proposal_file"]))
-        if not args.autonomous_loop:
-            print(json.dumps({"status": "provider_proposal_written", "budget": budget, **generated}, indent=2, sort_keys=True))
-            return 0
+        if args.autonomous_loop:
+            result = {
+                "ok": False,
+                "status": "provider_proposal_requires_review",
+                "agentic_terminal": True,
+                "next_action": "agent_require_operator_review_and_explicit_loop_proposal_file",
+                "proposal_file": generated["proposal_file"],
+                "prompt_path": str(provider_prompt),
+                "budget": budget,
+            }
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 1
+        print(json.dumps({"status": "provider_proposal_written", "budget": budget, **generated}, indent=2, sort_keys=True))
+        return 0
 
     if args.autonomous_loop:
         if not args.loop_proposal_file and args.proposal_file:
