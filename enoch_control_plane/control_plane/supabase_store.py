@@ -3227,10 +3227,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             )
             current_run_id = _text((current_queue_row or {}).get("current_run_id"))
             current_status = _text((current_queue_row or {}).get("status"))
-            stale_callback = bool(
-                (current_run_id and current_run_id != run_id)
-                or (not run_id and current_queue_row is not None)
-            )
+            stale_callback = bool(current_queue_row is not None and (not run_id or current_run_id != run_id))
         if (
             _completed_success_queue_row(current_queue_row, run_id)
             and event_type not in TERMINAL_SUCCESS_CALLBACK_STATES

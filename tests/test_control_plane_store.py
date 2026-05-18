@@ -1075,6 +1075,43 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(event["payload"]["stale_callback_ignored"], True)
             self.assertEqual(event["payload"]["ignore_reason"], "missing_run_id_for_project_callback")
 
+    def test_worker_callback_foreign_run_does_not_complete_unclaimed_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="callback-foreign-run-unclaimed-import",
+                    queue_rows=[{
+                        "project_id": "idea-unclaimed-project",
+                        "project_name": "Unclaimed Project",
+                        "project_dir": "idea-unclaimed-project",
+                        "status": "queued",
+                        "current_run_id": "",
+                        "next_action_hint": "controller_review",
+                    }],
+                    paper_rows=[],
+                )
+            )
+
+            event_id, inserted, row = store.record_worker_callback({
+                "project_id": "idea-unclaimed-project",
+                "run_id": "foreign-run",
+                "session_id": "foreign-session",
+                "event_type": "wake_ready",
+                "reason": "foreign worker callback",
+                "idempotency_key": "foreign-run-unclaimed-callback",
+            })
+
+            self.assertTrue(inserted)
+            self.assertIsInstance(event_id, int)
+            self.assertEqual(row["status"], "queued")
+            self.assertEqual(row["current_run_id"], "")
+            self.assertEqual(row["next_action_hint"], "controller_review")
+            event = store.event_rows(limit=1, entity_type="run", entity_id="foreign-run")[0]
+            self.assertEqual(event["payload"]["stale_callback_ignored"], True)
+            self.assertEqual(event["payload"]["ignore_reason"], "run_id_mismatch")
+            self.assertEqual(event["payload"]["current_run_id"], "")
+
     def test_stale_worker_callback_replay_stays_idempotent_after_current_run_completes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
