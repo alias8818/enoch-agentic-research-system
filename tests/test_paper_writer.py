@@ -343,6 +343,27 @@ class PaperWriterTests(unittest.TestCase):
                         _write_files(project, {rel_path: "bad"}, force=True)
             self.assertTrue(project.is_dir())
 
+
+    def test_write_files_rejects_uninspectable_target_without_raw_permission_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            project.mkdir()
+            target = (project / "papers" / "run" / "paper.md").resolve()
+            original_exists = Path.exists
+
+            def fake_exists(path: Path) -> bool:
+                if path == target:
+                    raise PermissionError("denied")
+                return original_exists(path)
+
+            with patch.object(Path, "exists", fake_exists):
+                with self.assertRaises(HTTPException) as raised:
+                    _write_files(project, {"papers/run/paper.md": "new"}, force=True)
+
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertIn("paper path", str(raised.exception.detail))
+            self.assertFalse((project / "papers/run/paper.md").exists())
+
     def test_write_files_preserves_existing_artifact_when_replace_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "project"
@@ -378,6 +399,93 @@ class PaperWriterTests(unittest.TestCase):
 
             self.assertEqual(raised.exception.status_code, 400)
             self.assertIn("paper path", str(raised.exception.detail))
+
+
+    def test_write_paper_artifacts_blocks_unreadable_source_evidence_without_partial_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            (project / "run_notes.md").write_text("Measured evidence exists.\n", encoding="utf-8")
+
+            with patch(
+                "enoch_control_plane.control_plane.paper_writer._read_evidence_preview",
+                side_effect=PermissionError("denied"),
+            ):
+                with self.assertRaises(HTTPException) as raised:
+                    write_paper_artifacts(
+                        self._config(tmp),
+                        {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"},
+                        self._paper(),
+                        force=True,
+                    )
+
+            self.assertEqual(raised.exception.status_code, 424)
+            self.assertIn("source evidence", str(raised.exception.detail))
+            self.assertFalse((project / "papers/run/paper.md").exists())
+            self.assertFalse((project / "papers/run/evidence.json").exists())
+
+    def test_backfill_blocks_uninspectable_paper_markdown_without_partial_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            (project / "run_notes.md").write_text("Measured useful evidence.\n", encoding="utf-8")
+            paper_path = project / "papers" / "run" / "paper.md"
+            paper_path.parent.mkdir(parents=True)
+            paper_path.write_text("Measured useful evidence.\n", encoding="utf-8")
+            resolved_paper_path = paper_path.resolve()
+            original_exists = Path.exists
+
+            def fake_exists(path: Path) -> bool:
+                if path == resolved_paper_path:
+                    raise PermissionError("denied")
+                return original_exists(path)
+
+            with patch.object(Path, "exists", fake_exists):
+                with self.assertRaises(HTTPException) as raised:
+                    backfill_paper_evidence_artifacts(
+                        self._config(tmp),
+                        {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"},
+                        self._paper(),
+                        force=True,
+                    )
+
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertIn("paper markdown", str(raised.exception.detail))
+            self.assertFalse((project / "papers/run/evidence.json").exists())
+            self.assertFalse((project / "papers/run/claims.json").exists())
+
+
+    def test_backfill_blocks_uninspectable_existing_manifest_before_writing_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            (project / "run_notes.md").write_text("Measured useful evidence.\n", encoding="utf-8")
+            paper_dir = project / "papers" / "run"
+            paper_dir.mkdir(parents=True)
+            (paper_dir / "paper.md").write_text("Measured useful evidence.\n", encoding="utf-8")
+            manifest_path = (paper_dir / "manifest.json").resolve()
+            manifest_path.write_text('{"existing": true}\n', encoding="utf-8")
+            original_exists = Path.exists
+
+            def fake_exists(path: Path) -> bool:
+                if path == manifest_path:
+                    raise PermissionError("denied")
+                return original_exists(path)
+
+            with patch.object(Path, "exists", fake_exists):
+                with self.assertRaises(HTTPException) as raised:
+                    backfill_paper_evidence_artifacts(
+                        self._config(tmp),
+                        {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"},
+                        self._paper(),
+                        force=True,
+                    )
+
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertIn("paper manifest", str(raised.exception.detail))
+            self.assertFalse((paper_dir / "evidence.json").exists())
+            self.assertFalse((paper_dir / "claims.json").exists())
+            self.assertEqual((paper_dir / "manifest.json").read_text(encoding="utf-8"), '{"existing": true}\n')
 
     def test_synthetic_writer_falls_back_without_key_when_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

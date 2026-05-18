@@ -97,10 +97,13 @@ def _write_files(project_dir: Path, files: dict[str, str], *, force: bool) -> No
             target.relative_to(project_dir)
         except (OSError, RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=f"paper path escapes project dir: {rel_path}") from exc
-        if not raw_rel_path or target == project_dir or (target.exists() and target.is_dir()):
+        if not raw_rel_path or target == project_dir or (
+            _path_exists_for_paper(target, label="paper path")
+            and _path_is_dir_for_paper(target, label="paper path")
+        ):
             raise HTTPException(status_code=400, detail=f"paper path is not a file target: {rel_path}")
         target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists() and not force:
+        if _path_exists_for_paper(target, label="paper path") and not force:
             continue
         tmp_path = target.with_name(f".{target.name}.{os.getpid()}.{time.time_ns()}.tmp")
         try:
@@ -152,6 +155,41 @@ def _read_evidence_preview(path: Path, *, max_public_bytes: int = MAX_PUBLIC_EVI
     return public_text, total, digest.hexdigest(), total > len(preview)
 
 
+def _path_exists_for_paper(path: Path, *, label: str, status_code: int = 400) -> bool:
+    try:
+        return path.exists()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=status_code, detail=f"{label} could not be inspected: {path}") from exc
+
+
+def _path_is_file_for_paper(path: Path, *, label: str, status_code: int = 400) -> bool:
+    try:
+        return path.is_file()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=status_code, detail=f"{label} could not be inspected: {path}") from exc
+
+
+def _path_is_dir_for_paper(path: Path, *, label: str, status_code: int = 400) -> bool:
+    try:
+        return path.is_dir()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=status_code, detail=f"{label} could not be inspected: {path}") from exc
+
+
+def _path_exists_quiet(path: Path) -> bool:
+    try:
+        return path.exists()
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _path_is_file_quiet(path: Path) -> bool:
+    try:
+        return path.is_file()
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
 def _safe_public_evidence_path(rel_path: Path) -> str:
     safe_parts = [re.sub(r"[^A-Za-z0-9._-]+", "_", part).strip("._") or "artifact" for part in rel_path.parts]
     return str(Path(EVIDENCE_PUBLIC_DIR, *safe_parts))
@@ -187,14 +225,18 @@ def _iter_source_evidence_files(project_dir: Path) -> list[Path]:
     ]
     for rel in explicit:
         path = project_dir / rel
-        if path.is_file():
+        if _path_is_file_quiet(path):
             candidates.append(path)
     for rel_dir in ("results", "logs", "scripts", "prompts", ".enoch/logs", ".enoch/state"):
         root = project_dir / rel_dir
-        if not root.exists():
+        if not _path_exists_quiet(root):
             continue
-        for path in sorted(root.rglob("*")):
-            if not path.is_file():
+        try:
+            paths = sorted(root.rglob("*"))
+        except (OSError, RuntimeError, ValueError):
+            continue
+        for path in paths:
+            if not _path_is_file_quiet(path):
                 continue
             if "__pycache__" in path.parts or path.suffix == ".pyc":
                 continue
@@ -279,7 +321,15 @@ def _build_evidence_bundle_data(
     used_public_paths: set[str] = set()
     for path in source_files:
         rel_path = str(path.relative_to(project_dir))
-        public_content, byte_size, source_sha256, truncated = _read_evidence_preview(path)
+        try:
+            public_content, byte_size, source_sha256, truncated = _read_evidence_preview(path)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=424, detail={
+                "message": "source evidence file could not be read",
+                "source_path": rel_path,
+                "project_id": paper.project_id,
+                "run_id": paper.run_id,
+            }) from exc
         public_path = _dedupe_public_evidence_path(_safe_public_evidence_path(Path(rel_path)), used_public_paths, source_sha256)
         entry = {
             "source_path": rel_path,
@@ -450,10 +500,13 @@ def _candidate_context(config: GateConfig, candidate: dict[str, Any], paper: Pap
             display = path.relative_to(project_dir)
         except ValueError:
             return
-        if path in seen or not path.exists() or not path.is_file():
+        if path in seen or not _path_exists_quiet(path) or not _path_is_file_quiet(path):
             return
         seen.add(path)
-        text = path.read_text(encoding="utf-8", errors="replace")[:limit]
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")[:limit]
+        except (OSError, RuntimeError, ValueError):
+            return
         snippets.append(f"## {display}\n{_redact_public_evidence_text(text)}")
 
     # High-signal project-level evidence. These are copied from the GB10 worker
@@ -467,19 +520,27 @@ def _candidate_context(config: GateConfig, candidate: dict[str, Any], paper: Pap
     # the claim ledger, evidence strength, tested metrics, and allowed/forbidden
     # wording for publication drafts.
     papers_dir = project_dir / "papers"
-    if papers_dir.exists():
+    if _path_exists_quiet(papers_dir):
         preferred_names = {"evidence_bundle.json", "claim_ledger.json", "paper.md", "paper_manifest.json", "README.md"}
-        for path in sorted(papers_dir.rglob("*")):
-            if path.is_file() and path.name in preferred_names:
+        try:
+            paper_paths = sorted(papers_dir.rglob("*"))
+        except (OSError, RuntimeError, ValueError):
+            paper_paths = []
+        for path in paper_paths:
+            if _path_is_file_quiet(path) and path.name in preferred_names:
                 add_file(path.relative_to(project_dir), limit=22000)
 
     # Compact result summaries and key JSON outputs. Avoid huge trace CSVs/logs,
     # but include summary CSV/JSON files and top-level result JSONs so the model
     # sees actual measured outcomes.
     results_dir = project_dir / "results"
-    if results_dir.exists():
-        for path in sorted(results_dir.rglob("*")):
-            if not path.is_file():
+    if _path_exists_quiet(results_dir):
+        try:
+            result_paths = sorted(results_dir.rglob("*"))
+        except (OSError, RuntimeError, ValueError):
+            result_paths = []
+        for path in result_paths:
+            if not _path_is_file_quiet(path):
                 continue
             name = path.name.lower()
             if name.endswith(".log") or "trace" in name:
@@ -632,9 +693,12 @@ def backfill_paper_evidence_artifacts(
         paper_path.relative_to(project_dir)
     except (OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"paper path escapes project dir: {paper.draft_markdown_path}") from exc
-    if not paper_path.exists():
+    if not _path_exists_for_paper(paper_path, label="paper markdown"):
         raise HTTPException(status_code=404, detail=f"paper markdown not found: {paper.draft_markdown_path}")
-    markdown = paper_path.read_text(encoding="utf-8", errors="replace")
+    try:
+        markdown = paper_path.read_text(encoding="utf-8", errors="replace")
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"paper markdown could not be read: {paper.draft_markdown_path}") from exc
     provider_meta = {"provider": writer_note, "model": "deterministic_evidence_extractor_v1", "fallback_used": False}
     evidence_bundle = _build_evidence_bundle_data(project_dir, candidate, paper, writer_provider=provider_meta)
     if not evidence_bundle.get("public_evidence_files"):
@@ -653,10 +717,15 @@ def backfill_paper_evidence_artifacts(
     try:
         manifest_path = (project_dir / paper.manifest_path).resolve()
         manifest_path.relative_to(project_dir)
-        if manifest_path.exists():
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if _path_exists_for_paper(manifest_path, label="paper manifest"):
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, RuntimeError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=f"paper manifest could not be read: {paper.manifest_path}") from exc
     except (OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"paper path escapes project dir: {paper.manifest_path}") from exc
+    except HTTPException:
+        raise
     except Exception:
         manifest = {}
     manifest.update({
