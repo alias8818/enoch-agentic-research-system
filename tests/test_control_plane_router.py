@@ -413,6 +413,34 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(projection.status_code, 200)
             self.assertIn("testing", projection.json()["counts"])
 
+    def test_supabase_native_ideas_intake_live_rejects_readonly_before_store_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "control_plane_store_backend": "supabase_readonly",
+                    "supabase_database_url": "postgres://example",
+                }
+            )
+
+            class FakeReadOnlyStore:
+                def ingest_ideas(self, *_args, **_kwargs):  # noqa: ANN001 - must not be called
+                    raise AssertionError("read-only ideas intake must reject before store writes")
+
+            with patch("enoch_control_plane.control_plane.router.SupabaseReadOnlyControlPlaneStore", return_value=FakeReadOnlyStore()):
+                client = _client_with_config(config)
+                response = client.post(
+                    "/control/intake/ideas",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    json={
+                        "idempotency_key": "readonly-ideas-intake",
+                        "dry_run": False,
+                        "ideas": [{"idea_id": "idea-1", "title": "Idea 1", "idea_status": "testing"}],
+                    },
+                )
+
+            self.assertEqual(response.status_code, 501)
+            self.assertIn("writable control-plane store", response.text)
+
     def test_control_dashboard_html_is_served_without_token(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)

@@ -3984,6 +3984,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     def intake_notion_ideas(payload: NotionIntakeRequest, authorization: str | None = Header(default=None)) -> NotionIntakeResponse:
         authorize(authorization)
         _require_legacy_notion_api_enabled()
+        if not payload.dry_run:
+            _require_writable_store("Notion ideas intake")
         if payload.default_machine_target == "worker.example":
             configured_worker = urlparse(config.worker_wake_gate_url).hostname or ""
             if configured_worker:
@@ -4013,6 +4015,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/intake/ideas", response_model=IdeaIntakeResponse)
     def intake_ideas(payload: IdeaIntakeRequest, authorization: str | None = Header(default=None)) -> IdeaIntakeResponse:
         authorize(authorization)
+        if not payload.dry_run:
+            _require_writable_store("ideas intake")
         if payload.default_machine_target == "worker.example":
             configured_worker = urlparse(config.worker_wake_gate_url).hostname or ""
             if configured_worker:
