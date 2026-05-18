@@ -921,26 +921,22 @@ def _has_related_paper_projection(row: dict[str, Any]) -> bool:
 
 def _queue_is_superseded_by_paper(
     row: dict[str, Any],
-    paper_projects: set[str],
-    paper_runs: set[str],
+    paper_run_keys: set[tuple[str, str]],
 ) -> bool:
-    run_id = _text(row.get("run_id") or row.get("current_run_id"))
-    if run_id and run_id in paper_runs:
-        return True
-    if _text(row.get("operator_detail_stage")) != "run_complete_draft_needed":
-        return False
     project_id = _text(row.get("project_id"))
-    return bool(project_id and project_id in paper_projects)
+    run_id = _text(row.get("run_id") or row.get("current_run_id"))
+    if project_id and run_id and (project_id, run_id) in paper_run_keys:
+        return True
+    return False
 
 
 def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     staged_rows = [with_operator_stage(row) for row in rows]
-    paper_projects = {
-        _text(row.get("project_id"))
+    paper_run_keys = {
+        (_text(row.get("project_id")), _text(row.get("run_id")))
         for row in staged_rows
-        if _text(row.get("paper_id")) and _text(row.get("project_id"))
+        if _text(row.get("paper_id")) and _text(row.get("project_id")) and _text(row.get("run_id"))
     }
-    paper_runs = {_text(row.get("run_id")) for row in staged_rows if _text(row.get("paper_id")) and _text(row.get("run_id"))}
     paper_ids = {_text(row.get("paper_id")) for row in staged_rows if _text(row.get("paper_id"))}
     by_key: dict[str, dict[str, Any]] = {}
     anonymous: list[dict[str, Any]] = []
@@ -954,7 +950,7 @@ def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]
             related_paper_id = ""
         if is_queue_row and related_paper_id and related_paper_id in paper_ids and not is_active_row and not needs_attention:
             continue
-        if is_queue_row and not is_active_row and not needs_attention and _queue_is_superseded_by_paper(staged, paper_projects, paper_runs):
+        if is_queue_row and not is_active_row and not needs_attention and _queue_is_superseded_by_paper(staged, paper_run_keys):
             continue
         key = _typed_lifecycle_key(staged)
         if not key:

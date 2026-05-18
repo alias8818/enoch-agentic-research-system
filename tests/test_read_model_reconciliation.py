@@ -390,6 +390,38 @@ def test_completed_queue_with_same_run_paper_without_related_pointer_counts_as_p
     assert "run_complete_no_paper" not in detail
 
 
+def test_unrelated_paper_with_same_run_id_does_not_supersede_queue_row() -> None:
+    rows = [
+        _completed_draft_ready("write-project", "shared-run"),
+        _paper("other-project", "shared-run", "paper-1"),
+    ]
+
+    counts = operator_counts_from_rows(rows)
+    detail = operator_detail_counts_from_rows(rows)
+
+    assert counts[OperatorLane.WRITE_PAPER.value] == 1
+    assert counts[OperatorLane.READY_TO_PUBLISH.value] == 1
+    assert counts["total_operator_items"] == 2
+    assert detail["run_complete_draft_needed"] == 1
+    assert detail["ready_to_publish"] == 1
+
+
+def test_prior_paper_for_same_project_different_run_does_not_supersede_new_write_row() -> None:
+    rows = [
+        _completed_draft_ready("write-project", "new-run"),
+        _paper("write-project", "old-run", "paper-1"),
+    ]
+
+    counts = operator_counts_from_rows(rows)
+    detail = operator_detail_counts_from_rows(rows)
+
+    assert counts[OperatorLane.WRITE_PAPER.value] == 1
+    assert counts[OperatorLane.READY_TO_PUBLISH.value] == 1
+    assert counts["total_operator_items"] == 2
+    assert detail["run_complete_draft_needed"] == 1
+    assert detail["ready_to_publish"] == 1
+
+
 def test_blocked_queue_row_with_same_run_paper_still_needs_attention() -> None:
     rows = [
         {
