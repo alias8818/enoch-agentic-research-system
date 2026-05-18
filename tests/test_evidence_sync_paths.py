@@ -160,6 +160,40 @@ def test_local_paper_evidence_rejects_symlinked_paper_and_result_files(tmp_path)
 
     assert _local_paper_evidence_present(project_dir) is False
 
+
+def test_local_paper_evidence_treats_uninspectable_paper_dir_as_absent(tmp_path, monkeypatch) -> None:
+    project_dir = tmp_path / "project"
+    papers_dir = project_dir / "papers"
+    papers_dir.mkdir(parents=True)
+    real_exists = Path.exists
+
+    def blocked_exists(path: Path) -> bool:
+        if path == papers_dir:
+            raise PermissionError("simulated paper dir access failure")
+        return real_exists(path)
+
+    monkeypatch.setattr(Path, "exists", blocked_exists)
+
+    assert _local_paper_evidence_present(project_dir) is False
+
+
+def test_local_paper_evidence_treats_uninspectable_results_dir_as_absent(tmp_path, monkeypatch) -> None:
+    project_dir = tmp_path / "project"
+    (project_dir / "run_notes.md").parent.mkdir(parents=True)
+    (project_dir / "run_notes.md").write_text("measured notes", encoding="utf-8")
+    results_dir = project_dir / "results"
+    results_dir.mkdir()
+    real_exists = Path.exists
+
+    def blocked_exists(path: Path) -> bool:
+        if path == results_dir:
+            raise PermissionError("simulated results dir access failure")
+        return real_exists(path)
+
+    monkeypatch.setattr(Path, "exists", blocked_exists)
+
+    assert _local_paper_evidence_present(project_dir) is False
+
 def test_local_paper_evidence_rejects_empty_high_signal_files(tmp_path) -> None:
     project_dir = tmp_path / "project"
     (project_dir / ".enoch").mkdir(parents=True)

@@ -422,21 +422,41 @@ def _local_high_signal_evidence_present(project_dir: Path) -> bool:
     )
 
 
+def _existing_non_symlink_dir(path: Path) -> bool:
+    try:
+        return path.exists() and not path.is_symlink() and path.is_dir()
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _safe_rglob(path: Path, pattern: str) -> list[Path]:
+    try:
+        return list(path.rglob(pattern))
+    except (OSError, RuntimeError, ValueError):
+        return []
+
+
 def _local_paper_evidence_present(project_dir: Path) -> bool:
     if _local_high_signal_evidence_present(project_dir):
         return True
     papers_dir = project_dir / "papers"
-    if papers_dir.exists() and not papers_dir.is_symlink():
-        for paper_dir in sorted(path for path in papers_dir.rglob("*") if path.is_dir()):
+    if _existing_non_symlink_dir(papers_dir):
+        safe_paper_dirs = []
+        for path in _safe_rglob(papers_dir, "*"):
+            try:
+                if path.is_dir():
+                    safe_paper_dirs.append(path)
+            except (OSError, RuntimeError, ValueError):
+                continue
+        for paper_dir in sorted(safe_paper_dirs):
             if _safe_local_evidence_file(project_dir, paper_dir / "evidence_bundle.json") and _safe_local_evidence_file(project_dir, paper_dir / "claim_ledger.json"):
                 return True
     run_notes_present = _safe_local_evidence_file(project_dir, project_dir / "run_notes.md")
     results_dir = project_dir / "results"
     return (
         run_notes_present
-        and results_dir.exists()
-        and not results_dir.is_symlink()
-        and any(_safe_local_evidence_file(project_dir, path) for path in results_dir.rglob("*.json"))
+        and _existing_non_symlink_dir(results_dir)
+        and any(_safe_local_evidence_file(project_dir, path) for path in _safe_rglob(results_dir, "*.json"))
     )
 
 
