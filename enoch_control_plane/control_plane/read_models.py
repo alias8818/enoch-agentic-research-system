@@ -858,12 +858,13 @@ def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]
         related_paper_id = _text(staged.get("related_paper_id"))
         is_queue_row = not _text(staged.get("paper_id"))
         is_active_row = _operator_row_is_active(staged)
+        needs_attention = bool(staged.get("operator_attention"))
         if is_queue_row and _has_related_paper_projection(staged) and (not related_paper_id or related_paper_id not in paper_ids):
             staged = _strip_related_paper_projection(staged)
             related_paper_id = ""
-        if is_queue_row and related_paper_id and related_paper_id in paper_ids and not is_active_row:
+        if is_queue_row and related_paper_id and related_paper_id in paper_ids and not is_active_row and not needs_attention:
             continue
-        if is_queue_row and not is_active_row and _queue_is_superseded_by_paper(staged, paper_projects, paper_runs):
+        if is_queue_row and not is_active_row and not needs_attention and _queue_is_superseded_by_paper(staged, paper_projects, paper_runs):
             continue
         key = _typed_lifecycle_key(staged)
         if not key:

@@ -287,6 +287,32 @@ def test_completed_queue_with_same_run_paper_without_related_pointer_counts_as_p
     assert detail["ready_to_publish"] == 1
     assert "run_complete_no_paper" not in detail
 
+
+def test_blocked_queue_row_with_same_run_paper_still_needs_attention() -> None:
+    rows = [
+        {
+            "project_id": "blocked-paper-project",
+            "project_name": "blocked-paper-project",
+            "status": "blocked",
+            "last_run_state": "gate_error",
+            "current_run_id": "paper-run",
+            "next_action_hint": "inspect_worker_gate_failure",
+            "manual_review_required": True,
+            "related_paper_id": "paper-1",
+        },
+        _paper("blocked-paper-project", "paper-run", "paper-1"),
+    ]
+
+    counts = operator_counts_from_rows(rows)
+    detail = operator_detail_counts_from_rows(rows)
+
+    assert counts[OperatorLane.NEEDS_OPERATOR.value] == 1
+    assert counts[OperatorLane.READY_TO_PUBLISH.value] == 1
+    assert counts["needs_attention"] == 1
+    assert counts["total_operator_items"] == 2
+    assert detail["blocked_needs_operator"] == 1
+    assert detail["ready_to_publish"] == 1
+
 class _BatchedOverviewStore(_OverviewStore):
     def overview_read_model_parts(self, *, active_limit: int, event_limit: int) -> dict[str, object]:
         del active_limit, event_limit
