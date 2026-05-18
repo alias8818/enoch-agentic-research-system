@@ -3537,6 +3537,18 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
+                    "select idea_id, title, source_payload_json from ideas where idea_id = %s",
+                    (followup_id,),
+                )
+                existing_idea = cur.fetchone()
+                if existing_idea and (
+                    self._row_value(existing_idea, "title", 1) != title
+                    or self._json_text(self._row_value(existing_idea, "source_payload_json", 2)) != self._json_text(followup_payload)
+                ):
+                    raise IdempotencyConflict(
+                        f"follow-up idea id {followup_id!r} was reused with different idea identity"
+                    )
+                cur.execute(
                     """
                     insert into ideas(
                       idea_id, title, idea_status, category, priority, source_kind, description, implementation,
