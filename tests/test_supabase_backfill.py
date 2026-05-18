@@ -117,18 +117,18 @@ def test_backfill_target_identity_guard_allows_same_existing_identity() -> None:
 def test_backfill_conflict_updates_are_timestamp_guarded() -> None:
     source = inspect.getsource(backfill_control_plane_to_supabase.import_sqlite_to_postgres)
 
-    for guard in (
-        "where excluded.updated_at >= control_flags.updated_at",
-        "where excluded.updated_at >= projects.updated_at",
-        "where excluded.updated_at >= queue_items.updated_at",
-        "where excluded.updated_at >= runs.updated_at",
-        "where excluded.updated_at >= papers.updated_at",
-        "where excluded.updated_at >= publication_automation_items.updated_at",
+    for nullable_guard in (
+        "control_flags.updated_at is null or excluded.updated_at >= control_flags.updated_at",
+        "projects.updated_at is null or excluded.updated_at >= projects.updated_at",
+        "queue_items.updated_at is null or excluded.updated_at >= queue_items.updated_at",
+        "runs.updated_at is null or excluded.updated_at >= runs.updated_at",
+        "papers.updated_at is null or excluded.updated_at >= papers.updated_at",
+        "publication_automation_items.updated_at is null or excluded.updated_at >= publication_automation_items.updated_at",
     ):
-        assert guard in source
+        assert nullable_guard in source
 
 
 def test_backfill_project_decision_conflict_update_is_decided_at_guarded() -> None:
     source = inspect.getsource(backfill_control_plane_to_supabase.import_sqlite_to_postgres)
 
-    assert "where excluded.decided_at >= project_decisions.decided_at" in source
+    assert "where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at" in source
