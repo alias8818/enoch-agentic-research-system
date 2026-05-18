@@ -140,3 +140,27 @@ def test_public_count_checks_reject_stale_svg_split_count(tmp_path) -> None:
     validate_public_release.check_counts([page], artifact_count=388, pass_count=388, failures=failures)
 
     assert failures == [f"artifact count drift in {page}:1: 385 != 388"]
+
+
+def test_public_secret_token_check_rejects_high_confidence_tokens(tmp_path) -> None:
+    paper = tmp_path / "paper.md"
+    paper.write_text("SYNTHETIC_API_KEY=syn_abcdefghijklmnopqrstuvwxyz1234567890\n", encoding="utf-8")
+    failures: list[str] = []
+
+    validate_public_release.check_public_secret_tokens([paper], failures)
+
+    assert failures == [f"secret-like token in public release surface {paper}:1"]
+
+
+def test_public_secret_token_check_ignores_redacted_tokens_and_slugs(tmp_path) -> None:
+    paper = tmp_path / "paper.md"
+    paper.write_text(
+        "SYNTHETIC_API_KEY=[REDACTED_TOKEN]\n"
+        "papers/dense-mask-distillation-from-moe/paper.md\n",
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_public_secret_tokens([paper], failures)
+
+    assert failures == []

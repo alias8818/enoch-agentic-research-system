@@ -48,6 +48,18 @@ GITHUB_REPO_METADATA = [
     "alias8818/alias8818.github.io",
 ]
 
+SECRET_LIKE_TOKEN = re.compile(
+    r"("
+    r"sk-proj-[A-Za-z0-9_-]{20,}"
+    r"|sk-[A-Za-z0-9]{24,}"
+    r"|syn_[A-Za-z0-9]{20,}"
+    r"|gh[pousr]_[A-Za-z0-9_]{20,}"
+    r"|Authorization:\s*Bearer\s*(?:sk-proj-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{24,}|syn_[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9_]{20,})"
+    r"|(?:OPENAI|ANTHROPIC|SYNTHETIC|GITHUB|HF|HUGGINGFACE|SUPABASE)[_-]?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[=:]\s*(?:sk-proj-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{24,}|syn_[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9_]{20,})"
+    r")"
+)
+PUBLIC_SECRET_SCAN_EXTENSIONS = {".html", ".js", ".json", ".jsonl", ".md", ".mdx", ".svg", ".txt", ".csv"}
+
 
 def load_json(path: Path) -> dict:
     with path.open(encoding="utf-8") as handle:
@@ -64,6 +76,27 @@ def fail(message: str, failures: list[str]) -> None:
 
 def line_for(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
+
+
+def corpus_artifact_public_paths(corpus: Path) -> list[Path]:
+    roots = [corpus / "papers", corpus / "quality"]
+    paths: list[Path] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if path.is_file() and path.suffix.lower() in PUBLIC_SECRET_SCAN_EXTENSIONS:
+                paths.append(path)
+    return paths
+
+
+def check_public_secret_tokens(paths: list[Path], failures: list[str]) -> None:
+    for path in paths:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for match in SECRET_LIKE_TOKEN.finditer(text):
+            if "[REDACTED_TOKEN]" in match.group(0):
+                continue
+            fail(f"secret-like token in public release surface {path}:{line_for(text, match.start())}", failures)
 
 
 def check_counts(paths: list[Path], artifact_count: int, pass_count: int, failures: list[str]) -> None:
@@ -300,6 +333,7 @@ def main() -> int:
         public_paths += existing(personal_site, PERSONAL_SITE_FILES)
     public_paths += existing(corpus, ["README.md", "quality/quality_report.md", "quality/packaging_provenance_report.md"])
 
+    check_public_secret_tokens(public_paths + corpus_artifact_public_paths(corpus), failures)
     check_counts(public_paths, int(manifest["artifact_count"]), int(manifest["packaging_provenance_pass_count"]), failures)
     check_strict_public_counts(
         public_paths,
