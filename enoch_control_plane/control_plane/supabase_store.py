@@ -1636,6 +1636,17 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     payload=payload,
                 )
 
+    def event_by_idempotency_key(self, idempotency_key: str) -> dict[str, Any] | None:
+        row = self._one(
+            """
+            select event_id, idempotency_key, event_type, entity_type, entity_id, created_at
+            from control_events
+            where idempotency_key = %s
+            """,
+            (idempotency_key,),
+        )
+        return dict(row) if row else None
+
     def claim_dispatch_candidate(self, *, project_id: str, run_id: str, requested_by: str) -> dict[str, Any] | None:
         now = utc_now()
         active_placeholders = ",".join(["%s"] * len(ACTIVE_STATUSES))

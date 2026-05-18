@@ -658,6 +658,14 @@ class ControlPlaneStore:
                 payload=payload,
             )
 
+    def event_by_idempotency_key(self, idempotency_key: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT event_id, idempotency_key, event_type, entity_type, entity_id, created_at FROM events WHERE idempotency_key = ?",
+                (idempotency_key,),
+            ).fetchone()
+        return dict(row) if row else None
+
     def flags(self) -> ControlFlags:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM control_flags WHERE singleton = 1").fetchone()

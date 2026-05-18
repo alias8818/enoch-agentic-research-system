@@ -2634,6 +2634,23 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 evidence_sync=evidence_sync,
             )
             raise HTTPException(status_code=424, detail={"message": "paper rewrite requires synced project evidence", "evidence_sync": evidence_sync})
+        existing_event_reader = getattr(store, "event_by_idempotency_key", None)
+        if callable(existing_event_reader):
+            existing_event = existing_event_reader(payload.idempotency_key)
+            if existing_event:
+                if (
+                    str(existing_event.get("event_type") or "") != "paper_review.draft_rewritten"
+                    or str(existing_event.get("entity_id") or "") != paper_id
+                ):
+                    raise HTTPException(status_code=409, detail=f"idempotency key {payload.idempotency_key!r} was reused with different payload")
+                return PaperReviewRewriteDraftResponse(
+                    inserted_event=False,
+                    event_id=int(existing_event.get("event_id") or 0),
+                    item=item,
+                    paper=paper,
+                    writer={"idempotent_replay": True},
+                    artifact_root=str(artifact_root),
+                )
         record = _paper_record_from_row(paper).model_copy(update={"paper_status": PaperStatus.PUBLICATION_DRAFT, "updated_at": utc_now()})
         candidate = {
             "project_id": project_id,
