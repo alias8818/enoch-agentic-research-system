@@ -991,6 +991,42 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(after["next_action_hint"], before["next_action_hint"])
             self.assertEqual(after["last_result_summary"], before["last_result_summary"])
 
+    def test_dispatch_claim_idempotent_replay_does_not_reclaim_released_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            project_id = "idea-claim-replay"
+            run_id = "run-claim-replay"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="claim-replay-import",
+                    queue_rows=[{
+                        "project_id": project_id,
+                        "project_name": "Claim Replay",
+                        "project_dir": "claim-replay",
+                        "status": "queued",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            claimed = store.claim_dispatch_candidate(project_id=project_id, run_id=run_id, requested_by="test")
+            self.assertIsNotNone(claimed)
+            released = store.release_dispatch_claim(project_id=project_id, run_id=run_id, reason="worker preflight failed")
+            self.assertEqual(released["status"], "queued")
+            before = store.queue_row(project_id)
+
+            replay = store.claim_dispatch_candidate(project_id=project_id, run_id=run_id, requested_by="test")
+            after = store.queue_row(project_id)
+
+            self.assertIsNone(replay)
+            self.assertEqual(after["status"], before["status"])
+            self.assertEqual(after["current_run_id"], before["current_run_id"])
+            self.assertEqual(after["next_action_hint"], before["next_action_hint"])
+            events = store.event_rows(limit=10, entity_type="project", entity_id=project_id)
+            self.assertEqual(
+                [event["event_type"] for event in events].count("controller.dispatch_claimed"),
+                1,
+            )
+
     def test_dispatch_claim_append_failure_does_not_mutate_queue_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

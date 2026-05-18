@@ -689,6 +689,40 @@ def test_supabase_dispatch_started_replay_does_not_mutate_queue(monkeypatch) -> 
     assert executed == []
 
 
+def test_supabase_dispatch_claim_replay_does_not_mutate_queue(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    executed: list[str] = []
+
+    class Result:
+        rowcount = 1
+
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight cursor fake
+            del params
+            executed.append(" ".join(str(sql).lower().split()))
+            return Result()
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_replayed_event_id", lambda _key, _payload: 7)
+    monkeypatch.setattr(store, "queue_row", lambda project_id: {"project_id": project_id, "status": "queued", "current_run_id": ""})
+
+    replay = store.claim_dispatch_candidate(
+        project_id="idea-claim-replay",
+        run_id="run-claim-replay",
+        requested_by="test",
+    )
+
+    assert replay is None
+    assert executed == []
+
+
 def test_supabase_release_dispatch_claim_does_not_emit_event_without_update(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     append_calls: list[dict] = []
@@ -1254,6 +1288,7 @@ def test_supabase_dispatch_claim_append_failure_does_not_mutate_queue_state(monk
         raise RuntimeError("simulated claim event write failure")
 
     monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_replayed_event_id", lambda _key, _payload: None)
     monkeypatch.setattr(store, "_append_event_in_cursor", fail_append_event)
 
     try:

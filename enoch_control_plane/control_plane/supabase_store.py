@@ -1648,6 +1648,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         return dict(row) if row else None
 
     def claim_dispatch_candidate(self, *, project_id: str, run_id: str, requested_by: str) -> dict[str, Any] | None:
+        payload = {"requested_by": requested_by, "run_id": run_id}
+        if self._replayed_event_id(f"dispatch-claim:{run_id}", payload) is not None:
+            return None
         now = utc_now()
         active_placeholders = ",".join(["%s"] * len(ACTIVE_STATUSES))
         with self._connect() as conn:
@@ -1690,7 +1693,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         event_type="controller.dispatch_claimed",
                         entity_type="project",
                         entity_id=project_id,
-                        payload={"requested_by": requested_by, "run_id": run_id},
+                        payload=payload,
                     )
         if not claimed:
             return None
