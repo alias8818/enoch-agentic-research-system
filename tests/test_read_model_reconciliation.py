@@ -187,6 +187,34 @@ def test_useful_signal_precedence_over_duplicate_no_paper_rows() -> None:
 
 
 
+
+
+def test_followup_candidate_normalizes_followup_type() -> None:
+    row = {
+        "project_id": "followup-normalized",
+        "project_name": "followup-normalized",
+        "status": "completed",
+        "last_run_state": "wake_ready",
+        "current_run_id": "followup-run",
+        "next_action_hint": "select_next_project",
+        "decision_gate_state": "negative",
+        "followup_recommended": True,
+        "followup_type": "Branch",
+        "followup_title": "Bounded branch",
+        "followup_hypothesis": "A cheaper branch may preserve the signal.",
+        "followup_required_evidence": ["metric delta", "failure case"],
+        "followup_success_threshold": "beats baseline",
+        "followup_stop_condition": "no signal",
+        "followup_depth": 1,
+    }
+
+    counts = operator_counts_from_rows([row])
+    detail = operator_detail_counts_from_rows([row])
+
+    assert counts[OperatorLane.FOLLOWUP_INVESTIGATION.value] == 1
+    assert counts["total_operator_items"] == 1
+    assert detail["followup_candidate"] == 1
+
 def test_bounded_useful_signal_row_gate_normalizes_status_fields() -> None:
     row = {
         "project_id": "bounded-signal",

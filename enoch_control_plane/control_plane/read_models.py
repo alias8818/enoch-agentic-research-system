@@ -335,7 +335,7 @@ def _followup_from_row(row: dict[str, Any]) -> dict[str, Any]:
         depth = 0
     return {
         "followup_recommended": _truthy(row.get("followup_recommended")),
-        "followup_type": _text(row.get("followup_type")),
+        "followup_type": _normal(row.get("followup_type")),
         "followup_title": _text(row.get("followup_title")),
         "followup_hypothesis": _text(row.get("followup_hypothesis")),
         "followup_required_evidence": _listish(row.get("followup_required_evidence")),
@@ -357,7 +357,7 @@ def _is_followup_candidate(row: dict[str, Any]) -> bool:
         and not _truthy(row.get("manual_review_required"))
         and not _truthy(row.get("followup_launched"))
         and depth < MAX_FOLLOWUP_DEPTH
-        and _text(row.get("followup_type")) in {"deepen", "branch", "retry"}
+        and _normal(row.get("followup_type")) in {"deepen", "branch", "retry"}
         and _text(row.get("followup_title"))
         and _text(row.get("followup_hypothesis"))
         and len(required_evidence) >= MIN_FOLLOWUP_REQUIRED_EVIDENCE
