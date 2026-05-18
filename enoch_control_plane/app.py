@@ -1871,7 +1871,11 @@ def dashboard_api_paper_artifact(
     if not project_dir.exists() or not project_dir.is_dir():
         raise HTTPException(status_code=404, detail=f"project directory not found: {project_id}")
     artifact_path = _resolve_project_relative_path(project_dir, path)
-    if not artifact_path.exists() or not artifact_path.is_file():
+    try:
+        artifact_exists = artifact_path.exists() and artifact_path.is_file()
+    except OSError as exc:
+        raise HTTPException(status_code=403, detail=f"paper artifact is not readable: {path}") from exc
+    if not artifact_exists:
         raise HTTPException(status_code=404, detail=f"paper artifact not found: {path}")
     try:
         size = artifact_path.stat().st_size
@@ -2144,7 +2148,11 @@ async def read_project_paper(
     files: list[dict[str, Any]] = []
     for relative in request.paths:
         path = _resolve_project_relative_path(project_dir, relative)
-        if not path.exists() or not path.is_file():
+        try:
+            artifact_exists = path.exists() and path.is_file()
+        except OSError as exc:
+            raise HTTPException(status_code=403, detail=f"paper artifact is not readable: {relative}") from exc
+        if not artifact_exists:
             raise HTTPException(status_code=404, detail=f"paper artifact not found: {relative}")
         try:
             size = path.stat().st_size
