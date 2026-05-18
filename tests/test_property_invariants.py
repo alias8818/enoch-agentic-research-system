@@ -414,6 +414,71 @@ def test_operator_counts_ignore_stale_related_paper_references_without_matching_
     assert detail_counts.get("draft_created", 0) == 0
 
 
+active_queue_status = st.sampled_from(["dispatching", "running", "awaiting_wake", "wake_received", "reconciling"])
+
+
+@given(active_status=active_queue_status)
+@settings(max_examples=25, deadline=None)
+def test_operator_reconciler_prefers_active_duplicate_queue_row(active_status: str) -> None:
+    completed_row = read_models.summarize_queue_row({
+        "project_id": "duplicate-project",
+        "project_name": "Duplicate Project",
+        "status": "completed",
+        "last_run_state": "wake_ready",
+        "next_action_hint": "select_next_project",
+    })
+    active_row = read_models.summarize_queue_row({
+        "project_id": "duplicate-project",
+        "project_name": "Duplicate Project",
+        "status": active_status,
+        "last_run_state": active_status,
+        "current_run_id": "active-run",
+        "next_action_hint": "await_callback",
+    })
+
+    counts = read_models.operator_counts_from_rows([completed_row, active_row])
+    detail_counts = read_models.operator_detail_counts_from_rows([completed_row, active_row])
+
+    assert counts["total_operator_items"] == 1
+    assert counts.get("running", 0) == 1
+    assert counts.get("complete_no_paper", 0) == 0
+    assert detail_counts.get("running", 0) == 1
+    assert detail_counts.get("run_complete_no_paper", 0) == 0
+
+
+@given(paper_status=st.sampled_from(["publication_draft", "draft_review"]))
+@settings(max_examples=10, deadline=None)
+def test_operator_reconciler_drops_completed_queue_row_superseded_by_paper_identity(paper_status: str) -> None:
+    queue_row = read_models.summarize_queue_row({
+        "project_id": "paper-backed-project",
+        "project_name": "Paper Backed Project",
+        "status": "completed",
+        "last_run_state": "wake_ready",
+        "current_run_id": "paper-run",
+        "next_action_hint": "draft_paper_or_select_next_project",
+        "decision_gate_state": "positive",
+        "decision_summary": "positive",
+    })
+    paper_row = read_models.summarize_paper_row({
+        "paper_id": "paper-backed-project:paper-run:arxiv_draft",
+        "project_id": "paper-backed-project",
+        "project_name": "Paper Backed Project",
+        "run_id": "paper-run",
+        "paper_type": "arxiv_draft",
+        "paper_status": paper_status,
+    })
+
+    counts = read_models.operator_counts_from_rows([queue_row, paper_row])
+    detail_counts = read_models.operator_detail_counts_from_rows([queue_row, paper_row])
+
+    assert counts["total_operator_items"] == 1
+    assert counts.get("write_paper", 0) == 0
+    assert counts.get("complete_no_paper", 0) == 0
+    assert counts.get("automate_publication", 0) == 1
+    assert detail_counts.get("run_complete_draft_needed", 0) == 0
+    assert detail_counts.get("finalization_needed", 0) + detail_counts.get("draft_created", 0) == 1
+
+
 partial_evidence_kind = st.sampled_from([
     "none",
     "run_notes_only",
