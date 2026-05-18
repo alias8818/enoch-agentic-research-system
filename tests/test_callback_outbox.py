@@ -137,6 +137,20 @@ def test_deliver_pending_file_rejects_paths_outside_outbox(tmp_path: Path) -> No
     assert "attempt_count" not in json.loads(outside.read_text(encoding="utf-8"))
 
 
+def test_deliver_pending_file_rejects_unexpandable_pending_path_without_crashing(tmp_path: Path) -> None:
+    result = callback_outbox.deliver_pending_file(
+        "~enoch-user-that-should-not-exist/run.json",
+        state_dir=tmp_path / "state",
+        url="http://127.0.0.1/callback",
+        token="token",
+        timeout=1,
+    )
+
+    assert not result.ok
+    assert "invalid callback outbox path" in result.detail
+    assert "RuntimeError" in result.detail
+
+
 def test_deliver_pending_file_reports_corrupt_pending_json_without_crashing(tmp_path: Path) -> None:
     state = tmp_path / "state"
     pending = callback_outbox.pending_path(state, "run-corrupt")

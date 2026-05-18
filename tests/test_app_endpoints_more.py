@@ -76,6 +76,29 @@ def test_dashboard_api_and_run_detail_endpoint(tmp_path: Path, monkeypatch) -> N
     assert client.get("/dashboard/api/run/missing", headers={"Authorization": f"Bearer {token}"}).status_code == 404
 
 
+def test_dashboard_run_detail_treats_unexpandable_project_dir_as_unreadable(tmp_path: Path, monkeypatch) -> None:
+    client, token = _client(tmp_path, monkeypatch)
+    fake_store = appmod.store
+    fake_store.records.append(
+        RunRecord(
+            run_id="run-unexpandable",
+            session_id="session-unexpandable",
+            project_id="project-unexpandable",
+            project_name="Project Unexpandable",
+            gate_state=GateState.WAKE_READY,
+            project_dir="~enoch-user-that-should-not-exist/project",
+        )
+    )
+
+    run = client.get("/dashboard/api/run/run-unexpandable", headers={"Authorization": f"Bearer {token}"})
+
+    assert run.status_code == 200
+    body = run.json()["run"]
+    assert body["run_id"] == "run-unexpandable"
+    assert body["latest_session"] is None
+    assert body["run_notes_tail"] == []
+
+
 def test_dashboard_snapshot_writes_preserve_existing_files_on_replace_failure(tmp_path: Path, monkeypatch) -> None:
     client, token = _client(tmp_path, monkeypatch)
     headers = {"Authorization": f"Bearer {token}"}

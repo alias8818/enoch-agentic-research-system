@@ -84,6 +84,20 @@ def test_record_project_decision_gate_reports_stale_skipped_write(tmp_path) -> N
     assert result["reason"] == "stale project decision ignored"
 
 
+def test_record_project_decision_gate_rejects_unexpandable_artifact_root() -> None:
+    store = s.SupabaseControlPlaneStore("postgres://example", connect=lambda: pytest.fail("should not connect"))
+
+    result = store.record_project_decision_gate(
+        project_id="bad-artifact-root",
+        run_id="run",
+        artifact_root="~enoch-user-that-should-not-exist/project",
+    )
+
+    assert result["ok"] is False
+    assert result["persisted"] is False
+    assert result["reason"] == "artifact root contains an unexpandable user home"
+
+
 def test_decision_gate_state_and_summary_variants() -> None:
     assert s._decision_gate_state({"eligible": True}) == "positive"
     assert s._decision_gate_state({"reason": "missing project_decision"}) == "missing"

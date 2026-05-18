@@ -3388,7 +3388,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         project_id = _text(project_id)
         if not project_id:
             return {"ok": False, "persisted": False, "reason": "missing project_id"}
-        artifact_root_path = Path(artifact_root).expanduser()
+        artifact_root_path = _expanduser_or_none(str(artifact_root))
+        if artifact_root_path is None:
+            return {"ok": False, "persisted": False, "reason": "artifact root contains an unexpandable user home"}
         gate = paper_draft_decision_gate(artifact_root_path)
         if not gate.get("values") and gate.get("reason") == "missing project decision artifact":
             return {"ok": True, "persisted": False, "reason": "missing project decision artifact", "gate": gate}

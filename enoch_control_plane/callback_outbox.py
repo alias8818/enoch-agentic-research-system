@@ -153,12 +153,12 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
 
 
 def deliver_pending_file(path: str | Path, *, state_dir: str | Path, url: str, token: str, timeout: float) -> DeliveryResult:
-    pending = Path(path).expanduser()
     try:
+        pending = Path(path).expanduser()
         pending_resolved = pending.resolve(strict=False)
         outbox_resolved = outbox_dir(state_dir).resolve(strict=False)
     except Exception as exc:
-        return DeliveryResult(ok=False, detail=f"invalid callback outbox path: {type(exc).__name__}: {exc}", path=str(pending))
+        return DeliveryResult(ok=False, detail=f"invalid callback outbox path: {type(exc).__name__}: {exc}", path=str(path))
     if not _is_relative_to(pending_resolved, outbox_resolved):
         return DeliveryResult(ok=False, detail="pending callback path is outside callback outbox", path=str(pending))
     try:

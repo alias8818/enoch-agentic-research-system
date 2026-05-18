@@ -881,7 +881,10 @@ app.include_router(create_control_plane_router(config, _require_local_bearer))
 
 
 def _resolve_under_root(path_str: str, root: Path) -> Path:
-    raw = Path(path_str).expanduser()
+    try:
+        raw = Path(path_str).expanduser()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=f"path contains an unexpandable user home: {path_str}") from exc
     candidate = raw if raw.is_absolute() else root / raw
     resolved = candidate.resolve()
     root_resolved = root.expanduser().resolve()
@@ -1558,7 +1561,10 @@ def _run_dashboard_item(
         try:
             project_dir = _resolve_under_root(record.project_dir, config.expanded_project_root)
         except HTTPException:
-            project_dir = Path(record.project_dir).expanduser()
+            try:
+                project_dir = Path(record.project_dir).expanduser()
+            except RuntimeError:
+                project_dir = None
 
     latest_session = _latest_session(project_dir) if detail and project_dir is not None else None
     project_decision: ProjectDecision | None = None
