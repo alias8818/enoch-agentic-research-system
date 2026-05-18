@@ -1442,6 +1442,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         }
 
     def _record_preflight_observations(response: WorkerPreflightResponse) -> None:
+        if config.control_plane_store_backend == "supabase_readonly":
+            return
         preflight_payload = _compact_worker_preflight_payload(response.model_dump(mode="json"))
         store.upsert_dashboard_observation(
             source="worker_preflight",

@@ -3379,6 +3379,45 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(body["ok"])
             self.assertTrue(any(check["name"] == "wake_gate_healthz" for check in body["checks"]))
 
+    def test_worker_preflight_supabase_readonly_skips_observation_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "control_plane_store_backend": "supabase_readonly",
+                    "supabase_database_url": "postgres://example",
+                }
+            )
+
+            class FakeReadOnlyStore:
+                observation_attempted = False
+
+                def flags(self):
+                    from enoch_control_plane.control_plane.models import ControlFlags
+
+                    return ControlFlags(queue_paused=False, maintenance_mode=False)
+
+                def upsert_dashboard_observation(self, **_kwargs):  # noqa: ANN001 - must not be called
+                    self.observation_attempted = True
+                    raise AssertionError("read-only preflight must not write dashboard observations")
+
+            fake_store = FakeReadOnlyStore()
+            preflight = WorkerPreflightResponse(
+                ok=True,
+                target="http://worker",
+                summary="ok",
+                checks=[WorkerPreflightCheck(name="wake_gate_healthz", ok=True, detail="ok")],
+            )
+            with (
+                patch("enoch_control_plane.control_plane.router.SupabaseReadOnlyControlPlaneStore", return_value=fake_store),
+                patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=preflight),
+            ):
+                client = _client_with_config(config)
+                response = client.post("/control/worker/preflight", headers={"Authorization": f"Bearer {TOKEN}"}, json={"wake_gate_url": "http://worker"})
+
+            assert response.status_code == 200
+            assert response.json()["ok"] is True
+            assert fake_store.observation_attempted is False
+
 
     def test_live_dispatch_stays_disabled_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
