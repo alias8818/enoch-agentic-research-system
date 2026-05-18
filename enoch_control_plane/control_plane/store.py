@@ -134,8 +134,8 @@ def _contract_worker_callback_states(event_type: str, gate_state: str = "") -> t
     contract so Supabase constraints can reject accidental new workflow states.
     """
 
-    event = _text(event_type)
-    raw_gate_state = _text(gate_state)
+    event = _normal(event_type)
+    raw_gate_state = _normal(gate_state)
     if event == "session_started":
         run_state = RunState.RUNNING.value
         last_run_state = RunState.RUNNING.value
@@ -2740,7 +2740,7 @@ class ControlPlaneStore:
         payload = callback.model_dump(mode="json") if hasattr(callback, "model_dump") else dict(callback)
         run_id = _text(payload.get("run_id"))
         project_id = _text(payload.get("project_id"))
-        event_type = _text(payload.get("event_type"))
+        event_type = _normal(payload.get("event_type"))
         idempotency_key = _text(payload.get("idempotency_key"))
         if not idempotency_key:
             session_part = _text(payload.get("session_id")) or "no-session"

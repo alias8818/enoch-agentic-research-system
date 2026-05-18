@@ -948,6 +948,51 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertIsNone(run["ended_at"])
             self.assertEqual(run["last_callback_at"], row["last_callback_at"])
 
+    def test_worker_callback_normalizes_event_type_and_gate_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="callback-normalized-event-import",
+                    queue_rows=[{
+                        "project_id": "idea-normalized-callback",
+                        "project_name": "Normalized Callback",
+                        "project_dir": "idea-normalized-callback",
+                        "status": "awaiting_wake",
+                        "current_run_id": "run-normalized-callback",
+                    }],
+                    paper_rows=[],
+                )
+            )
+            store.mark_dispatch_started(
+                project_id="idea-normalized-callback",
+                run_id="run-normalized-callback",
+                session_id="session-normalized-callback",
+                dispatch_payload={"project_id": "idea-normalized-callback"},
+                requested_by="test",
+            )
+
+            event_id, inserted, row = store.record_worker_callback({
+                "event_type": "Wake Ready",
+                "run_id": "run-normalized-callback",
+                "session_id": "session-normalized-callback",
+                "project_id": "idea-normalized-callback",
+                "gate_state": "Wake Ready",
+                "reason": "worker ready",
+                "idempotency_key": "run-normalized-callback:wake-ready",
+            })
+
+            self.assertTrue(inserted)
+            self.assertIsInstance(event_id, int)
+            self.assertEqual(row["status"], "completed")
+            self.assertEqual(row["last_run_state"], "wake_ready")
+            self.assertEqual(row["next_action_hint"], "draft_paper_or_select_next_project")
+            run = store.run_row("run-normalized-callback")
+            self.assertEqual(run["state"], "wake_ready")
+            self.assertEqual(run["gate_state"], "wake_ready")
+            event = store.event_rows(limit=1, entity_type="run", entity_id="run-normalized-callback")[0]
+            self.assertEqual(event["event_type"], "worker_callback.wake_ready")
+
     def test_dispatch_started_idempotent_replay_does_not_regress_completed_queue(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
