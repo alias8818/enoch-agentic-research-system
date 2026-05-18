@@ -391,7 +391,12 @@ def _safe_local_evidence_file(project_dir: Path, path: Path) -> bool:
         current = current / part
         if current.is_symlink():
             return False
-    return path.is_file()
+    if not path.is_file():
+        return False
+    try:
+        return path.stat().st_size > 0
+    except OSError:
+        return False
 
 
 def _local_high_signal_evidence_present(project_dir: Path) -> bool:

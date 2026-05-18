@@ -160,6 +160,15 @@ def test_local_paper_evidence_rejects_symlinked_paper_and_result_files(tmp_path)
 
     assert _local_paper_evidence_present(project_dir) is False
 
+def test_local_paper_evidence_rejects_empty_high_signal_files(tmp_path) -> None:
+    project_dir = tmp_path / "project"
+    (project_dir / ".enoch").mkdir(parents=True)
+    (project_dir / "run_notes.md").write_text("", encoding="utf-8")
+    (project_dir / ".enoch" / "project_decision.json").write_text("", encoding="utf-8")
+
+    assert _local_paper_evidence_present(project_dir) is False
+
+
 def test_local_paper_evidence_requires_notes_with_result_files(tmp_path) -> None:
     project_dir = tmp_path / "project"
     (project_dir / "results").mkdir(parents=True)
