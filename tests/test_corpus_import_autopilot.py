@@ -34,7 +34,6 @@ def test_dry_run_transient_failure_retries_before_blocking(tmp_path, capsys):
         patch.dict("os.environ", {"ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT": "1", "ENOCH_CORPUS_IMPORT_SYNC_LEDGER": "0", "ENOCH_CORPUS_IMPORT_DRY_RUN_RETRIES": "2", "ENOCH_CORPUS_IMPORT_DRY_RUN_RETRY_DELAY_SEC": "0"}, clear=False),
         patch.object(autopilot, "_release_root", return_value=tmp_path),
         patch.object(autopilot, "_git_clean", return_value=True),
-        patch.object(autopilot, "_ff_only_repos", return_value=[]),
         patch.object(autopilot, "_load_config", return_value={"control_api_bearer_token": "token"}),
         patch.object(autopilot, "_base_url", return_value="http://127.0.0.1:8787"),
         patch.object(autopilot, "_run", side_effect=fake_run),
@@ -60,7 +59,6 @@ def test_dry_run_failure_redacts_control_token(tmp_path, capsys):
         patch.dict("os.environ", {"ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT": "1", "ENOCH_CORPUS_IMPORT_DRY_RUN_RETRIES": "1"}, clear=False),
         patch.object(autopilot, "_release_root", return_value=tmp_path),
         patch.object(autopilot, "_git_clean", return_value=True),
-        patch.object(autopilot, "_ff_only_repos", return_value=[]),
         patch.object(autopilot, "_load_config", return_value={"control_api_bearer_token": "super-secret-token"}),
         patch.object(autopilot, "_base_url", return_value="http://127.0.0.1:8787"),
         patch.object(autopilot, "_run", side_effect=fake_run),
@@ -98,7 +96,6 @@ def test_clean_noop_syncs_ledger_when_enabled(tmp_path, capsys):
         patch.dict("os.environ", {"ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT": "1", "ENOCH_CORPUS_IMPORT_SYNC_LEDGER": "1"}, clear=False),
         patch.object(autopilot, "_release_root", return_value=tmp_path),
         patch.object(autopilot, "_git_clean", return_value=True),
-        patch.object(autopilot, "_ff_only_repos", return_value=["enoch-docs"]),
         patch.object(autopilot, "_load_config", return_value={"control_api_bearer_token": "token"}),
         patch.object(autopilot, "_base_url", return_value="http://127.0.0.1:8787"),
         patch.object(autopilot, "_run", side_effect=fake_run),
@@ -109,7 +106,7 @@ def test_clean_noop_syncs_ledger_when_enabled(tmp_path, capsys):
     sync.assert_called_once()
     output = json.loads(capsys.readouterr().out)
     assert output["action"] == "skipped"
-    assert output["fast_forwarded"] == ["enoch-docs"]
+    assert output["fast_forwarded"] == []
     assert output["ledger_sync"] == {"ok": True, "publication_ready": 0}
 
 
@@ -123,7 +120,6 @@ def test_clean_noop_does_not_sync_ledger_without_opt_in(tmp_path, capsys):
         patch.dict("os.environ", {"ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT": "1", "ENOCH_CORPUS_IMPORT_SYNC_LEDGER": "0"}, clear=False),
         patch.object(autopilot, "_release_root", return_value=tmp_path),
         patch.object(autopilot, "_git_clean", return_value=True),
-        patch.object(autopilot, "_ff_only_repos", return_value=[]),
         patch.object(autopilot, "_load_config", return_value={"control_api_bearer_token": "token"}),
         patch.object(autopilot, "_base_url", return_value="http://127.0.0.1:8787"),
         patch.object(autopilot, "_run", return_value=CompletedProcess(["import"], 0, stdout=json.dumps(dry_payload), stderr="")),
