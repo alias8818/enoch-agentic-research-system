@@ -116,6 +116,10 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _normal(value: Any) -> str:
+    return _text(value).lower().replace("-", "_").replace(" ", "_")
+
+
 def _is_older_timestamp(incoming: Any, existing: Any) -> bool:
     incoming_dt = parse_utc_datetime(incoming)
     existing_dt = parse_utc_datetime(existing)
@@ -2169,11 +2173,12 @@ class ControlPlaneStore:
         candidates = [
             row for row in rows
             if _bool(row.get("followup_recommended"))
-            and _text(row.get("status")) == QueueStatus.COMPLETED.value
+            and _normal(row.get("status")) == QueueStatus.COMPLETED.value
             and not _bool(row.get("manual_review_required"))
             and _text(row.get("followup_title"))
             and _text(row.get("followup_hypothesis"))
             and len(_concrete_string_list(row.get("followup_required_evidence"))) >= 2
+            and _normal(row.get("followup_type")) in {"deepen", "branch", "retry"}
             and _text(row.get("followup_success_threshold"))
             and _text(row.get("followup_stop_condition"))
             and _int(row.get("followup_depth"), 0) < max_followup_depth
@@ -2183,7 +2188,7 @@ class ControlPlaneStore:
         ]
         candidates.sort(
             key=lambda row: (
-                1 if _text(row.get("research_outcome")) in {"useful_signal", "paper_positive"} else 0,
+                1 if _normal(row.get("research_outcome")) in {"useful_signal", "paper_positive"} else 0,
                 _text(row.get("updated_at")),
             ),
             reverse=True,
@@ -2203,7 +2208,7 @@ class ControlPlaneStore:
             "parent_project_id": _text(candidate.get("project_id")),
             "parent_run_id": _text(candidate.get("current_run_id")),
             "followup_depth": _int(candidate.get("followup_depth"), 0) + 1,
-            "followup_type": _text(candidate.get("followup_type")),
+            "followup_type": _normal(candidate.get("followup_type")),
             "followup_hypothesis": _text(candidate.get("followup_hypothesis")),
             "followup_required_evidence": _concrete_string_list(candidate.get("followup_required_evidence")),
             "followup_success_threshold": _text(candidate.get("followup_success_threshold")),

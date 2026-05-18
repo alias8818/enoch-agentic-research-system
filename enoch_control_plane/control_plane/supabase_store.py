@@ -3502,6 +3502,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 ) as evidence(item)
                 where btrim(evidence.item) <> ''
             ) >= 2""",
+            "lower(replace(replace(coalesce(pe.followup_type, ''), '-', '_'), ' ', '_')) in ('deepen', 'branch', 'retry')",
             "coalesce(pe.followup_success_threshold, '') <> ''",
             "coalesce(pe.followup_stop_condition, '') <> ''",
             "greatest(coalesce(pe.followup_depth, 0), case when coalesce(i.source_payload_json->>'followup_depth', '') ~ '^[0-9]+$' then (i.source_payload_json->>'followup_depth')::integer when coalesce(i.source_payload_json->>'parent_followup_depth', '') ~ '^[0-9]+$' then (i.source_payload_json->>'parent_followup_depth')::integer else 0 end) < %s",
@@ -3517,7 +3518,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "left join paper_eligibility pe on pe.project_id = q.project_id "
             + "where "
             + " and ".join(clauses)
-            + " order by case when coalesce(pe.research_outcome, '') in ('useful_signal', 'paper_positive') then 0 else 1 end, q.updated_at desc limit 1",
+            + " order by case when lower(replace(replace(coalesce(pe.research_outcome, ''), '-', '_'), ' ', '_')) in ('useful_signal', 'paper_positive') then 0 else 1 end, q.updated_at desc limit 1",
             params,
         )
         return rows[0] if rows else None
@@ -3537,7 +3538,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "parent_project_id": parent_id,
             "parent_run_id": _text(candidate.get("current_run_id")),
             "followup_depth": depth,
-            "followup_type": _text(candidate.get("followup_type")),
+            "followup_type": _text(candidate.get("followup_type")).lower().replace("-", "_").replace(" ", "_"),
             "followup_hypothesis": hypothesis,
             "followup_required_evidence": _followup_required_evidence_items(candidate),
             "followup_success_threshold": _text(candidate.get("followup_success_threshold")),

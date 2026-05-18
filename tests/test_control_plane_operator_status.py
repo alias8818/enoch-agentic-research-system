@@ -118,6 +118,45 @@ class OperatorStatusTests(unittest.TestCase):
                 self.assertEqual(translated["operator_detail_stage"], detail_stage)
                 self.assertIs(translated["operator_attention"], attention)
 
+    def test_operator_stage_normalizes_status_like_fields(self) -> None:
+        cases = [
+            ({"status": "Queued"}, "ready_queue", "idea_queued"),
+            ({"status": "Awaiting Wake"}, "running", "running"),
+            (
+                {
+                    "status": "Completed",
+                    "last_run_state": "Wake Ready",
+                    "next_action_hint": "Draft Paper Or Select Next Project",
+                },
+                "complete_no_paper",
+                "run_complete_no_paper",
+            ),
+            (
+                {
+                    "paper_id": "paper-2",
+                    "paper_status": "Publication Draft",
+                    "review_status": "Finalized",
+                    "finalization_package_path": "package.json",
+                    "draft_markdown_path": "paper.md",
+                    "evidence_bundle_path": "evidence.json",
+                    "claim_ledger_path": "claims.json",
+                    "manifest_path": "manifest.json",
+                },
+                "ready_to_publish",
+                "ready_to_publish",
+            ),
+            (
+                {"paper_id": "paper-archived", "paper_status": "Archived"},
+                "complete_no_paper",
+                "run_complete_no_paper",
+            ),
+        ]
+        for row, lane, detail_stage in cases:
+            with self.subTest(row=row):
+                translated = operator_stage_for_record(row)
+                self.assertEqual(translated["operator_stage"], lane)
+                self.assertEqual(translated["operator_detail_stage"], detail_stage)
+
 
     def test_row_age_seconds_handles_naive_database_timestamps(self) -> None:
         age = row_age_seconds({"updated_at": "2026-05-17 13:25:57.966354"})

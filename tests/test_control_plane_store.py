@@ -119,6 +119,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
                 "manual_review_required": False,
                 "followup_recommended": True,
                 "followup_title": "Medium follow-up",
+                "followup_type": "branch",
                 "followup_hypothesis": "The signal holds at medium scale.",
                 "followup_success_threshold": "Beat the baseline.",
                 "followup_stop_condition": "Stop on regression.",
@@ -140,6 +141,38 @@ class ControlPlaneStoreTests(unittest.TestCase):
             concrete = dict(base, followup_required_evidence=["metric", "ablation"])
             store.operator_queue_rows_sql = lambda: [concrete]  # type: ignore[method-assign]
             self.assertEqual(store.next_followup_candidate()["project_id"], "parent")
+
+    def test_next_followup_candidate_requires_valid_normalized_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            base = {
+                "project_id": "parent",
+                "project_name": "Parent",
+                "status": "completed",
+                "manual_review_required": False,
+                "followup_recommended": True,
+                "followup_title": "Medium follow-up",
+                "followup_type": "branch",
+                "followup_hypothesis": "The signal holds at medium scale.",
+                "followup_required_evidence": ["metric", "ablation"],
+                "followup_success_threshold": "Beat the baseline.",
+                "followup_stop_condition": "Stop on regression.",
+                "followup_depth": 1,
+                "compute_scale_blocked": False,
+                "followup_launched": False,
+                "updated_at": "2026-05-17T00:00:00Z",
+            }
+
+            invalid_type = dict(base, followup_type="explore")
+            store.operator_queue_rows_sql = lambda: [invalid_type]  # type: ignore[method-assign]
+            self.assertIsNone(store.next_followup_candidate())
+            self.assertEqual(store.launch_followup_candidate(dry_run=True)["action"], "noop")
+
+            normalized_type = dict(base, followup_type="Branch")
+            store.operator_queue_rows_sql = lambda: [normalized_type]  # type: ignore[method-assign]
+            candidate = store.next_followup_candidate()
+            self.assertIsNotNone(candidate)
+            self.assertEqual(candidate["project_id"], "parent")
 
     def test_import_snapshot_defaults_missing_origin_status_to_unknown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1439,6 +1472,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
                 "manual_review_required": False,
                 "followup_recommended": True,
                 "followup_title": "Atomic Followup Branch",
+                "followup_type": "branch",
                 "followup_hypothesis": "The signal survives a branch test.",
                 "followup_required_evidence": ["direct metric", "ablation"],
                 "followup_success_threshold": "Beat the baseline.",

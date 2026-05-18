@@ -415,11 +415,11 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     polarity; paper polarity is decided by artifacts/review state.
     """
 
-    queue_status = _text(row.get("status") or row.get("queue_status"))
-    last_run_state = _text(row.get("last_run_state") or row.get("state") or row.get("gate_state"))
-    next_action = _text(row.get("next_action_hint"))
-    paper_status = _text(row.get("paper_status") or row.get("related_paper_status"))
-    review_status = _text(row.get("review_status") or row.get("related_review_status"))
+    queue_status = _normal(row.get("status") or row.get("queue_status"))
+    last_run_state = _normal(row.get("last_run_state") or row.get("state") or row.get("gate_state"))
+    next_action = _normal(row.get("next_action_hint"))
+    paper_status = _normal(row.get("paper_status") or row.get("related_paper_status"))
+    review_status = _normal(row.get("review_status") or row.get("related_review_status"))
     has_paper = bool(_text(row.get("paper_id") or row.get("related_paper_id")) or paper_status)
     manual_review = bool(row.get("manual_review_required"))
 
