@@ -1916,6 +1916,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         request_payload = payload or {}
         dry_run = bool(request_payload.get("dry_run", True))
         requested_by = str(request_payload.get("requested_by") or "operator")
+        if not dry_run:
+            _require_writable_store("queue alert live check")
         status = dashboard_status_response(refresh_worker=bool(request_payload.get("refresh_worker", False)))
         auto_reconcile: list[dict[str, Any]] = []
         if not dry_run:

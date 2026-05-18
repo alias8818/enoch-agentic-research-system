@@ -2935,6 +2935,35 @@ class ControlPlaneRouterTests(unittest.TestCase):
             events = [event for event in snapshot["events"] if event["event_type"] == "paper.evidence_sync_blocked"]
             self.assertEqual(len(events), 1)
 
+    def test_queue_alert_live_check_rejects_supabase_readonly_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "control_plane_store_backend": "supabase_readonly",
+                    "supabase_database_url": "postgres://example",
+                }
+            )
+
+            class FakeReadOnlyStore:
+                append_attempted = False
+
+                def append_event(self, **_kwargs):  # noqa: ANN001 - must not be called
+                    self.append_attempted = True
+                    raise AssertionError("read-only queue alert must reject before mutation")
+
+            fake_store = FakeReadOnlyStore()
+            with patch("enoch_control_plane.control_plane.router.SupabaseReadOnlyControlPlaneStore", return_value=fake_store):
+                client = _client_with_config(config)
+                response = client.post(
+                    "/control/api/alerts/queue-check",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    json={"dry_run": False, "requested_by": "test"},
+                )
+
+            assert response.status_code == 501
+            assert "writable control-plane store" in response.text
+            assert fake_store.append_attempted is False
+
     def test_worker_callback_clears_active_lane(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client_with_config(_live_config(tmp))
