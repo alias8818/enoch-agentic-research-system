@@ -180,6 +180,25 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(store.recent_events(10), [])
             self.assertIsNone(store.queue_row("project-1"))
 
+    def test_import_snapshot_rejects_conflicting_rows_inside_snapshot_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            request = ImportSnapshotRequest(
+                idempotency_key="import-conflicting-queue-snapshot",
+                queue_snapshot={
+                    "rows": [
+                        {"project_id": "project-1", "project_name": "Project One", "status": "queued"},
+                        {"project_id": "project-1", "project_name": "Project One", "status": "running"},
+                    ]
+                },
+            )
+
+            with self.assertRaisesRegex(ValueError, "conflicting snapshot row"):
+                store.import_snapshot(request)
+
+            self.assertEqual(store.recent_events(10), [])
+            self.assertIsNone(store.queue_row("project-1"))
+
     def test_import_snapshot_rejects_conflicting_duplicate_paper_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

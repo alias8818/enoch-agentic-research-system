@@ -159,7 +159,7 @@ def _snapshot_rows(snapshot: dict[str, Any] | list[dict[str, Any]] | None, *, pa
         return []
     keys = ("latest_rows", "rows", "active_rows", "blocked_rows") if paper else ("rows", "active_rows", "blocked_rows")
     rows: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    seen: dict[str, str] = {}
     for key in keys:
         value = snapshot.get(key)
         if not isinstance(value, list):
@@ -169,8 +169,10 @@ def _snapshot_rows(snapshot: dict[str, Any] | list[dict[str, Any]] | None, *, pa
                 continue
             row_key = _text(row.get("paper_id") if paper else row.get("project_id")) or _hash(row)
             if row_key in seen:
+                if seen[row_key] != _json(row):
+                    raise ValueError(f"conflicting snapshot row identity for {row_key!r}")
                 continue
-            seen.add(row_key)
+            seen[row_key] = _json(row)
             rows.append(row)
     return rows
 
