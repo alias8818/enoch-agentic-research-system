@@ -1873,11 +1873,16 @@ def dashboard_api_paper_artifact(
     artifact_path = _resolve_project_relative_path(project_dir, path)
     if not artifact_path.exists() or not artifact_path.is_file():
         raise HTTPException(status_code=404, detail=f"paper artifact not found: {path}")
-    size = artifact_path.stat().st_size
+    try:
+        size = artifact_path.stat().st_size
+    except OSError as exc:
+        raise HTTPException(status_code=403, detail=f"paper artifact is not readable: {path}") from exc
     if size > max_bytes:
         raise HTTPException(status_code=413, detail=f"paper artifact too large for dashboard preview: {path}")
     try:
         content = artifact_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(status_code=403, detail=f"paper artifact is not readable: {path}") from exc
     except UnicodeDecodeError as exc:
         raise HTTPException(status_code=415, detail=f"paper artifact is not UTF-8 text: {path}") from exc
     return {
@@ -2141,11 +2146,16 @@ async def read_project_paper(
         path = _resolve_project_relative_path(project_dir, relative)
         if not path.exists() or not path.is_file():
             raise HTTPException(status_code=404, detail=f"paper artifact not found: {relative}")
-        size = path.stat().st_size
+        try:
+            size = path.stat().st_size
+        except OSError as exc:
+            raise HTTPException(status_code=403, detail=f"paper artifact is not readable: {relative}") from exc
         if size > request.max_bytes_per_file:
             raise HTTPException(status_code=413, detail=f"paper artifact too large to read: {relative}")
         try:
             content = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise HTTPException(status_code=403, detail=f"paper artifact is not readable: {relative}") from exc
         except UnicodeDecodeError as exc:
             raise HTTPException(status_code=415, detail=f"paper artifact is not UTF-8 text: {relative}") from exc
         files.append({"path": path.relative_to(project_dir).as_posix(), "bytes": size, "content": content})

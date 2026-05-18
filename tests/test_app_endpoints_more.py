@@ -428,6 +428,36 @@ def test_misc_endpoint_error_branches(tmp_path: Path, monkeypatch) -> None:
     binary.write_bytes(b"\xff\xfe")
     assert client.post("/project-paper/project-a/read", headers=headers, json={"paths": ["binary.md"]}).status_code == 415
 
+    unreadable = project / "unreadable.md"
+    unreadable.write_text("secret", encoding="utf-8")
+    real_read_text = appmod.Path.read_text
+
+    def blocked_read_text(path, *args, **kwargs):  # noqa: ANN001 - monkeypatch-compatible Path method
+        if path == unreadable:
+            raise PermissionError("simulated unreadable paper artifact")
+        return real_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(appmod.Path, "read_text", blocked_read_text)
+    unreadable_response = client.post("/project-paper/project-a/read", headers=headers, json={"paths": ["unreadable.md"]})
+    assert unreadable_response.status_code == 403
+
+    monkeypatch.setattr(appmod.Path, "read_text", real_read_text)
+    real_stat = appmod.Path.stat
+
+    def blocked_stat(path, *args, **kwargs):  # noqa: ANN001 - monkeypatch-compatible Path method
+        if path == unreadable:
+            raise PermissionError("simulated unreadable paper artifact stat")
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(appmod.Path, "stat", blocked_stat)
+    unreadable_preview = client.get(f"/dashboard/api/paper-artifact/project-a?token={token}&path=unreadable.md")
+    assert unreadable_preview.status_code == 403
+
+    monkeypatch.setattr(appmod.Path, "stat", real_stat)
+    monkeypatch.setattr(appmod.Path, "read_text", blocked_read_text)
+    unreadable_preview_body = client.get(f"/dashboard/api/paper-artifact/project-a?token={token}&path=unreadable.md")
+    assert unreadable_preview_body.status_code == 403
+
     assert client.post("/project-paper/missing", headers=headers, json={"run_id": "run", "paper_id": "paper", "files": []}).status_code == 404
     assert client.post("/project-paper/project-a", headers=headers, json={"run_id": "run", "paper_id": "paper", "files": [{"path": f"p{i}.md", "content": "x"} for i in range(21)]}).status_code == 400
     assert client.post("/project-paper/project-a", headers=headers, json={"run_id": "run", "paper_id": "paper", "files": [{"path": "too-big.md", "content": "x" * 2_000_001}]}).status_code == 413
