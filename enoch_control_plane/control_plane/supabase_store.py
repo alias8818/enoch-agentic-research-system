@@ -47,6 +47,7 @@ from .store import (
     _contract_worker_callback_states,
     _default_review_checklist,
     _expanduser_or_none,
+    _existing_file_snapshot,
     _first_present,
     _hash,
     _idea_id,
@@ -2307,8 +2308,10 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         }
         if request.dry_run:
             return None, False, self.paper_review_row(paper_id) or {}, str(package_path), manifest
-        previous_manifest_exists = package_path.exists()
-        previous_manifest_content = package_path.read_bytes() if previous_manifest_exists and package_path.is_file() else b""
+        previous_manifest_exists, previous_manifest_content = _existing_file_snapshot(
+            package_path,
+            label="finalization package manifest",
+        )
         _atomic_write_text(package_path, _json(manifest))
         try:
             with self._connect() as conn:

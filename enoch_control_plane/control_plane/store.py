@@ -98,8 +98,25 @@ def _restore_or_remove_path(path: Path, *, existed: bool, content: bytes) -> Non
     try:
         if path.exists():
             path.unlink()
-    except OSError:
+    except (OSError, RuntimeError, ValueError):
         pass
+
+
+def _existing_file_snapshot(path: Path, *, label: str) -> tuple[bool, bytes]:
+    try:
+        exists = path.exists()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError(f"could not inspect existing {label}: {path}") from exc
+    if not exists:
+        return False, b""
+    try:
+        if not path.is_file():
+            raise ValueError(f"existing {label} is not a file: {path}")
+        return True, path.read_bytes()
+    except ValueError:
+        raise
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(f"could not read existing {label}: {path}") from exc
 
 
 def _hash(payload: Any) -> str:
@@ -1808,8 +1825,10 @@ class ControlPlaneStore:
         }
         if request.dry_run:
             return None, False, self.paper_review_row(paper_id) or {}, str(package_path), manifest
-        previous_manifest_exists = package_path.exists()
-        previous_manifest_content = package_path.read_bytes() if previous_manifest_exists and package_path.is_file() else b""
+        previous_manifest_exists, previous_manifest_content = _existing_file_snapshot(
+            package_path,
+            label="finalization package manifest",
+        )
         _atomic_write_text(package_path, _json(manifest))
         try:
             with self._connect() as conn:

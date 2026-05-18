@@ -19,7 +19,7 @@ from enoch_control_plane.control_plane.models import (
     PaperReviewStatusUpdateRequest,
     PaperStatus,
 )
-from enoch_control_plane.control_plane.store import ControlPlaneStore
+from enoch_control_plane.control_plane.store import ControlPlaneStore, _existing_file_snapshot
 from enoch_control_plane.enoch_core.store import IdempotencyConflict
 
 
@@ -2375,6 +2375,37 @@ class ControlPlaneStoreTests(unittest.TestCase):
 
             with unittest.mock.patch.object(Path, "exists", blocked_exists):
                 self.assertEqual(store._load_manifest(str(manifest_path)), {})
+
+    def test_existing_file_snapshot_fails_closed_on_access_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "manifest.json"
+            manifest_path.write_text('{"ok": true}', encoding="utf-8")
+            real_exists = Path.exists
+
+            def blocked_exists(path: Path) -> bool:
+                if path == manifest_path:
+                    raise PermissionError("simulated manifest inspect failure")
+                return real_exists(path)
+
+            with unittest.mock.patch.object(Path, "exists", blocked_exists):
+                with self.assertRaisesRegex(ValueError, "could not inspect existing finalization package manifest"):
+                    _existing_file_snapshot(manifest_path, label="finalization package manifest")
+
+            real_read_bytes = Path.read_bytes
+
+            def blocked_read_bytes(path: Path) -> bytes:
+                if path == manifest_path:
+                    raise PermissionError("simulated manifest read failure")
+                return real_read_bytes(path)
+
+            with unittest.mock.patch.object(Path, "read_bytes", blocked_read_bytes):
+                with self.assertRaisesRegex(ValueError, "could not read existing finalization package manifest"):
+                    _existing_file_snapshot(manifest_path, label="finalization package manifest")
+
+            directory_path = Path(tmp) / "package-dir"
+            directory_path.mkdir()
+            with self.assertRaisesRegex(ValueError, "existing finalization package manifest is not a file"):
+                _existing_file_snapshot(directory_path, label="finalization package manifest")
 
     def test_prepare_finalization_package_rejects_empty_evidence_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
