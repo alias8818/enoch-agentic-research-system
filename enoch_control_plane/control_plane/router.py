@@ -2966,11 +2966,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         ) if project_dir_text else None
         path = _expanduser_path_or_http(raw_path, detail="paper artifact path contains an unexpandable user home")
         resolved = path if path.is_absolute() else ((project_dir / path) if project_dir else path)
-        resolved = resolved.resolve()
+        try:
+            resolved = resolved.resolve()
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="paper artifact path could not be resolved") from exc
         if project_dir is not None:
             try:
                 resolved.relative_to(project_dir.resolve())
-            except ValueError as exc:
+            except (OSError, RuntimeError, ValueError) as exc:
                 raise HTTPException(status_code=400, detail="paper artifact path escapes project directory") from exc
         if not resolved.exists() or not resolved.is_file():
             raise HTTPException(status_code=404, detail=f"paper artifact is not readable: {field}")

@@ -4897,6 +4897,31 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertNotEqual(artifact.status_code, 200)
             self.assertNotIn("Outside Artifact", artifact.text)
 
+    def test_paper_artifact_endpoint_rejects_invalid_artifact_path_without_500(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+
+            paper_id = "artifact-invalid-path:run-invalid:arxiv_draft"
+            response = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "artifact-invalid-path-import",
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": "artifact-invalid-path",
+                    "run_id": "run-invalid",
+                    "project_dir": "artifact-invalid-path",
+                    "paper_status": "publication_draft",
+                    "draft_markdown_path": "bad\0paper.md",
+                }],
+            })
+            self.assertEqual(response.status_code, 200)
+
+            artifact = client.get(f"/control/api/papers/{paper_id}/artifact/draft_markdown_path", headers=headers)
+
+            self.assertIn(artifact.status_code, {400, 404})
+            self.assertNotEqual(artifact.status_code, 500)
+
 
     def test_paper_review_rewrite_event_failure_restores_state_and_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
