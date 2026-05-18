@@ -135,6 +135,22 @@ def _safe_public_evidence_path(rel_path: Path) -> str:
     return str(Path(EVIDENCE_PUBLIC_DIR, *safe_parts))
 
 
+def _dedupe_public_evidence_path(public_path: str, used_paths: set[str], source_sha256: str) -> str:
+    if public_path not in used_paths:
+        used_paths.add(public_path)
+        return public_path
+    raw = Path(public_path)
+    stem = raw.stem or "artifact"
+    suffix = raw.suffix
+    digest = (source_sha256 or _sha256_text(public_path))[:12]
+    for index in range(1, 1000):
+        candidate = str(raw.with_name(f"{stem}-{digest}-{index}{suffix}"))
+        if candidate not in used_paths:
+            used_paths.add(candidate)
+            return candidate
+    raise HTTPException(status_code=500, detail=f"could not allocate unique public evidence path for {public_path}")
+
+
 def _iter_source_evidence_files(project_dir: Path) -> list[Path]:
     candidates: list[Path] = []
     explicit = [
@@ -238,10 +254,11 @@ def _build_evidence_bundle_data(
     inventory: list[dict[str, Any]] = []
     public_files: list[dict[str, Any]] = []
     metric_summaries: list[dict[str, Any]] = []
+    used_public_paths: set[str] = set()
     for path in source_files:
         rel_path = str(path.relative_to(project_dir))
         public_content, byte_size, source_sha256, truncated = _read_evidence_preview(path)
-        public_path = _safe_public_evidence_path(Path(rel_path))
+        public_path = _dedupe_public_evidence_path(_safe_public_evidence_path(Path(rel_path)), used_public_paths, source_sha256)
         entry = {
             "source_path": rel_path,
             "public_path": public_path,

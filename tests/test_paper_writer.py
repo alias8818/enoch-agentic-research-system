@@ -64,6 +64,23 @@ class PaperWriterTests(unittest.TestCase):
             self.assertTrue(ledger["claims"])
             self.assertTrue(ledger["claims"][0]["evidence_refs"])
 
+    def test_evidence_bundle_public_paths_are_unique_after_sanitization(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            (project / "run_notes.md").write_text("Measured result exists.\n", encoding="utf-8")
+            results = project / "results"
+            results.mkdir()
+            (results / "a?b.json").write_text('{"metric":1}\n', encoding="utf-8")
+            (results / "a*b.json").write_text('{"metric":2}\n', encoding="utf-8")
+
+            write_paper_artifacts(self._config(tmp), {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"}, self._paper(), force=True)
+
+            evidence = json.loads((project / "papers/run/evidence.json").read_text(encoding="utf-8"))
+            paths = [item["path"] for item in evidence["public_evidence_files"]]
+            assert len(paths) == len(set(paths))
+
+
     def test_evidence_bundle_redacts_secret_like_tokens_from_public_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "projects" / "idea"
