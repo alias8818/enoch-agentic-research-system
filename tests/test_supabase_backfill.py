@@ -132,3 +132,12 @@ def test_backfill_project_decision_conflict_update_is_decided_at_guarded() -> No
     source = inspect.getsource(backfill_control_plane_to_supabase.import_sqlite_to_postgres)
 
     assert "where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at" in source
+
+
+def test_backfill_control_events_are_append_only_on_idempotency_conflict() -> None:
+    source = inspect.getsource(backfill_control_plane_to_supabase.import_sqlite_to_postgres).lower()
+    event_insert = source[source.index("insert into control_events(idempotency_key") :]
+    event_insert = event_insert[: event_insert.index('imported["operator_observations"]')]
+
+    assert "on conflict (idempotency_key) do nothing" in event_insert
+    assert "on conflict (idempotency_key) do update" not in event_insert

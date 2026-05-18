@@ -562,9 +562,7 @@ def import_sqlite_to_postgres(
                 """
                 insert into control_events(idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash, created_at)
                 values (%s,%s,%s,%s,%s::jsonb,%s,%s)
-                on conflict (idempotency_key) do update set
-                  event_type=excluded.event_type, entity_type=excluded.entity_type, entity_id=excluded.entity_id,
-                  payload_json=excluded.payload_json, payload_hash=excluded.payload_hash, created_at=excluded.created_at
+                on conflict (idempotency_key) do nothing
                 """,
                 (
                     (
