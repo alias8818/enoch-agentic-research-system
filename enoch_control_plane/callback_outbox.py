@@ -219,12 +219,16 @@ def main(argv: list[str] | None = None) -> int:
     deliver.add_argument("--state-dir", required=True)
     deliver.add_argument("--run-id", required=True)
     deliver.add_argument("--url", required=True)
-    deliver.add_argument("--token", required=True)
+    deliver_token = deliver.add_mutually_exclusive_group(required=True)
+    deliver_token.add_argument("--token")
+    deliver_token.add_argument("--token-stdin", action="store_true", help="read bearer token from stdin instead of argv")
     deliver.add_argument("--timeout", type=float, default=30.0)
     replay = sub.add_parser("replay")
     replay.add_argument("--state-dir", required=True)
     replay.add_argument("--url", required=True)
-    replay.add_argument("--token", required=True)
+    replay_token = replay.add_mutually_exclusive_group(required=True)
+    replay_token.add_argument("--token")
+    replay_token.add_argument("--token-stdin", action="store_true", help="read bearer token from stdin instead of argv")
     replay.add_argument("--timeout", type=float, default=30.0)
     replay.add_argument("--limit", type=int, default=20)
     args = parser.parse_args(argv)
@@ -235,11 +239,13 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"ok": True, "path": str(path)}, sort_keys=True))
         return 0
     if args.cmd == "deliver":
-        result = deliver_pending_file(pending_path(args.state_dir, args.run_id), state_dir=args.state_dir, url=args.url, token=args.token, timeout=args.timeout)
+        token = sys.stdin.read().rstrip("\r\n") if args.token_stdin else args.token
+        result = deliver_pending_file(pending_path(args.state_dir, args.run_id), state_dir=args.state_dir, url=args.url, token=token, timeout=args.timeout)
         print(json.dumps(result.__dict__, sort_keys=True))
         return 0 if result.ok else 1
     if args.cmd == "replay":
-        results = replay_pending(state_dir=args.state_dir, url=args.url, token=args.token, timeout=args.timeout, limit=args.limit)
+        token = sys.stdin.read().rstrip("\r\n") if args.token_stdin else args.token
+        results = replay_pending(state_dir=args.state_dir, url=args.url, token=token, timeout=args.timeout, limit=args.limit)
         print(json.dumps({"ok": all(r.ok for r in results), "results": [r.__dict__ for r in results]}, sort_keys=True))
         return 0 if all(r.ok for r in results) else 1
     return 2

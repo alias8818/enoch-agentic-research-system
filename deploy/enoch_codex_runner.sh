@@ -42,9 +42,19 @@ case "$MODE" in
   *) echo "invalid --mode: $MODE" >&2; exit 2 ;;
 esac
 
+CALLBACK_URL="${ENOCH_COMPLETION_CALLBACK_URL:-}"
+CALLBACK_TOKEN="${ENOCH_COMPLETION_CALLBACK_TOKEN:-}"
+CALLBACK_TIMEOUT="${ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC:-120}"
+WORKER_STATE_DIR="${ENOCH_WORKER_STATE_DIR:-$PROJECT_DIR/.enoch/state}"
+# Keep callback credentials out of the untrusted Codex/tool environment.
+unset ENOCH_COMPLETION_CALLBACK_URL ENOCH_COMPLETION_CALLBACK_TOKEN ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC
+
 mkdir -p "$PROJECT_DIR/.enoch/logs" "$PROJECT_DIR/.enoch/state" "$PROJECT_DIR/.omx/logs" "$PROJECT_DIR/.omx/state"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+callback_outbox() {
+  (cd "$REPO_ROOT" && PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}" python3 -m enoch_control_plane.callback_outbox "$@")
+}
 cd "$PROJECT_DIR"
 
 export ENOCH_RUN_ID="$RUN_ID"
@@ -158,10 +168,6 @@ if [[ -f "$PROJECT_DIR/.enoch/metrics.json" && ! -f "$PROJECT_DIR/.omx/metrics.j
   cp "$PROJECT_DIR/.enoch/metrics.json" "$PROJECT_DIR/.omx/metrics.json"
 fi
 
-CALLBACK_URL="${ENOCH_COMPLETION_CALLBACK_URL:-}"
-CALLBACK_TOKEN="${ENOCH_COMPLETION_CALLBACK_TOKEN:-}"
-CALLBACK_TIMEOUT="${ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC:-120}"
-WORKER_STATE_DIR="${ENOCH_WORKER_STATE_DIR:-$PROJECT_DIR/.enoch/state}"
 CALLBACK_EVENT="wake_ready"
 CALLBACK_GATE="wake_ready"
 CALLBACK_REASON="codex runner completed"
@@ -207,8 +213,8 @@ path = pathlib.Path(payload_file)
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY_CALLBACK_PAYLOAD
-  python3 -m enoch_control_plane.callback_outbox write --state-dir "$WORKER_STATE_DIR" --payload-file "$CALLBACK_PAYLOAD_FILE" >/dev/null
-  if python3 -m enoch_control_plane.callback_outbox deliver --state-dir "$WORKER_STATE_DIR" --run-id "$RUN_ID" --url "$CALLBACK_URL" --token "$CALLBACK_TOKEN" --timeout "$CALLBACK_TIMEOUT"; then
+  callback_outbox write --state-dir "$WORKER_STATE_DIR" --payload-file "$CALLBACK_PAYLOAD_FILE" >/dev/null
+  if printf '%s' "$CALLBACK_TOKEN" | callback_outbox deliver --state-dir "$WORKER_STATE_DIR" --run-id "$RUN_ID" --url "$CALLBACK_URL" --token-stdin --timeout "$CALLBACK_TIMEOUT"; then
     true
   else
     echo "callback delivery failed; durable callback outbox will retry: $WORKER_STATE_DIR/callback_outbox/${RUN_ID}.json" >&2
