@@ -81,7 +81,7 @@ def render(*, live: dict[str, dict[str, int]]) -> str:
             "1. `write_paper` is only derived from positive project decisions with no existing paper.",
             "2. `wake_ready` and `session_finished_ready` are delivery signals, not positive/negative outcomes.",
             "3. Negative, unknown, malformed, missing, or ambiguous project decisions map to `complete_no_paper`, not paper work.",
-            "4. Publication readiness is `publication_draft` plus finalized publication automation package.",
+            "4. Publication readiness is `publication_draft` plus required evidence paths and finalized publication automation package.",
             "5. Review/approval-like paper terms are compatibility/internal only; users see publication automation or artifact inspection.",
             "6. Idea/project source status is provenance. Runtime execution state lives in `queue_items`.",
             "",

@@ -61,7 +61,7 @@ the pushed repo and should not be treated as current truth.
 | Compute-scale blocked? | `investigation_pipeline.compute_scale_blocked` / `compute_scale_blocked` | Promising signal parked because the next validation exceeds local compute or time limits. |
 | What can be written? | `paper_pipeline.write_needed` | Decision-gated positive paper work only. |
 | Needs another investigation? | `investigation_pipeline.followup_needed` | No-paper row with concrete bounded follow-up metadata. Useful-signal follow-ups are prioritized when bounded and cheap. |
-| What can be published? | `paper_pipeline.publish_ready` | Finalized package missing corpus import ledger. |
+| What can be published? | `paper_pipeline.publish_ready` | Required evidence paths and finalized package exist; corpus import ledger is missing. |
 | What is done/no paper? | `complete_no_paper` | Completed worker delivery that is not paper-positive. |
 
 Raw states such as `wake_ready`, `draft_review`, `approved_for_corpus`, and `callback_pending` are debugging evidence. They are not the operator workflow.

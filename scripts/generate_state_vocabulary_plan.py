@@ -72,7 +72,7 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
                     "needed": "Paper-positive work has no draft yet.",
                     "drafting": "Draft generation is running.",
                     "finalizing": "Automated rewrite/finalization/package work is pending or running.",
-                    "ready_to_publish": "Finalization package exists and corpus-import ledger is missing.",
+                    "ready_to_publish": "Required evidence paths and finalization package exist, and corpus-import ledger is missing.",
                     "published": "Corpus import ledger represents the publication.",
                     "blocked": "Publication automation has a real blocker.",
                     "archived": "Terminal no-publication/no-action paper artifact.",

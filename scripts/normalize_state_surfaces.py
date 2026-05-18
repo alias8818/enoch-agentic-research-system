@@ -30,7 +30,7 @@ NORMALIZATION_STATEMENTS: tuple[dict[str, str], ...] = (
           and a.automation_status = 'finalized'
           and coalesce(a.finalization_package_path, '') <> ''
         """,
-        "reason": "finalized automation package, not paper_status, is the ready-to-publish proof; collapse legacy first-draft rows",
+        "reason": "required evidence paths plus finalized automation package, not paper_status, are the ready-to-publish proof; collapse legacy first-draft rows",
     },
     {
         "name": "legacy_project_decision_needs_review_to_unknown",

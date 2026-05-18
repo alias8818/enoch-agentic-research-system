@@ -467,7 +467,7 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
             tone="good",
             attention=False,
             next_step="Import this finalized publication draft into the public corpus.",
-            explanation="Publication artifacts have a finalized automation package and no corpus-import ledger row is visible.",
+            explanation="Publication artifacts have required evidence paths, a finalized automation package, and no corpus-import ledger row is visible.",
         )
     if paper_status == PaperStatus.PUBLICATION_DRAFT.value:
         return _stage(
@@ -1083,10 +1083,10 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
             "raw_completed_no_paper_candidates": "completed no-paper rows before checking local project decision artifacts",
             "not_writable_by_decision_gate": "completed no-paper rows rejected by local project decision artifacts as negative, ambiguous, or otherwise non-positive",
             "finalize_needed": "publication drafts missing automated finalization package",
-            "publish_ready": "finalized publication drafts that are missing a corpus-import ledger row",
+            "publish_ready": "finalized publication drafts with required evidence paths that are missing a corpus-import ledger row",
             "missing_from_corpus": "same as publish_ready; actionable corpus import work only",
             "published_imported": "papers represented by the corpus-import ledger",
-            "publication_ready_total": "finalized publication drafts whether already imported or still missing corpus import",
+            "publication_ready_total": "finalized publication drafts with required evidence paths, whether already imported or still missing corpus import",
         },
     }
     if batched_parts is not None:

@@ -58,7 +58,7 @@ This plan reduces operator and agent reasoning to small domain vocabularies whil
 | `needed` | Paper-positive work has no draft yet. |
 | `drafting` | Draft generation is running. |
 | `finalizing` | Automated rewrite/finalization/package work is pending or running. |
-| `ready_to_publish` | Finalization package exists and corpus-import ledger is missing. |
+| `ready_to_publish` | Required evidence paths and finalization package exist, and corpus-import ledger is missing. |
 | `published` | Corpus import ledger represents the publication. |
 | `blocked` | Publication automation has a real blocker. |
 | `archived` | Terminal no-publication/no-action paper artifact. |
@@ -143,7 +143,7 @@ This plan reduces operator and agent reasoning to small domain vocabularies whil
 | Papers | `papers.paper_status` | `eligible` | `needed` | `retire` | draft_generating | no | `write_paper` | paper eligibility now lives in paper_eligibility/write_needed |
 | Papers | `papers.paper_status` | `finalized` | `ready_to_publish` | `retire` | publication_draft + publication_automation.finalized | no | `ready_to_publish` | old flattened paper readiness state |
 | Papers | `papers.paper_status` | `human_review_required` | `blocked` | `migrate` | blocked | yes | `needs_operator` | manual paper review is not a normal workflow |
-| Papers | `papers.paper_status` | `publication_draft` | `finalizing` | `keep` | — | n/a | `automate_publication` | publication readiness also requires finalized automation package |
+| Papers | `papers.paper_status` | `publication_draft` | `finalizing` | `keep` | — | n/a | `automate_publication` | publication readiness also requires required evidence paths and finalized automation package |
 | Papers | `papers.paper_status` | `publication_generating` | `finalizing` | `keep` | — | n/a | `running` | publication rewrite/finalization is active |
 | Papers | `publication_automation_items.automation_status` | `approved_for_finalization` | `finalizing` | `migrate` | queued | yes | `automate_publication` | approval wording is internal compatibility only |
 | Papers | `publication_automation_items.automation_status` | `blocked` | `blocked` | `keep` | — | n/a | `needs_operator` | automation blocker |

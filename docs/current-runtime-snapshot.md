@@ -52,7 +52,7 @@ paper. It is not a broad queue drain.
 `write_needed` means decision-gated positive paper work only.
 Negative/non-positive runs become no-paper rows, not papers to write.
 `finalize_needed` is automation/package work for an existing draft.
-`publish_ready` means finalized package missing a corpus import ledger row.
+`publish_ready` means required evidence paths and finalized package exist, but the corpus import ledger row is missing.
 
 ## Callback/reconnect behavior
 

@@ -30,7 +30,7 @@ The dashboard and assistant should answer simple questions with these lanes:
 | `followup_investigation` | Worker delivery is no-paper, but the decision artifact recommends a specific bounded adjacent test. | Launch a follow-up only if the next investigation is still worth worker time. |
 | `write_paper` | A completed run has no live paper row and passes the positive paper decision gate. | Run bounded/explicit paper drafting only. |
 | `automate_publication` | A paper exists and still needs automated rewrite/finalization/package work. | Let automation finalize or inspect artifacts if automation failed. |
-| `ready_to_publish` | A publication draft has a finalized automation package and no corpus-import ledger row. | Import/sync to public corpus. |
+| `ready_to_publish` | A publication draft has required evidence paths and a finalized automation package, with no corpus-import ledger row. | Import/sync to public corpus. |
 | `published` | Corpus import ledger records the paper. | No action. |
 | `paused` | Work is intentionally held by maintenance or policy. | Resume only after policy decision. |
 | `historical` | Terminal, provenance, debug, or imported evidence that is not current operator work. | No action. |
@@ -156,7 +156,7 @@ The dashboard should lead with operator questions:
 - **What paper work is actionable?** `write_needed`, not raw completed/no-paper candidates.
 - **What needs another investigation?** `investigation_pipeline.followup_needed`, not raw negative rows.
 - **What needs automated finalization?** `finalize_needed` / `publication_automation_pending`.
-- **What is ready to publish?** finalized publication drafts that are missing a corpus-import ledger row.
+- **What is ready to publish?** finalized publication drafts with required evidence paths that are missing a corpus-import ledger row.
 - **What is already published?** corpus import ledger.
 
 Raw tables, raw statuses, and legacy labels belong in detail/debug drawers, not first-screen workflow language.
@@ -168,7 +168,7 @@ Raw tables, raw statuses, and legacy labels belong in detail/debug drawers, not 
 3. Negative, missing, malformed, unknown, or ambiguous project decisions are not writable.
 4. `wake_ready` means worker delivery completed; it does not mean the result was positive.
 5. Follow-up recommendations are adjacent-investigation work only; they do not make a parent run writable.
-6. Finalization readiness means `publication_draft` plus finalized automation package, not a draft row by itself; actionable publication/import readiness additionally requires no corpus-import ledger row.
+6. Finalization readiness means `publication_draft` plus required evidence paths and a finalized automation package, not a draft row by itself; actionable publication/import readiness additionally requires no corpus-import ledger row.
 7. Human/operator paper approval is not a normal workflow state. Use automated finalization/package wording.
 8. Notion/source idea status is provenance only now that the control plane owns the runtime ledger.
 9. New raw state strings or new state-like persisted columns require updating `state_contract.py`, the Supabase constraint migration when applicable, `scripts/validate_state_contract.py` coverage, this document, and `docs/state-model.md`, and public docs.

@@ -21,7 +21,7 @@ Operator-facing surfaces should lead with the operator lane, not the raw value.
 | `complete_no_paper` | Worker delivery is complete, but the paper decision gate is not actionable-positive. |
 | `write_paper` | A positive completed run has no paper yet and can be drafted by explicit bounded automation. |
 | `automate_publication` | A paper artifact exists and should flow through automated rewrite/finalization/package steps. |
-| `ready_to_publish` | A publication draft has a finalized automation package and no corpus-import ledger row. |
+| `ready_to_publish` | A publication draft has required evidence paths and a finalized automation package, with no corpus-import ledger row. |
 | `published` | The paper is represented by a public/corpus import ledger. |
 | `paused` | Work is intentionally held by maintenance or policy. |
 | `historical` | Terminal, provenance, debug, or imported evidence that is not current operator work. |
@@ -31,7 +31,7 @@ Operator-facing surfaces should lead with the operator lane, not the raw value.
 1. `write_paper` is only derived from positive project decisions with no existing paper.
 2. `wake_ready` and `session_finished_ready` are delivery signals, not positive/negative outcomes.
 3. Negative, unknown, malformed, missing, or ambiguous project decisions map to `complete_no_paper`, not paper work.
-4. Publication readiness is `publication_draft` plus finalized publication automation package.
+4. Publication readiness is `publication_draft` plus required evidence paths and finalized publication automation package.
 5. Review/approval-like paper terms are compatibility/internal only; users see publication automation or artifact inspection.
 6. Idea/project source status is provenance. Runtime execution state lives in `queue_items`.
 
@@ -103,7 +103,7 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | `eligible` | 0 | `write_paper` | `legacy_internal` | `draft_generating` | paper eligibility now lives in paper_eligibility/write_needed |
 | `finalized` | 0 | `ready_to_publish` | `legacy_internal` | `publication_draft + publication_automation.finalized` | old flattened paper readiness state |
 | `human_review_required` | 0 | `needs_operator` | `migrate_after_freeze` | `blocked` | manual paper review is not a normal workflow |
-| `publication_draft` | 495 | `automate_publication` | `keep` |  | publication readiness also requires finalized automation package |
+| `publication_draft` | 495 | `automate_publication` | `keep` |  | publication readiness also requires required evidence paths and finalized automation package |
 | `publication_generating` | 0 | `running` | `keep` |  | publication rewrite/finalization is active |
 
 ### `project_decisions.decision_gate_state`
@@ -138,7 +138,7 @@ The schema also contains state-like flags, hints, event names, type discriminato
 | `changes_requested` | 0 | `needs_operator` | `migrate_after_freeze` | `blocked` | legacy paper-review correction state |
 | `claimed` | 0 | `automate_publication` | `keep` |  | automation actor has claimed the item |
 | `deferred` | 0 | `historical` | `keep` |  | intentionally skipped automation item |
-| `finalized` | 492 | `ready_to_publish` | `keep` |  | finalization package is ready |
+| `finalized` | 492 | `ready_to_publish` | `keep` |  | finalization package and required evidence paths are ready |
 | `in_review` | 0 | `automate_publication` | `migrate_after_freeze` | `claimed` | legacy paper-review running state |
 | `queued` | 0 | `automate_publication` | `keep` |  | automation work is queued |
 | `rejected` | 5 | `historical` | `keep` |  | terminal non-publication automation state |
