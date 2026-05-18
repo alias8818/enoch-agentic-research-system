@@ -155,6 +155,49 @@ def test_supabase_upsert_paper_rejects_conflicting_paper_identity() -> None:
     assert conn.cursor_obj.insert_attempted is False
 
 
+def test_supabase_upsert_paper_rejects_blank_run_over_existing_paper_run() -> None:
+    class Cursor:
+        def __init__(self):
+            self.insert_attempted = False
+
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("select project_id, run_id, paper_type") and " from papers" in normalized:
+                self._fetchone = {"project_id": "project-a", "run_id": "run-1", "paper_type": "arxiv_draft"}
+                return self
+            if normalized.startswith("insert into papers"):
+                self.insert_attempted = True
+                raise AssertionError("blank run identity must not upsert")
+            return self
+        def fetchone(self):
+            return getattr(self, "_fetchone", None)
+
+    class Conn:
+        def __init__(self):
+            self.cursor_obj = Cursor()
+
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return self.cursor_obj
+
+    conn = Conn()
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: conn)
+
+    with pytest.raises(s.IdempotencyConflict):
+        store.upsert_paper(
+            PaperRecord(
+                paper_id="paper-1",
+                project_id="project-a",
+                run_id="",
+                paper_status=PaperStatus.PUBLICATION_DRAFT,
+            )
+        )
+
+    assert conn.cursor_obj.insert_attempted is False
+
+
 def test_supabase_upsert_paper_ignores_stale_existing_paper() -> None:
     class Cursor:
         def __init__(self):

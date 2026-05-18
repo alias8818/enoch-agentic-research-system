@@ -3662,13 +3662,10 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     (paper.paper_id,),
                 )
                 existing = cur.fetchone()
+                existing_run_id = _text(self._row_value(existing, "run_id", 1)) if existing else ""
                 if existing and (
                     self._row_value(existing, "project_id", 0) != _text(paper.project_id)
-                    or (
-                        _text(self._row_value(existing, "run_id", 1))
-                        and _text(paper.run_id)
-                        and _text(self._row_value(existing, "run_id", 1)) != _text(paper.run_id)
-                    )
+                    or (existing_run_id and existing_run_id != _text(paper.run_id))
                     or self._row_value(existing, "paper_type", 2) != _text(paper.paper_type)
                 ):
                     raise IdempotencyConflict(f"paper id {paper.paper_id!r} was reused with different paper identity")

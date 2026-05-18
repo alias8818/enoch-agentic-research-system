@@ -209,9 +209,10 @@ def _paper_identity_conflicts(existing: Any, paper: PaperRecord | dict[str, Any]
     project_id = _text(paper.project_id if isinstance(paper, PaperRecord) else paper.get("project_id"))
     run_id = _text(paper.run_id if isinstance(paper, PaperRecord) else paper.get("run_id"))
     paper_type = _text(paper.paper_type if isinstance(paper, PaperRecord) else paper.get("paper_type")) or "arxiv_draft"
+    existing_run_id = _text(existing["run_id"])
     return (
         _text(existing["project_id"]) != project_id
-        or (_text(existing["run_id"]) and run_id and _text(existing["run_id"]) != run_id)
+        or (existing_run_id and existing_run_id != run_id)
         or _text(existing["paper_type"]) != paper_type
     )
 

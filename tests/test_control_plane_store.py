@@ -1579,6 +1579,37 @@ class ControlPlaneStoreTests(unittest.TestCase):
 
             self.assertEqual(store.paper_row(paper_id)["project_id"], "project-a")
 
+    def test_upsert_paper_rejects_blank_run_over_existing_paper_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            paper_id = "paper-upsert-blank-run:run-1:arxiv_draft"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="paper-upsert-blank-run-project",
+                    queue_rows=[{"project_id": "project-a", "project_name": "Project A", "status": "completed"}],
+                )
+            )
+            store.upsert_paper(
+                PaperRecord(
+                    paper_id=paper_id,
+                    project_id="project-a",
+                    run_id="run-1",
+                    paper_status=PaperStatus.PUBLICATION_DRAFT,
+                )
+            )
+
+            with self.assertRaises(IdempotencyConflict):
+                store.upsert_paper(
+                    PaperRecord(
+                        paper_id=paper_id,
+                        project_id="project-a",
+                        run_id="",
+                        paper_status=PaperStatus.PUBLICATION_DRAFT,
+                    )
+                )
+
+            self.assertEqual(store.paper_row(paper_id)["run_id"], "run-1")
+
     def test_upsert_paper_ignores_stale_existing_paper(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
