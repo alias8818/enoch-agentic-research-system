@@ -189,6 +189,34 @@ def test_file_discovery_helpers_ignore_internal_state(tmp_path: Path) -> None:
     assert appmod._latest_session(project).session_id == "new"
 
 
+
+def test_file_discovery_helpers_treat_access_failures_as_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = tmp_path / "project-a"
+    results_dir = project / "results"
+    src_dir = project / "src"
+    results_dir.mkdir(parents=True)
+    src_dir.mkdir()
+    (results_dir / "metrics.json").write_text("{}", encoding="utf-8")
+    (src_dir / "main.py").write_text("print('ok')", encoding="utf-8")
+    real_exists = Path.exists
+    real_stat = Path.stat
+
+    def blocked_exists(path: Path) -> bool:
+        if path == results_dir:
+            raise PermissionError("simulated results access failure")
+        return real_exists(path)
+
+    def blocked_stat(path: Path):  # noqa: ANN202 - pathlib-compatible test double
+        if path == src_dir / "main.py":
+            raise PermissionError("simulated file stat failure")
+        return real_stat(path)
+
+    monkeypatch.setattr(Path, "exists", blocked_exists)
+    monkeypatch.setattr(Path, "stat", blocked_stat)
+
+    assert appmod._result_files(project, limit=10) == []
+    assert appmod._recent_files(project, limit=10) == []
+
 def test_file_read_helpers_treat_access_failures_as_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project = tmp_path / "project-a"
     log_dir = project / ".enoch" / "logs"

@@ -1230,32 +1230,39 @@ def _recent_files(
     collected: list[tuple[float, str]] = []
     scanned = 0
     deadline = time.monotonic() + max_seconds
-    for root, dirs, files in os.walk(project_dir):
-        if scanned >= max_entries or time.monotonic() > deadline:
-            break
-        root_path = Path(root)
-        rel_root = root_path.relative_to(project_dir)
-        if any(part in ignore_dirs for part in rel_root.parts) or any(
-            rel_root.parts[: len(parts)] == parts for parts in ignored_roots
-        ):
-            dirs[:] = []
-            continue
-        dirs[:] = [directory for directory in dirs if directory not in ignore_dirs]
-        for filename in files:
-            scanned += 1
-            if scanned > max_entries or time.monotonic() > deadline:
+    try:
+        walker = os.walk(project_dir, onerror=lambda _exc: None)
+        for root, dirs, files in walker:
+            if scanned >= max_entries or time.monotonic() > deadline:
                 break
-            path = root_path / filename
-            rel = path.relative_to(project_dir)
+            root_path = Path(root)
             try:
-                stat = path.stat()
-            except OSError:
+                rel_root = root_path.relative_to(project_dir)
+            except ValueError:
                 continue
-            entry = (stat.st_mtime, f"{Path(path).relative_to(project_dir)}")
-            if len(collected) < limit:
-                heapq.heappush(collected, entry)
-            else:
-                heapq.heappushpop(collected, entry)
+            if any(part in ignore_dirs for part in rel_root.parts) or any(
+                rel_root.parts[: len(parts)] == parts for parts in ignored_roots
+            ):
+                dirs[:] = []
+                continue
+            dirs[:] = [directory for directory in dirs if directory not in ignore_dirs]
+            for filename in files:
+                scanned += 1
+                if scanned > max_entries or time.monotonic() > deadline:
+                    break
+                path = root_path / filename
+                try:
+                    stat = path.stat()
+                    rel_path = Path(path).relative_to(project_dir)
+                except (OSError, RuntimeError, ValueError):
+                    continue
+                entry = (stat.st_mtime, f"{rel_path}")
+                if len(collected) < limit:
+                    heapq.heappush(collected, entry)
+                else:
+                    heapq.heappushpop(collected, entry)
+    except (OSError, RuntimeError, ValueError):
+        return []
     return [
         f"{Path(path).as_posix()}"
         for _, path in sorted(collected, key=lambda item: item[0], reverse=True)
@@ -1274,32 +1281,37 @@ def _result_files(
     deadline = time.monotonic() + max_seconds
     for folder_name in ("results", "artifacts"):
         root = project_dir / folder_name
-        if not root.exists():
+        if not _path_exists(root):
             continue
-        for current_root, dirs, files in os.walk(root):
-            if scanned >= max_entries or time.monotonic() > deadline:
-                break
-            dirs[:] = [
-                directory
-                for directory in dirs
-                if directory not in {".git", "__pycache__", ".mypy_cache", ".pytest_cache"}
-            ]
-            for filename in files:
-                scanned += 1
-                if scanned > max_entries or time.monotonic() > deadline:
+        try:
+            walker = os.walk(root, onerror=lambda _exc: None)
+            for current_root, dirs, files in walker:
+                if scanned >= max_entries or time.monotonic() > deadline:
                     break
-                path = Path(current_root) / filename
-                if not path.is_file():
-                    continue
-                try:
-                    stat = path.stat()
-                except OSError:
-                    continue
-                entry = (stat.st_mtime, path.relative_to(project_dir).as_posix())
-                if len(collected) < limit:
-                    heapq.heappush(collected, entry)
-                else:
-                    heapq.heappushpop(collected, entry)
+                dirs[:] = [
+                    directory
+                    for directory in dirs
+                    if directory not in {".git", "__pycache__", ".mypy_cache", ".pytest_cache"}
+                ]
+                for filename in files:
+                    scanned += 1
+                    if scanned > max_entries or time.monotonic() > deadline:
+                        break
+                    path = Path(current_root) / filename
+                    try:
+                        if not path.is_file():
+                            continue
+                        stat = path.stat()
+                        rel_path = path.relative_to(project_dir).as_posix()
+                    except (OSError, RuntimeError, ValueError):
+                        continue
+                    entry = (stat.st_mtime, rel_path)
+                    if len(collected) < limit:
+                        heapq.heappush(collected, entry)
+                    else:
+                        heapq.heappushpop(collected, entry)
+        except (OSError, RuntimeError, ValueError):
+            continue
         if scanned >= max_entries or time.monotonic() > deadline:
             break
     return [path for _, path in sorted(collected, key=lambda item: item[0], reverse=True)]
