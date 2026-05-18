@@ -348,6 +348,26 @@ def test_write_text_preserves_existing_file_when_replace_fails(tmp_path: Path, m
     assert not list(tmp_path.glob(".paper.md.*.tmp"))
 
 
+
+def test_write_text_rejects_uninspectable_target_without_raw_permission_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = (tmp_path / "paper.md").resolve()
+    real_exists = appmod.Path.exists
+
+    def blocked_exists(path, *args, **kwargs):  # noqa: ANN001 - monkeypatch-compatible Path method
+        if path == target:
+            raise PermissionError("simulated inaccessible target")
+        return real_exists(path)
+
+    monkeypatch.setattr(appmod.Path, "exists", blocked_exists)
+
+    with pytest.raises(appmod.HTTPException) as raised:
+        appmod._write_text(target, "new", overwrite=False)
+
+    assert raised.value.status_code == 500
+    assert "file target" in str(raised.value.detail)
+    assert not real_exists(target)
+
+
 def test_queue_snapshot_counts_all_active_lifecycle_statuses() -> None:
     snapshot = appmod._build_queue_snapshot({
         "rows": [

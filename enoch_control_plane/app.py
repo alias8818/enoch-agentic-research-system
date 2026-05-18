@@ -900,7 +900,7 @@ def _resolve_under_root(path_str: str, root: Path) -> Path:
 
 def _write_text(path: Path, text: str, overwrite: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists() and not overwrite:
+    if _checked_exists(path, label="file target") and not overwrite:
         raise HTTPException(status_code=409, detail=f"refusing to overwrite existing file: {path}")
     tmp_path = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
     try:
