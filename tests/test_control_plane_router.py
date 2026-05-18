@@ -4487,6 +4487,35 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
 
 
+    def test_paper_artifact_endpoint_rejects_project_dir_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            outside = Path(tmp) / "outside"
+            outside.mkdir()
+            (outside / "paper.md").write_text("# Outside Artifact\n", encoding="utf-8")
+
+            paper_id = "artifact-escape:run-escape:arxiv_draft"
+            response = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "artifact-escape-import",
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": "artifact-escape",
+                    "run_id": "run-escape",
+                    "project_dir": "../outside",
+                    "paper_status": "publication_draft",
+                    "draft_markdown_path": "paper.md",
+                }],
+            })
+            self.assertEqual(response.status_code, 200)
+
+            artifact = client.get(f"/control/api/papers/{paper_id}/artifact/draft_markdown_path", headers=headers)
+
+            self.assertNotEqual(artifact.status_code, 200)
+            self.assertNotIn("Outside Artifact", artifact.text)
+
+
     def test_paper_review_rewrite_event_failure_restores_state_and_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _config(tmp)

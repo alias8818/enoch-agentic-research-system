@@ -2910,9 +2910,12 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         raw_path = str(paper.get(field) or "").strip()
         if not raw_path:
             raise HTTPException(status_code=404, detail=f"paper artifact path is empty: {field}")
-        project_dir = Path(str(paper.get("project_dir") or "")).expanduser() if str(paper.get("project_dir") or "").strip() else None
-        if project_dir is not None and not project_dir.is_absolute():
-            project_dir = config.expanded_project_root / project_dir
+        project_dir_text = str(paper.get("project_dir") or paper.get("project_id") or "").strip()
+        project_dir = _local_artifact_root(
+            config,
+            project_id=str(paper.get("project_id") or "").strip(),
+            project_dir_text=project_dir_text,
+        ) if project_dir_text else None
         path = Path(raw_path).expanduser()
         resolved = path if path.is_absolute() else ((project_dir / path) if project_dir else path)
         resolved = resolved.resolve()
