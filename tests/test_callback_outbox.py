@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 from urllib import error
@@ -219,3 +220,56 @@ def test_successful_delivery_records_worker_state_update_errors(monkeypatch, tmp
     delivered = json.loads((state / callback_outbox.DELIVERED_DIRNAME / "run-1.json").read_text(encoding="utf-8"))
     assert "local_worker_state_error" in delivered
     assert "JSONDecodeError" in delivered["local_worker_state_error"]
+
+
+def test_deliver_cli_can_read_token_from_stdin(monkeypatch, tmp_path: Path, capsys) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_deliver(path, **kwargs):
+        captured["path"] = path
+        captured.update(kwargs)
+        return callback_outbox.DeliveryResult(ok=True, status_code=204, detail="ok", path=str(path))
+
+    monkeypatch.setattr(callback_outbox, "deliver_pending_file", fake_deliver)
+    monkeypatch.setattr("sys.stdin", io.StringIO("secret-token\n"))
+
+    rc = callback_outbox.main([
+        "deliver",
+        "--state-dir",
+        str(tmp_path),
+        "--run-id",
+        "run-1",
+        "--url",
+        "http://127.0.0.1/callback",
+        "--token-stdin",
+    ])
+
+    assert rc == 0
+    assert captured["token"] == "secret-token"
+    output = json.loads(capsys.readouterr().out)
+    assert output["ok"] is True
+
+
+def test_replay_cli_can_read_token_from_stdin(monkeypatch, tmp_path: Path, capsys) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_replay(**kwargs):
+        captured.update(kwargs)
+        return [callback_outbox.DeliveryResult(ok=True, status_code=204, detail="ok", path="p")]
+
+    monkeypatch.setattr(callback_outbox, "replay_pending", fake_replay)
+    monkeypatch.setattr("sys.stdin", io.StringIO("secret-token\n"))
+
+    rc = callback_outbox.main([
+        "replay",
+        "--state-dir",
+        str(tmp_path),
+        "--url",
+        "http://127.0.0.1/callback",
+        "--token-stdin",
+    ])
+
+    assert rc == 0
+    assert captured["token"] == "secret-token"
+    output = json.loads(capsys.readouterr().out)
+    assert output["ok"] is True

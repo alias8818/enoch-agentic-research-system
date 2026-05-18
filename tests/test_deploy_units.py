@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import importlib.util
+import os
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -351,6 +353,53 @@ def test_install_script_keeps_draft_units_opt_in() -> None:
     assert "enoch-paper-draft-next.timer" in install
 
 
+def test_codex_runner_scrubs_callback_secret_from_codex_environment(tmp_path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("hello", encoding="utf-8")
+    fake_codex = tmp_path / "fake-codex"
+    fake_codex.write_text(
+        "#!/usr/bin/env bash\n"
+        "env | sort > \"$ENOCH_PROJECT_DIR/.enoch/codex-env.txt\"\n"
+        "printf '{\"type\":\"session\",\"session_id\":\"fake-session\"}\\n'\n",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
+    env = os.environ.copy()
+    env.update({
+        "CODEX_BIN": str(fake_codex),
+        "ENOCH_COMPLETION_CALLBACK_URL": "http://127.0.0.1/callback",
+        "ENOCH_COMPLETION_CALLBACK_TOKEN": "super-secret-callback-token",
+        "ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC": "1",
+        "ENOCH_WORKER_STATE_DIR": str(tmp_path / "state"),
+    })
+
+    result = subprocess.run(
+        [
+            str(ROOT / "deploy" / "enoch_codex_runner.sh"),
+            "--run-id",
+            "run-1",
+            "--project-id",
+            "project-1",
+            "--project-dir",
+            str(project),
+            "--prompt-file",
+            str(prompt),
+        ],
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=15,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    codex_env = (project / ".enoch" / "codex-env.txt").read_text(encoding="utf-8")
+    assert "ENOCH_COMPLETION_CALLBACK_TOKEN" not in codex_env
+    assert "super-secret-callback-token" not in codex_env
+    assert "ENOCH_COMPLETION_CALLBACK_URL" not in codex_env
+
 def test_codex_runner_disables_spark_backed_explore_by_default() -> None:
     script = (ROOT / "deploy" / "enoch_codex_runner.sh").read_text(encoding="utf-8")
     assert 'export USE_OMX_EXPLORE_CMD="${USE_OMX_EXPLORE_CMD:-0}"' in script
@@ -374,6 +423,8 @@ def test_codex_runner_uses_durable_callback_outbox() -> None:
     assert "python3 -m enoch_control_plane.callback_outbox write" in runner
     assert 'export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"' in runner
     assert "python3 -m enoch_control_plane.callback_outbox deliver" in runner
+    assert "--token-stdin" in runner
+    assert '--token "$CALLBACK_TOKEN"' not in runner
     assert "callback delivery failed; durable callback outbox will retry" in runner
     assert "def _mark_local_worker_state_delivered" in outbox
     assert 'record["last_idempotency_key"] = payload.get("idempotency_key")' in outbox
