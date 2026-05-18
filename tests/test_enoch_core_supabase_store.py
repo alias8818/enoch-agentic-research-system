@@ -18,13 +18,18 @@ class Cursor:
         self.params = tuple(params)
         return self
     def fetchone(self):
-        if "select id, payload_hash from core_events" in self.sql:
+        if "from core_events where idempotency_key" in self.sql:
             key = self.params[0]
             return self.state["events"].get(key)
         if "insert into core_events" in self.sql:
             event_id = len(self.state["events"]) + 1
             key = self.params[0]
-            self.state["events"][key] = {"id": event_id, "payload_hash": self.params[4]}
+            self.state["events"][key] = {
+                "id": event_id,
+                "event_type": self.params[1],
+                "source": self.params[2],
+                "payload_hash": self.params[4],
+            }
             return {"id": event_id}
         if "select id from core_snapshots" in self.sql:
             return self.state["snapshots_by_key"].get(self.params[0])
@@ -74,6 +79,44 @@ def test_core_supabase_store_events_snapshots_and_projection() -> None:
 
     with pytest.raises(IdempotencyConflict):
         store.append_event(idempotency_key="snap-1", event_type="n8n.queue_snapshot", source="unit", payload={"different": True})
+
+
+def test_core_supabase_store_rejects_replayed_key_with_different_event_identity() -> None:
+    state = {"events": {}, "snapshots": [], "snapshots_by_key": {}}
+    store = SupabaseEnochCoreStore("postgres://example", connect=lambda: Conn(state))
+    payload = {"same": True}
+
+    first = store.append_event(
+        idempotency_key="same-key",
+        event_type="n8n.queue_snapshot",
+        source="unit",
+        payload=payload,
+    )
+    replay = store.append_event(
+        idempotency_key="same-key",
+        event_type="n8n.queue_snapshot",
+        source="unit",
+        payload=payload,
+    )
+
+    assert first.inserted is True
+    assert replay.inserted is False
+    assert replay.event_id == first.event_id
+
+    with pytest.raises(IdempotencyConflict):
+        store.append_event(
+            idempotency_key="same-key",
+            event_type="n8n.different_event",
+            source="unit",
+            payload=payload,
+        )
+    with pytest.raises(IdempotencyConflict):
+        store.append_event(
+            idempotency_key="same-key",
+            event_type="n8n.queue_snapshot",
+            source="different-source",
+            payload=payload,
+        )
 
 
 def test_core_supabase_store_json_helpers_and_empty_projection() -> None:

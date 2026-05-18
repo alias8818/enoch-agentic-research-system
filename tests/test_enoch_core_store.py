@@ -42,6 +42,41 @@ class EnochCoreStoreTests(unittest.TestCase):
             with self.assertRaises(IdempotencyConflict):
                 store.save_queue_snapshot(changed)
 
+    def test_event_idempotency_rejects_different_event_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = EnochCoreStore(Path(tmp) / "core.sqlite3")
+            payload = {"same": True}
+            first = store.append_event(
+                idempotency_key="event-1",
+                event_type="n8n.queue_snapshot",
+                source="unit",
+                payload=payload,
+            )
+            replay = store.append_event(
+                idempotency_key="event-1",
+                event_type="n8n.queue_snapshot",
+                source="unit",
+                payload=payload,
+            )
+            self.assertTrue(first.inserted)
+            self.assertFalse(replay.inserted)
+            self.assertEqual(first.event_id, replay.event_id)
+
+            with self.assertRaises(IdempotencyConflict):
+                store.append_event(
+                    idempotency_key="event-1",
+                    event_type="n8n.different_event",
+                    source="unit",
+                    payload=payload,
+                )
+            with self.assertRaises(IdempotencyConflict):
+                store.append_event(
+                    idempotency_key="event-1",
+                    event_type="n8n.queue_snapshot",
+                    source="different-source",
+                    payload=payload,
+                )
+
     def test_projection_rebuild_uses_latest_snapshot_deterministically(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = EnochCoreStore(Path(tmp) / "core.sqlite3")

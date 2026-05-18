@@ -105,13 +105,17 @@ class SupabaseEnochCoreStore:
         with self._connect() as conn:
             with conn.cursor() as cur:
                 existing = cur.execute(
-                    "select id, payload_hash from core_events where idempotency_key = %s",
+                    "select id, event_type, source, payload_hash from core_events where idempotency_key = %s",
                     (idempotency_key,),
                 ).fetchone()
                 if existing is not None:
-                    if existing["payload_hash"] != payload_hash:
+                    if (
+                        existing["event_type"] != event_type
+                        or existing["source"] != source
+                        or existing["payload_hash"] != payload_hash
+                    ):
                         raise IdempotencyConflict(
-                            f"idempotency key {idempotency_key!r} was reused with different payload"
+                            f"idempotency key {idempotency_key!r} was reused with different event identity"
                         )
                     return AppendResult(event_id=int(existing["id"]), inserted=False)
                 row = cur.execute(

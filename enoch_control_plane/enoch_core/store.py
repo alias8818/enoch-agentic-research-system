@@ -112,13 +112,17 @@ class EnochCoreStore:
         payload_hash = self.payload_hash(payload)
         with self._connect() as conn:
             existing = conn.execute(
-                "SELECT id, payload_hash FROM events WHERE idempotency_key = ?",
+                "SELECT id, event_type, source, payload_hash FROM events WHERE idempotency_key = ?",
                 (idempotency_key,),
             ).fetchone()
             if existing is not None:
-                if existing["payload_hash"] != payload_hash:
+                if (
+                    existing["event_type"] != event_type
+                    or existing["source"] != source
+                    or existing["payload_hash"] != payload_hash
+                ):
                     raise IdempotencyConflict(
-                        f"idempotency key {idempotency_key!r} was reused with different payload"
+                        f"idempotency key {idempotency_key!r} was reused with different event identity"
                     )
                 return AppendResult(event_id=int(existing["id"]), inserted=False)
             cur = conn.execute(
