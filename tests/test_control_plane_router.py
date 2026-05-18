@@ -3459,6 +3459,31 @@ class ControlPlaneRouterTests(unittest.TestCase):
             assert "writable control-plane store" in response.text
             assert fake_store.claim_attempted is False
 
+    def test_operator_pause_rejects_supabase_readonly_without_store_exception(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "control_plane_store_backend": "supabase_readonly",
+                    "supabase_database_url": "postgres://example",
+                }
+            )
+
+            class FakeReadOnlyStore:
+                pause_attempted = False
+
+                def pause(self, **_kwargs):  # noqa: ANN001 - must not be called
+                    self.pause_attempted = True
+                    raise AssertionError("read-only pause must reject before mutation")
+
+            fake_store = FakeReadOnlyStore()
+            with patch("enoch_control_plane.control_plane.router.SupabaseReadOnlyControlPlaneStore", return_value=fake_store):
+                client = _client_with_config(config)
+                response = client.post("/control/pause", headers={"Authorization": f"Bearer {TOKEN}"}, json={"reason": "test"})
+
+            assert response.status_code == 501
+            assert "writable control-plane store" in response.text
+            assert fake_store.pause_attempted is False
+
     def test_dispatch_one_dry_run_works_while_paused_without_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)

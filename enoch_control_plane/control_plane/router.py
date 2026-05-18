@@ -1128,6 +1128,13 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     def authorize(authorization: str | None) -> None:
         require_bearer(authorization)
 
+    def _require_writable_store(action: str) -> None:
+        if config.control_plane_store_backend == "supabase_readonly":
+            raise HTTPException(
+                status_code=501,
+                detail=f"{action} requires a writable control-plane store; supabase_readonly is read-only",
+            )
+
     def _alert_paper_evidence_blocked(*, project_id: str, run_id: str = "", paper_id: str = "", reason: str = "") -> dict[str, Any]:
         if not config.pushover_alerts_enabled:
             return {"attempted": False, "ok": False, "detail": "pushover alerts disabled"}
@@ -1211,11 +1218,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     def _live_dispatch(candidate: dict, requested_by: str, force_preflight: bool, *, allow_paused: bool = False) -> tuple[dict, int | None, dict]:
         if not config.live_dispatch_enabled:
             raise HTTPException(status_code=501, detail="live dispatch is disabled by config.live_dispatch_enabled")
-        if config.control_plane_store_backend == "supabase_readonly":
-            raise HTTPException(
-                status_code=501,
-                detail="live dispatch requires a writable control-plane store; supabase_readonly is read-only",
-            )
+        _require_writable_store("live dispatch")
         flags = store.flags()
         if flags.maintenance_mode:
             raise HTTPException(status_code=409, detail="control plane must be out of maintenance mode before live dispatch")
@@ -1973,11 +1976,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/api/worker-callback")
     def worker_callback(callback: GateCallback, authorization: str | None = Header(default=None)) -> dict[str, Any]:
         authorize(authorization)
-        if config.control_plane_store_backend == "supabase_readonly":
-            raise HTTPException(
-                status_code=501,
-                detail="worker callback recording requires a writable control-plane store; supabase_readonly is read-only",
-            )
+        _require_writable_store("worker callback recording")
         try:
             event_id, inserted, row = store.record_worker_callback(callback)
         except IdempotencyConflict as exc:
@@ -3924,18 +3923,21 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/pause", response_model=ControlStateResponse)
     def pause(payload: PauseRequest, authorization: str | None = Header(default=None)) -> ControlStateResponse:
         authorize(authorization)
+        _require_writable_store("operator pause")
         store.pause(reason=payload.reason, paused_by=payload.paused_by, maintenance_mode=payload.maintenance_mode)
         return state_response()
 
     @router.post("/resume", response_model=ControlStateResponse)
     def resume(payload: ResumeRequest, authorization: str | None = Header(default=None)) -> ControlStateResponse:
         authorize(authorization)
+        _require_writable_store("operator resume")
         store.resume(resumed_by=payload.resumed_by, maintenance_mode=payload.maintenance_mode)
         return state_response()
 
     @router.post("/queue/mark-paused", response_model=ControlStateResponse)
     def mark_queue_item_paused(payload: MarkQueueItemPausedRequest, authorization: str | None = Header(default=None)) -> ControlStateResponse:
         authorize(authorization)
+        _require_writable_store("queue item pause")
         if not store.mark_queue_item_paused(project_id=payload.project_id, reason=payload.reason, updated_by=payload.updated_by):
             raise HTTPException(status_code=404, detail="queue item not found")
         return state_response()
@@ -3943,6 +3945,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/import/legacy-snapshot", response_model=ImportSnapshotResponse)
     def import_snapshot(payload: ImportSnapshotRequest, authorization: str | None = Header(default=None)) -> ImportSnapshotResponse:
         authorize(authorization)
+        _require_writable_store("legacy snapshot import")
         try:
             inserted, projects, queue_items, papers = store.import_snapshot(payload)
         except IdempotencyConflict as exc:
@@ -4218,11 +4221,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     paper=paper,
                     candidate=dry_candidate,
                 )
-            if config.control_plane_store_backend == "supabase_readonly":
-                raise HTTPException(
-                    status_code=501,
-                    detail="paper draft-next requires a writable control-plane store; supabase_readonly is read-only",
-                )
+            _require_writable_store("paper draft-next")
             evidence = _prepare_draft_evidence(candidate)
             legacy_finalize_positive = str(candidate.get("last_run_state") or "").strip() == "finalize_positive"
             if not evidence["local_evidence_present"]:
