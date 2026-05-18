@@ -364,6 +364,7 @@ def import_sqlite_to_postgres(
                       paused_at = excluded.paused_at,
                       paused_by = excluded.paused_by,
                       updated_at = excluded.updated_at
+                    where excluded.updated_at >= control_flags.updated_at
                     """,
                     (
                         bool(flag.get("queue_paused")),
@@ -389,6 +390,7 @@ def import_sqlite_to_postgres(
                   origin_idea_status=excluded.origin_idea_status,
                   created_at=excluded.created_at,
                   updated_at=excluded.updated_at
+                where excluded.updated_at >= projects.updated_at
                 """,
                 (
                     (
@@ -427,6 +429,7 @@ def import_sqlite_to_postgres(
                   model=excluded.model, sandbox=excluded.sandbox, last_dispatch_at=excluded.last_dispatch_at,
                   last_callback_at=excluded.last_callback_at, stale_after=excluded.stale_after,
                   updated_at=excluded.updated_at
+                where excluded.updated_at >= queue_items.updated_at
                 """,
                 (
                     (
@@ -455,6 +458,7 @@ def import_sqlite_to_postgres(
                   last_callback_at=excluded.last_callback_at, gate_state=excluded.gate_state,
                   current_activity=excluded.current_activity, idempotency_key=excluded.idempotency_key,
                   updated_at=excluded.updated_at
+                where excluded.updated_at >= runs.updated_at
                 """,
                 (
                     (
@@ -481,6 +485,7 @@ def import_sqlite_to_postgres(
                   claim_ledger_path=excluded.claim_ledger_path, manifest_path=excluded.manifest_path,
                   artifact_root=excluded.artifact_root, artifact_payload_hash=excluded.artifact_payload_hash,
                   generated_at=excluded.generated_at, updated_at=excluded.updated_at
+                where excluded.updated_at >= papers.updated_at
                 """,
                 (
                     (
@@ -535,6 +540,7 @@ def import_sqlite_to_postgres(
                   source_audit_path=excluded.source_audit_path, finalization_package_path=excluded.finalization_package_path,
                   finalized_at=excluded.finalized_at, decision_summary=excluded.decision_summary,
                   created_at=excluded.created_at, updated_at=excluded.updated_at
+                where excluded.updated_at >= publication_automation_items.updated_at
                 """,
                 (
                     (

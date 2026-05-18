@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 
 import pytest
 
+from scripts import backfill_control_plane_to_supabase
 from scripts.backfill_control_plane_to_supabase import (
     import_sqlite_to_postgres,
     json_text,
@@ -110,3 +112,17 @@ def test_backfill_target_identity_guard_allows_same_existing_identity() -> None:
     assert cur.queries
     assert "from runs" in cur.queries[0][0]
     assert cur.queries[0][1] == ("run-a",)
+
+
+def test_backfill_conflict_updates_are_timestamp_guarded() -> None:
+    source = inspect.getsource(backfill_control_plane_to_supabase.import_sqlite_to_postgres)
+
+    for guard in (
+        "where excluded.updated_at >= control_flags.updated_at",
+        "where excluded.updated_at >= projects.updated_at",
+        "where excluded.updated_at >= queue_items.updated_at",
+        "where excluded.updated_at >= runs.updated_at",
+        "where excluded.updated_at >= papers.updated_at",
+        "where excluded.updated_at >= publication_automation_items.updated_at",
+    ):
+        assert guard in source
