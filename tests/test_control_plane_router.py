@@ -3884,6 +3884,60 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertNotIn("paper_review.draft_rewritten", {row["event_type"] for row in events})
 
 
+    def test_paper_review_rewrite_finalization_failure_preserves_committed_draft_event(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            paper_id = "router-rewrite-finalization-fail:run-1:arxiv_draft"
+            project_id = "router-rewrite-finalization-fail"
+            legacy_dir = Path(tmp) / "legacy" / project_id
+            evidence_dir = config.expanded_project_root / project_id
+            evidence_dir.mkdir(parents=True, exist_ok=True)
+            (evidence_dir / "run_notes.md").write_text("Finalization failure rewrite has source evidence.\n", encoding="utf-8")
+            (evidence_dir / ".enoch").mkdir()
+            (evidence_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+            response = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "router-rewrite-finalization-fail-import",
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": project_id,
+                    "project_name": "Router Rewrite Finalization Fail",
+                    "project_dir": str(legacy_dir),
+                    "run_id": "run-1",
+                    "paper_status": "draft_review",
+                    "draft_markdown_path": "papers/run-1/final_paper.md",
+                    "draft_latex_path": "papers/run-1/final_paper.tex",
+                    "evidence_bundle_path": "papers/run-1/evidence.json",
+                    "claim_ledger_path": "papers/run-1/claims.json",
+                    "manifest_path": "papers/run-1/manifest.json",
+                }],
+            })
+            self.assertEqual(response.status_code, 200)
+            client.post("/control/api/paper-reviews/backfill", headers=headers, json={"idempotency_key": "router-rewrite-finalization-fail-backfill", "dry_run": False})
+
+            def fail_finalization(self, *args, **kwargs):  # noqa: ANN001, ARG001 - patched method
+                raise OSError("simulated finalization package failure")
+
+            with patch.object(ControlPlaneStore, "prepare_paper_review_finalization_package", new=fail_finalization):
+                with self.assertRaisesRegex(OSError, "simulated finalization package failure"):
+                    client.post(f"/control/api/paper-reviews/{paper_id}/rewrite-draft", headers=headers, json={
+                        "idempotency_key": "router-rewrite-finalization-fail-1",
+                        "requested_by": "alice",
+                        "force": True,
+                    })
+
+            paper = client.get(f"/control/api/papers/{paper_id}", headers=headers).json()["paper"]
+            self.assertEqual(paper["paper_status"], "publication_draft")
+            self.assertEqual(paper["project_dir"], str(evidence_dir))
+            self.assertTrue((evidence_dir / "papers/run-1/final_paper.md").exists())
+            events = client.get(f"/control/api/events?entity_id={paper_id}", headers=headers).json()["rows"]
+            self.assertIn("paper_review.draft_rewritten", {row["event_type"] for row in events})
+            review_rows = client.get("/control/api/paper-reviews", headers=headers).json()["rows"]
+            row = next(row for row in review_rows if row["paper_id"] == paper_id)
+            self.assertNotEqual(row["review_status"], "finalized")
+
+
     def test_paper_review_rewrite_idempotency_conflict_does_not_mutate_state_or_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _config(tmp)

@@ -2693,6 +2693,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     store.update_project_dir(project_id, original_project_dir)
             except Exception:
                 pass
+        draft_event_committed = False
         try:
             writer = write_paper_artifacts(config, candidate, record, force=payload.force)
             if not use_current_dir:
@@ -2715,6 +2716,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 },
             }
             event_id, inserted = store.append_event(idempotency_key=payload.idempotency_key, event_type="paper_review.draft_rewritten", entity_type="paper_review", entity_id=paper_id, payload=event_payload)
+            draft_event_committed = True
             finalization_event_id, finalization_inserted, finalized_item, package_path, _manifest = store.prepare_paper_review_finalization_package(
                 paper_id,
                 PaperReviewPrepareFinalizationRequest(
@@ -2726,13 +2728,16 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 require_approval=False,
             )
         except IdempotencyConflict as exc:
-            restore_rewrite_side_effects()
+            if not draft_event_committed:
+                restore_rewrite_side_effects()
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
-            restore_rewrite_side_effects()
+            if not draft_event_committed:
+                restore_rewrite_side_effects()
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception:
-            restore_rewrite_side_effects()
+            if not draft_event_committed:
+                restore_rewrite_side_effects()
             raise
         refreshed = store.paper_review_row(paper_id, include_rank_reasons=True) or finalized_item or item
         writer_with_sync = {
