@@ -433,6 +433,7 @@ def _is_followup_candidate(row: dict[str, Any]) -> bool:
         and _text(row.get("status") or row.get("queue_status")) == "completed"
         and not _truthy(row.get("manual_review_required"))
         and not _truthy(row.get("followup_launched"))
+        and not _compute_scale_blocked(row)
         and depth < MAX_FOLLOWUP_DEPTH
         and _normal(row.get("followup_type")) in {"deepen", "branch", "retry"}
         and _text(row.get("followup_title"))
@@ -614,18 +615,6 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
                         project_decision_gate=gate,
                         **signal,
                     )
-                return _stage(
-                    "useful_signal",
-                    lane=OperatorLane.USEFUL_SIGNAL,
-                    tone="info",
-                    attention=False,
-                    next_step="Prefer one bounded deepen run if it is cheap; otherwise keep the scoped useful signal as no-paper evidence.",
-                    explanation=f"Worker delivery found a useful local signal, but it is not yet paper-positive: {decision_summary or 'not paper-ready'}.",
-                    paper_draft_eligible=False if gate is not None else None,
-                    project_decision_summary=decision_summary,
-                    project_decision_gate=gate,
-                    **signal,
-                )
             if _is_followup_candidate(row):
                 followup = _followup_from_row(row)
                 return _stage(
@@ -639,6 +628,20 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
                     project_decision_summary=decision_summary,
                     project_decision_gate=gate,
                     **followup,
+                )
+            if _is_useful_signal(row):
+                signal = _useful_signal_from_row(row)
+                return _stage(
+                    "useful_signal",
+                    lane=OperatorLane.USEFUL_SIGNAL,
+                    tone="info",
+                    attention=False,
+                    next_step="Prefer one bounded deepen run if it is cheap; otherwise keep the scoped useful signal as no-paper evidence.",
+                    explanation=f"Worker delivery found a useful local signal, but it is not yet paper-positive: {decision_summary or 'not paper-ready'}.",
+                    paper_draft_eligible=False if gate is not None else None,
+                    project_decision_summary=decision_summary,
+                    project_decision_gate=gate,
+                    **signal,
                 )
             return _stage(
                 "run_complete_no_paper",
@@ -1197,8 +1200,8 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         "next_compute_scale_blocked": compute_scale_blocked_rows[0] if compute_scale_blocked_rows else None,
         "definitions": {
             "followup_needed": "completed no-paper rows whose decision artifact recommends a bounded adjacent investigation",
-            "useful_signals": "completed runs with bounded local evidence that is useful but not currently paper-positive",
-            "compute_scale_blocked": "promising signals whose next evidence would exceed local compute or wall-clock limits",
+            "useful_signals": "preserved completed runs with bounded local evidence; this is not an actionable queue and rows disappear from followup_needed after launch",
+            "compute_scale_blocked": "preserved promising signals whose next evidence would exceed local compute or wall-clock limits",
             "max_followup_depth": "default safety cap for bounded research-campaign follow-up creation",
         },
     }

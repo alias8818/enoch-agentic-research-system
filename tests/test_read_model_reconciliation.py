@@ -467,6 +467,74 @@ def test_overview_investigation_pipeline_uses_reconciled_rows() -> None:
     assert overview["investigation_pipeline"]["useful_signals"] == 1
 
 
+def test_useful_signal_with_unlaunched_bounded_followup_is_actionable_followup() -> None:
+    from enoch_control_plane.control_plane import read_models
+
+    row = {
+        "project_id": "useful-with-followup",
+        "project_name": "useful-with-followup",
+        "status": "completed",
+        "last_run_state": "wake_ready",
+        "current_run_id": "useful-with-followup-run",
+        "next_action_hint": "draft_paper_or_select_next_project",
+        "decision_gate_state": "negative",
+        "research_outcome": "useful_signal",
+        "hypothesis_status": "supported",
+        "evidence_strength": "moderate",
+        "useful_signal_summary": "bounded local signal",
+        "followup_recommended": True,
+        "followup_launched": False,
+        "followup_type": "deepen",
+        "followup_title": "Bounded deepen",
+        "followup_hypothesis": "The bounded adjacent hypothesis is testable locally.",
+        "followup_required_evidence": ["baseline comparison", "held-out metric"],
+        "followup_success_threshold": "beat the control",
+        "followup_stop_condition": "stop on miss",
+    }
+
+    summary = read_models.summarize_queue_row(row)
+
+    assert summary["operator_lane"] == OperatorLane.FOLLOWUP_INVESTIGATION.value
+    assert summary["operator_detail_stage"] == "followup_candidate"
+
+    overview = read_models.overview(_OverviewStore([row], []))  # type: ignore[arg-type]
+
+    assert overview["investigation_pipeline"]["followup_needed"] == 1
+    assert overview["investigation_pipeline"]["useful_signals"] == 0
+
+
+def test_compute_scale_blocked_followup_remains_scale_blocked() -> None:
+    from enoch_control_plane.control_plane import read_models
+
+    row = {
+        "project_id": "scale-blocked-followup",
+        "project_name": "scale-blocked-followup",
+        "status": "completed",
+        "last_run_state": "wake_ready",
+        "current_run_id": "scale-blocked-followup-run",
+        "next_action_hint": "draft_paper_or_select_next_project",
+        "decision_gate_state": "negative",
+        "research_outcome": "promising_if_scaled",
+        "hypothesis_status": "supported",
+        "evidence_strength": "moderate",
+        "compute_scale_blocked": True,
+        "scale_limits": "requires datacenter validation",
+        "followup_recommended": True,
+        "followup_launched": False,
+        "followup_type": "deepen",
+        "followup_title": "Large-scale deepen",
+        "followup_hypothesis": "The next hypothesis requires larger compute.",
+        "followup_required_evidence": ["large-model run", "multi-seed replication"],
+        "followup_success_threshold": "beat the control",
+        "followup_stop_condition": "stop on miss",
+    }
+
+    summary = read_models.summarize_queue_row(row)
+
+    assert summary["operator_lane"] == OperatorLane.COMPUTE_SCALE_BLOCKED.value
+    assert summary["operator_detail_stage"] == "compute_scale_blocked"
+
+
 def test_completed_queue_with_same_run_paper_without_related_pointer_counts_as_paper_only() -> None:
     rows = [
         {
