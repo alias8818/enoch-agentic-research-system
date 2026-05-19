@@ -189,6 +189,23 @@ def sync_corpus_import_ledger(system: Repo, corpus: Repo, *, database_url: str, 
             cwd=system.path,
         )
 
+
+def run_source_lineage_check(system: Repo) -> None:
+    database_url = (
+        os.environ.get("ENOCH_SOURCE_LINEAGE_DATABASE_URL")
+        or os.environ.get("ENOCH_SUPABASE_DATABASE_URL")
+        or os.environ.get("DATABASE_URL")
+        or ""
+    )
+    if not database_url:
+        print("source lineage validator: skipped; no Postgres URL configured")
+        return
+    cmd = [sys.executable, "scripts/validate_source_lineage.py"]
+    created_after = os.environ.get("ENOCH_SOURCE_LINEAGE_CREATED_AFTER", "")
+    if created_after:
+        cmd.extend(["--created-after", created_after])
+    run(cmd, cwd=system.path, env={"ENOCH_SOURCE_LINEAGE_DATABASE_URL": database_url})
+
 def run_local_release_checks(
     system: Repo,
     corpus: Repo,
@@ -202,6 +219,7 @@ def run_local_release_checks(
     with tempfile.TemporaryDirectory(prefix="enoch-release-") as tmp:
         generated = Path(tmp) / "ecosystem.generated.json"
         run([sys.executable, "scripts/validate_runtime_snapshot_links.py"], cwd=system.path)
+        run_source_lineage_check(system)
         run(["node", "scripts/validate-docs.mjs"], cwd=docs.path)
         run([
             sys.executable,
