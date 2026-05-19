@@ -6,8 +6,13 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.alerts import send_pushover

@@ -480,3 +480,16 @@ def test_source_lineage_check_unit_is_post_cutover_guard() -> None:
     assert "enoch-source-lineage-check.service" in install
     assert "enoch-source-lineage-check.timer" in install
     assert "notion" not in combined.lower()
+
+
+def test_source_lineage_check_runs_as_direct_deploy_script(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [os.sys.executable, str(ROOT / "deploy" / "enoch_source_lineage_check.py"), "--help"],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "source-lineage" in result.stdout
