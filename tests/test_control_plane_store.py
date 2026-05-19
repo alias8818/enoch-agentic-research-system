@@ -2754,11 +2754,12 @@ class ControlPlaneStoreTests(unittest.TestCase):
                         "url": "https://www.notion.so/Dynamic-Context-Window-Training-00000000000040008000000000000001",
                     },
                     {"id": "discard-me", "property_idea": "Discarded", "property_status": "discarded"},
+                    {"id": "missing-status", "property_idea": "Missing Status"},
                 ],
             )
             inserted, created, updated, skipped, candidates, skipped_rows = store.ingest_notion_ideas(payload)
             self.assertFalse(inserted)
-            self.assertEqual((created, updated, skipped), (0, 0, 1))
+            self.assertEqual((created, updated, skipped), (0, 0, 2))
             self.assertEqual(len(candidates), 1)
             self.assertEqual(candidates[0]["dispatch_priority"], 10)
             self.assertEqual(store.queue_rows(), [])
@@ -2766,7 +2767,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
             committed = payload.model_copy(update={"dry_run": False})
             inserted, created, updated, skipped, candidates, skipped_rows = store.ingest_notion_ideas(committed)
             self.assertTrue(inserted)
-            self.assertEqual((created, updated, skipped), (1, 0, 1))
+            self.assertEqual((created, updated, skipped), (1, 0, 2))
             self.assertTrue(store.flags().queue_paused)
             rows = store.queue_rows()
             self.assertEqual(rows[0]["project_name"], "Dynamic Context Window Training")

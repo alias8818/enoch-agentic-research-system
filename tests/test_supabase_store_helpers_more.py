@@ -471,6 +471,8 @@ def test_write_store_dry_run_intakes_build_candidates_and_skips_rows() -> None:
             notion_rows=[
                 {"title": "Keep This", "property_status": "Testing", "url": "https://notion.so/example/abc12345678901234567890123456789"},
                 {"title": "Skip This", "property_status": "Archived"},
+                {"title": "Missing Status"},
+                {"title": "Empty Status", "property_status": ""},
                 {"property_status": "Testing"},
             ],
             default_machine_target="gb10",
@@ -479,11 +481,11 @@ def test_write_store_dry_run_intakes_build_candidates_and_skips_rows() -> None:
     )
     assert notion_inserted is False
     assert notion_created == notion_updated == 0
-    assert notion_skipped == 2
+    assert notion_skipped == 4
     assert len(notion_candidates) == 1
     assert notion_candidates[0]["project_name"] == "Keep This"
     assert notion_candidates[0]["machine_target"] == "gb10"
-    assert {row["reason"] for row in notion_skipped_rows} == {"status 'archived' not included", "missing title"}
+    assert {row["reason"] for row in notion_skipped_rows} == {"status 'archived' not included", "missing status", "missing title"}
 
     idea_inserted, idea_created, idea_updated, idea_skipped, idea_candidates, idea_skipped_rows = store.ingest_ideas(
         IdeaIntakeRequest(

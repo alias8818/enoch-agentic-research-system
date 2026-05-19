@@ -2389,7 +2389,10 @@ class ControlPlaneStore:
             if not title:
                 skipped_rows.append({"reason": "missing title", "row": raw})
                 continue
-            if include_statuses and status and status not in include_statuses:
+            if include_statuses and not status:
+                skipped_rows.append({"reason": "missing status", "title": title, "status": status, "page_id": page_id})
+                continue
+            if include_statuses and status not in include_statuses:
                 skipped_rows.append({"reason": f"status {status!r} not included", "title": title, "status": status, "page_id": page_id})
                 continue
             project_id = _slug_id(page_id.replace("-", "")) if page_id else f"notion-{_slug_id(title)}"
