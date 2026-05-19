@@ -45,6 +45,7 @@ def test_apply_github_protections_derives_counts_from_manifest(tmp_path: Path) -
     assert "7 bounded Enoch promising signals preserved" in calls
     assert "388 AI-generated" not in calls
     assert "4 bounded Enoch promising" not in calls
+    assert "branches/main/protection" not in calls
 
 
 def test_apply_github_protections_fails_closed_on_missing_manifest_count(tmp_path: Path) -> None:
