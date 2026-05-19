@@ -3126,6 +3126,77 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(status["dispatch_safe"])
 
 
+    def test_dashboard_status_treats_worker_settling_after_vm_completion_as_backpressure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client_with_config(_config(tmp).model_copy(update={"live_dispatch_enabled": True}))
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_id = "idea-worker-settling"
+            run_id = "run-worker-settling"
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "worker-settling-import",
+                "queue_rows": [{
+                    "project_id": project_id,
+                    "project_name": "Worker Settling",
+                    "project_dir": project_id,
+                    "status": "completed",
+                    "current_run_id": run_id,
+                    "last_run_state": "wake_ready",
+                }],
+                "run_rows": [{
+                    "run_id": run_id,
+                    "project_id": project_id,
+                    "state": "wake_ready",
+                    "gate_state": "wake_ready",
+                    "current_activity": "worker_callback",
+                    "last_callback_at": "2026-05-19T23:07:27Z",
+                }],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="warn",
+                payload={
+                    "ok": False,
+                    "checks": [
+                        {"name": "wake_gate_healthz", "ok": True, "detail": "ok", "data": {}},
+                        {
+                            "name": "wake_gate_dashboard_api",
+                            "ok": True,
+                            "detail": "dashboard API reachable",
+                            "data": {
+                                "body": {
+                                    "totals": {"active_or_waiting": 1, "live": 1},
+                                    "runs": [{
+                                        "run_id": run_id,
+                                        "project_id": project_id,
+                                        "gate_state": "waiting_for_quiet_window",
+                                        "lifecycle_state": "settling",
+                                        "callback_delivered": False,
+                                        "is_live": True,
+                                        "active_process_count": 0,
+                                    }],
+                                }
+                            },
+                        },
+                        {"name": "worker_no_live_runs", "ok": False, "detail": "active_or_waiting=1, live=1", "data": {"active_or_waiting": 1, "live": 1}},
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+
+            status = client.get("/control/api/status", headers=headers).json()
+
+            self.assertNotIn("GB10/VM active-lane conflict", status["dispatch_blockers"])
+            self.assertIn("GB10 worker settling completed run", status["dispatch_blockers"])
+            self.assertFalse(any(item["severity"] == "critical" for item in status["conflicts"]))
+            self.assertTrue(any("settling" in item["message"] for item in status["warnings"]))
+            self.assertFalse(any(item["source"] == "worker_preflight" for item in status["warnings"]))
+
+            alert = client.post("/control/api/alerts/queue-check", headers=headers, json={"dry_run": True}).json()
+            self.assertFalse(alert["should_alert"])
+            self.assertEqual(alert["findings"], [])
+
     def test_dashboard_status_treats_matching_worker_live_lane_as_active_not_warning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client_with_config(_live_config(tmp))

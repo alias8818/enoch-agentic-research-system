@@ -86,7 +86,7 @@ from .resource_utilization import classify_low_utilization_runs, resource_utiliz
 from ..research_quality.status import DEFAULT_AUTOPILOT_HISTORY_PATH, DEFAULT_REPORT_PATHS, DEFAULT_WINDOW_REPORT_PATH, load_latest_quality_status
 from ..source_lineage.status import DEFAULT_REPORT_PATH as DEFAULT_SOURCE_LINEAGE_REPORT_PATH, load_latest_source_lineage_status
 from . import read_models
-from .store import ControlPlaneStore, _atomic_write_text, _restore_or_remove_path
+from .store import ACTIVE_STATUSES, TERMINAL_SUCCESS_CALLBACK_STATES, ControlPlaneStore, _atomic_write_text, _restore_or_remove_path
 from .supabase_store import SupabaseControlPlaneStore, SupabaseReadOnlyControlPlaneStore, resolve_supabase_database_url
 from .worker_adapter import HttpResult, post_worker_json, run_worker_preflight
 
@@ -930,6 +930,81 @@ def _worker_dashboard_body_from_preflight(preflight: DashboardObservationRecord 
     return body if isinstance(body, dict) else {}
 
 
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _worker_settling_after_vm_completion(
+    *,
+    preflight: DashboardObservationRecord | None,
+    queue_rows: list[dict[str, Any]],
+    run_rows: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    no_live = _preflight_check(preflight, "worker_no_live_runs")
+    if not no_live or no_live.get("ok") is not False:
+        return None
+
+    completed_run_ids: set[str] = set()
+    completed_project_ids: set[str] = set()
+    terminal_run_states = set(TERMINAL_SUCCESS_CALLBACK_STATES) | {"completed", "complete", "finished"}
+    for row in queue_rows:
+        status = _normal_status(row.get("status"))
+        last_run_state = _normal_status(row.get("last_run_state"))
+        run_id = str(row.get("current_run_id") or "").strip()
+        project_id = str(row.get("project_id") or "").strip()
+        if status in ACTIVE_STATUSES:
+            continue
+        if status == "completed" or last_run_state in terminal_run_states:
+            if run_id:
+                completed_run_ids.add(run_id)
+            if project_id:
+                completed_project_ids.add(project_id)
+
+    for row in run_rows:
+        state = _normal_status(row.get("state"))
+        gate_state = _normal_status(row.get("gate_state"))
+        if state not in terminal_run_states and gate_state not in terminal_run_states:
+            continue
+        run_id = str(row.get("run_id") or "").strip()
+        project_id = str(row.get("project_id") or "").strip()
+        if run_id:
+            completed_run_ids.add(run_id)
+        if project_id:
+            completed_project_ids.add(project_id)
+
+    if not completed_run_ids and not completed_project_ids:
+        return None
+
+    body = _worker_dashboard_body_from_preflight(preflight)
+    runs = body.get("runs")
+    if not isinstance(runs, list):
+        return None
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        run_id = str(run.get("run_id") or "").strip()
+        project_id = str(run.get("project_id") or "").strip()
+        if run_id not in completed_run_ids and project_id not in completed_project_ids:
+            continue
+        active_process_count = _int_or_none(run.get("active_process_count"))
+        if active_process_count != 0:
+            continue
+        gate_state = _normal_status(run.get("gate_state"))
+        lifecycle_state = _normal_status(run.get("lifecycle_state"))
+        if gate_state != "waiting_for_quiet_window" and lifecycle_state != "settling":
+            continue
+        return {
+            "worker_run": run,
+            "worker_check": no_live,
+            "matched_run_id": run_id,
+            "matched_project_id": project_id,
+        }
+    return None
+
+
 def _truncate_text(value: Any, limit: int = 500) -> Any:
     if not isinstance(value, str) or len(value) <= limit:
         return value
@@ -1761,13 +1836,20 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             blockers.append("no queued dispatch candidate")
         no_live = _preflight_check(preflight, "worker_no_live_runs")
         worker_live_matches_active = bool(active and no_live and no_live.get("ok") is False)
+        worker_settling_after_vm_completion = None
+        if not active:
+            worker_settling_after_vm_completion = _worker_settling_after_vm_completion(
+                preflight=preflight,
+                queue_rows=rows,
+                run_rows=store.run_rows(),
+            )
         for name, freshness in source_freshness.items():
             if freshness.stale and name in {"worker_preflight", "worker_dashboard_api"}:
                 warnings.append(DashboardFinding(severity="warn", source=name, authority=freshness.authority, message=f"{name} is stale or missing", observed_at=freshness.observed_at, suggested_action="run /control/api/preflight or wait for the next refresh observation"))
                 if config.live_dispatch_enabled and not flags.queue_paused and not flags.maintenance_mode:
                     blockers.append(f"{name} stale or missing")
             elif name in {"worker_preflight", "worker_dashboard_api"} and freshness.status != "ok":
-                if name == "worker_preflight" and worker_live_matches_active:
+                if name == "worker_preflight" and (worker_live_matches_active or worker_settling_after_vm_completion):
                     continue
                 warnings.append(DashboardFinding(severity="warn", source=name, authority=freshness.authority, message=f"{name} status is {freshness.status}", observed_at=freshness.observed_at, suggested_action="run /control/api/preflight and verify GB10 health before dispatch"))
                 if config.live_dispatch_enabled and not flags.queue_paused and not flags.maintenance_mode:
@@ -1797,16 +1879,29 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 data={"active_count": len(active), "worker_check": no_live},
             ))
         if not active and no_live and no_live.get("ok") is False:
-            conflicts.append(DashboardFinding(
-                severity="critical",
-                source="control_plane_db+worker_preflight",
-                authority="single active GB10 lane safety",
-                message="GB10 reports live/active work but VM control plane has no active row",
-                observed_at=preflight.observed_at if preflight else None,
-                suggested_action="pause dispatch and reconcile before starting another job",
-                data={"worker_check": no_live},
-            ))
-            blockers.append("GB10/VM active-lane conflict")
+            if worker_settling_after_vm_completion:
+                warnings.append(DashboardFinding(
+                    severity="warn",
+                    source="worker_settling",
+                    authority="cross-source active-lane reconciliation",
+                    message="GB10 worker is settling a completed VM run with no active process",
+                    observed_at=preflight.observed_at if preflight else None,
+                    suggested_action="wait for the worker quiet-window to clear before dispatch",
+                    data=worker_settling_after_vm_completion,
+                ))
+                if config.live_dispatch_enabled and not flags.queue_paused and not flags.maintenance_mode:
+                    blockers.append("GB10 worker settling completed run")
+            else:
+                conflicts.append(DashboardFinding(
+                    severity="critical",
+                    source="control_plane_db+worker_preflight",
+                    authority="single active GB10 lane safety",
+                    message="GB10 reports live/active work but VM control plane has no active row",
+                    observed_at=preflight.observed_at if preflight else None,
+                    suggested_action="pause dispatch and reconcile before starting another job",
+                    data={"worker_check": no_live},
+                ))
+                blockers.append("GB10/VM active-lane conflict")
         has_critical = any(item.severity == "critical" for item in conflicts)
         dispatch_safe = not blockers and not has_critical
         return DashboardStatusResponse(
