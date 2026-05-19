@@ -18,7 +18,7 @@ def _base_url(config: dict) -> str:
     host = str(config.get("listen_host") or "127.0.0.1")
     if host in {"0.0.0.0", "::"}:
         host = "127.0.0.1"
-    return os.environ.get("ENOCH_CONTROL_URL") or f"http://{host}:{int(config.get('listen_port') or 8787)}"
+    return f"http://{host}:{int(config.get('listen_port') or 8787)}"
 
 
 def _get_json(url: str, token: str, timeout: int = 30) -> dict:
@@ -43,7 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     if not token:
         print("FAIL missing control-plane token", file=sys.stderr)
         return 2
-    base_url = (args.control_url or _base_url(config)).rstrip("/")
+    env_control_url = os.environ.get("ENOCH_CONTROL_URL", "")
+    base_url = (args.control_url or (env_control_url if args.token and env_control_url else "") or _base_url(config)).rstrip("/")
     payload = _get_json(f"{base_url}/control/api/v1/automation-readiness", token)
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))

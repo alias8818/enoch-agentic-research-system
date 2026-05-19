@@ -261,26 +261,6 @@ def sync_records(
                 )
                 cur.execute(
                     """
-                    insert into enoch.publication_automation_items(
-                      paper_id, automation_status, automation_actor, blocker, finalization_package_path,
-                      finalized_at, decision_summary
-                    )
-                    select
-                      paper_id, 'finalized', 'public-corpus-ledger-sync', '', public_manifest_path,
-                      now(), 'public corpus import ledger backfill'
-                    from tmp_resolved_public_index r
-                    on conflict (paper_id) do update set
-                      automation_status = 'finalized',
-                      automation_actor = 'public-corpus-ledger-sync',
-                      blocker = '',
-                      finalization_package_path = excluded.finalization_package_path,
-                      finalized_at = coalesce(enoch.publication_automation_items.finalized_at, excluded.finalized_at),
-                      decision_summary = 'public corpus import ledger synced from public index',
-                      updated_at = now()
-                    """
-                )
-                cur.execute(
-                    """
                     with matched as (
                       select
                         pi.paper_id,
@@ -308,9 +288,9 @@ def sync_records(
                     from matched
                     on conflict (paper_id, corpus_repo) do update set
                       artifact_slug = excluded.artifact_slug,
-                      commit_sha = excluded.commit_sha,
+                      commit_sha = coalesce(nullif(excluded.commit_sha, ''), enoch.corpus_imports.commit_sha),
                       manifest_path = excluded.manifest_path,
-                      manifest_hash = excluded.manifest_hash,
+                      manifest_hash = coalesce(nullif(excluded.manifest_hash, ''), enoch.corpus_imports.manifest_hash),
                       source_record_fingerprint = excluded.source_record_fingerprint,
                       public_artifact_id = excluded.public_artifact_id,
                       public_index_path = excluded.public_index_path,
@@ -346,28 +326,6 @@ def sync_records(
                         (corpus_repo,),
                     )
                     pruned_rows = int(cur.rowcount or 0)
-                    cur.execute(
-                        """
-                        update enoch.publication_automation_items pai
-                        set automation_status = 'rejected',
-                            blocker = 'stale public corpus import pruned',
-                            decision_summary = 'stale public corpus import pruned by sync_corpus_import_ledger',
-                            updated_at = now()
-                        from tmp_stale_imports stale
-                        where pai.paper_id = stale.paper_id
-                          and pai.automation_status = 'finalized'
-                        """
-                    )
-                    cur.execute(
-                        """
-                        update enoch.papers p
-                        set paper_status = 'archived',
-                            updated_at = now()
-                        from tmp_stale_imports stale
-                        where p.paper_id = stale.paper_id
-                          and p.paper_status = 'publication_draft'
-                        """
-                    )
 
                 cur.execute(
                     """
@@ -480,20 +438,6 @@ with pruned as (
 )
 insert into tmp_pruned_rows(pruned_rows)
 select count(*) from pruned;
-update enoch.publication_automation_items pai
-set automation_status = 'rejected',
-    blocker = 'stale public corpus import pruned',
-    decision_summary = 'stale public corpus import pruned by sync_corpus_import_ledger',
-    updated_at = now()
-from tmp_stale_imports stale
-where pai.paper_id = stale.paper_id
-  and pai.automation_status = 'finalized';
-update enoch.papers p
-set paper_status = 'archived',
-    updated_at = now()
-from tmp_stale_imports stale
-where p.paper_id = stale.paper_id
-  and p.paper_status = 'publication_draft';
 """ if prune_stale else """
 create temp table tmp_stale_imports(paper_id text) on commit drop;
 insert into tmp_pruned_rows(pruned_rows) values (0);
@@ -582,22 +526,6 @@ select
 from tmp_resolved_public_index r
 where not exists (select 1 from enoch.papers p where p.paper_id = r.paper_id)
 on conflict (paper_id) do nothing;
-insert into enoch.publication_automation_items(
-  paper_id, automation_status, automation_actor, blocker, finalization_package_path,
-  finalized_at, decision_summary
-)
-select
-  paper_id, 'finalized', 'public-corpus-ledger-sync', '', public_manifest_path,
-  now(), 'public corpus import ledger backfill'
-from tmp_resolved_public_index r
-on conflict (paper_id) do update set
-  automation_status = 'finalized',
-  automation_actor = 'public-corpus-ledger-sync',
-  blocker = '',
-  finalization_package_path = excluded.finalization_package_path,
-  finalized_at = coalesce(enoch.publication_automation_items.finalized_at, excluded.finalized_at),
-  decision_summary = 'public corpus import ledger synced from public index',
-  updated_at = now();
 with matched as (
   select
     pi.paper_id,
@@ -625,9 +553,9 @@ select
 from matched
 on conflict (paper_id, corpus_repo) do update set
   artifact_slug = excluded.artifact_slug,
-  commit_sha = excluded.commit_sha,
+  commit_sha = coalesce(nullif(excluded.commit_sha, ''), enoch.corpus_imports.commit_sha),
   manifest_path = excluded.manifest_path,
-  manifest_hash = excluded.manifest_hash,
+  manifest_hash = coalesce(nullif(excluded.manifest_hash, ''), enoch.corpus_imports.manifest_hash),
   source_record_fingerprint = excluded.source_record_fingerprint,
   public_artifact_id = excluded.public_artifact_id,
   public_index_path = excluded.public_index_path,

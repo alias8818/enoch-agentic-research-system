@@ -19,6 +19,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from enoch_control_plane.timeutils import parse_utc_datetime
 
 GENERATION_MODES = {
@@ -85,8 +89,24 @@ def _as_float(value: Any, default: float = 0.0) -> float:
 
 
 def _bounded_score(value: Any) -> float:
-    score = _as_float(value)
-    if 0.0 < score <= 1.0:
+    text = _as_text(value)
+    from_fraction = False
+    if "/" in text:
+        left, _, right = text.partition("/")
+        try:
+            numerator = float(left.strip())
+            denominator = float(right.strip())
+        except ValueError:
+            score = _as_float(value)
+        else:
+            from_fraction = True
+            if denominator > 0:
+                score = numerator if denominator == 10 else (numerator / denominator) * 10.0
+            else:
+                score = 0.0
+    else:
+        score = _as_float(value)
+    if not from_fraction and 0.0 < score <= 1.0:
         score *= 10.0
     return max(0.0, min(10.0, score))
 
@@ -779,11 +799,13 @@ def plan_candidates(candidates: list[dict[str, Any]], args: argparse.Namespace) 
         if previous:
             plan.admission_decision = "rejected"
             plan.admission_reason = f"duplicate dedupe_key also used by {previous}"
+            plan.admitted_idea_id = ""
             plan.hard_failures.append(plan.admission_reason)
             row["status"] = "rejected"
         elif exact_history:
             plan.admission_decision = "merged"
             plan.admission_reason = f"merged with historical duplicate {exact_history[0]['project_id']}"
+            plan.admitted_idea_id = ""
             row["status"] = "merged"
             row["similar_prior_projects"] = exact_history
         else:

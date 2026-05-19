@@ -70,6 +70,32 @@ def test_runtime_deploy_validator_accepts_matching_files_and_commit(tmp_path: Pa
     assert report["expected_commit"] == expected
 
 
+def test_runtime_deploy_validator_rejects_dirty_source_checkout(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    runtime = tmp_path / "runtime"
+    source.mkdir()
+    runtime.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=source, check=True)
+    (source / "README.md").write_text("committed\n", encoding="utf-8")
+    (runtime / "README.md").write_text("dirty\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=source, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "initial"], cwd=source, check=True)
+    expected = subprocess.run(["git", "rev-parse", "HEAD"], cwd=source, text=True, stdout=subprocess.PIPE, check=True).stdout.strip()
+    (source / "README.md").write_text("dirty\n", encoding="utf-8")
+
+    report = validate_runtime_deploy.validate_runtime(
+        source=source,
+        runtime=runtime,
+        paths=["README.md"],
+        expected_commit=expected,
+    )
+
+    assert report["ok"] is False
+    assert "source checkout is dirty" in report["failures"]
+
+
 def test_runtime_deploy_cli_outputs_json_and_nonzero_on_drift(tmp_path: Path, capsys) -> None:
     source = tmp_path / "source"
     runtime = tmp_path / "runtime"

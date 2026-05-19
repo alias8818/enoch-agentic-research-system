@@ -169,6 +169,26 @@ def test_public_secret_token_check_rejects_hf_and_anthropic_tokens(tmp_path) -> 
     ]
 
 
+def test_public_secret_token_check_rejects_generic_bearer_jwt_and_provider_envs(tmp_path) -> None:
+    paper = tmp_path / "paper.md"
+    paper.write_text(
+        "Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456\n"
+        "SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "abcdefghijklmnopqrstuvwxyz1234567890.abcdefghijklmnopqrstuvwxyz1234567890\n"
+        "ENOCH_CONTROL_TOKEN=control-plane-token-value-12345\n",
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_public_secret_tokens([paper], failures)
+
+    assert failures == [
+        f"secret-like token in public release surface {paper}:1",
+        f"secret-like token in public release surface {paper}:2",
+        f"secret-like token in public release surface {paper}:3",
+    ]
+
+
 def test_public_secret_token_check_ignores_redacted_tokens_and_slugs(tmp_path) -> None:
     paper = tmp_path / "paper.md"
     paper.write_text(
@@ -179,5 +199,22 @@ def test_public_secret_token_check_ignores_redacted_tokens_and_slugs(tmp_path) -
     failures: list[str] = []
 
     validate_public_release.check_public_secret_tokens([paper], failures)
+
+    assert failures == []
+
+
+def test_corpus_public_trust_validator_is_not_executed_by_default(monkeypatch, tmp_path) -> None:
+    corpus = tmp_path / "corpus"
+    validator = corpus / "scripts" / "validate_public_trust_surfaces.py"
+    validator.parent.mkdir(parents=True)
+    validator.write_text("raise SystemExit('must not execute')\n", encoding="utf-8")
+
+    def fail_run(*_args, **_kwargs):  # noqa: ANN001 - patched subprocess boundary
+        raise AssertionError("validator execution must be opt-in")
+
+    monkeypatch.setattr(validate_public_release.subprocess, "run", fail_run)
+    failures: list[str] = []
+
+    validate_public_release.check_corpus_public_trust_validator(corpus, failures)
 
     assert failures == []

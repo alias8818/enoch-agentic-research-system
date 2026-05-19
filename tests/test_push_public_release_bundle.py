@@ -80,3 +80,32 @@ def test_local_release_checks_stop_when_docs_validator_fails(monkeypatch, tmp_pa
         [push_public_release_bundle.sys.executable, "scripts/validate_runtime_snapshot_links.py"],
         ["node", "scripts/validate-docs.mjs"],
     ]
+
+
+def test_sync_corpus_import_ledger_passes_database_url_via_env_not_argv(monkeypatch, tmp_path: Path) -> None:
+    system = repo(tmp_path, "enoch-agentic-research-system")
+    corpus = repo(tmp_path, "enoch-ai-research-corpus")
+    calls: list[tuple[list[str], dict[str, str] | None]] = []
+
+    def fake_run(cmd, *, cwd=None, check=True, capture=False, env=None):
+        del cwd, check, capture
+        calls.append((list(cmd), env))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(push_public_release_bundle, "run", fake_run)
+
+    push_public_release_bundle.sync_corpus_import_ledger(
+        system,
+        corpus,
+        database_url="postgresql://user:secret@example/db",
+        use_linked=False,
+    )
+
+    assert len(calls) == 2
+    for cmd, env in calls:
+        assert "postgresql://user:secret@example/db" not in " ".join(cmd)
+        assert env == {"ENOCH_SUPABASE_DATABASE_URL": "postgresql://user:secret@example/db"}
+
+
+def test_printable_cmd_redacts_secret_args() -> None:
+    assert push_public_release_bundle.printable_cmd(["cmd", "--db-url", "postgres://secret", "--ok"]) == "cmd --db-url <redacted> --ok"

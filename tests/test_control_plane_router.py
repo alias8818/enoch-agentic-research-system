@@ -851,6 +851,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             body = response.json()
             self.assertTrue(body["ok"])
             self.assertEqual(body["action"], "dry_run_provider_generate_candidates")
+            self.assertEqual(body["budget"]["estimated_requests"], 2)
             self.assertFalse(body["queue_admitted"])
             self.assertFalse(body["dispatch_started"])
             self.assertEqual(body["queued_count"], 0)
@@ -989,6 +990,60 @@ class ControlPlaneRouterTests(unittest.TestCase):
         _, requested_by, queue_admitted = fake_store.recorded[0]
         self.assertEqual(requested_by, "pytest")
         self.assertFalse(queue_admitted)
+
+    def test_research_facility_provider_generate_slices_untrusted_response_to_max_candidates(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.recorded = []
+
+            def research_facility_workbench_projection(self, *, limit: int = 200) -> list[dict[str, str]]:
+                return []
+
+            def record_research_facility_plans(self, plans, *, requested_by: str, queue_admitted: bool = False) -> dict[str, int]:
+                self.recorded.append((plans, requested_by, queue_admitted))
+                return {"candidates_upserted": len(plans)}
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        observed = {}
+
+        def fake_plan(candidates, _args):
+            observed["candidate_count"] = len(candidates)
+            return [
+                SimpleNamespace(admission_decision="admitted", to_json=lambda i=i: {"candidate_id": f"candidate-{i}"})
+                for i, _candidate in enumerate(candidates)
+            ]
+
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+             patch("scripts.research_provider_generate.generate_provider_candidates", return_value={"ok": True, "provider_response_id": "cmpl-many", "candidates": [{"title": str(i)} for i in range(20)]}), \
+             patch("scripts.research_facility.plan_candidates", side_effect=fake_plan):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/generate-provider-batch",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={"dry_run": False, "max_candidates": 2, "requested_by": "pytest"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["candidate_count"], 2)
+        self.assertEqual(observed["candidate_count"], 2)
+        self.assertEqual(len(fake_store.recorded[0][0]), 2)
 
     def test_research_facility_provider_generate_failure_does_not_write_ledgers(self) -> None:
         class FakeSupabaseStore:
@@ -1183,6 +1238,56 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertNotEqual(body["action"], "research_cycle_blocked")
         generate.assert_not_called()
+
+    def test_research_facility_run_cycle_ignores_caller_supplied_allowed_models(self) -> None:
+        class FakeSupabaseStore:
+            def active_items(self) -> list[dict[str, str]]:
+                return []
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 0, "active": 0}
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                return []
+
+            def record_research_facility_plans(self, *_args, **_kwargs):  # pragma: no cover - dry-run must not write
+                raise AssertionError("dry-run should not write ledgers")
+
+            def promote_research_candidate(self, *_args, **_kwargs):  # pragma: no cover - dry-run must not promote
+                raise AssertionError("dry-run should not promote")
+
+            def append_event(self, **_kwargs):
+                return 1, True
+
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=FakeSupabaseStore()), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={"dry_run": True, "allowed_models": ["attacker/model"], "requested_by": "pytest"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertIn("hf:zai-org/GLM-5.1", body["allowed_models"])
+        self.assertNotIn("attacker/model", body["allowed_models"])
 
     def test_research_facility_run_cycle_live_rejects_readonly_before_budget_or_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1723,6 +1828,84 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertIn("follow-up branch took priority", body["reason"])
         generate.assert_not_called()
         self.assertEqual(fake_store.events[-1]["event_type"], "research.run_cycle.live")
+
+    def test_research_facility_run_cycle_deferred_followup_does_not_starve_fresh_promotion(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.events = []
+                self.promoted = []
+
+            def active_items(self) -> list[dict[str, str]]:
+                return []
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 0, "active": 0}
+
+            def flags(self):
+                return SimpleNamespace(queue_paused=False, maintenance_mode=False)
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                return [{"candidate_id": "fresh-candidate", "admission_decision": "admitted", "admitted_idea_id": "", "total_score": "99.00"}]
+
+            def next_followup_candidate(self, *, max_followup_depth: int = 4, project_id: str = "") -> dict[str, str]:
+                return {"project_id": "parent-idea", "followup_title": "Bounded branch"}
+
+            def launch_followup_candidate(self, *_args, **_kwargs):  # pragma: no cover - dispatch disabled must not launch
+                raise AssertionError("follow-up launch should not run when dispatch is disabled")
+
+            def record_research_facility_plans(self, *_args, **_kwargs):
+                raise AssertionError("fresh generation is disabled in this test")
+
+            def promote_research_candidate(self, candidate_id: str, *, requested_by: str, dry_run: bool = True) -> dict[str, object]:
+                self.promoted.append((candidate_id, requested_by, dry_run))
+                return {"ok": True, "candidate_id": candidate_id, "idea_id": candidate_id, "queued_count": 1}
+
+            def append_event(self, **kwargs):
+                self.events.append(kwargs)
+                return 1, True
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+             patch("scripts.research_provider_generate.generate_provider_candidates") as generate:
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={
+                    "dry_run": False,
+                    "enabled": True,
+                    "max_provider_requests_per_run": 0,
+                    "max_promotions_per_run": 1,
+                    "max_dispatches_per_run": 0,
+                    "requested_by": "pytest",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertFalse(body["fresh_generation_skipped"])
+        self.assertFalse(body["fresh_promotion_skipped"])
+        self.assertEqual(body["followup_launch"]["action"], "skipped")
+        self.assertEqual(body["promoted_count"], 1)
+        self.assertEqual(fake_store.promoted[0][0], "fresh-candidate")
+        generate.assert_not_called()
 
     def test_research_facility_run_cycle_provider_failure_still_promotes_existing_candidate(self) -> None:
         class FakeSupabaseStore:
@@ -2481,6 +2664,18 @@ class ControlPlaneRouterTests(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 400)
             self.assertIn("candidate_id is required", response.text)
+
+    def test_research_facility_promote_candidate_rejects_non_slug_candidate_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            response = client.post(
+                "/control/api/research/promote-candidate",
+                headers=headers,
+                json={"candidate_id": "candidate; touch /tmp/pwned", "dry_run": True, "requested_by": "pytest"},
+            )
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("slug-like", response.text)
 
     def test_research_facility_promote_candidate_requires_supabase_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3773,7 +3968,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             body = response.json()
             assert body["inserted_event"] is True
             assert body["decision_sync"]["decision_record"]["persisted"] is False
-            assert "simulated decision persist failure" in body["decision_sync"]["decision_record"]["reason"]
+            assert body["decision_sync"]["decision_record"]["reason"] == "decision persistence failed"
+            assert body["decision_sync"]["decision_record"]["error_type"] == "RuntimeError"
+            assert "simulated decision persist failure" not in json.dumps(body["decision_sync"])
             queue = client.get("/control/queue", headers=headers).json()["rows"][0]
             assert queue["last_run_state"] == "wake_ready"
 

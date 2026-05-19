@@ -39,16 +39,20 @@ def _connect(database_url: str) -> Any:
 def _worker_process_check(worker_ssh_host: str, project_ids: list[str]) -> dict[str, Any]:
     if not worker_ssh_host or not project_ids:
         return {"checked": False, "matches": []}
-    pattern = "|".join(project_ids)
     cmd = [
         "ssh",
         "-o",
         "ConnectTimeout=8",
         worker_ssh_host,
-        f"ps -eo pid,etimes,cmd | grep -E '{pattern}' | grep -v grep || true",
+        "ps -eo pid=,etimes=,cmd=",
     ]
     completed = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
-    matches = [line for line in completed.stdout.splitlines() if line.strip()]
+    project_tokens = [project_id for project_id in project_ids if project_id]
+    matches = [
+        line
+        for line in completed.stdout.splitlines()
+        if line.strip() and any(project_id in line for project_id in project_tokens)
+    ]
     if completed.returncode != 0:
         return {
             "checked": True,

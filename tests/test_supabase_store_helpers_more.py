@@ -25,6 +25,13 @@ def test_record_project_decision_gate_is_decided_at_guarded() -> None:
     )
 
 
+def test_supabase_project_upserts_preserve_existing_origin_status_on_replay() -> None:
+    source = inspect.getsource(s.SupabaseControlPlaneStore)
+
+    assert "origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status)" in source
+    assert "origin_idea_status=coalesce(nullif(projects.origin_idea_status,''), excluded.origin_idea_status)" in source
+
+
 def test_record_project_decision_gate_reports_stale_skipped_write(tmp_path) -> None:
     artifact_root = tmp_path / "project"
     decision_dir = artifact_root / ".enoch"
@@ -1075,9 +1082,12 @@ def test_supabase_dispatch_started_replay_does_not_mutate_queue(monkeypatch) -> 
         def __enter__(self): return self
         def __exit__(self, *args): return None
         def execute(self, sql, params=()):  # noqa: ANN001 - lightweight cursor fake
-            del params
             executed.append(str(sql))
+            assert params == ("idea-dispatch-replay",)
+            assert "from queue_items q" in str(sql)
             return None
+        def fetchall(self):
+            return [{"project_id": "idea-dispatch-replay", "status": "completed", "last_run_state": "wake_ready"}]
 
     class Conn:
         def __enter__(self): return self
@@ -1090,7 +1100,7 @@ def test_supabase_dispatch_started_replay_does_not_mutate_queue(monkeypatch) -> 
 
     monkeypatch.setattr(store, "_connect", lambda: Conn())
     monkeypatch.setattr(store, "_append_event_in_cursor", fake_append_event)
-    monkeypatch.setattr(store, "queue_row", lambda project_id: {"project_id": project_id, "status": "completed", "last_run_state": "wake_ready"})
+    monkeypatch.setattr(store, "queue_row", lambda _project_id: pytest.fail("replay must not re-enter _connect via queue_row"))
 
     event_id, row = store.mark_dispatch_started(
         project_id="idea-dispatch-replay",
@@ -1102,7 +1112,8 @@ def test_supabase_dispatch_started_replay_does_not_mutate_queue(monkeypatch) -> 
 
     assert event_id == 7
     assert row["status"] == "completed"
-    assert executed == []
+    assert len(executed) == 1
+    assert "update queue_items" not in executed[0].lower()
 
 
 def test_supabase_dispatch_claim_replay_does_not_mutate_queue(monkeypatch) -> None:

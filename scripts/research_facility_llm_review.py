@@ -108,7 +108,7 @@ def budget_status(
     return result
 
 
-def latest_review_age_minutes(database_url: str, *, event_type: str = "research.janitor.llm_review") -> float | None:
+def latest_review_age_minutes(database_url: str, *, event_types: tuple[str, ...] = ("research.janitor.llm_review", "research.janitor.llm_review_cycle")) -> float | None:
     import psycopg
     from psycopg.rows import dict_row
 
@@ -116,8 +116,8 @@ def latest_review_age_minutes(database_url: str, *, event_type: str = "research.
         with conn.cursor() as cur:
             cur.execute("set search_path to enoch, public")
             row = cur.execute(
-                "select created_at from control_events where event_type = %s order by created_at desc limit 1",
-                (event_type,),
+                "select created_at from control_events where event_type = any(%s) order by created_at desc limit 1",
+                (list(event_types),),
             ).fetchone()
     if not row:
         return None
@@ -126,6 +126,31 @@ def latest_review_age_minutes(database_url: str, *, event_type: str = "research.
     if created is None:
         return None
     return max(0.0, (datetime.now(timezone.utc) - created).total_seconds() / 60.0)
+
+
+def record_review_cycle_event(database_url: str, *, requested_by: str, provider_model: str, batch_count: int) -> int:
+    import psycopg
+
+    payload = {
+        "requested_by": requested_by,
+        "provider_model": provider_model,
+        "prompt_version": PROMPT_VERSION,
+        "batch_count": batch_count,
+        "started_at": utc_now(),
+    }
+    key = f"research-janitor-llm-cycle:{payload['started_at']}:{provider_model}:{batch_count}"
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute("set search_path to enoch, public")
+            cur.execute(
+                """
+                insert into control_events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at)
+                values (%s,'research.janitor.llm_review_cycle','research','janitor_llm',%s::jsonb,%s,%s)
+                on conflict (idempotency_key) do nothing
+                """,
+                (key, json.dumps(payload, sort_keys=True, default=str), _payload_hash(payload), datetime.now(timezone.utc).isoformat()),
+            )
+            return int(cur.rowcount or 0)
 
 
 def select_review_batch(database_url: str, *, limit: int, janitor_limit: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -309,6 +334,43 @@ def _apply_non_admit_decision(
     return {"status_updates": status_updates, "admissions_inserted": admissions_inserted}
 
 
+def _apply_admit_decision(
+    cur: Any,
+    *,
+    candidate_id: str,
+    decision: dict[str, Any],
+    requested_by: str,
+    janitor_action: dict[str, Any],
+) -> dict[str, int]:
+    action = dict(janitor_action or {})
+    reason = f"LLM janitor review admitted: {decision.get('reason') or 'no reason'}"
+    cur.execute(
+        """
+        update research_candidates
+        set status = 'admitted',
+            score_breakdown = coalesce(score_breakdown, '{}'::jsonb) || %s::jsonb,
+            updated_at = now()
+        where candidate_id = %s and status = 'needs_review'
+        """,
+        (json.dumps({"janitor_dispatch_priority": action.get("dispatch_priority") or {}}, sort_keys=True, default=str), candidate_id),
+    )
+    promoted = int(cur.rowcount or 0)
+    if promoted <= 0:
+        return {"status_updates": 0, "admissions_inserted": 0}
+    admission_key = f"research-janitor-llm-admission:{candidate_id}:admitted"
+    admissions_inserted = _insert_research_admission(
+        cur,
+        candidate_id=candidate_id,
+        admission_decision="admitted",
+        admission_reason=reason,
+        score_breakdown=action.get("dispatch_priority") or {},
+        admitted_idea_id=None,
+        operator=requested_by,
+        idempotency_key=admission_key,
+    )
+    return {"status_updates": promoted, "admissions_inserted": admissions_inserted}
+
+
 def record_review(database_url: str, *, decisions: list[dict[str, Any]], batch: list[dict[str, Any]], requested_by: str, provider_model: str, dry_run: bool) -> dict[str, Any]:
     import psycopg
 
@@ -373,15 +435,17 @@ def record_review(database_url: str, *, decisions: list[dict[str, Any]], batch: 
                     )
                     result["events_inserted"] += int(cur.rowcount or 0)
                 if decision["decision"] == "admit" and _confidence_allows_admit(decision):
-                    action = source.get("janitor_action") or {"candidate_id": candidate_id, "action": "promote", "reason": decision.get("reason") or "LLM review admitted candidate"}
-                    action = dict(action)
-                    action["action"] = "promote"
-                    action["reason"] = f"LLM janitor review admitted: {decision.get('reason') or 'no reason'}"
-                    apply = research_facility_maintenance.apply_actions(database_url, [action], requested_by=requested_by, apply_rejections=False)
-                    promoted = int(apply.get("promoted") or 0)
+                    update = _apply_admit_decision(
+                        cur,
+                        candidate_id=candidate_id,
+                        decision=decision,
+                        requested_by=requested_by,
+                        janitor_action=source.get("janitor_action") or {},
+                    )
+                    promoted = int(update.get("status_updates") or 0)
                     result["admitted"] += promoted
                     result["status_updates"] += promoted
-                    result["admissions_inserted"] += int(apply.get("admissions_inserted") or 0)
+                    result["admissions_inserted"] += int(update.get("admissions_inserted") or 0)
                     continue
                 update = _apply_non_admit_decision(
                     cur,
@@ -448,15 +512,17 @@ def apply_stored_llm_decisions(database_url: str, *, requested_by: str, limit: i
                 decision = dict(row["llm_decision"] or {})
                 decision["candidate_id"] = row["candidate_id"]
                 if decision.get("decision") == "admit" and _confidence_allows_admit(decision):
-                    action = dict(row["janitor_action"] or {})
-                    action["candidate_id"] = row["candidate_id"]
-                    action["action"] = "promote"
-                    action["reason"] = f"Stored LLM janitor review admitted: {decision.get('reason') or 'no reason'}"
-                    apply = research_facility_maintenance.apply_actions(database_url, [action], requested_by=requested_by, apply_rejections=False)
-                    promoted = int(apply.get("promoted") or 0)
+                    update = _apply_admit_decision(
+                        cur,
+                        candidate_id=row["candidate_id"],
+                        decision=decision,
+                        requested_by=requested_by,
+                        janitor_action=dict(row["janitor_action"] or {}),
+                    )
+                    promoted = int(update.get("status_updates") or 0)
                     result["admitted"] += promoted
                     result["status_updates"] += promoted
-                    result["admissions_inserted"] += int(apply.get("admissions_inserted") or 0)
+                    result["admissions_inserted"] += int(update.get("admissions_inserted") or 0)
                     continue
                 update = _apply_non_admit_decision(
                     cur,
@@ -552,6 +618,12 @@ def main(argv: list[str] | None = None) -> int:
                 report.update({"ok": True, "action": "skipped", "reason": "no rewrite_suggested backlog"})
             else:
                 prompt = build_review_prompt(batch)
+                report["cooldown_event_inserted"] = record_review_cycle_event(
+                    args.database_url,
+                    requested_by=args.requested_by,
+                    provider_model=args.model,
+                    batch_count=len(batch),
+                )
                 raw = call_review_model(
                     base_url=args.openai_base_url,
                     model=args.model,

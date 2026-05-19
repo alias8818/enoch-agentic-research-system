@@ -8,7 +8,7 @@ Type=oneshot
 WorkingDirectory=/opt/enoch-control-plane
 Environment=HOME=/root
 Environment=ENOCH_CONFIG=/etc/enoch-control-plane/config.json
-EnvironmentFile=-/etc/enoch-control-plane/supabase.env
+EnvironmentFile=-/etc/enoch-control-plane/postgres.env
 Environment=ENOCH_RELEASE_ROOT=/opt/enoch-release
 Environment=ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT=0
 Environment=ENOCH_CORPUS_IMPORT_LIMIT=1

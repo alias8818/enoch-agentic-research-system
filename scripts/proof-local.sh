@@ -100,7 +100,7 @@ if ! curl -fsS "${CURL_TIMEOUT_ARGS[@]}" "$BASE_URL/healthz" >/dev/null 2>&1; th
   exit 1
 fi
 
-SMOKE_OUTPUT="$(ENOCH_BASE_URL="$BASE_URL" ENOCH_CONTROL_TOKEN="$TOKEN" scripts/smoke-test-local.sh)"
+SMOKE_OUTPUT="$(ENOCH_BASE_URL="$BASE_URL" ENOCH_CONTROL_TOKEN="$TOKEN" ENOCH_STATUS_ENDPOINT="/control/api/status" scripts/smoke-test-local.sh)"
 printf '%s\n' "$SMOKE_OUTPUT"
 
 grep -q '"dispatch_safe"' <<<"$SMOKE_OUTPUT" || { echo "FAIL control status" >&2; exit 1; }

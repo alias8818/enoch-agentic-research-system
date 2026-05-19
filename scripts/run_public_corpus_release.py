@@ -26,8 +26,25 @@ class Step:
     env: dict[str, str] | None = None
 
 
+SECRET_ARG_NAMES = {"--token", "--database-url", "--db-url", "--ledger-database-url"}
+
+
+def printable_cmd(cmd: list[str]) -> str:
+    redacted: list[str] = []
+    skip_next = False
+    for part in cmd:
+        if skip_next:
+            redacted.append("<redacted>")
+            skip_next = False
+            continue
+        redacted.append(part)
+        if part in SECRET_ARG_NAMES:
+            skip_next = True
+    return " ".join(redacted)
+
+
 def run(step: Step, *, dry_run: bool = False) -> None:
-    printable = " ".join(step.cmd)
+    printable = printable_cmd(step.cmd)
     print(f"[{step.name}] $ {printable} ({step.cwd})", flush=True)
     if dry_run:
         return
@@ -58,8 +75,6 @@ def build_steps(args: argparse.Namespace) -> list[Step]:
             "scripts/import_from_control_plane.py",
             "--control-url",
             args.control_url,
-            "--token",
-            token,
             "--paper-status",
             args.paper_status,
             "--review-status",
@@ -71,7 +86,7 @@ def build_steps(args: argparse.Namespace) -> list[Step]:
             import_cmd.append("--force")
         if args.allow_title_duplicates:
             import_cmd.append("--allow-title-duplicates")
-        steps.append(Step("import finalized papers", import_cmd, corpus))
+        steps.append(Step("import finalized papers", import_cmd, corpus, env={"ENOCH_CONTROL_TOKEN": token}))
 
     steps.extend(
         [
@@ -142,8 +157,8 @@ def build_steps(args: argparse.Namespace) -> list[Step]:
     if args.sync_corpus_ledger:
         sync_cmd = [sys.executable, "scripts/sync_corpus_import_ledger.py", "--corpus", str(corpus), "--prune-stale"]
         if args.ledger_database_url:
-            sync_cmd.extend(["--database-url", args.ledger_database_url, "--apply"])
-            steps.append(Step("sync Supabase corpus_imports", sync_cmd, system))
+            sync_cmd.append("--apply")
+            steps.append(Step("sync Supabase corpus_imports", sync_cmd, system, env={"ENOCH_SUPABASE_DATABASE_URL": args.ledger_database_url}))
             steps.append(
                 Step(
                     "validate Supabase corpus_imports",
@@ -152,10 +167,9 @@ def build_steps(args: argparse.Namespace) -> list[Step]:
                         "scripts/validate_corpus_import_ledger.py",
                         "--corpus",
                         str(corpus),
-                        "--db-url",
-                        args.ledger_database_url,
                     ],
                     system,
+                    env={"ENOCH_SUPABASE_DATABASE_URL": args.ledger_database_url},
                 )
             )
         else:

@@ -62,7 +62,7 @@ export ENOCH_PROJECT_ID="$PROJECT_ID"
 export ENOCH_PROJECT_DIR="$PROJECT_DIR"
 export ENOCH_LAUNCH_ROOT_PID="$$"
 export ENOCH_LAUNCH_PGID="$(ps -o pgid= -p $$ | tr -d ' ')"
-export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/bin:$PATH"
+export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
 # Upstream Codex still recognizes this variable; keep disabled by default to avoid legacy OMX wrappers.
 export USE_OMX_EXPLORE_CMD="${USE_OMX_EXPLORE_CMD:-0}"
@@ -72,6 +72,19 @@ if [[ -z "$CODEX_BIN" ]]; then
   echo "codex binary not found in PATH" >&2
   exit 127
 fi
+case "$CODEX_BIN" in
+  "$PROJECT_DIR"/*|./*|../*|codex)
+    echo "refusing project-relative codex binary: $CODEX_BIN" >&2
+    exit 126
+    ;;
+esac
+CODEX_BIN="$(readlink -f "$CODEX_BIN")"
+case "$CODEX_BIN" in
+  "$PROJECT_DIR"/*)
+    echo "refusing project-local codex binary: $CODEX_BIN" >&2
+    exit 126
+    ;;
+esac
 
 JSON_LOG="$PROJECT_DIR/.enoch/logs/${RUN_ID}.codex.jsonl"
 LAST_MESSAGE="$PROJECT_DIR/.enoch/last_message.md"

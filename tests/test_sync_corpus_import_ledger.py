@@ -57,6 +57,22 @@ def test_render_supabase_cli_sql_escapes_values(tmp_path: Path) -> None:
     assert "paper''s-one" in sql
     assert "on conflict (paper_id, corpus_repo) do update" in sql
     assert "operator_dashboard_counts" in sql
+    assert "publication_automation_items" not in sql
+
+
+def test_render_supabase_cli_sql_preserves_existing_provenance_hashes(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus"
+    (corpus / "papers").mkdir(parents=True)
+    (corpus / "papers" / "index.json").write_text(
+        json.dumps({"papers": [{"source_record_fingerprint": "fp1", "slug": "paper-one", "public_id": "id"}]}),
+        encoding="utf-8",
+    )
+    records = load_public_records(corpus)
+
+    sql = render_supabase_cli_sql(records)
+
+    assert "commit_sha = coalesce(nullif(excluded.commit_sha, ''), enoch.corpus_imports.commit_sha)" in sql
+    assert "manifest_hash = coalesce(nullif(excluded.manifest_hash, ''), enoch.corpus_imports.manifest_hash)" in sql
 
 
 def test_render_supabase_cli_sql_scopes_import_totals_to_corpus_repo(tmp_path: Path) -> None:

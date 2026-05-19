@@ -81,7 +81,8 @@ def test_research_autopilot_unit_is_opt_in_and_bounded(tmp_path, capsys) -> None
     script = (ROOT / "deploy" / "enoch_research_autopilot.py").read_text(encoding="utf-8")
     combined = service + script
     assert "Environment=ENOCH_ENABLE_RESEARCH_AUTOPILOT=0" in service
-    assert "EnvironmentFile=-/etc/enoch-control-plane/supabase.env" in service
+    assert "EnvironmentFile=-/etc/enoch-control-plane/postgres.env" in service
+    assert "EnvironmentFile=-/etc/enoch-control-plane/supabase.env" not in service
     assert "Environment=ENOCH_RESEARCH_QUALITY_REPORT_PATH=/var/lib/enoch-control-plane/research-quality/latest-report.json" in service
     assert "Environment=ENOCH_RESEARCH_QUALITY_LIMIT=100" in service
     assert "ENOCH_ENABLE_RESEARCH_AUTOPILOT" in script
@@ -133,7 +134,8 @@ def test_corpus_import_autopilot_unit_is_opt_in_and_capped(capsys) -> None:
     combined = service + timer + script
     assert "Environment=HOME=/root" in service
     assert "Environment=ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT=0" in service
-    assert "EnvironmentFile=-/etc/enoch-control-plane/supabase.env" in service
+    assert "EnvironmentFile=-/etc/enoch-control-plane/postgres.env" in service
+    assert "EnvironmentFile=-/etc/enoch-control-plane/supabase.env" not in service
     assert "Environment=ENOCH_CORPUS_IMPORT_LIMIT=1" in service
     assert "Environment=ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY=1" in service
     assert "Environment=ENOCH_CORPUS_IMPORT_AUTOCOMMIT=0" in service
@@ -430,11 +432,20 @@ def test_codex_runner_uses_durable_callback_outbox() -> None:
     assert "await _replay_callback_outbox_once()" in app
 
 
-def test_codex_runner_sets_gb10_path_before_resolving_codex_binary() -> None:
+def test_codex_runner_uses_fixed_system_path_before_resolving_codex_binary() -> None:
     script = (ROOT / "deploy" / "enoch_codex_runner.sh").read_text(encoding="utf-8")
-    assert 'export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/bin:$PATH"' in script
+    assert 'export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"' in script
     assert 'CODEX_BIN="${CODEX_BIN:-$(command -v codex || true)}"' in script
-    assert script.index('export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/bin:$PATH"') < script.index('CODEX_BIN="${CODEX_BIN:-$(command -v codex || true)}"')
+    assert "refusing project-relative codex binary" in script
+    assert "refusing project-local codex binary" in script
+    assert script.index('export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"') < script.index('CODEX_BIN="${CODEX_BIN:-$(command -v codex || true)}"')
+
+
+def test_proof_local_uses_status_endpoint_that_matches_its_grep_assertions() -> None:
+    script = (ROOT / "scripts" / "proof-local.sh").read_text(encoding="utf-8")
+
+    assert 'ENOCH_STATUS_ENDPOINT="/control/api/status"' in script
+    assert 'grep -q \'"dispatch_safe"\'' in script
 
 
 def test_enoch_worker_skill_uses_codex_description_frontmatter() -> None:

@@ -903,8 +903,16 @@ def _write_text(path: Path, text: str, overwrite: bool) -> None:
     if _checked_exists(path, label="file target") and not overwrite:
         raise HTTPException(status_code=409, detail=f"refusing to overwrite existing file: {path}")
     tmp_path = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    existing_mode: int | None = None
+    try:
+        existing_mode = path.stat().st_mode & 0o777
+    except FileNotFoundError:
+        existing_mode = None
+    except OSError:
+        existing_mode = None
     try:
         tmp_path.write_text(text, encoding="utf-8")
+        os.chmod(tmp_path, existing_mode if existing_mode is not None else 0o600)
         os.replace(tmp_path, path)
     finally:
         try:

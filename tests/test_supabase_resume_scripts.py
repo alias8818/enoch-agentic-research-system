@@ -31,6 +31,59 @@ def test_worker_process_check_failure_is_not_treated_as_process_match(monkeypatc
     assert result["returncode"] == 255
 
 
+def test_worker_process_check_filters_locally_without_remote_project_regex(monkeypatch):
+    observed = {}
+
+    def fake_run(cmd, **kwargs):
+        observed["cmd"] = cmd
+        return SimpleNamespace(returncode=0, stdout="123 45 python run.py safe-id\n456 78 unrelated\n")
+
+    monkeypatch.setattr(requeue.subprocess, "run", fake_run)
+    result = requeue._worker_process_check("jeremy@worker", ["safe-id'; touch /tmp/pwn #", "safe-id"])
+
+    assert observed["cmd"][-1] == "ps -eo pid=,etimes=,cmd="
+    assert "safe-id" not in observed["cmd"][-1]
+    assert result["matches"] == ["123 45 python run.py safe-id"]
+
+
+def test_resume_drill_fails_if_repause_fails(monkeypatch):
+    args = SimpleNamespace(
+        token_file="/tmp/missing",
+        control_url="http://control",
+        ssh_host="",
+        apply=True,
+        leave_unpaused=False,
+        dispatch_timeout=1,
+        active_wait_seconds=0.01,
+    )
+    monkeypatch.setenv("ENOCH_CONTROL_PLANE_TOKEN", "token")
+    monkeypatch.setattr(drill, "validate_resume_readiness", lambda _args: {"ok": True})
+    monkeypatch.setattr(drill, "_get_state", lambda _base, _token: {"flags": {"queue_paused": True, "maintenance_mode": True}, "active_items": []})
+    monkeypatch.setattr(drill, "_get_overview", lambda _base, _token: {"counts": {"queued": 1}, "lanes": {"active": [{"project_id": "p1"}]}})
+
+    def fake_request(method, url, token, payload=None, **kwargs):  # noqa: ANN001 - patched HTTP boundary
+        del token, payload, kwargs
+        if url.endswith("/control/dispatch-next") and method == "POST":
+            return (200, {"action": "paused"} if len(calls) == 1 else {"action": "live_dispatch"})
+        if url.endswith("/control/resume"):
+            return (200, {"flags": {"queue_paused": False}})
+        if url.endswith("/control/pause"):
+            return (500, {"error": "pause failed"})
+        raise AssertionError(url)
+
+    calls: list[str] = []
+
+    def counted_request(method, url, token, payload=None, **kwargs):  # noqa: ANN001
+        if url.endswith("/control/dispatch-next"):
+            calls.append(url)
+        return fake_request(method, url, token, payload, **kwargs)
+
+    monkeypatch.setattr(drill, "_request", counted_request)
+
+    with pytest.raises(drill.DrillError, match="failed to re-pause"):
+        drill.drill(args)
+
+
 def test_requeue_reconcile_conflicts_on_reused_event_key_with_different_identity(monkeypatch):
     class Cursor:
         rowcount = 1

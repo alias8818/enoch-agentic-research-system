@@ -128,13 +128,13 @@ def compare(live: dict[str, Any], supabase: dict[str, Any], *, require_safe_paus
     return CutoverCheck(ok=not failures, failures=failures, live=live, supabase=supabase)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--control-url", default=os.environ.get("ENOCH_CONTROL_PLANE_URL", "http://192.168.1.166:8787"))
+    parser.add_argument("--control-url", default="http://127.0.0.1:8787")
     parser.add_argument("--token-file", default=os.environ.get("ENOCH_CONTROL_PLANE_TOKEN_FILE", "/root/enoch-control-plane-token.txt"))
     parser.add_argument("--database-url", default=os.environ.get("ENOCH_SUPABASE_DATABASE_URL", ""))
     parser.add_argument("--allow-unpaused", action="store_true", help="do not require live control plane queue_paused/maintenance_mode flags")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     failures: list[str] = []
     token = _load_token(args.token_file)

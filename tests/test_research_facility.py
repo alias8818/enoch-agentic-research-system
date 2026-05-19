@@ -115,6 +115,36 @@ def test_research_facility_normalizes_fractional_provider_scores() -> None:
     assert row["accessibility_score"] == 9.0
     assert row["falsifiability_score"] == 9.5
 
+
+def test_research_facility_keeps_explicit_ten_point_fraction_scores() -> None:
+    row = research_facility.normalize_candidate(
+        _strong_candidate(
+            novelty_score="1/10",
+            feasibility_score="7/10",
+            accessibility_score="9/10",
+            falsifiability_score="10/10",
+        ),
+        default_machine="gb10",
+        default_model="gpt-5.5",
+        default_sandbox="danger-full-access",
+    )
+
+    assert row["novelty_score"] == 1.0
+    assert row["feasibility_score"] == 7.0
+    assert row["accessibility_score"] == 9.0
+    assert row["falsifiability_score"] == 10.0
+
+
+def test_research_facility_scales_non_ten_point_fraction_scores() -> None:
+    row = research_facility.normalize_candidate(
+        _strong_candidate(novelty_score="1/5"),
+        default_machine="gb10",
+        default_model="gpt-5.5",
+        default_sandbox="danger-full-access",
+    )
+
+    assert row["novelty_score"] == 2.0
+
     plan = research_facility.plan_candidates(
         [
             _strong_candidate(
@@ -292,6 +322,7 @@ def test_research_facility_merges_exact_history_duplicates() -> None:
     plan = research_facility.plan_candidates([candidate], args)[0]
 
     assert plan.admission_decision == "merged"
+    assert plan.admitted_idea_id == ""
     assert plan.candidate["status"] == "merged"
     assert plan.candidate["similar_prior_projects"][0]["project_id"] == "prior-project"
 

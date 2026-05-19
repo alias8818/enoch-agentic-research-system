@@ -42,8 +42,8 @@ def _safe_run_id(run_id: str) -> str:
     safe = _legacy_safe_run_id(raw)
     if raw and safe == raw and len(safe) <= 100:
         return safe
-    digest = hashlib.blake2s(raw.encode("utf-8"), digest_size=4).hexdigest()
-    return f"{safe[:80]}-{digest}"
+    digest = hashlib.blake2s(raw.encode("utf-8"), digest_size=16).hexdigest()
+    return f"{safe[:67]}-{digest}"
 
 
 def pending_path(state_dir: str | Path, run_id: str) -> Path:
@@ -88,10 +88,11 @@ def write_pending(state_dir: str | Path, payload: dict[str, Any]) -> Path:
         except Exception as exc:
             record["last_error"] = f"existing pending metadata unreadable: {type(exc).__name__}: {exc}"
     _atomic_write_json(path, record)
+    _update_local_worker_state(state_dir, record)
     return path
 
 
-def _mark_local_worker_state_delivered(state_dir: str | Path, payload: dict[str, Any]) -> str:
+def _update_local_worker_state(state_dir: str | Path, payload: dict[str, Any]) -> str:
     run_id = str(payload.get("run_id") or "")
     if not run_id:
         return ""
@@ -106,11 +107,17 @@ def _mark_local_worker_state_delivered(state_dir: str | Path, payload: dict[str,
         record = json.loads(path.read_text(encoding="utf-8"))
         record["gate_state"] = payload.get("gate_state") or record.get("gate_state")
         record["last_idempotency_key"] = payload.get("idempotency_key") or record.get("last_idempotency_key")
+        if payload.get("gate_state") == "gate_error":
+            record["last_error"] = payload.get("reason") or record.get("last_error") or "gate_error"
         record["updated_at"] = utc_now()
         _atomic_write_json(path, record)
         return ""
     except Exception as exc:
         return f"local worker state update failed: {type(exc).__name__}: {exc}"
+
+
+def _mark_local_worker_state_delivered(state_dir: str | Path, payload: dict[str, Any]) -> str:
+    return _update_local_worker_state(state_dir, payload)
 
 
 @dataclass(frozen=True)

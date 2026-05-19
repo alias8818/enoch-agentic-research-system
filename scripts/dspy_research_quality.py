@@ -20,7 +20,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from enoch_control_plane.research_quality.artifacts import build_quality_report
-from enoch_control_plane.research_quality.datasets import CandidateRow, DecisionRow, as_float, as_text
+from enoch_control_plane.research_quality.datasets import CandidateRow, DecisionRow, as_bool, as_float, as_text
 from enoch_control_plane.research_quality.dspy_programs import dspy_available
 
 
@@ -61,9 +61,9 @@ def _decision_from_mapping(row: dict[str, Any]) -> DecisionRow:
         research_outcome=as_text(row.get("research_outcome") or project_decision.get("research_outcome")),
         claim_scope=as_text(row.get("claim_scope") or project_decision.get("claim_scope")),
         scale_limits=as_text(row.get("scale_limits") or project_decision.get("scale_limits")),
-        bounded_paper_ready=bool(row.get("bounded_paper_ready") if row.get("bounded_paper_ready") is not None else project_decision.get("bounded_paper_ready")),
-        compute_scale_blocked=bool(row.get("compute_scale_blocked") if row.get("compute_scale_blocked") is not None else project_decision.get("compute_scale_blocked")),
-        followup_recommended=bool(row.get("followup_recommended") if row.get("followup_recommended") is not None else project_decision.get("followup_recommended")),
+        bounded_paper_ready=as_bool(row.get("bounded_paper_ready") if row.get("bounded_paper_ready") is not None else project_decision.get("bounded_paper_ready")),
+        compute_scale_blocked=as_bool(row.get("compute_scale_blocked") if row.get("compute_scale_blocked") is not None else project_decision.get("compute_scale_blocked")),
+        followup_recommended=as_bool(row.get("followup_recommended") if row.get("followup_recommended") is not None else project_decision.get("followup_recommended")),
         followup_type=as_text(row.get("followup_type") or project_decision.get("followup_type")),
         followup_title=as_text(row.get("followup_title") or project_decision.get("followup_title")),
         followup_hypothesis=as_text(row.get("followup_hypothesis") or project_decision.get("followup_hypothesis")),

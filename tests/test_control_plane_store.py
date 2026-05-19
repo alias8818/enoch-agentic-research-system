@@ -212,6 +212,42 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(store.project_row("missing-status-queue")["origin_idea_status"], "unknown")
             self.assertEqual(store.project_row("missing-status-paper-project")["origin_idea_status"], "unknown")
 
+    def test_import_ideas_preserves_existing_origin_status_when_replayed_with_blank_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.ingest_ideas(
+                IdeaIntakeRequest(
+                    source="initial",
+                    ideas=[
+                        {
+                            "idea_id": "origin-status-project",
+                            "title": "Origin Status Project",
+                            "idea_status": "testing",
+                        }
+                    ],
+                    idempotency_key="import-initial",
+                    include_statuses=(),
+                    dry_run=False,
+                )
+            )
+            store.ingest_ideas(
+                IdeaIntakeRequest(
+                    source="replay",
+                    ideas=[
+                        {
+                            "idea_id": "origin-status-project",
+                            "title": "Origin Status Project Replay",
+                            "idea_status": "",
+                        }
+                    ],
+                    idempotency_key="import-replay",
+                    include_statuses=(),
+                    dry_run=False,
+                )
+            )
+
+            self.assertEqual(store.project_row("origin-status-project")["origin_idea_status"], "testing")
+
     def test_import_snapshot_rejects_conflicting_duplicate_queue_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .datasets import is_supported_negative_nonblocking, negative_rationale
+from .datasets import as_bool, is_supported_negative_nonblocking, negative_rationale
 
 DEFAULT_REPORT_PATHS = (
     "/var/lib/enoch-control-plane/research-quality/latest-report.json",
@@ -27,7 +27,7 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
     if decision == "finalize_negative" and hypothesis_status in {"mixed", "unsupported"}:
         if problem in {"weak_or_missing_evidence_strength", "supported_but_negative_requires_review"}:
             return "warning"
-    followup_recommended = bool(item.get("followup_recommended"))
+    followup_recommended = as_bool(item.get("followup_recommended"))
     bounded_followup = (
         followup_recommended
         and bool(item.get("followup_success_threshold"))
@@ -43,7 +43,7 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
         claim_scope=str(item.get("claim_scope") or "").strip(),
         scale_limits=str(item.get("scale_limits") or "").strip(),
         evidence_strength=str(item.get("evidence_strength") or "").strip(),
-        bounded_paper_ready=bool(item.get("bounded_paper_ready")),
+        bounded_paper_ready=as_bool(item.get("bounded_paper_ready")),
     ):
         return "info"
     if problem in {
@@ -58,7 +58,40 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
 
 
 def classify_quality_report(report: dict[str, Any], *, report_path: str = "", report_mtime: str = "") -> dict[str, Any]:
-    summary = report.get("summary") or {}
+    summary_raw = report.get("summary")
+    candidate_scores_raw = report.get("candidate_scores")
+    decision_scores_raw = report.get("decision_scores")
+    malformed_reasons: list[str] = []
+    if not isinstance(summary_raw, dict):
+        malformed_reasons.append("missing_or_invalid_summary")
+    if not isinstance(candidate_scores_raw, list):
+        malformed_reasons.append("missing_or_invalid_candidate_scores")
+    if not isinstance(decision_scores_raw, list):
+        malformed_reasons.append("missing_or_invalid_decision_scores")
+    if malformed_reasons:
+        return {
+            "ok": False,
+            "status": "blocked",
+            "label": "Research quality: BLOCKED",
+            "report_path": report_path,
+            "report_mtime": report_mtime,
+            "report_generated_at": report.get("generated_at") or "",
+            "schema_version": report.get("schema_version") or "",
+            "decisions_checked": 0,
+            "candidates_checked": 0,
+            "problem_counts": {"malformed_quality_report": 1},
+            "raw_problem_counts": {},
+            "severity_counts": {"blocked": 1},
+            "problem_details": [
+                {
+                    "section": "report",
+                    "severity": "blocked",
+                    "problem": "malformed_quality_report",
+                    "reason": "; ".join(malformed_reasons),
+                }
+            ],
+        }
+    summary = summary_raw
     raw_problem_counts = dict(summary.get("problem_counts") or {})
     actionable_problem_counts: Counter[str] = Counter()
     severity_counts: Counter[str] = Counter()

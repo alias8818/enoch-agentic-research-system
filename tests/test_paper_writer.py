@@ -140,6 +140,31 @@ class PaperWriterTests(unittest.TestCase):
             self.assertNotIn("syn_abcdefghijklmnopqrstuvwxyz", content)
             self.assertNotIn("sk-proj-abcdefghijklmnopqrstuvwxyz", content)
 
+    def test_evidence_bundle_excludes_raw_private_worker_metadata_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            (project / "run_notes.md").write_text("Measured result exists.\n", encoding="utf-8")
+            for rel in ("prompts", "scripts", "logs", ".enoch/state", ".enoch/logs"):
+                directory = project / rel
+                directory.mkdir(parents=True)
+                (directory / "private.txt").write_text("PRIVATE_TOKEN=secret-value-123456789\n", encoding="utf-8")
+            (project / ".enoch").mkdir(exist_ok=True)
+            (project / ".enoch" / "session.json").write_text('{"token":"secret-value-123456789"}\n', encoding="utf-8")
+
+            write_paper_artifacts(
+                self._config(tmp),
+                {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"},
+                self._paper(),
+                force=True,
+            )
+
+            evidence = json.loads((project / "papers/run/evidence.json").read_text(encoding="utf-8"))
+            source_paths = {item["source_path"] for item in evidence["public_evidence_files"]}
+            assert "run_notes.md" in source_paths
+            assert not any(path.startswith(("prompts/", "scripts/", "logs/", ".enoch/state/", ".enoch/logs/")) for path in source_paths)
+            assert ".enoch/session.json" not in source_paths
+
     def test_evidence_bundle_limits_large_source_file_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "projects" / "idea"
@@ -486,6 +511,28 @@ class PaperWriterTests(unittest.TestCase):
             self.assertFalse((paper_dir / "evidence.json").exists())
             self.assertFalse((paper_dir / "claims.json").exists())
             self.assertEqual((paper_dir / "manifest.json").read_text(encoding="utf-8"), '{"existing": true}\n')
+
+    def test_backfill_replaces_malformed_existing_manifest_without_blocking_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "projects" / "idea"
+            project.mkdir(parents=True)
+            (project / "run_notes.md").write_text("Measured useful evidence.\n", encoding="utf-8")
+            paper_dir = project / "papers" / "run"
+            paper_dir.mkdir(parents=True)
+            (paper_dir / "paper.md").write_text("Measured useful evidence.\n", encoding="utf-8")
+            (paper_dir / "manifest.json").write_text("{not-json", encoding="utf-8")
+
+            result = backfill_paper_evidence_artifacts(
+                self._config(tmp),
+                {"project_id": "idea", "project_name": "Idea", "project_dir": "idea"},
+                self._paper(),
+                force=True,
+            )
+
+            assert result["evidence_file_count"] >= 1
+            manifest = json.loads((paper_dir / "manifest.json").read_text(encoding="utf-8"))
+            assert manifest["evidence_backfilled"] is True
+            assert manifest["paper_id"] == self._paper().paper_id
 
 
     def test_synthetic_writer_blocks_uninspectable_existing_evidence_without_fallback(self) -> None:

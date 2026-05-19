@@ -60,7 +60,7 @@ def _control_plane_recovered(base_url: str, token: str) -> bool:
     for _ in range(3):
         time.sleep(2)
         try:
-            health = _get_json(base_url, "/healthz", token, timeout=5)
+            health = _get_json(base_url, "/healthz", "", timeout=5)
         except (OSError, TimeoutError, error.URLError, json.JSONDecodeError):
             continue
         if health.get("ok"):

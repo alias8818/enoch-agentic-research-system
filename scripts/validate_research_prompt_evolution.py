@@ -10,6 +10,7 @@ checks. It never modifies the source checkout.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import subprocess
 import sys
@@ -93,6 +94,20 @@ def _validate_patched_source(source_text: str) -> list[str]:
     return failures
 
 
+def _non_string_ast_signature(source_text: str) -> str:
+    tree = ast.parse(source_text)
+
+    class StripStrings(ast.NodeTransformer):
+        def visit_Constant(self, node: ast.Constant) -> ast.AST:  # noqa: N802 - ast API
+            if isinstance(node.value, str):
+                return ast.copy_location(ast.Constant(value="<prompt-string>"), node)
+            return node
+
+    stripped = StripStrings().visit(tree)
+    ast.fix_missing_locations(stripped)
+    return ast.dump(stripped, include_attributes=False)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", type=Path, required=True, help="evolution_report.json from evolve_research_prompt.py")
@@ -113,12 +128,19 @@ def main(argv: list[str] | None = None) -> int:
 
     with tempfile.TemporaryDirectory(prefix="enoch-prompt-evolution-") as temp_name:
         tmpdir = Path(temp_name)
+        original_source = args.source.read_text(encoding="utf-8")
         patched_source = _copy_source_tree(args.source, tmpdir)
         proc = _run(["patch", "-p0"], cwd=tmpdir, stdin=_retarget_patch(args.patch.read_text(encoding="utf-8")))
         if proc.returncode != 0:
             failures.append(f"patch did not apply cleanly: {proc.stderr.strip() or proc.stdout.strip()}")
         else:
-            failures.extend(_validate_patched_source(patched_source.read_text(encoding="utf-8")))
+            patched_text = patched_source.read_text(encoding="utf-8")
+            failures.extend(_validate_patched_source(patched_text))
+            try:
+                if _non_string_ast_signature(original_source) != _non_string_ast_signature(patched_text):
+                    failures.append("patch changes executable Python structure; only prompt string changes are allowed")
+            except SyntaxError as exc:
+                failures.append(f"patched source is not valid Python: {exc}")
 
     result = {
         "ok": not failures,

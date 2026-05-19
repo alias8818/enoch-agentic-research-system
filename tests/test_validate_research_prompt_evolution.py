@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import difflib
 from pathlib import Path
 
 from scripts import evolve_research_prompt, validate_research_prompt_evolution
@@ -79,3 +80,60 @@ def test_validate_research_prompt_evolution_rejects_missing_guardrail(tmp_path: 
     result = json.loads(capsys.readouterr().out)
     assert result["ok"] is False
     assert any("missing guardrails" in failure for failure in result["failures"])
+
+
+def test_validate_research_prompt_evolution_rejects_executable_patch_changes(tmp_path: Path, capsys) -> None:
+    source = tmp_path / "research_provider_generate.py"
+    _source(source)
+    report = tmp_path / "evolution_report.json"
+    prompt = tmp_path / "prompt.md"
+    patch = tmp_path / "prompt.patch"
+    report.write_text(
+        json.dumps(
+            {
+                "mode": "offline_patch_only",
+                "runtime_effect": "none",
+                "optimizer_runtime_used": False,
+                "artifacts": {"patch": patch.name, "prompt_candidate": prompt.name},
+                "guardrails": sorted(validate_research_prompt_evolution.REQUIRED_GUARDRAILS),
+                "case_count": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    prompt.write_text("## Proposed Research Quality addendum\n", encoding="utf-8")
+    source_text = source.read_text(encoding="utf-8")
+    proposed_text = 'print("executed")\n' + source_text.replace(
+        "Avoid fake citations. Avoid tiny hyperparameter or +0.05% ideas.",
+        "Avoid fake citations. Avoid tiny hyperparameter or +0.05% ideas.\n"
+        "Additional Research Quality policy:\n"
+        "Do not treat proxy-only evidence as paper-positive.\n"
+        "Do not propose another automatic follow-up.\n"
+        "generation does not queue work until promotion policy allows it.",
+    )
+    patch.write_text(
+        "".join(
+            difflib.unified_diff(
+                source_text.splitlines(keepends=True),
+                proposed_text.splitlines(keepends=True),
+                fromfile=str(source),
+                tofile=f"{source} (proposed)",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    assert validate_research_prompt_evolution.main(
+        [
+            "--source",
+            str(source),
+            "--report",
+            str(report),
+            "--patch",
+            str(patch),
+            "--prompt-candidate",
+            str(prompt),
+        ]
+    ) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert any("executable Python structure" in failure for failure in result["failures"])

@@ -56,8 +56,9 @@ SECRET_LIKE_TOKEN = re.compile(
     r"|syn_[A-Za-z0-9]{20,}"
     r"|hf_[A-Za-z0-9]{20,}"
     r"|gh[pousr]_[A-Za-z0-9_]{20,}"
-    r"|Authorization:\s*Bearer\s*(?:sk-proj-[A-Za-z0-9_-]{20,}|sk-ant-api03-[A-Za-z0-9_-]{40,}|sk-[A-Za-z0-9]{24,}|syn_[A-Za-z0-9]{20,}|hf_[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9_]{20,})"
-    r"|(?:OPENAI|ANTHROPIC|SYNTHETIC|GITHUB|HF|HUGGINGFACE|SUPABASE)[_-]?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[=:]\s*(?:sk-proj-[A-Za-z0-9_-]{20,}|sk-ant-api03-[A-Za-z0-9_-]{40,}|sk-[A-Za-z0-9]{24,}|syn_[A-Za-z0-9]{20,}|hf_[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9_]{20,})"
+    r"|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}"
+    r"|Authorization:\s*Bearer\s*[A-Za-z0-9._~+/=-]{24,}"
+    r"|(?:OPENAI|ANTHROPIC|SYNTHETIC|GITHUB|HF|HUGGINGFACE|SUPABASE|ENOCH|CONTROL|CALLBACK|DATABASE|POSTGRES)[_-]?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|BEARER|DATABASE[_-]?URL)\s*[=:]\s*[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]{12,}"
     r")"
 )
 PUBLIC_SECRET_SCAN_EXTENSIONS = {".html", ".js", ".json", ".jsonl", ".md", ".mdx", ".svg", ".txt", ".csv"}
@@ -219,13 +220,16 @@ def fetch_github_repo_metadata(repo: str) -> dict:
         # Prefer the authenticated gh CLI fallback so the release validator remains
         # deterministic on developer machines and CI runners that already have gh
         # credentials configured.
-        result = subprocess.run(
-            ["gh", "api", f"repos/{repo}"],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                ["gh", "api", f"repos/{repo}"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+        except OSError as subprocess_exc:
+            raise URLError(f"gh fallback failed: {type(subprocess_exc).__name__}: {subprocess_exc}") from subprocess_exc
         if result.returncode != 0:
             raise exc
         return json.loads(result.stdout)
@@ -287,7 +291,19 @@ def check_hf_export(hf_export: Path, artifact_count: int, strict_pass_count: int
             fail(f"HF export README missing current count fragment: {fragment}", failures)
 
 
-def main() -> int:
+def check_corpus_public_trust_validator(corpus: Path, failures: list[str], *, execute: bool = False) -> None:
+    corpus_trust_validator = corpus / "scripts" / "validate_public_trust_surfaces.py"
+    if not corpus_trust_validator.exists():
+        fail("missing corpus public trust validator", failures)
+        return
+    if not execute:
+        return
+    result = subprocess.run([sys.executable, str(corpus_trust_validator)], cwd=corpus, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if result.returncode != 0:
+        fail("corpus public trust validator failed:\n" + result.stdout.strip(), failures)
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate Enoch public release accounting and gate wording.")
     parser.add_argument("--system", type=Path, required=True)
     parser.add_argument("--corpus", type=Path, required=True)
@@ -298,7 +314,8 @@ def main() -> int:
     parser.add_argument("--hf-export", type=Path, default=None)
     parser.add_argument("--generated-manifest", type=Path, default=None, help="Optional freshly generated manifest to compare against committed site/ecosystem.json")
     parser.add_argument("--skip-github-metadata", action="store_true", help="Skip live GitHub repository About/description checks for offline validation")
-    args = parser.parse_args()
+    parser.add_argument("--execute-corpus-validator", action="store_true", help="Opt in to executing the sibling corpus validator script")
+    args = parser.parse_args(argv)
 
     system = args.system.resolve()
     corpus = args.corpus.resolve()
@@ -345,19 +362,13 @@ def main() -> int:
     )
     check_quality_scope(public_paths, failures)
     check_required_copy(public_paths, failures)
-    corpus_trust_validator = corpus / "scripts" / "validate_public_trust_surfaces.py"
-    if corpus_trust_validator.exists():
-        result = subprocess.run([sys.executable, str(corpus_trust_validator)], cwd=corpus, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        if result.returncode != 0:
-            fail("corpus public trust validator failed:\n" + result.stdout.strip(), failures)
-    else:
-        fail("missing corpus public trust validator", failures)
+    check_corpus_public_trust_validator(corpus, failures, execute=bool(args.execute_corpus_validator))
     combined_public = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in public_paths)
     if "strict claim/evidence" not in combined_public.lower():
         fail("missing strict claim/evidence audit public framing", failures)
     for match in FULL_AUDIT_CLAIM.finditer(combined_public):
-        if int(manifest.get("strict_claim_evidence_pass_count", 0)) == 0:
-            fail(f"public copy implies full strict auditability while strict pass count is 0: {match.group(0)}", failures)
+        if int(manifest.get("strict_claim_evidence_pass_count", 0)) < int(manifest.get("artifact_count") or 0):
+            fail(f"public copy implies full strict auditability while strict audit is incomplete: {match.group(0)}", failures)
     if not args.skip_github_metadata:
         check_github_metadata(int(manifest["artifact_count"]), failures)
     if hf_export:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from typing import Any, Callable
 from urllib import error, request
@@ -18,10 +19,10 @@ class HttpResult:
 
 
 Transport = Callable[[str, dict[str, str]], HttpResult]
-JsonTransport = Callable[[str, str, dict[str, str], dict[str, Any] | None], HttpResult]
+JsonTransport = Callable[..., HttpResult]
 
 
-def _http_request_json(method: str, url: str, headers: dict[str, str], payload: dict[str, Any] | None = None) -> HttpResult:
+def _http_request_json(method: str, url: str, headers: dict[str, str], payload: dict[str, Any] | None = None, *, timeout: float = 5) -> HttpResult:
     try:
         safe_url = validate_http_url(url, field_name="worker url")
     except ValueError as exc:
@@ -30,7 +31,7 @@ def _http_request_json(method: str, url: str, headers: dict[str, str], payload: 
     merged_headers = {"Content-Type": "application/json", **headers}
     req = request.Request(safe_url, data=data, headers=merged_headers, method=method)
     try:
-        with request.urlopen(req, timeout=5) as resp:
+        with request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8")
             body = json.loads(raw) if raw else {}
             if not isinstance(body, dict):
@@ -47,8 +48,13 @@ def _http_get_json(url: str, headers: dict[str, str]) -> HttpResult:
     return _http_request_json("GET", url, headers, None)
 
 
-def post_worker_json(base_url: str, path: str, token: str, payload: dict[str, Any], *, transport: JsonTransport = _http_request_json) -> HttpResult:
-    return transport("POST", base_url.rstrip("/") + path, _auth_headers(token), payload)
+def post_worker_json(base_url: str, path: str, token: str, payload: dict[str, Any], *, timeout: float = 5, transport: JsonTransport = _http_request_json) -> HttpResult:
+    try:
+        return transport("POST", base_url.rstrip("/") + path, _auth_headers(token), payload, timeout=timeout)
+    except TypeError as exc:
+        if "timeout" not in str(exc):
+            raise
+        return transport("POST", base_url.rstrip("/") + path, _auth_headers(token), payload)
 
 
 def _check(name: str, ok: bool, detail: str, data: dict[str, Any] | None = None) -> WorkerPreflightCheck:
@@ -60,9 +66,10 @@ def _float_or(value: Any, *, missing: float, malformed: float) -> float:
     if value is None or value == "":
         return missing
     try:
-        return float(value)
+        parsed = float(value)
     except (TypeError, ValueError):
         return malformed
+    return parsed if math.isfinite(parsed) else malformed
 
 
 def _int_or(value: Any, *, missing: int, malformed: int) -> int:
@@ -128,7 +135,7 @@ def run_worker_preflight(
         telemetry = (dashboard_body or {}).get("telemetry") or {}
         queue = (dashboard_body or {}).get("queue") or {}
         totals = (dashboard_body or {}).get("totals") or {}
-        gpu_pct = _float_or(telemetry.get("gpu_pct"), missing=0.0, malformed=float("inf"))
+        gpu_pct = _float_or(telemetry.get("gpu_pct"), missing=0.0, malformed=101.0)
         mem_available = _int_or(telemetry.get("memory_available_mib"), missing=0, malformed=0)
         swap_free = _int_or(telemetry.get("swap_free_mib"), missing=0, malformed=0)
         gpu_pids = telemetry.get("gpu_compute_pids") or []

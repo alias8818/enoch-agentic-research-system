@@ -5,13 +5,11 @@ import io
 import hashlib
 from pathlib import Path, PurePosixPath
 import os
-import queue
 import re
 import shlex
 import subprocess
 import tarfile
 import tempfile
-import threading
 import time
 from typing import Any, Callable, Mapping
 from urllib.parse import urlparse
@@ -198,7 +196,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 function token(){return localStorage.getItem('enochControlToken')||'';} function saveToken(){localStorage.setItem('enochControlToken',$('token').value.trim());route();} function globalSearch(){const q=($('globalSearch')?.value||'').trim(); if(q) location.hash='projects?search='+encodeURIComponent(q); }
 async function api(path,opts={}){const headers={Authorization:'Bearer '+token(),...(opts.headers||{})}; const requestOpts={cache:'no-store',...opts,headers}; if(!('signal' in requestOpts)&&currentRouteSignal)requestOpts.signal=currentRouteSignal; const r=await fetch(path,requestOpts); if(!r.ok) throw new Error(path+' -> '+r.status+' '+await r.text()); return r.json();}
 async function postJson(path,payload){return api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:null});}
-function confirmAction(title,message,confirmLabel='Confirm',tone='primary'){return new Promise(resolve=>{const dialog=$('confirmDialog'), heading=$('confirmDialogTitle'), body=$('confirmDialogMessage'), button=$('confirmDialogConfirm'); if(!dialog||!dialog.showModal){resolve(window['confirm'](title+'\\n\\n'+message)); return;} heading.textContent=title; body.textContent=message; button.textContent=confirmLabel; button.className=tone==='danger'?'button-danger':'button-primary'; const finish=()=>{dialog.removeEventListener('close',finish); resolve(dialog.returnValue==='confirm');}; dialog.addEventListener('close',finish,{once:true}); dialog.showModal();});}
+function confirmAction(title,message,confirmLabel='Confirm',tone='primary'){return new Promise(resolve=>{const dialog=$('confirmDialog'), heading=$('confirmDialogTitle'), body=$('confirmDialogMessage'), button=$('confirmDialogConfirm'); if(!dialog||!dialog.showModal){resolve(window['confirm'](title+'\\n\\n'+message)); return;} dialog.returnValue='cancel'; heading.textContent=title; body.textContent=message; button.textContent=confirmLabel; button.className=tone==='danger'?'button-danger':'button-primary'; const finish=()=>{dialog.removeEventListener('close',finish); resolve(dialog.returnValue==='confirm');}; dialog.addEventListener('close',finish,{once:true}); dialog.showModal();});}
 async function copyToClipboard(value){try{await navigator.clipboard.writeText(String(value||''));}catch(_e){const ta=document.createElement('textarea'); ta.value=String(value||''); ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();}}
 function copyButton(value,label='Copy id'){return value?`<button type="button" class="copy-button" data-copy="${esc(value)}" aria-label="${esc(label)}" title="${esc(label)}" onclick="copyToClipboard(this.dataset.copy)">Copy</button>`:'';}
 function sparklineTrend(value,cls='info'){const n=Math.max(0,Math.min(9999,Number(value)||0)); const seed=Math.max(1,n); const bars=Array.from({length:7},(_,i)=>18+(((seed*(i+3))+(i*i*11))%66)); return `<div class="sparkline ${esc(cls||'info')}" aria-label="current snapshot trend">${bars.map(h=>`<i style="height:${h}%"></i>`).join('')}</div>`;}
@@ -434,7 +432,7 @@ def _target_is_existing_dir(path: Path) -> tuple[bool, str]:
         return False, f"{type(exc).__name__}: evidence target could not be inspected: {exc}"
 
 
-def _post_worker_json_with_deadline(
+def _worker_json_request(
     base_url: str,
     path: str,
     token: str,
@@ -442,37 +440,19 @@ def _post_worker_json_with_deadline(
     *,
     timeout_seconds: float,
 ) -> HttpResult:
-    """Bound optional worker HTTP reads by wall clock.
+    """Call the worker read endpoint without leaving uncancellable threads.
 
-    urllib's socket timeout is not a complete route-level guard for optional
-    evidence sync. A worker endpoint can still hold the request open long
-    enough to keep the research run-cycle route and systemd oneshot service in
-    an invisible activating state. Evidence sync is opportunistic, so fail it
-    closed on a small deadline and let deterministic evidence gates decide
-    whether publication may proceed.
+    The underlying adapter uses urllib with a bounded socket timeout. Keeping
+    the call synchronous means a stuck or slow worker consumes the current
+    request only, not an unbounded background daemon thread per evidence file.
     """
 
-    result_queue: queue.Queue[HttpResult] = queue.Queue(maxsize=1)
-
-    def request_worker() -> None:
-        try:
-            result = post_worker_json(base_url, path, token, payload)
-        except BaseException as exc:  # pragma: no cover - defensive thread boundary
-            result = HttpResult(ok=False, status=None, body=None, error=f"{type(exc).__name__}: {exc}")
-        try:
-            result_queue.put_nowait(result)
-        except queue.Full:  # pragma: no cover - impossible with one producer
-            pass
-
-    thread = threading.Thread(target=request_worker, daemon=True)
-    thread.start()
-    thread.join(timeout=max(0.001, timeout_seconds))
-    if thread.is_alive():
-        return HttpResult(ok=False, status=None, body=None, error=f"TimeoutError: worker request exceeded {timeout_seconds:.3f}s")
     try:
-        return result_queue.get_nowait()
-    except queue.Empty:
-        return HttpResult(ok=False, status=None, body=None, error="worker request produced no result")
+        return post_worker_json(base_url, path, token, payload, timeout=timeout_seconds)
+    except TypeError as exc:
+        if "timeout" not in str(exc):
+            raise
+        return post_worker_json(base_url, path, token, payload)
 
 
 def _sync_worker_http_evidence(
@@ -535,7 +515,7 @@ def _sync_worker_http_evidence(
             skipped.append({"path": path, "status": "timeout", "error": "overall worker evidence sync timeout exceeded"})
             break
         request_timeout = min(per_request_timeout_seconds, remaining)
-        result = _post_worker_json_with_deadline(
+        result = _worker_json_request(
             config.worker_wake_gate_url,
             f"/project-paper/{project_id}/read",
             config.worker_wake_gate_bearer_token,
@@ -562,6 +542,13 @@ def _sync_worker_http_evidence(
             rel = str(file.get("path") or "").strip()
             content = str(file.get("content") or "")
             if not content:
+                try:
+                    stale_target = (artifact_root / rel).resolve()
+                    stale_target.relative_to(artifact_root)
+                    if rel and stale_target != artifact_root and stale_target.is_file():
+                        stale_target.unlink()
+                except (OSError, RuntimeError, ValueError):
+                    pass
                 skipped.append({"path": rel, "status": "empty_content", "error": "worker returned empty evidence content"})
                 continue
             try:
@@ -663,7 +650,10 @@ def _local_artifact_root(config: GateConfig, *, project_id: str, project_dir_tex
     try:
         root = config.expanded_project_root.resolve()
     except (OSError, RuntimeError, ValueError):
-        root = Path(".").resolve()
+        try:
+            root = (config.expanded_state_dir / "evidence-artifacts").resolve()
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=500, detail="configured artifact roots are not resolvable") from exc
     fallback = _safe_fallback_artifact_root(root, project_id)
     source = str(project_dir_text or "").strip()
     if not source:
@@ -701,17 +691,9 @@ def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifa
         "run_notes.md",
         ".enoch/project_decision.json",
         ".enoch/metrics.json",
-        ".enoch/project.json",
-        ".enoch/session.json",
-        ".enoch/last_message.md",
-        ".enoch/logs",
-        ".enoch/state",
         ".omx/project_decision.json",
         ".omx/metrics.json",
         "results",
-        "logs",
-        "scripts",
-        "prompts",
         "papers",
     ]
     remote_cmd = (
@@ -751,16 +733,64 @@ def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifa
         }
     known_hosts.parent.mkdir(parents=True, exist_ok=True)
     ssh_proc: subprocess.Popen | None = None
+    ssh_stderr_file: Any | None = None
+    max_tar_bytes = int(getattr(config, "paper_evidence_sync_max_tar_bytes", 96_000_000) or 96_000_000)
     try:
-        ssh_proc = subprocess.Popen(ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        ssh_out, ssh_err = ssh_proc.communicate(timeout=config.paper_evidence_sync_timeout_sec)
-        ssh_code = ssh_proc.returncode
+        ssh_stderr_file = tempfile.TemporaryFile()
+        ssh_proc = subprocess.Popen(ssh_cmd, stdout=subprocess.PIPE, stderr=ssh_stderr_file)
+        ssh_stdout = getattr(ssh_proc, "stdout", None)
+        if ssh_stdout is None or isinstance(ssh_stdout, io.BytesIO):
+            ssh_out, ssh_err = ssh_proc.communicate(timeout=config.paper_evidence_sync_timeout_sec)
+            if len(ssh_out or b"") > max_tar_bytes:
+                _stop_process(ssh_proc)
+                return {
+                    "enabled": True,
+                    "synced": _local_paper_evidence_present(artifact_root),
+                    "local_evidence_present": _local_paper_evidence_present(artifact_root),
+                    "reason": "remote_tar_too_large",
+                    "remote_dir": remote_dir,
+                    "error": f"remote evidence tar exceeded {max_tar_bytes} bytes",
+                    "http_sync": http_sync,
+                    "method": "worker_http+ssh",
+                }
+            ssh_code = ssh_proc.returncode
+        else:
+            ssh_chunks: list[bytes] = []
+            ssh_size = 0
+            deadline = time.monotonic() + max(1, int(config.paper_evidence_sync_timeout_sec))
+            while True:
+                if time.monotonic() > deadline:
+                    raise subprocess.TimeoutExpired(ssh_cmd, config.paper_evidence_sync_timeout_sec)
+                chunk = ssh_stdout.read(1024 * 1024)
+                if not chunk:
+                    break
+                ssh_size += len(chunk)
+                if ssh_size > max_tar_bytes:
+                    _stop_process(ssh_proc)
+                    return {
+                        "enabled": True,
+                        "synced": _local_paper_evidence_present(artifact_root),
+                        "local_evidence_present": _local_paper_evidence_present(artifact_root),
+                        "reason": "remote_tar_too_large",
+                        "remote_dir": remote_dir,
+                        "error": f"remote evidence tar exceeded {max_tar_bytes} bytes",
+                        "http_sync": http_sync,
+                        "method": "worker_http+ssh",
+                    }
+                ssh_chunks.append(chunk)
+            ssh_code = ssh_proc.wait(timeout=5)
+            ssh_stderr_file.seek(0)
+            ssh_err = ssh_stderr_file.read()
+            ssh_out = b"".join(ssh_chunks)
     except subprocess.TimeoutExpired as exc:
         _stop_process(ssh_proc)
         return {"enabled": True, "synced": _local_paper_evidence_present(artifact_root), "reason": "timeout", "remote_dir": remote_dir, "error": str(exc), "http_sync": http_sync, "method": "worker_http+ssh"}
     except OSError as exc:
         _stop_process(ssh_proc)
         return {"enabled": True, "synced": _local_paper_evidence_present(artifact_root), "reason": "spawn_failed", "remote_dir": remote_dir, "error": str(exc), "http_sync": http_sync, "method": "worker_http+ssh"}
+    finally:
+        if ssh_stderr_file is not None:
+            ssh_stderr_file.close()
     if ssh_code != 0:
         return {
             "enabled": True,
@@ -800,6 +830,15 @@ def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifa
 def _safe_slug(value: str, fallback: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", value.strip()).strip("-._").lower()
     return (slug or fallback)[:96]
+
+
+def _validate_research_candidate_id(candidate_id: str) -> str:
+    value = str(candidate_id or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="candidate_id is required")
+    if len(value) > 160 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]*", value):
+        raise HTTPException(status_code=400, detail="candidate_id must be a bounded slug-like identifier")
+    return value
 
 
 def _live_run_id(project_id: str) -> str:
@@ -2089,7 +2128,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     decision_record = {
                         "ok": False,
                         "persisted": False,
-                        "reason": f"{type(exc).__name__}: {exc}",
+                        "reason": "decision persistence failed",
+                        "error_type": type(exc).__name__,
                     }
                 decision_sync["decision_record"] = decision_record
                 if decision_record.get("persisted") and project_id:
@@ -3318,7 +3358,6 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         topic = str(body.get("topic") or "").strip()
         temperature = _bounded_float_from_mapping(body, "temperature", 0.8, 0.0, 1.5)
         seed = str(body.get("seed") or utc_now()).strip()
-        estimated_requests = 1
         reserve_requests = _bounded_int_from_mapping(body, "reserve_requests", 2, 1, 100)
         budget_timeout = _bounded_int_from_mapping(body, "budget_timeout", 20, 1, 60)
         generation_timeout = _bounded_int_from_mapping(body, "generation_timeout", 180, 10, 300)
@@ -3336,6 +3375,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             1,
             3,
         )
+        estimated_requests = generation_attempts
         try:
             quota_payload = research_provider_budget.fetch_json(f"{provider_base_url}/v2/quotas", api_key="", timeout=budget_timeout)
             budget = research_provider_budget.synthetic_budget_status(
@@ -3426,7 +3466,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 "rejected_count": 0,
             })
             return response
-        generated_candidates = generated.get("candidates") or []
+        generated_candidates = (generated.get("candidates") or [])[:max_candidates]
         if not generated_candidates:
             response.update({
                 "ok": False,
@@ -3492,12 +3532,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
 
         def bounded_float(name: str, default: float, lower: float, upper: float) -> float:
             return _bounded_float_from_mapping(body, name, default, lower, upper)
-        raw_allowed_models = body.get("allowed_models")
-        allowed_models = (
-            [str(item).strip() for item in raw_allowed_models if item is not None and str(item).strip()]
-            if isinstance(raw_allowed_models, list)
-            else ["hf:moonshotai/Kimi-K2.6", "hf:zai-org/GLM-5.1"]
-        )
+        allowed_models = [
+            item.strip()
+            for item in os.environ.get("ENOCH_RESEARCH_ALLOWED_MODELS", "hf:moonshotai/Kimi-K2.6,hf:zai-org/GLM-5.1").split(",")
+            if item.strip()
+        ]
         if not allowed_models:
             allowed_models = ["hf:moonshotai/Kimi-K2.6", "hf:zai-org/GLM-5.1"]
         provider_model = str(body.get("model") or os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL") or "hf:zai-org/GLM-5.1").strip()
@@ -3512,7 +3551,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 "dispatch_started": False,
             }
         max_provider_requests = bounded_int("max_provider_requests_per_run", 1, 0, 3)
-        max_promotions = bounded_int("max_promotions_per_run", 1, 0, 3)
+        max_promotions = bounded_int("max_promotions_per_run", 1, 0, 1)
         max_dispatches = bounded_int("max_dispatches_per_run", 0, 0, 1)
         max_paper_drafts = bounded_int("max_paper_drafts_per_run", 0, 0, 1)
         max_publication_rewrites = bounded_int("max_publication_rewrites_per_run", 0, 0, 1)
@@ -3546,7 +3585,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if not dry_run and not enabled:
             stop_reasons.append("live run-cycle requires enabled=true")
 
-        estimated_requests = max_provider_requests
+        estimated_requests = max_provider_requests * generation_attempts
         budget: dict[str, Any]
         try:
             reserve_requests = bounded_int("reserve_requests", 2, 1, 100)
@@ -3780,6 +3819,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             return False
 
         followup_candidate = None
+        followup_branch_taken = False
         if hasattr(store, "next_followup_candidate"):
             followup_candidate = store.next_followup_candidate(max_followup_depth=4)
         if followup_candidate:
@@ -3795,6 +3835,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     "reason": followup_launch.get("reason"),
                 })
                 if followup_launch.get("action") == "followup_queued":
+                    followup_branch_taken = True
                     response["queued_count"] = 1
                     followup_project_id = str((followup_launch.get("followup") or {}).get("idea_id") or "").strip()
                     if followup_project_id:
@@ -3812,9 +3853,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     "reason": "bounded follow-up candidate exists but dispatch is disabled for this run",
                     "parent_project_id": followup_candidate.get("project_id"),
                 })
-            response["fresh_generation_skipped"] = True
-            response["fresh_promotion_skipped"] = True
-            response["reason"] = "bounded follow-up branch took priority over fresh idea generation"
+            response["fresh_generation_skipped"] = followup_branch_taken
+            response["fresh_promotion_skipped"] = followup_branch_taken
+            if followup_branch_taken:
+                response["reason"] = "bounded follow-up branch took priority over fresh idea generation"
         else:
             response["fresh_generation_skipped"] = False
             response["fresh_promotion_skipped"] = False
@@ -3856,7 +3898,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     default_sandbox=os.environ.get("ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"),
                 )
                 generated_plans = research_facility.plan_candidates(
-                    generated.get("candidates") or [],
+                    (generated.get("candidates") or [])[:max_candidates],
                     Namespace(
                         default_machine=os.environ.get("ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"),
                         default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
@@ -3880,7 +3922,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         promoted: list[dict[str, Any]] = []
         if not response.get("fresh_promotion_skipped"):
             for row in promotable_rows()[:max_promotions]:
-                result = store.promote_research_candidate(str(row.get("candidate_id")), requested_by=requested_by, dry_run=False)
+                result = store.promote_research_candidate(
+                    _validate_research_candidate_id(str(row.get("candidate_id"))),
+                    requested_by=requested_by,
+                    dry_run=False,
+                )
                 promoted.append(result)
             response["promotions"] = promoted
             response["promoted_count"] = sum(1 for item in promoted if item.get("ok") and not item.get("already_promoted"))
@@ -3998,9 +4044,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     ) -> dict[str, Any]:
         authorize(authorization)
         body = payload or {}
-        candidate_id = str(body.get("candidate_id") or "").strip()
-        if not candidate_id:
-            raise HTTPException(status_code=400, detail="candidate_id is required")
+        candidate_id = _validate_research_candidate_id(str(body.get("candidate_id") or ""))
         dry_run = bool(body.get("dry_run", True))
         requested_by = str(body.get("requested_by") or "dashboard")[:80]
         if not dry_run:
@@ -4059,7 +4103,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "failures",
         }
         response = {key: result.get(key) for key in safe_keys if key in result}
-        response.update({"base_url": base_url, "auth_mode": "exe_http_proxy", "payload_json": None})
+        response.update({"provider_endpoint": "configured", "auth_mode": "exe_http_proxy", "payload_json": None})
         return response
 
     @router.get("/api/intake/notion", response_model=DashboardIntakeResponse)

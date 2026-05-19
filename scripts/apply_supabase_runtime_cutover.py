@@ -47,15 +47,26 @@ def _run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[s
 
 def _redact_url(url: str) -> str:
     parsed = urlsplit(url)
+    sensitive_query_keys = {"password", "pass", "pwd", "token", "apikey", "api_key", "sslpassword", "sslcert", "sslkey"}
+    redacted_query = ""
+    if parsed.query:
+        parts = []
+        for item in parsed.query.split("&"):
+            key, sep, value = item.partition("=")
+            if key.lower() in sensitive_query_keys:
+                parts.append(f"{key}{sep}***" if sep else key)
+            else:
+                parts.append(item)
+        redacted_query = "&".join(parts)
     if not parsed.hostname or "@" not in parsed.netloc:
-        return url
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, redacted_query, ""))
     auth = "***"
     if parsed.username:
         auth = f"{parsed.username}:***"
     host = parsed.hostname
     if parsed.port:
         host = f"{host}:{parsed.port}"
-    return urlunsplit((parsed.scheme, f"{auth}@{host}", parsed.path, parsed.query, parsed.fragment))
+    return urlunsplit((parsed.scheme, f"{auth}@{host}", parsed.path, redacted_query, ""))
 
 
 def _load_json(path: Path) -> dict[str, Any]:

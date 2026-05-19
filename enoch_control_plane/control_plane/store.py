@@ -2497,7 +2497,8 @@ class ControlPlaneStore:
         skipped_rows: list[dict[str, Any]] = []
         for raw in request.ideas:
             title = _idea_title(raw)
-            status = (_idea_status(raw) or "exploring").lower()
+            origin_status = _idea_status(raw).lower()
+            status = origin_status or "exploring"
             if not title:
                 skipped_rows.append({"reason": "missing title", "row": raw})
                 continue
@@ -2515,7 +2516,7 @@ class ControlPlaneStore:
                 "idea_id": project_id,
                 "project_name": title,
                 "project_dir": project_id,
-                "origin_idea_status": status,
+                "origin_idea_status": origin_status,
                 "status": QueueStatus.QUEUED.value,
                 "selection_rank": rank,
                 "dispatch_priority": dispatch_priority,
@@ -2571,7 +2572,7 @@ class ControlPlaneStore:
                     ON CONFLICT(project_id) DO UPDATE SET
                         project_name=excluded.project_name,
                         project_dir=excluded.project_dir,
-                        origin_idea_status=excluded.origin_idea_status,
+                        origin_idea_status=COALESCE(NULLIF(excluded.origin_idea_status,''), projects.origin_idea_status),
                         updated_at=excluded.updated_at""",
                     (project.project_id, project.project_name, project.project_dir, "", "", project.origin_idea_status, project.created_at, project.updated_at),
                 )

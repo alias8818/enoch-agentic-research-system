@@ -62,6 +62,20 @@ def as_text(value: Any) -> str:
     return str(value).strip()
 
 
+def as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off", ""}:
+            return False
+    return bool(value)
+
+
 def as_float(value: Any) -> float:
     try:
         return float(value)
@@ -155,13 +169,14 @@ PAPER_LIMIT_MARKERS = (
 )
 
 EVIDENCE_LIMIT_MARKERS = (
-    "proxy",
+    "proxy-only",
+    "proxy only",
+    "synthetic/proxy",
+    "synthetic proxy",
     "synthetic",
     "insufficient",
-    "direct",
     "full-scale",
     "full validation",
-    "real",
     "trace",
     "small-model",
     "small model",
@@ -270,7 +285,7 @@ def is_supported_negative_nonblocking(
     depth_capped = has_depth_cap_rationale(rationale)
     if followup_recommended:
         return bounded_followup or paper_limited or evidence_limited
-    return depth_capped and (paper_limited or evidence_limited)
+    return depth_capped and paper_limited and evidence_limited
 
 
 def classify_decision_quality(row: DecisionRow) -> tuple[float, list[str]]:

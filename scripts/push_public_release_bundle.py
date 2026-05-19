@@ -32,13 +32,42 @@ class Repo:
     workflow: str | None = None
 
 
-def run(cmd: list[str], *, cwd: Path | None = None, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
-    printable = " ".join(cmd)
+SECRET_ARG_NAMES = {"--token", "--database-url", "--db-url", "--ledger-database-url"}
+
+
+def printable_cmd(cmd: list[str]) -> str:
+    redacted: list[str] = []
+    skip_next = False
+    for part in cmd:
+        if skip_next:
+            redacted.append("<redacted>")
+            skip_next = False
+            continue
+        redacted.append(part)
+        if part in SECRET_ARG_NAMES:
+            skip_next = True
+    return " ".join(redacted)
+
+
+def run(
+    cmd: list[str],
+    *,
+    cwd: Path | None = None,
+    check: bool = True,
+    capture: bool = False,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    printable = printable_cmd(cmd)
     where = f" ({cwd})" if cwd else ""
     print(f"$ {printable}{where}", flush=True)
+    child_env = None
+    if env is not None:
+        child_env = os.environ.copy()
+        child_env.update(env)
     return subprocess.run(
         cmd,
         cwd=str(cwd) if cwd else None,
+        env=child_env,
         check=check,
         text=True,
         stdout=subprocess.PIPE if capture else None,
@@ -116,11 +145,10 @@ def sync_corpus_import_ledger(system: Repo, corpus: Repo, *, database_url: str, 
                 "--corpus",
                 str(corpus.path),
                 "--prune-stale",
-                "--database-url",
-                database_url,
                 "--apply",
             ],
             cwd=system.path,
+            env={"ENOCH_SUPABASE_DATABASE_URL": database_url},
         )
         run(
             [
@@ -128,10 +156,9 @@ def sync_corpus_import_ledger(system: Repo, corpus: Repo, *, database_url: str, 
                 "scripts/validate_corpus_import_ledger.py",
                 "--corpus",
                 str(corpus.path),
-                "--db-url",
-                database_url,
             ],
             cwd=system.path,
+            env={"ENOCH_SUPABASE_DATABASE_URL": database_url},
         )
         return
     if not use_linked:

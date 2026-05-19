@@ -203,3 +203,51 @@ def test_dspy_research_quality_script_accepts_fixture_json(tmp_path: Path) -> No
     assert report["summary"]["candidate_count"] == 1
     assert report["summary"]["decision_count"] == 1
     assert report["metadata"]["dspy_runtime_used"] is False
+
+
+def test_dspy_research_quality_parses_string_booleans() -> None:
+    row = dspy_research_quality._decision_from_mapping(
+        {
+            "project_id": "project-1",
+            "payload_json": {
+                "project_decision": {
+                    "project_decision": "finalize_negative",
+                    "hypothesis_status": "supported",
+                    "followup_recommended": "false",
+                    "bounded_paper_ready": "false",
+                    "compute_scale_blocked": "true",
+                }
+            },
+        }
+    )
+
+    assert row.followup_recommended is False
+    assert row.bounded_paper_ready is False
+    assert row.compute_scale_blocked is True
+
+
+def test_supported_negative_does_not_pass_on_broad_real_or_direct_words_only() -> None:
+    row = DecisionRow(
+        project_id="p",
+        project_name="P",
+        run_id="r",
+        decision="finalize_negative",
+        hypothesis_status="supported",
+        evidence_strength="moderate",
+        confidence="medium",
+        bounded_paper_ready=False,
+        followup_recommended=False,
+        followup_type="",
+        followup_title="",
+        followup_hypothesis="",
+        followup_required_evidence_count=0,
+        followup_success_threshold="",
+        followup_stop_condition="",
+        stop_reason="The run has real direct evidence and says do not write a paper, but gives no concrete scale limitation.",
+        recommended_next_action="Stop at depth 4 because direct evidence exists, with no concrete local compute limitation.",
+        created_at="2026-05-19T00:00:00Z",
+    )
+
+    _score, problems = classify_decision_quality(row)
+
+    assert "supported_but_negative_requires_review" in problems

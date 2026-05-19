@@ -80,7 +80,7 @@ The deterministic planner in `scripts/research_facility.py` rejects candidates t
 
 ## Provider budget preflight
 
-Provider-backed generation must check quota before spending. Synthetic is supported through `scripts/research_provider_budget.py`. The simplest path reads the API key from `SYNTHETIC_API_KEY` and does not print the key:
+Provider-backed generation must check quota before spending. Synthetic is supported through `scripts/research_provider_budget.py`. For local one-off checks, provide the key through a private process environment or secret manager; do not put provider keys in command-line arguments where they can appear in process listings or shell history:
 
 ```bash
 python scripts/research_provider_budget.py \
@@ -96,11 +96,12 @@ Preferred production path on exe.dev is an HTTP Proxy integration so the key doe
 
 ```bash
 ssh exe.dev
-integrations add http-proxy --name=synthetic --target=https://api.synthetic.new --bearer=<paste-synthetic-api-key> --attach vm:enoch-core
+integrations setup
+integrations attach synthetic vm:enoch-core
 integrations list
 ```
 
-Do not export or store the Synthetic key on `enoch-core`. After the integration is attached, the VM calls the internal proxy URL and exe.dev injects the Authorization header. Then run the preflight from the VM without local auth:
+Do not pass the Synthetic key as an argv flag and do not store it on `enoch-core`. After the integration is attached, the VM calls the internal proxy URL and exe.dev injects the Authorization header. Then run the preflight from the VM without local auth:
 
 ```bash
 python scripts/research_provider_budget.py \

@@ -2450,7 +2450,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         skipped_rows: list[dict[str, Any]] = []
         for raw in request.ideas:
             title = _idea_title(raw)
-            status = (_idea_status(raw) or "exploring").lower()
+            origin_status = _idea_status(raw).lower()
+            status = origin_status or "exploring"
             if not title:
                 skipped_rows.append({"reason": "missing title", "row": raw})
                 continue
@@ -2468,7 +2469,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 "idea_id": project_id,
                 "project_name": title,
                 "project_dir": project_id,
-                "origin_idea_status": status,
+                "origin_idea_status": origin_status,
                 "status": QueueStatus.QUEUED.value,
                 "selection_rank": rank,
                 "dispatch_priority": dispatch_priority,
@@ -2558,7 +2559,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         values (%s,%s,%s,'','',%s,%s,%s)
                         on conflict (project_id) do update set
                           project_name=excluded.project_name, project_dir=excluded.project_dir,
-                          origin_idea_status=excluded.origin_idea_status, updated_at=excluded.updated_at
+                          origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
+                          updated_at=excluded.updated_at
                         """,
                         (candidate["project_id"], candidate["project_name"], candidate["project_dir"], candidate["origin_idea_status"], now, now),
                     )
@@ -2885,7 +2887,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     on conflict (project_id) do update set
                       project_name=excluded.project_name,
                       project_dir=excluded.project_dir,
-                      origin_idea_status=excluded.origin_idea_status,
+                      origin_idea_status=coalesce(nullif(projects.origin_idea_status,''), excluded.origin_idea_status),
                       updated_at=now()
                     """,
                     (idea_id, title, idea_id),
@@ -3164,7 +3166,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     payload=event_payload,
                 )
                 if not inserted:
-                    return event_id, self.queue_row(project_id) or {}
+                    rows = self._queue_rows_from_cursor(cur, "where q.project_id = %s", (project_id,))
+                    return event_id, rows[0] if rows else {}
                 cur.execute(
                     """
                     update queue_items

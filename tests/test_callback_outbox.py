@@ -51,6 +51,28 @@ def test_write_pending_records_corrupt_existing_metadata(tmp_path: Path) -> None
     assert "existing pending metadata unreadable" in data["last_error"]
 
 
+def test_write_pending_updates_local_worker_state_for_terminal_gate_error(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    run_dir = state / "runs"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run-failed.json").write_text(json.dumps({"run_id": "run-failed", "gate_state": "running"}), encoding="utf-8")
+
+    callback_outbox.write_pending(
+        state,
+        {
+            **_payload("run-failed"),
+            "event_type": "gate_error",
+            "gate_state": "gate_error",
+            "reason": "codex runner exited nonzero: 1",
+            "idempotency_key": "run-failed:gate_error:codex-runner:done",
+        },
+    )
+
+    data = json.loads((run_dir / "run-failed.json").read_text(encoding="utf-8"))
+    assert data["gate_state"] == "gate_error"
+    assert data["last_error"] == "codex runner exited nonzero: 1"
+
+
 
 def test_pending_paths_do_not_collide_for_sanitized_run_ids(tmp_path: Path) -> None:
     state = tmp_path / "state"
@@ -59,6 +81,7 @@ def test_pending_paths_do_not_collide_for_sanitized_run_ids(tmp_path: Path) -> N
     safe = callback_outbox.write_pending(state, _payload("run_unsafe"))
 
     assert unsafe != safe
+    assert len(unsafe.stem.rsplit("-", 1)[-1]) == 32
     assert unsafe.exists()
     assert safe.exists()
     assert json.loads(unsafe.read_text(encoding="utf-8"))["run_id"] == "run/unsafe"

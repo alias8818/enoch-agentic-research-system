@@ -185,7 +185,11 @@ def drill(args: argparse.Namespace) -> dict[str, Any]:
                     "maintenance_mode": True,
                 },
             )
-            report["re_pause"] = paused[1] if paused[0] == 200 else {"status": paused[0], "body": paused[1]}
+            if paused[0] != 200:
+                report["ok"] = False
+                report["re_pause"] = {"status": paused[0], "body": paused[1]}
+                raise DrillError(f"failed to re-pause after drill: HTTP {paused[0]} {paused[1]}")
+            report["re_pause"] = paused[1]
 
 
 def main() -> int:

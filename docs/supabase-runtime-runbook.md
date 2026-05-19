@@ -34,9 +34,9 @@ python scripts/check_longhaul_readiness.py --live \
 For historical Supabase-resume validation from the repo checkout:
 
 ```bash
-ENOCH_CONTROL_PLANE_TOKEN="$(ssh root@192.168.1.166 'cat /root/enoch-control-plane-token.txt')" \
+ENOCH_CONTROL_PLANE_TOKEN="$(ssh root@<legacy-control-host> 'cat /root/enoch-control-plane-token.txt')" \
 uv run python scripts/validate_supabase_resume_readiness.py \
-  --ssh-host root@192.168.1.166
+  --ssh-host root@<legacy-control-host>
 ```
 
 Expected historical result: `ok: true` with `store_backend=supabase`, Notion `410`, and disabled/inactive timers. Do not use this as proof of current `enoch-core` local-Postgres readiness.
@@ -58,9 +58,9 @@ systemctl is-active enoch-notion-sync.timer enoch-notion-sync.service enoch-pape
 Historical Supabase-era drill: do not enable timers for the first resume. Use the fail-closed script:
 
 ```bash
-ENOCH_CONTROL_PLANE_TOKEN="$(ssh root@192.168.1.166 'cat /root/enoch-control-plane-token.txt')" \
+ENOCH_CONTROL_PLANE_TOKEN="$(ssh root@<legacy-control-host> 'cat /root/enoch-control-plane-token.txt')" \
 uv run python scripts/supabase_controlled_resume_drill.py \
-  --ssh-host root@192.168.1.166 \
+  --ssh-host root@<legacy-control-host> \
   --apply
 ```
 
@@ -108,19 +108,19 @@ This is an execution-only unfreeze. Paper drafting remains explicit/decision-gat
 
 ## exe.dev local-Postgres migration evidence from 2026-05-09
 
-The runtime control plane and database were moved off Supabase Cloud to `enoch-core.exe.xyz` to stop cloud egress growth from dashboard/status polling.
+The runtime control plane and database were moved off Supabase Cloud to `<private-control-host>` to stop cloud egress growth from dashboard/status polling.
 
 Current intended topology:
 
-- `enoch-core.exe.xyz` / Tailscale `100.98.147.24`
+- `<private-control-host>` / Tailscale `<control-tailscale-ip>`
   - Postgres 17 on `127.0.0.1:5432`, database `enoch_control`, private schema `enoch`.
   - `enoch-control-plane.service` serving FastAPI/Uvicorn on `0.0.0.0:8787`.
   - `enoch-queue-alert-check.timer` enabled; queue remains paused until explicitly resumed.
   - `enoch-postgres-backup.timer` creates local compressed custom-format dumps under `/var/backups/enoch-postgres` with 7-day retention.
-- GB10 worker / Tailscale `100.92.44.26`
+- GB10 worker / Tailscale `<worker-tailscale-ip>`
   - Worker execution only.
   - Project artifacts stay under `/home/jeremy/projects/enoch_testing_ground/projects` on the GB10 USB storage.
-  - Worker callback URL now targets `http://100.98.147.24:8787/control/api/worker-callback`.
+  - Worker callback URL now targets `http://<control-tailscale-ip>:8787/control/api/worker-callback`.
 - Former `.166` control-plane host
   - `enoch-control-plane.service` and `enoch-queue-alert-check.timer` disabled/inactive after parity checks.
 
@@ -129,17 +129,17 @@ Cutover verification commands used:
 ```bash
 # New control plane status over Tailscale.
 curl -H "Authorization: Bearer $ENOCH_CONTROL_PLANE_TOKEN" \
-  http://100.98.147.24:8787/control/api/status
+  http://<control-tailscale-ip>:8787/control/api/status
 
 # New overview parity.
 curl -H "Authorization: Bearer $ENOCH_CONTROL_PLANE_TOKEN" \
-  'http://100.98.147.24:8787/control/api/v1/overview?active_limit=5&event_limit=5'
+  'http://<control-tailscale-ip>:8787/control/api/v1/overview?active_limit=5&event_limit=5'
 
 # Worker preflight from new control plane to GB10.
 curl -X POST -H "Authorization: Bearer $ENOCH_CONTROL_PLANE_TOKEN" \
   -H 'Content-Type: application/json' \
-  http://100.98.147.24:8787/control/api/preflight \
-  -d '{"wake_gate_url":"http://100.92.44.26:8787","bearer_token":"<worker-token>","require_paused":false,"strict":false}'
+  http://<control-tailscale-ip>:8787/control/api/preflight \
+  -d '{"wake_gate_url":"http://<worker-tailscale-ip>:8787","bearer_token":"<worker-token>","require_paused":false,"strict":false}'
 ```
 
 Observed parity at cutover:
@@ -152,8 +152,8 @@ Observed parity at cutover:
 
 Operational notes:
 
-- Use `http://100.98.147.24:8787/control/dashboard` for direct Tailscale access.
-- `https://enoch-core.exe.xyz/` is configured as a private exe.dev proxy to port `8787`; exe.dev authentication may be required before the application bearer token is evaluated.
+- Use `http://<control-tailscale-ip>:8787/control/dashboard` for direct Tailscale access.
+- `https://<private-control-host>/` is configured as a private exe.dev proxy to port `8787`; exe.dev authentication may be required before the application bearer token is evaluated.
 - Do not point dashboard/API traffic back at Supabase Cloud unless intentionally rolling back.
 
 ## Reconnect and callback resilience

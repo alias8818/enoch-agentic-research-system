@@ -91,6 +91,31 @@ def test_agentic_property_testing_classifies_pytest_invocation_errors() -> None:
     assert "agent" in agentic_property_testing._agentic_next_action("execution_error")
 
 
+def test_agentic_property_testing_does_not_hide_counterexamples_with_fixture_word() -> None:
+    output = "E   AssertionError: fixture behavior violated for generated input"
+    assert agentic_property_testing._execution_status(1, output) == "counterexample_found"
+    assert agentic_property_testing._execution_status(1, "E   fixture 'missing_fixture' not found") == "proposal_error"
+
+
+def test_agentic_property_testing_proposal_metadata_cannot_break_out_of_comments(tmp_path: Path) -> None:
+    module_text = agentic_property_testing._proposal_module(
+        [
+            agentic_property_testing.Proposal(
+                name="safe_name\nraise RuntimeError('name breakout')",
+                rationale="safe rationale\nraise RuntimeError('rationale breakout')",
+                code="def test_ok():\n    assert True",
+            )
+        ],
+        tmp_path,
+    )
+
+    assert "# Proposal: " in module_text
+    assert "raise RuntimeError('name breakout')" in module_text
+    assert "# Rationale: " in module_text
+    assert "raise RuntimeError('rationale breakout')" in module_text
+    compile(module_text, "<agentic-pbt>", "exec")
+
+
 def test_agentic_property_testing_main_strips_passthrough_separator(tmp_path: Path, capsys) -> None:
     module = tmp_path / "sample_module.py"
     module.write_text("def identity(value):\n    return value\n", encoding="utf-8")

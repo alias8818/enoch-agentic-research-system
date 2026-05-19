@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -163,8 +164,8 @@ def _proposal_module(proposals: list[Proposal], repo_root: Path) -> str:
     for proposal in proposals:
         parts.extend(
             [
-                f"# Proposal: {proposal.name}",
-                f"# Rationale: {proposal.rationale}",
+                f"# Proposal: {proposal.name!r}",
+                f"# Rationale: {proposal.rationale!r}",
                 proposal.code,
                 "",
             ]
@@ -191,9 +192,9 @@ def _execution_status(returncode: int, output: str) -> str:
         "ImportError:",
         "ModuleNotFoundError:",
         "AttributeError: module 'hypothesis.strategies'",
-        "fixture ",
     )
-    if returncode == 2 or any(marker in output for marker in proposal_error_markers):
+    fixture_lookup_error = re.search(r"(?m)^E\s+fixture ['\"][^'\"]+['\"] not found", output) is not None
+    if returncode == 2 or fixture_lookup_error or any(marker in output for marker in proposal_error_markers):
         return "proposal_error"
     return "counterexample_found"
 

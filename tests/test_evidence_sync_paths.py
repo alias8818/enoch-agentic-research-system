@@ -7,6 +7,9 @@ import time
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+import pytest
+from fastapi import HTTPException
+
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.router import _extract_safe_tar_bytes, _local_artifact_root, _local_paper_evidence_present, _remote_evidence_dir, _sync_remote_project_evidence
 
@@ -130,6 +133,20 @@ def test_local_artifact_root_rejects_symlinked_project_dir(tmp_path) -> None:
 
     resolved.relative_to(config.expanded_project_root.resolve())
     assert resolved != outside.resolve()
+
+
+def test_local_artifact_root_fails_closed_when_project_and_state_roots_unresolvable(tmp_path, monkeypatch) -> None:
+    config = _config(tmp_path)
+
+    def fail_resolve(self):  # noqa: ANN001 - monkeypatch Path boundary
+        raise OSError("unresolvable")
+
+    monkeypatch.setattr(Path, "resolve", fail_resolve)
+    with pytest.raises(HTTPException) as exc:
+        _local_artifact_root(config, project_id="project", project_dir_text="")
+
+    assert exc.value.status_code == 500
+    assert "artifact roots" in str(exc.value.detail)
 
 
 
@@ -461,7 +478,7 @@ def test_extract_safe_tar_reports_unresolvable_artifact_root(tmp_path) -> None:
     assert result["reason"] == "artifact_root_unusable"
 
 
-def test_sync_worker_http_evidence_preserves_existing_file_when_worker_returns_empty_content(tmp_path) -> None:
+def test_sync_worker_http_evidence_removes_existing_file_when_worker_returns_empty_content(tmp_path) -> None:
     from enoch_control_plane.control_plane.router import _sync_worker_http_evidence
     from enoch_control_plane.control_plane.worker_adapter import HttpResult
 
@@ -483,7 +500,7 @@ def test_sync_worker_http_evidence_preserves_existing_file_when_worker_returns_e
     assert result["ok"] is False
     assert result["reason"] == "worker_read_failed"
     assert any(item["status"] == "empty_content" for item in result["skipped"])
-    assert target.read_text(encoding="utf-8") == "existing measured evidence"
+    assert not target.exists()
 
 
 
@@ -581,12 +598,11 @@ def test_worker_http_evidence_sync_times_out_slow_worker_reads(tmp_path, monkeyp
 
     calls = []
 
-    def slow_post_worker_json(*args, **kwargs):  # noqa: ANN001 - patched worker transport
+    def timed_out_worker_json(*args, **kwargs):  # noqa: ANN001 - patched worker transport
         calls.append((args, kwargs))
-        time.sleep(0.2)
-        return HttpResult(ok=True, status=200, body={"files": []})
+        return HttpResult(ok=False, status=None, body=None, error="TimeoutError: worker request exceeded 0.010s")
 
-    monkeypatch.setattr(router, "post_worker_json", slow_post_worker_json)
+    monkeypatch.setattr(router, "_worker_json_request", timed_out_worker_json)
     config = GateConfig(
         state_dir=str(tmp_path / "state"),
         project_root=str(tmp_path / "projects"),
@@ -598,7 +614,6 @@ def test_worker_http_evidence_sync_times_out_slow_worker_reads(tmp_path, monkeyp
         worker_wake_gate_bearer_token="worker-token",
     )
 
-    started = time.monotonic()
     result = router._sync_worker_http_evidence(
         config,
         project_id="slow-project",
@@ -606,9 +621,7 @@ def test_worker_http_evidence_sync_times_out_slow_worker_reads(tmp_path, monkeyp
         per_request_timeout_seconds=0.01,
         overall_timeout_seconds=0.05,
     )
-    elapsed = time.monotonic() - started
 
-    assert elapsed < 0.15
     assert result["ok"] is False
     assert result["reason"] == "no_worker_http_evidence"
     assert result["timeouts"] >= 1

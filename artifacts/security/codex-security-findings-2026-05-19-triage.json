@@ -1,0 +1,1055 @@
+{
+  "finding_count": 84,
+  "findings": [
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/paper_writer.py",
+        "tests/test_paper_writer.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/c2eaced816208191b3108fd51e4433b2",
+      "index": 1,
+      "notes": "Evidence collection now fails closed on inaccessible source evidence and partial bundles block publication.",
+      "relevant_paths": "enoch_control_plane/control_plane/paper_writer.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Unreadable evidence is silently omitted from paper bundles"
+    },
+    {
+      "evidence_files": [
+        "scripts/validate_public_release.py",
+        "tests/test_validate_public_release.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/45f7ad650a1c81918bf003fc573369b5",
+      "index": 2,
+      "notes": "Public release secret scanner now covers generic bearer, JWT-like, Anthropic, HF, Supabase, Enoch, and DB token forms.",
+      "relevant_paths": "scripts/validate_public_release.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Public release secret scan misses bearer/provider tokens"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/router.py",
+        "tests/test_control_plane_router.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/1257be7890508191b6978d898ffdfa7d",
+      "index": 3,
+      "notes": "Callback responses now return stable decision_persist_failed metadata instead of raw exception text.",
+      "relevant_paths": "enoch_control_plane/control_plane/router.py | tests/test_control_plane_router.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Worker callback leaks decision persistence errors"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/router.py",
+        "tests/test_evidence_sync_paths.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/97b66b4eef2c8191b9a0260f77fe607f",
+      "index": 4,
+      "notes": "Empty worker evidence responses remove any stale local target before downstream evidence checks.",
+      "relevant_paths": "enoch_control_plane/control_plane/router.py | enoch_control_plane/enoch_core/logic.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Empty evidence sync can reuse stale publication evidence"
+    },
+    {
+      "evidence_files": [
+        "scripts/research_facility_llm_review.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/6181f04bd26481919a7ba77505fc19a5",
+      "index": 5,
+      "notes": "Current review/admission path uses one transaction/cursor for review decisions; no separate apply_actions commit boundary remains.",
+      "relevant_paths": "scripts/research_facility_llm_review.py",
+      "severity": "medium",
+      "status": "already_safe_current_code",
+      "title": "LLM review conflict can leave partial admissions committed"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/router.py",
+        "tests/test_evidence_sync_paths.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/32c77b78d61481918de7e3b768db3ffb",
+      "index": 6,
+      "notes": "SSH evidence sync now streams stdout with a byte cap and temporary-file stderr capture, and narrows included paths.",
+      "relevant_paths": "enoch_control_plane/control_plane/router.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Unbounded SSH tar buffering can exhaust memory"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/worker_adapter.py",
+        "enoch_control_plane/control_plane/router.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/849e7f6df1748191a2820b5acd0185cf",
+      "index": 7,
+      "notes": "Worker evidence requests now use transport-level timeouts instead of daemon-thread deadline wrappers.",
+      "relevant_paths": "enoch_control_plane/control_plane/router.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Worker evidence timeouts leak daemon threads"
+    },
+    {
+      "evidence_files": [
+        "scripts/validate_runtime_deploy.py",
+        "tests/test_validate_runtime_deploy.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/dae210352a5c8191935a7b4ad5efbd1b",
+      "index": 8,
+      "notes": "Runtime deploy validator rejects dirty source checkouts when an expected commit is supplied.",
+      "relevant_paths": "scripts/validate_runtime_deploy.py | docs/operator-runbook.md",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Runtime validator accepts dirty source checkouts"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/app.py",
+        "tests/test_app_helpers_more.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/da04ecda02bc81918ed3130557c62705",
+      "index": 9,
+      "notes": "Atomic text writes preserve existing modes and create new files with private 0600 permissions.",
+      "relevant_paths": "enoch_control_plane/app.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Atomic artifact writes can widen file permissions"
+    },
+    {
+      "evidence_files": [
+        "docs/superpowers/plans/2026-05-17-seven-hour-robustness-bughunt.md"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/52326e4471948191bee60ba947816c98",
+      "index": 10,
+      "notes": "Documented bearer-token curl example was replaced with a config-read request pattern.",
+      "relevant_paths": "docs/superpowers/plans/2026-05-17-seven-hour-robustness-bughunt.md | enoch_control_plane/app.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Bearer token exposed in documented curl argv"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/telemetry.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/85812a3e02b0819196defc243f40f248",
+      "index": 11,
+      "notes": "UMA telemetry memory source remains stable instead of appending unsupported NVML annotations.",
+      "relevant_paths": "enoch_control_plane/telemetry.py | enoch_control_plane/gate.py | enoch_control_plane/app.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Annotated UMA telemetry can wedge the worker gate"
+    },
+    {
+      "evidence_files": [
+        "scripts/agentic_property_testing.py",
+        "tests/test_agentic_property_testing.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/9a4a9970f2dc8191aea36df2a6a34203",
+      "index": 12,
+      "notes": "PBT proposal metadata is emitted with repr comments so names/rationales cannot break into executable Python.",
+      "relevant_paths": "scripts/agentic_property_testing.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Proposal metadata can inject executable Python"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/paper_writer.py",
+        "enoch_control_plane/control_plane/router.py",
+        "tests/test_paper_writer.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/fe9d30f33e948191a2fc8284f4d73b69",
+      "index": 13,
+      "notes": "Public evidence bundles and SSH sync exclude raw worker metadata/log/script/prompt paths.",
+      "relevant_paths": "enoch_control_plane/control_plane/paper_writer.py | enoch_control_plane/control_plane/router.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Raw worker artifacts exposed in public evidence bundles"
+    },
+    {
+      "evidence_files": [
+        "scripts/research_facility_llm_review.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/745156179ce08191bff6de97afb660d7",
+      "index": 14,
+      "notes": "Janitor LLM review now checks and records a cycle cooldown before provider spend.",
+      "relevant_paths": "scripts/research_facility_llm_review.py | deploy/enoch_research_autopilot.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Janitor LLM cooldown can be bypassed, burning quota"
+    },
+    {
+      "evidence_files": [
+        "deploy/enoch_research_autopilot.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/2c235c2bc93481919a3099c1c6406d7a",
+      "index": 15,
+      "notes": "Autopilot timeout/recovery paths no longer include DB URLs in reported reasons.",
+      "relevant_paths": "deploy/enoch_research_autopilot.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "DB URL can leak in autopilot timeout logs"
+    },
+    {
+      "evidence_files": [
+        "scripts/validate_research_prompt_evolution.py",
+        "tests/test_validate_research_prompt_evolution.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/90f483cf20ec81919c65c3c58ff5fa39",
+      "index": 16,
+      "notes": "Prompt evolution validator now rejects AST/executable structure changes, including syntax errors.",
+      "relevant_paths": "scripts/validate_research_prompt_evolution.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Prompt evolution validator no longer blocks executable changes"
+    },
+    {
+      "evidence_files": [
+        "scripts/research_facility.py",
+        "tests/test_research_facility.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/ba994cf4f0548191b90c891c054f0fd6",
+      "index": 17,
+      "notes": "Fractional scores like 1/10 are parsed as 10 percent, not inflated by another scale factor.",
+      "relevant_paths": "scripts/research_facility.py | enoch_control_plane/control_plane/router.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Score normalization inflates 1/10 to 10/10"
+    },
+    {
+      "evidence_files": [
+        "deploy/enoch_research_autopilot.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/665b39f4cb64819194a143264a033530",
+      "index": 18,
+      "notes": "Health recovery probe calls /healthz without the control-plane bearer token.",
+      "relevant_paths": "deploy/enoch_research_autopilot.py | enoch_control_plane/app.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Autopilot leaks control bearer on health recovery probe"
+    },
+    {
+      "evidence_files": [
+        "scripts/check_longhaul_readiness.py",
+        "tests/test_check_longhaul_readiness.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/a1194203ea688191bb917b9ffffae0ef",
+      "index": 19,
+      "notes": "Readiness CLI ignores env control URL when using a config-loaded token unless an explicit token is provided.",
+      "relevant_paths": "scripts/check_longhaul_readiness.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Readiness CLI can leak control token via env URL"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/router.py",
+        "tests/test_control_plane_router.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/7d98e06a24c08191b58e94dcb59cfbb4",
+      "index": 20,
+      "notes": "Provider responses are sliced to max_candidates before planning/promotion.",
+      "relevant_paths": "scripts/research_provider_generate.py | enoch_control_plane/control_plane/router.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Provider candidate cap is not enforced on responses"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/router.py",
+        "tests/test_control_plane_router.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/0f7d63c749648191b3ba43dc5cc716a4",
+      "index": 21,
+      "notes": "Research promotion and run-cycle candidate IDs are validated as bounded slug-like IDs.",
+      "relevant_paths": "enoch_control_plane/control_plane/router.py | enoch_control_plane/control_plane/supabase_store.py | deploy/enoch_codex_dispatch.sh | deploy/enoch_codex_runner.sh",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Research promotion queues unsanitized candidate IDs"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/router.py",
+        "tests/test_control_plane_router.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/439c311b1fb88191bf11f0c51fbe5962",
+      "index": 22,
+      "notes": "Provider budget response redacts configured endpoint details and reports only configured/auth-mode metadata.",
+      "relevant_paths": "enoch_control_plane/control_plane/router.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Provider budget endpoint leaks configured provider URL secrets"
+    },
+    {
+      "evidence_files": [
+        "deploy/enoch_codex_runner.sh",
+        "tests/test_deploy_units.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/e20b4a649f608191af537ff36ba91f61",
+      "index": 23,
+      "notes": "Codex runner uses a fixed PATH and refuses project-local or project-relative codex binaries.",
+      "relevant_paths": "deploy/enoch_codex_runner.sh | omx_wake_gate/app.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Codex PATH lookup can be hijacked from project directory"
+    },
+    {
+      "evidence_files": [
+        "docs/supabase-runtime-runbook.md"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/3c4e2b0789048191ab6d1a181cfea49b",
+      "index": 24,
+      "notes": "Private runtime host/IP values were replaced with placeholders.",
+      "relevant_paths": "docs/supabase-runtime-runbook.md",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Private runtime topology disclosed in runbook"
+    },
+    {
+      "evidence_files": [
+        "scripts/sync_corpus_import_ledger.py",
+        "tests/test_sync_corpus_import_ledger.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/7988548f96248191af17ff06eb5c969e",
+      "index": 25,
+      "notes": "Corpus sync no longer mutates publication automation states and preserves ledger-only responsibilities.",
+      "relevant_paths": "scripts/sync_corpus_import_ledger.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Corpus sync can force papers into finalized/imported state"
+    },
+    {
+      "evidence_files": [
+        "scripts/run_public_corpus_release.py",
+        "tests/test_run_public_corpus_release.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/8f4133a731288191ab9822b61e303b0d",
+      "index": 26,
+      "notes": "Release orchestration passes secrets through env and redacts printable command output.",
+      "relevant_paths": "scripts/run_public_corpus_release.py | docs/release/public-release-bundle.md",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Release orchestrator leaks control and DB secrets"
+    },
+    {
+      "evidence_files": [
+        "scripts/push_public_release_bundle.py",
+        "tests/test_push_public_release_bundle.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/b752bd923a388191bd942ef72d723b8d",
+      "index": 27,
+      "notes": "Bundle ledger sync passes DB URL via env and redacts secret command arguments.",
+      "relevant_paths": "scripts/push_public_release_bundle.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Release ledger sync logs Supabase database credentials"
+    },
+    {
+      "evidence_files": [],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/c6c65d3fb02c8191be750b96674cccdd",
+      "index": 28,
+      "notes": "Finding targets removed omx_wake_gate paths; git ls-files has no omx_wake_gate files.",
+      "relevant_paths": "omx_wake_gate/control_plane/router.py | omx_wake_gate/control_plane/store.py | omx_wake_gate/control_plane/read_models.py | omx_wake_gate/control_plane/supabase_store.py",
+      "severity": "medium",
+      "status": "not_applicable_stale_path",
+      "title": "Publication finalization bypasses approval gates"
+    },
+    {
+      "evidence_files": [
+        "docs/state-reduction-audit.md"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/9ec3b5d5908081918cfb16b0e103439e",
+      "index": 29,
+      "notes": "State audit regenerated without committed live ledger counts/DB URL data.",
+      "relevant_paths": "docs/state-model.md | scripts/generate_state_reduction_audit.py | docs/state-reduction-audit.md",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Live ledger counts committed in state audit"
+    },
+    {
+      "evidence_files": [],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/1258c84bad008191afd742df120aee0d",
+      "index": 30,
+      "notes": "Finding targets removed omx_wake_gate paths; current code uses bounded project roots.",
+      "relevant_paths": "omx_wake_gate/control_plane/read_models.py | omx_wake_gate/enoch_core/logic.py | omx_wake_gate/control_plane/router.py",
+      "severity": "medium",
+      "status": "not_applicable_stale_path",
+      "title": "Project ID fallback allows out-of-root decision reads"
+    },
+    {
+      "evidence_files": [
+        "scripts/requeue_supabase_cutover_paused_items.py",
+        "tests/test_supabase_resume_scripts.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/329d0ad163488191b8feddf509abff48",
+      "index": 31,
+      "notes": "SSH process checks now run fixed ps command and filter project IDs locally.",
+      "relevant_paths": "scripts/requeue_supabase_cutover_paused_items.py | supabase/migrations/20260505233844_enoch_control_plane_baseline.sql",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "SSH process check allows project ID command injection"
+    },
+    {
+      "evidence_files": [
+        "scripts/apply_supabase_runtime_cutover.py",
+        "tests/test_supabase_runtime_cutover_apply.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/d7b9a26082648191858142e5f48c00ed",
+      "index": 32,
+      "notes": "DB URL redaction now strips sensitive query keys and fragments.",
+      "relevant_paths": "scripts/apply_supabase_runtime_cutover.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Supabase cutover output can leak DB URL query secrets"
+    },
+    {
+      "evidence_files": [
+        "scripts/validate_supabase_runtime_cutover.py",
+        "tests/test_supabase_runtime_cutover.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/1fb21b54fd248191b1abab4a93b7ffe3",
+      "index": 33,
+      "notes": "Cutover preflight defaults to loopback and ignores env control URL unless explicitly supplied.",
+      "relevant_paths": "scripts/validate_supabase_runtime_cutover.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Cutover preflight can leak control-plane bearer token"
+    },
+    {
+      "evidence_files": [],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/66757403c294819180319cc6f9f8cae0",
+      "index": 34,
+      "notes": "Finding targets removed omx_wake_gate paths and legacy Supabase finalization storage.",
+      "relevant_paths": "omx_wake_gate/control_plane/supabase_store.py",
+      "severity": "medium",
+      "status": "not_applicable_stale_path",
+      "title": "Supabase finalization packages use unsafe /tmp storage"
+    },
+    {
+      "evidence_files": [
+        "scripts/backfill_control_plane_to_supabase.py",
+        "tests/test_supabase_backfill.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/29f0011b4b448191b21114257b221949",
+      "index": 35,
+      "notes": "Backfill decision candidate paths are resolved under configured roots and outside absolute paths are ignored.",
+      "relevant_paths": "scripts/backfill_control_plane_to_supabase.py | omx_wake_gate/enoch_core/logic.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Backfill decision path can escape project roots"
+    },
+    {
+      "evidence_files": [
+        "scripts/backfill_control_plane_to_supabase.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/8e2d9c65d6288191974dfd179fe2cda2",
+      "index": 36,
+      "notes": "Backfill supports env/file DB URL input so secrets need not be passed in argv.",
+      "relevant_paths": "scripts/backfill_control_plane_to_supabase.py",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Supabase DB URL can leak via backfill CLI arguments"
+    },
+    {
+      "evidence_files": [
+        "scripts/reconcile_paper_ledgers.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/115d7b5f0e7c819180d0994927e5f0f4",
+      "index": 37,
+      "notes": "Script already reports public_without_live_finalized_count separately; public-only rows are diagnostics, not unpublished finalized backlog.",
+      "relevant_paths": "scripts/reconcile_paper_ledgers.py | docs/release/public-release-bundle.md",
+      "severity": "medium",
+      "status": "reviewed_no_change",
+      "title": "Reconciliation gate ignores public-only corpus rows"
+    },
+    {
+      "evidence_files": [],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/4a8edca3aa048191b5acd17f629b7b54",
+      "index": 38,
+      "notes": "Finding targets removed omx_wake_gate observability paths.",
+      "relevant_paths": "omx_wake_gate/app.py | omx_wake_gate/observability/middleware.py",
+      "severity": "medium",
+      "status": "not_applicable_stale_path",
+      "title": "Opt-in route observation log enables unauthenticated disk DoS"
+    },
+    {
+      "evidence_files": [
+        "scripts/validate_public_release.py",
+        "tests/test_validate_public_release.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/3d9e7cc7eac081918e4ee40bb25c6d45",
+      "index": 39,
+      "notes": "Release validator no longer executes corpus-supplied Python by default; execution requires explicit opt-in.",
+      "relevant_paths": "scripts/validate_public_release.py | github/workflows/public-release-integrity.yml",
+      "severity": "medium",
+      "status": "fixed",
+      "title": "Release validator executes corpus-supplied Python"
+    },
+    {
+      "evidence_files": [],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/8c59251730188191b982bd085be29647",
+      "index": 40,
+      "notes": "Finding targets removed omx_wake_gate paper review paths; current router has approval-state tests.",
+      "relevant_paths": "omx_wake_gate/control_plane/router.py | omx_wake_gate/control_plane/store.py",
+      "severity": "medium",
+      "status": "not_applicable_stale_path",
+      "title": "Blocked paper reviews can be auto-finalized"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/router.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/329d57825d4881919eb35c0146a34864",
+      "index": 41,
+      "notes": "Dashboard confirmAction resets dialog.returnValue to cancel before every showModal call.",
+      "relevant_paths": "enoch_control_plane/control_plane/router.py",
+      "severity": "low",
+      "status": "fixed",
+      "title": "Stale dialog returnValue bypasses dashboard confirmation"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/router.py",
+        "tests/test_evidence_sync_paths.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/be22fadf20d08191b7bc2e9d94598d23",
+      "index": 42,
+      "notes": "Unresolvable project roots fall back to a dedicated evidence-artifacts state dir or fail closed, never service CWD.",
+      "relevant_paths": "enoch_control_plane/control_plane/router.py",
+      "severity": "low",
+      "status": "fixed",
+      "title": "Unresolvable project root falls back to service CWD"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/enoch_core/logic.py",
+        "tests/test_enoch_core_logic.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/8269409385748191b18fcba23f108d14",
+      "index": 43,
+      "notes": "Merged PR #36 added bounded/malformed decision artifact handling.",
+      "relevant_paths": "enoch_control_plane/control_plane/router.py | enoch_control_plane/enoch_core/logic.py",
+      "severity": "low",
+      "status": "fixed_upstream_pr",
+      "title": "Malformed decision artifact can crash callback paths"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/supabase_store.py",
+        "tests/test_supabase_store_helpers_more.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/432d64d9513c8191b2e4ac1a56ed7e8b",
+      "index": 44,
+      "notes": "Dispatch replay returns queue row from the current cursor instead of re-entering the store lock.",
+      "relevant_paths": "enoch_control_plane/control_plane/supabase_store.py",
+      "severity": "low",
+      "status": "fixed",
+      "title": "Supabase dispatch replay deadlocks the store"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/callback_outbox.py",
+        "tests/test_callback_outbox.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/a1ebc07ba80c81919187a96329a11065",
+      "index": 45,
+      "notes": "Callback outbox unsafe filename suffix now uses a 128-bit digest.",
+      "relevant_paths": "enoch_control_plane/callback_outbox.py",
+      "severity": "low",
+      "status": "fixed",
+      "title": "Callback outbox hash suffix creates new filename collisions"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/router.py",
+        "tests/test_control_plane_router.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/29b218b9851c8191ab00c934185f05e9",
+      "index": 46,
+      "notes": "Deferred follow-up candidates no longer suppress fresh promotion/generation unless a follow-up was actually queued.",
+      "relevant_paths": "enoch_control_plane/control_plane/router.py",
+      "severity": "low",
+      "status": "fixed",
+      "title": "Follow-up candidate can stall live research cycles"
+    },
+    {
+      "evidence_files": [
+        "scripts/validate_research_prompt_evolution.py",
+        "tests/test_validate_research_prompt_evolution.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/c801b49a222081918c1deb1aa92e8aa5",
+      "index": 47,
+      "notes": "Same executable-change AST guard as finding 16.",
+      "relevant_paths": "scripts/validate_research_prompt_evolution.py",
+      "severity": "low",
+      "status": "fixed",
+      "title": "Prompt patch validator accepts arbitrary code changes"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/research_quality/status.py",
+        "tests/test_research_quality_status.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/e4e334c33de081918121b8428c6a8c09",
+      "index": 48,
+      "notes": "Malformed quality reports now block readiness as malformed_quality_report instead of passing clean.",
+      "relevant_paths": "enoch_control_plane/research_quality/status.py | enoch_control_plane/control_plane/router.py | enoch_control_plane/control_plane/longhaul_readiness.py",
+      "severity": "low",
+      "status": "fixed",
+      "title": "Malformed quality reports pass readiness as clean"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/router.py",
+        "tests/test_control_plane_router.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/85eac22dd5508191888eeb98cbd8b24b",
+      "index": 49,
+      "notes": "Run-cycle allowed model list is config/env-owned and max promotions are capped to one per run.",
+      "relevant_paths": "docs/research-facility.md | enoch_control_plane/control_plane/router.py",
+      "severity": "low",
+      "status": "fixed",
+      "title": "Run-cycle policy bounds are caller-controlled"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/router.py",
+        "tests/test_control_plane_router.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/82b066d5c64c8191bd6fa882aa4d7162",
+      "index": 50,
+      "notes": "Budget preflight estimates provider spend as max_provider_requests times retry attempts.",
+      "relevant_paths": "enoch_control_plane/control_plane/router.py | scripts/research_provider_generate.py",
+      "severity": "low",
+      "status": "fixed",
+      "title": "Provider retry count bypasses budget preflight"
+    },
+    {
+      "evidence_files": [
+        "docs/research-facility.md"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/2e16e5f7fe6481918bd32d1d216927bb",
+      "index": 51,
+      "notes": "Docs now avoid provider key argv examples and recommend exe.dev integration setup/no-auth proxy.",
+      "relevant_paths": "docs/research-facility.md",
+      "severity": "low",
+      "status": "fixed",
+      "title": "Docs now encourage pasting API key into shell argv"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/callback_outbox.py",
+        "tests/test_callback_outbox.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/498404f551008191b2d8b124ac0e53bb",
+      "index": 52,
+      "notes": "Pending terminal gate_error callbacks update local worker state even before successful delivery.",
+      "relevant_paths": "deploy/enoch_codex_runner.sh | omx_wake_gate/app.py | omx_wake_gate/models.py | omx_wake_gate/state_store.py",
+      "severity": "low",
+      "status": "fixed",
+      "title": "Failed Codex runs corrupt local worker state"
+    },
+    {
+      "evidence_files": [],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/8acf3060c08081918b77c3df9b39ed1e",
+      "index": 53,
+      "notes": "Finding targets removed omx_wake_gate observation paths.",
+      "relevant_paths": "omx_wake_gate/control_plane/router.py | omx_wake_gate/control_plane/supabase_store.py",
+      "severity": "low",
+      "status": "not_applicable_stale_path",
+      "title": "Malformed Supabase observation can DoS status views"
+    },
+    {
+      "evidence_files": [
+        "site/styles.css"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/ed91453becdc8191ac817390140c287b",
+      "index": 54,
+      "notes": "External Google Fonts import removed; local/system font stack is used.",
+      "relevant_paths": "site/styles.css | site/index.html",
+      "severity": "low",
+      "status": "fixed",
+      "title": "External Google Font import leaks launch page visits"
+    },
+    {
+      "evidence_files": [],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/5494ec0f108c81919cb660699f7c8b69",
+      "index": 55,
+      "notes": "Finding targets removed omx_wake_gate Enoch core Supabase paths.",
+      "relevant_paths": "omx_wake_gate/enoch_core/router.py | omx_wake_gate/enoch_core/supabase_store.py | omx_wake_gate/control_plane/supabase_store.py",
+      "severity": "low",
+      "status": "not_applicable_stale_path",
+      "title": "Supabase read-only mode can write Enoch core snapshots"
+    },
+    {
+      "evidence_files": [
+        "scripts/supabase_controlled_resume_drill.py",
+        "tests/test_supabase_resume_scripts.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/9d1ef1adb4bc8191ada4e0530bd68062",
+      "index": 56,
+      "notes": "Resume drill now fails if re-pause fails.",
+      "relevant_paths": "scripts/supabase_controlled_resume_drill.py",
+      "severity": "low",
+      "status": "fixed",
+      "title": "Resume drill can succeed without re-pausing"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/paper_writer.py",
+        "tests/test_paper_writer.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/c3c3a705e5208191b78d01cd2d041086",
+      "index": 57,
+      "notes": "Malformed existing manifest JSON is replaced during evidence backfill instead of blocking.",
+      "relevant_paths": "enoch_control_plane/control_plane/paper_writer.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Malformed manifest JSON now blocks evidence backfill"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/supabase_store.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/41d45c1b3a1c819180fcd6020e7a3468",
+      "index": 58,
+      "notes": "Informational snapshot-order concern retained for future migration audit; no current exploitable security boundary found.",
+      "relevant_paths": "enoch_control_plane/control_plane/supabase_store.py | supabase/migrations/20260505234007_enoch_advisor_hardening.sql | supabase/migrations/20260505233844_enoch_control_plane_baseline.sql",
+      "severity": "informational",
+      "status": "reviewed_no_security_change",
+      "title": "Supabase import can ignore newer snapshots after updates"
+    },
+    {
+      "evidence_files": [
+        "scripts/paper_scout.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/50c6e6b92adc8191a64a3a2a718b57d8",
+      "index": 59,
+      "notes": "Direct script execution inserts repo root on sys.path.",
+      "relevant_paths": "scripts/paper_scout.py | pyproject.toml",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "paper_scout crashes when run directly from checkout"
+    },
+    {
+      "evidence_files": [
+        "scripts/research_facility.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/932c7c718488819185b1bbd1a39dd505",
+      "index": 60,
+      "notes": "Direct script execution inserts repo root on sys.path.",
+      "relevant_paths": "scripts/research_facility.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Research facility script import breaks direct execution"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/worker_adapter.py",
+        "tests/test_worker_preflight.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/731156690ecc8191a81ac71b07783650",
+      "index": 61,
+      "notes": "Preflight numeric parsing rejects non-finite values and uses finite fail-closed sentinels.",
+      "relevant_paths": "enoch_control_plane/control_plane/worker_adapter.py | enoch_control_plane/control_plane/router.py | enoch_control_plane/control_plane/supabase_store.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Non-finite preflight sentinel can crash dispatch"
+    },
+    {
+      "evidence_files": [
+        "scripts/agentic_property_testing.py",
+        "tests/test_agentic_property_testing.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/bef5fbc10e048191b1cb068a56cac8e4",
+      "index": 62,
+      "notes": "PBT classification now only treats precise fixture lookup errors as proposal errors.",
+      "relevant_paths": "scripts/agentic_property_testing.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Overbroad pytest marker matching misclassifies failures"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/store.py",
+        "tests/test_control_plane_store.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/401436902fb88191a3025d6406bf53fa",
+      "index": 63,
+      "notes": "SQLite idea ingestion preserves existing origin status when replayed with blank status.",
+      "relevant_paths": "enoch_control_plane/control_plane/store.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Missing origin status can overwrite existing status"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/supabase_store.py",
+        "tests/test_supabase_store_helpers_more.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/eb16eb06bdf88191a5e9508bcfcdfeca",
+      "index": 64,
+      "notes": "Supabase project upserts preserve existing origin status when incoming origin status is blank.",
+      "relevant_paths": "enoch_control_plane/control_plane/supabase_store.py | enoch_control_plane/control_plane/store.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Supabase snapshot import can erase idea status"
+    },
+    {
+      "evidence_files": [
+        "scripts/agentic_property_testing.py",
+        "tests/test_agentic_property_testing.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/0d322c9f45a88191b41f9f03c5238dc9",
+      "index": 65,
+      "notes": "Same PBT counterexample classification fix as finding 62.",
+      "relevant_paths": "scripts/agentic_property_testing.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "PBT harness can suppress real counterexamples"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/control_plane/router.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/71880564ab2881918902130167f728fc",
+      "index": 66,
+      "notes": "Scanner explicitly reported no security vulnerability; no code change required.",
+      "relevant_paths": "enoch_control_plane/control_plane/router.py | enoch_control_plane/enoch_core/logic.py",
+      "severity": "informational",
+      "status": "reviewed_no_security_change",
+      "title": "No security vulnerability found in draft dry-run change"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/research_quality/datasets.py",
+        "scripts/dspy_research_quality.py",
+        "tests/test_dspy_research_quality.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/c3ee94eed1548191824c0239c2e613b6",
+      "index": 67,
+      "notes": "String booleans are parsed before quality classification.",
+      "relevant_paths": "scripts/dspy_research_quality.py | enoch_control_plane/research_quality/datasets.py | enoch_control_plane/research_quality/status.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "String booleans can misclassify useful-signal negatives"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/research_quality/datasets.py",
+        "tests/test_dspy_research_quality.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/907046557aac8191aaf1c3a33a949641",
+      "index": 68,
+      "notes": "Supported-negative downgrade now requires concrete paper and evidence-limit rationale.",
+      "relevant_paths": "enoch_control_plane/research_quality/artifacts.py | enoch_control_plane/research_quality/datasets.py | enoch_control_plane/research_quality/status.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Quality status downgrades real review blockers to clean"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/research_quality/datasets.py",
+        "tests/test_dspy_research_quality.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/05311f5df2bc819194e20f91676bb91b",
+      "index": 69,
+      "notes": "Broad real/direct marker words were removed from evidence-limit markers.",
+      "relevant_paths": "enoch_control_plane/research_quality/status.py | enoch_control_plane/research_quality/datasets.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Quality gate treats production traces as limited evidence"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/research_quality/datasets.py",
+        "tests/test_dspy_research_quality.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/ae7030239de88191a44bf59f8679ec45",
+      "index": 70,
+      "notes": "Positive evidence is not enough to exempt supported negatives without concrete limitation rationale.",
+      "relevant_paths": "enoch_control_plane/research_quality/datasets.py | enoch_control_plane/research_quality/status.py | enoch_control_plane/control_plane/longhaul_readiness.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Quality gate can misclassify positive evidence as negative rationale"
+    },
+    {
+      "evidence_files": [
+        "enoch_control_plane/research_quality/datasets.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/6d769d043cc481919eb21cf540c49655",
+      "index": 71,
+      "notes": "Quality-audit exemption narrowed together with findings 68-70.",
+      "relevant_paths": "enoch_control_plane/research_quality/datasets.py | enoch_control_plane/research_quality/artifacts.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Overbroad quality-audit exemption, no security impact"
+    },
+    {
+      "evidence_files": [
+        "deploy/enoch-corpus-import-autopilot.service",
+        "tests/test_deploy_units.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/5ab217f46af8819192842e64c24c7cd6",
+      "index": 72,
+      "notes": "Corpus import autopilot unit now loads postgres.env instead of supabase.env.",
+      "relevant_paths": "deploy/enoch-corpus-import-autopilot.service | deploy/enoch_corpus_import_autopilot.py | scripts/apply_supabase_runtime_cutover.py | scripts/sync_corpus_import_ledger.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Ledger sync unit loads the wrong DB env file"
+    },
+    {
+      "evidence_files": [
+        "scripts/research_facility.py",
+        "tests/test_research_facility.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/8fef8a9cf3988191a1af06e0a311dcea",
+      "index": 73,
+      "notes": "Merged/rejected duplicate research plans clear admitted_idea_id.",
+      "relevant_paths": "scripts/research_facility.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Merged history duplicates retain admitted idea IDs"
+    },
+    {
+      "evidence_files": [],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/2884c309df2c819190a79a8505b9f960",
+      "index": 74,
+      "notes": "Finding targets removed omx_wake_gate Supabase decision paths.",
+      "relevant_paths": "omx_wake_gate/control_plane/supabase_store.py | omx_wake_gate/enoch_core/logic.py",
+      "severity": "informational",
+      "status": "not_applicable_stale_path",
+      "title": "Ambiguous paper decisions are misclassified as negative"
+    },
+    {
+      "evidence_files": [
+        "scripts/validate_public_release.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/c5e52536269081918d0c52163993e14a",
+      "index": 75,
+      "notes": "Release validator handles missing gh executable without crashing.",
+      "relevant_paths": "scripts/validate_public_release.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Missing gh executable crashes release validator"
+    },
+    {
+      "evidence_files": [
+        "scripts/proof-local.sh",
+        "tests/test_deploy_units.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/8558feca60108191af026d752d21edac",
+      "index": 76,
+      "notes": "proof-local pins smoke-test status endpoint to /control/api/status for its dispatch_safe assertion.",
+      "relevant_paths": "scripts/smoke-test-local.sh | omx_wake_gate/control_plane/read_models.py | scripts/proof-local.sh",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Smoke endpoint change breaks proof-local status check"
+    },
+    {
+      "evidence_files": [
+        "scripts/sync_corpus_import_ledger.py",
+        "tests/test_sync_corpus_import_ledger.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/f49c9bbe9e948191a74e7573d75602e8",
+      "index": 77,
+      "notes": "Ledger sync preserves existing non-empty provenance hashes when incoming values are empty.",
+      "relevant_paths": "scripts/sync_corpus_import_ledger.py",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Corpus ledger sync erases existing provenance hashes"
+    },
+    {
+      "evidence_files": [
+        "supabase/migrations"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/0a3639ea39408191956136207ad9c3a3",
+      "index": 78,
+      "notes": "Historical Supabase migration concern; current runtime uses local Postgres and no live migration patch was required.",
+      "relevant_paths": "supabase/migrations/20260506215306_enoch_corpus_import_ledger_publish_counts.sql | supabase/migrations/20260505233844_enoch_control_plane_baseline.sql",
+      "severity": "informational",
+      "status": "reviewed_no_current_change",
+      "title": "Corpus import migration breaks valid multi-repo imports"
+    },
+    {
+      "evidence_files": [
+        "scripts/normalize_state_surfaces.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/1eca0b95aaf8819186e8d09aab8fe362",
+      "index": 79,
+      "notes": "Historical normalization concern; current publication gates are positive/write_needed based.",
+      "relevant_paths": "scripts/normalize_state_surfaces.py | supabase/migrations/20260506105534_enoch_dashboard_candidate_contract_parity.sql",
+      "severity": "informational",
+      "status": "reviewed_no_current_change",
+      "title": "Rejected drafts can re-enter paper write counts"
+    },
+    {
+      "evidence_files": [],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/0dcf25462ea88191b788d78572f6cb47",
+      "index": 80,
+      "notes": "Finding targets removed omx_wake_gate read-model paths.",
+      "relevant_paths": "omx_wake_gate/control_plane/read_models.py | omx_wake_gate/control_plane/supabase_store.py",
+      "severity": "informational",
+      "status": "not_applicable_stale_path",
+      "title": "Supabase overview undercounts completed queue items"
+    },
+    {
+      "evidence_files": [
+        "supabase/migrations"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/e9c92db5622c8191aad99a63d142d43d",
+      "index": 81,
+      "notes": "Historical Supabase grant concern; current runtime no longer depends on Supabase idea workbench grants.",
+      "relevant_paths": "supabase/migrations/20260506122514_enoch_native_ideas.sql | omx_wake_gate/control_plane/supabase_store.py",
+      "severity": "informational",
+      "status": "reviewed_no_current_change",
+      "title": "Missing grant breaks Supabase idea workbench"
+    },
+    {
+      "evidence_files": [],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/e107b3da26dc8191bed08adf4fe8d6e5",
+      "index": 82,
+      "notes": "Finding targets removed omx_wake_gate snapshot paths.",
+      "relevant_paths": "omx_wake_gate/config.py | omx_wake_gate/control_plane/router.py | omx_wake_gate/control_plane/supabase_store.py | supabase/migrations/20260505233844_enoch_control_plane_baseline.sql",
+      "severity": "informational",
+      "status": "not_applicable_stale_path",
+      "title": "Supabase snapshot import can crash on paper run IDs"
+    },
+    {
+      "evidence_files": [],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/5d62dcd249c88191a4412a3719a3dd11",
+      "index": 83,
+      "notes": "Finding targets removed omx_wake_gate Supabase backend paths.",
+      "relevant_paths": "omx_wake_gate/control_plane/router.py | omx_wake_gate/control_plane/supabase_store.py",
+      "severity": "informational",
+      "status": "not_applicable_stale_path",
+      "title": "Supabase backend lacks router-required store methods"
+    },
+    {
+      "evidence_files": [
+        "scripts/validate_public_release.py",
+        "tests/test_validate_public_release.py"
+      ],
+      "finding_url": "https://chatgpt.com/codex/cloud/security/findings/e57db13f21bc8191a78e63c6b8c77f29",
+      "index": 84,
+      "notes": "Strict audit overclaim check now fails any partial pass count below artifact count.",
+      "relevant_paths": "scripts/validate_public_release.py | site/ecosystem.json",
+      "severity": "informational",
+      "status": "fixed",
+      "title": "Partial strict audit count bypasses overclaim check"
+    }
+  ],
+  "source_csv": "/home/jeremy/Downloads/codex-security-findings-2026-05-19T09-11-09.945Z.csv",
+  "summary": {
+    "already_safe_current_code": 1,
+    "fixed": 65,
+    "fixed_upstream_pr": 1,
+    "not_applicable_stale_path": 11,
+    "reviewed_no_change": 1,
+    "reviewed_no_current_change": 3,
+    "reviewed_no_security_change": 2
+  },
+  "triaged_at": "2026-05-19"
+}

@@ -348,6 +348,26 @@ def test_write_text_preserves_existing_file_when_replace_fails(tmp_path: Path, m
     assert not list(tmp_path.glob(".paper.md.*.tmp"))
 
 
+def test_write_text_preserves_existing_restrictive_permissions(tmp_path: Path) -> None:
+    target = tmp_path / "paper.md"
+    target.write_text("old", encoding="utf-8")
+    target.chmod(0o600)
+
+    appmod._write_text(target, "new", overwrite=True)
+
+    assert target.read_text(encoding="utf-8") == "new"
+    assert target.stat().st_mode & 0o777 == 0o600
+
+
+def test_write_text_creates_new_files_private_by_default(tmp_path: Path) -> None:
+    target = tmp_path / "paper.md"
+
+    appmod._write_text(target, "new", overwrite=False)
+
+    assert target.read_text(encoding="utf-8") == "new"
+    assert target.stat().st_mode & 0o777 == 0o600
+
+
 
 def test_write_text_rejects_uninspectable_target_without_raw_permission_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     target = (tmp_path / "paper.md").resolve()

@@ -8,6 +8,7 @@ import pytest
 
 from scripts import backfill_control_plane_to_supabase
 from scripts.backfill_control_plane_to_supabase import (
+    decision_file_candidates,
     import_sqlite_to_postgres,
     json_text,
     reject_target_identity_conflicts,
@@ -63,6 +64,23 @@ def test_backfill_rows_rejects_unallowlisted_order_by(tmp_path: Path) -> None:
         conn.execute("create table projects(project_id text)")
         with pytest.raises(ValueError, match="unsupported sqlite order_by"):
             rows(conn, "projects", order_by="project_id desc; drop table projects")
+
+
+def test_backfill_decision_file_candidates_stay_under_configured_roots(tmp_path: Path) -> None:
+    root = tmp_path / "projects"
+    root.mkdir()
+    inside = root / "safe-project"
+    inside.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    candidates = decision_file_candidates(
+        {"project_id": "../outside", "project_dir": str(outside)},
+        [root],
+    )
+
+    assert candidates == []
+    assert decision_file_candidates({"project_id": "safe-project", "project_dir": ""}, [root]) == [inside.resolve()]
 
 
 class _FakeCursor:

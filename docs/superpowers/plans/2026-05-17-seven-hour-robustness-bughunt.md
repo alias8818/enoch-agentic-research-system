@@ -51,11 +51,20 @@ python3 scripts/validate_public_release.py \
 Use the live readiness probe when checking `enoch-core`:
 
 ```bash
-ssh -o BatchMode=yes -o ConnectTimeout=8 enoch-core.exe.xyz 'TOKEN=$(sudo python3 - <<"PY"
+ssh -o BatchMode=yes -o ConnectTimeout=8 enoch-core.exe.xyz 'sudo python3 - <<"PY"
 import json
-print(json.load(open("/etc/enoch-control-plane/config.json"))["control_api_bearer_token"])
+import urllib.request
+from pathlib import Path
+
+cfg = json.loads(Path("/etc/enoch-control-plane/config.json").read_text())
+req = urllib.request.Request(
+    "http://127.0.0.1:8787/control/api/v1/automation-readiness",
+    headers={"Authorization": "Bearer " + cfg["control_api_bearer_token"]},
+)
+with urllib.request.urlopen(req, timeout=15) as resp:
+    print(resp.read().decode())
 PY
-); curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8787/control/api/v1/automation-readiness'
+'
 ```
 
 ---

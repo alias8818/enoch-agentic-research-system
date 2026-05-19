@@ -130,11 +130,11 @@ class TelemetryCollector:
                     if dedicated_total_mib > 0:
                         vram_used_mib = dedicated_used_mib
                         memory_source = "nvml_dedicated"
-                except Exception as exc:
+                except Exception:
                     # Expected on DGX Spark/iGPU UMA platforms: NVIDIA documents
                     # that nvidia-smi reports Memory-Usage as unsupported. UMA
                     # meminfo remains the operator-visible fallback signal.
-                    memory_source = f"{memory_source}:nvml_memory_unavailable:{type(exc).__name__}"
+                    memory_source = str(uma["memory_source"])
             except Exception:
                 gpu_pct = 0.0
                 gpu_compute_pids = []

@@ -174,15 +174,21 @@ def decision_file_candidates(project: dict[str, Any], project_roots: Sequence[Pa
     project_dir = str(project.get("project_dir") or "").strip()
     project_id = str(project.get("project_id") or "").strip()
     names = [value for value in (project_dir, project_id) if value]
-    for name in names:
-        path = Path(name).expanduser()
-        if path.is_absolute():
-            candidates.append(path)
+    safe_roots: list[Path] = []
     for root in project_roots:
-        expanded = root.expanduser()
+        try:
+            safe_roots.append(root.expanduser().resolve())
+        except (OSError, RuntimeError, ValueError):
+            continue
+    for root in safe_roots:
         for name in names:
-            if name:
-                candidates.append(expanded / name)
+            try:
+                path = Path(name).expanduser()
+                candidate = path.resolve() if path.is_absolute() else (root / path).resolve()
+                candidate.relative_to(root)
+            except (OSError, RuntimeError, ValueError):
+                continue
+            candidates.append(candidate)
     seen: set[str] = set()
     result: list[Path] = []
     for candidate in candidates:
@@ -631,6 +637,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sqlite", required=True, type=Path, help="Path to control_plane.sqlite3 source DB")
     parser.add_argument("--database-url", default=os.environ.get("ENOCH_SUPABASE_DATABASE_URL", ""), help="Postgres/Supabase database URL; defaults to ENOCH_SUPABASE_DATABASE_URL")
+    parser.add_argument("--database-url-file", type=Path, help="Root-readable file containing the Postgres/Supabase database URL; avoids argv exposure")
     parser.add_argument("--apply", action="store_true", help="Commit the backfill transaction. Default is dry-run rollback.")
     parser.add_argument("--reset-target", action="store_true", help="Truncate target domain tables before import. Requires --apply.")
     parser.add_argument("--observation-limit", type=int, default=5000, help="Latest observations to import; 0 skips, -1 imports all. Default: 5000")
@@ -641,12 +648,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    if not args.database_url.strip():
+    database_url = args.database_url
+    if args.database_url_file and not database_url.strip():
+        database_url = args.database_url_file.read_text(encoding="utf-8").strip()
+    if not database_url.strip():
         print("error: --database-url or ENOCH_SUPABASE_DATABASE_URL is required", file=sys.stderr)
         return 2
     result = import_sqlite_to_postgres(
         sqlite_path=args.sqlite,
-        database_url=args.database_url,
+        database_url=database_url,
         apply=args.apply,
         reset_target=args.reset_target,
         observation_limit=args.observation_limit,

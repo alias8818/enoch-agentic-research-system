@@ -36,6 +36,17 @@ def test_cutover_dry_run_requires_passing_preflight_and_does_not_write_config(tm
     assert len(calls) == 1
 
 
+def test_cutover_redacts_query_passwords_and_fragments() -> None:
+    assert (
+        cutover._redact_url("postgresql://db.example/postgres?user=svc&password=secret#frag")
+        == "postgresql://db.example/postgres?user=svc&password=***"
+    )
+    assert (
+        cutover._redact_url("postgresql://svc:secret@db.example:5432/postgres?sslpassword=secret")
+        == "postgresql://svc:***@db.example:5432/postgres?sslpassword=***"
+    )
+
+
 def test_cutover_fails_closed_without_database_url(tmp_path) -> None:
     args = _args(tmp_path, database_url="")
 

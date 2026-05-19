@@ -7,7 +7,7 @@ Wants=enoch-control-plane.service
 Type=oneshot
 WorkingDirectory=/opt/enoch-control-plane
 Environment=ENOCH_CONFIG=/etc/enoch-control-plane/config.json
-EnvironmentFile=-/etc/enoch-control-plane/supabase.env
+EnvironmentFile=-/etc/enoch-control-plane/postgres.env
 Environment=ENOCH_ENABLE_RESEARCH_AUTOPILOT=0
 Environment=ENOCH_RESEARCH_AUTOPILOT_DISPATCH=1
 Environment=ENOCH_RESEARCH_AUTOPILOT_WAIT=1

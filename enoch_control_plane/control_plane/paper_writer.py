@@ -217,26 +217,25 @@ def _iter_source_evidence_files(project_dir: Path) -> list[Path]:
         "run_notes.md",
         ".enoch/project_decision.json",
         ".enoch/metrics.json",
-        ".enoch/project.json",
-        ".enoch/session.json",
-        ".enoch/last_message.md",
         ".omx/project_decision.json",
         ".omx/metrics.json",
     ]
     for rel in explicit:
         path = project_dir / rel
-        if _path_is_file_quiet(path):
+        if _path_exists_for_paper(path, label="source evidence path", status_code=424) and _path_is_file_for_paper(path, label="source evidence path", status_code=424):
             candidates.append(path)
-    for rel_dir in ("results", "logs", "scripts", "prompts", ".enoch/logs", ".enoch/state"):
+    for rel_dir in ("results",):
         root = project_dir / rel_dir
-        if not _path_exists_quiet(root):
+        if not _path_exists_for_paper(root, label="source evidence directory", status_code=424):
+            continue
+        if not _path_is_dir_for_paper(root, label="source evidence directory", status_code=424):
             continue
         try:
             paths = sorted(root.rglob("*"))
-        except (OSError, RuntimeError, ValueError):
-            continue
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=424, detail=f"source evidence directory could not be scanned: {rel_dir}") from exc
         for path in paths:
-            if not _path_is_file_quiet(path):
+            if not _path_is_file_for_paper(path, label="source evidence file", status_code=424):
                 continue
             if "__pycache__" in path.parts or path.suffix == ".pyc":
                 continue
@@ -249,8 +248,8 @@ def _iter_source_evidence_files(project_dir: Path) -> list[Path]:
         try:
             resolved = path.resolve()
             resolved.relative_to(project_dir)
-        except Exception:
-            continue
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=424, detail="source evidence file path could not be resolved") from exc
         if resolved in seen:
             continue
         seen.add(resolved)
@@ -729,6 +728,8 @@ def backfill_paper_evidence_artifacts(
         if _path_exists_for_paper(manifest_path, label="paper manifest"):
             try:
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                manifest = {}
             except (OSError, RuntimeError, ValueError) as exc:
                 raise HTTPException(status_code=400, detail=f"paper manifest could not be read: {paper.manifest_path}") from exc
     except (OSError, RuntimeError, ValueError) as exc:

@@ -122,6 +122,7 @@ class WorkerPreflightTests(unittest.TestCase):
         self.assertFalse(response.ok)
         checks = {check.name: check for check in response.checks}
         self.assertFalse(checks["worker_gpu_idle"].ok)
+        self.assertEqual(checks["worker_gpu_idle"].data["gpu_pct"], 101.0)
         self.assertFalse(checks["worker_memory_available"].ok)
         self.assertFalse(checks["worker_no_live_runs"].ok)
         self.assertFalse(checks["worker_queue_snapshot_no_active"].ok)
@@ -221,4 +222,3 @@ def test_http_request_json_rejects_non_object_json(monkeypatch) -> None:
     assert result.ok is False
     assert result.status == 200
     assert "JSON body is not an object" in result.error
-

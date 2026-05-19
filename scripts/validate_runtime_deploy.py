@@ -59,6 +59,17 @@ def _git_rev_parse(repo: Path, ref: str) -> str:
     ).stdout.strip()
 
 
+def _git_status_porcelain(repo: Path) -> str:
+    return subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=repo,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    ).stdout.strip()
+
+
 def _iter_relative_files(root: Path, selected_paths: Sequence[str]) -> list[str]:
     files: set[str] = set()
     for raw in selected_paths:
@@ -103,11 +114,14 @@ def validate_runtime(
         try:
             source_commit = _git_rev_parse(source, "HEAD")
             resolved_expected_commit = _git_rev_parse(source, expected_commit)
+            dirty_status = _git_status_porcelain(source)
         except (OSError, subprocess.CalledProcessError) as exc:
             failures.append(f"git commit check failed: {type(exc).__name__}: {exc}")
         else:
             if source_commit != resolved_expected_commit:
                 failures.append(f"source commit drift: HEAD {source_commit} != {expected_commit} {resolved_expected_commit}")
+            if dirty_status:
+                failures.append("source checkout is dirty")
 
     try:
         relative_files = _iter_relative_files(source, selected_paths)

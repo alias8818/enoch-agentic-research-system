@@ -1,6 +1,7 @@
 from typing import Any, Sequence
 import inspect
 
+from scripts import validate_supabase_runtime_cutover
 from scripts.validate_supabase_runtime_cutover import compare
 
 from enoch_control_plane.control_plane import read_models
@@ -33,6 +34,48 @@ def test_compare_accepts_matching_operator_counts_and_safe_pause() -> None:
 
     assert result.ok
     assert result.failures == []
+
+
+def test_runtime_cutover_preflight_ignores_env_control_url_by_default(monkeypatch) -> None:
+    monkeypatch.setenv("ENOCH_CONTROL_PLANE_URL", "https://attacker.invalid")
+    observed = {}
+
+    def fake_live_counts(control_url: str, token: str) -> dict:
+        observed["control_url"] = control_url
+        observed["token"] = token
+        return {
+            "write_needed": 0,
+            "raw_completed_no_paper_candidates": 0,
+            "not_writable_by_decision_gate": 0,
+            "publication_ready": 0,
+            "needs_attention": 0,
+            "flags": {"queue_paused": True, "maintenance_mode": True},
+            "state_counts": {"queue_total": 0},
+            "paper_counts": {"all": 0},
+            "enoch_core": {"store_backend": "supabase"},
+        }
+
+    def fake_supabase_counts(_database_url: str) -> dict:
+        return {
+            "write_needed": 0,
+            "raw_completed_no_paper_candidates": 0,
+            "not_writable_by_decision_gate": 0,
+            "publication_ready": 0,
+            "needs_attention": 0,
+            "table_counts": {"queue_items": 0, "papers": 0, "core_events": 0, "core_snapshots": 0},
+        }
+
+    monkeypatch.setattr(validate_supabase_runtime_cutover, "_live_counts", fake_live_counts)
+    monkeypatch.setattr(validate_supabase_runtime_cutover, "_supabase_counts", fake_supabase_counts)
+    token_file = "/tmp/enoch-test-cutover-token"
+    from pathlib import Path
+
+    Path(token_file).write_text("file-token", encoding="utf-8")
+    try:
+        assert validate_supabase_runtime_cutover.main(["--token-file", token_file, "--database-url", "postgres://example"]) == 0
+    finally:
+        Path(token_file).unlink(missing_ok=True)
+    assert observed == {"control_url": "http://127.0.0.1:8787", "token": "file-token"}
 
 
 def test_compare_rejects_mixed_ledgers_and_unpaused_runtime() -> None:

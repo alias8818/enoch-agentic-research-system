@@ -141,6 +141,16 @@ def test_missing_quality_report_blocks_readiness() -> None:
     assert status["problem_counts"] == {"missing_quality_report": 1}
 
 
+def test_malformed_quality_report_blocks_readiness_instead_of_passing_clean() -> None:
+    status = classify_quality_report({})
+
+    assert status["ok"] is False
+    assert status["status"] == "blocked"
+    assert status["problem_counts"] == {"malformed_quality_report": 1}
+    assert status["severity_counts"] == {"blocked": 1}
+    assert status["problem_details"][0]["problem"] == "malformed_quality_report"
+
+
 def test_supported_negative_with_bounded_followup_and_scale_limits_is_info() -> None:
     report = _report_with_decision("supported_but_negative_requires_review", decision="finalize_negative", hypothesis_status="supported")
     report["decision_scores"][0].update({
