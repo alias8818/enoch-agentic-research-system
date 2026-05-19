@@ -215,6 +215,18 @@ def check_manifest(committed: dict, generated: dict | None, failures: list[str])
 
 
 def fetch_github_repo_metadata(repo: str) -> dict:
+    try:
+        result = subprocess.run(
+            ["gh", "api", f"repos/{repo}"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if result.returncode == 0:
+            return json.loads(result.stdout)
+    except (OSError, json.JSONDecodeError):
+        pass
     req = Request(
         f"https://api.github.com/repos/{repo}",
         headers={

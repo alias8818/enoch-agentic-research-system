@@ -11,11 +11,13 @@ import json
 import os
 import re
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 SCHEMA_VERSION = "enoch_promising_signal_v1"
+MANIFEST_SCHEMA_VERSION = "enoch_promising_signal_manifest_v1"
 DISCLAIMER = (
     "These are not validated papers, not peer-reviewed results, and not "
     "publication-positive Enoch corpus artifacts. This entry preserves bounded "
@@ -23,6 +25,12 @@ DISCLAIMER = (
 )
 EXPORT_STATUSES = {"useful_signal", "promising_if_scaled", "compute_scale_blocked"}
 SOURCE_ROOT = "/var/lib/enoch-control-plane"
+PRIVATE_PATH_ROOTS = (
+    "/var/lib/enoch-control-plane",
+    "/opt/enoch-control-plane",
+    "/home/jeremy",
+    "/root",
+)
 
 PROMISING_SIGNAL_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -72,6 +80,14 @@ PROMISING_SIGNAL_SCHEMA: dict[str, Any] = {
 }
 
 
+class ExportRows(list[dict[str, Any]]):
+    selection_summary: dict[str, int]
+
+    def __init__(self, rows: Iterable[dict[str, Any]], selection_summary: dict[str, int] | None = None) -> None:
+        super().__init__(rows)
+        self.selection_summary = selection_summary or {}
+
+
 def _text(value: Any) -> str:
     return str(value or "").strip()
 
@@ -93,7 +109,15 @@ def _safe_path_text(value: Any) -> str:
     text = _text(value)
     if not text:
         return ""
-    return text.replace(SOURCE_ROOT, "<control-plane-state>")
+    redacted = text
+    for root in PRIVATE_PATH_ROOTS:
+        redacted = redacted.replace(root, "<local-path>")
+    return redacted
+
+
+def _public_safe_text(value: Any) -> str:
+    text = _text(value)
+    return re.sub(r"\bpublication[- ]ready\b", "paper-positive", text, flags=re.I)
 
 
 def _list(value: Any) -> list[Any]:
@@ -187,11 +211,11 @@ def signal_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "decision_summary": _text(row.get("decision_summary")),
         "hypothesis_status": _text(row.get("hypothesis_status")),
         "evidence_strength": _text(row.get("evidence_strength")),
-        "claim_scope": _text(row.get("claim_scope")),
-        "scale_limits": _text(row.get("scale_limits")),
-        "useful_signal_summary": _text(row.get("useful_signal_summary")),
-        "stop_reason": _text(row.get("stop_reason")),
-        "recommended_next_action": _text(row.get("recommended_next_action")),
+        "claim_scope": _public_safe_text(row.get("claim_scope")),
+        "scale_limits": _public_safe_text(row.get("scale_limits")),
+        "useful_signal_summary": _public_safe_text(row.get("useful_signal_summary")),
+        "stop_reason": _public_safe_text(row.get("stop_reason")),
+        "recommended_next_action": _public_safe_text(row.get("recommended_next_action")),
         "sources": _sources_from_row(row),
         "followup": {
             "recommended": _truthy(row.get("followup_recommended")),
@@ -240,15 +264,82 @@ def validate_signal(signal: dict[str, Any]) -> list[str]:
     evidence = signal.get("evidence") if isinstance(signal.get("evidence"), dict) else {}
     if evidence.get("public_evidence_copied") is not False:
         issues.append("evidence.public_evidence_copied:must_be_false")
-    if evidence.get("artifact_root") and SOURCE_ROOT in str(evidence.get("artifact_root")):
-        issues.append("evidence.artifact_root:private_path_not_redacted")
+    serialized = json.dumps(signal, sort_keys=True)
+    for private_root in PRIVATE_PATH_ROOTS:
+        if private_root in serialized:
+            issues.append(f"private_path_not_redacted:{private_root}")
     return sorted(set(issues))
 
 
 def export_signals(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    signals = [signal_from_row(row) for row in rows if is_exportable_row(row)]
+    latest_by_project: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not is_exportable_row(row):
+            continue
+        signal = signal_from_row(row)
+        project_id = signal["project_id"]
+        previous = latest_by_project.get(project_id)
+        if previous is None or (signal.get("updated_at") or "", signal.get("run_id") or "") > (previous.get("updated_at") or "", previous.get("run_id") or ""):
+            latest_by_project[project_id] = signal
+    signals = list(latest_by_project.values())
     signals.sort(key=lambda item: (item["project_id"], item["run_id"]))
     return signals
+
+
+def export_manifest(signals: list[dict[str, Any]], *, selection_summary: dict[str, int] | None = None) -> dict[str, Any]:
+    status_counts = Counter(str(signal.get("status") or "") for signal in signals)
+    return {
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "record_count": len(signals),
+        "status_counts": {status: status_counts[status] for status in sorted(status_counts)},
+        "project_ids": [signal["project_id"] for signal in signals],
+        "data_file": "data/signals.jsonl",
+        "index_file": "signals/index.md",
+        "schema_file": "schemas/promising-signal.schema.json",
+        "public_evidence_copied": False,
+        "export_statuses": sorted(EXPORT_STATUSES),
+        "selection_summary": selection_summary or {
+            "total_candidate_rows": len(signals),
+            "export_cleanly_now": len(signals),
+            "missing_required_evidence_or_fields": 0,
+            "excluded_paper_or_corpus": 0,
+            "hard_negative_or_stale": 0,
+        },
+    }
+
+
+def _records_from_repo(repo_root: Path) -> list[dict[str, Any]]:
+    data_path = repo_root / "data" / "signals.jsonl"
+    if not data_path.exists():
+        return []
+    return [json.loads(line) for line in data_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def validate_export_repo(repo_root: Path) -> list[str]:
+    issues: list[str] = []
+    records = _records_from_repo(repo_root)
+    manifest_path = repo_root / "data" / "manifest.json"
+    if not manifest_path.exists():
+        return ["manifest:missing"]
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return ["manifest:invalid_json"]
+    expected = export_manifest(records, selection_summary=manifest.get("selection_summary") if isinstance(manifest.get("selection_summary"), dict) else None)
+    if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
+        issues.append("manifest.schema_version:invalid")
+    if manifest.get("record_count") != expected["record_count"]:
+        issues.append(f"manifest.record_count:{manifest.get('record_count')} != {expected['record_count']}")
+    actual_status_counts = manifest.get("status_counts") if isinstance(manifest.get("status_counts"), dict) else {}
+    for status in sorted(set(actual_status_counts) | set(expected["status_counts"])):
+        if actual_status_counts.get(status) != expected["status_counts"].get(status, 0):
+            issues.append(f"manifest.status_counts.{status}:{actual_status_counts.get(status)} != {expected['status_counts'].get(status, 0)}")
+    if manifest.get("project_ids") != expected["project_ids"]:
+        issues.append("manifest.project_ids:drift")
+    if manifest.get("public_evidence_copied") is not False:
+        issues.append("manifest.public_evidence_copied:must_be_false")
+    return sorted(issues)
 
 
 def _markdown(signal: dict[str, Any]) -> str:
@@ -369,6 +460,14 @@ def audit_backfill(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def clean_export_rows(rows: Iterable[dict[str, Any]]) -> ExportRows:
+    materialized = list(rows)
+    report = audit_backfill(materialized)
+    clean_ids = {row["project_id"] for row in report["buckets"]["export_cleanly_now"]}
+    clean_rows = [row for row in materialized if _text(row.get("project_id")) in clean_ids]
+    return ExportRows(clean_rows, selection_summary=report["summary"])
+
+
 def audit_backfill_markdown(report: dict[str, Any]) -> str:
     summary = report.get("summary") or {}
     buckets = report.get("buckets") or {}
@@ -423,6 +522,7 @@ def write_schema(repo_root: Path) -> None:
 
 
 def write_export(rows: Iterable[dict[str, Any]], repo_root: Path) -> dict[str, Any]:
+    selection_summary = getattr(rows, "selection_summary", None)
     signals = export_signals(rows)
     failures = []
     for signal in signals:
@@ -434,7 +534,12 @@ def write_export(rows: Iterable[dict[str, Any]], repo_root: Path) -> dict[str, A
     (repo_root / "data").mkdir(parents=True, exist_ok=True)
     (repo_root / "signals").mkdir(parents=True, exist_ok=True)
     write_schema(repo_root)
+    live_signal_files = {f"{slugify(signal['project_id'])}.md" for signal in signals}
+    for path in (repo_root / "signals").glob("*.md"):
+        if path.name != "index.md" and path.name not in live_signal_files:
+            path.unlink()
     (repo_root / "data" / "signals.jsonl").write_text("".join(json.dumps(signal, sort_keys=True) + "\n" for signal in signals), encoding="utf-8")
+    (repo_root / "data" / "manifest.json").write_text(json.dumps(export_manifest(signals, selection_summary=selection_summary), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     index_lines = [
         "# Promising signal index",
         "",
@@ -532,6 +637,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--input-json", type=Path, help="JSON array of rows for deterministic/offline export")
     parser.add_argument("--project-id", action="append", default=[])
     parser.add_argument("--query", default="")
+    parser.add_argument("--clean-only", action="store_true", help="Export only rows that pass the deterministic promising-signal contract; summarize skipped rows in manifest.")
     parser.add_argument("--audit-report", type=Path, help="Write a dry-run backfill audit JSON report instead of exporting rows")
     parser.add_argument("--audit-markdown", type=Path, help="Optional Markdown path for --audit-report")
     args = parser.parse_args(argv)
@@ -550,6 +656,8 @@ def main(argv: list[str] | None = None) -> int:
             args.audit_markdown.write_text(audit_backfill_markdown(report) + "\n", encoding="utf-8")
         print(json.dumps({"audit_report": str(args.audit_report), **report["summary"]}, indent=2, sort_keys=True))
         return 0
+    if args.clean_only:
+        rows = clean_export_rows(rows)
     result = write_export(rows, args.output_repo)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

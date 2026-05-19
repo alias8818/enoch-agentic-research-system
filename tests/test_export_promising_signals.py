@@ -88,6 +88,30 @@ def test_missing_required_fields_fail_closed() -> None:
     assert "useful_signal_summary:required" in issues
 
 
+def test_private_artifact_paths_are_redacted() -> None:
+    signal = exporter.signal_from_row(
+        _row(
+            artifact_root="/home/jeremy/projects/private/signal",
+            artifact_paths=["/opt/enoch-control-plane/projects/private/.enoch/project_decision.json"],
+        )
+    )
+
+    serialized = json.dumps(signal, sort_keys=True)
+    assert "/home/jeremy" not in serialized
+    assert "/opt/enoch-control-plane" not in serialized
+    assert "<local-path>" in serialized
+    assert exporter.validate_signal(signal) == []
+
+
+def test_public_markdown_sanitizes_publication_ready_phrase() -> None:
+    signal = exporter.signal_from_row(_row(stop_reason="This is no-paper evidence rather than a publication-ready positive result."))
+
+    markdown = exporter._markdown(signal)
+
+    assert "publication-ready" not in markdown
+    assert "paper-positive" in markdown
+
+
 
 def test_source_records_keep_url_title_alignment() -> None:
     signal = exporter.signal_from_row(
@@ -128,7 +152,46 @@ def test_writes_deterministic_jsonl_markdown_and_index(tmp_path) -> None:
     assert (tmp_path / "signals" / "b-signal.md").exists()
     assert "A Signal" in (tmp_path / "signals" / "index.md").read_text(encoding="utf-8")
     assert (tmp_path / "schemas" / "promising-signal.schema.json").exists()
+    manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == "enoch_promising_signal_manifest_v1"
+    assert manifest["record_count"] == 2
+    assert manifest["status_counts"] == {"promising_if_scaled": 1, "useful_signal": 1}
+    assert manifest["project_ids"] == ["a-signal", "b-signal"]
 
+
+def test_write_export_deduplicates_latest_row_and_removes_stale_files(tmp_path) -> None:
+    stale = tmp_path / "signals" / "stale-signal.md"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("stale", encoding="utf-8")
+
+    result = exporter.write_export(
+        [
+            _row(project_id="dupe-signal", run_id="old-run", updated_at="2026-05-14T00:00:00Z", useful_signal_summary="old"),
+            _row(project_id="dupe-signal", run_id="new-run", updated_at="2026-05-15T00:00:00Z", useful_signal_summary="new"),
+        ],
+        tmp_path,
+    )
+
+    records = [json.loads(line) for line in (tmp_path / "data" / "signals.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert result["count"] == 1
+    assert records[0]["run_id"] == "new-run"
+    assert records[0]["useful_signal_summary"] == "new"
+    assert not stale.exists()
+    assert not (tmp_path / "signals" / "dupe-signal-old-run.md").exists()
+
+
+def test_validate_export_manifest_catches_count_and_status_drift(tmp_path) -> None:
+    exporter.write_export([_row(project_id="signal-a"), _row(project_id="signal-b", compute_scale_blocked=True)], tmp_path)
+    manifest_path = tmp_path / "data" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["record_count"] = 99
+    manifest["status_counts"]["compute_scale_blocked"] = 0
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    issues = exporter.validate_export_repo(tmp_path)
+
+    assert "manifest.record_count:99 != 2" in issues
+    assert "manifest.status_counts.compute_scale_blocked:0 != 1" in issues
 
 
 def test_audit_backfill_report_classifies_exportable_and_missing_fields() -> None:
@@ -151,6 +214,24 @@ def test_audit_backfill_report_classifies_exportable_and_missing_fields() -> Non
     missing = {row["project_id"]: row for row in report["buckets"]["missing_required_evidence_or_fields"]}
     assert "useful_signal_summary:required" in missing["missing-summary"]["issues"]
     assert "sources:required" in missing["missing-source"]["issues"]
+
+
+def test_clean_rows_from_audit_can_be_exported_without_invalid_historical_rows(tmp_path) -> None:
+    rows = [
+        _row(project_id="clean-signal"),
+        _row(project_id="missing-source", source_ids=[], source_urls=[], source_titles=[]),
+        _row(project_id="hard-negative", research_outcome="negative"),
+    ]
+
+    result = exporter.write_export(exporter.clean_export_rows(rows), tmp_path)
+
+    records = [json.loads(line) for line in (tmp_path / "data" / "signals.jsonl").read_text(encoding="utf-8").splitlines()]
+    manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))
+    assert result["count"] == 1
+    assert [record["project_id"] for record in records] == ["clean-signal"]
+    assert manifest["selection_summary"]["export_cleanly_now"] == 1
+    assert manifest["selection_summary"]["missing_required_evidence_or_fields"] == 1
+    assert manifest["selection_summary"]["hard_negative_or_stale"] == 1
 
 
 def test_audit_backfill_report_classifies_paper_corpus_and_stale_rows() -> None:
@@ -213,3 +294,29 @@ def test_cli_writes_audit_json_and_markdown(tmp_path) -> None:
     assert report["summary"]["export_cleanly_now"] == 1
     assert not (output_repo / "data" / "signals.jsonl").exists()
     assert "# Promising signals backfill audit" in audit_md.read_text(encoding="utf-8")
+
+
+def test_cli_clean_only_exports_valid_subset(tmp_path) -> None:
+    input_json = tmp_path / "rows.json"
+    input_json.write_text(
+        json.dumps([
+            _row(project_id="clean-signal"),
+            _row(project_id="missing-source", source_ids=[], source_urls=[], source_titles=[]),
+        ]),
+        encoding="utf-8",
+    )
+    output_repo = tmp_path / "promising"
+
+    rc = exporter.main([
+        "--output-repo",
+        str(output_repo),
+        "--input-json",
+        str(input_json),
+        "--clean-only",
+    ])
+
+    assert rc == 0
+    records = [json.loads(line) for line in (output_repo / "data" / "signals.jsonl").read_text(encoding="utf-8").splitlines()]
+    manifest = json.loads((output_repo / "data" / "manifest.json").read_text(encoding="utf-8"))
+    assert [record["project_id"] for record in records] == ["clean-signal"]
+    assert manifest["selection_summary"]["missing_required_evidence_or_fields"] == 1
