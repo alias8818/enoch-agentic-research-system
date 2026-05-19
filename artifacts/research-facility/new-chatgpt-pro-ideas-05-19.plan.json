@@ -1,0 +1,1766 @@
+{
+  "admitted_count": 5,
+  "candidate_count": 15,
+  "history_count": 0,
+  "input": "artifacts/research-facility/new-chatgpt-pro-ideas-05-19.candidates.json",
+  "needs_review_count": 10,
+  "ok": true,
+  "plans": [
+    {
+      "admission_decision": "admitted",
+      "admission_reason": "score 75.1 >= admit threshold 72.0 with required research contract present",
+      "admitted_idea_id": "ssd-lite-verification-outcome-prediction-for-dflash-cc1d23c80a4f",
+      "candidate": {
+        "accessibility_delta": "Could make SSD-style gains testable on one local GPU instead of requiring fleet-scale disaggregated serving.",
+        "accessibility_score": 8.0,
+        "baseline_to_beat": "Fixed-policy DFlash, best static DFlash block size, EAGLE-3 if available, and autoregressive target decoding.",
+        "candidate_id": "ssd-lite-verification-outcome-prediction-for-dflash-cc1d23c80a4f",
+        "category": "spec-decoding",
+        "dedupe_key": "research:spec-decoding-ssd-lite-verification-outcome-prediction-dflash-log-speculative-rounds-predict-top-m:4d5cb57c044a",
+        "description": "Local SSD/Saguaro-inspired experiment: test whether verification outcomes are predictable enough to save draft time without needing a multi-device serving setup.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 9.0,
+        "feasibility_score": 7.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "A tiny predictor of accept length and bonus-token branches can hide or skip DFlash drafting work enough to improve single-GB10 speculative decoding throughput.",
+        "implementation": "Collect 50k-200k speculative rounds from DFlash-style decoding, train logistic/tree/MLP predictors for accept length and bonus-token branch hit, simulate branch-cache savings, then prototype limited branch reuse if hit rates justify it.",
+        "kill_condition": "Stop if top-4 hit rate stays below 50%, DFlash draft time is under 5% of round time, or wasted branch work exceeds saved draft time.",
+        "likely_failure_modes": [
+          "Outcome distribution is too diffuse",
+          "Single-GPU overlap cannot hide useful work",
+          "Branch memory pressure erases gains"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Log speculative rounds, predict top-M verification outcomes from entropy/margins/prior accepts, then simulate or cache likely next branches while preserving target verification.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Distinct from full Saguaro by testing the single-device trace law and DFlash branch-cache variant under local constraints.",
+        "novelty_score": 9.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_spec_decoding_research_map_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "candidate_seed": {
+            "baseline_to_beat": "Fixed-policy DFlash, best static DFlash block size, EAGLE-3 if available, and autoregressive target decoding.",
+            "hypothesis": "A tiny predictor of accept length and bonus-token branches can hide or skip DFlash drafting work enough to improve single-GB10 speculative decoding throughput.",
+            "kill_condition": "Stop if top-4 hit rate stays below 50%, DFlash draft time is under 5% of round time, or wasted branch work exceeds saved draft time.",
+            "mechanism": "Log speculative rounds, predict top-M verification outcomes from entropy/margins/prior accepts, then simulate or cache likely next branches while preserving target verification.",
+            "success_threshold": "Top-4 verification-outcome hit rate at least 60% and simulated TPOT gain at least 8%; continue to implementation only if real branch cache can plausibly yield at least 5% TPOT gain.",
+            "title": "SSD-lite Verification-Outcome Prediction for DFlash"
+          },
+          "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+          "rank": 1,
+          "source_file": "new-chatgpt-pro-ideas-05-19.md"
+        },
+        "required_evidence": [
+          "baseline comparison",
+          "metrics table",
+          "failure cases",
+          "decision artifact"
+        ],
+        "risk_notes": "Most likely failure is simulation-only gain that does not survive wall-clock implementation.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 20.0,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 19.8,
+          "feasibility_weighted": 11.9,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 23.4,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-2265236665c4b5ed70ad"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+            "external_id": "new-chatgpt-pro-ideas-05-19",
+            "payload_json": {
+              "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+              "local_file": "new-chatgpt-pro-ideas-05-19.md"
+            },
+            "retrieved_at": "2026-05-19T00:00:00Z",
+            "source_id": "manual-note-2265236665c4b5ed70ad",
+            "source_kind": "manual_note",
+            "summary": "ChatGPT Pro research map for bounded speculative decoding experiments around DFlash, EAGLE-3, SSD/Saguaro, SpecVocab, controllers, retrieval caches, grammar-aware speculation, and related local experiments.",
+            "title": "ChatGPT Pro speculative decoding research map 2026-05-19",
+            "url": "file://new-chatgpt-pro-ideas-05-19.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19.md"
+        ],
+        "status": "admitted",
+        "success_threshold": "Top-4 verification-outcome hit rate at least 60% and simulated TPOT gain at least 8%; continue to implementation only if real branch cache can plausibly yield at least 5% TPOT gain.",
+        "title": "SSD-lite Verification-Outcome Prediction for DFlash",
+        "total_score": 75.1
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 20.0,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 19.8,
+        "feasibility_weighted": 11.9,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 23.4,
+        "review_threshold": 58.0,
+        "total_score": 75.1
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "admitted",
+      "admission_reason": "score 72.5 >= admit threshold 72.0 with required research contract present",
+      "admitted_idea_id": "dynamic-speculative-vocabulary-for-dflash-and-eagle-heads-e1fa6de4b6a2",
+      "candidate": {
+        "accessibility_delta": "Could lower speculative decoding latency on local GPUs without training a larger draft model.",
+        "accessibility_score": 8.0,
+        "baseline_to_beat": "Full-vocab DFlash, fixed reduced vocabulary, frequency-only subset, SpecVocab-style ranker where reproduced, and EAGLE-3 fixed reduced vocab if available.",
+        "candidate_id": "dynamic-speculative-vocabulary-for-dflash-and-eagle-heads-e1fa6de4b6a2",
+        "category": "spec-decoding",
+        "dedupe_key": "research:spec-decoding-dynamic-speculative-vocabulary-dflash-eagle-heads-construct-dynamic-vocab-subsets-prompt-tokens:ca0024a132b7",
+        "description": "SpecVocab-inspired local trace and microbenchmark study for DFlash/EAGLE-style heads.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 9.0,
+        "feasibility_score": 7.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "Per-step contextual vocab subsets can reduce draft output projection cost without fixed-vocab OOV rejection cliffs.",
+        "implementation": "Run trace-only target-token coverage for subset sizes 128-4096, benchmark full vs indexed draft heads, and only then wire the best subset path into end-to-end speculative decoding.",
+        "kill_condition": "Stop if full-vocab projection is not a bottleneck, subset needs more than 25-50% of vocabulary, or indexed matmul is slower than fused full matmul.",
+        "likely_failure_modes": [
+          "PyTorch gather/index overhead beats saved projection time",
+          "Rare code/math tokens cause acceptance cliffs",
+          "Kernel work dominates research value"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Construct dynamic vocab subsets from prompt tokens, suffix-cache tokens, approximate rankers, grammar-frontier tokens, prior target top-k, and frequency fallback before draft projection.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Extends SpecVocab-style dynamic vocab to DFlash/block-diffusion or local EAGLE heads with trace-first gates.",
+        "novelty_score": 8.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_spec_decoding_research_map_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "candidate_seed": {
+            "baseline_to_beat": "Full-vocab DFlash, fixed reduced vocabulary, frequency-only subset, SpecVocab-style ranker where reproduced, and EAGLE-3 fixed reduced vocab if available.",
+            "hypothesis": "Per-step contextual vocab subsets can reduce draft output projection cost without fixed-vocab OOV rejection cliffs.",
+            "kill_condition": "Stop if full-vocab projection is not a bottleneck, subset needs more than 25-50% of vocabulary, or indexed matmul is slower than fused full matmul.",
+            "mechanism": "Construct dynamic vocab subsets from prompt tokens, suffix-cache tokens, approximate rankers, grammar-frontier tokens, prior target top-k, and frequency fallback before draft projection.",
+            "success_threshold": "Subset of 2048 tokens or fewer covers at least 95% of accepted target tokens, draft projection time drops at least 30%, and end-to-end TPOT improves at least 5-8% with acceptance drop under 3%.",
+            "title": "Dynamic Speculative Vocabulary for DFlash and EAGLE Heads"
+          },
+          "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+          "rank": 2,
+          "source_file": "new-chatgpt-pro-ideas-05-19.md"
+        },
+        "required_evidence": [
+          "baseline comparison",
+          "metrics table",
+          "failure cases",
+          "decision artifact"
+        ],
+        "risk_notes": "Bottleneck must be proven before implementation; otherwise this becomes kernel churn.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 20.0,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 19.8,
+          "feasibility_weighted": 11.9,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 20.8,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-2265236665c4b5ed70ad"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+            "external_id": "new-chatgpt-pro-ideas-05-19",
+            "payload_json": {
+              "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+              "local_file": "new-chatgpt-pro-ideas-05-19.md"
+            },
+            "retrieved_at": "2026-05-19T00:00:00Z",
+            "source_id": "manual-note-2265236665c4b5ed70ad",
+            "source_kind": "manual_note",
+            "summary": "ChatGPT Pro research map for bounded speculative decoding experiments around DFlash, EAGLE-3, SSD/Saguaro, SpecVocab, controllers, retrieval caches, grammar-aware speculation, and related local experiments.",
+            "title": "ChatGPT Pro speculative decoding research map 2026-05-19",
+            "url": "file://new-chatgpt-pro-ideas-05-19.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19.md"
+        ],
+        "status": "admitted",
+        "success_threshold": "Subset of 2048 tokens or fewer covers at least 95% of accepted target tokens, draft projection time drops at least 30%, and end-to-end TPOT improves at least 5-8% with acceptance drop under 3%.",
+        "title": "Dynamic Speculative Vocabulary for DFlash and EAGLE Heads",
+        "total_score": 72.5
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 20.0,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 19.8,
+        "feasibility_weighted": 11.9,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 20.8,
+        "review_threshold": 58.0,
+        "total_score": 72.5
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "admitted",
+      "admission_reason": "score 74.2 >= admit threshold 72.0 with required research contract present",
+      "admitted_idea_id": "unified-entropy-and-acceptance-controller-for-speculative-decoding-ae0e751c63ff",
+      "candidate": {
+        "accessibility_delta": "Improves local inference efficiency without draft-model training and can route around high-entropy spans.",
+        "accessibility_score": 8.0,
+        "baseline_to_beat": "Fixed DFlash, best static block size, entropy heuristic, DISCO-style lookahead, EAGLE-3 static if available.",
+        "candidate_id": "unified-entropy-and-acceptance-controller-for-speculative-decoding-ae0e751c63ff",
+        "category": "spec-decoding",
+        "dedupe_key": "research:spec-decoding-unified-entropy-acceptance-controller-speculative-decoding-use-target-draft-entropy-top-k:4216255901c6",
+        "description": "DISCO-style dynamic lookahead generalized into a local controller for DFlash, suffix-cache, grammar, vocab, and no-spec decisions.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 9.0,
+        "feasibility_score": 8.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "A tiny controller that chooses lookahead, block length, vocab size, proposer type, or no-spec per round can capture oracle gains missed by static DFlash/EAGLE policies.",
+        "implementation": "Log DFlash rounds, compute oracle action values for block lengths/vocab/proposers, train decision tree/logistic/bandit/MLP controller, then deploy conservative block-length/no-spec choices first.",
+        "kill_condition": "Stop if oracle gain is below 5%, acceptance features are weak, or controller improves average while worsening P95/P99 latency.",
+        "likely_failure_modes": [
+          "Overfits to Enoch prompt mix",
+          "Wall-clock noise dominates gains",
+          "Controller overhead or tail latency worsens"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Use target/draft entropy, top-k margins, prior accept rate, token class, prompt domain, context length, and latency features to choose speculation actions.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Broader than dynamic lookahead because it controls multiple speculative levers and proposer routing.",
+        "novelty_score": 8.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_spec_decoding_research_map_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "candidate_seed": {
+            "baseline_to_beat": "Fixed DFlash, best static block size, entropy heuristic, DISCO-style lookahead, EAGLE-3 static if available.",
+            "hypothesis": "A tiny controller that chooses lookahead, block length, vocab size, proposer type, or no-spec per round can capture oracle gains missed by static DFlash/EAGLE policies.",
+            "kill_condition": "Stop if oracle gain is below 5%, acceptance features are weak, or controller improves average while worsening P95/P99 latency.",
+            "mechanism": "Use target/draft entropy, top-k margins, prior accept rate, token class, prompt domain, context length, and latency features to choose speculation actions.",
+            "success_threshold": "Oracle best-action curve shows at least 10% possible gain, controller captures at least half of oracle gain, deployed TPOT improves at least 7%, and no task family regresses over 3%.",
+            "title": "Unified Entropy and Acceptance Controller for Speculative Decoding"
+          },
+          "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+          "rank": 3,
+          "source_file": "new-chatgpt-pro-ideas-05-19.md"
+        },
+        "required_evidence": [
+          "baseline comparison",
+          "metrics table",
+          "failure cases",
+          "decision artifact"
+        ],
+        "risk_notes": "Must report per-domain regressions, not just average TPOT.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 20.0,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 19.8,
+          "feasibility_weighted": 13.6,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 20.8,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-2265236665c4b5ed70ad"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+            "external_id": "new-chatgpt-pro-ideas-05-19",
+            "payload_json": {
+              "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+              "local_file": "new-chatgpt-pro-ideas-05-19.md"
+            },
+            "retrieved_at": "2026-05-19T00:00:00Z",
+            "source_id": "manual-note-2265236665c4b5ed70ad",
+            "source_kind": "manual_note",
+            "summary": "ChatGPT Pro research map for bounded speculative decoding experiments around DFlash, EAGLE-3, SSD/Saguaro, SpecVocab, controllers, retrieval caches, grammar-aware speculation, and related local experiments.",
+            "title": "ChatGPT Pro speculative decoding research map 2026-05-19",
+            "url": "file://new-chatgpt-pro-ideas-05-19.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19.md"
+        ],
+        "status": "admitted",
+        "success_threshold": "Oracle best-action curve shows at least 10% possible gain, controller captures at least half of oracle gain, deployed TPOT improves at least 7%, and no task family regresses over 3%.",
+        "title": "Unified Entropy and Acceptance Controller for Speculative Decoding",
+        "total_score": 74.2
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 20.0,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 19.8,
+        "feasibility_weighted": 13.6,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 20.8,
+        "review_threshold": 58.0,
+        "total_score": 74.2
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "admitted",
+      "admission_reason": "score 76.7 >= admit threshold 72.0 with required research contract present",
+      "admitted_idea_id": "retrieval-suffix-cache-speculation-for-agentic-enoch-workloads-b59ec790bc95",
+      "candidate": {
+        "accessibility_delta": "Could speed local autonomous-agent runs without any neural draft training.",
+        "accessibility_score": 9.0,
+        "baseline_to_beat": "DFlash, prompt lookup decoding, simple n-gram proposer, SuffixDecoding-style proposer, and autoregressive target decoding.",
+        "candidate_id": "retrieval-suffix-cache-speculation-for-agentic-enoch-workloads-b59ec790bc95",
+        "category": "spec-decoding",
+        "dedupe_key": "research:spec-decoding-retrieval-suffix-cache-speculation-agentic-enoch-workloads-build-prompt-local-session-local:49cfc398a54d",
+        "description": "SuffixDecoding/CREST-style model-free proposer targeted at Enoch agent loops and structured outputs.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 9.0,
+        "feasibility_score": 8.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "Suffix/prompt/session/global caches can produce long accepted spans in repetitive agentic/code/tool workloads and complement DFlash.",
+        "implementation": "Prototype suffix-cache proposer, measure hit rate and accepted length on Enoch-like public traces, then test hybrid retrieval-first/DFlash fallback.",
+        "kill_condition": "Stop if hit rate is below 10%, accepted length below 1.2, CPU lookup dominates draft savings, or gains cannot be reproduced outside private traces.",
+        "likely_failure_modes": [
+          "Private trace overfit",
+          "Cache poisoning or stale patterns",
+          "CPU lookup overhead dominates"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Build prompt-local, session-local, and compact global suffix or n-gram caches from prompts, prior outputs, tool traces, code, and boilerplate; propose continuations for target verification.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Applies suffix speculative decoding to autonomous research/tool/code loops with public reproduction requirements.",
+        "novelty_score": 8.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_spec_decoding_research_map_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "candidate_seed": {
+            "baseline_to_beat": "DFlash, prompt lookup decoding, simple n-gram proposer, SuffixDecoding-style proposer, and autoregressive target decoding.",
+            "hypothesis": "Suffix/prompt/session/global caches can produce long accepted spans in repetitive agentic/code/tool workloads and complement DFlash.",
+            "kill_condition": "Stop if hit rate is below 10%, accepted length below 1.2, CPU lookup dominates draft savings, or gains cannot be reproduced outside private traces.",
+            "mechanism": "Build prompt-local, session-local, and compact global suffix or n-gram caches from prompts, prior outputs, tool traces, code, and boilerplate; propose continuations for target verification.",
+            "success_threshold": "Cache hit rate at least 20% on agentic workloads, accepted span length at least 3 on hits, TPOT improves at least 15% on agentic/code/tool workloads or at least 5% average as hybrid.",
+            "title": "Retrieval Suffix-Cache Speculation for Agentic Enoch Workloads"
+          },
+          "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+          "rank": 4,
+          "source_file": "new-chatgpt-pro-ideas-05-19.md"
+        },
+        "required_evidence": [
+          "baseline comparison",
+          "metrics table",
+          "failure cases",
+          "decision artifact"
+        ],
+        "risk_notes": "Publication needs public reproducible traces, not only private Enoch logs.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 22.5,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 19.8,
+          "feasibility_weighted": 13.6,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 20.8,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-2265236665c4b5ed70ad"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+            "external_id": "new-chatgpt-pro-ideas-05-19",
+            "payload_json": {
+              "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+              "local_file": "new-chatgpt-pro-ideas-05-19.md"
+            },
+            "retrieved_at": "2026-05-19T00:00:00Z",
+            "source_id": "manual-note-2265236665c4b5ed70ad",
+            "source_kind": "manual_note",
+            "summary": "ChatGPT Pro research map for bounded speculative decoding experiments around DFlash, EAGLE-3, SSD/Saguaro, SpecVocab, controllers, retrieval caches, grammar-aware speculation, and related local experiments.",
+            "title": "ChatGPT Pro speculative decoding research map 2026-05-19",
+            "url": "file://new-chatgpt-pro-ideas-05-19.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19.md"
+        ],
+        "status": "admitted",
+        "success_threshold": "Cache hit rate at least 20% on agentic workloads, accepted span length at least 3 on hits, TPOT improves at least 15% on agentic/code/tool workloads or at least 5% average as hybrid.",
+        "title": "Retrieval Suffix-Cache Speculation for Agentic Enoch Workloads",
+        "total_score": 76.7
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 22.5,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 19.8,
+        "feasibility_weighted": 13.6,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 20.8,
+        "review_threshold": 58.0,
+        "total_score": 76.7
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "admitted",
+      "admission_reason": "score 74.2 >= admit threshold 72.0 with required research contract present",
+      "admitted_idea_id": "grammar-and-schema-aware-speculative-decoding-cb7d3228e5bd",
+      "candidate": {
+        "accessibility_delta": "Improves commercially relevant structured output generation on local hardware with no training.",
+        "accessibility_score": 8.0,
+        "baseline_to_beat": "Constrained autoregressive decoding, unconstrained DFlash plus grammar filter, existing grammar engine baseline, and autoregressive reference.",
+        "candidate_id": "grammar-and-schema-aware-speculative-decoding-cb7d3228e5bd",
+        "category": "spec-decoding",
+        "dedupe_key": "research:spec-decoding-grammar-schema-aware-speculative-decoding-use-json-cfg-schema-valid-token-frontiers:72d270a45d70",
+        "description": "Structured-output speculative decoding track comparing constrained AR, DFlash with post-hoc masks, grammar-aware DFlash, and grammar-shaped trees.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 9.0,
+        "feasibility_score": 8.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "For JSON/tool-call/code outputs, grammar-frontier constraints can reduce entropy and improve speculative acceptance while keeping final outputs valid.",
+        "implementation": "Run JSONSchemaBench/tool-call/code subsets, integrate a grammar frontier, measure valid-token set sizes and grammar overhead, and compare constrained AR vs grammar-aware speculation.",
+        "kill_condition": "Stop if grammar engine dominates runtime, tokenizer/grammar alignment fails, valid frontiers are too large, or gains appear only on toy schemas.",
+        "likely_failure_modes": [
+          "Grammar overhead too high",
+          "Subword alignment bugs",
+          "Complex schemas produce large frontiers"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Use JSON/CFG/schema valid-token frontiers to mask draft proposals, restrict draft vocab, shape trees, or route structural tokens to micro-drafters before target verification.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Combines constrained decoding and speculative drafting with local DFlash/EAGLE baselines.",
+        "novelty_score": 8.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_spec_decoding_research_map_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "candidate_seed": {
+            "baseline_to_beat": "Constrained autoregressive decoding, unconstrained DFlash plus grammar filter, existing grammar engine baseline, and autoregressive reference.",
+            "hypothesis": "For JSON/tool-call/code outputs, grammar-frontier constraints can reduce entropy and improve speculative acceptance while keeping final outputs valid.",
+            "kill_condition": "Stop if grammar engine dominates runtime, tokenizer/grammar alignment fails, valid frontiers are too large, or gains appear only on toy schemas.",
+            "mechanism": "Use JSON/CFG/schema valid-token frontiers to mask draft proposals, restrict draft vocab, shape trees, or route structural tokens to micro-drafters before target verification.",
+            "success_threshold": "Zero invalid final outputs and at least 20% TPOT improvement over constrained AR or 10% over DFlash plus simple grammar mask with grammar overhead under 10% of decode time.",
+            "title": "Grammar and Schema-Aware Speculative Decoding"
+          },
+          "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+          "rank": 5,
+          "source_file": "new-chatgpt-pro-ideas-05-19.md"
+        },
+        "required_evidence": [
+          "baseline comparison",
+          "metrics table",
+          "failure cases",
+          "decision artifact"
+        ],
+        "risk_notes": "The primary baseline must be constrained AR, not unconstrained decoding.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 20.0,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 19.8,
+          "feasibility_weighted": 13.6,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 20.8,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-2265236665c4b5ed70ad"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+            "external_id": "new-chatgpt-pro-ideas-05-19",
+            "payload_json": {
+              "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+              "local_file": "new-chatgpt-pro-ideas-05-19.md"
+            },
+            "retrieved_at": "2026-05-19T00:00:00Z",
+            "source_id": "manual-note-2265236665c4b5ed70ad",
+            "source_kind": "manual_note",
+            "summary": "ChatGPT Pro research map for bounded speculative decoding experiments around DFlash, EAGLE-3, SSD/Saguaro, SpecVocab, controllers, retrieval caches, grammar-aware speculation, and related local experiments.",
+            "title": "ChatGPT Pro speculative decoding research map 2026-05-19",
+            "url": "file://new-chatgpt-pro-ideas-05-19.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19.md"
+        ],
+        "status": "admitted",
+        "success_threshold": "Zero invalid final outputs and at least 20% TPOT improvement over constrained AR or 10% over DFlash plus simple grammar mask with grammar overhead under 10% of decode time.",
+        "title": "Grammar and Schema-Aware Speculative Decoding",
+        "total_score": 74.2
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 20.0,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 19.8,
+        "feasibility_weighted": 13.6,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 20.8,
+        "review_threshold": 58.0,
+        "total_score": 74.2
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "needs_review",
+      "admission_reason": "score 65.2 below admit threshold 72.0 but above review threshold 58.0",
+      "admitted_idea_id": "",
+      "candidate": {
+        "accessibility_delta": "Could extract more tokens per target verification on one GPU without larger draft training.",
+        "accessibility_score": 7.0,
+        "baseline_to_beat": "Linear DFlash draft, fixed tree speculation, greedy OPT-Tree-style allocation, and autoregressive target decoding.",
+        "candidate_id": "budgeted-adaptive-prefix-tree-speculation-for-dflash-d265c5caded7",
+        "category": "spec-decoding",
+        "dedupe_key": "research:spec-decoding-budgeted-adaptive-prefix-tree-speculation-dflash-allocate-speculative-tree-width-depth-by:afc6f3d1386f",
+        "description": "OPT-Tree-style adaptive tree structure using DFlash or small AR draft branches.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 8.0,
+        "feasibility_score": 7.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "Adaptive tree node allocation can improve accepted tokens per verifier pass over linear DFlash drafts at the same verifier-time budget.",
+        "implementation": "Simulate and prototype tree budgets from 16 to 256 nodes, compare linear vs fixed-tree vs adaptive-tree verification, and measure tree-mask overhead.",
+        "kill_condition": "Stop if tree attention or mask overhead exceeds acceptance gain.",
+        "likely_failure_modes": [
+          "Tree kernels dominate cost",
+          "Implementation complexity outpaces benefit",
+          "Acceptance concentrated on linear path"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Allocate speculative tree width/depth by expected acceptance under node budgets instead of fixed linear lookahead.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Tests adaptive prefix trees specifically against DFlash linear block drafting in local constraints.",
+        "novelty_score": 7.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_spec_decoding_research_map_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "candidate_seed": {
+            "baseline_to_beat": "Linear DFlash draft, fixed tree speculation, greedy OPT-Tree-style allocation, and autoregressive target decoding.",
+            "hypothesis": "Adaptive tree node allocation can improve accepted tokens per verifier pass over linear DFlash drafts at the same verifier-time budget.",
+            "kill_condition": "Stop if tree attention or mask overhead exceeds acceptance gain.",
+            "mechanism": "Allocate speculative tree width/depth by expected acceptance under node budgets instead of fixed linear lookahead.",
+            "success_threshold": "Accepted length per verifier pass improves at least 10% at same verifier time or TPOT improves at least 5%.",
+            "title": "Budgeted Adaptive Prefix Tree Speculation for DFlash"
+          },
+          "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+          "rank": 6,
+          "source_file": "new-chatgpt-pro-ideas-05-19.md"
+        },
+        "required_evidence": [
+          "baseline comparison",
+          "metrics table",
+          "failure cases",
+          "decision artifact"
+        ],
+        "risk_notes": "Needs strict correctness checks for lossless target verification.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 17.5,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 17.6,
+          "feasibility_weighted": 11.9,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 18.2,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-2265236665c4b5ed70ad"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+            "external_id": "new-chatgpt-pro-ideas-05-19",
+            "payload_json": {
+              "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+              "local_file": "new-chatgpt-pro-ideas-05-19.md"
+            },
+            "retrieved_at": "2026-05-19T00:00:00Z",
+            "source_id": "manual-note-2265236665c4b5ed70ad",
+            "source_kind": "manual_note",
+            "summary": "ChatGPT Pro research map for bounded speculative decoding experiments around DFlash, EAGLE-3, SSD/Saguaro, SpecVocab, controllers, retrieval caches, grammar-aware speculation, and related local experiments.",
+            "title": "ChatGPT Pro speculative decoding research map 2026-05-19",
+            "url": "file://new-chatgpt-pro-ideas-05-19.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19.md"
+        ],
+        "status": "needs_review",
+        "success_threshold": "Accepted length per verifier pass improves at least 10% at same verifier time or TPOT improves at least 5%.",
+        "title": "Budgeted Adaptive Prefix Tree Speculation for DFlash",
+        "total_score": 65.2
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 17.5,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 17.6,
+        "feasibility_weighted": 11.9,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 18.2,
+        "review_threshold": 58.0,
+        "total_score": 65.2
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "needs_review",
+      "admission_reason": "score 63.5 below admit threshold 72.0 but above review threshold 58.0",
+      "admitted_idea_id": "",
+      "candidate": {
+        "accessibility_delta": "Could make tree speculation more efficient within local memory budgets.",
+        "accessibility_score": 7.0,
+        "baseline_to_beat": "Standard top-down tree verification, DFlash sequence verification, and autoregressive target decoding.",
+        "candidate_id": "traversal-rejection-rescue-verification-for-speculative-trees-2e3c6b792179",
+        "category": "spec-decoding",
+        "dedupe_key": "research:spec-decoding-traversal-rejection-rescue-verification-speculative-trees-when-a-tree-parent-rejects-traverse:3b87ecee3dd4",
+        "description": "Local correctness-first study of traversal verification for speculative tree decoding.",
+        "estimated_runtime_class": "small",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 8.0,
+        "feasibility_score": 6.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "Tree verification can salvage valid subpaths or suffixes from rejected branches to improve node utilization without changing target distribution.",
+        "implementation": "Start with full target-logit trace simulation, prove exactness conditions, then implement a small tree verifier if node utilization gains pass threshold.",
+        "kill_condition": "Stop if exactness proof fails, verification math is too costly, or node utilization gain is below 5%.",
+        "likely_failure_modes": [
+          "Correctness proof is hard",
+          "Traversal overhead dominates",
+          "Distribution-preserving verification constraints limit reuse"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "When a tree parent rejects, traverse sibling/child candidates to reuse verified or still-valid branch work instead of discarding entire subtrees.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Targets wasted tree work after rejection rather than draft quality.",
+        "novelty_score": 7.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_spec_decoding_research_map_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "candidate_seed": {
+            "baseline_to_beat": "Standard top-down tree verification, DFlash sequence verification, and autoregressive target decoding.",
+            "hypothesis": "Tree verification can salvage valid subpaths or suffixes from rejected branches to improve node utilization without changing target distribution.",
+            "kill_condition": "Stop if exactness proof fails, verification math is too costly, or node utilization gain is below 5%.",
+            "mechanism": "When a tree parent rejects, traverse sibling/child candidates to reuse verified or still-valid branch work instead of discarding entire subtrees.",
+            "success_threshold": "Draft node utilization improves at least 10-15% with no distribution drift and verifier overhead below utilization gain.",
+            "title": "Traversal Rejection-Rescue Verification for Speculative Trees"
+          },
+          "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+          "rank": 7,
+          "source_file": "new-chatgpt-pro-ideas-05-19.md"
+        },
+        "required_evidence": [
+          "baseline comparison",
+          "metrics table",
+          "failure cases",
+          "decision artifact"
+        ],
+        "risk_notes": "Do not proceed without deterministic distribution/correctness tests.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 17.5,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 17.6,
+          "feasibility_weighted": 10.2,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 18.2,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-2265236665c4b5ed70ad"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+            "external_id": "new-chatgpt-pro-ideas-05-19",
+            "payload_json": {
+              "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+              "local_file": "new-chatgpt-pro-ideas-05-19.md"
+            },
+            "retrieved_at": "2026-05-19T00:00:00Z",
+            "source_id": "manual-note-2265236665c4b5ed70ad",
+            "source_kind": "manual_note",
+            "summary": "ChatGPT Pro research map for bounded speculative decoding experiments around DFlash, EAGLE-3, SSD/Saguaro, SpecVocab, controllers, retrieval caches, grammar-aware speculation, and related local experiments.",
+            "title": "ChatGPT Pro speculative decoding research map 2026-05-19",
+            "url": "file://new-chatgpt-pro-ideas-05-19.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19.md"
+        ],
+        "status": "needs_review",
+        "success_threshold": "Draft node utilization improves at least 10-15% with no distribution drift and verifier overhead below utilization gain.",
+        "title": "Traversal Rejection-Rescue Verification for Speculative Trees",
+        "total_score": 63.5
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 17.5,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 17.6,
+        "feasibility_weighted": 10.2,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 18.2,
+        "review_threshold": 58.0,
+        "total_score": 63.5
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "needs_review",
+      "admission_reason": "score 67.7 below admit threshold 72.0 but above review threshold 58.0",
+      "admitted_idea_id": "",
+      "candidate": {
+        "accessibility_delta": "Helps local multi-request inference avoid speculation that hurts throughput-bound regimes.",
+        "accessibility_score": 8.0,
+        "baseline_to_beat": "Static per-request DFlash, autoregressive batching, and no-spec batching.",
+        "candidate_id": "batch-aware-speculation-budget-allocator-368a197e15df",
+        "category": "spec-decoding",
+        "dedupe_key": "research:spec-decoding-batch-aware-speculation-budget-allocator-scheduler-throttles-or-expands-speculation-per-request:d6bfedcd4f3b",
+        "description": "Server-side local benchmark for batch sizes 2-16 with mixed prompt classes.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 8.0,
+        "feasibility_score": 7.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "Small-batch serving can improve throughput and tail latency by allocating speculation budget only to requests predicted to accept drafts.",
+        "implementation": "Build synthetic/local serving benchmark, run static per-request DFlash vs adaptive request-level budget allocation, and report P50/P95/P99 TPOT and throughput.",
+        "kill_condition": "Stop if gains vanish above batch one or scheduler overhead exceeds benefit.",
+        "likely_failure_modes": [
+          "Synthetic traffic unrepresentative",
+          "Scheduler overhead too high",
+          "Speculation hurts memory-bound batches"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Scheduler throttles or expands speculation per request using entropy, prior acceptance, and batch pressure to avoid wasting verifier capacity.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Focuses on queue/scheduler-level speculation allocation rather than per-token draft design.",
+        "novelty_score": 7.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_spec_decoding_research_map_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "candidate_seed": {
+            "baseline_to_beat": "Static per-request DFlash, autoregressive batching, and no-spec batching.",
+            "hypothesis": "Small-batch serving can improve throughput and tail latency by allocating speculation budget only to requests predicted to accept drafts.",
+            "kill_condition": "Stop if gains vanish above batch one or scheduler overhead exceeds benefit.",
+            "mechanism": "Scheduler throttles or expands speculation per request using entropy, prior acceptance, and batch pressure to avoid wasting verifier capacity.",
+            "success_threshold": "At least 10% throughput improvement or P99 TPOT improvement at same quality, with no average latency regression.",
+            "title": "Batch-Aware Speculation Budget Allocator"
+          },
+          "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+          "rank": 8,
+          "source_file": "new-chatgpt-pro-ideas-05-19.md"
+        },
+        "required_evidence": [
+          "baseline comparison",
+          "metrics table",
+          "failure cases",
+          "decision artifact"
+        ],
+        "risk_notes": "Needs a clear local server harness to avoid misleading microbenchmarks.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 20.0,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 17.6,
+          "feasibility_weighted": 11.9,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 18.2,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-2265236665c4b5ed70ad"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+            "external_id": "new-chatgpt-pro-ideas-05-19",
+            "payload_json": {
+              "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+              "local_file": "new-chatgpt-pro-ideas-05-19.md"
+            },
+            "retrieved_at": "2026-05-19T00:00:00Z",
+            "source_id": "manual-note-2265236665c4b5ed70ad",
+            "source_kind": "manual_note",
+            "summary": "ChatGPT Pro research map for bounded speculative decoding experiments around DFlash, EAGLE-3, SSD/Saguaro, SpecVocab, controllers, retrieval caches, grammar-aware speculation, and related local experiments.",
+            "title": "ChatGPT Pro speculative decoding research map 2026-05-19",
+            "url": "file://new-chatgpt-pro-ideas-05-19.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19.md"
+        ],
+        "status": "needs_review",
+        "success_threshold": "At least 10% throughput improvement or P99 TPOT improvement at same quality, with no average latency regression.",
+        "title": "Batch-Aware Speculation Budget Allocator",
+        "total_score": 67.7
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 20.0,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 17.6,
+        "feasibility_weighted": 11.9,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 18.2,
+        "review_threshold": 58.0,
+        "total_score": 67.7
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "needs_review",
+      "admission_reason": "score 69.4 below admit threshold 72.0 but above review threshold 58.0",
+      "admitted_idea_id": "",
+      "candidate": {
+        "accessibility_delta": "No model training required for many useful structured-output speedups.",
+        "accessibility_score": 8.0,
+        "baseline_to_beat": "DFlash only, prompt lookup, suffix cache, grammar-aware speculation where available.",
+        "candidate_id": "token-class-micro-drafters-for-structured-tokens-cbbe5b64baa2",
+        "category": "spec-decoding",
+        "dedupe_key": "research:spec-decoding-token-class-micro-drafters-structured-tokens-classify-structural-token-spans-route-them:41b8ee4fe37c",
+        "description": "Weird-but-plausible structured-output proposer for code/JSON/tool-call workloads.",
+        "estimated_runtime_class": "small",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "small",
+        "falsifiability_score": 8.0,
+        "feasibility_score": 8.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "Tiny deterministic or MLP micro-drafters for whitespace, punctuation, brackets, indentation, Markdown fences, and tool-call keys can reduce neural draft work in structured outputs.",
+        "implementation": "Measure structural token fraction, implement simple token-class proposer, compare micro-drafter+DFlash hybrid against DFlash only on JSON/code/tool-call tasks.",
+        "kill_condition": "Stop if structural tokens are under 20% of outputs, routing hurts acceptance, or tokenization quirks erase gains.",
+        "likely_failure_modes": [
+          "Narrow domain",
+          "Tokenizer splits structural strings poorly",
+          "Routing overhead exceeds savings"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Classify structural token spans and route them to table/rule/tiny-MLP drafters while preserving target verification for correctness.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Uses token class and deterministic structures as a separate drafter rather than another neural draft head.",
+        "novelty_score": 7.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_spec_decoding_research_map_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "candidate_seed": {
+            "baseline_to_beat": "DFlash only, prompt lookup, suffix cache, grammar-aware speculation where available.",
+            "hypothesis": "Tiny deterministic or MLP micro-drafters for whitespace, punctuation, brackets, indentation, Markdown fences, and tool-call keys can reduce neural draft work in structured outputs.",
+            "kill_condition": "Stop if structural tokens are under 20% of outputs, routing hurts acceptance, or tokenization quirks erase gains.",
+            "mechanism": "Classify structural token spans and route them to table/rule/tiny-MLP drafters while preserving target verification for correctness.",
+            "success_threshold": "At least 8% TPOT improvement on structured workloads or substantial DFlash-call reduction with no validity loss.",
+            "title": "Token-Class Micro-Drafters for Structured Tokens"
+          },
+          "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+          "rank": 9,
+          "source_file": "new-chatgpt-pro-ideas-05-19.md"
+        },
+        "required_evidence": [
+          "baseline comparison",
+          "metrics table",
+          "failure cases",
+          "decision artifact"
+        ],
+        "risk_notes": "Likely a bounded structured-output result, not general chat acceleration.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 20.0,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 17.6,
+          "feasibility_weighted": 13.6,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 18.2,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-2265236665c4b5ed70ad"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+            "external_id": "new-chatgpt-pro-ideas-05-19",
+            "payload_json": {
+              "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+              "local_file": "new-chatgpt-pro-ideas-05-19.md"
+            },
+            "retrieved_at": "2026-05-19T00:00:00Z",
+            "source_id": "manual-note-2265236665c4b5ed70ad",
+            "source_kind": "manual_note",
+            "summary": "ChatGPT Pro research map for bounded speculative decoding experiments around DFlash, EAGLE-3, SSD/Saguaro, SpecVocab, controllers, retrieval caches, grammar-aware speculation, and related local experiments.",
+            "title": "ChatGPT Pro speculative decoding research map 2026-05-19",
+            "url": "file://new-chatgpt-pro-ideas-05-19.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19.md"
+        ],
+        "status": "needs_review",
+        "success_threshold": "At least 8% TPOT improvement on structured workloads or substantial DFlash-call reduction with no validity loss.",
+        "title": "Token-Class Micro-Drafters for Structured Tokens",
+        "total_score": 69.4
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 20.0,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 17.6,
+        "feasibility_weighted": 13.6,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 18.2,
+        "review_threshold": 58.0,
+        "total_score": 69.4
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "needs_review",
+      "admission_reason": "score 70.3 below admit threshold 72.0 but above review threshold 58.0",
+      "admitted_idea_id": "",
+      "candidate": {
+        "accessibility_delta": "Could reduce wasted local inference in autonomous loops with no training.",
+        "accessibility_score": 8.0,
+        "baseline_to_beat": "DFlash, suffix cache without negative memory, and autoregressive target decoding.",
+        "candidate_id": "negative-rejection-cache-for-agentic-speculation-cd2c12b2453b",
+        "category": "spec-decoding",
+        "dedupe_key": "research:spec-decoding-negative-rejection-cache-agentic-speculation-record-rejected-speculative-continuations-penalize-or-avoid:4654868bcb7f",
+        "description": "Weird-but-plausible anti-proposer memory for autonomous-agent loops.",
+        "estimated_runtime_class": "small",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "small",
+        "falsifiability_score": 8.0,
+        "feasibility_score": 7.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "Caching recently rejected continuations by context hash can avoid repeated bad draft proposals in looping agentic workloads.",
+        "implementation": "Shadow-run rejection cache on Enoch-like public traces, measure repeated rejection rate, then gate DFlash alternatives when the cache predicts a repeated failure.",
+        "kill_condition": "Stop if cache collisions suppress good drafts, repeated rejects are rare, or gains only appear on contrived traces.",
+        "likely_failure_modes": [
+          "False cache hits over-prune proposals",
+          "Little repetition in public traces",
+          "Cache lookup overhead dominates"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Record rejected speculative continuations and penalize or avoid equivalent future draft proposals for similar context hashes while target verification remains authoritative.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Adds negative memory to speculative draft selection rather than positive retrieval only.",
+        "novelty_score": 8.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_spec_decoding_research_map_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "candidate_seed": {
+            "baseline_to_beat": "DFlash, suffix cache without negative memory, and autoregressive target decoding.",
+            "hypothesis": "Caching recently rejected continuations by context hash can avoid repeated bad draft proposals in looping agentic workloads.",
+            "kill_condition": "Stop if cache collisions suppress good drafts, repeated rejects are rare, or gains only appear on contrived traces.",
+            "mechanism": "Record rejected speculative continuations and penalize or avoid equivalent future draft proposals for similar context hashes while target verification remains authoritative.",
+            "success_threshold": "Repeated rejects fall at least 25% and TPOT improves at least 5% on looping agentic tasks without reducing accepted length elsewhere.",
+            "title": "Negative Rejection Cache for Agentic Speculation"
+          },
+          "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+          "rank": 10,
+          "source_file": "new-chatgpt-pro-ideas-05-19.md"
+        },
+        "required_evidence": [
+          "baseline comparison",
+          "metrics table",
+          "failure cases",
+          "decision artifact"
+        ],
+        "risk_notes": "Must keep the target verification lossless and prove cache only affects proposals.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 20.0,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 17.6,
+          "feasibility_weighted": 11.9,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 20.8,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-2265236665c4b5ed70ad"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+            "external_id": "new-chatgpt-pro-ideas-05-19",
+            "payload_json": {
+              "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+              "local_file": "new-chatgpt-pro-ideas-05-19.md"
+            },
+            "retrieved_at": "2026-05-19T00:00:00Z",
+            "source_id": "manual-note-2265236665c4b5ed70ad",
+            "source_kind": "manual_note",
+            "summary": "ChatGPT Pro research map for bounded speculative decoding experiments around DFlash, EAGLE-3, SSD/Saguaro, SpecVocab, controllers, retrieval caches, grammar-aware speculation, and related local experiments.",
+            "title": "ChatGPT Pro speculative decoding research map 2026-05-19",
+            "url": "file://new-chatgpt-pro-ideas-05-19.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19.md"
+        ],
+        "status": "needs_review",
+        "success_threshold": "Repeated rejects fall at least 25% and TPOT improves at least 5% on looping agentic tasks without reducing accepted length elsewhere.",
+        "title": "Negative Rejection Cache for Agentic Speculation",
+        "total_score": 70.3
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 20.0,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 17.6,
+        "feasibility_weighted": 11.9,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 20.8,
+        "review_threshold": 58.0,
+        "total_score": 70.3
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "needs_review",
+      "admission_reason": "score 67.7 below admit threshold 72.0 but above review threshold 58.0",
+      "admitted_idea_id": "",
+      "candidate": {
+        "accessibility_delta": "Could lower memory footprint by removing a separate draft model for local inference.",
+        "accessibility_score": 8.0,
+        "baseline_to_beat": "Autoregressive target decoding, DFlash, EAGLE-style head, and full separate draft model.",
+        "candidate_id": "early-exit-self-drafter-with-calibrated-logit-lens-a2fb67a1a4fa",
+        "category": "spec-decoding",
+        "dedupe_key": "research:spec-decoding-early-exit-self-drafter-calibrated-logit-lens-use-partial-target-forward-or:6f024f933f65",
+        "description": "Memory-focused alternative to separate DFlash/EAGLE drafters.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 8.0,
+        "feasibility_score": 7.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "Early target layers or calibrated logit-lens projections can serve as a cheap self-drafter and reduce separate draft-model memory.",
+        "implementation": "Measure early-layer top-k agreement and acceptance for several layers, add calibration head only if trace agreement is promising, then benchmark self-draft memory and latency.",
+        "kill_condition": "Stop if partial target compute costs too much or early-layer acceptance is too low.",
+        "likely_failure_modes": [
+          "Early layers too weak",
+          "Saved compute too small",
+          "Calibration overfits to model/domain"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Use partial target forward or early-exit heads to propose tokens, then verify with full target forward.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Tests self-drafting/memory tradeoffs against stronger modern DFlash/EAGLE baselines.",
+        "novelty_score": 7.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_spec_decoding_research_map_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "candidate_seed": {
+            "baseline_to_beat": "Autoregressive target decoding, DFlash, EAGLE-style head, and full separate draft model.",
+            "hypothesis": "Early target layers or calibrated logit-lens projections can serve as a cheap self-drafter and reduce separate draft-model memory.",
+            "kill_condition": "Stop if partial target compute costs too much or early-layer acceptance is too low.",
+            "mechanism": "Use partial target forward or early-exit heads to propose tokens, then verify with full target forward.",
+            "success_threshold": "At least 5% TPOT gain or meaningfully lower memory at similar speed with acceptance high enough to reduce target passes.",
+            "title": "Early-Exit Self-Drafter with Calibrated Logit Lens"
+          },
+          "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+          "rank": 11,
+          "source_file": "new-chatgpt-pro-ideas-05-19.md"
+        },
+        "required_evidence": [
+          "baseline comparison",
+          "metrics table",
+          "failure cases",
+          "decision artifact"
+        ],
+        "risk_notes": "Do not train a large head; keep calibration bounded.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 20.0,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 17.6,
+          "feasibility_weighted": 11.9,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 18.2,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-2265236665c4b5ed70ad"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+            "external_id": "new-chatgpt-pro-ideas-05-19",
+            "payload_json": {
+              "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+              "local_file": "new-chatgpt-pro-ideas-05-19.md"
+            },
+            "retrieved_at": "2026-05-19T00:00:00Z",
+            "source_id": "manual-note-2265236665c4b5ed70ad",
+            "source_kind": "manual_note",
+            "summary": "ChatGPT Pro research map for bounded speculative decoding experiments around DFlash, EAGLE-3, SSD/Saguaro, SpecVocab, controllers, retrieval caches, grammar-aware speculation, and related local experiments.",
+            "title": "ChatGPT Pro speculative decoding research map 2026-05-19",
+            "url": "file://new-chatgpt-pro-ideas-05-19.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19.md"
+        ],
+        "status": "needs_review",
+        "success_threshold": "At least 5% TPOT gain or meaningfully lower memory at similar speed with acceptance high enough to reduce target passes.",
+        "title": "Early-Exit Self-Drafter with Calibrated Logit Lens",
+        "total_score": 67.7
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 20.0,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 17.6,
+        "feasibility_weighted": 11.9,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 18.2,
+        "review_threshold": 58.0,
+        "total_score": 67.7
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "needs_review",
+      "admission_reason": "score 66.0 below admit threshold 72.0 but above review threshold 58.0",
+      "admitted_idea_id": "",
+      "candidate": {
+        "accessibility_delta": "Could make deeper speculative trees feasible on home hardware.",
+        "accessibility_score": 8.0,
+        "baseline_to_beat": "Naive tree KV allocation, DFlash sequence KV, and autoregressive target KV.",
+        "candidate_id": "copy-on-write-kv-layout-for-speculative-tree-verification-8e12bd2ca3fd",
+        "category": "kv-compression",
+        "dedupe_key": "research:kv-compression-copy-on-write-kv-layout-speculative-tree-verification-store-shared-prefixes-once:5306d020c949",
+        "description": "Memory-layout experiment for tree speculation under local GPU/UMA constraints.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 8.0,
+        "feasibility_score": 6.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "Sharing prefix KV and branch KV with copy-on-write layouts can reduce speculative tree memory enough to enable larger local tree budgets.",
+        "implementation": "Simulate KV bytes and cache writes for branch trees, then prototype layout only if memory savings enable materially larger tree node budgets.",
+        "kill_condition": "Stop if layout overhead offsets memory savings or engine-specific changes are not portable enough.",
+        "likely_failure_modes": [
+          "Engine-specific implementation",
+          "Memory copies dominate",
+          "Tree acceptance does not justify bigger budget"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Store shared prefixes once, compact branch KV, and reuse verified prefix KV across speculative verifier branches.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Targets verifier-tree KV memory, not draft-model quality or unrelated draft-target KV reuse.",
+        "novelty_score": 7.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_spec_decoding_research_map_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "candidate_seed": {
+            "baseline_to_beat": "Naive tree KV allocation, DFlash sequence KV, and autoregressive target KV.",
+            "hypothesis": "Sharing prefix KV and branch KV with copy-on-write layouts can reduce speculative tree memory enough to enable larger local tree budgets.",
+            "kill_condition": "Stop if layout overhead offsets memory savings or engine-specific changes are not portable enough.",
+            "mechanism": "Store shared prefixes once, compact branch KV, and reuse verified prefix KV across speculative verifier branches.",
+            "success_threshold": "KV memory drops 20-40% or enables 2x node budget at same memory without verifier latency regression.",
+            "title": "Copy-on-Write KV Layout for Speculative Tree Verification"
+          },
+          "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+          "rank": 12,
+          "source_file": "new-chatgpt-pro-ideas-05-19.md"
+        },
+        "required_evidence": [
+          "baseline comparison",
+          "metrics table",
+          "failure cases",
+          "decision artifact"
+        ],
+        "risk_notes": "Avoid claiming exact draft-target KV reuse; stay within target verifier branch KV.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 20.0,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 17.6,
+          "feasibility_weighted": 10.2,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 18.2,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-2265236665c4b5ed70ad"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+            "external_id": "new-chatgpt-pro-ideas-05-19",
+            "payload_json": {
+              "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+              "local_file": "new-chatgpt-pro-ideas-05-19.md"
+            },
+            "retrieved_at": "2026-05-19T00:00:00Z",
+            "source_id": "manual-note-2265236665c4b5ed70ad",
+            "source_kind": "manual_note",
+            "summary": "ChatGPT Pro research map for bounded speculative decoding experiments around DFlash, EAGLE-3, SSD/Saguaro, SpecVocab, controllers, retrieval caches, grammar-aware speculation, and related local experiments.",
+            "title": "ChatGPT Pro speculative decoding research map 2026-05-19",
+            "url": "file://new-chatgpt-pro-ideas-05-19.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19.md"
+        ],
+        "status": "needs_review",
+        "success_threshold": "KV memory drops 20-40% or enables 2x node budget at same memory without verifier latency regression.",
+        "title": "Copy-on-Write KV Layout for Speculative Tree Verification",
+        "total_score": 66.0
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 20.0,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 17.6,
+        "feasibility_weighted": 10.2,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 18.2,
+        "review_threshold": 58.0,
+        "total_score": 66.0
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "needs_review",
+      "admission_reason": "score 67.7 below admit threshold 72.0 but above review threshold 58.0",
+      "admitted_idea_id": "",
+      "candidate": {
+        "accessibility_delta": "Improves local speculative decoding by avoiding expensive multi-draft ensembles.",
+        "accessibility_score": 8.0,
+        "baseline_to_beat": "Always-DFlash, always-suffix, grammar-only, static priority fallback, and no-spec target decoding.",
+        "candidate_id": "budgeted-multi-proposer-router-for-speculative-decoding-29881edfe4f2",
+        "category": "spec-decoding",
+        "dedupe_key": "research:spec-decoding-budgeted-multi-proposer-router-speculative-decoding-a-controller-routes-each-round-to:88ce6aa95b2c",
+        "description": "Routing beats concurrent ensembling for one local GPU.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 8.0,
+        "feasibility_score": 7.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "Choosing one cheap proposer per step can capture strengths of DFlash, suffix, grammar, micro-drafter, or no-spec without paying ensemble costs.",
+        "implementation": "Use trace features to train or hand-design proposer routing, compare always-DFlash, always-suffix, static priority, and budgeted one-proposer-per-step policy.",
+        "kill_condition": "Stop if router almost always chooses DFlash or overhead dominates.",
+        "likely_failure_modes": [
+          "Router overfit",
+          "Complexity creep",
+          "Feature collection overhead"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "A controller routes each round to one proposer based on entropy, prompt class, token class, cache hit confidence, and recent acceptance.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Combines proposer selection with a hard local budget rather than running multiple drafters concurrently.",
+        "novelty_score": 7.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_spec_decoding_research_map_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "candidate_seed": {
+            "baseline_to_beat": "Always-DFlash, always-suffix, grammar-only, static priority fallback, and no-spec target decoding.",
+            "hypothesis": "Choosing one cheap proposer per step can capture strengths of DFlash, suffix, grammar, micro-drafter, or no-spec without paying ensemble costs.",
+            "kill_condition": "Stop if router almost always chooses DFlash or overhead dominates.",
+            "mechanism": "A controller routes each round to one proposer based on entropy, prompt class, token class, cache hit confidence, and recent acceptance.",
+            "success_threshold": "At least 5% average TPOT gain plus lower P95 latency variance compared with always-DFlash.",
+            "title": "Budgeted Multi-Proposer Router for Speculative Decoding"
+          },
+          "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+          "rank": 13,
+          "source_file": "new-chatgpt-pro-ideas-05-19.md"
+        },
+        "required_evidence": [
+          "baseline comparison",
+          "metrics table",
+          "failure cases",
+          "decision artifact"
+        ],
+        "risk_notes": "Must explicitly compare against simple static priority; otherwise router value is unclear.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 20.0,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 17.6,
+          "feasibility_weighted": 11.9,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 18.2,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-2265236665c4b5ed70ad"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+            "external_id": "new-chatgpt-pro-ideas-05-19",
+            "payload_json": {
+              "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+              "local_file": "new-chatgpt-pro-ideas-05-19.md"
+            },
+            "retrieved_at": "2026-05-19T00:00:00Z",
+            "source_id": "manual-note-2265236665c4b5ed70ad",
+            "source_kind": "manual_note",
+            "summary": "ChatGPT Pro research map for bounded speculative decoding experiments around DFlash, EAGLE-3, SSD/Saguaro, SpecVocab, controllers, retrieval caches, grammar-aware speculation, and related local experiments.",
+            "title": "ChatGPT Pro speculative decoding research map 2026-05-19",
+            "url": "file://new-chatgpt-pro-ideas-05-19.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19.md"
+        ],
+        "status": "needs_review",
+        "success_threshold": "At least 5% average TPOT gain plus lower P95 latency variance compared with always-DFlash.",
+        "title": "Budgeted Multi-Proposer Router for Speculative Decoding",
+        "total_score": 67.7
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 20.0,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 17.6,
+        "feasibility_weighted": 11.9,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 18.2,
+        "review_threshold": 58.0,
+        "total_score": 67.7
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "needs_review",
+      "admission_reason": "score 61.8 below admit threshold 72.0 but above review threshold 58.0",
+      "admitted_idea_id": "",
+      "candidate": {
+        "accessibility_delta": "Offers a realistic local-training path for domain-specific speedups without massive draft training.",
+        "accessibility_score": 7.0,
+        "baseline_to_beat": "General DFlash, EAGLE-3 if available, autoregressive target, and non-trained controller/ranker variants.",
+        "candidate_id": "domain-specialized-bounded-draft-adapter-for-enoch-traces-a262c3a86dd0",
+        "category": "spec-decoding",
+        "dedupe_key": "research:spec-decoding-domain-specialized-bounded-draft-adapter-enoch-traces-train-a-small-adapter-or:01b8dc7b0183",
+        "description": "Bounded training option for domain-specific speculation, explicitly not a large general draft model.",
+        "estimated_runtime_class": "large",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "large",
+        "falsifiability_score": 8.0,
+        "feasibility_score": 5.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "A narrow LoRA/head/ranker trained on code/math/tool-call traces can improve in-domain speculative acceptance without broad draft-model training.",
+        "implementation": "Build public trace corpus, train tiny head/ranker or LoRA for limited epochs, evaluate in-domain and out-of-domain acceptance and TPOT against general DFlash/EAGLE baselines.",
+        "kill_condition": "Stop if more than 1M tokens or long training are required, or out-of-domain degradation cannot be gated.",
+        "likely_failure_modes": [
+          "Overfits private traces",
+          "Training cost exceeds local budget",
+          "Public reproducibility weak"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Train a small adapter or ranker on 50k-500k target-generated tokens from public Enoch-like tasks and gate it out-of-domain.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Restricts training to bounded adapters/rankers rather than larger general draft models.",
+        "novelty_score": 7.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_spec_decoding_research_map_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "candidate_seed": {
+            "baseline_to_beat": "General DFlash, EAGLE-3 if available, autoregressive target, and non-trained controller/ranker variants.",
+            "hypothesis": "A narrow LoRA/head/ranker trained on code/math/tool-call traces can improve in-domain speculative acceptance without broad draft-model training.",
+            "kill_condition": "Stop if more than 1M tokens or long training are required, or out-of-domain degradation cannot be gated.",
+            "mechanism": "Train a small adapter or ranker on 50k-500k target-generated tokens from public Enoch-like tasks and gate it out-of-domain.",
+            "success_threshold": "In-domain TPOT improves 10-20% with out-of-domain regression under 5% and training under 24 GPU-hours.",
+            "title": "Domain-Specialized Bounded Draft Adapter for Enoch Traces"
+          },
+          "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+          "rank": 14,
+          "source_file": "new-chatgpt-pro-ideas-05-19.md"
+        },
+        "required_evidence": [
+          "baseline comparison",
+          "metrics table",
+          "failure cases",
+          "decision artifact"
+        ],
+        "risk_notes": "Only run after inference-only levers show insufficient gains or as a later branch.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 17.5,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 17.6,
+          "feasibility_weighted": 8.5,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 18.2,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-2265236665c4b5ed70ad"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+            "external_id": "new-chatgpt-pro-ideas-05-19",
+            "payload_json": {
+              "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+              "local_file": "new-chatgpt-pro-ideas-05-19.md"
+            },
+            "retrieved_at": "2026-05-19T00:00:00Z",
+            "source_id": "manual-note-2265236665c4b5ed70ad",
+            "source_kind": "manual_note",
+            "summary": "ChatGPT Pro research map for bounded speculative decoding experiments around DFlash, EAGLE-3, SSD/Saguaro, SpecVocab, controllers, retrieval caches, grammar-aware speculation, and related local experiments.",
+            "title": "ChatGPT Pro speculative decoding research map 2026-05-19",
+            "url": "file://new-chatgpt-pro-ideas-05-19.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19.md"
+        ],
+        "status": "needs_review",
+        "success_threshold": "In-domain TPOT improves 10-20% with out-of-domain regression under 5% and training under 24 GPU-hours.",
+        "title": "Domain-Specialized Bounded Draft Adapter for Enoch Traces",
+        "total_score": 61.8
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 17.5,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 17.6,
+        "feasibility_weighted": 8.5,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 18.2,
+        "review_threshold": 58.0,
+        "total_score": 61.8
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "needs_review",
+      "admission_reason": "score 66.1 below admit threshold 72.0 but above review threshold 58.0",
+      "admitted_idea_id": "",
+      "candidate": {
+        "accessibility_delta": "Could make difficult low-acceptance spans less wasteful on local hardware.",
+        "accessibility_score": 7.0,
+        "baseline_to_beat": "DFlash, SSD-lite without bonus prediction, and no branch precompute.",
+        "candidate_id": "bonus-token-branch-predictor-for-low-acceptance-rounds-3d30d47f70a9",
+        "category": "spec-decoding",
+        "dedupe_key": "research:spec-decoding-bonus-token-branch-predictor-low-acceptance-rounds-train-a-top-k-bonus:d643e9db9f84",
+        "description": "Saguaro-inspired branch predictor focused specifically on rejection/bonus-token states.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 8.0,
+        "feasibility_score": 6.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "Predicting the target bonus token after rejection can rescue low-acceptance speculative rounds and improve branch precomputation value.",
+        "implementation": "Collect rejection-round traces, train bonus-token ranker, evaluate top-k hit and branch usefulness, then pair with SSD-lite only if low-acceptance tasks benefit.",
+        "kill_condition": "Stop if residual token distribution is too flat or branches are rarely used.",
+        "likely_failure_modes": [
+          "Sampling makes bonus token too diffuse",
+          "Only works in trivial structured cases",
+          "Branch memory overhead too high"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Train a top-k bonus-token predictor on rejection rounds and precompute continuations from likely bonus tokens.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Narrower and more testable than full SSD: only predicts rejection bonus branches.",
+        "novelty_score": 8.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_spec_decoding_research_map_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "candidate_seed": {
+            "baseline_to_beat": "DFlash, SSD-lite without bonus prediction, and no branch precompute.",
+            "hypothesis": "Predicting the target bonus token after rejection can rescue low-acceptance speculative rounds and improve branch precomputation value.",
+            "kill_condition": "Stop if residual token distribution is too flat or branches are rarely used.",
+            "mechanism": "Train a top-k bonus-token predictor on rejection rounds and precompute continuations from likely bonus tokens.",
+            "success_threshold": "Top-8 bonus hit at least 70% on rejection-heavy spans and TPOT improves at least 5% on high-entropy or low-acceptance tasks.",
+            "title": "Bonus-Token Branch Predictor for Low-Acceptance Rounds"
+          },
+          "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+          "rank": 15,
+          "source_file": "new-chatgpt-pro-ideas-05-19.md"
+        },
+        "required_evidence": [
+          "baseline comparison",
+          "metrics table",
+          "failure cases",
+          "decision artifact"
+        ],
+        "risk_notes": "Should be evaluated after SSD-lite trace collection, not as first experiment.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 17.5,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 17.6,
+          "feasibility_weighted": 10.2,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 20.8,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-2265236665c4b5ed70ad"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+            "external_id": "new-chatgpt-pro-ideas-05-19",
+            "payload_json": {
+              "content_sha256": "f6ad4029014fe070d01f2d8b031a04d7d8626e0ce1a25f1537a8f2cfb8ddd9bd",
+              "local_file": "new-chatgpt-pro-ideas-05-19.md"
+            },
+            "retrieved_at": "2026-05-19T00:00:00Z",
+            "source_id": "manual-note-2265236665c4b5ed70ad",
+            "source_kind": "manual_note",
+            "summary": "ChatGPT Pro research map for bounded speculative decoding experiments around DFlash, EAGLE-3, SSD/Saguaro, SpecVocab, controllers, retrieval caches, grammar-aware speculation, and related local experiments.",
+            "title": "ChatGPT Pro speculative decoding research map 2026-05-19",
+            "url": "file://new-chatgpt-pro-ideas-05-19.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19.md"
+        ],
+        "status": "needs_review",
+        "success_threshold": "Top-8 bonus hit at least 70% on rejection-heavy spans and TPOT improves at least 5% on high-entropy or low-acceptance tasks.",
+        "title": "Bonus-Token Branch Predictor for Low-Acceptance Rounds",
+        "total_score": 66.1
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 17.5,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 17.6,
+        "feasibility_weighted": 10.2,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 20.8,
+        "review_threshold": 58.0,
+        "total_score": 66.1
+      },
+      "warnings": []
+    }
+  ],
+  "rejected_count": 0
+}
