@@ -25,7 +25,7 @@ key = sys.argv[2]
 if not manifest_path.exists():
     raise SystemExit(f"ecosystem manifest not found: {manifest_path}")
 value = json.loads(manifest_path.read_text(encoding="utf-8")).get(key)
-if not isinstance(value, int) or value < 0:
+if type(value) is not int or value < 0:
     raise SystemExit(f"ecosystem manifest key {key!r} must be a non-negative integer")
 print(value)
 PY
