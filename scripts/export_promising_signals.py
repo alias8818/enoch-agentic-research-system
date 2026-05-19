@@ -309,6 +309,113 @@ def _markdown(signal: dict[str, Any]) -> str:
     ])
 
 
+
+def _paper_or_corpus_excluded(row: dict[str, Any]) -> bool:
+    return (
+        _truthy(row.get("write_needed"))
+        or _truthy(row.get("has_live_paper_row"))
+        or bool(_text(row.get("paper_id")))
+        or bool(_text(row.get("paper_status")))
+        or bool(_text(row.get("corpus_imported_at")))
+    )
+
+
+def _audit_row_summary(row: dict[str, Any], issues: list[str]) -> dict[str, Any]:
+    return {
+        "project_id": _text(row.get("project_id")),
+        "run_id": _text(row.get("run_id") or row.get("current_run_id")),
+        "title": _text(row.get("project_name") or row.get("title")),
+        "research_outcome": _text(row.get("research_outcome")),
+        "compute_scale_blocked": _truthy(row.get("compute_scale_blocked")),
+        "issues": sorted(set(issues)),
+    }
+
+
+def audit_backfill(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    buckets: dict[str, list[dict[str, Any]]] = {
+        "export_cleanly_now": [],
+        "missing_required_evidence_or_fields": [],
+        "excluded_paper_or_corpus": [],
+        "hard_negative_or_stale": [],
+    }
+    total = 0
+    for row in rows:
+        total += 1
+        if _paper_or_corpus_excluded(row):
+            buckets["excluded_paper_or_corpus"].append(_audit_row_summary(row, ["paper_or_corpus_row"]))
+            continue
+        status = _export_status(row)
+        if status not in EXPORT_STATUSES:
+            buckets["hard_negative_or_stale"].append(_audit_row_summary(row, ["research_outcome:not_export_status"]))
+            continue
+        signal = signal_from_row(row)
+        issues = validate_signal(signal)
+        if issues:
+            buckets["missing_required_evidence_or_fields"].append(_audit_row_summary(row, issues))
+            continue
+        buckets["export_cleanly_now"].append(_audit_row_summary(row, []))
+    for key in buckets:
+        buckets[key].sort(key=lambda item: (item.get("project_id") or "", item.get("run_id") or ""))
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "summary": {
+            "total_candidate_rows": total,
+            "export_cleanly_now": len(buckets["export_cleanly_now"]),
+            "missing_required_evidence_or_fields": len(buckets["missing_required_evidence_or_fields"]),
+            "excluded_paper_or_corpus": len(buckets["excluded_paper_or_corpus"]),
+            "hard_negative_or_stale": len(buckets["hard_negative_or_stale"]),
+        },
+        "buckets": buckets,
+    }
+
+
+def audit_backfill_markdown(report: dict[str, Any]) -> str:
+    summary = report.get("summary") or {}
+    buckets = report.get("buckets") or {}
+    labels = [
+        ("Export cleanly now", "export_cleanly_now"),
+        ("Missing required evidence/fields", "missing_required_evidence_or_fields"),
+        ("Excluded because paper/corpus", "excluded_paper_or_corpus"),
+        ("Hard negative or stale", "hard_negative_or_stale"),
+    ]
+    lines = [
+        "# Promising signals backfill audit",
+        "",
+        f"Generated: `{report.get('generated_at') or ''}`",
+        "",
+        "This is a dry-run classification report. It does not export rows or change the companion repo.",
+        "",
+        "## Summary",
+        "",
+        "| Bucket | Count |",
+        "|---|---:|",
+        f"| Total candidate rows | {summary.get('total_candidate_rows', 0)} |",
+    ]
+    for label, key in labels:
+        lines.append(f"| {label} | {summary.get(key, 0)} |")
+    lines.extend([
+        "",
+        "## Backfill plan",
+        "",
+        "1. Export rows in `export_cleanly_now` first; they already satisfy the deterministic public record contract.",
+        "2. Backfill rows in `missing_required_evidence_or_fields` only after source/evidence fields are recovered from control-plane or worker artifacts.",
+        "3. Leave `excluded_paper_or_corpus` out of the promising-signals repo; those belong to the paper/corpus lane.",
+        "4. Leave `hard_negative_or_stale` out unless a new deterministic decision record changes their status.",
+        "",
+    ])
+    for label, key in labels:
+        rows = buckets.get(key) or []
+        lines.extend([f"## {label}", "", "| Project | Outcome | Issues |", "|---|---|---|"])
+        if not rows:
+            lines.append("| _none_ |  |  |")
+        for row in rows:
+            project = row.get("project_id") or row.get("title") or "unknown"
+            outcome = row.get("research_outcome") or ("compute_scale_blocked" if row.get("compute_scale_blocked") else "")
+            issues = ", ".join(row.get("issues") or [])
+            lines.append(f"| `{project}` | `{outcome}` | {issues} |")
+        lines.append("")
+    return "\n".join(lines)
+
 def write_schema(repo_root: Path) -> None:
     schema_dir = repo_root / "schemas"
     schema_dir.mkdir(parents=True, exist_ok=True)
@@ -425,6 +532,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--input-json", type=Path, help="JSON array of rows for deterministic/offline export")
     parser.add_argument("--project-id", action="append", default=[])
     parser.add_argument("--query", default="")
+    parser.add_argument("--audit-report", type=Path, help="Write a dry-run backfill audit JSON report instead of exporting rows")
+    parser.add_argument("--audit-markdown", type=Path, help="Optional Markdown path for --audit-report")
     args = parser.parse_args(argv)
     if args.input_json:
         rows = json.loads(args.input_json.read_text(encoding="utf-8"))
@@ -432,6 +541,15 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("--input-json must contain a JSON list")
     else:
         rows = _fetch_postgres_rows(args.project_id, args.query)
+    if args.audit_report:
+        report = audit_backfill(rows)
+        args.audit_report.parent.mkdir(parents=True, exist_ok=True)
+        args.audit_report.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        if args.audit_markdown:
+            args.audit_markdown.parent.mkdir(parents=True, exist_ok=True)
+            args.audit_markdown.write_text(audit_backfill_markdown(report) + "\n", encoding="utf-8")
+        print(json.dumps({"audit_report": str(args.audit_report), **report["summary"]}, indent=2, sort_keys=True))
+        return 0
     result = write_export(rows, args.output_repo)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

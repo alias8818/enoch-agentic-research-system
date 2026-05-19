@@ -128,3 +128,88 @@ def test_writes_deterministic_jsonl_markdown_and_index(tmp_path) -> None:
     assert (tmp_path / "signals" / "b-signal.md").exists()
     assert "A Signal" in (tmp_path / "signals" / "index.md").read_text(encoding="utf-8")
     assert (tmp_path / "schemas" / "promising-signal.schema.json").exists()
+
+
+
+def test_audit_backfill_report_classifies_exportable_and_missing_fields() -> None:
+    rows = [
+        _row(project_id="clean-signal"),
+        _row(project_id="missing-summary", useful_signal_summary=""),
+        _row(project_id="missing-source", source_ids=[], source_urls=[], source_titles=[]),
+    ]
+
+    report = exporter.audit_backfill(rows)
+
+    assert report["summary"] == {
+        "total_candidate_rows": 3,
+        "export_cleanly_now": 1,
+        "missing_required_evidence_or_fields": 2,
+        "excluded_paper_or_corpus": 0,
+        "hard_negative_or_stale": 0,
+    }
+    assert [row["project_id"] for row in report["buckets"]["export_cleanly_now"]] == ["clean-signal"]
+    missing = {row["project_id"]: row for row in report["buckets"]["missing_required_evidence_or_fields"]}
+    assert "useful_signal_summary:required" in missing["missing-summary"]["issues"]
+    assert "sources:required" in missing["missing-source"]["issues"]
+
+
+def test_audit_backfill_report_classifies_paper_corpus_and_stale_rows() -> None:
+    rows = [
+        _row(project_id="paper-row", write_needed=True),
+        _row(project_id="corpus-row", paper_id="paper-1", corpus_imported_at="2026-05-19T00:00:00Z"),
+        _row(project_id="hard-negative", research_outcome="negative"),
+        _row(project_id="stale", research_outcome=""),
+    ]
+
+    report = exporter.audit_backfill(rows)
+
+    assert report["summary"] == {
+        "total_candidate_rows": 4,
+        "export_cleanly_now": 0,
+        "missing_required_evidence_or_fields": 0,
+        "excluded_paper_or_corpus": 2,
+        "hard_negative_or_stale": 2,
+    }
+    paper = {row["project_id"]: row for row in report["buckets"]["excluded_paper_or_corpus"]}
+    assert "paper_or_corpus_row" in paper["paper-row"]["issues"]
+    assert "paper_or_corpus_row" in paper["corpus-row"]["issues"]
+    stale = {row["project_id"]: row for row in report["buckets"]["hard_negative_or_stale"]}
+    assert "research_outcome:not_export_status" in stale["hard-negative"]["issues"]
+    assert "research_outcome:not_export_status" in stale["stale"]["issues"]
+
+
+def test_audit_backfill_markdown_includes_backfill_plan() -> None:
+    report = exporter.audit_backfill([_row(project_id="clean-signal")])
+
+    markdown = exporter.audit_backfill_markdown(report)
+
+    assert "# Promising signals backfill audit" in markdown
+    assert "| Export cleanly now | 1 |" in markdown
+    assert "## Backfill plan" in markdown
+    assert "clean-signal" in markdown
+
+
+
+def test_cli_writes_audit_json_and_markdown(tmp_path) -> None:
+    input_json = tmp_path / "rows.json"
+    input_json.write_text(json.dumps([_row(project_id="clean-signal")]), encoding="utf-8")
+    output_repo = tmp_path / "unused-output-repo"
+    audit_json = tmp_path / "audit" / "report.json"
+    audit_md = tmp_path / "audit" / "report.md"
+
+    rc = exporter.main([
+        "--output-repo",
+        str(output_repo),
+        "--input-json",
+        str(input_json),
+        "--audit-report",
+        str(audit_json),
+        "--audit-markdown",
+        str(audit_md),
+    ])
+
+    assert rc == 0
+    report = json.loads(audit_json.read_text(encoding="utf-8"))
+    assert report["summary"]["export_cleanly_now"] == 1
+    assert not (output_repo / "data" / "signals.jsonl").exists()
+    assert "# Promising signals backfill audit" in audit_md.read_text(encoding="utf-8")

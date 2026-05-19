@@ -1,0 +1,1454 @@
+{
+  "buckets": {
+    "excluded_paper_or_corpus": [],
+    "export_cleanly_now": [
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "1-bit-weights-with-fp16-residual-channels-80394161b338",
+        "research_outcome": "useful_signal",
+        "run_id": "1-bit-weights-with-fp16-residual-channels-80394161b338-20260516T151804202570+0000",
+        "title": "1-Bit Weights with FP16 Residual Channels"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "additive-residual-codebook-for-1-58-bit-kv-cache-b4795df000ba",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "additive-residual-codebook-for-1-58-bit-kv-cache-b4795df000ba-20260515T040004853927+0000",
+        "title": "Additive Residual Codebook for 1.58-Bit KV Cache"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "anchor-gated-kv-compression-for-long-context-6e3650a20b17",
+        "research_outcome": "useful_signal",
+        "run_id": "anchor-gated-kv-compression-for-long-context-6e3650a20b17-20260518T152914434710+0000",
+        "title": "Anchor-Gated KV Compression for Long Context"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "anchor-gated-sparse-kv-cache-with-interpolated-eviction-a54888767f28",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "anchor-gated-sparse-kv-cache-with-interpolated-eviction-a54888767f28-20260513T221643215169+0000",
+        "title": "Anchor-Gated Sparse KV Cache with Interpolated Eviction"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "anchor-indexed-kv-compression-with-exact-recall-positions-ab2f6cd34ec6",
+        "research_outcome": "useful_signal",
+        "run_id": "anchor-indexed-kv-compression-with-exact-recall-positions-ab2f6cd34ec6-20260518T060423398003+0000",
+        "title": "Anchor-Indexed KV Compression with Exact Recall Positions"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "anchor-preserved-kv-compression-with-deterministic-markers-e7b017b702fb",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "anchor-preserved-kv-compression-with-deterministic-markers-e7b017b702fb-20260515T153314745247+0000",
+        "title": "Anchor-Preserved KV Compression with Deterministic Markers"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "attention-aware-residual-codebooks-for-1-58-bit-kv-cache-3f1bc04709",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "attention-aware-residual-codebooks-for-1-58-bit-kv-cache-3f1bc04709-20260515T040447897599+0000",
+        "title": "Attention-aware residual codebooks for 1.58-bit KV cache"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "block-stochastic-quantized-optimizer-states-with-periodic-correction-8de8a5154b62",
+        "research_outcome": "useful_signal",
+        "run_id": "block-stochastic-quantized-optimizer-states-with-periodic-correction-8de8a5154b62-20260516T044429630982+0000",
+        "title": "Block-Stochastic Quantized Optimizer States with Periodic Correction"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "bounded-ablation-of-verifier-repaired-ledgers-on-small-mod-3dfb92907f",
+        "research_outcome": "useful_signal",
+        "run_id": "bounded-ablation-of-verifier-repaired-ledgers-on-small-mod-3dfb92907f-20260518T172032969612+0000",
+        "title": "Bounded ablation of verifier-repaired ledgers on small-model state tracking"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "bounded-neural-volunteer-training-commit-reveal-validation-9946e055fc",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "bounded-neural-volunteer-training-commit-reveal-validation-9946e055fc-20260515T013756714875+0000",
+        "title": "Bounded Neural Volunteer Training Commit-Reveal Validation"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "calibrated-entropy-plus-confidence-n-gram-router-across-co-e23bca791a",
+        "research_outcome": "useful_signal",
+        "run_id": "calibrated-entropy-plus-confidence-n-gram-router-across-co-e23bca791a-20260518T015204597465+0000",
+        "title": "Calibrated Entropy-Plus-Confidence N-Gram Router Across Corpora"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "commit-reveal-gradient-validation-for-cheating-resistant-volunteer-training-10aad0bda5d9",
+        "research_outcome": "useful_signal",
+        "run_id": "commit-reveal-gradient-validation-for-cheating-resistant-volunteer-training-10aad0bda5d9-20260518T045351978854+0000",
+        "title": "Commit-Reveal Gradient Validation for Cheating-Resistant Volunteer Training"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "commit-reveal-gradient-validation-for-cheating-resistant-volunteer-training-bdedf04df87d",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "commit-reveal-gradient-validation-for-cheating-resistant-volunteer-training-bdedf04df87d-20260515T013203589727+0000",
+        "title": "Commit-Reveal Gradient Validation for Cheating-Resistant Volunteer Training"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "commit-reveal-gradient-validation-for-volunteer-distributed-training-7284e53de3a5",
+        "research_outcome": "useful_signal",
+        "run_id": "commit-reveal-gradient-validation-for-volunteer-distributed-training-7284e53de3a5-20260518T123745314536+0000",
+        "title": "Commit-Reveal Gradient Validation for Volunteer Distributed Training"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "commit-reveal-gradient-validation-under-non-iid-neural-vol-426459ea98",
+        "research_outcome": "useful_signal",
+        "run_id": "commit-reveal-gradient-validation-under-non-iid-neural-vol-426459ea98-20260518T124534322770+0000",
+        "title": "Commit-Reveal Gradient Validation Under Non-IID Neural Volunteer Training"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "commit-reveal-replay-lotteries-on-a-real-optimizer-trace-f367751cad",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "commit-reveal-replay-lotteries-on-a-real-optimizer-trace-f367751cad-20260515T002456855526+0000",
+        "title": "Commit-reveal replay lotteries on a real optimizer trace"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "commit-reveal-spot-check-gradient-verification-for-volunteer-training-c7bbf4bdc595",
+        "research_outcome": "useful_signal",
+        "run_id": "commit-reveal-spot-check-gradient-verification-for-volunteer-training-c7bbf4bdc595-20260517T161247368346+0000",
+        "title": "Commit-Reveal Spot-Check Gradient Verification for Volunteer Training"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "confidence-router-cascade-for-vram-reduction-ee2ba6c3c184",
+        "research_outcome": "useful_signal",
+        "run_id": "confidence-router-cascade-for-vram-reduction-ee2ba6c3c184-20260518T234223242898+0000",
+        "title": "Confidence-Router Cascade for VRAM Reduction"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "context-local-suffix-array-speculative-decoding-290e5a35ec78",
+        "research_outcome": "useful_signal",
+        "run_id": "context-local-suffix-array-speculative-decoding-290e5a35ec78-20260516T133541918070+0000",
+        "title": "Context-Local Suffix-Array Speculative Decoding"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "cross-model-kv-cascade-router-with-affine-adapter-64f380dca440",
+        "research_outcome": "useful_signal",
+        "run_id": "cross-model-kv-cascade-router-with-affine-adapter-64f380dca440-20260517T231253219085+0000",
+        "title": "Cross-Model KV-Cascade Router with Affine Adapter"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "deterministic-and-target-aware-bag-size-curricula-for-hard-f345c2cb43",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "deterministic-and-target-aware-bag-size-curricula-for-hard-f345c2cb43-20260514T125006737432+0000",
+        "title": "Deterministic and Target-Aware Bag-Size Curricula for Hard Superposition"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "direct-agent-harness-evaluation-of-append-only-evidence-le-704935537c",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "direct-agent-harness-evaluation-of-append-only-evidence-le-704935537c-20260514T073006732390+0000",
+        "title": "Direct agent-harness evaluation of append-only evidence ledger failure recall"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "direct-confidence-quality-cascade-test-with-real-local-mod-520703164e",
+        "research_outcome": "useful_signal",
+        "run_id": "direct-confidence-quality-cascade-test-with-real-local-mod-520703164e-20260516T193724242466+0000",
+        "title": "Direct confidence-quality cascade test with real local models"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "direct-federated-benchmark-for-hidden-canary-gradient-audi-aab4c9b92e",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "direct-federated-benchmark-for-hidden-canary-gradient-audi-aab4c9b92e-20260515T031856726636+0000",
+        "title": "Direct Federated Benchmark for Hidden Canary Gradient Audits"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "direct-local-llm-entropy-gated-cascade-benchmark-f2df2707e8",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "direct-local-llm-entropy-gated-cascade-benchmark-f2df2707e8-20260515T042506776797+0000",
+        "title": "Direct Local LLM Entropy-Gated Cascade Benchmark"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "direct-serving-test-of-cpu-n-gram-drafting-for-code-contex-a360e35298",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "direct-serving-test-of-cpu-n-gram-drafting-for-code-contex-a360e35298-20260515T083436777782+0000",
+        "title": "Direct Serving Test of CPU N-gram Drafting for Code Contexts"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "direct-small-large-lm-entropy-cascade-evaluation-12393790f2",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "direct-small-large-lm-entropy-cascade-evaluation-12393790f2-20260514T153246768084+0000",
+        "title": "Direct Small/Large LM Entropy Cascade Evaluation"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "direct-small-transformer-evaluation-of-2-bit-kv-residual-c-b8d32bd01c",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "direct-small-transformer-evaluation-of-2-bit-kv-residual-c-b8d32bd01c-20260514T115925646336+0000",
+        "title": "Direct small-transformer evaluation of 2-bit KV residual correction"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "end-to-end-gpt-2-compressed-cache-decoding-validation-for-bc77f0facf",
+        "research_outcome": "useful_signal",
+        "run_id": "end-to-end-gpt-2-compressed-cache-decoding-validation-for-bc77f0facf-20260519T072804676478+0000",
+        "title": "End-to-end GPT-2 compressed-cache decoding validation for exact-anchor clustered KV compression"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "end-to-end-gpt-2-small-dynresact-perplexity-and-latency-pr-3a1baeb62b",
+        "research_outcome": "useful_signal",
+        "run_id": "end-to-end-gpt-2-small-dynresact-perplexity-and-latency-pr-3a1baeb62b-20260517T154604411677+0000",
+        "title": "End-to-end GPT-2-small DynResAct perplexity and latency probe"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "end-to-end-perplexity-test-for-2-bit-outlier-channel-resid-85f1d9e9fb",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "end-to-end-perplexity-test-for-2-bit-outlier-channel-resid-85f1d9e9fb-20260514T225106746118+0000",
+        "title": "End-to-end perplexity test for 2-bit outlier-channel residuals"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "end-to-end-sampled-gradient-recomputation-for-volunteer-sp-0f3fe3b385",
+        "research_outcome": "useful_signal",
+        "run_id": "end-to-end-sampled-gradient-recomputation-for-volunteer-sp-0f3fe3b385-20260517T162234288441+0000",
+        "title": "End-to-end sampled-gradient recomputation for volunteer spot checks"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "end-to-end-sgd-shard-lottery-validation-under-targeted-cor-659b2a05fd",
+        "research_outcome": "useful_signal",
+        "run_id": "end-to-end-sgd-shard-lottery-validation-under-targeted-cor-659b2a05fd-20260518T220305782978+0000",
+        "title": "End-to-end SGD shard-lottery validation under targeted corruptions"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "entropy-gated-local-cascade-router-d0a9f5ce3010",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "entropy-gated-local-cascade-router-d0a9f5ce3010-20260514T152257265253+0000",
+        "title": "Entropy-Gated Local Cascade Router"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "entropy-gated-local-model-cascade-e53ac0edbaa3",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "entropy-gated-local-model-cascade-e53ac0edbaa3-20260515T042030684969+0000",
+        "title": "Entropy-Gated Local Model Cascade"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "equal-cost-adaptive-verifier-test-for-sparse-activation-re-abd908e4c4",
+        "research_outcome": "useful_signal",
+        "run_id": "equal-cost-adaptive-verifier-test-for-sparse-activation-re-abd908e4c4-20260517T180804059833+0000",
+        "title": "Equal-cost adaptive verifier test for sparse activation replay"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "exact-anchor-block-retrieval-via-compressed-memory-tokens-e8fd1a6fb95d",
+        "research_outcome": "useful_signal",
+        "run_id": "exact-anchor-block-retrieval-via-compressed-memory-tokens-e8fd1a6fb95d-20260518T022555123445+0000",
+        "title": "Exact-Anchor Block Retrieval via Compressed Memory Tokens"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "exact-anchor-kv-compression-via-sparse-landmark-pooling-9567f71bb992",
+        "research_outcome": "useful_signal",
+        "run_id": "exact-anchor-kv-compression-via-sparse-landmark-pooling-9567f71bb992-20260517T022305584812+0000",
+        "title": "Exact-Anchor KV Compression via Sparse Landmark Pooling"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "exact-anchor-state-checkpoints-for-long-episode-agents-f63e4455279a",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "exact-anchor-state-checkpoints-for-long-episode-agents-f63e4455279a-20260515T145202172209+0000",
+        "title": "Exact-Anchor State Checkpoints for Long-Episode Agents"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "field-ablated-merkle-trajectory-audits-on-stochastic-ppo-r-d06cb953f3",
+        "research_outcome": "useful_signal",
+        "run_id": "field-ablated-merkle-trajectory-audits-on-stochastic-ppo-r-d06cb953f3-20260516T092153023860+0000",
+        "title": "Field-Ablated Merkle Trajectory Audits on Stochastic PPO Reward Hacking"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "gpt-2-scale-token-superposition-pretraining-reproduction-ce453cf42b1f",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "gpt-2-scale-token-superposition-pretraining-reproduction-ce453cf42b1f-20260514T105827219356+0000",
+        "title": "GPT-2 Scale Token-Superposition Pretraining Reproduction"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "gradient-lottery-validation-for-volunteer-training-95065f6b3d3f",
+        "research_outcome": "useful_signal",
+        "run_id": "gradient-lottery-validation-for-volunteer-training-95065f6b3d3f-20260519T055734004880+0000",
+        "title": "Gradient Lottery Validation for Volunteer Training"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "hidden-state-router-for-0-5b-to-3b-local-cascade-8405793743cf",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "hidden-state-router-for-0-5b-to-3b-local-cascade-8405793743cf-20260514T232338382090+0000",
+        "title": "Hidden-state router for 0.5B-to-3B local cascade"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "hierarchical-landmark-memory-with-bounded-o-sqrt-n-state-71d6a457f6b2",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "hierarchical-landmark-memory-with-bounded-o-sqrt-n-state-71d6a457f6b2-20260514T175125867797+0000",
+        "title": "Hierarchical Landmark Memory with Bounded O(sqrt(n)) State"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "hybrid-adam-with-spectral-second-moment-compression-8164ad3e08",
+        "research_outcome": "useful_signal",
+        "run_id": "hybrid-adam-with-spectral-second-moment-compression-8164ad3e08-20260518T085307421718+0000",
+        "title": "Hybrid Adam with spectral second-moment compression"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "independent-calibration-undertrained-proxy-gradient-verifi-1c467e6bea",
+        "research_outcome": "useful_signal",
+        "run_id": "independent-calibration-undertrained-proxy-gradient-verifi-1c467e6bea-20260517T191114107824+0000",
+        "title": "Independent-calibration undertrained proxy gradient verifier"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "kv-cache-prompt-suffix-lookahead-on-natural-long-context-c-6364cf9a9c",
+        "research_outcome": "useful_signal",
+        "run_id": "kv-cache-prompt-suffix-lookahead-on-natural-long-context-c-6364cf9a9c-20260516T161623480471+0000",
+        "title": "KV-cache prompt suffix lookahead on natural long-context copy workloads"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "kv-cache-suffix-array-drafting-for-vram-free-speculative-decoding-503b4aedb46f",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "kv-cache-suffix-array-drafting-for-vram-free-speculative-decoding-503b4aedb46f-20260514T161335024139+0000",
+        "title": "KV-Cache Suffix Array Drafting for VRAM-Free Speculative Decoding"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "learned-hierarchical-landmark-memory-on-structured-long-co-2088665316",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "learned-hierarchical-landmark-memory-on-structured-long-co-2088665316-20260514T175556755185+0000",
+        "title": "Learned Hierarchical Landmark Memory on Structured Long-Context Recall"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "ledger-constrained-decoding-for-tool-truthfulness-in-1b-agents-bdf902b9d85e",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "ledger-constrained-decoding-for-tool-truthfulness-in-1b-agents-bdf902b9d85e-20260514T200847208167+0000",
+        "title": "Ledger-Constrained Decoding for Tool Truthfulness in 1B Agents"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "measure-real-kv-cache-layer-pipelined-early-exit-self-spec-c320042ad6",
+        "research_outcome": "useful_signal",
+        "run_id": "measure-real-kv-cache-layer-pipelined-early-exit-self-spec-c320042ad6-20260518T102707249791+0000",
+        "title": "Measure real KV-cache layer-pipelined early-exit self-speculation"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "merkle-shard-commitments-for-data-poisoning-detection-486ee43d8a60",
+        "research_outcome": "useful_signal",
+        "run_id": "merkle-shard-commitments-for-data-poisoning-detection-486ee43d8a60-20260519T062106369001+0000",
+        "title": "Merkle Shard Commitments for Data Poisoning Detection"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "merkle-trajectory-ledger-to-detect-reward-hacking-in-local-ppo-agents-08438f0bd9f8",
+        "research_outcome": "useful_signal",
+        "run_id": "merkle-trajectory-ledger-to-detect-reward-hacking-in-local-ppo-agents-08438f0bd9f8-20260516T091307841161+0000",
+        "title": "Merkle-Trajectory Ledger to Detect Reward Hacking in Local PPO Agents"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "neural-chunk-commitment-gradient-validation-under-adaptive-735638b6db",
+        "research_outcome": "useful_signal",
+        "run_id": "neural-chunk-commitment-gradient-validation-under-adaptive-735638b6db-20260518T073144311066+0000",
+        "title": "Neural Chunk-Commitment Gradient Validation Under Adaptive Lazy Workers"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "outlier-channel-residual-for-2-bit-weights-2dc3ba49138c",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "outlier-channel-residual-for-2-bit-weights-2dc3ba49138c-20260514T224300639618+0000",
+        "title": "Outlier-Channel Residual for 2-bit Weights"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "outlier-residual-extreme-quantization-with-principled-channel-split-f74f06ce6f54",
+        "research_outcome": "useful_signal",
+        "run_id": "outlier-residual-extreme-quantization-with-principled-channel-split-f74f06ce6f54-20260516T175312593243+0000",
+        "title": "Outlier-Residual Extreme Quantization with Principled Channel Split"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "parameter-matched-residual-channel-2-bit-gpt-proxy-with-pa-6568574932",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "parameter-matched-residual-channel-2-bit-gpt-proxy-with-pa-6568574932-20260515T024822462371+0000",
+        "title": "Parameter-Matched Residual-Channel 2-Bit GPT Proxy With Packed Kernels"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "position-weighted-multi-hot-objective-for-token-superposition-24789cd22f88",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "position-weighted-multi-hot-objective-for-token-superposition-24789cd22f88-20260514T112154317177+0000",
+        "title": "Position-Weighted Multi-Hot Objective for Token Superposition"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "ppl-gated-cascade-without-direct-kv-reuse-a7b1bbb685",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "ppl-gated-cascade-without-direct-kv-reuse-a7b1bbb685-20260515T072246821122+0000",
+        "title": "PPL-gated cascade without direct KV reuse"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "ppl-gated-local-cascade-with-kv-handoff-92f25ad19b9a",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "ppl-gated-local-cascade-with-kv-handoff-92f25ad19b9a-20260515T071417455427+0000",
+        "title": "PPL-Gated Local Cascade with KV Handoff"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "prompt-lookahead-suffix-array-speculative-decoding-8fb428b32e13",
+        "research_outcome": "useful_signal",
+        "run_id": "prompt-lookahead-suffix-array-speculative-decoding-8fb428b32e13-20260516T160741493442+0000",
+        "title": "Prompt-Lookahead Suffix-Array Speculative Decoding"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "proof-of-useful-work-gradient-validation-for-volunteer-swarms-a1ad1c5709a9",
+        "research_outcome": "useful_signal",
+        "run_id": "proof-of-useful-work-gradient-validation-for-volunteer-swarms-a1ad1c5709a9-20260518T072539271638+0000",
+        "title": "Proof-of-Useful-Work Gradient Validation for Volunteer Swarms"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "real-kv-activation-test-for-exact-anchor-sparse-landmark-p-03f0f23aca",
+        "research_outcome": "useful_signal",
+        "run_id": "real-kv-activation-test-for-exact-anchor-sparse-landmark-p-03f0f23aca-20260517T022924622251+0000",
+        "title": "Real KV Activation Test for Exact-Anchor Sparse Landmark Pooling"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "real-small-model-evidence-ledger-jury-benchmark-0ba0c258c3",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "real-small-model-evidence-ledger-jury-benchmark-0ba0c258c3-20260514T192236774233+0000",
+        "title": "Real Small-Model Evidence-Ledger Jury Benchmark"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "real-transformer-anchor-preserved-kv-cache-evaluation-fff3f43dd3",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "real-transformer-anchor-preserved-kv-cache-evaluation-fff3f43dd3-20260515T154222711630+0000",
+        "title": "Real-Transformer Anchor-Preserved KV Cache Evaluation"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "real-transformer-validation-of-anchor-gated-kv-eviction-un-0d6b8b6de9",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "real-transformer-validation-of-anchor-gated-kv-eviction-un-0d6b8b6de9-20260513T222726740745+0000",
+        "title": "Real-transformer validation of anchor-gated KV eviction under matched cache budgets"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "residual-channel-1-58-bit-gpt-2-with-fp16-error-diffusion-10d18541d8ff",
+        "research_outcome": "useful_signal",
+        "run_id": "residual-channel-1-58-bit-gpt-2-with-fp16-error-diffusion-10d18541d8ff-20260519T143511738409+0000",
+        "title": "Residual-Channel 1.58-bit GPT-2 with FP16 Error Diffusion"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "robust-3-bit-activation-weight-residual-split-validation-cf24b41197",
+        "research_outcome": "useful_signal",
+        "run_id": "robust-3-bit-activation-weight-residual-split-validation-cf24b41197-20260516T180229449002+0000",
+        "title": "Robust 3-bit activation-weight residual split validation"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "robust-aggregation-for-low-cost-verifiable-gradient-lotter-5aa4c01151",
+        "research_outcome": "useful_signal",
+        "run_id": "robust-aggregation-for-low-cost-verifiable-gradient-lotter-5aa4c01151-20260518T081542775338+0000",
+        "title": "Robust Aggregation for Low-Cost Verifiable Gradient Lottery"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "rollback-ledger-for-tool-use-agents-d6033c25f3ec",
+        "research_outcome": "useful_signal",
+        "run_id": "rollback-ledger-for-tool-use-agents-d6033c25f3ec-20260515T184948803071+0000",
+        "title": "Rollback Ledger for Tool-Use Agents"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "rollback-ledger-with-tiny-learned-error-detector-560e1d9acda5",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "rollback-ledger-with-tiny-learned-error-detector-560e1d9acda5-20260515T174853188011+0000",
+        "title": "Rollback Ledger with Tiny Learned Error Detector"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "second-moment-stabilization-for-blockwise-stochastic-int8-7ed4b8a6da",
+        "research_outcome": "useful_signal",
+        "run_id": "second-moment-stabilization-for-blockwise-stochastic-int8-7ed4b8a6da-20260516T045242981212+0000",
+        "title": "Second-moment stabilization for blockwise stochastic int8 Adam states"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "self-speculative-decoding-via-early-exit-and-shared-kv-cache-873b78e674fe",
+        "research_outcome": "useful_signal",
+        "run_id": "self-speculative-decoding-via-early-exit-and-shared-kv-cache-873b78e674fe-20260516T165828812822+0000",
+        "title": "Self-Speculative Decoding via Early Exit and Shared KV Cache"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "self-speculative-decoding-via-layer-early-exit-drafting-adecf224dc1a",
+        "research_outcome": "useful_signal",
+        "run_id": "self-speculative-decoding-via-layer-early-exit-drafting-adecf224dc1a-20260516T121501553194+0000",
+        "title": "Self-Speculative Decoding via Layer-Early-Exit Drafting"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "self-speculative-decoding-via-layer-pipelined-early-exit-3a34fb6b1278",
+        "research_outcome": "useful_signal",
+        "run_id": "self-speculative-decoding-via-layer-pipelined-early-exit-3a34fb6b1278-20260518T101733422273+0000",
+        "title": "Self-Speculative Decoding via Layer-Pipelined Early Exit"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "signed-observation-recorder-for-real-agent-evidence-ledger-873e746277",
+        "research_outcome": "useful_signal",
+        "run_id": "signed-observation-recorder-for-real-agent-evidence-ledger-873e746277-20260518T115904697910+0000",
+        "title": "Signed Observation Recorder for Real Agent Evidence Ledgers"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "small-transformer-qa-test-for-exact-anchor-ledger-retrieva-30ed3725d5",
+        "research_outcome": "useful_signal",
+        "run_id": "small-transformer-qa-test-for-exact-anchor-ledger-retrieva-30ed3725d5-20260517T034744096997+0000",
+        "title": "Small Transformer QA Test for Exact Anchor Ledger Retrieval"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "sparse-activation-replay-for-byzantine-volunteer-gradient-verification-764c8c457dca",
+        "research_outcome": "useful_signal",
+        "run_id": "sparse-activation-replay-for-byzantine-volunteer-gradient-verification-764c8c457dca-20260517T175834714268+0000",
+        "title": "Sparse Activation Replay for Byzantine Volunteer Gradient Verification"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "sparse-structured-residual-channels-for-1-bit-quantization-recovery-fcdc80f5e0f8",
+        "research_outcome": "useful_signal",
+        "run_id": "sparse-structured-residual-channels-for-1-bit-quantization-recovery-fcdc80f5e0f8-20260519T025222312438+0000",
+        "title": "Sparse Structured Residual Channels for 1-Bit Quantization Recovery"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "spectral-adam-low-rank-optimizer-state-compression-586a5411c2ed",
+        "research_outcome": "useful_signal",
+        "run_id": "spectral-adam-low-rank-optimizer-state-compression-586a5411c2ed-20260518T084636091947+0000",
+        "title": "Spectral Adam: Low-Rank Optimizer State Compression"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "spectral-residual-decomposition-for-sub-2bit-weight-quantization-5547c307a409",
+        "research_outcome": "useful_signal",
+        "run_id": "spectral-residual-decomposition-for-sub-2bit-weight-quantization-5547c307a409-20260516T154717366306+0000",
+        "title": "Spectral Residual Decomposition for Sub-2bit Weight Quantization"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "sqlite-wal-local-quorum-ledger-prototype-b1bdfc12b1",
+        "research_outcome": "useful_signal",
+        "run_id": "sqlite-wal-local-quorum-ledger-prototype-b1bdfc12b1-20260517T212112551899+0000",
+        "title": "SQLite/WAL Local Quorum Ledger Prototype"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "structured-compression-objective-for-exact-anchor-retrieva-10ca845b4c",
+        "research_outcome": "useful_signal",
+        "run_id": "structured-compression-objective-for-exact-anchor-retrieva-10ca845b4c-20260518T023904371162+0000",
+        "title": "Structured Compression Objective for Exact Anchor Retrieval"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "structured-ledger-rejection-sampling-for-local-agents-75263160c1cb",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "structured-ledger-rejection-sampling-for-local-agents-75263160c1cb-20260515T180921869281+0000",
+        "title": "Structured Ledger Rejection Sampling for Local Agents"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "suffix-array-speculative-drafting-from-generation-history-eaa2278559d2",
+        "research_outcome": "useful_signal",
+        "run_id": "suffix-array-speculative-drafting-from-generation-history-eaa2278559d2-20260519T092200755110+0000",
+        "title": "Suffix-Array Speculative Drafting from Generation History"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "tamper-evident-agent-ledger-for-hallucination-detection-eff65c3bc538",
+        "research_outcome": "useful_signal",
+        "run_id": "tamper-evident-agent-ledger-for-hallucination-detection-eff65c3bc538-20260519T131653798016+0000",
+        "title": "Tamper-Evident Agent Ledger for Hallucination Detection"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "tamper-evident-agent-ledger-via-inline-cryptographic-checksumming-a9735d105002",
+        "research_outcome": "useful_signal",
+        "run_id": "tamper-evident-agent-ledger-via-inline-cryptographic-checksumming-a9735d105002-20260515T211459496395+0000",
+        "title": "Tamper-Evident Agent Ledger via Inline Cryptographic Checksumming"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "ternary-weights-plus-per-layer-residual-codebook-recovery-71052a960214",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "ternary-weights-plus-per-layer-residual-codebook-recovery-71052a960214-20260513T205938482301+0000",
+        "title": "Ternary Weights Plus Per-Layer Residual Codebook Recovery"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "tiered-exact-anchor-kv-cache-with-cross-layer-compression-7411950a6bc9",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "tiered-exact-anchor-kv-cache-with-cross-layer-compression-7411950a6bc9-20260514T182254433950+0000",
+        "title": "Tiered Exact-Anchor KV Cache with Cross-Layer Compression"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "trace-based-ledger-constrained-decoding-for-1b-tool-agents-8d68ea8865",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "trace-based-ledger-constrained-decoding-for-1b-tool-agents-8d68ea8865-20260514T201826598758+0000",
+        "title": "Trace-Based Ledger-Constrained Decoding for 1B Tool Agents"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [],
+        "project_id": "trainable-dual-memory-anchor-recall-against-parameter-matc-9ba5e67c38",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "trainable-dual-memory-anchor-recall-against-parameter-matc-9ba5e67c38-20260514T131026504620+0000",
+        "title": "Trainable Dual-Memory Anchor Recall Against Parameter-Matched Baselines"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [],
+        "project_id": "variance-guided-data-selection-for-tiny-lm-pretraining-3c3146778b0c",
+        "research_outcome": "useful_signal",
+        "run_id": "variance-guided-data-selection-for-tiny-lm-pretraining-3c3146778b0c-20260517T203116210106+0000",
+        "title": "Variance-Guided Data Selection for Tiny LM Pretraining"
+      }
+    ],
+    "hard_negative_or_stale": [],
+    "missing_required_evidence_or_fields": [
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "acceptance-aware-gpt-2-small-early-exit-heads-for-exact-se-bc1a42be2d",
+        "research_outcome": "useful_signal",
+        "run_id": "acceptance-aware-gpt-2-small-early-exit-heads-for-exact-se-bc1a42be2d-20260516T124823526022+0000",
+        "title": "Acceptance-aware GPT-2-small early-exit heads for exact self-speculative decoding"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "activation-aware-calibration-for-static-residual-adapters-08e1f264dc",
+        "research_outcome": "useful_signal",
+        "run_id": "activation-aware-calibration-for-static-residual-adapters-08e1f264dc-20260519T031023556192+0000",
+        "title": "Activation-aware calibration for static residual adapters"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "adaptive-or-periodically-corrected-low-rank-adamw-for-smal-afbae3b446",
+        "research_outcome": "useful_signal",
+        "run_id": "adaptive-or-periodically-corrected-low-rank-adamw-for-smal-afbae3b446-20260518T100607224788+0000",
+        "title": "Adaptive or periodically corrected low-rank AdamW for small LM training"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "adaptive-rank-anchor-kv-compression-on-gpt-2-small-class-l-003174ac4a",
+        "research_outcome": "useful_signal",
+        "run_id": "adaptive-rank-anchor-kv-compression-on-gpt-2-small-class-l-003174ac4a-20260517T225043406764+0000",
+        "title": "Adaptive rank-anchor KV compression on GPT-2-small-class long-prefix decoding"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "behavior-aware-learned-kv-residual-prediction-for-exact-an-b76f7664e0",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "behavior-aware-learned-kv-residual-prediction-for-exact-an-b76f7664e0-20260514T184136929523+0000",
+        "title": "Behavior-aware learned KV residual prediction for exact-anchor cache substitution"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "blockwise-stabilized-4-bit-adam-second-moment-on-a-small-t-d75abbd657",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "blockwise-stabilized-4-bit-adam-second-moment-on-a-small-t-d75abbd657-20260514T085706750253+0000",
+        "title": "Blockwise stabilized 4-bit Adam second moment on a small transformer"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "bounded-full-scale-commit-reveal-replay-auditing-on-a-real-3eddb3740f",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "bounded-full-scale-commit-reveal-replay-auditing-on-a-real-3eddb3740f-20260515T005536794583+0000",
+        "title": "Bounded full-scale commit-reveal replay auditing on a realistic large-model optimizer trace"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "bounded-full-scale-memory-pressure-validation-for-streamed-6f56b891a0",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "bounded-full-scale-memory-pressure-validation-for-streamed-6f56b891a0-20260514T021736732067+0000",
+        "title": "Bounded Full-Scale Memory-Pressure Validation for Streamed AdamW Moments"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "bounded-scale-gap-validation-of-calibrated-ppl-gates-for-n-08c789374b",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "bounded-scale-gap-validation-of-calibrated-ppl-gates-for-n-08c789374b-20260515T073822983682+0000",
+        "title": "Bounded scale-gap validation of calibrated PPL gates for no-KV LM cascades"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "calibrated-evidence-ledger-jury-with-larger-real-data-cove-0937d49bc3",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "calibrated-evidence-ledger-jury-with-larger-real-data-cove-0937d49bc3-20260514T193306788589+0000",
+        "title": "Calibrated Evidence-Ledger Jury With Larger Real-Data Coverage"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "checkpointed-gpt-2-intermediate-kl-heads-for-actual-specul-9042abd5e4",
+        "research_outcome": "useful_signal",
+        "run_id": "checkpointed-gpt-2-intermediate-kl-heads-for-actual-specul-9042abd5e4-20260516T172832772240+0000",
+        "title": "Checkpointed GPT-2 intermediate KL heads for actual speculative decoding throughput"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "coverage-constrained-sampled-adamw-recomputation-on-the-sa-04a71608ba",
+        "research_outcome": "useful_signal",
+        "run_id": "coverage-constrained-sampled-adamw-recomputation-on-the-sa-04a71608ba-20260517T164403339632+0000",
+        "title": "Coverage-constrained sampled AdamW recomputation on the same small transformer"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "distribution-aware-calibration-for-residual-activation-ver-66be993511",
+        "research_outcome": "useful_signal",
+        "run_id": "distribution-aware-calibration-for-residual-activation-ver-66be993511-20260517T185043480120+0000",
+        "title": "Distribution-aware calibration for residual activation verifier correction"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "durable-restart-validation-for-anchored-langgraph-checkpoi-9d1f914464",
+        "research_outcome": "useful_signal",
+        "run_id": "durable-restart-validation-for-anchored-langgraph-checkpoi-9d1f914464-20260515T213302968445+0000",
+        "title": "Durable Restart Validation for Anchored LangGraph Checkpoints"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "fused-packed-2-bit-residual-channel-projection-kernel-on-g-d75620eff6",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "fused-packed-2-bit-residual-channel-projection-kernel-on-g-d75620eff6-20260515T025416830688+0000",
+        "title": "Fused Packed 2-Bit Residual-Channel Projection Kernel on GB10"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "generative-local-llm-confidence-cascade-with-actual-server-00a5434e21",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "generative-local-llm-confidence-cascade-with-actual-server-00a5434e21-20260515T044522937978+0000",
+        "title": "Generative local LLM confidence cascade with actual server tail latency"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "gpt-2-small-inference-validation-of-key-addressed-anchorsl-2f16602be2",
+        "research_outcome": "useful_signal",
+        "run_id": "gpt-2-small-inference-validation-of-key-addressed-anchorsl-2f16602be2-20260518T042104381028+0000",
+        "title": "GPT-2-Small Inference Validation of Key-Addressed AnchorSlot KV Cache"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "gradient-dot-audits-for-label-flip-anomaly-detection-063cd69498",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "gradient-dot-audits-for-label-flip-anomaly-detection-063cd69498-20260515T033422957542+0000",
+        "title": "Gradient Dot Audits for Label-Flip Anomaly Detection"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "hierarchical-shrinkage-local-cascade-gates-for-selective-r-18b0ed1fac",
+        "research_outcome": "useful_signal",
+        "run_id": "hierarchical-shrinkage-local-cascade-gates-for-selective-r-18b0ed1fac-20260518T165005773755+0000",
+        "title": "Hierarchical shrinkage local cascade gates for selective-risk control"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "int4-kv-residual-window-validation-with-measured-memory-an-6c4762396d",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "int4-kv-residual-window-validation-with-measured-memory-an-6c4762396d-20260514T122906793120+0000",
+        "title": "Int4 KV residual-window validation with measured memory and standard language metrics"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "integrated-commit-reveal-audit-on-a-real-gpt-2-small-train-44f22cfc92",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "integrated-commit-reveal-audit-on-a-real-gpt-2-small-train-44f22cfc92-20260515T011706876222+0000",
+        "title": "Integrated commit-reveal audit on a real GPT-2-small training optimizer trace"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "langgraph-adapter-rollback-ledger-under-randomized-crash-a-b627e5b7ef",
+        "research_outcome": "useful_signal",
+        "run_id": "langgraph-adapter-rollback-ledger-under-randomized-crash-a-b627e5b7ef-20260515T185923156612+0000",
+        "title": "LangGraph adapter rollback ledger under randomized crash and concurrent retry faults"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "layer-and-objective-sweep-for-gpt-2-self-speculative-inter-feb8826fcb",
+        "research_outcome": "useful_signal",
+        "run_id": "layer-and-objective-sweep-for-gpt-2-self-speculative-inter-feb8826fcb-20260516T171322955301+0000",
+        "title": "Layer and objective sweep for GPT-2 self-speculative intermediate heads"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "layerwise-and-multi-layer-direct-fidelity-residual-substit-5e515aa9cc",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "layerwise-and-multi-layer-direct-fidelity-residual-substit-5e515aa9cc-20260514T190138308373+0000",
+        "title": "Layerwise and multi-layer direct-fidelity residual substitutes"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "live-agent-tool-path-signed-recorder-with-crash-and-concur-d3d8173e93",
+        "research_outcome": "useful_signal",
+        "run_id": "live-agent-tool-path-signed-recorder-with-crash-and-concur-d3d8173e93-20260518T121433475428+0000",
+        "title": "Live Agent Tool-Path Signed Recorder With Crash and Concurrency Checks"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "live-tool-trace-contradiction-recovery-without-last-mentio-f02b02654c",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "live-tool-trace-contradiction-recovery-without-last-mentio-f02b02654c-20260514T001136229625+0000",
+        "title": "Live Tool-Trace Contradiction Recovery Without Last-Mention Shortcut"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "long-context-copy-heavy-prompt-n-gram-speculative-decoding-9afd8b765d",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "long-context-copy-heavy-prompt-n-gram-speculative-decoding-9afd8b765d-20260515T100022604455+0000",
+        "title": "Long-context copy-heavy prompt n-gram speculative decoding benchmark"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "mass-aware-exact-anchor-clustered-kv-cache-decoding-on-gpt-22c14bdcc3",
+        "research_outcome": "useful_signal",
+        "run_id": "mass-aware-exact-anchor-clustered-kv-cache-decoding-on-gpt-22c14bdcc3-20260519T073503497929+0000",
+        "title": "Mass-aware exact-anchor clustered KV cache decoding on GPT-2-small"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "medium-confirmation-of-small-large-lm-entropy-cascade-rout-d1012a5de3",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "medium-confirmation-of-small-large-lm-entropy-cascade-rout-d1012a5de3-20260514T153806743669+0000",
+        "title": "Medium Confirmation of Small/Large LM Entropy Cascade Routing"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "medium-direct-confirmation-of-uncertainty-routed-cascades-72a499b232",
+        "research_outcome": "useful_signal",
+        "run_id": "medium-direct-confirmation-of-uncertainty-routed-cascades-72a499b232-20260516T111453051177+0000",
+        "title": "Medium direct confirmation of uncertainty-routed cascades on a harder neural task"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "medium-multi-corpus-cross-instance-evidence-verification-9ea0827de6",
+        "research_outcome": "useful_signal",
+        "run_id": "medium-multi-corpus-cross-instance-evidence-verification-9ea0827de6-20260517T200201207923+0000",
+        "title": "Medium Multi-Corpus Cross-Instance Evidence Verification"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "medium-neural-shard-lottery-validation-under-adaptive-shar-ee7572f07e",
+        "research_outcome": "useful_signal",
+        "run_id": "medium-neural-shard-lottery-validation-under-adaptive-shar-ee7572f07e-20260518T220833579058+0000",
+        "title": "Medium neural shard-lottery validation under adaptive shard corruptions"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "medium-real-kv-anchor-router-benchmark-73c2329123",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "medium-real-kv-anchor-router-benchmark-73c2329123-20260515T105622866571+0000",
+        "title": "Medium real-KV anchor router benchmark"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "medium-scale-commit-reveal-replay-auditing-on-a-larger-opt-dd9c25b0da",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "medium-scale-commit-reveal-replay-auditing-on-a-larger-opt-dd9c25b0da-20260515T003526773194+0000",
+        "title": "Medium-scale commit-reveal replay auditing on a larger optimizer trace"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "medium-validation-of-deployable-ppl-uncertainty-gates-for-05dff99f7d",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "medium-validation-of-deployable-ppl-uncertainty-gates-for-05dff99f7d-20260515T072806793447+0000",
+        "title": "Medium validation of deployable PPL/uncertainty gates for no-KV-reuse LM cascades"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "multi-model-hakv-inference-fidelity-robustness-at-25--rete-563c210425",
+        "research_outcome": "useful_signal",
+        "run_id": "multi-model-hakv-inference-fidelity-robustness-at-25--rete-563c210425-20260515T224552943405+0000",
+        "title": "Multi-model HAKV inference fidelity robustness at 25% retention"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "naturalistic-copy-suffix-localization-without-explicit-quo-bc04d2807a",
+        "research_outcome": "useful_signal",
+        "run_id": "naturalistic-copy-suffix-localization-without-explicit-quo-bc04d2807a-20260516T164752982514+0000",
+        "title": "Naturalistic copy suffix localization without explicit quote instructions"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "neural-ppo-field-ablated-merkle-audit-reproduction-6ac380c201",
+        "research_outcome": "useful_signal",
+        "run_id": "neural-ppo-field-ablated-merkle-audit-reproduction-6ac380c201-20260516T092702956621+0000",
+        "title": "Neural PPO Field-Ablated Merkle Audit Reproduction"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "nonlinear-shared-gradient-proxy-verifier-confirmation-15238b296a",
+        "research_outcome": "useful_signal",
+        "run_id": "nonlinear-shared-gradient-proxy-verifier-confirmation-15238b296a-20260517T191643277215+0000",
+        "title": "Nonlinear shared-gradient proxy verifier confirmation"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "optimized-exact-cache-path-for-gpt-2-intermediate-head-sel-0692caf722",
+        "research_outcome": "useful_signal",
+        "run_id": "optimized-exact-cache-path-for-gpt-2-intermediate-head-sel-0692caf722-20260516T173930604873+0000",
+        "title": "Optimized exact cache path for GPT-2 intermediate-head self-speculation"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "optimized-suffix-copy-speculative-decoding-across-corpora-ad6443df25",
+        "research_outcome": "useful_signal",
+        "run_id": "optimized-suffix-copy-speculative-decoding-across-corpora-ad6443df25-20260516T141702916106+0000",
+        "title": "Optimized suffix-copy speculative decoding across corpora and GPT-2 model sizes"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "packed-int2-kv-residual-window-validation-with-measured-me-c114b1bd71",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "packed-int2-kv-residual-window-validation-with-measured-me-c114b1bd71-20260514T121946428496+0000",
+        "title": "Packed int2 KV residual-window validation with measured memory"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "per-layer-attention-only-versus-adaptive-hakv-retention-at-9f783e5b95",
+        "research_outcome": "useful_signal",
+        "run_id": "per-layer-attention-only-versus-adaptive-hakv-retention-at-9f783e5b95-20260515T225612921768+0000",
+        "title": "Per-layer attention-only versus adaptive HAKV retention at 25-50%"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "practical-randomized-svd-hybrid-spectral-adamw-on-small-tr-e7c4eede14",
+        "research_outcome": "useful_signal",
+        "run_id": "practical-randomized-svd-hybrid-spectral-adamw-on-small-tr-e7c4eede14-20260518T091407378847+0000",
+        "title": "Practical Randomized-SVD Hybrid Spectral AdamW on Small Transformers"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "prefetch-aware-pytorch-dataloader-replay-state-for-multi-w-a94886129a",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "prefetch-aware-pytorch-dataloader-replay-state-for-multi-w-a94886129a-20260514T055646782561+0000",
+        "title": "Prefetch-aware PyTorch DataLoader replay state for multi-worker checkpoint recovery"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "process-kill-rollback-ledger-validation-with-external-serv-9a2fc1f56f",
+        "research_outcome": "useful_signal",
+        "run_id": "process-kill-rollback-ledger-validation-with-external-serv-9a2fc1f56f-20260515T190923350866+0000",
+        "title": "Process-kill rollback ledger validation with external service emulator"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "production-trace-strict-n-gram-drafting-cpu-serving-valida-6d3078dd22",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "production-trace-strict-n-gram-drafting-cpu-serving-valida-6d3078dd22-20260515T090933229035+0000",
+        "title": "Production Trace Strict N-gram Drafting CPU Serving Validation"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "real-agent-trace-replay-evidence-ledger-poisoning-validati-cd96859f9d",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "real-agent-trace-replay-evidence-ledger-poisoning-validati-cd96859f9d-20260513T200743230195+0000",
+        "title": "Real agent trace replay evidence-ledger poisoning validation"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "real-corpus-medium-validation-for-streamed-adam-moment-sto-3a0d2e995a",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "real-corpus-medium-validation-for-streamed-adam-moment-sto-3a0d2e995a-20260514T020636757363+0000",
+        "title": "Real-Corpus Medium Validation for Streamed Adam Moment Storage"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "real-fl-validation-of-commit-reveal-volunteer-training-c9fdba9e03",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "real-fl-validation-of-commit-reveal-volunteer-training-c9fdba9e03-20260515T015205869170+0000",
+        "title": "Real-FL Validation of Commit-Reveal Volunteer Training"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "real-lm-hidden-state-shuffled-error-validation-for-router-57eb325275",
+        "research_outcome": "useful_signal",
+        "run_id": "real-lm-hidden-state-shuffled-error-validation-for-router-57eb325275-20260517T234704367995+0000",
+        "title": "Real-LM hidden-state shuffled-error validation for router-calibrated KV adapters"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "real-report-validation-of-trace-specific-gains-in-multi-cl-afbbf95ada",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "real-report-validation-of-trace-specific-gains-in-multi-cl-afbbf95ada-20260514T223006763442+0000",
+        "title": "Real-report validation of trace-specific gains in multi-claim auditing"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "real-small-lm-kv-trace-test-for-2-bit-residual-block-gates-f8490ab41d",
+        "research_outcome": "useful_signal",
+        "run_id": "real-small-lm-kv-trace-test-for-2-bit-residual-block-gates-f8490ab41d-20260519T160407416563+0000",
+        "title": "Real small-LM KV trace test for 2-bit residual block gates"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "recorded-agent-tool-trace-contradiction-recovery-benchmark-ceac3cc2cf",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "recorded-agent-tool-trace-contradiction-recovery-benchmark-ceac3cc2cf-20260514T010336651431+0000",
+        "title": "Recorded Agent Tool-Trace Contradiction Recovery Benchmark"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "residual-channel-preservation-on-real-bpe-tokenizations-6d45bd8b4c",
+        "research_outcome": "useful_signal",
+        "run_id": "residual-channel-preservation-on-real-bpe-tokenizations-6d45bd8b4c-20260516T204503137868+0000",
+        "title": "Residual-channel preservation on real BPE tokenizations"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "richer-calibration-for-entropy-routing-on-multiclass-casca-c34659b1bc",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "richer-calibration-for-entropy-routing-on-multiclass-casca-c34659b1bc-20260514T100458131580+0000",
+        "title": "Richer calibration for entropy routing on multiclass cascades"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "robust-commit-reveal-gradient-validation-with-public-refer-e07a20a294",
+        "research_outcome": "useful_signal",
+        "run_id": "robust-commit-reveal-gradient-validation-with-public-refer-e07a20a294-20260518T125604274012+0000",
+        "title": "Robust Commit-Reveal Gradient Validation With Public Reference Agreement"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "routing-knowledge-ablation-for-neural-shard-lottery-robust-79097af03f",
+        "research_outcome": "useful_signal",
+        "run_id": "routing-knowledge-ablation-for-neural-shard-lottery-robust-79097af03f-20260518T221612674227+0000",
+        "title": "Routing-knowledge ablation for neural shard lottery robustness"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "small-transformer-confirmation-for-hybrid-spectral-adam-a484f816b0",
+        "research_outcome": "useful_signal",
+        "run_id": "small-transformer-confirmation-for-hybrid-spectral-adam-a484f816b0-20260518T090346439865+0000",
+        "title": "Small Transformer Confirmation for Hybrid Spectral Adam"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "small-transformer-validation-of-sqrt-stabilized-blockwise-c0007cb542",
+        "research_outcome": "useful_signal",
+        "run_id": "small-transformer-validation-of-sqrt-stabilized-blockwise-c0007cb542-20260516T050422534967+0000",
+        "title": "Small-transformer validation of sqrt-stabilized blockwise int8 Adam v states"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "streaming-storage-saving-dplr-floor-adam-versus-adam-and-a-414ba530a2",
+        "research_outcome": "useful_signal",
+        "run_id": "streaming-storage-saving-dplr-floor-adam-versus-adam-and-a-414ba530a2-20260516T071223379587+0000",
+        "title": "Streaming storage-saving DPLR/floor Adam versus Adam and Adafactor"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "strict-verifier-cpu-n-gram-drafting-serving-test-469c406314",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "strict-verifier-cpu-n-gram-drafting-serving-test-469c406314-20260515T084446775951+0000",
+        "title": "Strict-Verifier CPU N-gram Drafting Serving Test"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "tail-stabilized-causal-anchor-selection-for-real-kv-landma-ef313763fc",
+        "research_outcome": "useful_signal",
+        "run_id": "tail-stabilized-causal-anchor-selection-for-real-kv-landma-ef313763fc-20260517T025053301303+0000",
+        "title": "Tail-Stabilized Causal Anchor Selection for Real-KV Landmark Pooling"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "token-level-gpt-2-latency-test-for-suffix-copy-speculative-4980023e0f",
+        "research_outcome": "useful_signal",
+        "run_id": "token-level-gpt-2-latency-test-for-suffix-copy-speculative-4980023e0f-20260516T135052988449+0000",
+        "title": "Token-level GPT-2 latency test for suffix-copy speculative decoding"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "trace-driven-paged-kv-anchor-cache-serving-benchmark-5d60334321",
+        "research_outcome": "useful_signal",
+        "run_id": "trace-driven-paged-kv-anchor-cache-serving-benchmark-5d60334321-20260518T064432754755+0000",
+        "title": "Trace-Driven Paged-KV Anchor Cache Serving Benchmark"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "train-real-auxiliary-exit-heads-for-early-exit-speculative-a72b6570f4",
+        "research_outcome": "useful_signal",
+        "run_id": "train-real-auxiliary-exit-heads-for-early-exit-speculative-a72b6570f4-20260515T203123302082+0000",
+        "title": "Train Real Auxiliary Exit Heads for Early-Exit Speculative Drafting"
+      },
+      {
+        "compute_scale_blocked": true,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "uncertainty-gated-anchor-kv-eviction-across-real-lms-and-c-49749d6603",
+        "research_outcome": "promising_if_scaled",
+        "run_id": "uncertainty-gated-anchor-kv-eviction-across-real-lms-and-c-49749d6603-20260515T064708202150+0000",
+        "title": "Uncertainty-gated anchor KV eviction across real LMs and cache budgets"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "variable-length-pointer-copy-transformer-for-length-robust-62bc618d59",
+        "research_outcome": "useful_signal",
+        "run_id": "variable-length-pointer-copy-transformer-for-length-robust-62bc618d59-20260517T041433323304+0000",
+        "title": "Variable-length pointer-copy transformer for length-robust anchor-ledger retrieval"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "vectorized-periodic-mass-aware-kv-clustering-budget-sweep-71f10f9e70",
+        "research_outcome": "useful_signal",
+        "run_id": "vectorized-periodic-mass-aware-kv-clustering-budget-sweep-71f10f9e70-20260519T082453787075+0000",
+        "title": "Vectorized periodic mass-aware KV clustering budget sweep on GPT-2-small"
+      },
+      {
+        "compute_scale_blocked": false,
+        "issues": [
+          "sources:required"
+        ],
+        "project_id": "zero-floor-or-percentile-scaled-sqrt-int8-adam-v-state-par-af0d5936b2",
+        "research_outcome": "useful_signal",
+        "run_id": "zero-floor-or-percentile-scaled-sqrt-int8-adam-v-state-par-af0d5936b2-20260516T055402923424+0000",
+        "title": "Zero-floor or percentile-scaled sqrt-int8 Adam v-state parity test"
+      }
+    ]
+  },
+  "generated_at": "2026-05-19T17:06:07.490052+00:00",
+  "summary": {
+    "excluded_paper_or_corpus": 0,
+    "export_cleanly_now": 92,
+    "hard_negative_or_stale": 0,
+    "missing_required_evidence_or_fields": 70,
+    "total_candidate_rows": 162
+  }
+}
