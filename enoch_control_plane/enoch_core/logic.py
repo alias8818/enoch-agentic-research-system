@@ -53,6 +53,9 @@ PAPER_USEFUL_SIGNAL_FIELDS = (
     "useful_signal_summary",
     "compute_scale_blocked",
 )
+# Worker-produced artifacts are untrusted. Decision files should be tiny JSON
+# documents, so cap reads to avoid control-plane CPU/memory exhaustion.
+MAX_PAPER_DECISION_BYTES = 64 * 1024
 
 
 def text(value: Any) -> str:
@@ -90,18 +93,34 @@ def _safe_decision_file(path: Path) -> bool:
         return False
 
 
+def _read_decision_json(path: Path) -> dict[str, Any] | None:
+    if not _safe_decision_file(path):
+        return None
+    try:
+        if path.stat().st_size > MAX_PAPER_DECISION_BYTES:
+            return None
+        with path.open("rb") as handle:
+            raw = handle.read(MAX_PAPER_DECISION_BYTES + 1)
+    except OSError:
+        return None
+    if len(raw) > MAX_PAPER_DECISION_BYTES:
+        return None
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
 def _paper_decision_json_values(artifact_root: str | Path) -> list[tuple[str, str, str]]:
     root = Path(artifact_root)
     values: list[tuple[str, str, str]] = []
     for relative in PAPER_DECISION_FILES:
         path = root / relative
-        if not _safe_decision_file(path):
-            continue
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if not isinstance(payload, dict):
+        payload = _read_decision_json(path)
+        if payload is None:
             continue
         for field in (*PAPER_PRIMARY_DECISION_FIELDS, *PAPER_SUPPORTING_DECISION_FIELDS, *PAPER_USEFUL_SIGNAL_FIELDS):
             if field in payload:
@@ -114,13 +133,8 @@ def _paper_decision_json_payloads(artifact_root: str | Path) -> list[tuple[str, 
     payloads: list[tuple[str, dict[str, Any]]] = []
     for relative in PAPER_DECISION_FILES:
         path = root / relative
-        if not _safe_decision_file(path):
-            continue
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if isinstance(payload, dict):
+        payload = _read_decision_json(path)
+        if payload is not None:
             payloads.append((relative, payload))
     return payloads
 
@@ -195,13 +209,8 @@ def project_decision_payload(artifact_root: str | Path) -> dict[str, Any]:
     root = Path(artifact_root)
     for relative in PAPER_DECISION_FILES:
         path = root / relative
-        if not _safe_decision_file(path):
-            continue
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if isinstance(payload, dict):
+        payload = _read_decision_json(path)
+        if payload is not None:
             return payload
     return {}
 
