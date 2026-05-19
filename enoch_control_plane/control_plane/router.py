@@ -6,6 +6,7 @@ import hashlib
 from pathlib import Path, PurePosixPath
 import os
 import re
+import select
 import shlex
 import subprocess
 import tarfile
@@ -677,6 +678,60 @@ def _stop_process(proc: subprocess.Popen | None) -> None:
         pass
 
 
+def _read_process_stdout_bounded(
+    proc: subprocess.Popen,
+    *,
+    command: list[str],
+    timeout_sec: int,
+    max_bytes: int,
+) -> tuple[bytes, bool]:
+    stdout = getattr(proc, "stdout", None)
+    if stdout is None:
+        return b"", False
+    fd = stdout.fileno()
+    chunks: list[bytes] = []
+    total = 0
+    deadline = time.monotonic() + max(1, int(timeout_sec))
+    previous_blocking: bool | None = None
+    try:
+        previous_blocking = os.get_blocking(fd)
+        os.set_blocking(fd, False)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, timeout_sec)
+            ready, _, _ = select.select([fd], [], [], min(remaining, 0.25))
+            if not ready:
+                if proc.poll() is None:
+                    continue
+                try:
+                    chunk = os.read(fd, min(1024 * 1024, max_bytes - total + 1))
+                except BlockingIOError:
+                    break
+            else:
+                try:
+                    chunk = os.read(fd, min(1024 * 1024, max_bytes - total + 1))
+                except BlockingIOError:
+                    continue
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                return b"".join(chunks), True
+            chunks.append(chunk)
+    finally:
+        if previous_blocking is not None:
+            try:
+                os.set_blocking(fd, previous_blocking)
+            except OSError:
+                pass
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise subprocess.TimeoutExpired(command, timeout_sec)
+    proc.wait(timeout=min(5, remaining))
+    return b"".join(chunks), False
+
+
 def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifact_root: Path, source_project_dir: str = "", source_run_id: str = "") -> dict[str, Any]:
     if not config.paper_evidence_sync_enabled:
         return {"enabled": False, "synced": False, "reason": "disabled"}
@@ -755,33 +810,27 @@ def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifa
                 }
             ssh_code = ssh_proc.returncode
         else:
-            ssh_chunks: list[bytes] = []
-            ssh_size = 0
-            deadline = time.monotonic() + max(1, int(config.paper_evidence_sync_timeout_sec))
-            while True:
-                if time.monotonic() > deadline:
-                    raise subprocess.TimeoutExpired(ssh_cmd, config.paper_evidence_sync_timeout_sec)
-                chunk = ssh_stdout.read(1024 * 1024)
-                if not chunk:
-                    break
-                ssh_size += len(chunk)
-                if ssh_size > max_tar_bytes:
-                    _stop_process(ssh_proc)
-                    return {
-                        "enabled": True,
-                        "synced": _local_paper_evidence_present(artifact_root),
-                        "local_evidence_present": _local_paper_evidence_present(artifact_root),
-                        "reason": "remote_tar_too_large",
-                        "remote_dir": remote_dir,
-                        "error": f"remote evidence tar exceeded {max_tar_bytes} bytes",
-                        "http_sync": http_sync,
-                        "method": "worker_http+ssh",
-                    }
-                ssh_chunks.append(chunk)
-            ssh_code = ssh_proc.wait(timeout=5)
+            ssh_out, too_large = _read_process_stdout_bounded(
+                ssh_proc,
+                command=ssh_cmd,
+                timeout_sec=int(config.paper_evidence_sync_timeout_sec),
+                max_bytes=max_tar_bytes,
+            )
+            if too_large:
+                _stop_process(ssh_proc)
+                return {
+                    "enabled": True,
+                    "synced": _local_paper_evidence_present(artifact_root),
+                    "local_evidence_present": _local_paper_evidence_present(artifact_root),
+                    "reason": "remote_tar_too_large",
+                    "remote_dir": remote_dir,
+                    "error": f"remote evidence tar exceeded {max_tar_bytes} bytes",
+                    "http_sync": http_sync,
+                    "method": "worker_http+ssh",
+                }
+            ssh_code = ssh_proc.returncode
             ssh_stderr_file.seek(0)
             ssh_err = ssh_stderr_file.read()
-            ssh_out = b"".join(ssh_chunks)
     except subprocess.TimeoutExpired as exc:
         _stop_process(ssh_proc)
         return {"enabled": True, "synced": _local_paper_evidence_present(artifact_root), "reason": "timeout", "remote_dir": remote_dir, "error": str(exc), "http_sync": http_sync, "method": "worker_http+ssh"}

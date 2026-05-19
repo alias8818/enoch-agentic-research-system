@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import io
+import subprocess
 import tarfile
+import sys
+import threading
 from pathlib import Path
 import time
 from tempfile import TemporaryDirectory
@@ -287,6 +290,80 @@ def test_sync_remote_evidence_kills_started_ssh_on_timeout(tmp_path) -> None:
 
     assert result["reason"] == "timeout"
     assert ssh_proc.killed is True
+
+
+def test_sync_remote_evidence_timeout_bounds_stalled_real_stdout_pipe(tmp_path) -> None:
+    config = _config(tmp_path)
+    config.paper_evidence_sync_timeout_sec = 1
+    artifact_root = tmp_path / "artifact"
+    original_popen = subprocess.Popen
+    child: subprocess.Popen | None = None
+    result: dict[str, object] = {}
+
+    def fake_popen(_cmd, stdout=None, stderr=None):  # noqa: ANN001 - subprocess-compatible test double
+        nonlocal child
+        assert stdout is subprocess.PIPE
+        child = original_popen(
+            [
+                sys.executable,
+                "-c",
+                "import sys,time; sys.stdout.buffer.write(b'abcde'); sys.stdout.flush(); time.sleep(30)",
+            ],
+            stdout=stdout,
+            stderr=stderr,
+        )
+        return child
+
+    def run_sync() -> None:
+        result.update(_sync_remote_project_evidence(config, project_id="project", artifact_root=artifact_root))
+
+    with patch("enoch_control_plane.control_plane.router._sync_worker_http_evidence", return_value={"ok": False, "reason": "worker_read_failed"}):
+        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", side_effect=fake_popen):
+            start = time.monotonic()
+            thread = threading.Thread(target=run_sync, daemon=True)
+            thread.start()
+            thread.join(timeout=3)
+            elapsed = time.monotonic() - start
+            if thread.is_alive():
+                if child is not None:
+                    child.kill()
+                thread.join(timeout=2)
+            assert not thread.is_alive(), "SSH evidence sync must not block past configured timeout"
+
+    assert elapsed < 3
+    assert result["reason"] == "timeout"
+    assert child is not None
+    assert child.poll() is not None
+
+
+def test_sync_remote_evidence_extracts_successful_real_stdout_pipe(tmp_path) -> None:
+    config = _config(tmp_path)
+    config.paper_evidence_sync_timeout_sec = 5
+    artifact_root = tmp_path / "artifact"
+    payload = _tar_bytes(
+        {
+            "run_notes.md": b"measured evidence\n",
+            ".enoch/project_decision.json": b'{"project_decision":"finalize_positive"}',
+        }
+    )
+    original_popen = subprocess.Popen
+
+    def fake_popen(_cmd, stdout=None, stderr=None):  # noqa: ANN001 - subprocess-compatible test double
+        assert stdout is subprocess.PIPE
+        return original_popen(
+            [sys.executable, "-c", f"import sys; sys.stdout.buffer.write({payload!r})"],
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    with patch("enoch_control_plane.control_plane.router._sync_worker_http_evidence", return_value={"ok": False, "reason": "worker_read_failed"}):
+        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", side_effect=fake_popen):
+            result = _sync_remote_project_evidence(config, project_id="project", artifact_root=artifact_root)
+
+    assert result["reason"] == "synced"
+    assert result["local_evidence_present"] is True
+    assert (artifact_root / "run_notes.md").read_text(encoding="utf-8") == "measured evidence\n"
+
 
 def test_sync_remote_evidence_reports_unusable_artifact_root_before_ssh(tmp_path) -> None:
     config = _config(tmp_path)
