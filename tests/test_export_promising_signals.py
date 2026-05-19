@@ -69,6 +69,61 @@ def test_promising_if_scaled_and_compute_scale_blocked_statuses_are_deterministi
     assert blocked["status"] == "compute_scale_blocked"
 
 
+def test_rank_signal_is_deterministic_explainable_and_bucketed() -> None:
+    top = exporter.signal_from_row(
+        _row(
+            project_id="top-signal",
+            evidence_strength="strong",
+            hypothesis_status="supported",
+            followup_recommended=True,
+            followup_required_evidence=["direct metric", "ablation", "seed sweep"],
+            artifact_paths=["run_notes.md", ".enoch/project_decision.json", ".enoch/metrics.json"],
+        )
+    )
+
+    first = exporter.rank_signal(top)
+    second = exporter.rank_signal(dict(reversed(list(top.items()))))
+
+    assert first == second
+    assert first["bucket"] == "top_external_researcher_candidates"
+    assert first["score"] == 100
+    assert first["score_breakdown"]["evidence_strength"] == 35
+    assert first["score_breakdown"]["hypothesis_status"] == 30
+    assert first["score_breakdown"]["source_lineage"] == 12
+    assert first["score_breakdown"]["followup"] == 15
+    assert first["score_breakdown"]["bounded_evidence"] == 18
+    assert first["reasons"] == [
+        "strong evidence_strength",
+        "supported hypothesis_status",
+        "source lineage present",
+        "external source URL present",
+        "bounded follow-up is specified",
+        "local evidence artifact paths are present",
+        "metrics artifact is present",
+        "project decision artifact is present",
+    ]
+
+
+def test_rank_signal_bucket_priority_is_deterministic() -> None:
+    rows = [
+        _row(project_id="compute", compute_scale_blocked=True, evidence_strength="strong", hypothesis_status="supported"),
+        _row(project_id="followup", evidence_strength="moderate", hypothesis_status="mixed", followup_recommended=True),
+        _row(project_id="weak", evidence_strength="moderate", hypothesis_status="mixed", followup_recommended=False),
+        _row(project_id="stale", evidence_strength="moderate", hypothesis_status="unsupported", followup_recommended=True),
+    ]
+    buckets = {
+        row["project_id"]: exporter.rank_signal(exporter.signal_from_row(row))["bucket"]
+        for row in rows
+    }
+
+    assert buckets == {
+        "compute": "compute_scale_blocked",
+        "followup": "followup_recommended",
+        "weak": "weak_local_only_preserved",
+        "stale": "likely_stale_low_value_archive",
+    }
+
+
 def test_excludes_paper_positive_and_hard_negative_rows() -> None:
     rows = [
         _row(project_id="paper-positive", research_outcome="paper_positive", write_needed=True),
@@ -152,12 +207,19 @@ def test_writes_deterministic_jsonl_markdown_and_index(tmp_path) -> None:
     assert (tmp_path / "signals" / "a-signal.md").exists()
     assert (tmp_path / "signals" / "b-signal.md").exists()
     assert "A Signal" in (tmp_path / "signals" / "index.md").read_text(encoding="utf-8")
+    assert (tmp_path / "signals" / "ranked-index.md").exists()
+    assert (tmp_path / "signals" / "buckets" / "followup-recommended.md").exists()
+    ranking = json.loads((tmp_path / "data" / "ranking.json").read_text(encoding="utf-8"))
+    assert ranking["schema_version"] == "enoch_promising_signal_ranking_v1"
+    assert ranking["bucket_counts"] == {"followup_recommended": 2}
+    assert [item["project_id"] for item in ranking["items"]] == ["a-signal", "b-signal"]
     assert (tmp_path / "schemas" / "promising-signal.schema.json").exists()
     manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["schema_version"] == "enoch_promising_signal_manifest_v1"
     assert manifest["record_count"] == 2
     assert manifest["status_counts"] == {"promising_if_scaled": 1, "useful_signal": 1}
     assert manifest["project_ids"] == ["a-signal", "b-signal"]
+    assert manifest["ranking_summary"] == {"followup_recommended": 2}
 
 
 def test_write_export_deduplicates_latest_row_and_removes_stale_files(tmp_path) -> None:
@@ -193,6 +255,18 @@ def test_validate_export_manifest_catches_count_and_status_drift(tmp_path) -> No
 
     assert "manifest.record_count:99 != 2" in issues
     assert "manifest.status_counts.compute_scale_blocked:0 != 1" in issues
+
+
+def test_validate_export_repo_catches_ranking_drift(tmp_path) -> None:
+    exporter.write_export([_row(project_id="signal-a"), _row(project_id="signal-b", compute_scale_blocked=True)], tmp_path)
+    ranking_path = tmp_path / "data" / "ranking.json"
+    ranking = json.loads(ranking_path.read_text(encoding="utf-8"))
+    ranking["items"][0]["score"] = 1
+    ranking_path.write_text(json.dumps(ranking), encoding="utf-8")
+
+    issues = exporter.validate_export_repo(tmp_path)
+
+    assert "ranking.items:drift" in issues
 
 
 def test_validate_repo_against_rows_catches_control_plane_selection_drift(tmp_path) -> None:
