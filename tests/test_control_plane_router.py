@@ -4794,6 +4794,114 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 self.assertEqual(row["provider"], "deterministic")
                 self.assertTrue((config.expanded_project_root / row["paper_id"].split(":", 1)[0] / "papers").exists())
 
+    def test_paper_review_bulk_rewrite_skips_blocked_and_changes_requested_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            papers = []
+            for project_id in ["safe-bulk", "blocked-bulk", "changes-bulk"]:
+                evidence_dir = config.expanded_project_root / project_id
+                evidence_dir.mkdir(parents=True, exist_ok=True)
+                (evidence_dir / "run_notes.md").write_text(f"{project_id} has local evidence for rewrite.\n", encoding="utf-8")
+                papers.append({
+                    "paper_id": f"{project_id}:run-1:arxiv_draft",
+                    "project_id": project_id,
+                    "project_name": project_id,
+                    "run_id": "run-1",
+                    "paper_status": "publication_draft",
+                    "draft_markdown_path": "papers/run-1/final.md",
+                    "draft_latex_path": "papers/run-1/final.tex",
+                    "evidence_bundle_path": "papers/run-1/evidence.json",
+                    "claim_ledger_path": "papers/run-1/claims.json",
+                    "manifest_path": "papers/run-1/manifest.json",
+                })
+            client.post("/control/import/legacy-snapshot", headers=headers, json={"idempotency_key": "unsafe-bulk-import", "paper_rows": papers})
+            client.post("/control/api/paper-reviews/backfill", headers=headers, json={"idempotency_key": "unsafe-bulk-backfill", "dry_run": False})
+            blocked_id = "blocked-bulk:run-1:arxiv_draft"
+            changes_id = "changes-bulk:run-1:arxiv_draft"
+            blocked = client.post(f"/control/api/paper-reviews/{blocked_id}/status", headers=headers, json={
+                "idempotency_key": "unsafe-bulk-blocked",
+                "requested_by": "alice",
+                "review_status": "blocked",
+                "blocker": "private evidence needs review",
+            })
+            self.assertEqual(blocked.status_code, 200)
+            with sqlite3.connect(Path(tmp) / "state" / "control_plane.sqlite3") as conn:
+                conn.execute(
+                    "UPDATE paper_review_items SET review_status=?, decision_summary=? WHERE paper_id=?",
+                    ("changes_requested", "rewrite only after operator fixes claims", changes_id),
+                )
+
+            committed = client.post("/control/api/paper-reviews/rewrite-batch", headers=headers, json={
+                "idempotency_key": "unsafe-bulk-commit",
+                "requested_by": "ai-publication-pipeline",
+                "paper_status": "publication_draft",
+                "review_status": "",
+                "limit": 10,
+                "force": True,
+                "dry_run": False,
+                "skip_rewritten": False,
+            })
+            self.assertEqual(committed.status_code, 200)
+            body = committed.json()
+            self.assertEqual(body["matched"], 1)
+            self.assertEqual(body["processed"], 1)
+            self.assertEqual(body["rewritten"], 1)
+            self.assertEqual(body["rows"][0]["paper_id"], "safe-bulk:run-1:arxiv_draft")
+            self.assertEqual(client.get(f"/control/api/paper-reviews/{blocked_id}", headers=headers).json()["item"]["review_status"], "blocked")
+            self.assertEqual(client.get(f"/control/api/paper-reviews/{changes_id}", headers=headers).json()["item"]["review_status"], "changes_requested")
+
+    def test_paper_review_rewrite_draft_rejects_blocked_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            paper_id = "blocked-rewrite:run-1:arxiv_draft"
+            evidence_dir = config.expanded_project_root / "blocked-rewrite"
+            evidence_dir.mkdir(parents=True, exist_ok=True)
+            (evidence_dir / "run_notes.md").write_text("PRIVATE_EVIDENCE_TOKEN should not be sent to a writer.\n", encoding="utf-8")
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "blocked-rewrite-import",
+                "paper_rows": [{
+                    "paper_id": paper_id,
+                    "project_id": "blocked-rewrite",
+                    "project_name": "Blocked Rewrite",
+                    "run_id": "run-1",
+                    "paper_status": "publication_draft",
+                    "draft_markdown_path": "papers/run-1/final.md",
+                    "draft_latex_path": "papers/run-1/final.tex",
+                    "evidence_bundle_path": "papers/run-1/evidence.json",
+                    "claim_ledger_path": "papers/run-1/claims.json",
+                    "manifest_path": "papers/run-1/manifest.json",
+                }],
+            })
+            client.post("/control/api/paper-reviews/backfill", headers=headers, json={"idempotency_key": "blocked-rewrite-backfill", "dry_run": False})
+            blocked = client.post(f"/control/api/paper-reviews/{paper_id}/status", headers=headers, json={
+                "idempotency_key": "blocked-rewrite-status",
+                "requested_by": "alice",
+                "review_status": "blocked",
+                "blocker": "private evidence needs review",
+            })
+            self.assertEqual(blocked.status_code, 200)
+
+            response = client.post(f"/control/api/paper-reviews/{paper_id}/rewrite-draft", headers=headers, json={
+                "idempotency_key": "blocked-rewrite-attempt",
+                "requested_by": "ai-publication-pipeline",
+                "force": True,
+            })
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("review_status=blocked", response.text)
+            detail = client.get(f"/control/api/paper-reviews/{paper_id}", headers=headers).json()
+            self.assertEqual(detail["item"]["review_status"], "blocked")
+            package = client.post(f"/control/api/paper-reviews/{paper_id}/prepare-finalization-package", headers=headers, json={
+                "idempotency_key": "blocked-rewrite-finalize-attempt",
+                "requested_by": "ai-publication-pipeline",
+                "dry_run": False,
+            })
+            self.assertEqual(package.status_code, 400)
+            self.assertIn("review_status=blocked", package.text)
+
     def test_paper_review_rewrite_draft_writes_vm_local_artifacts_and_logs_event(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _config(tmp)

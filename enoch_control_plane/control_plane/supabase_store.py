@@ -2274,8 +2274,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             return None, False, item, path, self._load_manifest(path)
         if not request.dry_run and require_approval and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value:
             raise ValueError("legacy approval-gated finalization requires internal approved_for_finalization state")
-        if not request.dry_run and not require_approval and current == ReviewStatus.REJECTED.value:
-            raise ValueError("automated finalization cannot publish rejected paper reviews")
+        if not request.dry_run and not require_approval and current in {ReviewStatus.BLOCKED.value, ReviewStatus.CHANGES_REQUESTED.value, ReviewStatus.IN_REVIEW.value, ReviewStatus.REJECTED.value, ReviewStatus.UNREVIEWED.value}:
+            raise ValueError(f"automated finalization cannot publish paper reviews with review_status={current}")
         paper = self.paper_row(paper_id)
         if paper is None:
             raise ValueError("paper row not found")

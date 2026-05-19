@@ -2635,7 +2635,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if review_status:
             rows = [row for row in rows if _normal_status(row.get("review_status")) == _normal_status(review_status)]
         else:
-            rows = [row for row in rows if _normal_status(row.get("review_status")) not in {"finalized", "rejected"}]
+            rows = [row for row in rows if _normal_status(row.get("review_status")) not in {"blocked", "changes_requested", "finalized", "in_review", "rejected", "unreviewed"}]
         if paper_status:
             rows = [row for row in rows if _normal_status(row.get("paper_status")) == _normal_status(paper_status)]
         rows = _sort_rows(_search_rows(rows, search), "-rank_score")
@@ -2728,8 +2728,9 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         item = store.paper_review_row(paper_id, include_rank_reasons=True)
         if paper is None or item is None:
             raise HTTPException(status_code=404, detail="publication automation item not found")
-        if _normal_status(item.get("review_status")) == "rejected":
-            raise HTTPException(status_code=400, detail="rejected publication automation items cannot be rewritten or auto-published")
+        review_status = _normal_status(item.get("review_status"))
+        if review_status in {"blocked", "changes_requested", "in_review", "unreviewed", "rejected"}:
+            raise HTTPException(status_code=400, detail=f"publication automation items with review_status={review_status} cannot be rewritten or auto-published")
         project_id = str(paper.get("project_id") or "")
         project = store.project_row(project_id) if project_id else None
         try:
@@ -2922,7 +2923,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if payload.review_status:
             rows = [row for row in rows if _normal_status(row.get("review_status")) == _normal_status(payload.review_status)]
         else:
-            rows = [row for row in rows if _normal_status(row.get("review_status")) not in {"finalized", "rejected"}]
+            rows = [row for row in rows if _normal_status(row.get("review_status")) not in {"blocked", "changes_requested", "finalized", "in_review", "rejected", "unreviewed"}]
         if payload.paper_status:
             rows = [row for row in rows if _normal_status(row.get("paper_status")) == _normal_status(payload.paper_status)]
         if payload.skip_rewritten:
