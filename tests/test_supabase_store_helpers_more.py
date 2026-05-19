@@ -3017,3 +3017,12 @@ def test_supabase_followup_launch_conflicts_on_reused_queue_id_with_active_state
 
     with pytest.raises(IdempotencyConflict):
         store.launch_followup_candidate(dry_run=False, requested_by="unit")
+
+
+def test_supabase_next_followup_candidate_defers_ranking_to_deterministic_python_guard() -> None:
+    source = inspect.getsource(s.SupabaseControlPlaneStore.next_followup_candidate)
+
+    assert "ranked_followup_readiness" in source
+    assert "promising_followup_priority_key" in source
+    assert "not coalesce(pe.compute_scale_blocked, false)" not in source
+    assert "limit 1" not in source.lower()

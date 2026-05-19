@@ -805,3 +805,51 @@ def test_reconciliation_preserves_sanitized_ready_to_publish_paper_summary() -> 
     assert counts[OperatorLane.READY_TO_PUBLISH.value] == 1
     assert counts["total_operator_items"] == 1
     assert detail["ready_to_publish"] == 1
+
+
+def test_investigation_pipeline_exposes_ranked_followup_readiness_counts() -> None:
+    from enoch_control_plane.control_plane import read_models
+
+    def row(project_id: str, **overrides):
+        base = {
+            "project_id": project_id,
+            "project_name": project_id,
+            "status": "completed",
+            "last_run_state": "wake_ready",
+            "current_run_id": f"{project_id}-run",
+            "next_action_hint": "draft_paper_or_select_next_project",
+            "decision_gate_state": "negative",
+            "research_outcome": "useful_signal",
+            "hypothesis_status": "supported",
+            "evidence_strength": "strong",
+            "claim_scope": "bounded local signal",
+            "scale_limits": "local toy-model only",
+            "source_url": "https://arxiv.org/abs/2605.06546",
+            "artifact_paths": ["metrics.json", "project_decision.json"],
+            "followup_recommended": True,
+            "followup_launched": False,
+            "followup_type": "branch",
+            "followup_title": "Bounded branch",
+            "followup_hypothesis": "The signal survives a bounded local test.",
+            "followup_required_evidence": ["small local metric", "ablation vs baseline"],
+            "followup_success_threshold": "beat the local baseline",
+            "followup_stop_condition": "stop after one bounded miss",
+        }
+        base.update(overrides)
+        return base
+
+    rows = [
+        row("top"),
+        row("scale", compute_scale_blocked=True, evidence_strength="moderate"),
+        row("regular", evidence_strength="weak", hypothesis_status="mixed", source_url=""),
+        row("stale", hypothesis_status="unsupported", evidence_strength="weak"),
+    ]
+
+    overview = read_models.overview(_OverviewStore(rows, []))  # type: ignore[arg-type]
+    pipeline = overview["investigation_pipeline"]
+
+    assert pipeline["ranked_followup_ready"] == 3
+    assert pipeline["ranked_top_external_researcher_candidates"] == 1
+    assert pipeline["ranked_compute_scale_blocked_ready"] == 1
+    assert pipeline["ranked_likely_stale_low_value_archive"] == 1
+    assert pipeline["next_ranked_followup_candidate"]["project_id"] == "top"

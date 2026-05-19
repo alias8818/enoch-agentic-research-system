@@ -12,6 +12,15 @@ from enoch_control_plane.enoch_core.logic import draft_candidate_payload, eligib
 from enoch_control_plane.timeutils import parse_utc_datetime
 
 from .models import PaperStatus, QueueStatus
+from .promising_signal_priority import (
+    COMPUTE_SCALE_BLOCKED,
+    FOLLOWUP_RECOMMENDED,
+    LIKELY_STALE_LOW_VALUE_ARCHIVE,
+    TOP_EXTERNAL_RESEARCHER_CANDIDATES,
+    promising_followup_priority_key,
+    promising_signal_bucket,
+    ranked_followup_readiness,
+)
 from .state_contract import (
     ACTIVE_QUEUE_STATUSES,
     ATTENTION_QUEUE_STATUSES,
@@ -1182,8 +1191,20 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
     else:
         operator_detail_counts.pop("run_complete_draft_needed", None)
     reconciled_queue_rows = _reconciled_operator_rows(queue_rows)
+    raw_reconciled_queue_rows = _reconciled_operator_rows(raw_queue_rows)
     followup_rows = [row for row in reconciled_queue_rows if _text(row.get("operator_detail_stage")) == "followup_candidate"]
-    followup_rows.sort(key=lambda row: (1 if _is_useful_signal(row) else 0, _text(row.get("updated_at"))), reverse=True)
+    followup_rows.sort(key=promising_followup_priority_key)
+    ranked_ready_rows = [
+        row for row in raw_reconciled_queue_rows
+        if ranked_followup_readiness(row)["ready"]
+    ]
+    ranked_ready_rows.sort(key=promising_followup_priority_key)
+    ranked_stale_rows = [
+        row for row in raw_reconciled_queue_rows
+        if promising_signal_bucket(row) == LIKELY_STALE_LOW_VALUE_ARCHIVE
+        and _truthy(row.get("followup_recommended"))
+        and not ranked_followup_readiness(row)["ready"]
+    ]
     useful_signal_rows = [row for row in reconciled_queue_rows if _text(row.get("operator_lane")) == OperatorLane.USEFUL_SIGNAL.value]
     compute_scale_blocked_rows = [row for row in reconciled_queue_rows if _text(row.get("operator_lane")) == OperatorLane.COMPUTE_SCALE_BLOCKED.value]
     publish_candidates = [row for row in paper_rows if _text(row.get("operator_stage")) == "ready_to_publish"]
@@ -1194,12 +1215,20 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         "followup_needed": len(followup_rows),
         "useful_signals": len(useful_signal_rows),
         "compute_scale_blocked": len(compute_scale_blocked_rows),
+        "ranked_followup_ready": len(ranked_ready_rows),
+        "ranked_top_external_researcher_candidates": sum(1 for row in ranked_ready_rows if promising_signal_bucket(row) == TOP_EXTERNAL_RESEARCHER_CANDIDATES),
+        "ranked_compute_scale_blocked_ready": sum(1 for row in ranked_ready_rows if promising_signal_bucket(row) == COMPUTE_SCALE_BLOCKED),
+        "ranked_followup_recommended_ready": sum(1 for row in ranked_ready_rows if promising_signal_bucket(row) == FOLLOWUP_RECOMMENDED),
+        "ranked_likely_stale_low_value_archive": len(ranked_stale_rows),
         "max_followup_depth": MAX_FOLLOWUP_DEPTH,
         "next_followup_candidate": followup_rows[0] if followup_rows else None,
+        "next_ranked_followup_candidate": ranked_ready_rows[0] if ranked_ready_rows else None,
         "next_useful_signal": useful_signal_rows[0] if useful_signal_rows else None,
         "next_compute_scale_blocked": compute_scale_blocked_rows[0] if compute_scale_blocked_rows else None,
         "definitions": {
             "followup_needed": "completed no-paper rows whose decision artifact recommends a bounded adjacent investigation",
+            "ranked_followup_ready": "deterministically ranked promising signals with concrete bounded follow-up evidence eligible for automatic selection",
+            "ranked_likely_stale_low_value_archive": "low-value or unsupported promising signals excluded from automatic follow-up unless explicitly selected",
             "useful_signals": "preserved completed runs with bounded local evidence; this is not an actionable queue and rows disappear from followup_needed after launch",
             "compute_scale_blocked": "preserved promising signals whose next evidence would exceed local compute or wall-clock limits",
             "max_followup_depth": "default safety cap for bounded research-campaign follow-up creation",

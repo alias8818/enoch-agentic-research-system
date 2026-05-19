@@ -34,6 +34,7 @@ from .models import (
     ReviewStatus,
     RunState,
 )
+from .promising_signal_priority import promising_followup_priority_key, ranked_followup_readiness
 from .state_contract import RUN_STATES
 
 SCHEMA_VERSION = 1
@@ -2214,27 +2215,14 @@ class ControlPlaneStore:
         rows = self.operator_queue_rows_sql()
         candidates = [
             row for row in rows
-            if _bool(row.get("followup_recommended"))
-            and _normal(row.get("status")) == QueueStatus.COMPLETED.value
-            and not _bool(row.get("manual_review_required"))
-            and _text(row.get("followup_title"))
-            and _text(row.get("followup_hypothesis"))
-            and len(_concrete_string_list(row.get("followup_required_evidence"))) >= 2
-            and _normal(row.get("followup_type")) in {"deepen", "branch", "retry"}
-            and _text(row.get("followup_success_threshold"))
-            and _text(row.get("followup_stop_condition"))
-            and _int(row.get("followup_depth"), 0) < max_followup_depth
-            and not _bool(row.get("compute_scale_blocked"))
-            and not _bool(row.get("followup_launched"))
-            and (not project_id or _text(row.get("project_id")) == project_id)
+            if (not project_id or _text(row.get("project_id")) == project_id)
+            and ranked_followup_readiness(
+                row,
+                max_followup_depth=max_followup_depth,
+                explicit_project=bool(project_id),
+            )["ready"]
         ]
-        candidates.sort(
-            key=lambda row: (
-                1 if _normal(row.get("research_outcome")) in {"useful_signal", "paper_positive"} else 0,
-                _text(row.get("updated_at")),
-            ),
-            reverse=True,
-        )
+        candidates.sort(key=promising_followup_priority_key)
         return candidates[0] if candidates else None
 
     def launch_followup_candidate(self, *, project_id: str = "", dry_run: bool = True, requested_by: str = "operator", max_followup_depth: int = 4) -> dict[str, Any]:

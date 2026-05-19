@@ -32,6 +32,7 @@ from .models import (
     ReviewStatus,
     RunState,
 )
+from .promising_signal_priority import promising_followup_priority_key, ranked_followup_readiness
 from .store import (
     ACTIVE_STATUSES,
     ALLOWED_STATUS_TRANSITIONS,
@@ -3712,7 +3713,6 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "coalesce(pe.followup_stop_condition, '') <> ''",
             "greatest(coalesce(pe.followup_depth, 0), case when coalesce(i.source_payload_json->>'followup_depth', '') ~ '^[0-9]+$' then (i.source_payload_json->>'followup_depth')::integer when coalesce(i.source_payload_json->>'parent_followup_depth', '') ~ '^[0-9]+$' then (i.source_payload_json->>'parent_followup_depth')::integer else 0 end) < %s",
             "not coalesce(pe.has_live_paper_row, false)",
-            "not coalesce(pe.compute_scale_blocked, false)",
             "not exists (select 1 from control_events ev where ev.event_type = 'followup.launch' and ev.entity_type = 'project' and ev.entity_id = q.project_id)",
         ]
         params: list[Any] = [QueueStatus.COMPLETED.value, max_followup_depth]
@@ -3723,10 +3723,19 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "left join paper_eligibility pe on pe.project_id = q.project_id "
             + "where "
             + " and ".join(clauses)
-            + " order by case when lower(replace(replace(coalesce(pe.research_outcome, ''), '-', '_'), ' ', '_')) in ('useful_signal', 'paper_positive') then 0 else 1 end, q.updated_at desc limit 1",
+            + " order by q.updated_at desc",
             params,
         )
-        return rows[0] if rows else None
+        candidates = [
+            row for row in rows
+            if ranked_followup_readiness(
+                row,
+                max_followup_depth=max_followup_depth,
+                explicit_project=bool(project_id),
+            )["ready"]
+        ]
+        candidates.sort(key=promising_followup_priority_key)
+        return candidates[0] if candidates else None
 
     def launch_followup_candidate(self, *, project_id: str = "", dry_run: bool = True, requested_by: str = "operator", max_followup_depth: int = 4) -> dict[str, Any]:
         candidate = self.next_followup_candidate(project_id=project_id, max_followup_depth=max_followup_depth)
