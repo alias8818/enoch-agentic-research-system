@@ -23,6 +23,11 @@ jobs:
         with:
           repository: alias8818/enoch-ai-research-corpus
           path: enoch-ai-research-corpus
+      - name: Checkout promising signals repo
+        uses: actions/checkout@v6
+        with:
+          repository: alias8818/enoch-promising-signals
+          path: enoch-promising-signals
       - name: Checkout docs repo
         uses: actions/checkout@v6
         with:
@@ -50,11 +55,11 @@ jobs:
       - name: Generate fresh manifest without overwriting committed public manifest
         working-directory: enoch-agentic-research-system
         run: |
-          python3 scripts/generate_ecosystem_manifest.py --corpus ../enoch-ai-research-corpus --docs ../enoch-docs --output /tmp/enoch-ecosystem.generated.json
+          python3 scripts/generate_ecosystem_manifest.py --corpus ../enoch-ai-research-corpus --docs ../enoch-docs --promising ../enoch-promising-signals --output /tmp/enoch-ecosystem.generated.json
       - name: Validate committed public release accounting and wording
         working-directory: enoch-agentic-research-system
         run: |
-          python3 scripts/validate_public_release.py --system . --corpus ../enoch-ai-research-corpus --docs ../enoch-docs --profile ../alias8818.github.io --owner-profile ../alias8818 --personal-site ../jeremyblankenship.dev --generated-manifest /tmp/enoch-ecosystem.generated.json
+          python3 scripts/validate_public_release.py --system . --corpus ../enoch-ai-research-corpus --docs ../enoch-docs --promising ../enoch-promising-signals --profile ../alias8818.github.io --owner-profile ../alias8818 --personal-site ../jeremyblankenship.dev --generated-manifest /tmp/enoch-ecosystem.generated.json
       - name: Render Supabase corpus import ledger validation SQL
         working-directory: enoch-agentic-research-system
         run: |

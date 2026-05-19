@@ -6,7 +6,7 @@ For the current runtime topology and control-plane source of truth, see [`curren
 
 ## Purpose
 
-Some Enoch runs produce a small local signal, a plausible scale-up target, or a follow-up that is compute-scale blocked. Those records are valuable for future researchers, but treating them as papers would overclaim the evidence. The companion private repository `alias8818/enoch-promising-signals` keeps those leads separate from the publication corpus.
+Some Enoch runs produce a small local signal, a plausible scale-up target, or a follow-up that is compute-scale blocked. Those records are valuable for future researchers, but treating them as papers would overclaim the evidence. The companion public repository [`alias8818/enoch-promising-signals`](https://github.com/alias8818/enoch-promising-signals) keeps those leads separate from the publication corpus.
 
 ## Export invariant
 

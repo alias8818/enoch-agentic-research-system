@@ -59,6 +59,7 @@ def build_steps(args: argparse.Namespace) -> list[Step]:
     system = root / "enoch-agentic-research-system"
     corpus = root / "enoch-ai-research-corpus"
     docs = root / "enoch-docs"
+    promising = root / "enoch-promising-signals"
     profile_site = root / "alias8818.github.io"
     owner_profile = root / "alias8818"
     personal_site = root / "jeremyblankenship.dev"
@@ -94,6 +95,8 @@ def build_steps(args: argparse.Namespace) -> list[Step]:
             Step("scan corpus quality", [sys.executable, "scripts/quality_scan.py"], corpus),
             Step("build corpus index", [sys.executable, "scripts/build_index.py"], corpus),
             Step("validate corpus trust surfaces", [sys.executable, "scripts/validate_public_trust_surfaces.py"], corpus),
+            Step("validate promising signals schema", [sys.executable, "scripts/validate.py"], promising),
+            Step("validate promising signals public surfaces", [sys.executable, "scripts/validate_public_trust_surfaces.py"], promising),
             Step(
                 "generate ecosystem manifest",
                 [
@@ -103,6 +106,8 @@ def build_steps(args: argparse.Namespace) -> list[Step]:
                     str(corpus),
                     "--docs",
                     str(docs),
+                    "--promising",
+                    str(promising),
                     "--output",
                     str(generated_manifest),
                 ],
@@ -119,6 +124,8 @@ def build_steps(args: argparse.Namespace) -> list[Step]:
                     str(corpus),
                     "--docs",
                     str(docs),
+                    "--promising",
+                    str(promising),
                     "--profile",
                     str(profile_site),
                     "--owner-profile",

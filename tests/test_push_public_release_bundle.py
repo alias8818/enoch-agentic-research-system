@@ -22,6 +22,7 @@ def test_local_release_checks_run_docs_validators_before_manifest(monkeypatch, t
     profile = repo(tmp_path, "alias8818.github.io")
     owner = repo(tmp_path, "alias8818")
     personal = repo(tmp_path, "jeremyblankenship.dev")
+    promising = repo(tmp_path, "enoch-promising-signals")
     calls: list[tuple[list[str], Path | None]] = []
 
     def fake_run(cmd, *, cwd=None, check=True, capture=False):
@@ -32,6 +33,7 @@ def test_local_release_checks_run_docs_validators_before_manifest(monkeypatch, t
                 json.dumps(
                     {
                         "artifact_count": 377,
+                        "promising_signal_count": 4,
                         "packaging_provenance_pass_count": 377,
                         "strict_claim_evidence_pass_count": 3,
                         "strict_claim_evidence_total_count": 377,
@@ -43,7 +45,7 @@ def test_local_release_checks_run_docs_validators_before_manifest(monkeypatch, t
 
     monkeypatch.setattr(push_public_release_bundle, "run", fake_run)
 
-    push_public_release_bundle.run_local_release_checks(system, corpus, docs, profile, owner, personal)
+    push_public_release_bundle.run_local_release_checks(system, corpus, docs, profile, owner, personal, promising)
 
     commands = [cmd for cmd, _cwd in calls]
     assert commands[:2] == [
@@ -53,7 +55,11 @@ def test_local_release_checks_run_docs_validators_before_manifest(monkeypatch, t
     assert calls[0][1] == system.path
     assert calls[1][1] == docs.path
     assert "scripts/generate_ecosystem_manifest.py" in commands[2]
+    assert "--promising" in commands[2]
+    assert str(promising.path) in commands[2]
     assert "scripts/validate_public_release.py" in commands[3]
+    assert "--promising" in commands[3]
+    assert str(promising.path) in commands[3]
 
 
 def test_local_release_checks_stop_when_docs_validator_fails(monkeypatch, tmp_path: Path) -> None:
@@ -63,6 +69,7 @@ def test_local_release_checks_stop_when_docs_validator_fails(monkeypatch, tmp_pa
     profile = repo(tmp_path, "alias8818.github.io")
     owner = repo(tmp_path, "alias8818")
     personal = repo(tmp_path, "jeremyblankenship.dev")
+    promising = repo(tmp_path, "enoch-promising-signals")
     calls: list[list[str]] = []
 
     def fake_run(cmd, *, cwd=None, check=True, capture=False):
@@ -74,7 +81,7 @@ def test_local_release_checks_stop_when_docs_validator_fails(monkeypatch, tmp_pa
     monkeypatch.setattr(push_public_release_bundle, "run", fake_run)
 
     with pytest.raises(subprocess.CalledProcessError):
-        push_public_release_bundle.run_local_release_checks(system, corpus, docs, profile, owner, personal)
+        push_public_release_bundle.run_local_release_checks(system, corpus, docs, profile, owner, personal, promising)
 
     assert calls == [
         [push_public_release_bundle.sys.executable, "scripts/validate_runtime_snapshot_links.py"],

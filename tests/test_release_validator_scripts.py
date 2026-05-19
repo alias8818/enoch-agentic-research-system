@@ -83,3 +83,30 @@ def test_generate_ecosystem_manifest_rejects_missing_system_and_docs_repos(tmp_p
     with pytest.raises(SystemExit, match="system repo path does not exist"):
         generate_ecosystem_manifest.main()
     assert not output.exists()
+
+
+def test_generate_ecosystem_manifest_includes_promising_signal_count(tmp_path, monkeypatch) -> None:
+    system = tmp_path / "system"
+    docs = tmp_path / "docs"
+    corpus = tmp_path / "corpus"
+    promising = tmp_path / "promising"
+    system.mkdir()
+    docs.mkdir()
+    _write_manifest_inputs(corpus)
+    (promising / "data").mkdir(parents=True)
+    (promising / "data" / "signals.jsonl").write_text("{}\n{}\n", encoding="utf-8")
+    output = tmp_path / "ecosystem.json"
+
+    monkeypatch.setattr(sys, "argv", [
+        "generate_ecosystem_manifest.py",
+        "--system", str(system),
+        "--docs", str(docs),
+        "--corpus", str(corpus),
+        "--promising", str(promising),
+        "--output", str(output),
+    ])
+
+    assert generate_ecosystem_manifest.main() == 0
+    manifest = json.loads(output.read_text(encoding="utf-8"))
+    assert manifest["promising_signal_count"] == 2
+    assert manifest["repos"]["promising_signals"]["name"] == "alias8818/enoch-promising-signals"

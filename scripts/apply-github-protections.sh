@@ -7,6 +7,7 @@ set -euo pipefail
 
 CODE_REPO="${CODE_REPO:-alias8818/enoch-agentic-research-system}"
 CORPUS_REPO="${CORPUS_REPO:-alias8818/enoch-ai-research-corpus}"
+PROMISING_REPO="${PROMISING_REPO:-alias8818/enoch-promising-signals}"
 
 repo_edit() {
   local repo="$1" desc="$2" topics="$3"
@@ -61,6 +62,10 @@ repo_edit "$CODE_REPO" \
 repo_edit "$CORPUS_REPO" \
   "AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim ledgers, manifests, and packaging/provenance reports." \
   "ai-generated,research-corpus,agentic-ai,provenance,claim-ledger,local-ai"
+repo_edit "$PROMISING_REPO" \
+  "4 bounded Enoch promising signals preserved for larger-compute follow-up; not validated papers, not peer reviewed, and separate from the paper corpus." \
+  "ai-generated,research-signals,agentic-ai,local-ai,research-automation,provenance"
 
 protect_branch "$CODE_REPO" '["tests", "public-release-integrity", "secret-scan"]'
 protect_branch "$CORPUS_REPO" '["quality", "public-release-integrity", "secret-scan"]'
+protect_branch "$PROMISING_REPO" '["quality", "public-release-integrity", "secret-scan"]'

@@ -218,3 +218,42 @@ def test_corpus_public_trust_validator_is_not_executed_by_default(monkeypatch, t
     validate_public_release.check_corpus_public_trust_validator(corpus, failures)
 
     assert failures == []
+
+
+def test_promising_signals_repo_validation_rejects_count_drift(tmp_path) -> None:
+    promising = tmp_path / "promising"
+    (promising / "data").mkdir(parents=True)
+    (promising / "scripts").mkdir()
+    (promising / "data" / "signals.jsonl").write_text(
+        '{"project_id":"p1","status":"useful_signal","do_not_overclaim":{"disclaimer":"These are not validated papers.","not_a_paper":true,"not_peer_reviewed":true,"not_publication_validated":true,"not_in_main_corpus":true},"evidence":{"public_evidence_copied":false}}\n',
+        encoding="utf-8",
+    )
+    (promising / "scripts" / "validate.py").write_text("print('ok')\n", encoding="utf-8")
+    (promising / "scripts" / "validate_public_trust_surfaces.py").write_text("print('ok')\n", encoding="utf-8")
+    failures: list[str] = []
+
+    validate_public_release.check_promising_signals_repo(promising, expected_count=2, failures=failures)
+
+    assert any("promising_signal_count drift: 1 != 2" in failure for failure in failures)
+
+
+def test_promising_signals_public_paths_are_secret_scanned(tmp_path) -> None:
+    promising = tmp_path / "promising"
+    (promising / "signals").mkdir(parents=True)
+    (promising / "signals" / "example.md").write_text("SYNTHETIC_API_KEY=syn_abcdefghijklmnopqrstuvwxyz1234567890\n", encoding="utf-8")
+
+    paths = validate_public_release.promising_signal_public_paths(promising)
+    failures: list[str] = []
+    validate_public_release.check_public_secret_tokens(paths, failures)
+
+    assert failures == [f"secret-like token in public release surface {promising / 'signals' / 'example.md'}:1"]
+
+
+def test_promising_signal_count_checks_reject_stale_public_copy(tmp_path) -> None:
+    page = tmp_path / "README.md"
+    page.write_text("A separate repo preserves 3 bounded promising signals outside the paper corpus.", encoding="utf-8")
+    failures: list[str] = []
+
+    validate_public_release.check_promising_counts([page], promising_signal_count=4, failures=failures)
+
+    assert failures == [f"promising signal count drift in {page}:1: 3 != 4"]

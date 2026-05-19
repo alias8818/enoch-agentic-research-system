@@ -49,5 +49,6 @@ All integration credentials must remain outside git and be configured through en
 2. Make `alias8818/enoch-agentic-research-system` public. ✅
 3. Make `alias8818/enoch-ai-research-corpus` public. ✅
 4. Make `alias8818/enoch-docs` public. ✅
-5. Open the site and docs in a private/incognito browser and verify public links resolve. ✅
-6. Update launch posts with the final public URLs.
+5. Make `alias8818/enoch-promising-signals` public after validating it is not counted as corpus papers. ✅
+6. Open the site and docs in a private/incognito browser and verify public links resolve. ✅
+7. Update launch posts with the final public URLs.

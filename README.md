@@ -61,7 +61,7 @@ See [`docs/release/authorship-and-provenance.md`](docs/release/authorship-and-pr
 
 [Enoch Docs](https://solo-09d10f60.mintlify.app/) contains source-grounded operator and reviewer documentation for the system, corpus, deployment path, and release boundaries.
 
-The docs source lives in [`alias8818/enoch-docs`](https://github.com/alias8818/enoch-docs).
+The docs source lives in [`alias8818/enoch-docs`](https://github.com/alias8818/enoch-docs). Bounded useful or scale-blocked no-paper leads live separately in [`alias8818/enoch-promising-signals`](https://github.com/alias8818/enoch-promising-signals); those records are not validated papers and are not part of the paper corpus.
 
 ## Runtime and upstream tooling
 
@@ -120,7 +120,7 @@ The runtime follows semantic versioning. Keep `VERSION`, `pyproject.toml`, and [
 - [`docs/state-simplification-todo.md`](docs/state-simplification-todo.md) — next-phase state/ledger simplification backlog
 - [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md) — Research Facility scouting, control-plane ideas, and queue handoff
 - [`docs/research-facility.md`](docs/research-facility.md) — source/candidate/admission/lineage ledgers and admission guardrails
-- [`docs/promising-signals-export.md`](docs/promising-signals-export.md) — private companion export lane for bounded useful/promising no-paper signals.
+- [`docs/promising-signals-export.md`](docs/promising-signals-export.md) — public companion export lane for bounded useful/promising no-paper signals.
 
 **Release context:**
 - [`CHANGELOG.md`](CHANGELOG.md) — runtime version history and compatibility notes

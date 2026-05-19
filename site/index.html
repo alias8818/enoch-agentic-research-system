@@ -41,6 +41,7 @@
       <aside class="stat-card">
         <img class="hero-visual" src="assets/social-card.svg" alt="Enoch launch card showing the control plane, artifact counts, claim ledgers, evidence, and open-source release path" />
         <div><span class="stat" id="artifactCount">388</span><span>canonical AI-generated artifacts indexed</span></div>
+        <div><span class="stat" id="promisingSignalCount">4</span><span>bounded promising signals preserved outside the paper corpus</span></div>
         <div><span class="stat" id="gatePassCount">388/388</span><span>pass packaging/provenance lint</span></div>
         <div>
           <a class="stat-link" href="#strict-pass-examples">
@@ -74,7 +75,7 @@
         <div><strong>3. Dispatch</strong><span>Control plane gates queue state, maintenance state, worker health, and single-lane safety.</span></div>
         <div><strong>4. Execute</strong><span>GB10 worker runs the experiment while wake gate watches process and telemetry truth.</span></div>
         <div><strong>5. Preserve</strong><span>Run notes, evidence bundles, claim ledgers, metrics, and manifests are synced.</span></div>
-        <div><strong>6. Publish</strong><span>The artifact writer emits evidence-grounded reports with provenance, caveats, and release checks.</span></div>
+        <div><strong>6. Publish</strong><span>The artifact writer emits evidence-grounded reports with provenance, caveats, and release checks; bounded useful no-paper signals stay in a separate promising-signals lane.</span></div>
       </div>
     </section>
 
@@ -135,7 +136,7 @@ scripts/proof-local.sh</code></pre>
             — a worked example of what a passing audit looks like end to end, including the surrogate-hash path for declared-unavailable result files.
           </li>
         </ul>
-        <p>Read <a href="https://github.com/alias8818/enoch-ai-research-corpus/blob/main/quality/claim_evidence_audit.md">the strict audit report</a> for the full corpus-level gate result and per-artifact evidence accounting.</p>
+        <p>Read <a href="https://github.com/alias8818/enoch-ai-research-corpus/blob/main/quality/claim_evidence_audit.md">the strict audit report</a> for the full corpus-level gate result and per-artifact evidence accounting. Bounded useful or scale-blocked no-paper leads are kept in <a href="https://github.com/alias8818/enoch-promising-signals">the promising-signals repo</a> instead of being counted as corpus papers.</p>
       </div>
     </section>
 

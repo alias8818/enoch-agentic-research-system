@@ -189,7 +189,15 @@ def sync_corpus_import_ledger(system: Repo, corpus: Repo, *, database_url: str, 
             cwd=system.path,
         )
 
-def run_local_release_checks(system: Repo, corpus: Repo, docs: Repo, profile_site: Repo, owner_profile: Repo, personal_site: Repo) -> None:
+def run_local_release_checks(
+    system: Repo,
+    corpus: Repo,
+    docs: Repo,
+    profile_site: Repo,
+    owner_profile: Repo,
+    personal_site: Repo,
+    promising: Repo,
+) -> None:
     hf_export = system.path.parent / "hf-enoch-ai-research-corpus"
     with tempfile.TemporaryDirectory(prefix="enoch-release-") as tmp:
         generated = Path(tmp) / "ecosystem.generated.json"
@@ -202,6 +210,8 @@ def run_local_release_checks(system: Repo, corpus: Repo, docs: Repo, profile_sit
             str(corpus.path),
             "--docs",
             str(docs.path),
+            "--promising",
+            str(promising.path),
             "--output",
             str(generated),
         ], cwd=system.path)
@@ -214,6 +224,8 @@ def run_local_release_checks(system: Repo, corpus: Repo, docs: Repo, profile_sit
             str(corpus.path),
             "--docs",
             str(docs.path),
+            "--promising",
+            str(promising.path),
             "--profile",
             str(profile_site.path),
             "--owner-profile",
@@ -232,6 +244,7 @@ def run_local_release_checks(system: Repo, corpus: Repo, docs: Repo, profile_sit
             json.dumps(
                 {
                     "artifact_count": manifest.get("artifact_count"),
+                    "promising_signal_count": manifest.get("promising_signal_count"),
                     "packaging_provenance_pass_count": manifest.get("packaging_provenance_pass_count"),
                     "strict_claim_evidence_pass_count": manifest.get("strict_claim_evidence_pass_count"),
                     "strict_claim_evidence_total_count": manifest.get("strict_claim_evidence_total_count"),
@@ -285,7 +298,8 @@ def main() -> int:
     profile_site = Repo("profile_site", root / "alias8818.github.io")
     personal_site = Repo("personal_site", root / "jeremyblankenship.dev")
     corpus = Repo("corpus", root / "enoch-ai-research-corpus", workflow="Public release integrity")
-    ordered_dependencies = [system, docs, owner_profile, profile_site, personal_site]
+    promising = Repo("promising", root / "enoch-promising-signals", workflow="Public release integrity")
+    ordered_dependencies = [system, docs, owner_profile, profile_site, personal_site, promising]
     all_repos = [*ordered_dependencies, corpus]
 
     for repo in all_repos:
@@ -296,7 +310,7 @@ def main() -> int:
             require_clean(repo)
         require_not_behind(repo)
 
-    run_local_release_checks(system, corpus, docs, profile_site, owner_profile, personal_site)
+    run_local_release_checks(system, corpus, docs, profile_site, owner_profile, personal_site, promising)
     if args.sync_corpus_ledger:
         sync_corpus_import_ledger(
             system,

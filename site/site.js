@@ -4,6 +4,7 @@ const esc = (value) => String(value ?? '').replace(/[&<>"]/g, (ch) => ({'&':'&am
 
 function renderManifest(manifest) {
   const artifactCount = document.getElementById('artifactCount');
+  const promisingSignalCount = document.getElementById('promisingSignalCount');
   const gatePassCount = document.getElementById('gatePassCount');
   const manifestNote = document.getElementById('manifestNote');
   const strictAuditCount = document.getElementById('strictAuditCount');
@@ -15,6 +16,9 @@ function renderManifest(manifest) {
   const strictTotal = Number(manifest.strict_claim_evidence_total_count || manifest.artifact_count);
   const strictBlocked = Math.max(strictTotal - strictPass, 0);
   artifactCount.textContent = total.toLocaleString();
+  if (promisingSignalCount && Number.isFinite(Number(manifest.promising_signal_count))) {
+    promisingSignalCount.textContent = Number(manifest.promising_signal_count).toLocaleString();
+  }
   gatePassCount.textContent = `${Number(manifest.packaging_provenance_pass_count).toLocaleString()}/${total.toLocaleString()}`;
   strictAuditCount.textContent = `${strictPass.toLocaleString()}/${strictTotal.toLocaleString()}`;
   manifestNote.innerHTML = strictBlocked === 0

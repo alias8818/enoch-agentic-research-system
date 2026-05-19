@@ -38,11 +38,13 @@ SPLIT_SVG_COUNT_PHRASE = re.compile(r"\b(\d{2,5})\b(?:\s|<[^>]+>)+indexed(?:\s|<
 PASS_PHRASE = re.compile(r"\b(\d{1,5})\s*/\s*(\d{2,5})\b\s+(pass packaging/provenance|pass packaging and provenance|packaging/provenance passed|pass count|quality|pass strict claim/evidence|pass strict claim and evidence|strict claim/evidence audit)", re.I)
 OF_PASS_PHRASE = re.compile(r"\b(\d{2,5})\s+of\s+(\d{2,5})\s+pass(?:es)?\s+(?:the\s+)?packaging(?:/| and )provenance", re.I)
 STRICT_FAIL_PHRASE = re.compile(r"\b(?:fails?|flags|rejects)\s+(\d{1,5})\s+of\s+(?:its own\s+|its\s+|the\s+)?(\d{2,5})\s+(?:canonical\s+)?outputs", re.I)
+PROMISING_COUNT_PHRASE = re.compile(r"\b(\d{1,5})\b(?:\s|<[^>]+>)+(?:bounded\s+)?(?:useful/scale-blocked\s+|useful\s+or\s+scale-blocked\s+|promising\s+)?(?:leads|signals)(?:\s|<[^>]+>)+(?:preserved|outside|that are not|repo|records)", re.I)
 FULL_AUDIT_CLAIM = re.compile(r"fully auditable|deeply auditable", re.I)
 QUALITY_WORDING = re.compile(r"quality (?:gates?|scans?|checks?)", re.I)
 GITHUB_REPO_METADATA = [
     "alias8818/enoch-agentic-research-system",
     "alias8818/enoch-ai-research-corpus",
+    "alias8818/enoch-promising-signals",
     "alias8818/enoch-docs",
     "alias8818/alias8818",
     "alias8818/alias8818.github.io",
@@ -100,6 +102,15 @@ def check_public_secret_tokens(paths: list[Path], failures: list[str]) -> None:
             if "[REDACTED_TOKEN]" in match.group(0):
                 continue
             fail(f"secret-like token in public release surface {path}:{line_for(text, match.start())}", failures)
+
+
+def check_promising_counts(paths: list[Path], promising_signal_count: int, failures: list[str]) -> None:
+    for path in paths:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for match in PROMISING_COUNT_PHRASE.finditer(text):
+            value = int(match.group(1))
+            if value != promising_signal_count:
+                fail(f"promising signal count drift in {path}:{line_for(text, match.start())}: {value} != {promising_signal_count}", failures)
 
 
 def check_counts(paths: list[Path], artifact_count: int, pass_count: int, failures: list[str]) -> None:
@@ -162,6 +173,7 @@ def check_required_copy(paths: list[Path], failures: list[str]) -> None:
 def check_manifest(committed: dict, generated: dict | None, failures: list[str]) -> None:
     required = [
         "artifact_count",
+        "promising_signal_count",
         "packaging_provenance_pass_count",
         "gate_name",
         "gate_version",
@@ -214,9 +226,10 @@ def fetch_github_repo_metadata(repo: str) -> dict:
         with urlopen(req, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
-        if exc.code != 403:
+        if exc.code not in {403, 404}:
             raise
-        # Public unauthenticated GitHub REST calls are rate-limited aggressively.
+        # Public unauthenticated GitHub REST calls are rate-limited aggressively,
+        # and private repos return 404 until flipped public.
         # Prefer the authenticated gh CLI fallback so the release validator remains
         # deterministic on developer machines and CI runners that already have gh
         # credentials configured.
@@ -235,8 +248,9 @@ def fetch_github_repo_metadata(repo: str) -> dict:
         return json.loads(result.stdout)
 
 
-def check_github_metadata(artifact_count: int, failures: list[str]) -> None:
+def check_github_metadata(artifact_count: int, failures: list[str], promising_signal_count: int = 0) -> None:
     expected_corpus_prefix = f"{artifact_count} AI-generated research artifacts produced by Enoch"
+    expected_promising_prefix = f"{promising_signal_count} bounded Enoch promising signals"
     expected_homepage = "https://alias8818.github.io/enoch-agentic-research-system/"
     for repo in GITHUB_REPO_METADATA:
         try:
@@ -258,7 +272,57 @@ def check_github_metadata(artifact_count: int, failures: list[str]) -> None:
                 fail(f"corpus GitHub description does not start with {expected_corpus_prefix!r}: {description!r}", failures)
             if homepage != expected_homepage:
                 fail(f"corpus GitHub homepage drift: {homepage!r} != {expected_homepage!r}", failures)
+        if repo == "alias8818/enoch-promising-signals" and promising_signal_count:
+            if not description.startswith(expected_promising_prefix):
+                fail(f"promising signals GitHub description does not start with {expected_promising_prefix!r}: {description!r}", failures)
+            if homepage != expected_homepage:
+                fail(f"promising signals GitHub homepage drift: {homepage!r} != {expected_homepage!r}", failures)
 
+
+
+def promising_signal_public_paths(promising: Path) -> list[Path]:
+    roots = [promising / "README.md", promising / "docs", promising / "data", promising / "schemas", promising / "signals", promising / "templates"]
+    paths: list[Path] = []
+    for root in roots:
+        if root.is_file() and root.suffix.lower() in PUBLIC_SECRET_SCAN_EXTENSIONS:
+            paths.append(root)
+        elif root.exists():
+            for path in root.rglob("*"):
+                if path.is_file() and path.suffix.lower() in PUBLIC_SECRET_SCAN_EXTENSIONS:
+                    paths.append(path)
+    return paths
+
+
+def check_promising_signals_repo(promising: Path, expected_count: int, failures: list[str]) -> None:
+    signals_path = promising / "data" / "signals.jsonl"
+    validator = promising / "scripts" / "validate.py"
+    public_validator = promising / "scripts" / "validate_public_trust_surfaces.py"
+    if not signals_path.exists():
+        fail(f"promising signals repo missing data/signals.jsonl: {signals_path}", failures)
+        return
+    if not validator.exists():
+        fail("promising signals repo missing scripts/validate.py", failures)
+    if not public_validator.exists():
+        fail("promising signals repo missing scripts/validate_public_trust_surfaces.py", failures)
+    records = [json.loads(line) for line in signals_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if len(records) != expected_count:
+        fail(f"promising_signal_count drift: {len(records)} != {expected_count}", failures)
+    allowed = {"useful_signal", "promising_if_scaled", "compute_scale_blocked"}
+    for record in records:
+        project_id = str(record.get("project_id") or "<missing>")
+        if record.get("status") not in allowed:
+            fail(f"promising signal {project_id} has invalid status {record.get('status')!r}", failures)
+        disclaimer = record.get("do_not_overclaim") if isinstance(record.get("do_not_overclaim"), dict) else {}
+        if "not validated papers" not in str(disclaimer.get("disclaimer") or ""):
+            fail(f"promising signal {project_id} missing not-validated-papers disclaimer", failures)
+        evidence = record.get("evidence") if isinstance(record.get("evidence"), dict) else {}
+        if evidence.get("public_evidence_copied") is not False:
+            fail(f"promising signal {project_id} public_evidence_copied must be false", failures)
+    for script in (validator, public_validator):
+        if script.exists():
+            result = subprocess.run([sys.executable, str(script)], cwd=promising, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            if result.returncode != 0:
+                fail(f"promising signals validator failed: {script.name}\n" + result.stdout.strip(), failures)
 
 def check_hf_export(hf_export: Path, artifact_count: int, strict_pass_count: int, failures: list[str]) -> None:
     summary_path = hf_export / "dataset_summary.json"
@@ -308,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--system", type=Path, required=True)
     parser.add_argument("--corpus", type=Path, required=True)
     parser.add_argument("--docs", type=Path, required=True)
+    parser.add_argument("--promising", type=Path, default=None)
     parser.add_argument("--profile", type=Path, required=True)
     parser.add_argument("--owner-profile", type=Path, default=None)
     parser.add_argument("--personal-site", type=Path, default=None)
@@ -320,6 +385,7 @@ def main(argv: list[str] | None = None) -> int:
     system = args.system.resolve()
     corpus = args.corpus.resolve()
     docs = args.docs.resolve()
+    promising = args.promising.resolve() if args.promising else None
     profile = args.profile.resolve()
     owner_profile = args.owner_profile.resolve() if args.owner_profile else None
     personal_site = args.personal_site.resolve() if args.personal_site else None
@@ -337,6 +403,9 @@ def main(argv: list[str] | None = None) -> int:
         fail(f"manifest artifact_count {manifest.get('artifact_count')} != corpus index count {artifact_count}", failures)
     if manifest.get("packaging_provenance_pass_count") != pass_count:
         fail("manifest packaging_provenance_pass_count does not match quality_report passed", failures)
+    promising_count = int(manifest.get("promising_signal_count") or 0)
+    if promising:
+        check_promising_signals_repo(promising, promising_count, failures)
     if manifest.get("packaging_provenance_pass_count") != manifest.get("artifact_count"):
         fail("manifest pass count and artifact count diverge; update public copy accordingly", failures)
     if report.get("gate_name") != "packaging_provenance_gate":
@@ -351,9 +420,11 @@ def main(argv: list[str] | None = None) -> int:
     if personal_site:
         public_paths += existing(personal_site, PERSONAL_SITE_FILES)
     public_paths += existing(corpus, ["README.md", "quality/quality_report.md", "quality/packaging_provenance_report.md"])
+    promising_paths = promising_signal_public_paths(promising) if promising else []
 
-    check_public_secret_tokens(public_paths + corpus_artifact_public_paths(corpus), failures)
+    check_public_secret_tokens(public_paths + corpus_artifact_public_paths(corpus) + promising_paths, failures)
     check_counts(public_paths, int(manifest["artifact_count"]), int(manifest["packaging_provenance_pass_count"]), failures)
+    check_promising_counts(public_paths + promising_paths, promising_count, failures)
     check_strict_public_counts(
         public_paths,
         int(manifest["artifact_count"]),
@@ -370,7 +441,7 @@ def main(argv: list[str] | None = None) -> int:
         if int(manifest.get("strict_claim_evidence_pass_count", 0)) < int(manifest.get("artifact_count") or 0):
             fail(f"public copy implies full strict auditability while strict audit is incomplete: {match.group(0)}", failures)
     if not args.skip_github_metadata:
-        check_github_metadata(int(manifest["artifact_count"]), failures)
+        check_github_metadata(int(manifest["artifact_count"]), failures, promising_count)
     if hf_export:
         check_hf_export(
             hf_export,
