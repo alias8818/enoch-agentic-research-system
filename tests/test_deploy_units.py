@@ -460,3 +460,23 @@ def test_control_plane_service_has_bounded_shutdown_for_deploy_restarts() -> Non
     assert "TimeoutStopSec=10" in service
     assert "KillMode=mixed" in service
     assert "FinalKillSignal=SIGKILL" in service
+
+
+def test_source_lineage_check_unit_is_post_cutover_guard() -> None:
+    service = (ROOT / "deploy" / "enoch-source-lineage-check.service").read_text(encoding="utf-8")
+    timer = (ROOT / "deploy" / "enoch-source-lineage-check.timer").read_text(encoding="utf-8")
+    script = (ROOT / "deploy" / "enoch_source_lineage_check.py").read_text(encoding="utf-8")
+    combined = service + timer + script
+    assert "scripts/validate_source_lineage.py" not in service
+    assert "deploy/enoch_source_lineage_check.py --json" in service
+    assert "EnvironmentFile=-/etc/enoch-control-plane/postgres.env" in service
+    assert "EnvironmentFile=-/etc/enoch-control-plane/supabase.env" in service
+    assert "Environment=ENOCH_SOURCE_LINEAGE_CREATED_AFTER=2026-05-19T17:51:00Z" in service
+    assert "Environment=ENOCH_SOURCE_LINEAGE_REPORT_PATH=/var/lib/enoch-control-plane/source-lineage/latest-report.json" in service
+    assert "OnUnitActiveSec=10min" in timer
+    assert "last-alert-fingerprint" in script
+    assert "send_pushover" in script
+    install = (ROOT / "scripts" / "install-control-plane.sh").read_text(encoding="utf-8")
+    assert "enoch-source-lineage-check.service" in install
+    assert "enoch-source-lineage-check.timer" in install
+    assert "notion" not in combined.lower()

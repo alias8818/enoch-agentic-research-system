@@ -58,6 +58,7 @@ def evaluate_longhaul_readiness(
     services: dict[str, dict[str, Any]],
     provider_budget: dict[str, Any] | None = None,
     research_quality: dict[str, Any] | None = None,
+    source_lineage: dict[str, Any] | None = None,
     now: datetime | None = None,
     research_max_age_seconds: int = 2700,
     corpus_max_age_seconds: int = 4500,
@@ -150,6 +151,14 @@ def evaluate_longhaul_readiness(
         f"research quality status={quality_status}",
     )
 
+    lineage = source_lineage or {"ok": False, "status": "blocked", "problem_counts": {"missing_source_lineage_report": 1}}
+    lineage_status = str(lineage.get("status") or "unknown")
+    lineage_ok = bool(lineage.get("ok")) and lineage_status in {"clean", "warnings"}
+    add(
+        check("source_lineage_not_blocked", lineage_ok, f"source lineage status={lineage_status}", data=lineage),
+        f"source lineage status={lineage_status}",
+    )
+
     status = "ready" if not blockers else "blocked"
     return {
         "ok": not blockers,
@@ -182,5 +191,13 @@ def evaluate_longhaul_readiness(
             "research_quality_report_path": quality.get("report_path") or "",
             "research_quality_report_mtime": quality.get("report_mtime") or "",
             "research_quality_post_prompt_monitor": quality.get("post_prompt_monitor") or {},
+            "source_lineage_status": lineage_status,
+            "source_lineage_candidates_checked": int(lineage.get("candidates_checked") or 0),
+            "source_lineage_followups_checked": int(lineage.get("followups_checked") or 0),
+            "source_lineage_missing_sources": int(lineage.get("missing_sources") or 0),
+            "source_lineage_missing_lineage": int(lineage.get("missing_lineage") or 0),
+            "source_lineage_problem_counts": lineage.get("problem_counts") or {},
+            "source_lineage_report_path": lineage.get("report_path") or "",
+            "source_lineage_report_mtime": lineage.get("report_mtime") or "",
         },
     }

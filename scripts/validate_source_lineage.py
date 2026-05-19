@@ -16,6 +16,7 @@ import os
 import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from datetime import UTC, datetime
 from typing import Any
 
@@ -257,8 +258,11 @@ def build_report(snapshot: SourceLineageSnapshot, *, created_after: str = "") ->
     by_kind: dict[str, int] = {}
     for problem in problems:
         by_kind[problem["kind"]] = by_kind.get(problem["kind"], 0) + 1
+    status = "blocked" if problems else "clean"
     return {
+        "schema_version": "enoch_source_lineage_report_v1",
         "ok": not problems,
+        "status": status,
         "created_after": created_after,
         "checked_at": datetime.now(UTC).isoformat(),
         "counts": {
@@ -294,6 +298,15 @@ def fetch_snapshot(database_url: str, *, created_after: str = "") -> SourceLinea
         )
 
 
+def write_report(report: Mapping[str, Any], path: str | Path) -> Path:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(f".{target.name}.tmp")
+    tmp.write_text(json.dumps(report, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    tmp.replace(target)
+    return target
+
+
 def _print_human(report: Mapping[str, Any], *, max_rows: int) -> None:
     counts = report["counts"]
     print(
@@ -316,6 +329,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--database-url", default=os.environ.get("ENOCH_SOURCE_LINEAGE_DATABASE_URL") or os.environ.get("ENOCH_SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL") or "", help="Postgres URL. Defaults to ENOCH_SOURCE_LINEAGE_DATABASE_URL, ENOCH_SUPABASE_DATABASE_URL, or DATABASE_URL.")
     parser.add_argument("--created-after", default=os.environ.get("ENOCH_SOURCE_LINEAGE_CREATED_AFTER", ""), help="Only require rows created at or after this timestamptz. Useful while historical gaps remain documented.")
     parser.add_argument("--json", action="store_true", help="Print the full report as JSON.")
+    parser.add_argument("--output", default="", help="Optional path to write the JSON report.")
     parser.add_argument("--max-problems", type=int, default=0, help="Allowed problem count before failing. Defaults to 0.")
     parser.add_argument("--show-problems", type=int, default=25, help="Max problem rows to print in human output.")
     args = parser.parse_args(argv)
@@ -324,6 +338,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise SystemExit("database URL required via --database-url or ENOCH_SOURCE_LINEAGE_DATABASE_URL/ENOCH_SUPABASE_DATABASE_URL/DATABASE_URL")
     snapshot = fetch_snapshot(args.database_url, created_after=args.created_after)
     report = build_report(snapshot, created_after=args.created_after)
+    if args.output:
+        write_report(report, args.output)
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True, default=str))
     else:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from scripts import validate_source_lineage as vsl
 
 
@@ -179,3 +181,29 @@ def test_fetch_snapshot_uses_read_only_provenance_queries(monkeypatch):
         None,
         None,
     ]
+
+
+def test_report_includes_operational_status_schema_and_output(tmp_path):
+    report = vsl.build_report(
+        _snapshot(
+            candidates=[
+                {
+                    "candidate_id": "cand-1",
+                    "title": "Unsourced",
+                    "source_ids": ["src-missing"],
+                    "source_urls": [],
+                }
+            ]
+        ),
+        created_after="2026-05-19T17:51:00Z",
+    )
+
+    assert report["schema_version"] == "enoch_source_lineage_report_v1"
+    assert report["status"] == "blocked"
+    assert report["ok"] is False
+
+    output = tmp_path / "source-lineage" / "latest-report.json"
+    assert vsl.write_report(report, output) == output
+    loaded = json.loads(output.read_text(encoding="utf-8"))
+    assert loaded["schema_version"] == "enoch_source_lineage_report_v1"
+    assert loaded["status"] == "blocked"

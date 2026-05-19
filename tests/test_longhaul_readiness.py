@@ -41,6 +41,17 @@ def _ready_payload() -> dict:
             "report_path": "/tmp/quality.json",
             "report_mtime": "2026-05-10T04:50:00Z",
         },
+        "source_lineage": {
+            "ok": True,
+            "status": "clean",
+            "candidates_checked": 0,
+            "followups_checked": 1,
+            "missing_sources": 0,
+            "missing_lineage": 0,
+            "problem_counts": {},
+            "report_path": "/tmp/source-lineage.json",
+            "report_mtime": "2026-05-10T04:51:00Z",
+        },
     }
 
 
@@ -126,6 +137,39 @@ def test_tick_freshness_treats_naive_iso_timestamps_as_utc() -> None:
 
     assert result["ok"] is True
     assert result["summary"]["research_tick_age_seconds"] == 900
+
+def test_source_lineage_blocker_fails_longhaul_readiness() -> None:
+    payload = _ready_payload()
+    payload["source_lineage"] = {
+        "ok": False,
+        "status": "blocked",
+        "problem_counts": {"followup_missing_parent_run_source": 1},
+        "missing_sources": 1,
+        "missing_lineage": 0,
+    }
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is False
+    assert "source lineage status=blocked" in result["blockers"]
+    assert result["summary"]["source_lineage_status"] == "blocked"
+    assert result["summary"]["source_lineage_missing_sources"] == 1
+
+
+def test_source_lineage_warning_does_not_block_longhaul_readiness() -> None:
+    payload = _ready_payload()
+    payload["source_lineage"] = {
+        "ok": True,
+        "status": "warnings",
+        "problem_counts": {"historical_source_lineage_gap": 70},
+        "missing_sources": 0,
+        "missing_lineage": 0,
+    }
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is True
+    assert result["summary"]["source_lineage_status"] == "warnings"
+    assert result["summary"]["source_lineage_problem_counts"] == {"historical_source_lineage_gap": 70}
+
 
 def test_provider_budget_must_be_checked_and_ok() -> None:
     payload = _ready_payload()

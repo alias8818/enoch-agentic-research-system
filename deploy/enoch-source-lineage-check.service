@@ -1,0 +1,14 @@
+[Unit]
+Description=Enoch source-lineage provenance validation check
+After=enoch-control-plane.service
+Wants=enoch-control-plane.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/enoch-control-plane
+Environment=ENOCH_CONFIG=/etc/enoch-control-plane/config.json
+EnvironmentFile=-/etc/enoch-control-plane/postgres.env
+EnvironmentFile=-/etc/enoch-control-plane/supabase.env
+Environment=ENOCH_SOURCE_LINEAGE_CREATED_AFTER=2026-05-19T17:51:00Z
+Environment=ENOCH_SOURCE_LINEAGE_REPORT_PATH=/var/lib/enoch-control-plane/source-lineage/latest-report.json
+ExecStart=/opt/enoch-control-plane/.venv/bin/python /opt/enoch-control-plane/deploy/enoch_source_lineage_check.py --json

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Enoch source-lineage validation periodically
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+AccuracySec=30s
+Persistent=true
+Unit=enoch-source-lineage-check.service
+
+[Install]
+WantedBy=timers.target

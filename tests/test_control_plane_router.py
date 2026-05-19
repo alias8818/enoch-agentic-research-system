@@ -242,6 +242,36 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(body["decisions_checked"], 1)
         self.assertEqual(body["problem_counts"], {"weak_or_missing_evidence_strength": 1})
 
+
+    def test_source_lineage_endpoint_and_readiness_use_configured_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "source-lineage.json"
+            report.write_text(json.dumps({
+                "schema_version": "enoch_source_lineage_report_v1",
+                "checked_at": "2026-05-19T18:00:00Z",
+                "created_after": "2026-05-19T17:51:00Z",
+                "status": "blocked",
+                "counts": {"candidates": 0, "followups": 1, "sources": 4, "lineages": 4, "problems": 1},
+                "problem_counts": {"followup_missing_parent_run_source": 1},
+                "problems": [{"kind": "followup_missing_parent_run_source", "project_id": "f1"}],
+            }), encoding="utf-8")
+            with patch.dict(os.environ, {"ENOCH_SOURCE_LINEAGE_REPORT_PATH": str(report)}):
+                client = _client(tmp)
+                response = client.get("/control/api/v1/source-lineage", headers={"Authorization": f"Bearer {TOKEN}"})
+                readiness = client.get("/control/api/v1/automation-readiness", headers={"Authorization": f"Bearer {TOKEN}"})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["source"], "control_api_v1_source_lineage")
+        self.assertEqual(body["status"], "blocked")
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["followups_checked"], 1)
+        self.assertEqual(body["missing_sources"], 1)
+        readiness_body = readiness.json()
+        self.assertFalse(readiness_body["ok"])
+        self.assertIn("source lineage status=blocked", readiness_body["blockers"])
+        self.assertEqual(readiness_body["summary"]["source_lineage_status"], "blocked")
+
     def test_pause_import_dry_run_and_draft(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "projects" / "idea-positive"
@@ -581,6 +611,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("Long-haul mode", response.text)
             self.assertIn("Automation readiness", response.text)
             self.assertIn("Research quality", response.text)
+            self.assertIn("Source lineage", response.text)
             self.assertIn("Check provider budget", response.text)
             self.assertIn("Generated candidates", response.text)
             self.assertIn("Admitted ideas", response.text)
