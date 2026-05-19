@@ -351,6 +351,21 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
                 where conrelid = 'enoch.research_lineage'::regclass
                   and pg_get_constraintdef(oid) like '%followup_parent%'
               ),
+              'synthesis_candidate_statuses_allowed', exists (
+                select 1
+                from pg_constraint
+                where conrelid = 'enoch.research_candidates'::regclass
+                  and pg_get_constraintdef(oid) like '%deferred_pending_oracle%'
+                  and pg_get_constraintdef(oid) like '%superseded%'
+              ),
+              'synthesis_relation_allowed', exists (
+                select 1
+                from pg_constraint
+                where conrelid = 'enoch.research_lineage'::regclass
+                  and pg_get_constraintdef(oid) like '%synthesized_from%'
+                  and pg_get_constraintdef(oid) like '%superseded_by%'
+                  and pg_get_constraintdef(oid) like '%inspired_by_success%'
+              ),
               'security_invoker', coalesce((
                 select (c.reloptions::text like '%security_invoker=true%')
                 from pg_class c
@@ -426,6 +441,10 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         failures.append("Research Facility sources must allow followup_parent_run provenance")
     if not research_facility.get("followup_parent_relation_allowed"):
         failures.append("Research Facility lineage must allow followup_parent project edges")
+    if not research_facility.get("synthesis_candidate_statuses_allowed"):
+        failures.append("Research Facility candidates must allow synthesis deferral statuses")
+    if not research_facility.get("synthesis_relation_allowed"):
+        failures.append("Research Facility lineage must allow synthesis/reflection relation edges")
     if not research_facility.get("security_invoker"):
         failures.append("Research Facility workbench must use security_invoker")
 

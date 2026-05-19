@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 CANDIDATE_SQL = """
-select candidate_id, title, generation_mode, source_ids, source_urls, created_at
+select candidate_id, title, generation_mode, source_ids, source_urls, raw_candidate_json, status, created_at
 from enoch.research_candidates
 where (%(created_after)s::timestamptz is null or created_at >= %(created_after)s::timestamptz)
 order by created_at asc, candidate_id asc
@@ -197,6 +197,30 @@ def validate_snapshot(snapshot: SourceLineageSnapshot) -> list[dict[str, Any]]:
                         "title": title,
                         "source_id": source_id,
                         "origin": origin,
+                    }
+                )
+
+        raw_payload = _json_dict(candidate.get("raw_candidate_json"))
+        synthesized_from = [_text(item) for item in _json_list(raw_payload.get("synthesized_from")) if _text(item)]
+        for branch_id in synthesized_from:
+            if ("candidate", branch_id, "candidate", candidate_id, "synthesized_from") not in lineage or ("candidate", branch_id, "candidate", candidate_id, "superseded_by") not in lineage:
+                problems.append(
+                    {
+                        "kind": "synthesized_candidate_missing_branch_lineage",
+                        "candidate_id": candidate_id,
+                        "title": title,
+                        "source_candidate_id": branch_id,
+                    }
+                )
+        reflection_source_ids = [_text(item) for item in _json_list(raw_payload.get("reflection_source_ids")) if _text(item)]
+        for project_id in reflection_source_ids:
+            if ("project", project_id, "candidate", candidate_id, "inspired_by_success") not in lineage:
+                problems.append(
+                    {
+                        "kind": "synthesized_candidate_missing_reflection_lineage",
+                        "candidate_id": candidate_id,
+                        "title": title,
+                        "source_project_id": project_id,
                     }
                 )
 

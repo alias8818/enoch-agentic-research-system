@@ -207,3 +207,62 @@ def test_report_includes_operational_status_schema_and_output(tmp_path):
     loaded = json.loads(output.read_text(encoding="utf-8"))
     assert loaded["schema_version"] == "enoch_source_lineage_report_v1"
     assert loaded["status"] == "blocked"
+
+def test_synthesized_candidate_requires_branch_and_reflection_lineage():
+    snapshot = _snapshot(
+        candidates=[
+            {
+                "candidate_id": "oracle-1",
+                "title": "Oracle",
+                "source_ids": [],
+                "source_urls": [],
+                "raw_candidate_json": {"synthesized_from": ["branch-1"], "reflection_source_ids": ["positive-1"]},
+            }
+        ]
+    )
+
+    problems = vsl.validate_snapshot(snapshot)
+
+    assert {problem["kind"] for problem in problems} == {
+        "synthesized_candidate_missing_branch_lineage",
+        "synthesized_candidate_missing_reflection_lineage",
+    }
+
+
+def test_synthesized_candidate_passes_with_branch_and_reflection_lineage():
+    snapshot = _snapshot(
+        candidates=[
+            {
+                "candidate_id": "oracle-1",
+                "title": "Oracle",
+                "source_ids": [],
+                "source_urls": [],
+                "raw_candidate_json": {"synthesized_from": ["branch-1"], "reflection_source_ids": ["positive-1"]},
+            }
+        ],
+        lineages=[
+            {
+                "source_type": "candidate",
+                "source_id": "branch-1",
+                "target_type": "candidate",
+                "target_id": "oracle-1",
+                "relation_type": "synthesized_from",
+            },
+            {
+                "source_type": "candidate",
+                "source_id": "branch-1",
+                "target_type": "candidate",
+                "target_id": "oracle-1",
+                "relation_type": "superseded_by",
+            },
+            {
+                "source_type": "project",
+                "source_id": "positive-1",
+                "target_type": "candidate",
+                "target_id": "oracle-1",
+                "relation_type": "inspired_by_success",
+            },
+        ],
+    )
+
+    assert vsl.validate_snapshot(snapshot) == []

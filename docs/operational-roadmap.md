@@ -92,6 +92,8 @@ Enoch should optimize for useful, honest research artifacts rather than paper co
 
 3. **Research Facility quality control**
    - Improve idea generation scoring so the pipeline spends fewer runs on shallow negatives. Keep moonshots, but require stronger novelty comparison, baseline clarity, and failure-mode diversity.
+   - Add cluster synthesis before queue promotion: related branch candidates that share setup, source, or baseline should collapse into one oracle/meta-experiment before Enoch spends GB10 time on separate implementations.
+   - Add reflection pattern seeds from old paper-positive, useful-signal, and scale-blocked work. These seeds may inspire new candidates, but they are not system truth unless the new candidate includes a materially different mechanism and deterministic success/kill thresholds.
    - Add an offline DSPy + GEPA optimization loop for Research Facility prompts and branching policy. This should consume Research Quality reports and run/decision traces, propose prompt or policy patches, and emit PR-ready diffs only. It must not mutate live queue, paper, or database state.
 
 4. **Follow-up branching policy hardening**

@@ -35,7 +35,7 @@ GENERATION_MODES = {
     "manual_import",
 }
 
-CANDIDATE_STATUSES = {"generated", "rejected", "admitted", "merged", "needs_review", "rewrite_needed", "deferred"}
+CANDIDATE_STATUSES = {"generated", "rejected", "admitted", "merged", "needs_review", "rewrite_needed", "deferred", "deferred_pending_oracle", "superseded"}
 REQUIRED_TEXT_FIELDS = (
     "title",
     "hypothesis",
