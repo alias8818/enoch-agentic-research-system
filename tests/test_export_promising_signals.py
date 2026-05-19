@@ -194,6 +194,22 @@ def test_validate_export_manifest_catches_count_and_status_drift(tmp_path) -> No
     assert "manifest.status_counts.compute_scale_blocked:0 != 1" in issues
 
 
+def test_validate_repo_against_rows_catches_control_plane_selection_drift(tmp_path) -> None:
+    rows = [
+        _row(project_id="clean-signal"),
+        _row(project_id="missing-source", source_ids=[], source_urls=[], source_titles=[]),
+    ]
+    exporter.write_export(exporter.clean_export_rows(rows), tmp_path)
+    manifest_path = tmp_path / "data" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["selection_summary"]["missing_required_evidence_or_fields"] = 0
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    issues = exporter.validate_repo_against_rows(rows, tmp_path)
+
+    assert "selection_summary.missing_required_evidence_or_fields:0 != 1" in issues
+
+
 def test_audit_backfill_report_classifies_exportable_and_missing_fields() -> None:
     rows = [
         _row(project_id="clean-signal"),

@@ -342,6 +342,24 @@ def validate_export_repo(repo_root: Path) -> list[str]:
     return sorted(issues)
 
 
+def validate_repo_against_rows(rows: Iterable[dict[str, Any]], repo_root: Path) -> list[str]:
+    issues = validate_export_repo(repo_root)
+    report = audit_backfill(list(rows))
+    expected_summary = report["summary"]
+    manifest_path = repo_root / "data" / "manifest.json"
+    if not manifest_path.exists():
+        return sorted(set(issues + ["manifest:missing"]))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    actual_summary = manifest.get("selection_summary") if isinstance(manifest.get("selection_summary"), dict) else {}
+    for key, expected in expected_summary.items():
+        actual = actual_summary.get(key)
+        if actual != expected:
+            issues.append(f"selection_summary.{key}:{actual} != {expected}")
+    if manifest.get("record_count") != expected_summary["export_cleanly_now"]:
+        issues.append(f"manifest.record_count:{manifest.get('record_count')} != export_cleanly_now:{expected_summary['export_cleanly_now']}")
+    return sorted(set(issues))
+
+
 def _markdown(signal: dict[str, Any]) -> str:
     sources = signal.get("sources") or []
     source_lines = [f"- {src.get('title') or src.get('source_id') or 'source'}: {src.get('url') or src.get('source_id') or ''}" for src in sources]
@@ -640,6 +658,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--clean-only", action="store_true", help="Export only rows that pass the deterministic promising-signal contract; summarize skipped rows in manifest.")
     parser.add_argument("--audit-report", type=Path, help="Write a dry-run backfill audit JSON report instead of exporting rows")
     parser.add_argument("--audit-markdown", type=Path, help="Optional Markdown path for --audit-report")
+    parser.add_argument("--validate-output-repo", action="store_true", help="Validate output repo manifest against the fetched control-plane selection without rewriting files.")
     args = parser.parse_args(argv)
     if args.input_json:
         rows = json.loads(args.input_json.read_text(encoding="utf-8"))
@@ -655,6 +674,14 @@ def main(argv: list[str] | None = None) -> int:
             args.audit_markdown.parent.mkdir(parents=True, exist_ok=True)
             args.audit_markdown.write_text(audit_backfill_markdown(report) + "\n", encoding="utf-8")
         print(json.dumps({"audit_report": str(args.audit_report), **report["summary"]}, indent=2, sort_keys=True))
+        return 0
+    if args.validate_output_repo:
+        issues = validate_repo_against_rows(rows, args.output_repo)
+        if issues:
+            print(json.dumps({"ok": False, "issues": issues}, indent=2, sort_keys=True), file=sys.stderr)
+            return 1
+        records = _records_from_repo(args.output_repo)
+        print(json.dumps({"ok": True, "count": len(records)}, indent=2, sort_keys=True))
         return 0
     if args.clean_only:
         rows = clean_export_rows(rows)
