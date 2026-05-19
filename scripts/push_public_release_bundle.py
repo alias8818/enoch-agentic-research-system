@@ -33,6 +33,8 @@ class Repo:
 
 
 SECRET_ARG_NAMES = {"--token", "--database-url", "--db-url", "--ledger-database-url"}
+PROJECT_PYTHON = ["uv", "run", "python"]
+DEFAULT_SOURCE_LINEAGE_CREATED_AFTER = "2026-05-19T17:51:00Z"
 
 
 def printable_cmd(cmd: list[str]) -> str:
@@ -200,11 +202,34 @@ def run_source_lineage_check(system: Repo) -> None:
     if not database_url:
         print("source lineage validator: skipped; no Postgres URL configured")
         return
-    cmd = [sys.executable, "scripts/validate_source_lineage.py"]
-    created_after = os.environ.get("ENOCH_SOURCE_LINEAGE_CREATED_AFTER", "")
-    if created_after:
-        cmd.extend(["--created-after", created_after])
+    cmd = [*PROJECT_PYTHON, "scripts/validate_source_lineage.py"]
+    created_after = os.environ.get("ENOCH_SOURCE_LINEAGE_CREATED_AFTER", DEFAULT_SOURCE_LINEAGE_CREATED_AFTER)
+    cmd.extend(["--created-after", created_after])
     run(cmd, cwd=system.path, env={"ENOCH_SOURCE_LINEAGE_DATABASE_URL": database_url})
+
+
+def run_promising_signals_check(system: Repo, promising: Repo) -> None:
+    database_url = (
+        os.environ.get("ENOCH_PROMISING_SIGNALS_DATABASE_URL")
+        or os.environ.get("ENOCH_SUPABASE_DATABASE_URL")
+        or os.environ.get("DATABASE_URL")
+        or ""
+    )
+    if not database_url:
+        print("promising signals live export validation: skipped; no Postgres URL configured")
+        return
+    run(
+        [
+            *PROJECT_PYTHON,
+            "scripts/export_promising_signals.py",
+            "--output-repo",
+            str(promising.path),
+            "--validate-output-repo",
+        ],
+        cwd=system.path,
+        env={"ENOCH_SUPABASE_DATABASE_URL": database_url},
+    )
+
 
 def run_local_release_checks(
     system: Repo,
@@ -220,6 +245,7 @@ def run_local_release_checks(
         generated = Path(tmp) / "ecosystem.generated.json"
         run([sys.executable, "scripts/validate_runtime_snapshot_links.py"], cwd=system.path)
         run_source_lineage_check(system)
+        run_promising_signals_check(system, promising)
         run(["node", "scripts/validate-docs.mjs"], cwd=docs.path)
         run([
             sys.executable,

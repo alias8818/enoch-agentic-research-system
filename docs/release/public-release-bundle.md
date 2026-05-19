@@ -24,11 +24,33 @@ This preflight:
 
 - requires all release repos to be on `main`, clean, and not behind `origin/main`
 - validates current-runtime snapshot links in the system docs
+- validates source-lineage provenance when a local Postgres URL is configured
+- validates `../enoch-promising-signals` against the current control-plane promising-signal selection when a local Postgres URL is configured
 - runs the docs repo validator, including Mintlify navigation and runtime snapshot-link checks
 - validates the promising-signals schema and public trust surfaces
 - regenerates the ecosystem manifest from the local corpus/docs/promising-signals state
 - validates public release copy and counts across local repos
 - prints the planned race-safe order
+
+For the promising-signals gate, the bundle runs:
+
+```bash
+scripts/export_promising_signals.py \
+  --output-repo ../enoch-promising-signals \
+  --validate-output-repo
+```
+
+Set `ENOCH_PROMISING_SIGNALS_DATABASE_URL`, `ENOCH_SUPABASE_DATABASE_URL`, or `DATABASE_URL` locally before release pushes. CI remains safe because the live control-plane comparison is skipped with an explicit warning when no Postgres URL is configured; local public-release pushes should treat that warning as a signal to configure the DB URL or consciously accept that only static manifest/repo validation ran.
+
+If the promising-signals gate fails, regenerate first:
+
+```bash
+scripts/export_promising_signals.py \
+  --output-repo ../enoch-promising-signals \
+  --clean-only
+```
+
+Then rerun `python3 ../enoch-promising-signals/scripts/validate.py`, `python3 ../enoch-promising-signals/scripts/validate_public_trust_surfaces.py`, and the release bundle preflight.
 
 When preflight passes:
 
