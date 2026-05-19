@@ -105,6 +105,87 @@ def _stable_followup_id(parent_project_id: str, title: str, hypothesis: str) -> 
     return f"{slug}-{digest}"[:80]
 
 
+def _followup_parent_source_record(candidate: dict[str, Any], followup_payload: dict[str, Any]) -> dict[str, Any]:
+    parent_project_id = _text(followup_payload.get("parent_project_id") or candidate.get("project_id"))
+    parent_run_id = _text(followup_payload.get("parent_run_id") or candidate.get("current_run_id"))
+    parent_title = _text(candidate.get("project_name")) or parent_project_id
+    locator = f"projects/{parent_project_id}/runs/{parent_run_id}" if parent_run_id else f"projects/{parent_project_id}/decisions/latest"
+    source_url = f"enoch://control-plane/{locator}"
+    source_seed = f"followup-parent-run:{parent_project_id}:{parent_run_id or 'latest'}"
+    source_id = f"followup-parent-run-{hashlib.sha256(source_seed.encode('utf-8')).hexdigest()[:16]}"
+    return {
+        "source_id": source_id,
+        "source_kind": "followup_parent_run",
+        "title": f"Parent run decision: {parent_title}",
+        "url": source_url,
+        "external_id": parent_run_id or parent_project_id,
+        "summary": f"Follow-up source captured from parent project {parent_project_id}",
+        "payload_json": {
+            "parent_project_id": parent_project_id,
+            "parent_run_id": parent_run_id,
+            "parent_project_name": parent_title,
+            "followup_project_id": _text(followup_payload.get("idea_id")),
+            "followup_title": _text(followup_payload.get("title")),
+            "followup_type": _text(followup_payload.get("followup_type")),
+            "decision_payload_json": candidate.get("decision_payload_json") if isinstance(candidate.get("decision_payload_json"), dict) else {},
+        },
+    }
+
+
+def _source_id_for_url(url: str) -> str:
+    return f"url-{hashlib.sha256(_text(url).encode('utf-8')).hexdigest()[:24]}"
+
+
+def _candidate_source_records(candidate: dict[str, Any]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    seen_ids: set[str] = set()
+    for source in candidate.get("source_records") or []:
+        if not isinstance(source, dict):
+            continue
+        url = _text(source.get("url"))
+        source_id = _text(source.get("source_id")) or (_source_id_for_url(url) if url else "")
+        if not source_id or source_id in seen_ids:
+            continue
+        record = {
+            "source_id": source_id,
+            "source_kind": _text(source.get("source_kind") or candidate.get("source_kind") or "other"),
+            "title": _text(source.get("title") or candidate.get("title")),
+            "url": url,
+            "external_id": _text(source.get("external_id")),
+            "retrieved_at": _text(source.get("retrieved_at")),
+            "summary": _text(source.get("summary")),
+            "payload_json": source.get("payload_json") if isinstance(source.get("payload_json"), dict) else {},
+            "content_hash": _text(source.get("content_hash")),
+        }
+        records.append(record)
+        seen_ids.add(source_id)
+        if url:
+            seen_urls.add(url)
+    for raw_url in candidate.get("source_urls") or []:
+        url = _text(raw_url)
+        if not url or url in seen_urls:
+            continue
+        source_id = _source_id_for_url(url)
+        if source_id in seen_ids:
+            continue
+        record = {
+            "source_id": source_id,
+            "source_kind": _text(candidate.get("source_kind") or "other"),
+            "title": _text(candidate.get("title")),
+            "url": url,
+            "external_id": "",
+            "retrieved_at": "",
+            "summary": "Candidate source URL materialized at Research Facility ledger write time.",
+            "payload_json": {"url": url},
+            "content_hash": hashlib.sha256(url.encode("utf-8")).hexdigest(),
+        }
+        records.append(record)
+        seen_ids.add(source_id)
+        seen_urls.add(url)
+    return records
+
+
 def _followup_depth_from_payload(payload: dict[str, Any] | None) -> int:
     if not isinstance(payload, dict):
         return 0
@@ -2978,10 +3059,15 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     candidate_id = str(candidate.get("candidate_id") or "").strip()
                     if not candidate_id:
                         continue
-                    for source in candidate.get("source_records") or []:
-                        if not isinstance(source, dict):
-                            continue
-                        source_id = str(source.get("source_id") or "").strip()
+                    source_records = _candidate_source_records(candidate)
+                    source_ids = []
+                    for source_id in [*list(candidate.get("source_ids") or []), *[_text(source.get("source_id")) for source in source_records]]:
+                        source_id_text = _text(source_id)
+                        if source_id_text and source_id_text not in source_ids:
+                            source_ids.append(source_id_text)
+                    source_urls = [_text(url) for url in (candidate.get("source_urls") or []) if _text(url)]
+                    for source in source_records:
+                        source_id = _text(source.get("source_id"))
                         if not source_id:
                             continue
                         cur.execute(
@@ -2989,8 +3075,10 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             insert into research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash)
                             values (%s,%s,%s,%s,%s,nullif(%s,'')::timestamptz,%s,%s::jsonb,%s)
                             on conflict (source_id) do update set
+                              source_kind=excluded.source_kind,
                               title=excluded.title,
                               url=excluded.url,
+                              external_id=excluded.external_id,
                               summary=excluded.summary,
                               payload_json=excluded.payload_json,
                               content_hash=excluded.content_hash,
@@ -2998,14 +3086,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             """,
                             (
                                 source_id,
-                                str(source.get("source_kind") or candidate.get("source_kind") or "other"),
-                                str(source.get("title") or candidate.get("title") or ""),
-                                str(source.get("url") or ""),
-                                str(source.get("external_id") or ""),
-                                str(source.get("retrieved_at") or ""),
-                                str(source.get("summary") or ""),
+                                _text(source.get("source_kind") or candidate.get("source_kind") or "other"),
+                                _text(source.get("title") or candidate.get("title")),
+                                _text(source.get("url")),
+                                _text(source.get("external_id")),
+                                _text(source.get("retrieved_at")),
+                                _text(source.get("summary")),
                                 self._json_text(source.get("payload_json") or {}),
-                                str(source.get("content_hash") or ""),
+                                _text(source.get("content_hash")) or hashlib.sha256(self._json_text(source).encode("utf-8")).hexdigest(),
                             ),
                         )
                         counters["sources_upserted"] += 1
@@ -3037,8 +3125,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             str(candidate.get("category") or ""),
                             str(candidate.get("priority") or ""),
                             str(candidate.get("source_kind") or ""),
-                            self._json_text(candidate.get("source_ids") or []),
-                            self._json_text(candidate.get("source_urls") or []),
+                            self._json_text(source_ids),
+                            self._json_text(source_urls),
                             str(candidate.get("parent_project_id") or ""),
                             str(candidate.get("parent_run_id") or ""),
                             str(candidate.get("hypothesis") or ""),
@@ -3076,7 +3164,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         ),
                     )
                     counters["candidates_upserted"] += 1
-                    for source_id in candidate.get("source_ids") or []:
+                    for source_id in source_ids:
                         cur.execute(
                             """
                             insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
@@ -3086,7 +3174,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                               where source_type='source' and source_id=%s and target_type='candidate' and target_id=%s and relation_type='generated_from'
                             )
                             """,
-                            (str(source_id), candidate_id, self._json_text({"source_ids": candidate.get("source_ids") or []}), str(source_id), candidate_id),
+                            (str(source_id), candidate_id, self._json_text({"source_ids": source_ids}), str(source_id), candidate_id),
                         )
                         counters["lineage_inserted"] += int(cur.rowcount or 0)
                     idempotency_key = f"research-admission:{candidate_id}:{plan_json.get('admission_decision')}"
@@ -3571,6 +3659,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "followup_stop_condition": _text(candidate.get("followup_stop_condition")),
             **_followup_escalation_payload(candidate, depth),
         }
+        parent_source = _followup_parent_source_record(candidate, followup_payload)
         if dry_run:
             return {"ok": True, "action": "dry_run_followup", "reason": "follow-up candidate selected; no row inserted", "candidate": candidate, "followup": followup_payload}
         now = utc_now()
@@ -3591,14 +3680,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 cur.execute(
                     """
                     insert into ideas(
-                      idea_id, title, idea_status, category, priority, source_kind, description, implementation,
+                      idea_id, title, idea_status, category, priority, source_kind, source_external_url, description, implementation,
                       baseline_to_beat, kill_condition, expected_token_budget, confidence, feasibility, leverage,
                       machine_target, model, sandbox, selection_rank, dispatch_priority, source_payload_json, created_at, updated_at
-                    ) values (%s,%s,'testing','follow-up','High','followup_branch',%s,%s,%s,%s,'medium','medium','medium','high',%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
+                    ) values (%s,%s,'testing','follow-up','High','followup_branch',%s,%s,%s,%s,%s,'medium','medium','medium','high',%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
                     on conflict (idea_id) do nothing
                     """,
                     (
-                        followup_id, title, hypothesis,
+                        followup_id, title, parent_source["url"], hypothesis,
                         "Bounded follow-up investigation generated from prior no-paper evidence; do not write a paper unless this run independently becomes paper-positive.",
                         _text(candidate.get("project_name")), _text(candidate.get("followup_stop_condition")),
                         _text(candidate.get("machine_target")), _text(candidate.get("model")), _text(candidate.get("sandbox")),
@@ -3646,6 +3735,55 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     on conflict (project_id) do nothing
                     """,
                     (followup_id, _int(candidate.get("selection_rank"), 50), _int(candidate.get("dispatch_priority"), 50), _text(candidate.get("machine_target")), _text(candidate.get("model")), _text(candidate.get("sandbox")), now),
+                )
+                cur.execute(
+                    """
+                    insert into research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash)
+                    values (%s,%s,%s,%s,%s,null,%s,%s::jsonb,%s)
+                    on conflict (source_id) do update set
+                      source_kind=excluded.source_kind,
+                      title=excluded.title,
+                      url=excluded.url,
+                      external_id=excluded.external_id,
+                      summary=excluded.summary,
+                      payload_json=excluded.payload_json,
+                      content_hash=excluded.content_hash,
+                      updated_at=now()
+                    """,
+                    (
+                        parent_source["source_id"],
+                        parent_source["source_kind"],
+                        parent_source["title"],
+                        parent_source["url"],
+                        parent_source["external_id"],
+                        parent_source["summary"],
+                        self._json_text(parent_source["payload_json"]),
+                        hashlib.sha256(self._json_text(parent_source["payload_json"]).encode("utf-8")).hexdigest(),
+                    ),
+                )
+                cur.execute(
+                    """
+                    insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
+                    select source_type, source_id, target_type, target_id, relation_type, evidence_json::jsonb
+                    from (values
+                      ('source', %s, 'candidate', %s, 'generated_from', %s),
+                      ('project', %s, 'project', %s, 'followup_parent', %s)
+                    ) as v(source_type, source_id, target_type, target_id, relation_type, evidence_json)
+                    where not exists (
+                      select 1 from research_lineage rl
+                      where rl.source_type=v.source_type and rl.source_id=v.source_id
+                        and rl.target_type=v.target_type and rl.target_id=v.target_id
+                        and rl.relation_type=v.relation_type
+                    )
+                    """,
+                    (
+                        parent_source["source_id"],
+                        followup_id,
+                        self._json_text({"source_id": parent_source["source_id"], "source_url": parent_source["url"], "captured_by": "followup.launch"}),
+                        parent_id,
+                        followup_id,
+                        self._json_text({"parent_run_id": _text(candidate.get("current_run_id")), "followup_type": followup_payload["followup_type"]}),
+                    ),
                 )
                 event_id, _inserted = self._append_event_in_cursor(
                     cur,

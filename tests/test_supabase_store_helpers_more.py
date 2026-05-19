@@ -626,6 +626,69 @@ def test_write_store_dispatch_and_projection_helpers(monkeypatch) -> None:
     assert store.queue_notion_projection()[0]["queue_status"] == QueueStatus.RUNNING.value
 
 
+def test_record_research_facility_plans_materializes_source_urls_into_sources_and_lineage(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    executed: list[tuple[str, tuple[object, ...]]] = []
+
+    class Plan:
+        def to_json(self):
+            return {
+                "candidate": {
+                    "candidate_id": "candidate-url-only",
+                    "generation_mode": "fresh_grounded",
+                    "status": "admitted",
+                    "title": "URL Only Candidate",
+                    "category": "inferencing",
+                    "priority": "High",
+                    "source_kind": "arxiv",
+                    "source_urls": ["https://arxiv.org/abs/2605.06546"],
+                    "source_ids": [],
+                    "hypothesis": "signal holds",
+                    "score_breakdown": {},
+                    "total_score": 80,
+                },
+                "admission_decision": "admitted",
+                "admission_reason": "strong enough",
+                "score_breakdown": {},
+            }
+
+    class Cursor:
+        rowcount = 1
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            normalized = " ".join(str(sql).lower().split())
+            executed.append((normalized, tuple(params)))
+            self._fetchone = None
+            return self
+        def fetchone(self): return self._fetchone
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_insert_research_admission", lambda *_args, **_kwargs: 1)
+
+    result = store.record_research_facility_plans([Plan()], requested_by="unit")
+
+    source_inserts = [params for sql, params in executed if sql.startswith("insert into research_sources")]
+    candidate_inserts = [params for sql, params in executed if sql.startswith("insert into research_candidates")]
+    lineage_inserts = [params for sql, params in executed if sql.startswith("insert into research_lineage")]
+
+    assert result["sources_upserted"] == 1
+    assert result["lineage_inserted"] == 1
+    assert source_inserts[0][1] == "arxiv"
+    assert source_inserts[0][3] == "https://arxiv.org/abs/2605.06546"
+    materialized_source_id = source_inserts[0][0]
+    assert str(materialized_source_id).startswith("url-")
+    assert json.loads(candidate_inserts[0][7]) == [materialized_source_id]
+    assert json.loads(candidate_inserts[0][8]) == ["https://arxiv.org/abs/2605.06546"]
+    assert lineage_inserts[0][0] == materialized_source_id
+    assert lineage_inserts[0][1] == "candidate-url-only"
+
+
 def test_launch_followup_candidate_dry_run_and_noop(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     monkeypatch.setattr(store, "next_followup_candidate", lambda **kwargs: None)
@@ -650,6 +713,79 @@ def test_launch_followup_candidate_dry_run_and_noop(monkeypatch) -> None:
     assert result["followup"]["parent_project_id"] == "parent"
     assert result["followup"]["followup_depth"] == 2
     assert result["followup"]["promising_escalation"] is True
+
+
+def test_supabase_followup_launch_records_parent_run_source_and_lineage(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    candidate = {
+        "project_id": "parent-project",
+        "project_name": "Parent Project",
+        "current_run_id": "parent-run",
+        "followup_depth": 1,
+        "followup_type": "deepen",
+        "followup_title": "Check medium scale",
+        "followup_hypothesis": "signal holds",
+        "followup_required_evidence": ["metric", "ablation"],
+        "followup_success_threshold": "beats baseline",
+        "followup_stop_condition": "no lift",
+        "machine_target": "gb10",
+        "model": "gpt-5.5",
+        "sandbox": "danger-full-access",
+        "selection_rank": 40,
+        "dispatch_priority": 40,
+        "decision_payload_json": {"project_decision": {"project_decision": "finalize_negative", "research_outcome": "useful_signal"}},
+    }
+    monkeypatch.setattr(store, "next_followup_candidate", lambda **kwargs: candidate)
+
+    executed: list[tuple[str, tuple[object, ...]]] = []
+
+    class Cursor:
+        rowcount = 1
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            normalized = " ".join(str(sql).lower().split())
+            executed.append((normalized, tuple(params)))
+            if normalized.startswith("select idea_id"):
+                self._fetchone = None
+            elif normalized.startswith("select project_id, project_name"):
+                self._fetchone = None
+            elif normalized.startswith("select project_id, status"):
+                self._fetchone = None
+            return self
+        def fetchone(self):
+            return getattr(self, "_fetchone", None)
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", lambda *_args, **_kwargs: (123, True))
+
+    result = store.launch_followup_candidate(dry_run=False, requested_by="unit")
+
+    followup_id = result["followup"]["idea_id"]
+    source_inserts = [params for sql, params in executed if sql.startswith("insert into research_sources")]
+    lineage_inserts = [(sql, params) for sql, params in executed if sql.startswith("insert into research_lineage")]
+    idea_inserts = [params for sql, params in executed if sql.startswith("insert into ideas")]
+
+    assert source_inserts, "follow-up launch must create an auditable parent-run source record"
+    source_params = source_inserts[0]
+    assert source_params[1] == "followup_parent_run"
+    assert source_params[2] == "Parent run decision: Parent Project"
+    assert source_params[3] == "enoch://control-plane/projects/parent-project/runs/parent-run"
+    assert source_params[4] == "parent-run"
+    assert json.loads(source_params[6])["parent_project_id"] == "parent-project"
+
+    assert idea_inserts, "follow-up idea should persist the same source URL for workbench projections"
+    assert "enoch://control-plane/projects/parent-project/runs/parent-run" in idea_inserts[0]
+
+    assert lineage_inserts, "follow-up launch must link the source record to the child candidate/project id"
+    joined = "\n".join(sql for sql, _params in lineage_inserts)
+    assert "source_type, source_id, target_type, target_id, relation_type" in joined
+    assert any(followup_id in params for _sql, params in lineage_inserts)
 
 
 def test_supabase_launch_followup_append_failure_does_not_queue_followup(monkeypatch) -> None:
