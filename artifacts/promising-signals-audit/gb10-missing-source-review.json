@@ -1,0 +1,2523 @@
+{
+  "rows": [
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "acceptance-aware-gpt-2-small-early-exit-heads-for-exact-se-bc1a42be2d",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "activation-aware-calibration-for-static-residual-adapters-08e1f264dc",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "adaptive-or-periodically-corrected-low-rank-adamw-for-smal-afbae3b446",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "adaptive-rank-anchor-kv-compression-on-gpt-2-small-class-l-003174ac4a",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "behavior-aware-learned-kv-residual-prediction-for-exact-an-b76f7664e0",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "blockwise-stabilized-4-bit-adam-second-moment-on-a-small-t-d75abbd657",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "bounded-full-scale-commit-reveal-replay-auditing-on-a-real-3eddb3740f",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "bounded-full-scale-memory-pressure-validation-for-streamed-6f56b891a0",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "bounded-scale-gap-validation-of-calibrated-ppl-gates-for-n-08c789374b",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": true,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "calibrated-evidence-ledger-jury-with-larger-real-data-cove-0937d49bc3",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": [
+        "https://dl.fbaipublicfiles.com/glue/superglue/data/v2/BoolQ.zip`."
+      ]
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "checkpointed-gpt-2-intermediate-kl-heads-for-actual-specul-9042abd5e4",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "coverage-constrained-sampled-adamw-recomputation-on-the-sa-04a71608ba",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "4",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "distribution-aware-calibration-for-residual-activation-ver-66be993511",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "durable-restart-validation-for-anchored-langgraph-checkpoi-9d1f914464",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "fused-packed-2-bit-residual-channel-projection-kernel-on-g-d75620eff6",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "generative-local-llm-confidence-cascade-with-actual-server-00a5434e21",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "gpt-2-small-inference-validation-of-key-addressed-anchorsl-2f16602be2",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "gradient-dot-audits-for-label-flip-anomaly-detection-063cd69498",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "4",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "hierarchical-shrinkage-local-cascade-gates-for-selective-r-18b0ed1fac",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "4",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "int4-kv-residual-window-validation-with-measured-memory-an-6c4762396d",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "4",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "integrated-commit-reveal-audit-on-a-real-gpt-2-small-train-44f22cfc92",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "langgraph-adapter-rollback-ledger-under-randomized-crash-a-b627e5b7ef",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "layer-and-objective-sweep-for-gpt-2-self-speculative-inter-feb8826fcb",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "4",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "layerwise-and-multi-layer-direct-fidelity-residual-substit-5e515aa9cc",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "live-agent-tool-path-signed-recorder-with-crash-and-concur-d3d8173e93",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": true,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "live-tool-trace-contradiction-recovery-without-last-mentio-f02b02654c",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": [
+        "http://127.0.0.1:8081",
+        "http://127.0.0.1:8082"
+      ]
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "long-context-copy-heavy-prompt-n-gram-speculative-decoding-9afd8b765d",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "mass-aware-exact-anchor-clustered-kv-cache-decoding-on-gpt-22c14bdcc3",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "medium-confirmation-of-small-large-lm-entropy-cascade-rout-d1012a5de3",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "medium-direct-confirmation-of-uncertainty-routed-cascades-72a499b232",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "medium-multi-corpus-cross-instance-evidence-verification-9ea0827de6",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "medium-neural-shard-lottery-validation-under-adaptive-shar-ee7572f07e",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "medium-real-kv-anchor-router-benchmark-73c2329123",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "medium-scale-commit-reveal-replay-auditing-on-a-larger-opt-dd9c25b0da",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "medium-validation-of-deployable-ppl-uncertainty-gates-for-05dff99f7d",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": true,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "multi-model-hakv-inference-fidelity-robustness-at-25--rete-563c210425",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": [
+        "https://arxiv.org/abs/2506.03762"
+      ]
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "4",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "naturalistic-copy-suffix-localization-without-explicit-quo-bc04d2807a",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "neural-ppo-field-ablated-merkle-audit-reproduction-6ac380c201",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "nonlinear-shared-gradient-proxy-verifier-confirmation-15238b296a",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "4",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "optimized-exact-cache-path-for-gpt-2-intermediate-head-sel-0692caf722",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "4",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "optimized-suffix-copy-speculative-decoding-across-corpora-ad6443df25",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "packed-int2-kv-residual-window-validation-with-measured-me-c114b1bd71",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "per-layer-attention-only-versus-adaptive-hakv-retention-at-9f783e5b95",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "practical-randomized-svd-hybrid-spectral-adamw-on-small-tr-e7c4eede14",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "4",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "prefetch-aware-pytorch-dataloader-replay-state-for-multi-w-a94886129a",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "process-kill-rollback-ledger-validation-with-external-serv-9a2fc1f56f",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "4",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "production-trace-strict-n-gram-drafting-cpu-serving-valida-6d3078dd22",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "real-agent-trace-replay-evidence-ledger-poisoning-validati-cd96859f9d",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "real-corpus-medium-validation-for-streamed-adam-moment-sto-3a0d2e995a",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "real-fl-validation-of-commit-reveal-volunteer-training-c9fdba9e03",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "4",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "real-lm-hidden-state-shuffled-error-validation-for-router-57eb325275",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "real-report-validation-of-trace-specific-gains-in-multi-cl-afbbf95ada",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": true,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "real-small-lm-kv-trace-test-for-2-bit-residual-block-gates-f8490ab41d",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": [
+        "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt`.",
+        "https://download.pytorch.org/whl/cpu"
+      ]
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "4",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "recorded-agent-tool-trace-contradiction-recovery-benchmark-ceac3cc2cf",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "residual-channel-preservation-on-real-bpe-tokenizations-6d45bd8b4c",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "richer-calibration-for-entropy-routing-on-multiclass-casca-c34659b1bc",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "robust-commit-reveal-gradient-validation-with-public-refer-e07a20a294",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "routing-knowledge-ablation-for-neural-shard-lottery-robust-79097af03f",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "small-transformer-confirmation-for-hybrid-spectral-adam-a484f816b0",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "small-transformer-validation-of-sqrt-stabilized-blockwise-c0007cb542",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "streaming-storage-saving-dplr-floor-adam-versus-adam-and-a-414ba530a2",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "strict-verifier-cpu-n-gram-drafting-serving-test-469c406314",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "tail-stabilized-causal-anchor-selection-for-real-kv-landma-ef313763fc",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "token-level-gpt-2-latency-test-for-suffix-copy-speculative-4980023e0f",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "4",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "trace-driven-paged-kv-anchor-cache-serving-benchmark-5d60334321",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "2",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "train-real-auxiliary-exit-heads-for-early-exit-speculative-a72b6570f4",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "uncertainty-gated-anchor-kv-eviction-across-real-lms-and-c-49749d6603",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "variable-length-pointer-copy-transformer-for-length-robust-62bc618d59",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "3",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "vectorized-periodic-mass-aware-kv-clustering-budget-sweep-71f10f9e70",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    },
+    {
+      "controller_source_kind": "followup_branch",
+      "exists": true,
+      "files": {
+        ".enoch/last_message.md": true,
+        ".enoch/project.json": true,
+        ".enoch/project_decision.json": true,
+        ".omx/project_decision.json": true,
+        "prompts/initial.md": true,
+        "prompts/resume.md": true,
+        "run_notes.md": true
+      },
+      "followup_depth": "4",
+      "has_parent_token": false,
+      "has_recoverable_source_url": false,
+      "json_source_keys": [
+        [
+          "metadata.source",
+          "langgraph_control_plane"
+        ],
+        [
+          "notion_page_url",
+          ""
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ],
+        [
+          "bounded_paper_ready",
+          false
+        ]
+      ],
+      "parent_tokens": [],
+      "project_id": "zero-floor-or-percentile-scaled-sqrt-int8-adam-v-state-par-af0d5936b2",
+      "source_like_nonempty_count": 1,
+      "source_provenance_url": "",
+      "urls": []
+    }
+  ],
+  "summary": {
+    "any_url_in_reviewed_files": 4,
+    "controller_source_kind_counts": {
+      "followup_branch": 70
+    },
+    "parent_token_found": 0,
+    "project_dirs_missing": 0,
+    "project_dirs_present": 70,
+    "source_provenance_url_present": 0,
+    "total": 70
+  }
+}
