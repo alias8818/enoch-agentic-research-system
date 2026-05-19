@@ -186,6 +186,81 @@ def _candidate_source_records(candidate: dict[str, Any]) -> list[dict[str, Any]]
     return records
 
 
+def _internal_project_source_record(project_id: str, title: str, *, source_kind: str = "", payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    clean_project_id = _text(project_id)
+    clean_title = _text(title) or clean_project_id
+    source_id = f"internal_generated:{clean_project_id}"
+    payload_json = {
+        "project_id": clean_project_id,
+        "project_name": clean_title,
+        "source_kind": _text(source_kind),
+        **(payload or {}),
+    }
+    return {
+        "source_id": source_id,
+        "source_kind": "internal_generated",
+        "title": f"Internal Enoch project: {clean_title}",
+        "url": "",
+        "external_id": clean_project_id,
+        "summary": "Deterministic source record for an operator/native project without external source lineage.",
+        "payload_json": payload_json,
+    }
+
+
+def _record_internal_project_source_lineage(cur: Any, *, project_id: str, title: str, source_kind: str = "", payload: dict[str, Any] | None = None) -> int:
+    source = _internal_project_source_record(project_id, title, source_kind=source_kind, payload=payload)
+    cur.execute(
+        """
+        insert into research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash)
+        values (%s,%s,%s,%s,%s,null,%s,%s::jsonb,%s)
+        on conflict (source_id) do update set
+          source_kind=excluded.source_kind,
+          title=excluded.title,
+          url=excluded.url,
+          external_id=excluded.external_id,
+          summary=excluded.summary,
+          payload_json=excluded.payload_json,
+          content_hash=excluded.content_hash,
+          updated_at=now()
+        """,
+        (
+            source["source_id"],
+            source["source_kind"],
+            source["title"],
+            source["url"],
+            source["external_id"],
+            source["summary"],
+            _json(source["payload_json"]),
+            hashlib.sha256(_json(source["payload_json"]).encode("utf-8")).hexdigest(),
+        ),
+    )
+    cur.execute(
+        """
+        insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
+        select source_type, source_id, target_type, target_id, relation_type, evidence_json::jsonb
+        from (values
+          ('source', %s, 'idea', %s, 'generated_from', %s),
+          ('idea', %s, 'project', %s, 'queued_as', %s)
+        ) as v(source_type, source_id, target_type, target_id, relation_type, evidence_json)
+        where not exists (
+          select 1 from research_lineage rl
+          where rl.source_type=v.source_type and rl.source_id=v.source_id
+            and rl.target_type=v.target_type and rl.target_id=v.target_id
+            and rl.relation_type=v.relation_type
+        )
+        """,
+        (
+            source["source_id"],
+            _text(project_id),
+            _json({"source_id": source["source_id"], "captured_by": "idea_intake"}),
+            _text(project_id),
+            _text(project_id),
+            _json({"queued_by": "idea_intake"}),
+        ),
+    )
+    return int(getattr(cur, "rowcount", 0) or 0)
+
+
 def _followup_depth_from_payload(payload: dict[str, Any] | None) -> int:
     if not isinstance(payload, dict):
         return 0
@@ -2453,6 +2528,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 "machine_target": request.default_machine_target,
                 "model": request.default_model,
                 "sandbox": request.default_sandbox,
+                "source_kind": request.source or "notion",
                 "source_row": raw,
             })
         if request.dry_run:
@@ -2475,6 +2551,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 if not inserted:
                     return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
                 for candidate in candidates:
+                    raw = candidate["source_row"]
                     existed = cur.execute("select 1 from queue_items where project_id = %s", (candidate["project_id"],)).fetchone() is not None
                     cur.execute(
                         """
@@ -2523,6 +2600,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             ),
                         )
                         created += 1
+                    _record_internal_project_source_lineage(
+                        cur,
+                        project_id=candidate["project_id"],
+                        title=candidate["project_name"],
+                        source_kind=candidate["source_kind"],
+                        payload={"source_payload_json": raw if isinstance(raw, dict) else {}},
+                    )
         return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
 
     def ingest_ideas(self, request: IdeaIntakeRequest) -> tuple[bool, int, int, int, list[dict[str, Any]], list[dict[str, Any]]]:
@@ -2678,6 +2762,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             ),
                         )
                         created += 1
+                    _record_internal_project_source_lineage(
+                        cur,
+                        project_id=candidate["project_id"],
+                        title=candidate["project_name"],
+                        source_kind=candidate["source_kind"],
+                        payload={"source_payload_json": raw if isinstance(raw, dict) else {}},
+                    )
         return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
 
     def notion_execution_update_projection(self) -> list[dict[str, Any]]:

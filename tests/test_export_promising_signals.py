@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -208,6 +209,69 @@ def test_validate_repo_against_rows_catches_control_plane_selection_drift(tmp_pa
     issues = exporter.validate_repo_against_rows(rows, tmp_path)
 
     assert "selection_summary.backfilled_exportable:0 != 1" in issues
+
+
+def test_new_missing_source_lineage_is_blocked_after_cutoff() -> None:
+    rows = [
+        _row(
+            project_id="new-unsourced",
+            source_ids=[],
+            source_urls=[],
+            source_titles=[],
+            updated_at="2026-05-20T00:00:00Z",
+        ),
+        _row(
+            project_id="legacy-unsourced",
+            source_ids=[],
+            source_urls=[],
+            source_titles=[],
+            updated_at="2026-05-18T00:00:00Z",
+        ),
+    ]
+
+    report = exporter.validate_source_backfill_policy(rows, created_after="2026-05-19T17:51:00Z")
+
+    assert report["ok"] is False
+    assert report["summary"] == {
+        "legacy_backfilled_source_ok": 1,
+        "new_missing_source_lineage_blocked": 1,
+    }
+    assert report["problems"][0]["project_id"] == "new-unsourced"
+
+
+def test_export_postgres_query_traverses_idea_and_candidate_lineage(monkeypatch) -> None:
+    executed: list[tuple[str, list[object]]] = []
+
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            executed.append((str(sql), list(params)))
+        def fetchall(self): return []
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    class FakePsycopg:
+        def connect(self, *_args, **_kwargs): return Conn()
+
+    monkeypatch.setenv("ENOCH_SUPABASE_DATABASE_URL", "postgres://example")
+    monkeypatch.setitem(sys.modules, "psycopg", FakePsycopg())
+    monkeypatch.setitem(sys.modules, "psycopg.rows", type("Rows", (), {"dict_row": object()})())
+
+    exporter._fetch_postgres_rows([], "")
+
+    sql = " ".join(executed[0][0].lower().split())
+    assert "left join enoch.research_lineage idea_source_rl" in sql
+    assert "idea_source_rl.target_type='idea'" in sql
+    assert "left join enoch.research_lineage queued_rl" in sql
+    assert "queued_rl.relation_type='queued_as'" in sql
+    assert "left join enoch.research_lineage admitted_rl" in sql
+    assert "admitted_rl.relation_type='admitted_as'" in sql
+    assert "left join enoch.research_lineage candidate_source_rl" in sql
+    assert "candidate_source_rl.relation_type='generated_from'" in sql
 
 
 def test_audit_backfill_report_classifies_exportable_and_missing_fields() -> None:

@@ -594,6 +594,111 @@ def test_supabase_native_intake_row_failure_does_not_consume_idempotency_key(mon
     assert queue_items == {"supabase-native-intake-atomic"}
 
 
+def test_supabase_native_intake_records_internal_source_and_lineage(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    executed: list[tuple[str, tuple[object, ...]]] = []
+
+    class Cursor:
+        rowcount = 1
+
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            normalized = " ".join(str(sql).lower().split())
+            executed.append((normalized, tuple(params)))
+            self._fetchone = None
+            return self
+        def fetchone(self): return self._fetchone
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", lambda *_args, **_kwargs: (1, True))
+
+    inserted, created, updated, skipped, _candidates, skipped_rows = store.ingest_ideas(
+        IdeaIntakeRequest(
+            idempotency_key="manual-source-lineage",
+            dry_run=False,
+            ideas=[{
+                "idea_id": "manual-project",
+                "title": "Manual Operator Project",
+                "idea_status": "testing",
+                "source_kind": "manual_import",
+                "url": "",
+            }],
+        )
+    )
+
+    source_inserts = [params for sql, params in executed if sql.startswith("insert into research_sources")]
+    lineage_inserts = [(sql, params) for sql, params in executed if sql.startswith("insert into research_lineage")]
+
+    assert inserted is True
+    assert (created, updated, skipped) == (1, 0, 0)
+    assert skipped_rows == []
+    assert source_inserts, "manual/operator intake must materialize an internal generated source"
+    assert source_inserts[0][0] == "internal_generated:manual-project"
+    assert source_inserts[0][1] == "internal_generated"
+    assert source_inserts[0][2] == "Internal Enoch project: Manual Operator Project"
+    assert lineage_inserts, "manual/operator intake must link source -> idea -> project"
+    joined = "\n".join(sql for sql, _params in lineage_inserts)
+    assert "('source', %s, 'idea', %s, 'generated_from', %s)" in joined
+    assert "('idea', %s, 'project', %s, 'queued_as', %s)" in joined
+
+
+def test_supabase_notion_intake_records_internal_source_and_lineage(monkeypatch) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    executed: list[tuple[str, tuple[object, ...]]] = []
+
+    class Cursor:
+        rowcount = 1
+
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def execute(self, sql, params=()):  # noqa: ANN001 - lightweight DB fake
+            normalized = " ".join(str(sql).lower().split())
+            executed.append((normalized, tuple(params)))
+            self._fetchone = None
+            return self
+        def fetchone(self): return self._fetchone
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def cursor(self): return Cursor()
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", lambda *_args, **_kwargs: (1, True))
+
+    inserted, created, updated, skipped, _candidates, skipped_rows = store.ingest_notion_ideas(
+        NotionIntakeRequest(
+            idempotency_key="notion-source-lineage",
+            dry_run=False,
+            include_statuses=[],
+            notion_rows=[{
+                "id": "324e3677f1c6806390f1dee4aad15cca",
+                "title": "Notion Operator Project",
+                "Status": "testing",
+                "url": "https://notion.so/324e3677f1c6806390f1dee4aad15cca",
+            }],
+        )
+    )
+
+    source_inserts = [params for sql, params in executed if sql.startswith("insert into research_sources")]
+    lineage_inserts = [(sql, params) for sql, params in executed if sql.startswith("insert into research_lineage")]
+
+    assert inserted is True
+    assert (created, updated, skipped) == (1, 0, 0)
+    assert skipped_rows == []
+    assert source_inserts, "Notion intake must materialize an internal generated source"
+    assert source_inserts[0][0] == "internal_generated:324e3677f1c6806390f1dee4aad15cca"
+    assert source_inserts[0][1] == "internal_generated"
+    assert source_inserts[0][2] == "Internal Enoch project: Notion Operator Project"
+    assert lineage_inserts, "Notion intake must link source -> idea -> project"
+
+
 def test_write_store_dispatch_and_projection_helpers(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     monkeypatch.setattr(store, "flags", lambda: ControlFlags(queue_paused=True, pause_reason="maintenance"))

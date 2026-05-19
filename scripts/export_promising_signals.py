@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from enoch_control_plane.timeutils import parse_utc_datetime
+
 SCHEMA_VERSION = "enoch_promising_signal_v1"
 MANIFEST_SCHEMA_VERSION = "enoch_promising_signal_manifest_v1"
 DISCLAIMER = (
@@ -98,6 +100,10 @@ def _truthy(value: Any) -> bool:
     if isinstance(value, (int, float)):
         return value != 0
     return _text(value).lower() in {"1", "true", "t", "yes", "y", "on"}
+
+
+def _parse_time(value: Any) -> datetime | None:
+    return parse_utc_datetime(value)
 
 
 def slugify(value: str, fallback: str = "signal") -> str:
@@ -344,8 +350,9 @@ def validate_export_repo(repo_root: Path) -> list[str]:
 
 
 def validate_repo_against_rows(rows: Iterable[dict[str, Any]], repo_root: Path) -> list[str]:
+    materialized = list(rows)
     issues = validate_export_repo(repo_root)
-    report = audit_backfill(list(rows))
+    report = audit_backfill(materialized)
     expected_summary = report["summary"]
     manifest_path = repo_root / "data" / "manifest.json"
     if not manifest_path.exists():
@@ -358,7 +365,54 @@ def validate_repo_against_rows(rows: Iterable[dict[str, Any]], repo_root: Path) 
             issues.append(f"selection_summary.{key}:{actual} != {expected}")
     if manifest.get("record_count") != expected_summary["export_cleanly_now"]:
         issues.append(f"manifest.record_count:{manifest.get('record_count')} != export_cleanly_now:{expected_summary['export_cleanly_now']}")
+    policy = validate_source_backfill_policy(materialized, created_after=os.environ.get("ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF", ""))
+    if not policy.get("ok", True):
+        for problem in policy.get("problems") or []:
+            issues.append(
+                "source_backfill_policy."
+                f"{problem.get('kind')}:{problem.get('project_id')}:{problem.get('run_id')}"
+            )
     return sorted(set(issues))
+
+
+def validate_source_backfill_policy(rows: Iterable[dict[str, Any]], *, created_after: str = "") -> dict[str, Any]:
+    cutoff = _parse_time(created_after)
+    summary = {
+        "legacy_backfilled_source_ok": 0,
+        "new_missing_source_lineage_blocked": 0,
+    }
+    problems: list[dict[str, Any]] = []
+    for row in rows:
+        if not is_exportable_row(row):
+            continue
+        if _sources_from_row(row):
+            continue
+        backfilled = backfill_promising_signal_row(row)
+        meta = backfilled.get("_promising_signal_backfill") if isinstance(backfilled.get("_promising_signal_backfill"), dict) else {}
+        actions = set(_list(meta.get("actions")))
+        if "source_records:queue_project_metadata" not in actions:
+            continue
+        updated_at = _parse_time(row.get("updated_at"))
+        if cutoff and updated_at and updated_at >= cutoff:
+            summary["new_missing_source_lineage_blocked"] += 1
+            problems.append(
+                {
+                    "kind": "new_missing_source_lineage_blocked",
+                    "project_id": _text(row.get("project_id")),
+                    "run_id": _text(row.get("run_id") or row.get("current_run_id")),
+                    "updated_at": _text(row.get("updated_at")),
+                    "backfill_actions": sorted(actions),
+                }
+            )
+        else:
+            summary["legacy_backfilled_source_ok"] += 1
+    return {
+        "schema_version": "enoch_promising_signal_source_backfill_policy_v1",
+        "ok": not problems,
+        "created_after": created_after,
+        "summary": summary,
+        "problems": problems,
+    }
 
 
 def _markdown(signal: dict[str, Any]) -> str:
@@ -791,9 +845,9 @@ def _fetch_postgres_rows(project_ids: list[str], query: str) -> list[dict[str, A
       pe.followup_depth, pe.bounded_paper_ready, pe.compute_scale_blocked,
       pe.write_needed, pe.has_live_paper_row,
       qi.updated_at, p.paper_id, p.paper_status, ci.imported_at as corpus_imported_at,
-      coalesce(array_remove(array_cat(array_agg(distinct rs.source_id), array_agg(distinct parent_rs.source_id)), null), '{{}}') as source_ids,
-      coalesce(array_remove(array_cat(array_agg(distinct rs.url), array_agg(distinct parent_rs.url)), null), '{{}}') as source_urls,
-      coalesce(array_remove(array_cat(array_agg(distinct rs.title), array_agg(distinct parent_rs.title)), null), '{{}}') as source_titles,
+      coalesce(array_remove(array_cat(array_cat(array_cat(array_agg(distinct rs.source_id), array_agg(distinct parent_rs.source_id)), array_agg(distinct idea_rs.source_id)), array_agg(distinct candidate_rs.source_id)), null), '{{}}') as source_ids,
+      coalesce(array_remove(array_cat(array_cat(array_cat(array_agg(distinct rs.url), array_agg(distinct parent_rs.url)), array_agg(distinct idea_rs.url)), array_agg(distinct candidate_rs.url)), null), '{{}}') as source_urls,
+      coalesce(array_remove(array_cat(array_cat(array_cat(array_agg(distinct rs.title), array_agg(distinct parent_rs.title)), array_agg(distinct idea_rs.title)), array_agg(distinct candidate_rs.title)), null), '{{}}') as source_titles,
       (
         coalesce(
           jsonb_agg(distinct jsonb_build_object('source_id', rs.source_id, 'url', rs.url, 'title', rs.title))
@@ -802,6 +856,14 @@ def _fetch_postgres_rows(project_ids: list[str], query: str) -> list[dict[str, A
         ) || coalesce(
           jsonb_agg(distinct jsonb_build_object('source_id', parent_rs.source_id, 'url', parent_rs.url, 'title', parent_rs.title))
           filter (where parent_rs.source_id is not null),
+          '[]'::jsonb
+        ) || coalesce(
+          jsonb_agg(distinct jsonb_build_object('source_id', idea_rs.source_id, 'url', idea_rs.url, 'title', idea_rs.title))
+          filter (where idea_rs.source_id is not null),
+          '[]'::jsonb
+        ) || coalesce(
+          jsonb_agg(distinct jsonb_build_object('source_id', candidate_rs.source_id, 'url', candidate_rs.url, 'title', candidate_rs.title))
+          filter (where candidate_rs.source_id is not null),
           '[]'::jsonb
         )
       ) as source_records,
@@ -813,6 +875,12 @@ def _fetch_postgres_rows(project_ids: list[str], query: str) -> list[dict[str, A
     left join enoch.corpus_imports ci on ci.paper_id=p.paper_id
     left join enoch.research_lineage rl on rl.target_type='candidate' and rl.target_id=pe.project_id
     left join enoch.research_sources rs on rs.source_id=rl.source_id
+    left join enoch.research_lineage idea_source_rl on idea_source_rl.target_type='idea' and idea_source_rl.target_id=pe.project_id and idea_source_rl.source_type='source' and idea_source_rl.relation_type='generated_from'
+    left join enoch.research_sources idea_rs on idea_rs.source_id=idea_source_rl.source_id
+    left join enoch.research_lineage queued_rl on queued_rl.target_type='project' and queued_rl.target_id=pe.project_id and queued_rl.source_type='idea' and queued_rl.relation_type='queued_as'
+    left join enoch.research_lineage admitted_rl on admitted_rl.target_type='idea' and admitted_rl.target_id=queued_rl.source_id and admitted_rl.source_type='candidate' and admitted_rl.relation_type='admitted_as'
+    left join enoch.research_lineage candidate_source_rl on candidate_source_rl.target_type='candidate' and candidate_source_rl.target_id=admitted_rl.source_id and candidate_source_rl.source_type='source' and candidate_source_rl.relation_type='generated_from'
+    left join enoch.research_sources candidate_rs on candidate_rs.source_id=candidate_source_rl.source_id
     left join enoch.paper_eligibility parent_pe on lower(parent_pe.followup_title)=lower(pe.project_name) and parent_pe.project_id<>pe.project_id
     left join enoch.research_lineage parent_rl on parent_rl.target_type='candidate' and parent_rl.target_id=parent_pe.project_id
     left join enoch.research_sources parent_rs on parent_rs.source_id=parent_rl.source_id
