@@ -5,9 +5,34 @@ set -euo pipefail
 # account/organization has branch-protection support for private repositories.
 # This script intentionally does not change repository visibility.
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SYSTEM_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ECOSYSTEM_MANIFEST="${ECOSYSTEM_MANIFEST:-$SYSTEM_ROOT/site/ecosystem.json}"
+
 CODE_REPO="${CODE_REPO:-alias8818/enoch-agentic-research-system}"
 CORPUS_REPO="${CORPUS_REPO:-alias8818/enoch-ai-research-corpus}"
 PROMISING_REPO="${PROMISING_REPO:-alias8818/enoch-promising-signals}"
+
+manifest_count() {
+  local key="$1"
+  python3 - "$ECOSYSTEM_MANIFEST" "$key" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+key = sys.argv[2]
+if not manifest_path.exists():
+    raise SystemExit(f"ecosystem manifest not found: {manifest_path}")
+value = json.loads(manifest_path.read_text(encoding="utf-8")).get(key)
+if type(value) is not int or value < 0:
+    raise SystemExit(f"ecosystem manifest key {key!r} must be a non-negative integer")
+print(value)
+PY
+}
+
+CORPUS_COUNT="${CORPUS_COUNT:-$(manifest_count artifact_count)}"
+PROMISING_SIGNAL_COUNT="${PROMISING_SIGNAL_COUNT:-$(manifest_count promising_signal_count)}"
 
 repo_edit() {
   local repo="$1" desc="$2" topics="$3"
@@ -60,10 +85,10 @@ repo_edit "$CODE_REPO" \
   "Agentic research control plane: queue state, worker preflight, wake-gated execution, evidence sync, dashboard, alerts, and AI-generated paper packaging." \
   "agentic-ai,research-automation,control-plane,langgraph,wake-gate,local-ai"
 repo_edit "$CORPUS_REPO" \
-  "388 AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim ledgers, manifests, and packaging/provenance reports." \
+  "$CORPUS_COUNT AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim ledgers, manifests, and packaging/provenance reports." \
   "ai-generated,research-corpus,agentic-ai,provenance,claim-ledger,local-ai"
 repo_edit "$PROMISING_REPO" \
-  "4 bounded Enoch promising signals preserved for larger-compute follow-up; not validated papers, not peer reviewed, and separate from the paper corpus." \
+  "$PROMISING_SIGNAL_COUNT bounded Enoch promising signals preserved for larger-compute follow-up; not validated papers, not peer reviewed, and separate from the paper corpus." \
   "ai-generated,research-signals,agentic-ai,local-ai,research-automation,provenance"
 
 protect_branch "$CODE_REPO" '["tests", "public-release-integrity", "secret-scan"]'
