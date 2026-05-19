@@ -202,12 +202,12 @@ def test_validate_repo_against_rows_catches_control_plane_selection_drift(tmp_pa
     exporter.write_export(exporter.clean_export_rows(rows), tmp_path)
     manifest_path = tmp_path / "data" / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["selection_summary"]["missing_required_evidence_or_fields"] = 0
+    manifest["selection_summary"]["backfilled_exportable"] = 0
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     issues = exporter.validate_repo_against_rows(rows, tmp_path)
 
-    assert "selection_summary.missing_required_evidence_or_fields:0 != 1" in issues
+    assert "selection_summary.backfilled_exportable:0 != 1" in issues
 
 
 def test_audit_backfill_report_classifies_exportable_and_missing_fields() -> None:
@@ -221,15 +221,98 @@ def test_audit_backfill_report_classifies_exportable_and_missing_fields() -> Non
 
     assert report["summary"] == {
         "total_candidate_rows": 3,
-        "export_cleanly_now": 1,
-        "missing_required_evidence_or_fields": 2,
+        "export_cleanly_now": 2,
+        "backfilled_exportable": 1,
+        "missing_required_evidence_or_fields": 1,
         "excluded_paper_or_corpus": 0,
         "hard_negative_or_stale": 0,
     }
-    assert [row["project_id"] for row in report["buckets"]["export_cleanly_now"]] == ["clean-signal"]
+    assert [row["project_id"] for row in report["buckets"]["export_cleanly_now"]] == ["clean-signal", "missing-source"]
     missing = {row["project_id"]: row for row in report["buckets"]["missing_required_evidence_or_fields"]}
     assert "useful_signal_summary:required" in missing["missing-summary"]["issues"]
-    assert "sources:required" in missing["missing-source"]["issues"]
+    repaired = {row["project_id"]: row for row in report["buckets"]["export_cleanly_now"]}
+    assert repaired["missing-source"]["backfill"]["actions"] == ["source_records:queue_project_metadata"]
+    assert repaired["missing-source"]["backfill"]["classification"] == ["missing_research_source_lineage"]
+
+
+def test_source_backfill_uses_internal_project_source_without_overclaiming() -> None:
+    row = _row(
+        project_id="missing-source",
+        project_name="Missing Source Project",
+        source_ids=[],
+        source_urls=[],
+        source_titles=[],
+        source_records=[],
+    )
+
+    signal = exporter.signal_from_row(row)
+    assert "sources:required" in exporter.validate_signal(signal)
+
+    backfilled = exporter.backfill_promising_signal_row(row)
+    repaired_signal = exporter.signal_from_row(backfilled)
+
+    assert exporter.validate_signal(repaired_signal) == []
+    assert repaired_signal["sources"] == [
+        {
+            "source_id": "internal_generated:missing-source",
+            "url": "",
+            "title": "Internal Enoch project: Missing Source Project",
+        }
+    ]
+    assert backfilled["_promising_signal_backfill"]["classification"] == ["missing_research_source_lineage"]
+    assert backfilled["_promising_signal_backfill"]["actions"] == ["source_records:queue_project_metadata"]
+
+
+def test_unrecoverable_missing_source_stays_parked_with_machine_reason() -> None:
+    row = _row(
+        project_id="",
+        project_name="",
+        title="",
+        source_ids=[],
+        source_urls=[],
+        source_titles=[],
+        source_records=[],
+    )
+
+    report = exporter.audit_backfill([row])
+
+    assert report["summary"]["missing_required_evidence_or_fields"] == 1
+    parked = report["buckets"]["missing_required_evidence_or_fields"][0]
+    assert "unrecoverable_project_identity" in parked["backfill"]["classification"]
+    assert parked["backfill"]["actions"] == []
+
+
+def test_audit_classifies_stale_duplicate_superseded_before_missing_fields() -> None:
+    rows = [
+        _row(project_id="dupe-signal", run_id="old", updated_at="2026-05-14T00:00:00Z", source_ids=[], source_urls=[], source_titles=[]),
+        _row(project_id="dupe-signal", run_id="new", updated_at="2026-05-15T00:00:00Z"),
+    ]
+
+    report = exporter.audit_backfill(rows)
+
+    assert report["summary"]["export_cleanly_now"] == 1
+    assert report["summary"]["hard_negative_or_stale"] == 1
+    stale = report["buckets"]["hard_negative_or_stale"][0]
+    assert stale["run_id"] == "old"
+    assert "stale_duplicate_superseded" in stale["backfill"]["classification"]
+
+
+def test_backfill_report_redacts_private_paths() -> None:
+    report = exporter.audit_backfill([
+        _row(
+            project_id="missing-source",
+            source_ids=[],
+            source_urls=[],
+            source_titles=[],
+            artifact_root="/home/jeremy/private/project",
+            artifact_paths=["/var/lib/enoch-control-plane/projects/x/.enoch/project_decision.json"],
+        )
+    ])
+
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert "/home/jeremy" not in serialized
+    assert "/var/lib/enoch-control-plane" not in serialized
 
 
 def test_clean_rows_from_audit_can_be_exported_without_invalid_historical_rows(tmp_path) -> None:
@@ -243,10 +326,11 @@ def test_clean_rows_from_audit_can_be_exported_without_invalid_historical_rows(t
 
     records = [json.loads(line) for line in (tmp_path / "data" / "signals.jsonl").read_text(encoding="utf-8").splitlines()]
     manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))
-    assert result["count"] == 1
-    assert [record["project_id"] for record in records] == ["clean-signal"]
-    assert manifest["selection_summary"]["export_cleanly_now"] == 1
-    assert manifest["selection_summary"]["missing_required_evidence_or_fields"] == 1
+    assert result["count"] == 2
+    assert [record["project_id"] for record in records] == ["clean-signal", "missing-source"]
+    assert manifest["selection_summary"]["export_cleanly_now"] == 2
+    assert manifest["selection_summary"]["backfilled_exportable"] == 1
+    assert manifest["selection_summary"]["missing_required_evidence_or_fields"] == 0
     assert manifest["selection_summary"]["hard_negative_or_stale"] == 1
 
 
@@ -263,6 +347,7 @@ def test_audit_backfill_report_classifies_paper_corpus_and_stale_rows() -> None:
     assert report["summary"] == {
         "total_candidate_rows": 4,
         "export_cleanly_now": 0,
+        "backfilled_exportable": 0,
         "missing_required_evidence_or_fields": 0,
         "excluded_paper_or_corpus": 2,
         "hard_negative_or_stale": 2,
@@ -334,5 +419,6 @@ def test_cli_clean_only_exports_valid_subset(tmp_path) -> None:
     assert rc == 0
     records = [json.loads(line) for line in (output_repo / "data" / "signals.jsonl").read_text(encoding="utf-8").splitlines()]
     manifest = json.loads((output_repo / "data" / "manifest.json").read_text(encoding="utf-8"))
-    assert [record["project_id"] for record in records] == ["clean-signal"]
-    assert manifest["selection_summary"]["missing_required_evidence_or_fields"] == 1
+    assert [record["project_id"] for record in records] == ["clean-signal", "missing-source"]
+    assert manifest["selection_summary"]["backfilled_exportable"] == 1
+    assert manifest["selection_summary"]["missing_required_evidence_or_fields"] == 0

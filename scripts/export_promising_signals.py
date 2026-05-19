@@ -302,6 +302,7 @@ def export_manifest(signals: list[dict[str, Any]], *, selection_summary: dict[st
         "selection_summary": selection_summary or {
             "total_candidate_rows": len(signals),
             "export_cleanly_now": len(signals),
+            "backfilled_exportable": 0,
             "missing_required_evidence_or_fields": 0,
             "excluded_paper_or_corpus": 0,
             "hard_negative_or_stale": 0,
@@ -429,8 +430,140 @@ def _paper_or_corpus_excluded(row: dict[str, Any]) -> bool:
     )
 
 
-def _audit_row_summary(row: dict[str, Any], issues: list[str]) -> dict[str, Any]:
-    return {
+def _extract_project_decision(value: Any) -> dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except Exception:
+            return {}
+    if not isinstance(value, dict):
+        return {}
+    nested = value.get("project_decision")
+    if isinstance(nested, dict):
+        return nested
+    return value
+
+
+def _source_records_from_candidate_metadata(row: dict[str, Any]) -> list[dict[str, str]]:
+    records = _sources_from_row(
+        {
+            "source_records": row.get("candidate_source_records"),
+            "source_ids": row.get("candidate_source_ids") or row.get("research_candidate_source_ids"),
+            "source_urls": row.get("candidate_source_urls") or row.get("research_candidate_source_urls"),
+            "source_titles": row.get("candidate_source_titles") or row.get("research_candidate_source_titles"),
+            "source_url": row.get("candidate_source_url") or row.get("research_candidate_source_url"),
+            "source_paper": row.get("candidate_source_title") or row.get("research_candidate_source_title"),
+        }
+    )
+    return records
+
+
+def _dedupe_source_records(records: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
+    deduped: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        source = {
+            "source_id": _text(record.get("source_id")),
+            "url": _text(record.get("url")),
+            "title": _text(record.get("title")),
+        }
+        key = (source["source_id"], source["url"], source["title"])
+        if any(source.values()) and key not in seen:
+            deduped.append(source)
+            seen.add(key)
+    deduped.sort(key=lambda item: (item["source_id"], item["url"], item["title"]))
+    return deduped
+
+
+def backfill_promising_signal_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Return a deterministically enriched copy of a promising-signal row.
+
+    This function only copies facts from structured row/artifact fields or
+    creates an explicit internal-generated source from project metadata. It
+    never invents external URLs, titles, measurements, or claims.
+    """
+
+    repaired = dict(row)
+    classification: list[str] = []
+    actions: list[str] = []
+
+    decision = _extract_project_decision(row.get("decision_payload") or row.get("payload_json") or row.get("project_decision"))
+    decision_field_map = {
+        "research_outcome": "research_outcome",
+        "hypothesis_status": "hypothesis_status",
+        "evidence_strength": "evidence_strength",
+        "claim_scope": "claim_scope",
+        "scale_limits": "scale_limits",
+        "useful_signal_summary": "useful_signal_summary",
+        "recommended_next_action": "recommended_next_action",
+        "stop_reason": "stop_reason",
+        "bounded_paper_ready": "bounded_paper_ready",
+        "compute_scale_blocked": "compute_scale_blocked",
+    }
+    for row_field, decision_field in decision_field_map.items():
+        if repaired.get(row_field) in (None, "", [], {}):
+            value = decision.get(decision_field)
+            if value not in (None, "", [], {}):
+                repaired[row_field] = value
+                if "missing_decision_field" not in classification:
+                    classification.append("missing_decision_field")
+                actions.append(f"{row_field}:project_decision")
+
+    if not _sources_from_row(repaired):
+        candidate_sources = _source_records_from_candidate_metadata(row)
+        if candidate_sources:
+            repaired["source_records"] = candidate_sources
+            classification.append("missing_research_source_lineage")
+            actions.append("source_records:research_candidate_metadata")
+        else:
+            project_id = _text(row.get("project_id"))
+            title = _text(row.get("project_name") or row.get("title"))
+            if project_id and title:
+                repaired["source_records"] = [
+                    {
+                        "source_id": f"internal_generated:{project_id}",
+                        "url": "",
+                        "title": f"Internal Enoch project: {title}",
+                    }
+                ]
+                classification.append("missing_research_source_lineage")
+                actions.append("source_records:queue_project_metadata")
+            else:
+                classification.append("unrecoverable_project_identity")
+
+    signal = signal_from_row(repaired)
+    issues = validate_signal(signal)
+    if "sources:required" in issues and "missing_research_source_lineage" not in classification:
+        classification.append("missing_research_source_lineage")
+    if any(issue.startswith("sources") for issue in issues) and _sources_from_row(repaired):
+        classification.append("missing_source_url_or_title")
+    if not _text(row.get("artifact_root")) and not _list(row.get("artifact_paths")):
+        classification.append("missing_evidence_claim_boundary")
+
+    repaired["_promising_signal_backfill"] = {
+        "classification": sorted(set(classification)),
+        "actions": sorted(set(actions)),
+        "remaining_issues": issues,
+    }
+    return repaired
+
+
+def _latest_project_keys(rows: Iterable[dict[str, Any]]) -> set[tuple[str, str]]:
+    latest: dict[str, tuple[str, str]] = {}
+    for row in rows:
+        project_id = _text(row.get("project_id"))
+        if not project_id:
+            continue
+        row_key = (_text(row.get("updated_at")), _text(row.get("run_id") or row.get("current_run_id")))
+        if project_id not in latest or row_key > latest[project_id]:
+            latest[project_id] = row_key
+    return {(project_id, run_id) for project_id, (_updated, run_id) in latest.items()}
+
+
+def _audit_row_summary(row: dict[str, Any], issues: list[str], *, backfill: dict[str, Any] | None = None) -> dict[str, Any]:
+    summary = {
         "project_id": _text(row.get("project_id")),
         "run_id": _text(row.get("run_id") or row.get("current_run_id")),
         "title": _text(row.get("project_name") or row.get("title")),
@@ -438,31 +571,60 @@ def _audit_row_summary(row: dict[str, Any], issues: list[str]) -> dict[str, Any]
         "compute_scale_blocked": _truthy(row.get("compute_scale_blocked")),
         "issues": sorted(set(issues)),
     }
+    if backfill is not None:
+        summary["backfill"] = {
+            "classification": sorted(set(_list(backfill.get("classification")))),
+            "actions": sorted(set(_list(backfill.get("actions")))),
+            "remaining_issues": sorted(set(_list(backfill.get("remaining_issues")))),
+        }
+    return summary
 
 
 def audit_backfill(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    materialized = list(rows)
+    latest_keys = _latest_project_keys(materialized)
     buckets: dict[str, list[dict[str, Any]]] = {
         "export_cleanly_now": [],
         "missing_required_evidence_or_fields": [],
         "excluded_paper_or_corpus": [],
         "hard_negative_or_stale": [],
     }
+    backfilled_exportable = 0
     total = 0
-    for row in rows:
+    for row in materialized:
         total += 1
+        project_id = _text(row.get("project_id"))
+        run_id = _text(row.get("run_id") or row.get("current_run_id"))
+        if project_id and (project_id, run_id) not in latest_keys:
+            buckets["hard_negative_or_stale"].append(
+                _audit_row_summary(
+                    row,
+                    ["stale_duplicate_superseded"],
+                    backfill={"classification": ["stale_duplicate_superseded"], "actions": [], "remaining_issues": []},
+                )
+            )
+            continue
         if _paper_or_corpus_excluded(row):
-            buckets["excluded_paper_or_corpus"].append(_audit_row_summary(row, ["paper_or_corpus_row"]))
+            buckets["excluded_paper_or_corpus"].append(
+                _audit_row_summary(row, ["paper_or_corpus_row"], backfill={"classification": [], "actions": [], "remaining_issues": []})
+            )
             continue
-        status = _export_status(row)
+        backfilled = backfill_promising_signal_row(row)
+        backfill_meta = backfilled.get("_promising_signal_backfill") if isinstance(backfilled.get("_promising_signal_backfill"), dict) else {}
+        status = _export_status(backfilled)
         if status not in EXPORT_STATUSES:
-            buckets["hard_negative_or_stale"].append(_audit_row_summary(row, ["research_outcome:not_export_status"]))
+            buckets["hard_negative_or_stale"].append(
+                _audit_row_summary(backfilled, ["research_outcome:not_export_status"], backfill=backfill_meta)
+            )
             continue
-        signal = signal_from_row(row)
+        signal = signal_from_row(backfilled)
         issues = validate_signal(signal)
         if issues:
-            buckets["missing_required_evidence_or_fields"].append(_audit_row_summary(row, issues))
+            buckets["missing_required_evidence_or_fields"].append(_audit_row_summary(backfilled, issues, backfill=backfill_meta))
             continue
-        buckets["export_cleanly_now"].append(_audit_row_summary(row, []))
+        if backfill_meta.get("actions"):
+            backfilled_exportable += 1
+        buckets["export_cleanly_now"].append(_audit_row_summary(backfilled, [], backfill=backfill_meta))
     for key in buckets:
         buckets[key].sort(key=lambda item: (item.get("project_id") or "", item.get("run_id") or ""))
     return {
@@ -470,6 +632,7 @@ def audit_backfill(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
         "summary": {
             "total_candidate_rows": total,
             "export_cleanly_now": len(buckets["export_cleanly_now"]),
+            "backfilled_exportable": backfilled_exportable,
             "missing_required_evidence_or_fields": len(buckets["missing_required_evidence_or_fields"]),
             "excluded_paper_or_corpus": len(buckets["excluded_paper_or_corpus"]),
             "hard_negative_or_stale": len(buckets["hard_negative_or_stale"]),
@@ -481,8 +644,12 @@ def audit_backfill(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
 def clean_export_rows(rows: Iterable[dict[str, Any]]) -> ExportRows:
     materialized = list(rows)
     report = audit_backfill(materialized)
-    clean_ids = {row["project_id"] for row in report["buckets"]["export_cleanly_now"]}
-    clean_rows = [row for row in materialized if _text(row.get("project_id")) in clean_ids]
+    clean_keys = {(row["project_id"], row["run_id"]) for row in report["buckets"]["export_cleanly_now"]}
+    clean_rows = [
+        backfill_promising_signal_row(row)
+        for row in materialized
+        if (_text(row.get("project_id")), _text(row.get("run_id") or row.get("current_run_id"))) in clean_keys
+    ]
     return ExportRows(clean_rows, selection_summary=report["summary"])
 
 
@@ -491,6 +658,7 @@ def audit_backfill_markdown(report: dict[str, Any]) -> str:
     buckets = report.get("buckets") or {}
     labels = [
         ("Export cleanly now", "export_cleanly_now"),
+        ("Backfilled exportable", "backfilled_exportable"),
         ("Missing required evidence/fields", "missing_required_evidence_or_fields"),
         ("Excluded because paper/corpus", "excluded_paper_or_corpus"),
         ("Hard negative or stale", "hard_negative_or_stale"),
@@ -522,14 +690,31 @@ def audit_backfill_markdown(report: dict[str, Any]) -> str:
     ])
     for label, key in labels:
         rows = buckets.get(key) or []
-        lines.extend([f"## {label}", "", "| Project | Outcome | Issues |", "|---|---|---|"])
+        if key == "backfilled_exportable":
+            rows = [
+                row
+                for row in buckets.get("export_cleanly_now") or []
+                if (row.get("backfill") or {}).get("actions")
+            ]
+        else:
+            rows = buckets.get(key) or []
+        lines.extend([f"## {label}", "", "| Project | Outcome | Issues | Backfill |", "|---|---|---|---|"])
         if not rows:
-            lines.append("| _none_ |  |  |")
+            lines.append("| _none_ |  |  |  |")
         for row in rows:
             project = row.get("project_id") or row.get("title") or "unknown"
             outcome = row.get("research_outcome") or ("compute_scale_blocked" if row.get("compute_scale_blocked") else "")
             issues = ", ".join(row.get("issues") or [])
-            lines.append(f"| `{project}` | `{outcome}` | {issues} |")
+            backfill = row.get("backfill") if isinstance(row.get("backfill"), dict) else {}
+            backfill_text = "; ".join(
+                part
+                for part in [
+                    ", ".join(backfill.get("classification") or []),
+                    ", ".join(backfill.get("actions") or []),
+                ]
+                if part
+            )
+            lines.append(f"| `{project}` | `{outcome}` | {issues} | {backfill_text} |")
         lines.append("")
     return "\n".join(lines)
 
