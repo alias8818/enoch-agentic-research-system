@@ -30,13 +30,20 @@ EXCLUDES=(
   --exclude='*.log'
   --exclude='.env'
   --exclude='.env.*'
+  --exclude='config.json'
+  --exclude='state'
+  --exclude='state/*'
+  --exclude='logs'
+  --exclude='logs/*'
+  --exclude='secrets'
+  --exclude='secrets/*'
   --exclude='dist'
   --exclude='dist/*'
 )
 
 tar "${EXCLUDES[@]}" --transform "s#^.#$PREFIX#" -czf "$ARCHIVE_PATH" .
 
-for pattern in '/.git/' '/.venv/' '/.omx/' '/.scan-results/' '/.local/' '/private-notes/' '.db' '.sqlite' '.sqlite3' '.log' '/.env'; do
+for pattern in '/.git/' '/.venv/' '/.omx/' '/.scan-results/' '/.local/' '/private-notes/' '.db' '.sqlite' '.sqlite3' '.log' '/.env' '/config.json' '/state/' '/logs/' '/secrets/'; do
   if tar -tzf "$ARCHIVE_PATH" | grep -F -- "$pattern" >/dev/null; then
     echo "FAIL archive contains forbidden pattern: $pattern" >&2
     exit 1
