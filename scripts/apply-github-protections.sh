@@ -60,7 +60,7 @@ repo_edit "$CODE_REPO" \
   "Agentic research control plane: queue state, worker preflight, wake-gated execution, evidence sync, dashboard, alerts, and AI-generated paper packaging." \
   "agentic-ai,research-automation,control-plane,langgraph,wake-gate,local-ai"
 repo_edit "$CORPUS_REPO" \
-  "AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim ledgers, manifests, and packaging/provenance reports." \
+  "388 AI-generated research artifacts produced by Enoch, packaged with provenance metadata, evidence bundles, claim ledgers, manifests, and packaging/provenance reports." \
   "ai-generated,research-corpus,agentic-ai,provenance,claim-ledger,local-ai"
 repo_edit "$PROMISING_REPO" \
   "4 bounded Enoch promising signals preserved for larger-compute follow-up; not validated papers, not peer reviewed, and separate from the paper corpus." \
