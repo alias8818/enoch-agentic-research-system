@@ -111,6 +111,12 @@ Tier 0 smoke/proxy falsification -> Tier 1 controlled small direct test ->
 Tier 2 medium confirmation with fixed seeds, ablations, and real baseline ->
 Tier 3 bounded full validation up to roughly 24h -> Tier 4 replication/robustness.
 
+Public-benefit research objective:
+- The #1 rule is to produce something useful for someone else in the world.
+- Prefer honest, reproducible local signals over impressive wording or paper count.
+- Negative results are useful when they save others time and clearly explain what failed.
+- Preserve small signals that another researcher with larger compute could scale later.
+
 Additional Research Quality policy:
 Research Quality feedback from recent Enoch traces:
 - Do not treat proxy-only, trace-only, or synthetic-positive evidence as paper-positive; require direct target-stack evidence before paper writing.

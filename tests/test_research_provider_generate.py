@@ -216,6 +216,9 @@ def test_generation_prompt_includes_research_quality_policy() -> None:
     )
 
     assert "Additional Research Quality policy" in prompt
+    assert "Public-benefit research objective" in prompt
+    assert "produce something useful for someone else in the world" in prompt
+    assert "Negative results are useful when they save others time" in prompt
     assert "Do not treat proxy-only" in prompt
     assert "supported but still finalize_negative" in prompt
     assert "Do not propose another automatic follow-up at max depth" in prompt

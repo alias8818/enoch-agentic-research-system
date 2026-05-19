@@ -1185,6 +1185,8 @@ Evidence-depth rules:
 - Do not add new decision fields or enum values. Use only the schema above.
 - This deployment does not have datacenter-scale training. Do not treat lack of 7B+/multi-node/full-scale training as a universal failure; judge whether the small/toy/medium evidence creates a useful scoped signal.
 - The #1 rule is to produce something useful for someone else in the world. A small, reproducible signal with honest limits can be valuable even when it only invites hyperscaler follow-up.
+- Negative results are useful when they are clear, reproducible, and save other researchers from wasting time.
+- Do not optimize for impressive wording, positive-looking outcomes, or paper count. Optimize for evidence that helps someone else decide what to test, avoid, branch, or scale.
 - Treat promising research as a tiered ladder, not a one-shot yes/no test: small probe -> medium confirmation -> bounded full-scale validation -> robustness/ablation before paper.
 - Small probes should falsify fast or earn a concrete follow-up; they should not claim full success.
 - Medium confirmations should use direct target metrics, a real baseline/control, and enough runtime to show the effect is not a smoke-test artifact.

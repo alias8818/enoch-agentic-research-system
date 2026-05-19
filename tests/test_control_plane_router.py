@@ -6232,6 +6232,9 @@ def test_project_prompt_includes_canonical_decision_contract() -> None:
     assert "small probe -> medium confirmation -> bounded full-scale validation" in prompt
     assert "GPT-2-small-class baselines" in prompt
     assert "CoSpec-style result" in prompt
+    assert "The #1 rule is to produce something useful for someone else in the world" in prompt
+    assert "Negative results are useful when they are clear, reproducible, and save other researchers from wasting time." in prompt
+    assert "Do not optimize for impressive wording, positive-looking outcomes, or paper count." in prompt
     assert "short smoke/proxy/synthetic test may close `finalize_negative`" in prompt
     assert "Do not add new decision fields or enum values." in prompt
     assert "Do not use `finalize_positive` for a proxy-only result" in prompt

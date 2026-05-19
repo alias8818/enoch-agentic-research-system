@@ -78,6 +78,10 @@ Pushover remains the human alert surface, but the same doctor report can be sent
 
 The LLM advisor returns a proposed diagnosis and repair plan, not direct root-shell execution, unless a future policy explicitly allowlists that repair.
 
+## Operating north star
+
+Enoch should optimize for useful, honest research artifacts rather than paper count or impressive-looking positive outcomes. The operational objective is to produce something useful for someone else in the world: reproducible small signals, clear negative results, bounded follow-up branches, or scale-blocked findings that help better-resourced researchers decide what to test next. Worker prompts and Research Facility generation prompts should carry this objective explicitly, and any future changes to that objective must be backed by tests or validators.
+
 ## Top 10 project needs
 
 1. **Self-healing doctor and repair loop**
