@@ -114,12 +114,18 @@ def main() -> int:
             if not paper_draft_before_dispatch_enabled:
                 paper_draft = {"action": "skipped", "reason": "queue pump paper drafting disabled"}
             else:
-                paper_draft = _post_json(
-                    base_url,
-                    "/control/papers/draft-next",
-                    token,
-                    {"dry_run": False, "requested_by": "systemd:queue-pump-before-dispatch"},
-                )
+                try:
+                    paper_draft = _post_json(
+                        base_url,
+                        "/control/papers/draft-next",
+                        token,
+                        {"dry_run": False, "requested_by": "systemd:queue-pump-before-dispatch"},
+                    )
+                except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+                    paper_draft = {
+                        "action": "error",
+                        "reason": f"paper draft-next failed before dispatch: {type(exc).__name__}: {exc}",
+                    }
             if paper_draft.get("action") == "drafted":
                 paper_id = str((paper_draft.get("paper") or {}).get("paper_id") or "")
                 publication_rewrite = _post_json(

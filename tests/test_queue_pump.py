@@ -62,6 +62,50 @@ class QueuePumpTests(unittest.TestCase):
         self.assertNotIn("checks", output["preflight"])
         self.assertLess(len(json.dumps(output)), 1000)
 
+    def test_queue_pump_dispatches_when_enabled_draft_next_fails(self) -> None:
+        calls: list[str] = []
+        status = {
+            "flags": {"queue_paused": False, "maintenance_mode": False},
+            "dispatch_safe": True,
+            "dispatch_blockers": [],
+            "active_items": [],
+            "next_candidate": {"project_id": "queued-idea"},
+            "conflicts": [],
+        }
+
+        def fake_post(base_url: str, path: str, token: str, payload: dict, *, timeout: int = 30) -> dict:
+            calls.append(path)
+            if path == "/control/api/preflight":
+                return {"ok": True, "checks": []}
+            if path == "/control/api/alerts/queue-check":
+                return {"should_alert": False, "sent": False, "alerts_enabled": True}
+            if path == "/control/papers/draft-next":
+                raise queue_pump.error.HTTPError(f"{base_url}{path}", 500, "Internal Server Error", {}, None)
+            if path == "/control/dispatch-next":
+                return {"action": "live_dispatch", "candidate": {"project_id": "queued-idea"}}
+            raise AssertionError(path)
+
+        with patch.object(
+            queue_pump,
+            "_load_config",
+            return_value={
+                "listen_host": "127.0.0.1",
+                "listen_port": 8787,
+                "control_api_bearer_token": "t",
+                "queue_pump_enabled": True,
+                "queue_pump_paper_draft_enabled": True,
+            },
+        ), patch.object(queue_pump, "_post_json", side_effect=fake_post), patch.object(queue_pump, "_get_json", return_value=status):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = queue_pump.main()
+
+        output = json.loads(out.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual(calls[-1], "/control/dispatch-next")
+        self.assertEqual(output["paper_draft"]["action"], "error")
+        self.assertEqual(output["dispatch"]["action"], "live_dispatch")
+
     def test_queue_pump_does_not_dispatch_when_no_candidate_exists(self) -> None:
         status = {
             "flags": {"queue_paused": False, "maintenance_mode": False},
