@@ -136,12 +136,19 @@ class ProcessTracker:
             except (ProcessLookupError, PermissionError):
                 pgid = None
             create_time = proc.create_time()
+            elapsed_sec = int(max(0, time.time() - create_time))
+            cpu_times = proc.cpu_times()
+            cpu_time_sec = float(cpu_times.user + cpu_times.system)
+            avg_cpu_pct = (cpu_time_sec / elapsed_sec * 100.0) if elapsed_sec > 0 else 0.0
             return ProcessInfo(
                 pid=proc.pid,
                 ppid=proc.ppid(),
                 pgid=pgid,
-                elapsed_sec=int(max(0, time.time() - create_time)),
+                elapsed_sec=elapsed_sec,
                 create_time=create_time,
+                num_threads=proc.num_threads(),
+                cpu_time_sec=round(cpu_time_sec, 3),
+                avg_cpu_pct=round(avg_cpu_pct, 3),
                 cmdline=cmdline,
             )
         except (psutil.NoSuchProcess, psutil.AccessDenied):

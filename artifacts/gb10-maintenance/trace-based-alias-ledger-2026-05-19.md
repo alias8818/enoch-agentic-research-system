@@ -1,0 +1,288 @@
+# Trace-Based Alias Ledger GB10 Maintenance Evidence Snapshot
+
+Captured: 2026-05-19 during CPU-only GB10 maintenance pause.
+
+This run was paused before a worker callback because the active benchmark was a long, CPU-only, single-thread Python workload on GB10. Useful already-completed evidence is preserved here so the result is not lost while the resource-utilization policy is fixed.
+
+## Preserved result
+
+- Project: `trace-based-alias-ledger-evaluation-against-compact-hash-66f90db0ab`
+- Run: `trace-based-alias-ledger-evaluation-against-compact-hash-66f90db0ab-20260519T205432610177+0000`
+- Completed medium artifact before interruption: `results/alias_ledger_medium_summary.json`
+- Completed condition summary before interruption: `results/alias_ledger_medium_condition_summary.json`
+- Main medium grid: 216 configs, 1080 method rows, ~3134 seconds elapsed, max RSS ~1.5 GiB.
+- Exact ledger mean F1: 0.9095.
+- Best compact method mean F1: 0.5356.
+- Exact-minus-best compact mean F1 margin: 0.3738.
+- Exact beat all compact variants in 192/216 configs.
+
+## Maintenance interpretation
+
+The evidence is useful as a bounded no-paper signal, but the execution pattern is not acceptable for GB10 utilization. The interrupted follow-up should not be resumed on GB10 as another long single-thread CPU-only loop. Any continuation should either be parallelized/vectorized, routed to CPU workers/VMs, or closed as promising-if-scaled / useful-signal with honest limits.
+
+## Raw evidence excerpt
+
+```text
+FILE results/alias_ledger_medium_summary.json True 2392
+{
+  "audit_pairs_per_run": 10000,
+  "best_compact_mean_f1": 0.6532362437833699,
+  "best_compact_method": "compact_hash_mod_1over8_12bit",
+  "configs": 60,
+  "configs_where_exact_beats_all_compact": 36,
+  "elapsed_sec": 92.02453582896851,
+  "exact_mean_f1": 0.9212585876167394,
+  "f1_margin_exact_minus_best_compact": 0.26802234383336954,
+  "max_rss_kb": 83052,
+  "mean_per_config_f1_margin_exact_minus_best_compact": 0.23081181339598222,
+  "median_per_config_f1_margin_exact_minus_best_compact": 0.2597099318162702,
+  "methods": {
+    "compact_hash_mod_1over4_16bit": {
+      "mean_accuracy": 0.6739206055542108,
+      "mean_f1": 0.5598581503721173,
+      "mean_precision": 0.8966105989157127,
+      "mean_recall": 0.5052766138271575,
+      "median_events_per_sec": 1153285.1029448889,
+      "median_state_units": 2000.0,
+      "runs": 60,
+      "total_fn": 1357207,
+      "total_fp": 235344
+    },
+    "compact_hash_mod_1over8_12bit": {
+      "mean_accuracy": 0.7125405647580974,
+      "mean_f1": 0.6532362437833699,
+      "mean_precision": 0.79837722783407,
+      "mean_recall": 0.6504161463773044,
+      "median_events_per_sec": 1174256.7402705676,
+      "median_state_units": 1024.0,
+      "runs": 60,
+      "total_fn": 956645,
+      "total_fp": 423576
+    },
+    "compact_hash_stable_1over2_20bit": {
+      "mean_accuracy": 0.6833064464777742,
+      "mean_f1": 0.5155567676693865,
+      "mean_precision": 0.9987398446720204,
+      "mean_recall": 0.36920889717226757,
+      "median_events_per_sec": 625697.8135685707,
+      "median_state_units": 4000.0,
+      "runs": 60,
+      "total_fn": 1577190,
+      "total_fp": 929
+    },
+    "compact_hash_stable_1over4_16bit": {
+      "mean_accuracy": 0.6729005803730395,
+      "mean_f1": 0.49549833863275017,
+      "mean_precision": 0.9974595666434178,
+      "mean_recall": 0.3488637354301022,
+      "median_events_per_sec": 628179.6356212944,
+      "median_state_units": 2000.0,
+      "runs": 60,
+      "total_fn": 1616904,
+      "total_fp": 1790
+    },
+FILE results/alias_ledger_medium_condition_summary.json True 26262
+{
+  "by_adversarial": [
+    {
+      "adversarial": false,
+      "best_compact_f1": 0.498519070026089,
+      "best_compact_method": "compact_hash_mod_1over4_16bit",
+      "exact_minus_best_compact_f1": 0.410942503087635,
+      "methods": {
+        "compact_hash_mod_1over4_16bit": {
+          "mean_accuracy": 0.6571697330769396,
+          "mean_f1": 0.498519070026089,
+          "mean_precision": 0.9385354355432595,
+          "mean_recall": 0.4029989776606441,
+          "runs": 108,
+          "total_fn": 21361196,
+          "total_fp": 269873
+        },
+        "compact_hash_mod_1over8_12bit": {
+          "mean_accuracy": 0.6400879958947768,
+          "mean_f1": 0.4915161818845249,
+          "mean_precision": 0.8834201161660779,
+          "mean_recall": 0.40700352719475386,
+          "runs": 108,
+          "total_fn": 21337555,
+          "total_fp": 464218
+        },
+        "compact_hash_stable_1over2_20bit": {
+          "mean_accuracy": 0.6648153452556412,
+          "mean_f1": 0.4704064433794653,
+          "mean_precision": 0.9993854081805494,
+          "mean_recall": 0.33075706971668595,
+          "runs": 108,
+          "total_fn": 22435823,
+          "total_fp": 2045
+        },
+        "compact_hash_stable_1over4_16bit": {
+          "mean_accuracy": 0.6556674430930219,
+          "mean_f1": 0.4520277497128576,
+          "mean_precision": 0.9988589534918673,
+          "mean_recall": 0.31262462990934853,
+          "runs": 108,
+          "total_fn": 22812989,
+          "total_fp": 3537
+        },
+        "exact_ledger": {
+          "mean_accuracy": 0.8923115242607145,
+          "mean_f1": 0.909461573113724,
+          "mean_precision": 0.885291223361767,
+          "mean_recall": 0.9523928853508309,
+          "runs": 108,
+          "total_fn": 1451405,
+          "total_fp": 7532235
+        }
+      }
+    },
+    {
+      "adversarial": true,
+      "best_compact_f1": 0.5797161898649653,
+      "best_compact_method": "compact_hash_mod_1over8_12bit",
+      "exact_minus_best_com
+FILE logs/medium.log True 3426
+compact": 0.36159094559049715,
+  "median_per_config_f1_margin_exact_minus_best_compact": 0.44183125046394045,
+  "methods": {
+    "compact_hash_mod_1over4_16bit": {
+      "mean_accuracy": 0.6784307631178808,
+      "mean_f1": 0.5115040069940672,
+      "mean_precision": 0.9688538817091007,
+      "mean_recall": 0.4017444238697594,
+      "median_events_per_sec": 1047021.9599905013,
+      "median_state_units": 8000.0,
+      "runs": 216,
+      "total_fn": 43093293,
+      "total_fp": 273043
+    },
+    "compact_hash_mod_1over8_12bit": {
+      "mean_accuracy": 0.6879079683534849,
+      "mean_f1": 0.535616185874745,
+      "mean_precision": 0.9407269910996143,
+      "mean_recall": 0.4397776377920828,
+      "median_events_per_sec": 1042804.3482173639,
+      "median_state_units": 4000.0,
+      "runs": 216,
+      "total_fn": 42748368,
+      "total_fp": 476544
+    },
+    "compact_hash_stable_1over2_20bit": {
+      "mean_accuracy": 0.664684182525361,
+      "mean_f1": 0.47020441279655595,
+      "mean_precision": 0.9993980748007133,
+      "mean_recall": 0.33048490998983066,
+      "median_events_per_sec": 582644.4899522341,
+      "median_state_units": 16000.0,
+      "runs": 216,
+      "total_fn": 44876912,
+      "total_fp": 4083
+    },
+    "compact_hash_stable_1over4_16bit": {
+      "mean_accuracy": 0.6556210848261592,
+      "mean_f1": 0.45195124338563625,
+      "mean_precision": 0.9988084514595287,
+      "mean_recall": 0.3125441353641072,
+      "median_events_per_sec": 586273.1134662088,
+      "median_state_units": 8000.0,
+      "runs": 216,
+      "total_fn": 45627293,
+      "total_fp": 7362
+    },
+    "exact_ledger": {
+      "mean_accuracy": 0.8923115242607145,
+      "mean_f1": 0.909461573113724,
+      "mean_precision": 0.885291223361767,
+      "mean_recall": 0.9523928853508309,
+      "median_events_per_sec": 1552186.81459002,
+      "median_state_units": 32000.0,
+      "runs": 216,
+      "total_fn": 2902810,
+      "total_fp": 15064470
+    }
+  },
+  "rows": 1080,
+  "scale": "medium"
+}
+
+FILE logs/medium_separated.log True 186
+completed_configs=10 rows=50 elapsed_sec=5.1
+completed_configs=20 rows=100 elapsed_sec=16.0
+completed_configs=30 rows=150 elapsed_sec=27.1
+completed_configs=40 rows=200 elapsed_sec=43.5
+
+FILE logs/medium60_separated.log True 2672
+act_minus_best_compact": 0.23081181339598222,
+  "median_per_config_f1_margin_exact_minus_best_compact": 0.2597099318162702,
+  "methods": {
+    "compact_hash_mod_1over4_16bit": {
+      "mean_accuracy": 0.6739206055542108,
+      "mean_f1": 0.5598581503721173,
+      "mean_precision": 0.8966105989157127,
+      "mean_recall": 0.5052766138271575,
+      "median_events_per_sec": 1153285.1029448889,
+      "median_state_units": 2000.0,
+      "runs": 60,
+      "total_fn": 1357207,
+      "total_fp": 235344
+    },
+    "compact_hash_mod_1over8_12bit": {
+      "mean_accuracy": 0.7125405647580974,
+      "mean_f1": 0.6532362437833699,
+      "mean_precision": 0.79837722783407,
+      "mean_recall": 0.6504161463773044,
+      "median_events_per_sec": 1174256.7402705676,
+      "median_state_units": 1024.0,
+      "runs": 60,
+      "total_fn": 956645,
+      "total_fp": 423576
+    },
+    "compact_hash_stable_1over2_20bit": {
+      "mean_accuracy": 0.6833064464777742,
+      "mean_f1": 0.5155567676693865,
+      "mean_precision": 0.9987398446720204,
+      "mean_recall": 0.36920889717226757,
+      "median_events_per_sec": 625697.8135685707,
+      "median_state_units": 4000.0,
+      "runs": 60,
+      "total_fn": 1577190,
+      "total_fp": 929
+    },
+    "compact_hash_stable_1over4_16bit": {
+      "mean_accuracy": 0.6729005803730395,
+      "mean_f1": 0.49549833863275017,
+      "mean_precision": 0.9974595666434178,
+      "mean_recall": 0.3488637354301022,
+      "median_events_per_sec": 628179.6356212944,
+      "median_state_units": 2000.0,
+      "runs": 60,
+      "total_fn": 1616904,
+      "total_fp": 1790
+    },
+    "exact_ledger": {
+      "mean_accuracy": 0.9098608494729383,
+      "mean_f1": 0.9212585876167394,
+      "mean_precision": 0.9000574505754442,
+      "mean_recall": 0.9555364195361915,
+      "median_events_per_sec": 1876313.4962213691,
+      "median_state_units": 8000.0,
+      "runs": 60,
+      "total_fn": 110168,
+      "total_fp": 415680
+    }
+  },
+  "rows": 300,
+  "scale": "medium"
+}
+
+FILE logs/medium_separated_full.log True 280
+completed_configs=10 rows=50 elapsed_sec=5.1
+completed_configs=20 rows=100 elapsed_sec=16.1
+completed_configs=30 rows=150 elapsed_sec=27.2
+completed_configs=40 rows=200 elapsed_sec=43.9
+completed_configs=50 rows=250 elapsed_sec=69.0
+completed_configs=60 rows=300 elapsed_sec=90.3
+
+
+```

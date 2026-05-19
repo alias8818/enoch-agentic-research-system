@@ -59,6 +59,7 @@ def evaluate_longhaul_readiness(
     provider_budget: dict[str, Any] | None = None,
     research_quality: dict[str, Any] | None = None,
     source_lineage: dict[str, Any] | None = None,
+    resource_utilization: dict[str, Any] | None = None,
     now: datetime | None = None,
     research_max_age_seconds: int = 2700,
     corpus_max_age_seconds: int = 4500,
@@ -159,6 +160,14 @@ def evaluate_longhaul_readiness(
         f"source lineage status={lineage_status}",
     )
 
+    resource = resource_utilization or {"ok": True, "status": "clean", "finding_count": 0, "findings": []}
+    resource_ok = bool(resource.get("ok"))
+    resource_count = int(resource.get("finding_count") or len(resource.get("findings") or []))
+    add(
+        check("worker_resource_utilization_ok", resource_ok, f"worker resource utilization findings={resource_count}", data=resource),
+        "worker resource policy has active findings",
+    )
+
     status = "ready" if not blockers else "blocked"
     return {
         "ok": not blockers,
@@ -199,5 +208,7 @@ def evaluate_longhaul_readiness(
             "source_lineage_problem_counts": lineage.get("problem_counts") or {},
             "source_lineage_report_path": lineage.get("report_path") or "",
             "source_lineage_report_mtime": lineage.get("report_mtime") or "",
+            "resource_utilization_status": str(resource.get("status") or ("clean" if resource_ok else "blocked")),
+            "resource_utilization_findings": resource_count,
         },
     }

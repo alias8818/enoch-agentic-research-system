@@ -148,6 +148,9 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
         active_lane_unhealthy = bool(active_lane_findings)
 
         for item in status.warnings:
+            if item.source == "worker_resource_policy":
+                findings.append(item)
+                continue
             if item.source in {"worker_preflight", "worker_dashboard_api", "control_plane_db+worker_preflight"}:
                 if (
                     active_lane_present

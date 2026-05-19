@@ -67,6 +67,9 @@ class ProcessInfo(BaseModel):
     pgid: int | None = None
     elapsed_sec: int | None = None
     create_time: float | None = None
+    num_threads: int | None = None
+    cpu_time_sec: float | None = None
+    avg_cpu_pct: float | None = None
     cmdline: str = ""
 
 
