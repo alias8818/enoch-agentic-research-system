@@ -1,0 +1,208 @@
+{
+  "admitted_count": 1,
+  "candidate_count": 1,
+  "history_count": 0,
+  "input": "artifacts/research-facility/new-chatgpt-pro-ideas-05-19-more.candidates.json",
+  "needs_review_count": 0,
+  "ok": true,
+  "plans": [
+    {
+      "admission_decision": "admitted",
+      "admission_reason": "score 79.8 >= admit threshold 72.0 with required research contract present",
+      "admitted_idea_id": "spec-trace-oracle-v0-dflash-branch-selection",
+      "candidate": {
+        "accessibility_delta": "One GB10-class local run can tell Enoch and outside researchers which speculative-decoding branch deserves real implementation, preserving negative evidence instead of wasting local GPU time on five separate systems.",
+        "accessibility_score": 9.0,
+        "baseline_to_beat": "Best static-policy DFlash b16 on Qwen/Qwen3-8B with z-lab/Qwen3-8B-DFlash-b16, AR target decoding mini-slice, and EAGLE-3 reference mini-slice only if already wired without blocking the harness.",
+        "candidate_id": "spec-trace-oracle-v0-dflash-branch-selection",
+        "category": "spec-decoding",
+        "dedupe_key": "research:spec-decoding-spec-trace-oracle-v0-dflash-branch-selection-run-qwen3-8b-z-lab:05a6af6859d5",
+        "description": "A unified first-pass oracle harness that turns one local GB10-class DFlash trace into branch-selection evidence for speculative-decoding follow-up work. It is intended to replace five independent from-scratch projects with one instrumentation pass and a deterministic decision matrix.",
+        "estimated_runtime_class": "overnight",
+        "expected_artifacts": [
+          "run_notes.md",
+          "metrics.json",
+          "trace_schema.md",
+          "oracle_report.md",
+          "failure_cases.jsonl",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "large",
+        "falsifiability_score": 10.0,
+        "feasibility_score": 7.0,
+        "generated_by": "new-chatgpt-pro-ideas-05-19-more.md manual ingest",
+        "generation_mode": "manual_import",
+        "hypothesis": "One bounded DFlash b16 speculative-decoding trace can rank SSD-lite outcome prediction, dynamic vocabulary, entropy/acceptance control, retrieval/suffix-cache speculation, and grammar/schema-aware speculation before Enoch spends engineering time implementing any branch.",
+        "implementation": "Build enoch/research/spec_trace_oracle_v0 with run_manifest.json, requests.jsonl, rounds.jsonl, candidate_sets.parquet, topk_sidecar.npz, timing_microbench.json, oracle_report.md, metrics.json, failure_cases.jsonl, and .enoch/project_decision.json. Capture top-k, entropy, margins, accept lengths, latency, candidate-vocab coverage, n-gram/suffix hits, and grammar frontier stats without storing full logits or private text. Run 384 generations (~155k max new tokens) across agentic_loop, json_tool, code_edit, math_reasoning, open_chat, and long_context prompts at temperatures 0.0 and 0.7, with AR/EAGLE-3 mini-slices optional and non-blocking.",
+        "kill_condition": "Stop the whole line if no branch clears continue thresholds, best modeled end-to-end gain is below 5%, public prompt subset does not reproduce the private signal, measurement noise remains above 5% after three repeated timing passes, or instrumentation cannot produce the first oracle report within two engineering days.",
+        "likely_failure_modes": [
+          "DFlash instrumentation overhead distorts the measured bottleneck",
+          "No branch clears modeled gain thresholds",
+          "Private-prompt signal fails to reproduce on public prompts",
+          "DFlash model setup consumes the engineering budget",
+          "Trace volume grows too large without full-logit safeguards"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Run Qwen3-8B with z-lab/Qwen3-8B-DFlash-b16, log per-round speculative decoding features and lightweight sidecars, then compute offline oracle analyses for all five candidate branches from the same trace.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "This candidate supersedes the individually admitted speculative-decoding branch ideas by producing one shared DFlash trace and deterministic oracle report before branch implementation. It is not another branch; it is the branch-selection harness.",
+        "novelty_score": 9.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "High",
+        "prompt_version": "manual_unified_spec_trace_oracle_2026-05-19",
+        "provider": "chatgpt_pro_manual_import",
+        "provider_model": "ChatGPT Pro",
+        "raw_candidate_json": {
+          "content_sha256": "6dd10d5509c86c0a01338aa3d5c07ccbc27916183b32fdb9e389781081deafa6",
+          "operator_instruction": "ingest as one unified trace/oracle project, not five separate branches",
+          "reference_urls": [
+            {
+              "idx": "1",
+              "title": "[2603.03251] Speculative Speculative Decoding",
+              "url": "https://arxiv.org/abs/2603.03251?utm_source=chatgpt.com"
+            },
+            {
+              "idx": "2",
+              "title": "GitHub - z-lab/dflash: DFlash: Block Diffusion for Flash Speculative Decoding \u00b7 GitHub",
+              "url": "https://github.com/z-lab/dflash"
+            },
+            {
+              "idx": "3",
+              "title": "EAGLE-3: Scaling up Inference Acceleration of Large Language Models via Training-Time Test",
+              "url": "https://arxiv.org/abs/2503.01840?utm_source=chatgpt.com"
+            },
+            {
+              "idx": "4",
+              "title": "Generating Structured Outputs from Language Models: Benchmark and Studies",
+              "url": "https://arxiv.org/abs/2501.10868?utm_source=chatgpt.com"
+            },
+            {
+              "idx": "5",
+              "title": "Speculative Decoding with a Speculative Vocabulary",
+              "url": "https://arxiv.org/abs/2602.13836?utm_source=chatgpt.com"
+            },
+            {
+              "idx": "6",
+              "title": "Extreme Speculative Decoding for Emerging AI Applications",
+              "url": "https://arxiv.org/abs/2411.04975?utm_source=chatgpt.com"
+            },
+            {
+              "idx": "7",
+              "title": "Guiding LLMs The Right Way: Fast, Non-Invasive ...",
+              "url": "https://arxiv.org/html/2403.06988v1?utm_source=chatgpt.com"
+            }
+          ],
+          "source_file": "new-chatgpt-pro-ideas-05-19-more.md"
+        },
+        "required_evidence": [
+          "DFlash baseline metrics",
+          "per-round trace schema validation",
+          "oracle metrics table for all five branches",
+          "decision matrix output",
+          "failure cases",
+          "public/private partition comparison",
+          "project decision artifact"
+        ],
+        "risk_notes": "Main risk is infrastructure cost before signal. The plan explicitly caps instrumentation to two engineering days, avoids full logits, uses simulated controllers before online policies, uses n-gram maps before suffix trees, and shadows grammar without constraining generation.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 22.5,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 22.0,
+          "feasibility_weighted": 11.9,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 0.0,
+          "novelty_weighted": 23.4,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "manual-note-6dd10d5509c86c0a0133"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "content_hash": "6dd10d5509c86c0a01338aa3d5c07ccbc27916183b32fdb9e389781081deafa6",
+            "external_id": "new-chatgpt-pro-ideas-05-19-more",
+            "payload_json": {
+              "content_sha256": "6dd10d5509c86c0a01338aa3d5c07ccbc27916183b32fdb9e389781081deafa6",
+              "local_file": "new-chatgpt-pro-ideas-05-19-more.md",
+              "reference_urls": [
+                {
+                  "idx": "1",
+                  "title": "[2603.03251] Speculative Speculative Decoding",
+                  "url": "https://arxiv.org/abs/2603.03251?utm_source=chatgpt.com"
+                },
+                {
+                  "idx": "2",
+                  "title": "GitHub - z-lab/dflash: DFlash: Block Diffusion for Flash Speculative Decoding \u00b7 GitHub",
+                  "url": "https://github.com/z-lab/dflash"
+                },
+                {
+                  "idx": "3",
+                  "title": "EAGLE-3: Scaling up Inference Acceleration of Large Language Models via Training-Time Test",
+                  "url": "https://arxiv.org/abs/2503.01840?utm_source=chatgpt.com"
+                },
+                {
+                  "idx": "4",
+                  "title": "Generating Structured Outputs from Language Models: Benchmark and Studies",
+                  "url": "https://arxiv.org/abs/2501.10868?utm_source=chatgpt.com"
+                },
+                {
+                  "idx": "5",
+                  "title": "Speculative Decoding with a Speculative Vocabulary",
+                  "url": "https://arxiv.org/abs/2602.13836?utm_source=chatgpt.com"
+                },
+                {
+                  "idx": "6",
+                  "title": "Extreme Speculative Decoding for Emerging AI Applications",
+                  "url": "https://arxiv.org/abs/2411.04975?utm_source=chatgpt.com"
+                },
+                {
+                  "idx": "7",
+                  "title": "Guiding LLMs The Right Way: Fast, Non-Invasive ...",
+                  "url": "https://arxiv.org/html/2403.06988v1?utm_source=chatgpt.com"
+                }
+              ]
+            },
+            "retrieved_at": "2026-05-19T23:36:53Z",
+            "source_id": "manual-note-6dd10d5509c86c0a0133",
+            "source_kind": "manual_note",
+            "summary": "Unified DFlash-first trace/oracle harness for SSD-lite, dynamic vocab, controller, retrieval/suffix-cache, and grammar/schema speculative-decoding branch selection.",
+            "title": "ChatGPT Pro unified speculative-decoding trace/oracle plan",
+            "url": "file://new-chatgpt-pro-ideas-05-19-more.md"
+          }
+        ],
+        "source_urls": [
+          "file://new-chatgpt-pro-ideas-05-19-more.md",
+          "https://arxiv.org/abs/2603.03251?utm_source=chatgpt.com",
+          "https://github.com/z-lab/dflash",
+          "https://arxiv.org/abs/2503.01840?utm_source=chatgpt.com",
+          "https://arxiv.org/abs/2501.10868?utm_source=chatgpt.com",
+          "https://arxiv.org/abs/2602.13836?utm_source=chatgpt.com",
+          "https://arxiv.org/abs/2411.04975?utm_source=chatgpt.com",
+          "https://arxiv.org/html/2403.06988v1?utm_source=chatgpt.com"
+        ],
+        "status": "admitted",
+        "success_threshold": "Whole harness succeeds if it produces a complete trace and oracle report, at least one branch clears its continue threshold, and modeled or measured gain is at least 8% for a branch without p95 regression over 5%. Branch thresholds: SSD-lite top-4 hit >=60% with draft cost >=8%; dynamic vocab coverage@2048 >=95% with LM-head >=20% and indexed head >=1.3x faster; controller oracle gain >=8% with AUC >=0.65; retrieval hit >=20% with accepted tokens per hit >=3 and lookup <=0.2 ms; grammar median frontier <=512 or <=10% vocab with invalid draft >=10% and gain >=8%.",
+        "title": "Spec Trace Oracle v0 for DFlash Branch Selection",
+        "total_score": 79.8
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 22.5,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 22.0,
+        "feasibility_weighted": 11.9,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 0.0,
+        "novelty_weighted": 23.4,
+        "review_threshold": 58.0,
+        "total_score": 79.8
+      },
+      "warnings": []
+    }
+  ],
+  "rejected_count": 0
+}
