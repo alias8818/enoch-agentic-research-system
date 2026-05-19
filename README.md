@@ -120,6 +120,7 @@ The runtime follows semantic versioning. Keep `VERSION`, `pyproject.toml`, and [
 - [`docs/state-simplification-todo.md`](docs/state-simplification-todo.md) — next-phase state/ledger simplification backlog
 - [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md) — Research Facility scouting, control-plane ideas, and queue handoff
 - [`docs/research-facility.md`](docs/research-facility.md) — source/candidate/admission/lineage ledgers and admission guardrails
+- [`docs/promising-signals-export.md`](docs/promising-signals-export.md) — private companion export lane for bounded useful/promising no-paper signals.
 
 **Release context:**
 - [`CHANGELOG.md`](CHANGELOG.md) — runtime version history and compatibility notes
