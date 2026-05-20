@@ -79,3 +79,20 @@ Verification:
 - `uv run pytest -q` -> 1013 passed, 4 warnings, 37 subtests passed.
 - Live deploy to `enoch-core.exe.xyz` restarted `enoch-control-plane.service`; `/healthz` returned ok.
 - Live state after deploy: CPU lane active with 1 CPU queued item; GB10 lane idle with 0 queued GB10 items; `next_candidate=null` is therefore correct.
+
+## Pass 6 - Queue alert classification with mixed active and open lanes
+
+Target: queue active/queued consistency and alert classification.
+
+Invariant: worker freshness warnings may be suppressed for a healthy active lane only when no other idle lane has dispatchable queued work. If an idle lane can dispatch, stale/missing worker evidence is actionable and must remain alert-visible.
+
+Bug found: `queue_alert_findings()` suppressed stale `worker_preflight`/`worker_dashboard_api` findings whenever any active lane existed and was not stale, even if another configured lane was idle with queued work ready to dispatch.
+
+Patch: added an explicit idle-lane dispatch-opportunity predicate based on `next_candidate` or lane `dispatch_available && queued_count > 0`; suppression now applies only when there is no such open dispatch opportunity.
+
+Verification:
+- Added failing deterministic test: `test_queue_alert_findings_do_not_suppress_worker_stale_when_idle_lane_has_dispatchable_work`.
+- `uv run pytest -q tests/test_alerts.py tests/test_resource_utilization_policy.py tests/test_control_plane_router.py -k "queue_alert or worker_resource_policy or active_lane"` -> 22 passed, 162 deselected.
+- `uv run pytest -q tests/test_alerts.py tests/test_longhaul_readiness.py tests/test_control_plane_router.py` -> 194 passed.
+- `uv run pytest -q` -> 1014 passed, 4 warnings, 37 subtests passed.
+- Live deploy to `enoch-core.exe.xyz` restarted `enoch-control-plane.service`; `/healthz` returned ok; deployed `alerts.py` contains `_has_idle_lane_dispatch_opportunity`.

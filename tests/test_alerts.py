@@ -185,6 +185,36 @@ def test_queue_alert_findings_suppresses_expired_stale_after_when_worker_is_live
     assert findings == []
 
 
+
+def test_queue_alert_findings_do_not_suppress_worker_stale_when_idle_lane_has_dispatchable_work() -> None:
+    updated_at = datetime.now(timezone.utc)
+    observed_at = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[{"project_id": "active-cpu", "current_run_id": "run-cpu", "updated_at": updated_at, "machine_target": "cpu-proxmox-1"}],
+        next_candidate={"project_id": "queued-gb10", "machine_target": "gb10"},
+        worker_lanes=[
+            {"machine_target": "cpu-proxmox-1", "status": "active", "dispatch_available": False, "queued_count": 0},
+            {"machine_target": "gb10", "status": "idle", "dispatch_available": True, "queued_count": 1},
+        ],
+        warnings=[],
+        source_freshness={
+            "worker_preflight": SimpleNamespace(
+                stale=True,
+                authority="cached worker preflight",
+                observed_at=observed_at,
+            )
+        },
+    )
+
+    findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
+
+    assert len(findings) == 1
+    assert findings[0].source == "worker_preflight"
+    assert "stale or missing" in findings[0].message
+
 def test_send_pushover_rejects_non_http_api_url_before_urlopen(monkeypatch, tmp_path) -> None:
     from enoch_control_plane.config import GateConfig
     from enoch_control_plane.control_plane import alerts

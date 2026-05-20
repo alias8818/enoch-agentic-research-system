@@ -105,6 +105,21 @@ def _has_live_worker_run(status: DashboardStatusResponse, run_id: str | None) ->
     return False
 
 
+
+
+def _has_idle_lane_dispatch_opportunity(status: DashboardStatusResponse) -> bool:
+    if getattr(status, "next_candidate", None):
+        return True
+    worker_lanes = getattr(status, "worker_lanes", []) or []
+    if not isinstance(worker_lanes, list):
+        return False
+    for lane in worker_lanes:
+        if not isinstance(lane, dict):
+            continue
+        if bool(lane.get("dispatch_available")) and int(lane.get("queued_count") or 0) > 0:
+            return True
+    return False
+
 def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int) -> list[DashboardFinding]:
     flags = status.flags
     intentional_hold = flags.queue_paused or flags.maintenance_mode
@@ -146,6 +161,7 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
 
         active_lane_present = bool(status.active_items)
         active_lane_unhealthy = bool(active_lane_findings)
+        idle_lane_dispatch_opportunity = _has_idle_lane_dispatch_opportunity(status)
 
         for item in status.warnings:
             if item.source == "worker_resource_policy":
@@ -155,6 +171,7 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
                 if (
                     active_lane_present
                     and not active_lane_unhealthy
+                    and not idle_lane_dispatch_opportunity
                     and item.source in {"worker_preflight", "worker_dashboard_api"}
                 ):
                     continue
@@ -162,7 +179,7 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
 
         for source, freshness in status.source_freshness.items():
             if source in {"worker_preflight", "worker_dashboard_api"} and freshness.stale:
-                if active_lane_present and not active_lane_unhealthy:
+                if active_lane_present and not active_lane_unhealthy and not idle_lane_dispatch_opportunity:
                     continue
                 findings.append(DashboardFinding(
                     severity="warn",
