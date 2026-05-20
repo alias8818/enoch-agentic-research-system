@@ -13,7 +13,7 @@ function rowKey(row: Row, index: number): string {
   return String(row.project_id || row.run_id || row.paper_id || row.event_id || row.id || index)
 }
 
-export function DataTable({ rows, columns, empty }: { rows: Row[]; columns: string[]; empty: string }) {
+export function DataTable({ rows, columns, empty, onSelectRow }: { rows: Row[]; columns: string[]; empty: string; onSelectRow?: (row: Row) => void }) {
   if (!rows.length) {
     return <div className="rounded-2xl border border-dashed border-zinc-800 bg-black/20 p-8 text-center text-sm text-zinc-500">{empty}</div>
   }
@@ -26,7 +26,7 @@ export function DataTable({ rows, columns, empty }: { rows: Row[]; columns: stri
           </thead>
           <tbody className="divide-y divide-zinc-900 bg-black/20 text-zinc-300">
             {rows.map((row, index) => (
-              <tr key={rowKey(row, index)} className="hover:bg-zinc-900/60">
+              <tr key={rowKey(row, index)} className={onSelectRow ? 'cursor-pointer hover:bg-zinc-900/60' : 'hover:bg-zinc-900/60'} onClick={() => onSelectRow?.(row)}>
                 {columns.map((column) => <td key={column} className="max-w-[24rem] truncate px-4 py-3 align-top tabular-nums" title={typeof row[column] === 'string' ? String(row[column]) : undefined}>{formatValue(row[column])}</td>)}
               </tr>
             ))}
