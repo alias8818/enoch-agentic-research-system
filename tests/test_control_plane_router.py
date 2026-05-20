@@ -724,6 +724,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("Worker lanes", response.text)
             self.assertIn("CPU lane", response.text)
             self.assertIn("GB10 lane", response.text)
+            self.assertIn("Last loaded", response.text)
+            self.assertIn("formatRelativeAge", response.text)
             css_response = client.get("/control/dashboard.css")
             self.assertEqual(css_response.status_code, 200)
             self.assertIn("text/css", css_response.headers.get("content-type", ""))
