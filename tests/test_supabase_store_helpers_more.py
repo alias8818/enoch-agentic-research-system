@@ -879,7 +879,7 @@ def test_supabase_followup_launch_records_parent_run_source_and_lineage(monkeypa
 
     assert source_inserts, "follow-up launch must create an auditable parent-run source record"
     source_params = source_inserts[0]
-    assert source_params[1] == "followup_parent_run"
+    assert source_params[1] == "prior_followup_evidence"
     assert source_params[2] == "Parent run decision: Parent Project"
     assert source_params[3] == "enoch://control-plane/projects/parent-project/runs/parent-run"
     assert source_params[4] == "parent-run"
@@ -892,6 +892,7 @@ def test_supabase_followup_launch_records_parent_run_source_and_lineage(monkeypa
     joined = "\n".join(sql for sql, _params in lineage_inserts)
     assert "source_type, source_id, target_type, target_id, relation_type" in joined
     assert any(followup_id in params for _sql, params in lineage_inserts)
+    assert any("branched_from" in params for _sql, params in lineage_inserts)
 
 
 def test_supabase_launch_followup_append_failure_does_not_queue_followup(monkeypatch) -> None:
