@@ -186,6 +186,24 @@ class EnochCoreLogicTests(unittest.TestCase):
             self.assertEqual(followup["followup_required_evidence"], ["runtime trace", "baseline comparison"])
             self.assertFalse(paper_draft_decision_gate(root)["eligible"])
 
+    def test_followup_metadata_splits_numbered_required_evidence_string(self) -> None:
+        payload = {
+            "followup_recommended": True,
+            "followup_type": "branch",
+            "followup_title": "Test numbered evidence parsing",
+            "followup_hypothesis": "Numbered provider output should not collapse evidence.",
+            "followup_required_evidence": "1. runtime trace. 2. baseline comparison. 3. failure case.",
+            "followup_success_threshold": "beats baseline on two seeds",
+            "followup_stop_condition": "stop if no lift",
+        }
+
+        followup = followup_candidate_from_decision_payload(payload)
+
+        self.assertEqual(
+            followup["followup_required_evidence"],
+            ["runtime trace.", "baseline comparison.", "failure case."],
+        )
+
     def test_bounded_useful_signal_can_pass_scoped_paper_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

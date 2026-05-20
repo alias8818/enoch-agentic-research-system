@@ -62,6 +62,23 @@ def text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def split_numbered_list_text(value: str) -> list[str]:
+    raw = text(value)
+    if not raw:
+        return []
+    markers = list(re.finditer(r"(?<!\S)\d+\.\s+", raw))
+    if len(markers) < 2:
+        return [item.strip() for item in re.split(r"[\n;]+", raw) if item.strip()]
+    items: list[str] = []
+    for index, marker in enumerate(markers):
+        start = marker.end()
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(raw)
+        item = raw[start:end].strip()
+        if item:
+            items.append(item)
+    return items
+
+
 def truthy(value: Any) -> bool:
     return value is True or value in {1, "1", "true", "True", "TRUE"}
 
@@ -224,9 +241,9 @@ def followup_candidate_from_decision_payload(payload: dict[str, Any]) -> dict[st
     followup_type = raw_type if raw_type in {"deepen", "branch", "retry"} else ""
     required = payload.get("followup_required_evidence")
     if isinstance(required, str):
-        required_evidence = [item.strip() for item in re.split(r"[\n;]+", required) if item.strip()]
+        required_evidence = split_numbered_list_text(required)
     elif isinstance(required, list):
-        required_evidence = [text(item) for item in required if text(item)]
+        required_evidence = [part for item in required for part in split_numbered_list_text(text(item)) if part]
     else:
         required_evidence = []
     return {

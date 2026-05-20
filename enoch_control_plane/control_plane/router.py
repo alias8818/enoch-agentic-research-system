@@ -2315,6 +2315,15 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         project_dir_text = str(row.get("project_dir") or project_id).strip()
         return _local_artifact_root(config, project_id=project_id, project_dir_text=project_dir_text), project_dir_text
 
+    def _evidence_sync_skipped_by_gate(gate: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "enabled": config.paper_evidence_sync_enabled,
+            "synced": False,
+            "skipped": True,
+            "reason": "decision_gate_not_writable",
+            "decision_gate_reason": str(gate.get("reason") or ""),
+        }
+
     def _auto_reconcile_stale_callback_ready(status: DashboardStatusResponse, *, requested_by: str) -> list[dict[str, Any]]:
         if not status.active_items:
             return []
@@ -2331,14 +2340,17 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             if not project_id or not run_id:
                 continue
             artifact_root, project_dir_text = _artifact_root_for_queue_row(row)
-            evidence_sync = _sync_remote_project_evidence(
-                config,
-                project_id=project_id,
-                artifact_root=artifact_root,
-                source_project_dir=project_dir_text,
-                source_run_id=run_id,
-            )
             gate = paper_draft_decision_gate(artifact_root)
+            evidence_sync = _evidence_sync_skipped_by_gate(gate)
+            if gate.get("eligible"):
+                evidence_sync = _sync_remote_project_evidence(
+                    config,
+                    project_id=project_id,
+                    artifact_root=artifact_root,
+                    source_project_dir=project_dir_text,
+                    source_run_id=run_id,
+                )
+                gate = paper_draft_decision_gate(artifact_root)
             local_evidence_present = _local_paper_evidence_present(artifact_root)
             if config.paper_evidence_sync_enabled and not local_evidence_present and gate.get("eligible"):
                 evidence_alert = _record_paper_evidence_blocked(
@@ -2508,14 +2520,17 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if should_sync_decision and row:
             project_id = str(row.get("project_id") or callback.project_id or "").strip()
             artifact_root, project_dir_text = _artifact_root_for_queue_row(row)
-            evidence_sync = _sync_remote_project_evidence(
-                config,
-                project_id=project_id,
-                artifact_root=artifact_root,
-                source_project_dir=project_dir_text,
-                source_run_id=str(callback.run_id or ""),
-            )
             decision_gate = paper_draft_decision_gate(artifact_root)
+            evidence_sync = _evidence_sync_skipped_by_gate(decision_gate)
+            if decision_gate.get("eligible"):
+                evidence_sync = _sync_remote_project_evidence(
+                    config,
+                    project_id=project_id,
+                    artifact_root=artifact_root,
+                    source_project_dir=project_dir_text,
+                    source_run_id=str(callback.run_id or ""),
+                )
+                decision_gate = paper_draft_decision_gate(artifact_root)
             decision_sync = {"artifact_root": str(artifact_root), "evidence_sync": evidence_sync, "decision_gate": decision_gate}
             local_evidence_present = _local_paper_evidence_present(artifact_root)
             if config.paper_evidence_sync_enabled and not local_evidence_present and decision_gate.get("eligible"):

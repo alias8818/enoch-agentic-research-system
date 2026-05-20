@@ -3873,12 +3873,13 @@ class ControlPlaneRouterTests(unittest.TestCase):
             )
             store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
 
-            with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", return_value={"enabled": True, "synced": False, "reason": "worker_read_failed", "local_evidence_present": False}):
+            with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", return_value={"enabled": True, "synced": False, "reason": "worker_read_failed", "local_evidence_present": False}) as sync:
                 alert = client.post("/control/api/alerts/queue-check", headers=headers, json={"dry_run": False, "requested_by": "test"}).json()
 
             self.assertTrue(alert["auto_reconcile"])
             self.assertTrue(alert["auto_reconcile"][0]["ok"])
             self.assertEqual(alert["auto_reconcile"][0]["decision_gate"]["reason"], "project decision is not positive")
+            self.assertEqual(sync.call_count, 0)
             status = client.get("/control/api/status", headers=headers).json()
             self.assertEqual(status["active_items"], [])
             snapshot = client.get("/control/export/snapshot", headers=headers).json()
@@ -4091,6 +4092,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             config = _live_config(tmp)
             config.paper_evidence_sync_enabled = True
             config.paper_evidence_sync_remote_root = "/remote/projects"
+            project_dir = Path(config.project_root) / "idea-callback-replay-evidence"
+            (project_dir / ".enoch").mkdir(parents=True)
+            (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
             client = _client_with_config(config)
             headers = {"Authorization": f"Bearer {TOKEN}"}
             client.post("/control/import/legacy-snapshot", headers=headers, json={
@@ -4136,6 +4140,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             config.paper_evidence_sync_remote_root = "/remote/projects"
             outside = Path(tmp) / "outside"
             outside.mkdir()
+            project_dir = Path(config.project_root) / "idea-callback-project-dir-escape"
+            (project_dir / ".enoch").mkdir(parents=True)
+            (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
             client = _client_with_config(config)
             headers = {"Authorization": f"Bearer {TOKEN}"}
             client.post("/control/import/legacy-snapshot", headers=headers, json={
@@ -4295,7 +4302,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 }],
             })
 
-            with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", return_value={"enabled": True, "synced": False, "reason": "worker_read_failed", "local_evidence_present": False}):
+            with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", return_value={"enabled": True, "synced": False, "reason": "worker_read_failed", "local_evidence_present": False}) as sync:
                 response = client.post("/control/api/worker-callback", headers=headers, json={
                     "event_type": "wake_ready",
                     "run_id": "run-callback-negative-no-paper",
@@ -4314,6 +4321,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
             decision_sync = response.json()["decision_sync"]
             self.assertIsNotNone(decision_sync)
             self.assertEqual(decision_sync["decision_gate"]["reason"], "project decision is not positive")
+            self.assertEqual(decision_sync["evidence_sync"]["reason"], "decision_gate_not_writable")
+            self.assertEqual(sync.call_count, 0)
             snapshot = client.get("/control/export/snapshot", headers=headers).json()
             events = [event for event in snapshot["events"] if event["event_type"] == "paper.evidence_sync_blocked"]
             self.assertEqual(events, [])

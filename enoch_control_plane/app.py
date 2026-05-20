@@ -25,6 +25,7 @@ from .enoch_core.router import create_enoch_core_router
 from .gate import WakeGate
 from .observability import RouteObservationMiddleware
 from .timeutils import parse_utc_datetime
+from .enoch_core.logic import split_numbered_list_text
 from .models import (
     DispatchRequest,
     GateCallback,
@@ -1090,9 +1091,9 @@ def _coerce_project_decision(raw: dict[str, Any], source: str, source_path: Path
         raw_followup_type = ""
     raw_required = raw.get("followup_required_evidence")
     if isinstance(raw_required, list):
-        followup_required_evidence = [str(item).strip() for item in raw_required if str(item).strip()]
+        followup_required_evidence = [part for item in raw_required for part in split_numbered_list_text(str(item)) if part]
     elif isinstance(raw_required, str):
-        followup_required_evidence = [item.strip() for item in raw_required.replace(";", "\n").splitlines() if item.strip()]
+        followup_required_evidence = split_numbered_list_text(raw_required)
     else:
         followup_required_evidence = []
 

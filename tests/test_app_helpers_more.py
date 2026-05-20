@@ -138,12 +138,12 @@ def test_project_decision_loading_native_legacy_and_summary(tmp_path: Path) -> N
     project = tmp_path / "p"
     (project / ".enoch").mkdir(parents=True)
     native_path = project / ".enoch" / "project_decision.json"
-    native_path.write_text(json.dumps({"project_decision": "finalize_negative", "followup_required_evidence": "a\nb"}))
+    native_path.write_text(json.dumps({"project_decision": "finalize_negative", "followup_required_evidence": "1. a. 2. b."}))
     decision, error = appmod._load_project_decision(project)
     assert error is None
     assert decision is not None
     assert decision.project_decision == "finalize_negative"
-    assert decision.followup_required_evidence == ["a", "b"]
+    assert decision.followup_required_evidence == ["a.", "b."]
 
     native_path.write_text("not json")
     decision, error = appmod._load_project_decision(project)
