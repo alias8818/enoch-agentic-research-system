@@ -115,3 +115,24 @@ Verification:
 - Live deploy to `enoch-core.exe.xyz` copied `router.py`, `supabase_store.py`, and `deploy/enoch_research_autopilot.py`; remote `py_compile` passed; `enoch-control-plane.service` restarted; `/healthz` returned ok.
 
 Commit: `99410ef` (`fix(research): make autopilot lane-aware`).
+
+## Pass 8 - Per-lane Research Facility feed pressure
+
+Target: Research Facility candidate supply and worker-lane targeting.
+
+Invariant: an idle worker lane with no queued candidate must not be hidden behind a global admitted-candidate backlog for another lane. The run-cycle must expose per-lane feed pressure, prefer promotion when admitted candidates exist for the deficient lane, and generate lane-targeted candidates when the lane has no queued or promotable work.
+
+Bug found: yes. CPU-targeted admitted backlog could trip the fresh-generation backlog gate while GB10 was idle with zero queued/promotable candidates. The dashboard could say only that no queued candidate existed, without saying the next automation action should be GB10-targeted generation.
+
+Patch: added `lane_feed_pressure` to status and run-cycle responses, attached per-lane feed summaries to dashboard worker-lane cards, made run-cycle backpressure lane-aware for empty idle lanes, bypassed backlog suppression for an idle deficient lane, and passed the deficient lane's `machine_target` into provider generation. Provider prompt fixed values now reflect the requested target machine/model/sandbox instead of always hardcoding GB10.
+
+Verification:
+- Added failing deterministic test: `test_research_facility_run_cycle_generates_for_empty_idle_gb10_lane_despite_cpu_backlog`.
+- Added provider prompt contract test: `test_generation_prompt_uses_requested_machine_target_contract`.
+- `uv run pytest -q tests/test_control_plane_router.py -k "research_facility_run_cycle or dashboard_html_links_to_multiview_apis or dashboard_status_reports_worker_lane_capacity or dashboard_status_does_not_call_idle_empty_lane_active" tests/test_research_provider_generate.py` -> 23 passed, 158 deselected.
+- `uv run pytest -q tests/test_research_provider_generate.py` -> 9 passed.
+- `uv run pytest -q tests/test_control_plane_router.py tests/test_research_provider_generate.py tests/test_research_autopilot.py tests/test_deploy_units.py` -> 218 passed.
+- `git diff --check` -> passed.
+- `uv run pytest -q` -> 1017 passed, 4 warnings, 37 subtests passed.
+
+Commit: `1eb3aa5` (`fix(research): feed idle worker lanes`).
