@@ -31,3 +31,19 @@
   - `uv run pytest -q` → `1012 passed, 4 warnings, 37 subtests passed`.
 - **Live verification:** deployed `longhaul_readiness.py` to `/opt/enoch-control-plane`, restarted `enoch-control-plane.service`, `/healthz` returned `ok: true`, and `/control/api/v1/automation-readiness` reported `Long-haul mode: READY` with `queue_counts_consistent.ok=true` and `open_lane_has_queued_work=true` only because `has_next_candidate=true`.
 - **Commit:** `d73bb34` (`fix(readiness): require next candidate for open lanes`).
+
+## Pass 3 — Supabase worker callback run-ledger parity
+
+- **Target:** callback/store idempotency and stale-run handling.
+- **Invariant:** Supabase callback handling must preserve SQLite's run-ledger upsert semantics, so a valid callback cannot complete a queue item while silently failing to create a missing run row.
+- **Bug found:** yes. SQLite used `INSERT INTO runs ... ON CONFLICT(run_id) DO UPDATE`, but Supabase callback handling only issued `UPDATE runs WHERE run_id = %s`.
+- **Proof:** added `test_supabase_worker_callback_upserts_missing_run_row_like_sqlite`; it failed before the patch.
+- **Patch:** changed Supabase `record_worker_callback()` to insert/upsert the run row on callback with the same conflict-update fields as the SQLite store.
+- **Verification:**
+  - `uv run pytest -q tests/test_supabase_store_helpers_more.py::test_supabase_worker_callback_upserts_missing_run_row_like_sqlite tests/test_supabase_store_helpers_more.py::test_supabase_worker_callback_append_failure_does_not_mutate_runtime_state` → `2 passed`.
+  - `python3 -m py_compile enoch_control_plane/control_plane/supabase_store.py` → passed.
+  - `git diff --check` → passed.
+  - `uv run pytest -q tests/test_supabase_store_helpers_more.py tests/test_supabase_runtime_cutover.py tests/test_control_plane_store.py -k 'worker_callback or runtime_store_exposes_dashboard_and_dispatch_methods'` → `23 passed, 136 deselected`.
+  - `uv run pytest -q` → `1013 passed, 4 warnings, 37 subtests passed`.
+- **Live verification:** not deployed yet at ledger write time; runtime store backend must be checked before deployment.
+- **Commit:** pending at ledger write time.

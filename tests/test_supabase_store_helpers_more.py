@@ -2274,6 +2274,13 @@ def test_supabase_worker_callback_append_failure_does_not_mutate_runtime_state(m
     assert run["gate_state"] == "running"
 
 
+def test_supabase_worker_callback_upserts_missing_run_row_like_sqlite() -> None:
+    source = inspect.getsource(s.SupabaseControlPlaneStore.record_worker_callback)
+
+    assert "insert into runs" in source.lower()
+    assert "on conflict (run_id) do update set" in source.lower()
+
+
 def test_supabase_worker_callback_idempotency_rejects_payload_subset_reuse(monkeypatch) -> None:
     store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
     events: dict[str, dict] = {}

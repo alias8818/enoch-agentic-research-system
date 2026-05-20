@@ -3616,15 +3616,21 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         """,
                         (status, _text(payload.get("session_id")), last_run_state, "worker_callback", next_action_hint, manual_review_required, last_error, summary, now, now, project_id),
                     )
-                if run_id:
+                if run_id and project_id:
                     cur.execute(
                         """
-                        update runs
-                        set session_id=coalesce(nullif(%s, ''), session_id), state=%s, ended_at=%s, last_callback_at=%s,
-                            gate_state=%s, current_activity=%s, updated_at=%s
-                        where run_id=%s
+                        insert into runs(run_id,project_id,session_id,state,dispatch_mode,started_at,ended_at,last_callback_at,gate_state,current_activity,idempotency_key,updated_at)
+                        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        on conflict (run_id) do update set
+                            session_id=coalesce(nullif(excluded.session_id, ''), runs.session_id),
+                            state=excluded.state,
+                            ended_at=excluded.ended_at,
+                            last_callback_at=excluded.last_callback_at,
+                            gate_state=excluded.gate_state,
+                            current_activity=excluded.current_activity,
+                            updated_at=excluded.updated_at
                         """,
-                        (_text(payload.get("session_id")), run_state, run_ended_at, now, gate_state, "worker_callback", now, run_id),
+                        (run_id, project_id, _text(payload.get("session_id")), run_state, "callback", now, run_ended_at, now, gate_state, "worker_callback", idempotency_key, now),
                     )
                 event_id, inserted = self._append_event_in_cursor(
                     cur,
