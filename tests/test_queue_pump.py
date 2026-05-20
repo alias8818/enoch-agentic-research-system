@@ -198,6 +198,22 @@ class QueuePumpTests(unittest.TestCase):
         self.assertEqual(output["followup_launch"]["reason"], "active worker lane present")
         self.assertEqual(output["dispatch"]["reason"], "active worker lane present")
 
+    def test_queue_pump_dispatches_open_lane_candidate_while_other_lane_active(self) -> None:
+        status = {
+            "flags": {"queue_paused": False, "maintenance_mode": False},
+            "dispatch_safe": True,
+            "dispatch_blockers": [],
+            "active_items": [{"project_id": "running-gpu", "machine_target": "gb10"}],
+            "next_candidate": {"project_id": "queued-cpu", "machine_target": "cpu-proxmox-1"},
+            "conflicts": [],
+        }
+        code, output, calls = self._run_main(status=status)
+        self.assertEqual(code, 0)
+        self.assertNotIn("/control/api/v1/followups/launch-next", calls)
+        self.assertIn("/control/dispatch-next", calls)
+        self.assertEqual(output["followup_launch"]["reason"], "queued candidate already present")
+        self.assertEqual(output["dispatch"]["action"], "live_dispatch")
+
 
 if __name__ == "__main__":
     unittest.main()

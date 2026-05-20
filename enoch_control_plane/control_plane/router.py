@@ -80,7 +80,6 @@ from .models import (
     ResumeRequest,
 )
 from .alerts import evaluate_and_notify_queue_alerts, send_pushover
-from .graphs import build_dispatch_graph
 from .longhaul_readiness import evaluate_longhaul_readiness
 from .resource_utilization import classify_low_utilization_runs, resource_utilization_status
 from ..research_quality.status import DEFAULT_AUTOPILOT_HISTORY_PATH, DEFAULT_REPORT_PATHS, DEFAULT_WINDOW_REPORT_PATH, load_latest_quality_status
@@ -1459,6 +1458,47 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             },
         }
 
+    def _worker_lane_key(candidate: dict[str, Any] | None) -> str:
+        if not candidate:
+            return ""
+        target = config.resolved_worker_target(str(candidate.get("machine_target") or ""))
+        return (target.wake_gate_url or str(candidate.get("machine_target") or "")).strip().rstrip("/")
+
+    def _dispatch_sort_key(row: dict[str, Any]) -> tuple[int, int, str]:
+        priority = _int_or_none(row.get("dispatch_priority"))
+        rank = _int_or_none(row.get("selection_rank"))
+        return (
+            priority if priority is not None else 9999,
+            rank if rank is not None else 9999,
+            str(row.get("updated_at") or ""),
+        )
+
+    def _open_worker_dispatch_candidate() -> dict[str, Any] | None:
+        if store.flags().queue_paused:
+            return None
+        active_lane_keys = {_worker_lane_key(row) for row in store.active_items()}
+        candidates = [
+            row for row in store.queue_rows()
+            if _normal_status(row.get("status")) == "queued"
+            and not _truthy_flag(row.get("manual_review_required"))
+        ]
+        candidates.sort(key=_dispatch_sort_key)
+        for candidate in candidates:
+            if _worker_lane_key(candidate) not in active_lane_keys:
+                return candidate
+        return None
+
+    def _conflicting_active_machine_targets(candidate: dict[str, Any]) -> set[str]:
+        candidate_lane_key = _worker_lane_key(candidate)
+        return {
+            _normal_status(row.get("machine_target"))
+            for row in store.active_items()
+            if _worker_lane_key(row) == candidate_lane_key
+        }
+
+    def _has_conflicting_active_lane(candidate: dict[str, Any]) -> bool:
+        return bool(_conflicting_active_machine_targets(candidate))
+
 
     def _live_dispatch(candidate: dict, requested_by: str, force_preflight: bool, *, allow_paused: bool = False) -> tuple[dict, int | None, dict]:
         if not config.live_dispatch_enabled:
@@ -1477,7 +1517,19 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             raise HTTPException(status_code=500, detail=f"worker bearer token is not configured for machine_target={candidate.get('machine_target') or 'default'}")
         project_dir = _safe_slug(str(candidate.get("project_dir") or project_id), project_id)
         run_id = _live_run_id(project_id)
-        claim = store.claim_dispatch_candidate(project_id=project_id, run_id=run_id, requested_by=requested_by)
+        claim_kwargs = {
+            "project_id": project_id,
+            "run_id": run_id,
+            "requested_by": requested_by,
+            "conflicting_machine_targets": _conflicting_active_machine_targets(candidate),
+        }
+        try:
+            claim = store.claim_dispatch_candidate(**claim_kwargs)
+        except TypeError as exc:
+            if "conflicting_machine_targets" not in str(exc):
+                raise
+            claim_kwargs.pop("conflicting_machine_targets")
+            claim = store.claim_dispatch_candidate(**claim_kwargs)
         if not claim:
             raise HTTPException(status_code=409, detail="dispatch candidate was already claimed or is no longer queued")
         candidate = claim
@@ -1591,7 +1643,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             flags=store.flags(),
             counts={**counts, "papers": int(paper_counts.get("all", 0)), "queue_total": int(queue_total)},
             active_items=store.active_items(),
-            next_candidate=store.next_dispatch_candidate(),
+            next_candidate=_open_worker_dispatch_candidate(),
             recent_events=store.recent_events(10),
         )
 
@@ -1779,7 +1831,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         no_live = _preflight_check(preflight, "worker_no_live_runs")
         if no_live:
             worker_reports_idle = bool(no_live.get("ok"))
-            control_reports_active = bool(active)
+            default_worker_lane = _worker_lane_key({"machine_target": ""})
+            control_reports_active = any(_worker_lane_key(row) == default_worker_lane for row in active)
             if worker_reports_idle == control_reports_active:
                 # The cached worker/control active-lane projections disagree.
                 # Refresh before presenting a scary conflict; the transition
@@ -1866,12 +1919,15 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if not config.live_dispatch_enabled:
             blockers.append("live dispatch disabled")
             warnings.append(DashboardFinding(severity="warn", source="control_plane_config", authority="static operational config", message="live dispatch is disabled by config", suggested_action="enable live_dispatch_enabled only when ready"))
-        if active:
-            blockers.append("active GB10 lane exists")
-        if not active and not flags.queue_paused and not flags.maintenance_mode and config.live_dispatch_enabled and not store.next_dispatch_candidate():
+        open_worker_candidate = _open_worker_dispatch_candidate()
+        if active and not open_worker_candidate:
+            blockers.append("all configured worker lanes active")
+        elif not flags.queue_paused and not flags.maintenance_mode and config.live_dispatch_enabled and not open_worker_candidate:
             blockers.append("no queued dispatch candidate")
         no_live = _preflight_check(preflight, "worker_no_live_runs")
-        worker_live_matches_active = bool(active and no_live and no_live.get("ok") is False)
+        default_worker_lane = _worker_lane_key({"machine_target": ""})
+        active_on_default_worker = [row for row in active if _worker_lane_key(row) == default_worker_lane]
+        worker_live_matches_active = bool(active_on_default_worker and no_live and no_live.get("ok") is False)
         worker_settling_after_vm_completion = None
         if not active:
             worker_settling_after_vm_completion = _worker_settling_after_vm_completion(
@@ -1904,17 +1960,17 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             warnings.append(DashboardFinding(severity="warn", source="worker_preflight", authority="GB10 runtime evidence", message="authenticated worker dashboard checks were skipped", observed_at=preflight.observed_at if preflight else None, suggested_action="configure worker bearer token before live dispatch", data=dashboard))
             if config.live_dispatch_enabled and not flags.queue_paused and not flags.maintenance_mode:
                 blockers.append("worker dashboard telemetry skipped")
-        if active and no_live and no_live.get("ok") is True:
+        if active_on_default_worker and no_live and no_live.get("ok") is True:
             conflicts.append(DashboardFinding(
                 severity="warn",
                 source="control_plane_db+worker_preflight",
                 authority="cross-source active-lane reconciliation",
-                message="VM control plane has an active row, but cached GB10 preflight says no live worker run",
+                message="VM control plane has an active row on the default worker, but cached default-worker preflight says no live worker run",
                 observed_at=preflight.observed_at if preflight else None,
                 suggested_action="inspect run detail and reconcile if the worker truly exited",
-                data={"active_count": len(active), "worker_check": no_live},
+                data={"active_count": len(active_on_default_worker), "worker_check": no_live},
             ))
-        if not active and no_live and no_live.get("ok") is False:
+        if not active_on_default_worker and no_live and no_live.get("ok") is False:
             if worker_settling_after_vm_completion:
                 warnings.append(DashboardFinding(
                     severity="warn",
@@ -1945,7 +2001,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             config=cfg,
             counts=counts,
             active_items=active,
-            next_candidate=store.next_dispatch_candidate(),
+            next_candidate=open_worker_candidate,
             dispatch_safe=dispatch_safe,
             dispatch_blockers=blockers,
             source_freshness=source_freshness,
@@ -4504,25 +4560,27 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     def dispatch_next(payload: DispatchNextRequest, authorization: str | None = Header(default=None)) -> DispatchNextResponse:
         authorize(authorization)
         if not payload.dry_run:
+            _require_writable_store("live dispatch")
             active = store.active_items()
-            if active:
-                return DispatchNextResponse(ok=True, action="noop", reason="active GB10 lane already exists", active_count=len(active))
-            candidate = store.next_dispatch_candidate()
+            candidate = _open_worker_dispatch_candidate()
             if not candidate:
-                return DispatchNextResponse(ok=True, action="noop", reason="no queued candidate", active_count=0)
+                reason = "no queued candidate on an open worker lane" if active else "no queued candidate"
+                return DispatchNextResponse(ok=True, action="noop", reason=reason, active_count=len(active))
             live, event_id, updated_candidate = _live_dispatch(candidate, payload.requested_by, payload.force_preflight)
-            return DispatchNextResponse(ok=True, action="live_dispatch", reason="live dispatch accepted by worker", candidate=updated_candidate, active_count=1, event_id=event_id, live=live)
-        graph = build_dispatch_graph(store)
-        result = graph.invoke({"requested_by": payload.requested_by, "dry_run": True})
-        action = result.get("action") or "noop"
-        candidate = _annotate_dispatch_route(result.get("candidate"))
+            return DispatchNextResponse(ok=True, action="live_dispatch", reason="live dispatch accepted by worker", candidate=updated_candidate, active_count=len(store.active_items()), event_id=event_id, live=live)
+        flags = store.flags()
+        if flags.queue_paused:
+            return DispatchNextResponse(ok=True, action="paused", reason=flags.pause_reason or "queue paused", candidate=None, active_count=len(store.active_items()), event_id=None)
+        candidate = _open_worker_dispatch_candidate()
+        action = "dry_run_dispatch" if candidate else "noop"
+        reason = "dry-run dispatch selected candidate" if candidate else "no queued candidate on an open worker lane"
         return DispatchNextResponse(
             ok=action in {"paused", "noop", "dry_run_dispatch"},
             action=action,
-            reason=result.get("reason") or "",
-            candidate=candidate,
-            active_count=int(result.get("active_count") or 0),
-            event_id=result.get("event_id"),
+            reason=reason,
+            candidate=_annotate_dispatch_route(candidate),
+            active_count=len(store.active_items()),
+            event_id=None,
         )
 
     @router.post("/dispatch-one", response_model=DispatchNextResponse)
@@ -4531,9 +4589,6 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         project_id = str(payload.project_id or "").strip()
         if not project_id:
             raise HTTPException(status_code=400, detail="project_id is required")
-        active = store.active_items()
-        if active:
-            raise HTTPException(status_code=409, detail="active GB10 lane already exists")
         candidate = store.queue_row(project_id)
         if not candidate:
             raise HTTPException(status_code=404, detail="project_id was not found in the queue")
@@ -4542,6 +4597,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         manual_review = _truthy_flag(candidate.get("manual_review_required"))
         if manual_review:
             raise HTTPException(status_code=409, detail="project_id is blocked by manual_review_required")
+        if _has_conflicting_active_lane(candidate):
+            raise HTTPException(status_code=409, detail="active worker lane already exists for selected candidate target")
         if payload.dry_run:
             return DispatchNextResponse(
                 ok=True,

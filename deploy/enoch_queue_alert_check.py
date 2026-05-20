@@ -106,10 +106,6 @@ def main() -> int:
             dispatch = {"action": "skipped", "reason": "dispatch not safe", "blockers": status.get("dispatch_blockers") or []}
             followup_dry_run = {"action": "skipped", "reason": "dispatch not safe", "blockers": status.get("dispatch_blockers") or []}
             followup_launch = {"action": "skipped", "reason": "dispatch not safe", "blockers": status.get("dispatch_blockers") or []}
-        elif status.get("active_items"):
-            dispatch = {"action": "skipped", "reason": "active worker lane present"}
-            followup_dry_run = {"action": "skipped", "reason": "active worker lane present"}
-            followup_launch = {"action": "skipped", "reason": "active worker lane present"}
         else:
             if not paper_draft_before_dispatch_enabled:
                 paper_draft = {"action": "skipped", "reason": "queue pump paper drafting disabled"}
@@ -141,7 +137,11 @@ def main() -> int:
                 )
                 dispatch = {"action": "skipped", "reason": "paper drafted before dispatch"}
             elif not status.get("next_candidate"):
-                if not followup_launch_enabled:
+                if status.get("active_items"):
+                    followup_dry_run = {"action": "skipped", "reason": "active worker lane present"}
+                    followup_launch = {"action": "skipped", "reason": "active worker lane present"}
+                    dispatch = {"action": "skipped", "reason": "active worker lane present"}
+                elif not followup_launch_enabled:
                     followup_dry_run = {"action": "skipped", "reason": "queue pump follow-up launch disabled"}
                     followup_launch = {"action": "skipped", "reason": "queue pump follow-up launch disabled"}
                     dispatch = {"action": "skipped", "reason": "no queued candidate"}

@@ -2200,14 +2200,18 @@ class ControlPlaneStore:
             )
         return out
 
-    def next_dispatch_candidate(self) -> dict[str, Any] | None:
+    def active_machine_targets(self) -> set[str]:
+        return {_normal(row.get("machine_target")) for row in self.active_items()}
+
+    def next_dispatch_candidate(self, *, blocked_machine_targets: set[str] | None = None) -> dict[str, Any] | None:
         if self.flags().queue_paused:
             return None
-        if self.active_items():
-            return None
+        blocked = self.active_machine_targets() if blocked_machine_targets is None else {_normal(item) for item in blocked_machine_targets}
         candidates = [
             row for row in self.queue_rows()
-            if _normal(row.get("status")) == QueueStatus.QUEUED.value and not _bool(row.get("manual_review_required"))
+            if _normal(row.get("status")) == QueueStatus.QUEUED.value
+            and not _bool(row.get("manual_review_required"))
+            and _normal(row.get("machine_target")) not in blocked
         ]
         candidates.sort(key=lambda row: (_int(row.get("dispatch_priority"), 9999), _int(row.get("selection_rank"), 9999), _text(row.get("updated_at"))))
         return candidates[0] if candidates else None
@@ -2272,14 +2276,19 @@ class ControlPlaneStore:
         if flags.queue_paused:
             return "paused", None, None, flags.pause_reason or "queue paused"
         active = self.active_items()
-        if active:
-            return "noop", None, None, "active GB10 lane already exists"
         candidate = self.next_dispatch_candidate()
         if not candidate:
-            return "noop", None, None, "no queued candidate"
+            return "noop", None, None, "no queued candidate on an open worker lane" if active else "no queued candidate"
         return "dry_run_dispatch", candidate, None, "dry-run dispatch selected candidate"
 
-    def claim_dispatch_candidate(self, *, project_id: str, run_id: str, requested_by: str) -> dict[str, Any] | None:
+    def claim_dispatch_candidate(
+        self,
+        *,
+        project_id: str,
+        run_id: str,
+        requested_by: str,
+        conflicting_machine_targets: set[str] | None = None,
+    ) -> dict[str, Any] | None:
         """Atomically reserve a queued project before worker-side dispatch."""
         payload = {"requested_by": requested_by, "run_id": run_id}
         if self._replayed_event_id(
@@ -2292,6 +2301,13 @@ class ControlPlaneStore:
             return None
         now = utc_now()
         active_placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
+        conflict_targets = sorted({_normal(item) for item in conflicting_machine_targets or []})
+        conflict_clause = "" if conflicting_machine_targets is None else " AND 0"
+        conflict_params: tuple[str, ...] = ()
+        if conflict_targets:
+            conflict_placeholders = ",".join("?" for _ in conflict_targets)
+            conflict_clause = f" AND lower(replace(replace(trim(coalesce(active.machine_target, '')), '-', '_'), ' ', '_')) IN ({conflict_placeholders})"
+            conflict_params = tuple(conflict_targets)
         with self._connect() as conn:
             cur = conn.execute(
                 f"""UPDATE queue_items
@@ -2304,6 +2320,7 @@ class ControlPlaneStore:
                   AND NOT EXISTS (
                     SELECT 1 FROM queue_items active
                     WHERE active.status IN ({active_placeholders})
+                    {conflict_clause}
                   )""",
                 (
                     QueueStatus.DISPATCHING.value,
@@ -2319,6 +2336,7 @@ class ControlPlaneStore:
                     project_id,
                     QueueStatus.QUEUED.value,
                     *sorted(ACTIVE_STATUSES),
+                    *conflict_params,
                 ),
             )
             claimed = cur.rowcount == 1

@@ -706,7 +706,8 @@ def test_write_store_dispatch_and_projection_helpers(monkeypatch) -> None:
 
     monkeypatch.setattr(store, "flags", lambda: ControlFlags(queue_paused=False))
     monkeypatch.setattr(store, "active_items", lambda: [{"project_id": "active"}])
-    assert store.dispatch_next_dry_run(requested_by="operator")[3] == "active GB10 lane already exists"
+    monkeypatch.setattr(store, "next_dispatch_candidate", lambda: None)
+    assert store.dispatch_next_dry_run(requested_by="operator")[3] == "no queued candidate on an open worker lane"
 
     monkeypatch.setattr(store, "active_items", lambda: [])
     monkeypatch.setattr(store, "next_dispatch_candidate", lambda: None)

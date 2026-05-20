@@ -64,6 +64,7 @@ from .store import (
     _notion_status,
     _notion_title,
     _notion_url,
+    _normal,
     _paper_identity_conflicts,
     _normalize_review_checklist,
     _priority_rank,
@@ -668,6 +669,9 @@ class SupabaseReadOnlyControlPlaneStore:
     def active_items(self) -> list[dict[str, Any]]:
         return self.active_items_sql(limit=50)
 
+    def active_machine_targets(self) -> set[str]:
+        return {_normal(row.get("machine_target")) for row in self.active_items()}
+
     def next_candidate_sql(self) -> dict[str, Any] | None:
         rows = self._queue_rows(
             "where q.status = %s order by q.dispatch_priority asc, q.updated_at desc limit 1",
@@ -675,18 +679,24 @@ class SupabaseReadOnlyControlPlaneStore:
         )
         return rows[0] if rows else None
 
-    def next_dispatch_candidate(self) -> dict[str, Any] | None:
+    def next_dispatch_candidate(self, *, blocked_machine_targets: set[str] | None = None) -> dict[str, Any] | None:
         if self.flags().queue_paused:
             return None
-        if self.active_items():
-            return None
+        blocked = self.active_machine_targets() if blocked_machine_targets is None else {_normal(item) for item in blocked_machine_targets}
+        target_filter = ""
+        params: tuple[Any, ...] = (QueueStatus.QUEUED.value,)
+        if blocked:
+            placeholders = ",".join(["%s"] * len(blocked))
+            target_filter = f"and lower(replace(replace(trim(coalesce(q.machine_target, '')), '-', '_'), ' ', '_')) not in ({placeholders})"
+            params = (QueueStatus.QUEUED.value, *sorted(blocked))
         rows = self._queue_rows(
-            """
+            f"""
             where q.status = %s and q.manual_review_required = false
+            {target_filter}
             order by q.dispatch_priority asc, q.selection_rank asc, q.updated_at asc
             limit 1
             """,
-            (QueueStatus.QUEUED.value,),
+            params,
         )
         return rows[0] if rows else None
 
@@ -1903,7 +1913,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         )
         return dict(row) if row else None
 
-    def claim_dispatch_candidate(self, *, project_id: str, run_id: str, requested_by: str) -> dict[str, Any] | None:
+    def claim_dispatch_candidate(
+        self,
+        *,
+        project_id: str,
+        run_id: str,
+        requested_by: str,
+        conflicting_machine_targets: set[str] | None = None,
+    ) -> dict[str, Any] | None:
         payload = {"requested_by": requested_by, "run_id": run_id}
         if self._replayed_event_id(
             f"dispatch-claim:{run_id}",
@@ -1915,6 +1932,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             return None
         now = utc_now()
         active_placeholders = ",".join(["%s"] * len(ACTIVE_STATUSES))
+        conflict_targets = sorted({_normal(item) for item in conflicting_machine_targets or []})
+        conflict_clause = "" if conflicting_machine_targets is None else "and false"
+        conflict_params: tuple[str, ...] = ()
+        if conflict_targets:
+            conflict_placeholders = ",".join(["%s"] * len(conflict_targets))
+            conflict_clause = f"and lower(replace(replace(trim(coalesce(active.machine_target, '')), '-', '_'), ' ', '_')) in ({conflict_placeholders})"
+            conflict_params = tuple(conflict_targets)
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -1929,6 +1953,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                       and not exists (
                         select 1 from queue_items active
                         where active.status in ({active_placeholders})
+                        {conflict_clause}
                       )
                     """,
                     (
@@ -1945,6 +1970,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         project_id,
                         QueueStatus.QUEUED.value,
                         *sorted(ACTIVE_STATUSES),
+                        *conflict_params,
                     ),
                 )
                 claimed = cur.rowcount == 1
@@ -2083,11 +2109,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         if flags.queue_paused:
             return "paused", None, None, flags.pause_reason or "queue paused"
         active = self.active_items()
-        if active:
-            return "noop", None, None, "active GB10 lane already exists"
         candidate = self.next_dispatch_candidate()
         if not candidate:
-            return "noop", None, None, "no queued candidate"
+            return "noop", None, None, "no queued candidate on an open worker lane" if active else "no queued candidate"
         return "dry_run_dispatch", candidate, None, "dry-run dispatch selected candidate"
 
     def _paper_review_join_rows(self) -> list[dict[str, Any]]:

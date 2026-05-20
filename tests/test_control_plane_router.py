@@ -2919,7 +2919,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(status["source_freshness"]["worker_dashboard_api"]["stale"])
             self.assertEqual(status["warnings"], [])
             self.assertEqual(status["conflicts"], [])
-            self.assertEqual(status["dispatch_blockers"], ["active GB10 lane exists"])
+            self.assertEqual(status["dispatch_blockers"], ["all configured worker lanes active"])
             preflight_payload = status["observations"]["worker_preflight"]["payload"]
             dashboard_check = next(check for check in preflight_payload["checks"] if check["name"] == "wake_gate_dashboard_api")
             compact_run = dashboard_check["data"]["body"]["runs"][0]
@@ -3105,6 +3105,71 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertTrue(any("active row" in item["message"] for item in status["conflicts"]))
             self.assertFalse(status["dispatch_safe"])
 
+    def test_dashboard_status_does_not_treat_cpu_active_as_default_worker_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "cpu-active-default-worker-idle-import",
+                "queue_rows": [
+                    {
+                        "project_id": "active-cpu",
+                        "project_name": "Active CPU",
+                        "project_dir": "active-cpu",
+                        "status": "awaiting_wake",
+                        "machine_target": "cpu-proxmox-1",
+                        "current_run_id": "run-active-cpu",
+                    },
+                    {
+                        "project_id": "queued-gpu",
+                        "project_name": "Queued GPU",
+                        "project_dir": "queued-gpu",
+                        "status": "queued",
+                        "machine_target": "gb10",
+                        "dispatch_priority": 1,
+                    },
+                ],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                payload={
+                    "ok": True,
+                    "checks": [
+                        {"name": "wake_gate_healthz", "ok": True, "detail": "ok", "data": {}},
+                        {"name": "worker_no_live_runs", "ok": True, "detail": "active_or_waiting=0, live=0", "data": {"active_or_waiting": 0, "live": 0}},
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+
+            status = client.get("/control/api/status", headers=headers).json()
+
+            self.assertTrue(status["dispatch_safe"])
+            self.assertEqual(status["dispatch_blockers"], [])
+            self.assertEqual(status["next_candidate"]["project_id"], "queued-gpu")
+            self.assertEqual(status["conflicts"], [])
+
 
     def test_dashboard_status_flags_worker_live_without_vm_active_row_as_critical(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3227,7 +3292,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
             status = client.get("/control/api/status", headers=headers).json()
             self.assertFalse(status["dispatch_safe"])
-            self.assertEqual(status["dispatch_blockers"], ["active GB10 lane exists"])
+            self.assertEqual(status["dispatch_blockers"], ["all configured worker lanes active"])
             self.assertEqual(status["conflicts"], [])
             self.assertFalse(any(item["source"] == "worker_preflight" and "status is warn" in item["message"] for item in status["warnings"]))
 
@@ -3377,7 +3442,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(body["source"], "control_api_queue_health")
             self.assertEqual(body["active_run_detail"]["queue_item"]["project_id"], "idea-health")
             self.assertFalse(body["latest_alert_check"]["should_alert"])
-            self.assertEqual(body["status"]["dispatch_blockers"], ["active GB10 lane exists"])
+            self.assertEqual(body["status"]["dispatch_blockers"], ["all configured worker lanes active"])
 
     def test_queue_alert_check_alerts_on_active_row_without_worker_live_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -4675,6 +4740,135 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(prepare_payload["metadata"]["machine_target"], "cpu-proxmox-1")
             self.assertEqual(response.json()["live"]["dispatch_route"]["worker_role"], "cpu_worker")
 
+    def test_dispatch_next_allows_cpu_worker_while_gb10_lane_is_active(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "workload_machine_targets": {"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10"},
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                            "min_memory_available_mib": 16384,
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "dispatch-cpu-while-gpu-active-import",
+                "queue_rows": [
+                    {
+                        "project_id": "active-gpu-lane",
+                        "project_name": "Active GPU Lane",
+                        "project_dir": "active-gpu-lane",
+                        "status": "awaiting_wake",
+                        "machine_target": "gb10",
+                        "current_run_id": "run-active-gpu-lane",
+                    },
+                    {
+                        "project_id": "queued-gpu-same-lane",
+                        "project_name": "Queued GPU Same Lane",
+                        "project_dir": "queued-gpu-same-lane",
+                        "status": "queued",
+                        "machine_target": "gb10",
+                        "dispatch_priority": 1,
+                    },
+                    {
+                        "project_id": "queued-cpu-open-lane",
+                        "project_name": "Queued CPU Open Lane",
+                        "project_dir": "queued-cpu-open-lane",
+                        "status": "queued",
+                        "machine_target": "cpu-proxmox-1",
+                        "dispatch_priority": 2,
+                    },
+                ],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            preflight = WorkerPreflightResponse(ok=True, target="http://cpu-proxmox-1:8787", summary="ok", checks=[])
+            calls = []
+
+            def fake_post(base: str, path: str, token: str, payload: dict) -> HttpResult:
+                calls.append((base, path, token, payload))
+                if path == "/prepare-project":
+                    return HttpResult(ok=True, status=200, body={"prepared": payload["project_id"]})
+                if path == "/dispatch":
+                    return HttpResult(ok=True, status=200, body={"dispatch": {"session_id": "session-cpu-open-lane"}})
+                return HttpResult(ok=False, status=404, body=None, error="unexpected path")
+
+            dry_run = client.post("/control/dispatch-next", headers=headers, json={"dry_run": True})
+            self.assertEqual(dry_run.status_code, 200)
+            self.assertEqual(dry_run.json()["candidate"]["project_id"], "queued-cpu-open-lane")
+
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=preflight) as mocked_preflight, \
+                 patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post):
+                response = client.post("/control/dispatch-next", headers=headers, json={"dry_run": False})
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertEqual(body["action"], "live_dispatch")
+            self.assertEqual(body["candidate"]["project_id"], "queued-cpu-open-lane")
+            self.assertEqual(body["live"]["dispatch_route"]["worker_role"], "cpu_worker")
+            self.assertEqual(mocked_preflight.call_args.args[0].wake_gate_url, "http://cpu-proxmox-1:8787")
+            self.assertEqual({call[0] for call in calls}, {"http://cpu-proxmox-1:8787"})
+            rows = {row["project_id"]: row for row in client.get("/control/queue", headers=headers).json()["rows"]}
+            self.assertEqual(rows["queued-cpu-open-lane"]["status"], "awaiting_wake")
+            self.assertEqual(rows["queued-gpu-same-lane"]["status"], "queued")
+
+    def test_dispatch_next_blocks_when_only_same_worker_lane_is_queued(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "dispatch-same-worker-block-import",
+                "queue_rows": [
+                    {
+                        "project_id": "active-gpu-only",
+                        "project_name": "Active GPU Only",
+                        "project_dir": "active-gpu-only",
+                        "status": "awaiting_wake",
+                        "machine_target": "gb10",
+                        "current_run_id": "run-active-gpu-only",
+                    },
+                    {
+                        "project_id": "queued-gpu-only",
+                        "project_name": "Queued GPU Only",
+                        "project_dir": "queued-gpu-only",
+                        "status": "queued",
+                        "machine_target": "gb10",
+                    },
+                ],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+
+            response = client.post("/control/dispatch-next", headers=headers, json={"dry_run": False})
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["action"], "noop")
+            self.assertEqual(response.json()["reason"], "no queued candidate on an open worker lane")
+
     def test_dispatch_one_live_tolerates_malformed_dispatch_success_body(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp)
@@ -4791,7 +4985,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
             response = client.post("/control/dispatch-one", headers=headers, json={"project_id": "idea-queued"})
             self.assertEqual(response.status_code, 409)
-            self.assertIn("active GB10 lane already exists", response.text)
+            self.assertIn("active worker lane already exists for selected candidate target", response.text)
 
 
     def test_dashboard_queue_project_run_paper_events_and_intake_apis(self) -> None:

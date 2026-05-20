@@ -1023,6 +1023,104 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(released["last_error"], "worker preflight failed")
             self.assertEqual(store.next_dispatch_candidate()["project_id"], "idea-claim")
 
+    def test_next_dispatch_candidate_skips_only_active_worker_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="import-per-worker-next-candidate",
+                    queue_rows=[
+                        {
+                            "project_id": "active-gpu",
+                            "project_name": "Active GPU",
+                            "project_dir": "active-gpu",
+                            "status": "awaiting_wake",
+                            "machine_target": "gb10",
+                            "current_run_id": "run-active-gpu",
+                        },
+                        {
+                            "project_id": "queued-gpu",
+                            "project_name": "Queued GPU",
+                            "project_dir": "queued-gpu",
+                            "status": "queued",
+                            "machine_target": "gb10",
+                            "dispatch_priority": 1,
+                        },
+                        {
+                            "project_id": "queued-cpu",
+                            "project_name": "Queued CPU",
+                            "project_dir": "queued-cpu",
+                            "status": "queued",
+                            "machine_target": "cpu-proxmox-1",
+                            "dispatch_priority": 2,
+                        },
+                    ],
+                    paper_rows=[],
+                )
+            )
+            store.resume(resumed_by="test", maintenance_mode=False)
+
+            candidate = store.next_dispatch_candidate()
+
+            self.assertEqual(candidate["project_id"], "queued-cpu")
+            action, dry_candidate, _event_id, reason = store.dispatch_next_dry_run(requested_by="test")
+            self.assertEqual(action, "dry_run_dispatch")
+            self.assertEqual(dry_candidate["project_id"], "queued-cpu")
+            self.assertEqual(reason, "dry-run dispatch selected candidate")
+
+    def test_dispatch_claim_allows_different_worker_target_but_blocks_same_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="import-per-worker-claim",
+                    queue_rows=[
+                        {
+                            "project_id": "active-gpu",
+                            "project_name": "Active GPU",
+                            "project_dir": "active-gpu",
+                            "status": "awaiting_wake",
+                            "machine_target": "gb10",
+                            "current_run_id": "run-active-gpu",
+                        },
+                        {
+                            "project_id": "queued-gpu",
+                            "project_name": "Queued GPU",
+                            "project_dir": "queued-gpu",
+                            "status": "queued",
+                            "machine_target": "gb10",
+                        },
+                        {
+                            "project_id": "queued-cpu",
+                            "project_name": "Queued CPU",
+                            "project_dir": "queued-cpu",
+                            "status": "queued",
+                            "machine_target": "cpu-proxmox-1",
+                        },
+                    ],
+                    paper_rows=[],
+                )
+            )
+            store.resume(resumed_by="test", maintenance_mode=False)
+
+            blocked = store.claim_dispatch_candidate(
+                project_id="queued-gpu",
+                run_id="run-queued-gpu",
+                requested_by="test",
+                conflicting_machine_targets={"gb10"},
+            )
+            allowed = store.claim_dispatch_candidate(
+                project_id="queued-cpu",
+                run_id="run-queued-cpu",
+                requested_by="test",
+                conflicting_machine_targets=set(),
+            )
+
+            self.assertIsNone(blocked)
+            self.assertIsNotNone(allowed)
+            self.assertEqual(store.queue_row("queued-cpu")["status"], "dispatching")
+            self.assertEqual(store.queue_row("queued-gpu")["status"], "queued")
+
 
     def test_session_started_callback_keeps_queue_item_active(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
