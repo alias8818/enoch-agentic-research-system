@@ -49,6 +49,58 @@ class WorkerPreflightTests(unittest.TestCase):
         self.assertTrue(checks["worker_swapless_allowed"].ok)
         self.assertEqual(checks["worker_memory_available"].data["swap_free_mib"], 0)
         self.assertEqual(checks["wake_gate_dashboard_api"].data["body"]["runs"][0]["run_id"], "run-1")
+        self.assertTrue(checks["wake_gate_dashboard_api"].data["body"]["body_compacted"])
+
+    def test_preflight_bounds_large_dashboard_payloads(self) -> None:
+        large_note = "x" * 50_000
+
+        def transport(url: str, headers: dict[str, str]) -> HttpResult:
+            if url.endswith("/healthz"):
+                return HttpResult(ok=True, status=200, body={"ok": True})
+            if "/dashboard/api" in url:
+                return HttpResult(
+                    ok=True,
+                    status=200,
+                    body={
+                        "service": {"completion_callback_token_fingerprint": "abc"},
+                        "telemetry": {
+                            "gpu_pct": 0,
+                            "gpu_compute_pids": [],
+                            "memory_available_mib": 120_000,
+                            "swap_free_mib": 0,
+                        },
+                        "totals": {"active_or_waiting": 0, "live": 0},
+                        "queue": {"active_count": 0},
+                        "runs": [
+                            {
+                                "run_id": "run-large",
+                                "project_id": "project-large",
+                                "run_notes_tail": large_note,
+                                "quiet_samples": [{"sample": large_note}],
+                                "project_decision": {"long_internal_notes": large_note},
+                            }
+                        ],
+                    },
+                )
+            raise AssertionError(f"unexpected url {url}")
+
+        response = run_worker_preflight(
+            WorkerPreflightRequest(wake_gate_url="http://worker:8787", bearer_token="secret"),
+            ControlFlags(queue_paused=True, maintenance_mode=True),
+            transport=transport,
+        )
+
+        payload = response.model_dump(mode="json")
+        checks = {check.name: check for check in response.checks}
+        dashboard_body = checks["wake_gate_dashboard_api"].data["body"]
+        compact_run = dashboard_body["runs"][0]
+        self.assertTrue(dashboard_body["body_compacted"])
+        self.assertEqual(compact_run["run_id"], "run-large")
+        self.assertTrue(compact_run["run_notes_tail_omitted"])
+        self.assertTrue(compact_run["quiet_samples_omitted"])
+        self.assertTrue(compact_run["project_decision_omitted"])
+        self.assertNotIn(large_note, str(payload))
+        self.assertNotIn("long_internal_notes", str(payload))
 
 
     def test_preflight_marks_disabled_maintenance_mode_as_safe(self) -> None:

@@ -90,6 +90,68 @@ def _token_fingerprint(token: str) -> str:
     return hashlib.sha256(str(token or "").encode("utf-8")).hexdigest() if token else ""
 
 
+def _compact_dashboard_run(run: Any) -> dict[str, Any]:
+    """Return bounded worker run evidence for preflight responses.
+
+    Worker dashboard rows can contain large project decisions, notes tails, and
+    sample arrays. Preflight needs enough state to explain lane occupancy, not a
+    full artifact mirror.
+    """
+
+    if not isinstance(run, dict):
+        return {}
+    allowed = {
+        "run_id",
+        "session_id",
+        "project_id",
+        "project_name",
+        "gate_state",
+        "lifecycle_state",
+        "operator_status",
+        "operator_status_detail",
+        "callback_delivered",
+        "is_live",
+        "needs_attention",
+        "is_historical",
+        "age_seconds",
+        "current_activity",
+        "root_pid",
+        "process_group_id",
+        "active_process_count",
+        "active_processes_truncated",
+        "created_at",
+        "updated_at",
+        "last_event_at",
+    }
+    compact = {key: run.get(key) for key in allowed if key in run}
+    if "run_notes_tail" in run:
+        compact["run_notes_tail_omitted"] = True
+    if "quiet_samples" in run:
+        compact["quiet_samples_omitted"] = True
+    if "project_decision" in run:
+        compact["project_decision_omitted"] = True
+    if isinstance(run.get("active_processes"), list):
+        compact["active_processes"] = run["active_processes"][:5]
+    return compact
+
+
+def _compact_dashboard_body(body: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for key in ("timestamp", "service", "totals", "telemetry", "queue", "papers"):
+        value = body.get(key)
+        if isinstance(value, dict):
+            compact[key] = value
+        elif value is not None:
+            compact[key] = value
+    runs = body.get("runs")
+    if isinstance(runs, list):
+        compact["runs"] = [_compact_dashboard_run(run) for run in runs[:5]]
+        compact["runs_count"] = len(runs)
+        compact["runs_truncated"] = len(runs) > 5
+    compact["body_compacted"] = True
+    return compact
+
+
 def run_worker_preflight(
     payload: WorkerPreflightRequest,
     flags: ControlFlags,
@@ -134,7 +196,7 @@ def run_worker_preflight(
                 "wake_gate_dashboard_api",
                 bool(dashboard_body),
                 "dashboard API returned malformed JSON body" if malformed_dashboard else ("dashboard API reachable" if dashboard_body else f"dashboard API unavailable: {dashboard.error or dashboard.status}"),
-                {"status": dashboard.status, "body": dashboard_body or {}},
+                {"status": dashboard.status, "body": _compact_dashboard_body(dashboard_body) if dashboard_body else {}},
             )
         )
         telemetry = (dashboard_body or {}).get("telemetry") or {}
