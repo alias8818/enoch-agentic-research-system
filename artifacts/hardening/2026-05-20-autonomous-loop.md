@@ -96,3 +96,22 @@ Verification:
 - `uv run pytest -q tests/test_alerts.py tests/test_longhaul_readiness.py tests/test_control_plane_router.py` -> 194 passed.
 - `uv run pytest -q` -> 1014 passed, 4 warnings, 37 subtests passed.
 - Live deploy to `enoch-core.exe.xyz` restarted `enoch-control-plane.service`; `/healthz` returned ok; deployed `alerts.py` contains `_has_idle_lane_dispatch_opportunity`.
+
+## Pass 7 - Lane-aware Research Facility autopilot promotion and dispatch
+
+Target: Research Facility run-cycle queue feeding and two-lane dispatch throughput.
+
+Invariant: active work on one worker lane must not block promotion or dispatch of a candidate targeting another idle lane. The autopilot should prefer idle-lane candidates and use bounded per-tick caps that can fill the configured CPU and GB10 lanes.
+
+Bug found: `dashboard_research_run_cycle()` treated any active item as global backpressure and the deploy wrapper capped promotions/dispatches at one per tick. With CPU active, admitted GB10 work could remain unpromoted/undispatched even though the GB10 lane was open.
+
+Patch: made run-cycle backpressure lane-aware, added idle-lane promotion preference from Research Facility workbench rows, surfaced `open_lane_promotable_count`, returned a compatibility `dispatch` plus a `dispatches[]` list, and raised autopilot defaults to two bounded promotions/dispatches per tick. Supabase workbench projection now includes candidate `machine_target`, `model`, and `sandbox` so promotion order can be lane-aware before queue rows exist.
+
+Verification:
+- Added failing deterministic test: `test_research_facility_run_cycle_dispatches_idle_gb10_when_cpu_lane_active`.
+- `git diff --check` -> passed.
+- `uv run pytest -q tests/test_control_plane_router.py tests/test_deploy_units.py tests/test_research_autopilot.py tests/test_supabase_store_helpers_more.py` -> 270 passed.
+- `uv run pytest -q` -> 1015 passed, 4 warnings, 37 subtests passed.
+- Live deploy to `enoch-core.exe.xyz` copied `router.py`, `supabase_store.py`, and `deploy/enoch_research_autopilot.py`; remote `py_compile` passed; `enoch-control-plane.service` restarted; `/healthz` returned ok.
+
+Commit: `99410ef` (`fix(research): make autopilot lane-aware`).
