@@ -431,7 +431,7 @@ def test_audit_classifies_stale_duplicate_superseded_before_missing_fields() -> 
     assert report["summary"]["export_cleanly_now"] == 1
     assert report["summary"]["hard_negative_or_stale"] == 1
     stale = report["buckets"]["hard_negative_or_stale"][0]
-    assert stale["run_id"] == "old"
+    assert "run_id" not in stale
     assert "stale_duplicate_superseded" in stale["backfill"]["classification"]
 
 
@@ -490,12 +490,12 @@ def test_audit_backfill_report_classifies_paper_corpus_and_stale_rows() -> None:
         "excluded_paper_or_corpus": 2,
         "hard_negative_or_stale": 2,
     }
-    paper = {row["project_id"]: row for row in report["buckets"]["excluded_paper_or_corpus"]}
-    assert "paper_or_corpus_row" in paper["paper-row"]["issues"]
-    assert "paper_or_corpus_row" in paper["corpus-row"]["issues"]
-    stale = {row["project_id"]: row for row in report["buckets"]["hard_negative_or_stale"]}
-    assert "research_outcome:not_export_status" in stale["hard-negative"]["issues"]
-    assert "research_outcome:not_export_status" in stale["stale"]["issues"]
+    excluded = report["buckets"]["excluded_paper_or_corpus"]
+    assert [row["issues"] for row in excluded] == [["paper_or_corpus_row"], ["paper_or_corpus_row"]]
+    assert all("project_id" not in row for row in excluded)
+    stale = report["buckets"]["hard_negative_or_stale"]
+    assert [row["issues"] for row in stale] == [["research_outcome:not_export_status"], ["research_outcome:not_export_status"]]
+    assert all("project_id" not in row for row in stale)
 
 
 def test_audit_backfill_markdown_includes_backfill_plan() -> None:
@@ -560,3 +560,16 @@ def test_cli_clean_only_exports_valid_subset(tmp_path) -> None:
     assert [record["project_id"] for record in records] == ["clean-signal", "missing-source"]
     assert manifest["selection_summary"]["backfilled_exportable"] == 1
     assert manifest["selection_summary"]["missing_required_evidence_or_fields"] == 0
+
+def test_audit_backfill_redacts_non_exported_row_identifiers() -> None:
+    report = exporter.audit_backfill([
+        _row(project_id="excluded", has_live_paper_row=True),
+        _row(project_id="negative", research_outcome=""),
+    ])
+
+    for bucket in ("excluded_paper_or_corpus", "hard_negative_or_stale"):
+        assert report["buckets"][bucket]
+        for item in report["buckets"][bucket]:
+            assert "project_id" not in item
+            assert "run_id" not in item
+            assert "title" not in item
