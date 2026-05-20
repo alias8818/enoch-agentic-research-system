@@ -45,7 +45,7 @@
   - `git diff --check` → passed.
   - `uv run pytest -q tests/test_supabase_store_helpers_more.py tests/test_supabase_runtime_cutover.py tests/test_control_plane_store.py -k 'worker_callback or runtime_store_exposes_dashboard_and_dispatch_methods'` → `23 passed, 136 deselected`.
   - `uv run pytest -q` → `1013 passed, 4 warnings, 37 subtests passed`.
-- **Live verification:** not deployed in this batch; runtime store backend must be checked before deployment.
+- **Live verification:** live enoch-core backend reports `control_plane_store_backend=supabase`; `/opt/enoch-control-plane/enoch_control_plane/control_plane/supabase_store.py` contains the callback run-row upsert patch and the service has been restarted since the patched file was present.
 - **Commit:** `d0a043b` (`fix(supabase): upsert callback run rows`).
 
 ## Pass 4 — dispatch command panel lane-specific launch truth
