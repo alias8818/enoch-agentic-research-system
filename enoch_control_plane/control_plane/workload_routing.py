@@ -11,6 +11,70 @@ WORKLOAD_FIELD_NAMES = (
     "property_workload_class",
 )
 
+TEXT_FIELD_NAMES = (
+    "title",
+    "project_name",
+    "category",
+    "description",
+    "implementation",
+    "baseline_to_beat",
+    "kill_condition",
+    "accessibility_delta",
+    "experiment_design",
+    "required_evidence",
+    "expected_runtime_class",
+    "estimated_runtime_class",
+)
+
+GPU_REQUIRED_TERMS = (
+    "cuda",
+    "gpu",
+    "vram",
+)
+
+TRAINING_TERMS = (
+    "pretraining",
+    "pre-train",
+    "pretrain",
+    "fine-tuning",
+    "finetuning",
+    "train a model",
+    "training",
+    "gradient",
+)
+
+CONTROL_PLANE_TERMS = (
+    "control plane",
+    "dashboard",
+    "validator",
+    "schema check",
+    "release gate",
+)
+
+AGENT_HARNESS_TERMS = (
+    "agent state",
+    "agent integrity",
+    "agent reliability",
+    "evidence ledger",
+    "tool-use",
+    "tool use",
+    "hallucination detection",
+    "replay consistency",
+)
+
+CPU_ONLY_TERMS = (
+    "cpu-only",
+    "cpu only",
+    "cpu-bound",
+    "cpu bound",
+    "no gpu",
+    "non-gpu",
+    "regex",
+    "sqlite",
+    "property-based",
+    "hypothesis",
+)
+
 
 def normalize_workload_class(raw: Any, *, default: str = "unknown") -> str:
     value = str(raw or "").strip().lower().replace("-", "_").replace(" ", "_")
@@ -36,6 +100,40 @@ def normalize_workload_class(raw: Any, *, default: str = "unknown") -> str:
     return aliases.get(value, default)
 
 
+def _field_text(row: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for name in TEXT_FIELD_NAMES:
+        value = row.get(name)
+        if isinstance(value, (list, tuple, set)):
+            parts.extend(str(item) for item in value)
+        elif isinstance(value, dict):
+            parts.extend(str(item) for item in value.values())
+        elif value not in (None, ""):
+            parts.append(str(value))
+    return " ".join(parts).strip().lower().replace("_", " ")
+
+
+def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
+    return any(term in text for term in terms)
+
+
+def infer_workload_class_from_text(row: dict[str, Any]) -> str:
+    text = _field_text(row)
+    if not text:
+        return "unknown"
+    if _contains_any(text, GPU_REQUIRED_TERMS):
+        return "gpu_required"
+    if _contains_any(text, TRAINING_TERMS):
+        return "training"
+    if _contains_any(text, CONTROL_PLANE_TERMS):
+        return "control_plane"
+    if _contains_any(text, AGENT_HARNESS_TERMS):
+        return "agent_harness"
+    if _contains_any(text, CPU_ONLY_TERMS):
+        return "cpu_only"
+    return "unknown"
+
+
 def workload_class_from_row(row: dict[str, Any]) -> str:
     for name in WORKLOAD_FIELD_NAMES:
         if name in row and row.get(name) not in (None, ""):
@@ -45,6 +143,9 @@ def workload_class_from_row(row: dict[str, Any]) -> str:
         return "gpu_required"
     if needs_cuda is False or str(needs_cuda).strip().lower() in {"0", "false", "no"}:
         return "cpu_only"
+    inferred = infer_workload_class_from_text(row)
+    if inferred != "unknown":
+        return inferred
     return "unknown"
 
 

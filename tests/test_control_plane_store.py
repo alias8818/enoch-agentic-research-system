@@ -277,6 +277,32 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(candidates[0]["workload_class"], "cpu_only")
             self.assertEqual(candidates[0]["routing_reason"], "workload_class:cpu_only")
 
+    def test_native_intake_routes_agent_integrity_ledger_to_cpu_worker_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+
+            _inserted, _created, _updated, _skipped, candidates, _skipped_rows = store.ingest_ideas(
+                IdeaIntakeRequest(
+                    source="unit",
+                    idempotency_key="native-route-agent-ledger",
+                    dry_run=True,
+                    include_statuses=("testing",),
+                    default_machine_target="gb10",
+                    workload_machine_targets={"agent_harness": "cpu-proxmox-1", "gpu_required": "gb10"},
+                    ideas=[{
+                        "idea_id": "agent-ledger-routing",
+                        "title": "Hash-Chain Evidence Ledger for Agent State Integrity Verification",
+                        "idea_status": "testing",
+                        "category": "agent-reliability",
+                        "machine_target": "gb10",
+                    }],
+                )
+            )
+
+            self.assertEqual(candidates[0]["machine_target"], "cpu-proxmox-1")
+            self.assertEqual(candidates[0]["workload_class"], "agent_harness")
+            self.assertEqual(candidates[0]["routing_reason"], "workload_class:agent_harness")
+
     def test_native_intake_keeps_gpu_required_on_gb10(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
