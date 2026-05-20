@@ -1,12 +1,14 @@
-import { useState } from 'react'
+import { FormEvent, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiGet } from '../api/client'
 import type { DashboardRoute } from '../routes'
 import { DataTable } from './DataTable'
 import { DetailPanel } from './DetailPanel'
 
-type PageResponse = { rows?: Record<string, unknown>[]; counts?: Record<string, unknown>; generated_at?: string }
+type PageMeta = { next_cursor?: string; has_more?: boolean; returned?: number; page_size?: number }
+type PageResponse = { rows?: Record<string, unknown>[]; counts?: Record<string, unknown>; generated_at?: string; page?: PageMeta }
 type DetailSelection = { kind: 'project' | 'paper' | 'event'; id: string; row?: Record<string, unknown> }
+type FilterState = { search: string; status: string; pageSize: string; cursor: string }
 
 function PageShell({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
@@ -29,15 +31,54 @@ function ErrorCard({ error }: { error: unknown }) {
   return <div className="rounded-2xl border border-red-900 bg-red-950/40 p-8 text-red-100">V2 data unavailable: {String(error instanceof Error ? error.message : error)}</div>
 }
 
+function FilterBar({ state, statusOptions, onApply, onNext, onReset, page }: { state: FilterState; statusOptions: { label: string; value: string }[]; onApply: (next: FilterState) => void; onNext: () => void; onReset: () => void; page?: PageMeta }) {
+  const [draft, setDraft] = useState(state)
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    onApply({ ...draft, cursor: '' })
+  }
+  return (
+    <form className="flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-4 md:flex-row md:items-end" onSubmit={submit}>
+      <label className="flex-1 text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Search
+        <input className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-3 py-2 text-sm text-white" value={draft.search} onChange={(event) => setDraft({ ...draft, search: event.target.value })} placeholder="Search" />
+      </label>
+      <label className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Status
+        <select className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-3 py-2 text-sm text-white" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}>
+          {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      </label>
+      <label className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Size
+        <select className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-3 py-2 text-sm text-white" value={draft.pageSize} onChange={(event) => setDraft({ ...draft, pageSize: event.target.value })}>
+          {['25', '50', '100', '200'].map((value) => <option key={value} value={value}>{value}</option>)}
+        </select>
+      </label>
+      <button className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-bold text-white" type="submit">Apply filters</button>
+      <button className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-bold text-white" type="button" onClick={() => { setDraft({ search: '', status: '', pageSize: '50', cursor: '' }); onReset() }}>Reset</button>
+      <button className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-40" type="button" disabled={!page?.has_more} onClick={onNext}>Next page</button>
+      <span className="text-sm text-zinc-500">Showing {page?.returned ?? 0}</span>
+    </form>
+  )
+}
+
+function withCommonParams(state: FilterState, sort: string): URLSearchParams {
+  const params = new URLSearchParams({ page_size: state.pageSize, sort })
+  if (state.status) params.set('status', state.status)
+  if (state.search) params.set('search', state.search)
+  if (state.cursor) params.set('cursor', state.cursor)
+  return params
+}
+
 export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'queue' }> }) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
-  const params = new URLSearchParams({ queue: 'all', page_size: '50', sort: 'priority' })
-  if (route.status) params.set('status', route.status)
-  const query = useQuery({ queryKey: ['queue', route.status], queryFn: () => apiGet<PageResponse>(`/control/api/v1/queue?${params}`) })
+  const [filters, setFilters] = useState<FilterState>({ search: '', status: route.status, pageSize: '50', cursor: '' })
+  const params = withCommonParams(filters, 'priority')
+  params.set('queue', 'all')
+  const query = useQuery({ queryKey: ['queue', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/queue?${params}`) })
   if (query.isLoading) return <LoadingCard label="queue" />
   if (query.isError) return <ErrorCard error={query.error} />
   return (
     <PageShell title="Queue" subtitle="Bounded queue rows from /control/api/v1/queue. No frontend lifecycle inference.">
+      <FilterBar state={filters} statusOptions={[{ label: 'all statuses', value: '' }, { label: 'queued', value: 'queued' }, { label: 'active', value: 'active' }, { label: 'blocked', value: 'blocked' }, { label: 'completed', value: 'completed' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.status, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={['project_id', 'status', 'lane', 'machine_target', 'title', 'updated_at']} empty="No queue rows match this filter." onSelectRow={(row) => setSelection({ kind: 'project', id: String(row.project_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
@@ -46,13 +87,14 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
 
 export function PapersPage({ route }: { route: Extract<DashboardRoute, { page: 'papers' }> }) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
-  const params = new URLSearchParams({ page_size: '50', sort: 'recent' })
-  if (route.status) params.set('status', route.status)
-  const query = useQuery({ queryKey: ['papers', route.status], queryFn: () => apiGet<PageResponse>(`/control/api/v1/papers?${params}`) })
+  const [filters, setFilters] = useState<FilterState>({ search: '', status: route.status, pageSize: '50', cursor: '' })
+  const params = withCommonParams(filters, 'recent')
+  const query = useQuery({ queryKey: ['papers', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/papers?${params}`) })
   if (query.isLoading) return <LoadingCard label="papers" />
   if (query.isError) return <ErrorCard error={query.error} />
   return (
     <PageShell title="Papers" subtitle="Paper pipeline rows from /control/api/v1/papers.">
+      <FilterBar state={filters} statusOptions={[{ label: 'all paper statuses', value: '' }, { label: 'publication draft', value: 'publication_draft' }, { label: 'draft review', value: 'draft_review' }, { label: 'archived', value: 'archived' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.status, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={['paper_id', 'project_id', 'status', 'title', 'artifact_dir', 'updated_at']} empty="No paper rows match this filter." onSelectRow={(row) => setSelection({ kind: 'paper', id: String(row.paper_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
@@ -61,11 +103,17 @@ export function PapersPage({ route }: { route: Extract<DashboardRoute, { page: '
 
 export function EventsPage() {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
-  const query = useQuery({ queryKey: ['events'], queryFn: () => apiGet<PageResponse>('/control/api/v1/events?page_size=50&sort=recent') })
+  const [filters, setFilters] = useState<FilterState>({ search: '', status: '', pageSize: '50', cursor: '' })
+  const params = new URLSearchParams({ page_size: filters.pageSize, sort: 'recent' })
+  if (filters.status) params.set('event_type', filters.status)
+  if (filters.search) params.set('search', filters.search)
+  if (filters.cursor) params.set('cursor', filters.cursor)
+  const query = useQuery({ queryKey: ['events', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/events?${params}`) })
   if (query.isLoading) return <LoadingCard label="events" />
   if (query.isError) return <ErrorCard error={query.error} />
   return (
     <PageShell title="Events" subtitle="Recent formatted control-plane events from /control/api/v1/events.">
+      <FilterBar state={filters} statusOptions={[{ label: 'all event types', value: '' }, { label: 'Queue Alert', value: 'Queue Alert' }, { label: 'worker.callback', value: 'worker.callback' }, { label: 'paper.drafted', value: 'paper.drafted' }, { label: 'research.run_cycle.live', value: 'research.run_cycle.live' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: '', pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={['id', 'entity_type', 'entity_id', 'event_type', 'created_at', 'summary']} empty="No recent events returned." onSelectRow={(row) => setSelection({ kind: 'event', id: String(row.id || row.event_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
