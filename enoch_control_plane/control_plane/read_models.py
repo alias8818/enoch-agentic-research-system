@@ -1254,6 +1254,187 @@ def _open_lane_labels(worker_lanes: Sequence[Mapping[str, Any]] | None) -> list[
     return labels
 
 
+def _lane_label(lane: Mapping[str, Any]) -> str:
+    machine = str(lane.get("machine_target") or "").strip()
+    role = str(lane.get("worker_role") or "").strip().lower()
+    lower_machine = machine.lower()
+    if "cpu" in lower_machine or "cpu" in role:
+        return "CPU lane"
+    if "gb10" in lower_machine or "gpu" in role:
+        return "GB10 lane"
+    return f"{machine} lane" if machine else "default lane"
+
+
+def _flags_payload(flags: Mapping[str, Any] | Any | None) -> dict[str, Any]:
+    if flags is None:
+        return {}
+    if isinstance(flags, Mapping):
+        return dict(flags)
+    dump = getattr(flags, "model_dump", None)
+    if callable(dump):
+        payload = dump(mode="json")
+        return dict(payload) if isinstance(payload, Mapping) else {}
+    return {}
+
+
+def movement_diagnosis(
+    *,
+    flags: Mapping[str, Any] | None,
+    worker_lanes: Sequence[Mapping[str, Any]] | None,
+    paper_pipeline: Mapping[str, Any],
+    investigation_pipeline: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Explain, deterministically, why work is or is not moving.
+
+    This is an operator read model. The frontend renders it; it does not infer
+    truth from loose queue counts.
+    """
+
+    flags = _flags_payload(flags)
+    lanes = [lane for lane in (worker_lanes or []) if isinstance(lane, Mapping)]
+    blockers: list[dict[str, Any]] = []
+
+    if flags.get("maintenance_mode"):
+        blockers.append({
+            "kind": "maintenance_mode",
+            "tone": "warn",
+            "title": "Maintenance mode is on",
+            "summary": "Automation is intentionally held until maintenance mode is cleared.",
+            "action_label": "Resume queue",
+            "action_hash": "#overview",
+        })
+    if flags.get("queue_paused"):
+        blockers.append({
+            "kind": "queue_paused",
+            "tone": "warn",
+            "title": "Queue is paused",
+            "summary": "Queued work will not dispatch until the queue is resumed.",
+            "action_label": "Resume queue",
+            "action_hash": "#overview",
+        })
+
+    for lane in lanes:
+        label = _lane_label(lane)
+        active = lane.get("active_item") or {}
+        feed = lane.get("feed_pressure") or {}
+        feed_action = str(feed.get("next_autopilot_action") or "")
+        queued_count = _safe_count(lane.get("queued_count"))
+        if bool(lane.get("dispatch_available")):
+            blockers.append({
+                "kind": "dispatch_available",
+                "lane": label,
+                "tone": "good",
+                "title": f"{label} can dispatch",
+                "summary": f"{label} can dispatch queued work.",
+                "action_label": "Dispatch this lane",
+                "action_hash": "#queue:queued",
+            })
+        elif str(lane.get("status") or "") == "active":
+            blockers.append({
+                "kind": "lane_active",
+                "lane": label,
+                "tone": "info",
+                "title": f"{label} is running",
+                "summary": f"{label} is occupied by {active.get('project_name') or active.get('project_id') or 'active work'}.",
+                "action_label": "Open active work",
+                "action_hash": "#queue:active",
+            })
+        elif queued_count and not bool(lane.get("configured", True)):
+            blockers.append({
+                "kind": "no_matching_machine_target",
+                "lane": label,
+                "tone": "warn",
+                "title": f"{label} is not configured",
+                "summary": "Queued work targets a worker lane that is not in the configured worker-target set.",
+                "action_label": "Open queue",
+                "action_hash": "#queue:queued",
+            })
+        elif feed_action == "promote_candidate":
+            blockers.append({
+                "kind": "lane_queue_empty",
+                "lane": label,
+                "tone": "warn",
+                "title": f"{label} needs a queued candidate",
+                "summary": str(feed.get("operator_summary") or f"{label} has admitted candidates that should be promoted."),
+                "action_label": "Feed idle lane",
+                "action_hash": "#research",
+            })
+        elif feed_action == "generate_candidate":
+            blockers.append({
+                "kind": "no_admitted_candidates",
+                "lane": label,
+                "tone": "warn",
+                "title": f"{label} has no admitted candidate",
+                "summary": str(feed.get("operator_summary") or f"{label} needs generated/admitted work before dispatch can happen."),
+                "action_label": "Open research facility",
+                "action_hash": "#research",
+            })
+        elif str(lane.get("dispatch_blocker") or ""):
+            blockers.append({
+                "kind": "lane_blocked",
+                "lane": label,
+                "tone": "warn",
+                "title": f"{label} cannot dispatch",
+                "summary": str(lane.get("dispatch_blocker")),
+                "action_label": "Open queue",
+                "action_hash": "#queue:queued",
+            })
+
+    gate_blocked = _safe_count(paper_pipeline.get("not_writable_by_decision_gate"))
+    if gate_blocked:
+        blockers.append({
+            "kind": "paper_gate_blocked",
+            "tone": "warn",
+            "title": "Paper gate is blocking candidates",
+            "summary": f"{gate_blocked} completed no-paper candidate{'s' if gate_blocked != 1 else ''} failed the deterministic paper decision gate.",
+            "action_label": "Open paper details",
+            "action_hash": "#papers",
+        })
+    finalize_needed = _safe_count(paper_pipeline.get("finalize_needed"))
+    if finalize_needed:
+        blockers.append({
+            "kind": "evidence_missing",
+            "tone": "warn",
+            "title": "Publication evidence/package is incomplete",
+            "summary": f"{finalize_needed} publication draft{'s' if finalize_needed != 1 else ''} still need automated finalization/evidence packaging.",
+            "action_label": "Open automation",
+            "action_hash": "#automation",
+        })
+    if _safe_count(investigation_pipeline.get("ranked_followup_ready")):
+        blockers.append({
+            "kind": "followup_ready",
+            "tone": "info",
+            "title": "Bounded follow-up is ready",
+            "summary": "A preserved signal has enough bounded evidence to queue the next investigation.",
+            "action_label": "Queue follow-up",
+            "action_hash": "#research",
+        })
+
+    primary = blockers[0] if blockers else None
+    actionable = next((item for item in blockers if item["kind"] in {"dispatch_available", "followup_ready"}), None)
+    if flags.get("maintenance_mode"):
+        status = "blocked"
+        primary_reason = "Maintenance mode is on."
+    elif flags.get("queue_paused"):
+        status = "blocked"
+        primary_reason = "Queue is paused."
+    elif actionable:
+        status = "actionable"
+        primary_reason = actionable["summary"]
+    elif blockers:
+        status = "blocked"
+        primary_reason = str(primary["summary"])
+    else:
+        status = "ready"
+        primary_reason = "No deterministic blocker is preventing movement."
+
+    return {
+        "status": status,
+        "primary_reason": primary_reason,
+        "blockers": blockers[:8],
+    }
+
+
 def top_operator_actions(
     *,
     operator_counts: Mapping[str, Any],
@@ -1416,7 +1597,14 @@ def top_operator_actions(
 
 
 
-def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: int = 10, worker_lanes: Sequence[Mapping[str, Any]] | None = None) -> dict[str, Any]:
+def overview(
+    store: ControlPlaneStore,
+    *,
+    active_limit: int = 5,
+    event_limit: int = 10,
+    worker_lanes: Sequence[Mapping[str, Any]] | None = None,
+    flags: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     batched_parts = None
     batched_reader = getattr(store, "overview_read_model_parts", None)
     if callable(batched_reader):
@@ -1550,6 +1738,12 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         worker_lanes=worker_lanes,
         limit=3,
     )
+    movement = movement_diagnosis(
+        flags=flags,
+        worker_lanes=worker_lanes,
+        paper_pipeline=paper_pipeline,
+        investigation_pipeline=investigation_pipeline,
+    )
     return {
         "counts": {
             **counts,
@@ -1558,6 +1752,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         "paper_counts": paper_counts,
         "operator_counts": operator_counts,
         "operator_detail_counts": operator_detail_counts,
+        "flags": _flags_payload(flags),
         "paper_pipeline": paper_pipeline,
         "investigation_pipeline": investigation_pipeline,
         "operator_model": {
@@ -1565,6 +1760,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
             "raw_state_note": "wake_ready/session_finished_ready are worker-delivery callbacks; paper polarity comes from decision artifacts and publication automation/finalization state.",
         },
         "top_actions": top_actions,
+        "movement_diagnosis": movement,
         "active_items": active,
         "next_candidate": summarize_queue_row(next_candidate) if next_candidate else None,
         "recent_events": events,

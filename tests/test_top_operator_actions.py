@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from enoch_control_plane.control_plane.read_models import _safe_count, top_operator_actions
+from enoch_control_plane.control_plane.read_models import _safe_count, movement_diagnosis, top_operator_actions
 
 
 class TopOperatorActionsTests(unittest.TestCase):
@@ -327,6 +327,73 @@ class SafeCountHelperTests(unittest.TestCase):
         self.assertEqual(_safe_count("bad", default=-7), 0)
         self.assertEqual(_safe_count(None, default=True), 0)  # bool default rejected
         self.assertEqual(_safe_count(None, default="bad"), 0)
+
+
+class MovementDiagnosisTests(unittest.TestCase):
+    def test_queue_pause_is_primary_blocker(self) -> None:
+        diagnosis = movement_diagnosis(
+            flags={"queue_paused": True, "maintenance_mode": False},
+            worker_lanes=[
+                {"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "queued_count": 1, "dispatch_available": True},
+            ],
+            paper_pipeline={},
+            investigation_pipeline={},
+        )
+
+        self.assertEqual(diagnosis["status"], "blocked")
+        self.assertEqual(diagnosis["primary_reason"], "Queue is paused.")
+        self.assertEqual(diagnosis["blockers"][0]["kind"], "queue_paused")
+
+    def test_open_lane_is_actionable_not_blocked(self) -> None:
+        diagnosis = movement_diagnosis(
+            flags={"queue_paused": False, "maintenance_mode": False},
+            worker_lanes=[
+                {"machine_target": "cpu-proxmox-1", "worker_role": "cpu_worker", "status": "active", "queued_count": 0, "dispatch_available": False, "dispatch_blocker": "lane active"},
+                {"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "queued_count": 2, "dispatch_available": True},
+            ],
+            paper_pipeline={},
+            investigation_pipeline={},
+        )
+
+        self.assertEqual(diagnosis["status"], "actionable")
+        self.assertEqual(diagnosis["primary_reason"], "GB10 lane can dispatch queued work.")
+        kinds = [item["kind"] for item in diagnosis["blockers"]]
+        self.assertIn("lane_active", kinds)
+        self.assertIn("dispatch_available", kinds)
+
+    def test_idle_empty_lane_reports_no_admitted_candidates(self) -> None:
+        diagnosis = movement_diagnosis(
+            flags={"queue_paused": False, "maintenance_mode": False},
+            worker_lanes=[
+                {
+                    "machine_target": "gb10",
+                    "worker_role": "gpu_worker",
+                    "status": "idle",
+                    "queued_count": 0,
+                    "dispatch_available": False,
+                    "dispatch_blocker": "no queued candidate for lane",
+                    "feed_pressure": {"next_autopilot_action": "generate_candidate"},
+                },
+            ],
+            paper_pipeline={},
+            investigation_pipeline={},
+        )
+
+        self.assertEqual(diagnosis["status"], "blocked")
+        self.assertEqual(diagnosis["blockers"][0]["kind"], "no_admitted_candidates")
+        self.assertIn("generate", diagnosis["blockers"][0]["summary"].lower())
+
+    def test_paper_gate_and_evidence_blockers_are_reported(self) -> None:
+        diagnosis = movement_diagnosis(
+            flags={"queue_paused": False, "maintenance_mode": False},
+            worker_lanes=[],
+            paper_pipeline={"not_writable_by_decision_gate": 3, "finalize_needed": 2},
+            investigation_pipeline={},
+        )
+
+        kinds = [item["kind"] for item in diagnosis["blockers"]]
+        self.assertIn("paper_gate_blocked", kinds)
+        self.assertIn("evidence_missing", kinds)
 
 
 if __name__ == "__main__":

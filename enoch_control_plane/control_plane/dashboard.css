@@ -259,3 +259,37 @@
     .dialog-panel { padding:22px; display:grid; gap:16px; }
     .dialog-copy { color:var(--muted); white-space:pre-wrap; }
     .dialog-actions { display:flex; justify-content:flex-end; gap:10px; }
+
+/* Ruthless command-center overview pass. */
+.command-hero { margin-bottom:16px; }
+.command-hero .kpi-strip.compact { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.safety-bar { display:flex; justify-content:space-between; align-items:center; gap:16px; margin:14px 0 18px; padding:10px 14px; border:1px solid var(--line-soft); border-radius:14px; background:var(--surface); box-shadow:var(--shadow-tight); }
+.primary-action { display:flex; justify-content:space-between; align-items:center; gap:18px; margin:18px 0; padding:20px 22px; border-radius:var(--radius); border:1px solid var(--line-soft); background:var(--surface-raised); box-shadow:var(--shadow-soft); }
+.primary-action h2 { margin-top:4px; font-size:1.35rem; }
+.primary-action.warn { border-color:color-mix(in srgb, var(--warn) 30%, var(--line)); }
+.primary-action.info { border-color:color-mix(in srgb, var(--info) 30%, var(--line)); }
+.primary-action.good { border-color:color-mix(in srgb, var(--good) 30%, var(--line)); }
+.command-center { margin-top:24px; padding-top:22px; border-top:1px solid var(--line-soft); }
+.lane-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.lane-card { display:grid; gap:16px; padding:20px; border:1px solid var(--line-soft); border-radius:var(--radius); background:var(--surface-raised); box-shadow:var(--shadow-tight); }
+.lane-card.good { border-color:color-mix(in srgb, var(--good) 35%, var(--line)); }
+.lane-card.warn { border-color:color-mix(in srgb, var(--warn) 35%, var(--line)); }
+.lane-card.info { border-color:color-mix(in srgb, var(--info) 30%, var(--line)); }
+.lane-card__top,.lane-card__body,.lane-card__actions { display:flex; justify-content:space-between; align-items:center; gap:14px; }
+.lane-card__body { align-items:flex-start; padding-top:10px; border-top:1px solid var(--line-soft); }
+.lane-card__feed { padding:12px; border-radius:12px; background:var(--surface-muted); }
+.lane-stat { min-width:78px; text-align:right; }
+.lane-stat span { display:block; font-size:1.7rem; font-weight:800; font-variant-numeric:tabular-nums; line-height:1; }
+.lane-stat small { color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-size:.68rem; font-weight:750; }
+.paper-mini { margin-top:24px; padding-top:22px; border-top:1px solid var(--line-soft); }
+.paper-mini__steps { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.paper-mini__step { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border:1px solid var(--line-soft); border-radius:14px; background:var(--surface); }
+.paper-mini__step strong { font-size:1.35rem; font-variant-numeric:tabular-nums; }
+.paper-mini__step.warn { border-color:color-mix(in srgb, var(--warn) 35%, var(--line)); color:var(--warn); }
+.paper-mini__step.good { color:var(--good); }
+.movement-diagnosis { margin-top:24px; padding:20px; border:1px dashed var(--line); border-radius:var(--radius); background:color-mix(in srgb, var(--surface-muted) 70%, transparent); }
+.diagnosis-stack { display:grid; gap:8px; }
+.diagnosis-row { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 14px; border-radius:12px; background:var(--surface); border:1px solid var(--line-soft); }
+.diagnosis-row a { font-weight:700; color:var(--info); white-space:nowrap; }
+.overview-secondary[open] { background:var(--surface); border-style:solid; }
+@media (max-width:900px) { .lane-grid,.paper-mini__steps,.command-hero .kpi-strip.compact { grid-template-columns:1fr; } .safety-bar,.primary-action,.lane-card__top,.lane-card__body,.lane-card__actions,.diagnosis-row { align-items:stretch; flex-direction:column; } .lane-stat { text-align:left; } }

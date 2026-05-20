@@ -3909,6 +3909,86 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("snapshot indicator (not a trend)", html)
             self.assertIn("sparkline--snapshot", html)
 
+    def test_dashboard_overview_html_is_ruthless_command_center(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            response = client.get("/control/dashboard")
+            self.assertEqual(response.status_code, 200)
+            html = response.text
+
+            self.assertIn("Can I leave this running?", html)
+            self.assertIn("primaryActionPanel", html)
+            self.assertIn("laneCommandCenter", html)
+            self.assertIn("paperPipelineMiniStrip", html)
+            self.assertIn("movementDiagnosisPanel", html)
+            self.assertIn("Why no work is moving", html)
+            self.assertIn("Feed idle lane", html)
+            self.assertIn("Dispatch this lane", html)
+            self.assertIn("Queue safety", html)
+            self.assertIn("Show secondary details", html)
+
+            overview_start = html.index("async function overviewPage")
+            overview_end = html.index("function projectControls")
+            overview_shell = html[overview_start:overview_end]
+            self.assertNotIn("What is useful?", overview_shell)
+            self.assertNotIn("Done / no paper", overview_shell)
+            self.assertNotIn("Recent activity</h2>", overview_shell.split("overviewSecondary")[0])
+
+    def test_overview_exposes_movement_diagnosis(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "movement-diagnosis-import",
+                "queue_rows": [
+                    {
+                        "project_id": "active-cpu",
+                        "project_name": "Active CPU",
+                        "project_dir": "active-cpu",
+                        "status": "awaiting_wake",
+                        "machine_target": "cpu-proxmox-1",
+                        "current_run_id": "run-active-cpu",
+                    },
+                    {
+                        "project_id": "queued-gb10",
+                        "project_name": "Queued GB10",
+                        "project_dir": "queued-gb10",
+                        "status": "queued",
+                        "machine_target": "gb10",
+                        "dispatch_priority": 1,
+                    },
+                ],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+
+            overview = client.get("/control/api/v1/overview", headers=headers).json()
+
+            self.assertIn("movement_diagnosis", overview)
+            diagnosis = overview["movement_diagnosis"]
+            self.assertEqual(diagnosis["status"], "actionable")
+            self.assertIn("GB10 lane", diagnosis["primary_reason"])
+            kinds = [item["kind"] for item in diagnosis["blockers"]]
+            self.assertIn("lane_active", kinds)
+            self.assertIn("dispatch_available", kinds)
+
     def test_dashboard_status_does_not_call_idle_empty_lane_active(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp).model_copy(
