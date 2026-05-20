@@ -69,7 +69,7 @@
       "wake_gate_url": "http://cpu-proxmox-1.example:8787",
       "bearer_token": "replace-with-cpu-worker-token",
       "role": "cpu_worker",
-      "min_memory_available_mib": 8192
+      "min_memory_available_mib": 16384
     }
   },
   "workload_machine_targets": {
