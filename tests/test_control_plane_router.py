@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -4982,6 +4983,77 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(prepare_payload["metadata"]["workload_class"], "cpu_only")
             self.assertEqual(prepare_payload["metadata"]["machine_target"], "cpu-proxmox-1")
             self.assertEqual(response.json()["live"]["dispatch_route"]["worker_role"], "cpu_worker")
+
+    def test_live_dispatch_blocks_worker_with_mismatched_callback_token_fingerprint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "workload_machine_targets": {"cpu_only": "cpu-proxmox-1"},
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "dispatch-callback-mismatch-import",
+                "default_machine_target": "gb10",
+                "workload_machine_targets": {"cpu_only": "cpu-proxmox-1"},
+                "ideas": [{
+                    "project_id": "dispatch-callback-mismatch",
+                    "project_name": "Dispatch Callback Mismatch",
+                    "project_dir": "dispatch-callback-mismatch",
+                    "workload_class": "cpu_only",
+                    "machine_target": "gb10",
+                }],
+                "queue_rows": [{
+                    "project_id": "dispatch-callback-mismatch",
+                    "project_name": "Dispatch Callback Mismatch",
+                    "project_dir": "dispatch-callback-mismatch",
+                    "status": "queued",
+                    "machine_target": "cpu-proxmox-1",
+                }],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            preflight = WorkerPreflightResponse(
+                ok=False,
+                target="http://cpu-proxmox-1:8787",
+                summary="worker preflight failed",
+                checks=[
+                    WorkerPreflightCheck(name="wake_gate_healthz", ok=True, detail="ok", data={}),
+                    WorkerPreflightCheck(
+                        name="worker_callback_token_compatible",
+                        ok=False,
+                        detail="worker callback token fingerprint does not match control-plane acceptance token",
+                        data={
+                            "expected_callback_token_fingerprint": hashlib.sha256(TOKEN.encode("utf-8")).hexdigest(),
+                            "worker_callback_token_fingerprint": hashlib.sha256(b"wrong-token").hexdigest(),
+                        },
+                    ),
+                ],
+            )
+
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=preflight) as mocked_preflight, \
+                 patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=AssertionError("dispatch must not reach worker")):
+                response = client.post("/control/dispatch-next", headers=headers, json={"dry_run": False})
+
+            self.assertEqual(response.status_code, 409)
+            body_text = response.text
+            self.assertIn("worker preflight failed", body_text)
+            self.assertIn("worker_callback_token_compatible", body_text)
+            self.assertNotIn(TOKEN, body_text)
+            called_payload = mocked_preflight.call_args.args[0]
+            self.assertEqual(called_payload.expected_callback_token_fingerprint, hashlib.sha256(TOKEN.encode("utf-8")).hexdigest())
+            rows = {row["project_id"]: row for row in client.get("/control/queue", headers=headers).json()["rows"]}
+            self.assertEqual(rows["dispatch-callback-mismatch"]["status"], "queued")
+            self.assertIn("worker preflight failed", rows["dispatch-callback-mismatch"]["last_error"])
 
     def test_dispatch_next_allows_cpu_worker_while_gb10_lane_is_active(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

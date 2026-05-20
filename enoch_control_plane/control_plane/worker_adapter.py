@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from dataclasses import dataclass
@@ -85,6 +86,10 @@ def _auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
+def _token_fingerprint(token: str) -> str:
+    return hashlib.sha256(str(token or "").encode("utf-8")).hexdigest() if token else ""
+
+
 def run_worker_preflight(
     payload: WorkerPreflightRequest,
     flags: ControlFlags,
@@ -151,12 +156,30 @@ def run_worker_preflight(
                 _check("worker_swapless_allowed", True, f"swap_free_mib={swap_free}; swapless GB10 is allowed when earlyoom is active", {"swap_free_mib": swap_free}),
             ]
         )
+        if payload.expected_callback_token_fingerprint:
+            actual_fingerprint = str(((dashboard_body or {}).get("service") or {}).get("completion_callback_token_fingerprint") or "")
+            expected_fingerprint = _token_fingerprint(payload.expected_callback_token_fingerprint) if len(payload.expected_callback_token_fingerprint) != 64 else payload.expected_callback_token_fingerprint
+            checks.append(
+                _check(
+                    "worker_callback_token_compatible",
+                    bool(actual_fingerprint and actual_fingerprint == expected_fingerprint),
+                    "worker callback token fingerprint matches control-plane acceptance token"
+                    if actual_fingerprint and actual_fingerprint == expected_fingerprint
+                    else "worker callback token fingerprint does not match control-plane acceptance token",
+                    {
+                        "expected_callback_token_fingerprint": expected_fingerprint,
+                        "worker_callback_token_fingerprint": actual_fingerprint,
+                    },
+                )
+            )
     else:
         checks.append(_check("wake_gate_dashboard_api", True, "skipped authenticated dashboard checks; provide bearer_token for telemetry and active-run checks", {"skipped": True}))
 
     required_names = {"control_queue_paused", "wake_gate_healthz"} if payload.require_paused else {"wake_gate_healthz"}
     if payload.bearer_token:
         required_names.update({"wake_gate_dashboard_api", "worker_gpu_idle", "worker_memory_available", "worker_no_live_runs", "worker_queue_snapshot_no_active"})
+    if payload.bearer_token and payload.expected_callback_token_fingerprint:
+        required_names.add("worker_callback_token_compatible")
     passed = all(check.ok for check in checks if check.name in required_names or payload.strict)
     summary = "worker preflight passed" if passed else "worker preflight failed"
     return WorkerPreflightResponse(ok=passed, target=payload.wake_gate_url, summary=summary, checks=checks)

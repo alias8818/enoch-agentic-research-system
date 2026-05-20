@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -68,6 +69,9 @@ def test_dashboard_api_and_run_detail_endpoint(tmp_path: Path, monkeypatch) -> N
     assert data["totals"]["runs"] == 2
     assert data["queue"]["total"] == 1
     assert data["papers"]["total"] == 2
+    expected_fingerprint = hashlib.sha256(appmod.config.completion_callback_token.encode("utf-8")).hexdigest()
+    assert data["service"]["completion_callback_token_fingerprint"] == expected_fingerprint
+    assert appmod.config.completion_callback_token not in json.dumps(data["service"])
     assert {row["run_id"] for row in data["runs"]} == {"run-live", "run-ready"}
 
     run = client.get("/dashboard/api/run/run-live", headers={"Authorization": f"Bearer {token}"})

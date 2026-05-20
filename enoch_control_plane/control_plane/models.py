@@ -478,6 +478,7 @@ class WorkerPreflightRequest(BaseModel):
     wake_gate_url: str = "http://worker.example:8787"
     bearer_token: str = ""
     machine_target: str = ""
+    expected_callback_token_fingerprint: str = ""
     require_paused: bool = True
     strict: bool = False
     max_gpu_pct: float = 5.0

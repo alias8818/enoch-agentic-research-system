@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import hashlib
 
 from enoch_control_plane.control_plane.models import ControlFlags, WorkerPreflightRequest
 from enoch_control_plane.control_plane.worker_adapter import HttpResult, post_worker_json, run_worker_preflight
@@ -81,6 +82,62 @@ class WorkerPreflightTests(unittest.TestCase):
         checks = {check.name: check for check in response.checks}
         self.assertFalse(checks["worker_no_live_runs"].ok)
         self.assertFalse(checks["worker_queue_snapshot_no_active"].ok)
+
+    def test_preflight_fails_when_callback_token_fingerprint_mismatches(self) -> None:
+        expected = hashlib.sha256(b"control-token").hexdigest()
+        response = run_worker_preflight(
+            WorkerPreflightRequest(
+                wake_gate_url="http://worker:8787",
+                bearer_token="secret",
+                expected_callback_token_fingerprint=expected,
+            ),
+            ControlFlags(queue_paused=True, maintenance_mode=True),
+            transport=FakeWorkerTransport(),
+        )
+
+        self.assertFalse(response.ok)
+        checks = {check.name: check for check in response.checks}
+        self.assertFalse(checks["worker_callback_token_compatible"].ok)
+        self.assertEqual(checks["worker_callback_token_compatible"].data["expected_callback_token_fingerprint"], expected)
+        self.assertNotIn("control-token", checks["worker_callback_token_compatible"].detail)
+
+    def test_preflight_passes_when_callback_token_fingerprint_matches(self) -> None:
+        worker_token_fingerprint = hashlib.sha256(b"worker-callback-token").hexdigest()
+
+        def transport(url: str, headers: dict[str, str]) -> HttpResult:
+            if url.endswith("/healthz"):
+                return HttpResult(ok=True, status=200, body={"ok": True})
+            if "/dashboard/api" in url:
+                return HttpResult(
+                    ok=True,
+                    status=200,
+                    body={
+                        "service": {"completion_callback_token_fingerprint": worker_token_fingerprint},
+                        "telemetry": {
+                            "gpu_pct": 0,
+                            "gpu_compute_pids": [],
+                            "memory_available_mib": 120_000,
+                            "swap_free_mib": 0,
+                        },
+                        "totals": {"active_or_waiting": 0, "live": 0},
+                        "queue": {"active_count": 0},
+                    },
+                )
+            raise AssertionError(f"unexpected url {url}")
+
+        response = run_worker_preflight(
+            WorkerPreflightRequest(
+                wake_gate_url="http://worker:8787",
+                bearer_token="secret",
+                expected_callback_token_fingerprint=worker_token_fingerprint,
+            ),
+            ControlFlags(queue_paused=True, maintenance_mode=True),
+            transport=transport,
+        )
+
+        self.assertTrue(response.ok)
+        checks = {check.name: check for check in response.checks}
+        self.assertTrue(checks["worker_callback_token_compatible"].ok)
 
     def test_preflight_without_bearer_only_requires_health_and_pause(self) -> None:
         response = run_worker_preflight(

@@ -1466,6 +1466,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         target = config.resolved_worker_target(str(candidate.get("machine_target") or ""))
         return (target.wake_gate_url or str(candidate.get("machine_target") or "")).strip().rstrip("/")
 
+    def _callback_acceptance_token_fingerprint() -> str:
+        token = config.control_api_bearer_token or config.omx_inbound_bearer_token
+        return hashlib.sha256(token.encode("utf-8")).hexdigest() if token else ""
+
     def _dispatch_sort_key(row: dict[str, Any]) -> tuple[int, int, str]:
         priority = _int_or_none(row.get("dispatch_priority"))
         rank = _int_or_none(row.get("selection_rank"))
@@ -1649,6 +1653,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 WorkerPreflightRequest(
                     wake_gate_url=worker_target.wake_gate_url,
                     bearer_token=worker_target.bearer_token,
+                    expected_callback_token_fingerprint=_callback_acceptance_token_fingerprint(),
                     require_paused=False,
                     strict=False,
                     min_memory_available_mib=worker_target.min_memory_available_mib
@@ -1954,6 +1959,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             WorkerPreflightRequest(
                 wake_gate_url=config.worker_wake_gate_url,
                 bearer_token=config.worker_wake_gate_bearer_token,
+                expected_callback_token_fingerprint=_callback_acceptance_token_fingerprint(),
                 require_paused=False,
                 strict=False,
             ),
@@ -4661,6 +4667,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 update={
                     "wake_gate_url": target.wake_gate_url,
                     "bearer_token": target.bearer_token,
+                    "expected_callback_token_fingerprint": payload.expected_callback_token_fingerprint or _callback_acceptance_token_fingerprint(),
                     "min_memory_available_mib": target.min_memory_available_mib or payload.min_memory_available_mib,
                 }
             )
@@ -4670,9 +4677,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 update={
                     "wake_gate_url": _configured_worker_preflight_url(),
                     "bearer_token": config.worker_wake_gate_bearer_token,
+                    "expected_callback_token_fingerprint": payload.expected_callback_token_fingerprint or _callback_acceptance_token_fingerprint(),
                 }
             )
-        return payload
+        return payload.model_copy(
+            update={
+                "expected_callback_token_fingerprint": payload.expected_callback_token_fingerprint or _callback_acceptance_token_fingerprint(),
+            }
+        )
 
     @router.post("/worker/preflight", response_model=WorkerPreflightResponse)
     def worker_preflight(payload: WorkerPreflightRequest, authorization: str | None = Header(default=None)) -> WorkerPreflightResponse:
@@ -4681,6 +4693,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             update={
                 "wake_gate_url": _configured_worker_preflight_url(),
                 "bearer_token": config.worker_wake_gate_bearer_token,
+                "expected_callback_token_fingerprint": payload.expected_callback_token_fingerprint or _callback_acceptance_token_fingerprint(),
             }
         )
         response = run_worker_preflight(payload, store.flags())

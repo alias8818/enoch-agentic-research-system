@@ -4,6 +4,7 @@ import asyncio
 from collections import Counter
 from collections import deque
 from datetime import datetime, timezone
+import hashlib
 import heapq
 import html
 import json
@@ -2035,6 +2036,7 @@ def dashboard_api(
             "state_dir": config.expanded_state_dir.as_posix(),
             "project_root": config.expanded_project_root.as_posix(),
             "completion_callback_url": config.completion_callback_url,
+            "completion_callback_token_fingerprint": hashlib.sha256(config.completion_callback_token.encode("utf-8")).hexdigest() if config.completion_callback_token else "",
             "idle_sustain_sec": config.idle_sustain_sec,
             "sample_interval_sec": config.sample_interval_sec,
         },
