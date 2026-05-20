@@ -1446,17 +1446,23 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         notification = _alert_paper_evidence_blocked(project_id=project_id, run_id=run_id, paper_id=paper_id, reason=reason)
         return {**notification, "event_id": event_id}
 
+    def _dispatch_route_metadata(machine_target: str, target: Any) -> dict[str, Any]:
+        return {
+            "machine_target": machine_target,
+            "wake_gate_url": target.wake_gate_url,
+            "worker_role": target.role,
+            "token_configured": bool(target.bearer_token),
+        }
+
+
     def _annotate_dispatch_route(candidate: dict[str, Any] | None) -> dict[str, Any] | None:
         if not candidate:
             return candidate
-        target = config.resolved_worker_target(str(candidate.get("machine_target") or ""))
+        machine_target = str(candidate.get("machine_target") or "")
+        target = config.resolved_worker_target(machine_target)
         return {
             **candidate,
-            "dispatch_route": {
-                "machine_target": str(candidate.get("machine_target") or ""),
-                "wake_gate_url": target.wake_gate_url,
-                "worker_role": target.role,
-            },
+            "dispatch_route": _dispatch_route_metadata(machine_target, target),
         }
 
 
@@ -1525,7 +1531,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "metadata": {
                 "workload_class": workload_class,
                 "machine_target": str(candidate.get("machine_target") or ""),
-                "dispatch_route": worker_target.model_dump(mode="json"),
+                "dispatch_route": _dispatch_route_metadata(str(candidate.get("machine_target") or ""), worker_target),
                 "source": "langgraph_control_plane",
                 "requested_by": requested_by,
             },
@@ -1568,11 +1574,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "prepare": prepare_body,
             "dispatch": body,
             "preflight": preflight.model_dump(mode="json") if preflight else None,
-            "dispatch_route": {
-                "machine_target": str(candidate.get("machine_target") or ""),
-                "wake_gate_url": worker_target.wake_gate_url,
-                "worker_role": worker_target.role,
-            },
+            "dispatch_route": _dispatch_route_metadata(str(candidate.get("machine_target") or ""), worker_target),
         }, event_id, updated_candidate
 
     def state_response() -> ControlStateResponse:
