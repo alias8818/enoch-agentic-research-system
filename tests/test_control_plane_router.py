@@ -4570,6 +4570,54 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(body["candidate"]["dispatch_route"]["wake_gate_url"], "http://cpu-proxmox-1:8787")
             self.assertEqual(body["candidate"]["dispatch_route"]["worker_role"], "cpu_worker")
 
+    def test_gpu_required_dry_run_dispatch_preserves_gb10_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "workload_machine_targets": {"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10"},
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            intake = client.post("/control/intake/ideas", headers=headers, json={
+                "idempotency_key": "router-gpu-routing-intake",
+                "dry_run": False,
+                "include_statuses": ["testing"],
+                "default_machine_target": "cpu-proxmox-1",
+                "ideas": [{
+                    "idea_id": "router-gpu-routing",
+                    "title": "Router GPU Routing",
+                    "idea_status": "testing",
+                    "workload_class": "gpu_required",
+                    "machine_target": "cpu-proxmox-1",
+                }],
+            })
+            self.assertEqual(intake.status_code, 200)
+
+            dry_run = client.post("/control/dispatch-next", headers=headers, json={"dry_run": True})
+
+            self.assertEqual(dry_run.status_code, 200)
+            body = dry_run.json()
+            self.assertEqual(body["action"], "dry_run_dispatch")
+            self.assertEqual(body["candidate"]["machine_target"], "gb10")
+            self.assertEqual(body["candidate"]["dispatch_route"]["wake_gate_url"], "http://gb10-worker:8787")
+            self.assertEqual(body["candidate"]["dispatch_route"]["worker_role"], "gpu_worker")
+
     def test_live_dispatch_uses_configured_cpu_worker_endpoint_for_cpu_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp).model_copy(

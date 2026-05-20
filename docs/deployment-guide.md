@@ -185,6 +185,88 @@ both clean. If the CPU worker is unavailable, keep `cpu_only` unmapped until the
 VM/CT is ready; unmapped rows fall back to explicit `machine_target` or the
 legacy worker default.
 
+Concrete VM/CT bootstrap commands:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git python3 python3-venv curl ca-certificates
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+
+sudo mkdir -p /opt/enoch-control-plane
+sudo chown "$USER":"$USER" /opt/enoch-control-plane
+git clone https://github.com/alias8818/enoch-agentic-research-system.git /opt/enoch-control-plane
+cd /opt/enoch-control-plane
+scripts/install-worker.sh \
+  --config-dir /tmp/enoch-cpu-worker-config \
+  --state-dir /tmp/enoch-cpu-worker-state
+```
+
+Promote the generated worker config into system paths after editing tokens and
+callback URL:
+
+```bash
+sudo useradd --system --home /var/lib/enoch-cpu-worker --shell /usr/sbin/nologin enoch-cpu-worker || true
+sudo mkdir -p /etc/enoch-cpu-worker /var/lib/enoch-cpu-worker/state /var/lib/enoch-cpu-worker/projects
+sudo cp /tmp/enoch-cpu-worker-config/config.json /etc/enoch-cpu-worker/config.json
+sudo chown -R enoch-cpu-worker:enoch-cpu-worker /var/lib/enoch-cpu-worker
+sudo editor /etc/enoch-cpu-worker/config.json
+```
+
+Set these CPU worker config values:
+
+```json
+{
+  "state_dir": "/var/lib/enoch-cpu-worker/state",
+  "project_root": "/var/lib/enoch-cpu-worker/projects",
+  "dispatch_script_path": "/opt/enoch-control-plane/deploy/enoch_codex_dispatch.sh",
+  "control_api_bearer_token": "replace-with-cpu-worker-token",
+  "completion_callback_url": "https://control.example.com/control/api/worker-callback",
+  "completion_callback_token": "replace-with-control-callback-token",
+  "worker_wake_gate_url": "http://127.0.0.1:8787",
+  "worker_wake_gate_bearer_token": "replace-with-cpu-worker-token",
+  "live_dispatch_enabled": false
+}
+```
+
+Install a dedicated systemd service:
+
+```bash
+sudo cp deploy/enoch-worker-gate.service /etc/systemd/system/enoch-cpu-worker.service
+sudo systemctl edit enoch-cpu-worker.service
+```
+
+Use this override:
+
+```ini
+[Service]
+User=enoch-cpu-worker
+Group=enoch-cpu-worker
+Environment=ENOCH_CONFIG=/etc/enoch-cpu-worker/config.json
+```
+
+Then start and smoke test:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now enoch-cpu-worker.service
+systemctl is-active enoch-cpu-worker.service
+curl -fsS http://127.0.0.1:8787/healthz
+```
+
+From the control VM, add the CPU target to `/etc/enoch-control-plane/config.json`,
+restart the control plane, and verify route selection before any live run:
+
+```bash
+sudo systemctl restart enoch-control-plane.service
+curl -fsS -H "Authorization: Bearer $CONTROL_TOKEN" \
+  http://127.0.0.1:8787/control/api/v1/automation-readiness
+curl -fsS -H "Authorization: Bearer $CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"dry_run":true,"requested_by":"operator"}' \
+  http://127.0.0.1:8787/control/dispatch-next
+```
+
 ## 5. Install systemd service on the control VM
 
 ```bash
