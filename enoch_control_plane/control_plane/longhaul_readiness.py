@@ -134,6 +134,12 @@ def evaluate_longhaul_readiness(
     worker_lanes = state.get("worker_lanes") if isinstance(state.get("worker_lanes"), list) else []
     configured_lane_count = sum(1 for lane in worker_lanes if not isinstance(lane, dict) or lane.get("configured", True))
     worker_lane_capacity = max(1, configured_lane_count)
+    lane_conflict = any(
+        isinstance(lane, dict)
+        and lane.get("configured", True)
+        and int(lane.get("active_count") or 0) > 1
+        for lane in worker_lanes
+    )
     open_lane_has_queued_work = any(
         isinstance(lane, dict)
         and bool(lane.get("dispatch_available"))
@@ -148,7 +154,7 @@ def evaluate_longhaul_readiness(
         queued_state_consistent = False
     else:
         queued_state_consistent = active > 0
-    queue_consistent = active <= worker_lane_capacity and queued_state_consistent
+    queue_consistent = active <= worker_lane_capacity and queued_state_consistent and not lane_conflict
     add(
         check(
             "queue_counts_consistent",
@@ -160,6 +166,7 @@ def evaluate_longhaul_readiness(
                 "has_next_candidate": bool(next_candidate),
                 "worker_lane_capacity": worker_lane_capacity,
                 "open_lane_has_queued_work": open_lane_has_queued_work,
+                "lane_conflict": lane_conflict,
             },
         ),
         "queued/active state inconsistent",
