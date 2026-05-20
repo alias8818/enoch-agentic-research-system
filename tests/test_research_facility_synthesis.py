@@ -220,6 +220,30 @@ def test_enrichment_normalizes_provider_artifact_maps_to_arrays() -> None:
     assert candidate["likely_failure_modes"] == ["no signal"]
 
 
+def test_enrichment_splits_single_string_numbered_evidence_lists() -> None:
+    cluster = synth.detect_candidate_clusters([_candidate(i) for i in range(1, 6)])[0]
+    candidate = synth.enrich_synthesized_candidate(
+        {
+            "candidate_id": "spec-trace-oracle-v0",
+            "expected_artifacts": list(synth.REQUIRED_ORACLE_ARTIFACTS),
+            "required_evidence": [
+                "1. oracle_report.md with branch ranking. 2. metrics.json with oracle metrics. "
+                "3. project_decision.json with deterministic recommendation."
+            ],
+            "likely_failure_modes": ["no signal"],
+        },
+        cluster,
+        [],
+        requested_by="unit",
+    )
+
+    assert candidate["required_evidence"] == [
+        "oracle_report.md with branch ranking.",
+        "metrics.json with oracle metrics.",
+        "project_decision.json with deterministic recommendation.",
+    ]
+
+
 def test_synthesis_sql_defers_branches_and_records_lineage() -> None:
     cluster = synth.detect_candidate_clusters([_candidate(i) for i in range(1, 6)])[0]
     synthesized = {

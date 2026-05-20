@@ -199,3 +199,31 @@ def test_tick_freshness_uses_active_enter_for_running_service() -> None:
     result = evaluate_longhaul_readiness(now=NOW, **payload)
     assert result["ok"] is True
     assert result["summary"]["research_tick_age_seconds"] == 120
+
+
+def test_multi_lane_active_queue_counts_are_consistent_when_all_lanes_busy() -> None:
+    payload = _ready_payload()
+    payload["state"]["counts"].update({"queued": 3, "active": 2})
+    payload["state"]["next_candidate"] = None
+    payload["state"]["worker_lanes"] = [
+        {"configured": True, "machine_target": "cpu-proxmox-1", "status": "active", "active_count": 1, "queued_count": 0},
+        {"configured": True, "machine_target": "gb10", "status": "active", "active_count": 1, "queued_count": 3},
+    ]
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is True
+    check = next(item for item in result["checks"] if item["name"] == "queue_counts_consistent")
+    assert check["ok"] is True
+    assert check["data"]["worker_lane_capacity"] == 2
+
+
+def test_multi_active_without_lane_capacity_blocks_queue_count_consistency() -> None:
+    payload = _ready_payload()
+    payload["state"]["counts"].update({"queued": 3, "active": 2})
+    payload["state"]["next_candidate"] = None
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is False
+    assert "queued/active state inconsistent" in result["blockers"]

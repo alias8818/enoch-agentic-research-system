@@ -77,8 +77,35 @@ def _as_list(value: Any) -> list[Any]:
     if value is None or value == "":
         return []
     if isinstance(value, list):
-        return [item for item in value if _as_text(item)]
-    return [value] if _as_text(value) else []
+        items: list[Any] = []
+        for item in value:
+            if not isinstance(item, str):
+                if _as_text(item):
+                    items.append(item)
+                continue
+            text = _as_text(item)
+            if not text:
+                continue
+            items.extend(_split_numbered_list_text(text))
+        return items
+    return _split_numbered_list_text(_as_text(value))
+
+
+def _split_numbered_list_text(value: str) -> list[str]:
+    text = _as_text(value)
+    if not text:
+        return []
+    markers = list(re.finditer(r"(?<!\S)\d+\.\s+", text))
+    if len(markers) < 2:
+        return [text]
+    items: list[str] = []
+    for index, marker in enumerate(markers):
+        start = marker.end()
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(text)
+        item = text[start:end].strip()
+        if item:
+            items.append(item)
+    return items
 
 
 def _as_float(value: Any, default: float = 0.0) -> float:

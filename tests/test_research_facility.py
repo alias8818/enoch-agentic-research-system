@@ -398,3 +398,25 @@ def test_research_facility_rejects_blank_contract_arrays() -> None:
     assert "missing expected_artifacts" in plan.hard_failures
     assert "missing required_evidence" in plan.hard_failures
     assert "missing likely_failure_modes" in plan.hard_failures
+
+
+def test_normalize_candidate_splits_numbered_required_evidence_string() -> None:
+    candidate = research_facility.normalize_candidate(
+        {
+            "title": "Numbered evidence candidate",
+            "category": "systems",
+            "required_evidence": (
+                "1. baseline comparison with fixed seed. 2. metrics.json with throughput and quality. "
+                "3. failure_cases.jsonl with negative examples."
+            ),
+        },
+        default_machine="gb10",
+        default_model="gpt-5.5",
+        default_sandbox="danger-full-access",
+    )
+
+    assert candidate["required_evidence"] == [
+        "baseline comparison with fixed seed.",
+        "metrics.json with throughput and quality.",
+        "failure_cases.jsonl with negative examples.",
+    ]

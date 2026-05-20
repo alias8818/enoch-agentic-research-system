@@ -131,8 +131,24 @@ def evaluate_longhaul_readiness(
     active = int(counts.get("active") or 0)
     queued = int(counts.get("queued") or 0)
     next_candidate = state.get("next_candidate")
-    queue_consistent = active <= 1 and (queued == 0 or bool(next_candidate) or active > 0)
-    add(check("queue_counts_consistent", queue_consistent, f"queued={queued}, active={active}, next_candidate={bool(next_candidate)}", data={"queued": queued, "active": active, "has_next_candidate": bool(next_candidate)}), "queued/active state inconsistent")
+    worker_lanes = state.get("worker_lanes") if isinstance(state.get("worker_lanes"), list) else []
+    configured_lane_count = sum(1 for lane in worker_lanes if not isinstance(lane, dict) or lane.get("configured", True))
+    worker_lane_capacity = max(1, configured_lane_count)
+    queue_consistent = active <= worker_lane_capacity and (queued == 0 or bool(next_candidate) or active > 0)
+    add(
+        check(
+            "queue_counts_consistent",
+            queue_consistent,
+            f"queued={queued}, active={active}, next_candidate={bool(next_candidate)}, worker_lane_capacity={worker_lane_capacity}",
+            data={
+                "queued": queued,
+                "active": active,
+                "has_next_candidate": bool(next_candidate),
+                "worker_lane_capacity": worker_lane_capacity,
+            },
+        ),
+        "queued/active state inconsistent",
+    )
 
     write_needed = int(pipeline.get("write_needed") or 0)
     raw_candidates = int(pipeline.get("raw_completed_no_paper_candidates") or 0)

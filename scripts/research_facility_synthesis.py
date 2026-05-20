@@ -59,7 +59,17 @@ def _as_list(value: Any) -> list[Any]:
     if value is None or value == "":
         return []
     if isinstance(value, list):
-        return value
+        items: list[Any] = []
+        for item in value:
+            if not isinstance(item, str):
+                if _text(item):
+                    items.append(item)
+                continue
+            text = _text(item)
+            if not text:
+                continue
+            items.extend(_split_numbered_list_text(text))
+        return items
     if isinstance(value, tuple):
         return list(value)
     if isinstance(value, dict):
@@ -68,9 +78,26 @@ def _as_list(value: Any) -> list[Any]:
         try:
             decoded = json.loads(value)
         except json.JSONDecodeError:
-            return [value] if value.strip() else []
-        return decoded if isinstance(decoded, list) else [value]
+            return _split_numbered_list_text(value)
+        return _as_list(decoded) if isinstance(decoded, list) else _split_numbered_list_text(value)
     return [value]
+
+
+def _split_numbered_list_text(value: str) -> list[str]:
+    text = _text(value)
+    if not text:
+        return []
+    markers = list(re.finditer(r"(?<!\S)\d+\.\s+", text))
+    if len(markers) < 2:
+        return [text]
+    items: list[str] = []
+    for index, marker in enumerate(markers):
+        start = marker.end()
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(text)
+        item = text[start:end].strip()
+        if item:
+            items.append(item)
+    return items
 
 
 def _tokens(value: str) -> set[str]:
