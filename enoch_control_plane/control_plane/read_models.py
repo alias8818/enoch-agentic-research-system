@@ -1136,6 +1136,163 @@ def _valid_overview_batch(value: Any) -> Mapping[str, Any] | None:
     return value
 
 
+def _candidate_label(candidate: Mapping[str, Any] | None) -> str:
+    if not candidate:
+        return ""
+    if not isinstance(candidate, Mapping):
+        return ""
+    for key in ("project_name", "paper_title", "followup_title", "title", "project_id", "paper_id"):
+        value = candidate.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def _candidate_target(candidate: Mapping[str, Any] | None) -> dict[str, str]:
+    if not isinstance(candidate, Mapping):
+        return {}
+    target: dict[str, str] = {}
+    for key in ("project_id", "paper_id", "current_run_id", "run_id"):
+        value = candidate.get(key)
+        if value:
+            target[key] = str(value)
+    name = _candidate_label(candidate)
+    if name:
+        target["name"] = name
+    return target
+
+
+def top_operator_actions(
+    *,
+    operator_counts: Mapping[str, Any],
+    paper_pipeline: Mapping[str, Any],
+    investigation_pipeline: Mapping[str, Any],
+    counts: Mapping[str, Any],
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    """Bounded ranked list of the top operator actions.
+
+    The list is intentionally small. Each item is a deterministic projection of
+    fields already present in the overview response; no extra store reads.
+    The returned list is empty when nothing actionable is pending so callers
+    can render a clean "all clear" state.
+    """
+
+    safe_limit = max(0, min(int(limit) if limit else 3, 5))
+    candidates: list[dict[str, Any]] = []
+
+    needs_attention = int(operator_counts.get("needs_attention") or counts.get("blocked") or 0)
+    if needs_attention > 0:
+        candidates.append({
+            "kind": "needs_attention",
+            "tone": "warn",
+            "title": "Resolve operator attention items",
+            "summary": (
+                f"{needs_attention} item{'s' if needs_attention != 1 else ''} flagged for operator action."
+            ),
+            "count": needs_attention,
+            "action_label": "Open attention queue",
+            "action_hash": "#queue:blocked",
+            "target": None,
+        })
+
+    write_needed = int(paper_pipeline.get("write_needed") or 0)
+    if write_needed > 0:
+        next_write = paper_pipeline.get("next_write_candidate") or {}
+        next_label = _candidate_label(next_write) or "next paper-ready run"
+        candidates.append({
+            "kind": "write_paper",
+            "tone": "warn",
+            "title": "Draft the next paper",
+            "summary": (
+                f"{write_needed} paper-ready run{'s' if write_needed != 1 else ''} need a first draft. "
+                f"Next: {next_label}."
+            ),
+            "count": write_needed,
+            "action_label": "Open draft lane",
+            "action_hash": "#papers?status=publication_draft",
+            "target": _candidate_target(next_write) or None,
+        })
+
+    finalize_needed = int(paper_pipeline.get("finalize_needed") or 0)
+    if finalize_needed > 0:
+        candidates.append({
+            "kind": "finalize_paper",
+            "tone": "warn",
+            "title": "Finalize publication drafts",
+            "summary": (
+                f"{finalize_needed} publication draft{'s' if finalize_needed != 1 else ''} "
+                "missing automated finalization package."
+            ),
+            "count": finalize_needed,
+            "action_label": "Open automation queue",
+            "action_hash": "#automation",
+            "target": None,
+        })
+
+    publish_ready = int(paper_pipeline.get("publish_ready") or 0)
+    if publish_ready > 0:
+        next_publish = paper_pipeline.get("next_publish_candidate") or {}
+        next_label = _candidate_label(next_publish) or "the next finalized draft"
+        candidates.append({
+            "kind": "publish_paper",
+            "tone": "warn",
+            "title": "Import finalized drafts",
+            "summary": (
+                f"{publish_ready} finalized draft{'s' if publish_ready != 1 else ''} missing a "
+                f"corpus-import ledger row. Next: {next_label}."
+            ),
+            "count": publish_ready,
+            "action_label": "Open corpus import",
+            "action_hash": "#corpus",
+            "target": _candidate_target(next_publish) or None,
+        })
+
+    followup_ready = int(investigation_pipeline.get("ranked_followup_ready") or 0)
+    if followup_ready > 0:
+        next_followup = (
+            investigation_pipeline.get("next_ranked_followup_candidate")
+            or investigation_pipeline.get("next_followup_candidate")
+            or {}
+        )
+        next_label = _candidate_label(next_followup) or "the top ranked candidate"
+        candidates.append({
+            "kind": "investigate_followup",
+            "tone": "info",
+            "title": "Queue a follow-up investigation",
+            "summary": (
+                f"{followup_ready} ranked follow-up{'s' if followup_ready != 1 else ''} ready for a bounded "
+                f"adjacent investigation. Next: {next_label}."
+            ),
+            "count": followup_ready,
+            "action_label": "Queue follow-up",
+            "action_hash": "#research",
+            "target": _candidate_target(next_followup) or None,
+        })
+
+    active = int(counts.get("active") or 0)
+    queued = int(counts.get("queued") or 0)
+    if not candidates and queued > 0 and active == 0:
+        candidates.append({
+            "kind": "dispatch_next",
+            "tone": "info",
+            "title": "Dispatch the next queued item",
+            "summary": (
+                f"{queued} queued item{'s' if queued != 1 else ''} are waiting and no worker lane is busy."
+            ),
+            "count": queued,
+            "action_label": "Open ready queue",
+            "action_hash": "#queue:queued",
+            "target": None,
+        })
+
+    ranked = candidates[:safe_limit]
+    for index, item in enumerate(ranked, start=1):
+        item["priority"] = index
+    return ranked
+
+
+
 def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: int = 10) -> dict[str, Any]:
     batched_parts = None
     batched_reader = getattr(store, "overview_read_model_parts", None)
@@ -1262,6 +1419,13 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         events, next_cursor, has_more = batched_parts["events_page"]
     else:
         events, next_cursor, has_more = store.event_page(page_size=event_limit, include_payload=False)
+    top_actions = top_operator_actions(
+        operator_counts=operator_counts,
+        paper_pipeline=paper_pipeline,
+        investigation_pipeline=investigation_pipeline,
+        counts=counts,
+        limit=3,
+    )
     return {
         "counts": {
             **counts,
@@ -1276,6 +1440,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
             "source": "control_plane.read_models.operator_stage_for_record",
             "raw_state_note": "wake_ready/session_finished_ready are worker-delivery callbacks; paper polarity comes from decision artifacts and publication automation/finalization state.",
         },
+        "top_actions": top_actions,
         "active_items": active,
         "next_candidate": summarize_queue_row(next_candidate) if next_candidate else None,
         "recent_events": events,

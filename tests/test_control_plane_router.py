@@ -773,6 +773,38 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertNotIn("Recent event summaries", response.text)
             self.assertNotIn("source ${", response.text)
             self.assertNotIn("authority ${", response.text)
+            # Redesigned shell: hero status, top-actions ranked list, theme toggle, system state.
+            self.assertIn('id="systemState"', response.text)
+            self.assertIn("system-state", response.text)
+            self.assertIn("setSystemState", response.text)
+            self.assertIn('id="themeToggle"', response.text)
+            self.assertIn("theme-toggle", response.text)
+            self.assertIn("cycleTheme", response.text)
+            self.assertIn("initTheme()", response.text)
+            self.assertIn("enochDashboardTheme", response.text)
+            self.assertIn("heroStatusCard", response.text)
+            self.assertIn("hero-status", response.text)
+            self.assertIn("kpi-strip", response.text)
+            self.assertIn("topActionsCard", response.text)
+            self.assertIn("action-row", response.text)
+            self.assertIn("What needs me right now?", response.text)
+            self.assertIn("pipelineStepperCard", response.text)
+            self.assertIn("stepper-modern", response.text)
+            self.assertIn('id="operatorDetailBreakdown"', response.text)
+            self.assertIn("Operator detail breakdown", response.text)
+            self.assertIn("kbd-hint", response.text)
+            self.assertIn('class="build-tag"', response.text)
+            # The redesign should NOT regress sub-page test fixtures.
+            self.assertIn("paper-positive runs or paper-scout bounded useful signals", response.text)
+            self.assertIn("Investigation follow-ups", response.text)
+            # CSS additions for the new components.
+            css_response2 = client.get("/control/dashboard.css")
+            self.assertIn(".hero-status", css_response2.text)
+            self.assertIn(".action-row", css_response2.text)
+            self.assertIn(".stepper-modern", css_response2.text)
+            self.assertIn(".system-state", css_response2.text)
+            self.assertIn(".theme-toggle", css_response2.text)
+            self.assertIn(".kpi-strip", css_response2.text)
 
     def test_research_facility_provider_budget_sanitizes_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3391,6 +3423,45 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIsNone(status["next_candidate"])
             self.assertIsNone(overview["next_candidate"])
             self.assertIsNone(lanes["next_candidate"])
+
+    def test_overview_top_actions_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+
+            # Idle case: bounded, empty list, but the field is still present.
+            empty = client.get("/control/api/v1/overview", headers=headers).json()
+            self.assertIn("top_actions", empty)
+            self.assertIsInstance(empty["top_actions"], list)
+            self.assertEqual(empty["top_actions"], [])
+
+            # Seed a queued item so dispatch_next is the only ranked action.
+            client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "top-actions-queued-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "queued-only",
+                            "project_name": "Queued Only",
+                            "project_dir": "queued-only",
+                            "status": "queued",
+                            "dispatch_priority": 1,
+                        }
+                    ],
+                },
+            )
+            queued = client.get("/control/api/v1/overview", headers=headers).json()
+            self.assertGreaterEqual(len(queued["top_actions"]), 1)
+            kinds = {a["kind"] for a in queued["top_actions"]}
+            self.assertIn("dispatch_next", kinds)
+            top = queued["top_actions"][0]
+            for key in ("kind", "priority", "tone", "title", "summary", "count", "action_label", "action_hash"):
+                self.assertIn(key, top)
+            self.assertGreaterEqual(top["priority"], 1)
+            self.assertLessEqual(len(queued["top_actions"]), 3)
+            self.assertTrue(top["action_hash"].startswith("#"))
 
     def test_dashboard_status_does_not_call_idle_empty_lane_active(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
