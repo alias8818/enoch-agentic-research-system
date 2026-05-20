@@ -5168,6 +5168,17 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 )
             _require_writable_store("paper draft-next")
             evidence = _prepare_draft_evidence(candidate)
+            post_sync_decision_gate = paper_draft_decision_gate(str(evidence.get("artifact_root") or ""))
+            if not post_sync_decision_gate.get("eligible"):
+                skipped.append({
+                    "project_id": candidate.get("project_id"),
+                    "run_id": candidate.get("current_run_id"),
+                    "reason": "project decision is not paper-ready after evidence sync",
+                    "decision_gate": post_sync_decision_gate,
+                    "artifact_root": evidence.get("artifact_root"),
+                    "evidence_sync": evidence.get("evidence_sync"),
+                })
+                continue
             if not evidence["local_evidence_present"]:
                 _record_paper_evidence_blocked(
                     entity_type="project",
@@ -5182,7 +5193,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             paper = _paper_record_from_candidate(candidate, force=payload.force)
             candidate_for_write = {**candidate, "project_dir": evidence.get("artifact_root") or candidate.get("project_dir"), "evidence_sync": evidence.get("evidence_sync")}
             writer = write_paper_artifacts(config, candidate_for_write, paper, force=payload.force)
-            writer = {**writer, "evidence_sync": evidence.get("evidence_sync"), "artifact_root": evidence.get("artifact_root"), "decision_gate": decision_gate}
+            writer = {**writer, "evidence_sync": evidence.get("evidence_sync"), "artifact_root": evidence.get("artifact_root"), "decision_gate": post_sync_decision_gate}
             paper_event_payload = {"requested_by": payload.requested_by, "paper": paper.model_dump(mode="json"), "writer": writer}
             record_paper_draft = getattr(store, "record_paper_draft", None)
             if callable(record_paper_draft):
