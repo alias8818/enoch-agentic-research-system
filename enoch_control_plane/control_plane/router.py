@@ -1726,16 +1726,13 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             }
         return pressure
 
-    def _conflicting_active_machine_targets(candidate: dict[str, Any]) -> set[str]:
-        candidate_lane_key = _worker_lane_key(candidate)
-        return {
-            _normal_status(row.get("machine_target"))
-            for row in store.active_items()
-            if _worker_lane_key(row) == candidate_lane_key
-        }
+    def _candidate_machine_target_conflict_set(candidate: dict[str, Any]) -> set[str]:
+        machine_target = _normal_status(candidate.get("machine_target"))
+        return {machine_target} if machine_target else {""}
 
     def _has_conflicting_active_lane(candidate: dict[str, Any]) -> bool:
-        return bool(_conflicting_active_machine_targets(candidate))
+        candidate_lane_key = _worker_lane_key(candidate)
+        return any(_worker_lane_key(row) == candidate_lane_key for row in store.active_items())
 
 
     def _live_dispatch(candidate: dict, requested_by: str, force_preflight: bool, *, allow_paused: bool = False) -> tuple[dict, int | None, dict]:
@@ -1759,7 +1756,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "project_id": project_id,
             "run_id": run_id,
             "requested_by": requested_by,
-            "conflicting_machine_targets": _conflicting_active_machine_targets(candidate),
+            "conflicting_machine_targets": _candidate_machine_target_conflict_set(candidate),
         }
         try:
             claim = store.claim_dispatch_candidate(**claim_kwargs)
