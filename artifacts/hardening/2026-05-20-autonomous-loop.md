@@ -62,4 +62,4 @@
   - `uv run pytest -q tests/test_control_plane_router.py -k 'dashboard_html_links_to_multiview_apis or overview_and_lanes_top_level_next_candidate_require_open_lane or dashboard_status_reports_worker_lane_capacity'` → `3 passed, 167 deselected`.
   - `uv run pytest -q` → `1013 passed, 4 warnings, 37 subtests passed`.
 - **Live verification:** deployed `router.py`, restarted `enoch-control-plane.service`, `/healthz` returned `ok: true`, and live `/control/dashboard` contains `laneCommandSummary` plus the explicit open-lane disabled reason.
-- **Commit:** pending at ledger write time.
+- **Commit:** `2bf43ea` (`fix(dashboard): show lane-specific dispatch blockers`).
