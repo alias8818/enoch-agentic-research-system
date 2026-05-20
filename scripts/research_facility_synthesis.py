@@ -13,7 +13,7 @@ import json
 import os
 import re
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -32,9 +32,23 @@ REQUIRED_ORACLE_ARTIFACTS = {
     "failure_cases.jsonl",
     ".enoch/project_decision.json",
 }
-SYNTHESIS_RELATION_TYPES = {"synthesized_from", "superseded_by", "inspired_by_success"}
-SUCCESS_STATES = {"finalize_positive", "paper_positive", "published", "strict_pass"}
+SUCCESS_STATES = {"positive", "finalize_positive", "paper_positive", "published", "strict_pass"}
 USEFUL_STATES = {"useful_signal", "supported_but_negative", "finalize_negative"}
+REQUIRED_STANDARD_TEXT_FIELDS = (
+    "title",
+    "hypothesis",
+    "mechanism",
+    "description",
+    "implementation",
+    "baseline_to_beat",
+    "success_threshold",
+    "kill_condition",
+    "accessibility_delta",
+    "novelty_comparison",
+    "risk_notes",
+)
+REQUIRED_STANDARD_ARRAY_FIELDS = ("expected_artifacts", "required_evidence", "likely_failure_modes")
+REQUIRED_SCORE_FIELDS = ("novelty_score", "feasibility_score", "accessibility_score", "falsifiability_score")
 
 
 def _text(value: Any) -> str:
@@ -47,6 +61,8 @@ def _as_list(value: Any) -> list[Any]:
     if isinstance(value, list):
         return value
     if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, dict):
         return list(value)
     if isinstance(value, str):
         try:
@@ -184,6 +200,8 @@ Hard constraints:
 The candidate must include all standard Research Facility fields plus:
 - expected_artifacts containing run_notes.md, metrics.json, trace_schema.md, oracle_report.md, failure_cases.jsonl, .enoch/project_decision.json
 - numeric success_threshold and kill_condition
+- non-empty description, implementation, accessibility_delta, required_evidence, likely_failure_modes, and risk_notes
+- novelty_score, feasibility_score, accessibility_score, and falsifiability_score as 0-10 numbers
 - novelty_comparison explaining why this is not a clone of branch candidates or prior successes
 
 Cluster:
@@ -203,9 +221,20 @@ def validate_synthesized_candidate(candidate: dict[str, Any]) -> list[str]:
     for artifact in sorted(REQUIRED_ORACLE_ARTIFACTS):
         if artifact not in artifacts:
             problems.append(f"missing expected artifact {artifact}")
-    for key in ("title", "hypothesis", "mechanism", "baseline_to_beat", "success_threshold", "kill_condition", "novelty_comparison"):
+    for key in REQUIRED_STANDARD_TEXT_FIELDS:
         if not _text(candidate.get(key)):
             problems.append(f"missing {key}")
+    for key in REQUIRED_STANDARD_ARRAY_FIELDS:
+        if not _as_list(candidate.get(key)):
+            problems.append(f"missing {key}")
+    for key in REQUIRED_SCORE_FIELDS:
+        try:
+            score = float(candidate.get(key))
+        except (TypeError, ValueError):
+            problems.append(f"{key} must be a 0-10 number")
+            continue
+        if score < 0.0 or score > 10.0:
+            problems.append(f"{key} must be a 0-10 number")
     for key in ("success_threshold", "kill_condition"):
         if not re.search(r"\d", _text(candidate.get(key))):
             problems.append(f"{key} must include at least one numeric threshold")
@@ -217,6 +246,9 @@ def validate_synthesized_candidate(candidate: dict[str, Any]) -> list[str]:
 def enrich_synthesized_candidate(candidate: dict[str, Any], cluster: dict[str, Any], reflection_patterns: list[dict[str, Any]], *, requested_by: str) -> dict[str, Any]:
     row = dict(candidate)
     source_ids = [_text(row.get("candidate_id")) for row in cluster.get("candidates", []) if _text(row.get("candidate_id"))]
+    for key in REQUIRED_STANDARD_ARRAY_FIELDS:
+        if key in row:
+            row[key] = _as_list(row.get(key))
     row.setdefault("generation_mode", "manual_import")
     row.setdefault("category", cluster.get("category") or "systems-research")
     row.setdefault("priority", "High")
@@ -294,6 +326,13 @@ def emit_synthesis_sql(report: dict[str, Any], *, requested_by: str, queue_synth
         history=[],
     )
     plans = research_facility.plan_candidates(candidates, args)
+    failed_plans = [plan for plan in plans if plan.admission_decision != "admitted"]
+    if failed_plans:
+        summary = "; ".join(
+            f"{plan.candidate.get('candidate_id')}: {plan.admission_decision} ({plan.admission_reason})"
+            for plan in failed_plans
+        )
+        raise ValueError(f"synthesized candidates must pass admission before SQL emission: {summary}")
     sql = research_facility.emit_sql(plans, requested_by=requested_by, queue_admitted=queue_synthesized)
     lines = [sql.rstrip(), "", "begin;", ""]
     for cluster, candidate in zip(report.get("clusters", []), candidates, strict=False):

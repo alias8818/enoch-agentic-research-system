@@ -345,6 +345,12 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
                 where conrelid = 'enoch.research_sources'::regclass
                   and pg_get_constraintdef(oid) like '%followup_parent_run%'
               ),
+              'research_synthesis_source_kind_allowed', exists (
+                select 1
+                from pg_constraint
+                where conrelid = 'enoch.research_sources'::regclass
+                  and pg_get_constraintdef(oid) like '%research_synthesis%'
+              ),
               'followup_parent_relation_allowed', exists (
                 select 1
                 from pg_constraint
@@ -438,7 +444,9 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
     if not research_facility.get("followup_parent_check"):
         failures.append("Research Facility followup_from_negative candidates must require parent lineage")
     if not research_facility.get("followup_source_kind_allowed"):
-        failures.append("Research Facility sources must allow followup_parent_run provenance")
+        failures.append("Research Facility research_sources constraint must allow followup_parent_run")
+    if not research_facility.get("research_synthesis_source_kind_allowed"):
+        failures.append("Research Facility research_sources constraint must allow research_synthesis")
     if not research_facility.get("followup_parent_relation_allowed"):
         failures.append("Research Facility lineage must allow followup_parent project edges")
     if not research_facility.get("synthesis_candidate_statuses_allowed"):

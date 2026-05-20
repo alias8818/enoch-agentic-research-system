@@ -613,8 +613,7 @@ def emit_sql(plans: list[CandidatePlan], *, requested_by: str, queue_admitted: b
                             "    from enoch.research_sources",
                             f"    where source_id = {sql_literal(source_id)}",
                             "      and (",
-                            f"        source_kind is distinct from {sql_literal(c['source_kind'] or 'other')}",
-                            f"        or url is distinct from {sql_literal(_as_text(url))}",
+                            f"        url is distinct from {sql_literal(_as_text(url))}",
                             "      )",
                         ]
                     ),

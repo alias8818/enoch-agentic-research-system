@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from scripts import research_facility_synthesis as synth
 
 
@@ -63,7 +65,7 @@ def test_reflection_patterns_use_successes_as_seed_context_not_truth() -> None:
             {
                 "project_id": "positive-1",
                 "project_name": "Good Project",
-                "decision_gate_state": "finalize_positive",
+                "decision_gate_state": "positive",
                 "decision_summary": "Direct target-stack evidence beat the DFlash baseline with failure cases.",
                 "category": "spec-decoding",
                 "required_evidence": ["baseline comparison", "failure cases"],
@@ -93,6 +95,60 @@ def test_validates_oracle_candidate_requires_thresholds_and_artifacts() -> None:
     assert "missing expected artifact oracle_report.md" in problems
     assert "missing expected artifact .enoch/project_decision.json" in problems
     assert "success_threshold must include at least one numeric threshold" in problems
+    assert "missing accessibility_delta" in problems
+    assert "missing likely_failure_modes" in problems
+    assert "novelty_score must be a 0-10 number" in problems
+
+
+def test_validation_accepts_artifact_description_maps_from_provider() -> None:
+    candidate = {
+        "title": "Unified Oracle",
+        "hypothesis": "One trace can rank branches.",
+        "mechanism": "Trace and oracle analysis.",
+        "description": "Unified oracle project.",
+        "implementation": "Log traces and run oracle analysis.",
+        "baseline_to_beat": "Static DFlash.",
+        "success_threshold": ">=8% modeled gain.",
+        "kill_condition": "<5% modeled gain.",
+        "accessibility_delta": "Avoids implementing weak branches on GB10.",
+        "expected_artifacts": {artifact: "description" for artifact in synth.REQUIRED_ORACLE_ARTIFACTS},
+        "required_evidence": ["decision matrix"],
+        "likely_failure_modes": ["no signal"],
+        "novelty_score": 9,
+        "feasibility_score": 7,
+        "accessibility_score": 9,
+        "falsifiability_score": 10,
+        "novelty_comparison": "Synthesizes branches before implementation.",
+        "risk_notes": "Instrumentation can dominate signal.",
+    }
+
+    assert synth.validate_synthesized_candidate(candidate) == []
+
+
+def test_validation_rejects_provider_candidate_that_would_fail_admission_contract() -> None:
+    candidate = {
+        "title": "Oracle Branch Ranker",
+        "hypothesis": "One trace can rank branches.",
+        "mechanism": "Trace and oracle analysis.",
+        "description": "Unified oracle project.",
+        "implementation": "Log speculative decoding rounds and report oracle branch rankings.",
+        "baseline_to_beat": "Static DFlash.",
+        "success_threshold": ">=8% modeled gain.",
+        "kill_condition": "<5% modeled gain.",
+        "expected_artifacts": ["run_notes.md", "metrics.json", "trace_schema.md", "oracle_report.md", "failure_cases.jsonl", ".enoch/project_decision.json"],
+        "required_evidence": ["decision matrix"],
+        "novelty_comparison": "Synthesizes related branches instead of implementing one.",
+        "risk_notes": "Instrumentation may dominate signal.",
+        "novelty_score": 9,
+        "feasibility_score": 7,
+        "accessibility_score": 9,
+        "falsifiability_score": 10,
+    }
+
+    problems = synth.validate_synthesized_candidate(candidate)
+
+    assert "missing accessibility_delta" in problems
+    assert "missing likely_failure_modes" in problems
 
 
 def test_provider_synthesis_builds_one_valid_meta_candidate() -> None:
@@ -145,6 +201,25 @@ def test_provider_synthesis_builds_one_valid_meta_candidate() -> None:
     assert candidate["raw_candidate_json"]["synthesized_from"] == [f"spec-branch-{i}" for i in range(1, 6)]
 
 
+def test_enrichment_normalizes_provider_artifact_maps_to_arrays() -> None:
+    cluster = synth.detect_candidate_clusters([_candidate(i) for i in range(1, 6)])[0]
+    candidate = synth.enrich_synthesized_candidate(
+        {
+            "candidate_id": "spec-trace-oracle-v0",
+            "expected_artifacts": {artifact: "description" for artifact in synth.REQUIRED_ORACLE_ARTIFACTS},
+            "required_evidence": {"oracle report": "description"},
+            "likely_failure_modes": {"no signal": "description"},
+        },
+        cluster,
+        [],
+        requested_by="unit",
+    )
+
+    assert sorted(candidate["expected_artifacts"]) == sorted(synth.REQUIRED_ORACLE_ARTIFACTS)
+    assert candidate["required_evidence"] == ["oracle report"]
+    assert candidate["likely_failure_modes"] == ["no signal"]
+
+
 def test_synthesis_sql_defers_branches_and_records_lineage() -> None:
     cluster = synth.detect_candidate_clusters([_candidate(i) for i in range(1, 6)])[0]
     synthesized = {
@@ -188,6 +263,42 @@ def test_synthesis_sql_defers_branches_and_records_lineage() -> None:
     assert "synthesized_from" in sql
     assert "superseded_by" in sql
     assert "spec-trace-oracle-v0" in sql
+
+
+def test_synthesis_sql_refuses_candidates_that_do_not_pass_admission() -> None:
+    cluster = synth.detect_candidate_clusters([_candidate(i) for i in range(1, 6)])[0]
+    rejected_candidate = synth.enrich_synthesized_candidate(
+        {
+            "candidate_id": "weak-oracle",
+            "title": "Weak Oracle",
+            "generation_mode": "manual_import",
+            "category": "spec-decoding",
+            "priority": "High",
+            "hypothesis": "One trace can rank branches.",
+            "mechanism": "Trace and oracle analysis.",
+            "description": "Unified oracle project.",
+            "implementation": "Trace and report.",
+            "baseline_to_beat": "Static DFlash.",
+            "success_threshold": ">=8% modeled gain.",
+            "kill_condition": "<5% modeled gain.",
+            "accessibility_delta": "",
+            "expected_artifacts": ["run_notes.md", "metrics.json", "trace_schema.md", "oracle_report.md", "failure_cases.jsonl", ".enoch/project_decision.json"],
+            "required_evidence": ["decision matrix"],
+            "likely_failure_modes": [],
+            "novelty_score": 9,
+            "feasibility_score": 7,
+            "accessibility_score": 9,
+            "falsifiability_score": 10,
+            "novelty_comparison": "Synthesized from related branches.",
+            "risk_notes": "bounded",
+        },
+        cluster,
+        [],
+        requested_by="unit",
+    )
+
+    with pytest.raises(ValueError, match="must pass admission"):
+        synth.emit_synthesis_sql({"clusters": [cluster], "synthesized_candidates": [rejected_candidate]}, requested_by="unit", queue_synthesized=True)
 
 
 def test_budget_checked_provider_fails_closed_before_provider_call() -> None:

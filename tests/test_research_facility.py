@@ -228,6 +228,24 @@ def test_research_facility_emit_sql_guards_source_identity_conflicts() -> None:
     assert "url is distinct from 'https://arxiv.org/abs/2401.00000'" in sql
 
 
+def test_research_facility_url_source_identity_is_url_based_not_kind_based() -> None:
+    plan = research_facility.plan_candidates(
+        [
+            _strong_candidate(
+                source_kind="research_synthesis",
+                source_urls=["file://new-chatgpt-pro-ideas-05-19.md"],
+            )
+        ],
+        _args(),
+    )[0]
+
+    sql = research_facility.emit_sql([plan], requested_by="pytest", queue_admitted=False)
+    url_guard = sql.split("where source_id = 'url-")[1].split(")", 1)[0]
+
+    assert "source_kind is distinct from" not in url_guard
+    assert "url is distinct from 'file://new-chatgpt-pro-ideas-05-19.md'" in url_guard
+
+
 def test_research_facility_emit_sql_guards_admitted_queue_identity_conflicts() -> None:
     plan = research_facility.plan_candidates([_strong_candidate()], _args())[0]
 
