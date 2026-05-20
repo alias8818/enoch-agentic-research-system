@@ -136,3 +136,5 @@ Verification:
 - `uv run pytest -q` -> 1017 passed, 4 warnings, 37 subtests passed.
 
 Commit: `1eb3aa5` (`fix(research): feed idle worker lanes`).
+- Live deploy: copied `models.py`, `router.py`, and `research_provider_generate.py` to `/opt/enoch-control-plane`, remote `py_compile` passed, restarted `enoch-control-plane.service`, and `/healthz` returned ok.
+- Live status proof after deploy: `/control/api/status` returned `lane_feed_pressure` keys for `cpu-proxmox-1` and `gb10`; lane cards expose `feed_pressure.next_autopilot_action` and operator summaries without secrets.
