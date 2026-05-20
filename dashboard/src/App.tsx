@@ -6,6 +6,7 @@ import { MovementDiagnosis } from './components/MovementDiagnosis'
 import { PaperMiniStrip } from './components/PaperMiniStrip'
 import { PrimaryAction } from './components/PrimaryAction'
 import { SafetyBar } from './components/SafetyBar'
+import { AutomationPage } from './components/AutomationPage'
 import { EventsPage, PapersPage, QueuePage } from './components/ResourcePages'
 import { ResearchPage } from './components/ResearchPage'
 import { WorkerLanes } from './components/WorkerLanes'
@@ -82,6 +83,7 @@ function RoutedPage({ route }: { route: DashboardRoute }) {
   if (route.page === 'papers') return <PapersPage route={route} />
   if (route.page === 'events') return <EventsPage />
   if (route.page === 'research') return <ResearchPage />
+  if (route.page === 'automation') return <AutomationPage />
   if (route.page === 'legacy') {
     return (
       <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8">
@@ -120,6 +122,7 @@ function Shell() {
             <a className="text-zinc-400 hover:text-white" href={dashboardV2Href('#papers')}>Papers</a>
             <a className="text-zinc-400 hover:text-white" href={dashboardV2Href('#events')}>Events</a>
             <a className="text-zinc-400 hover:text-white" href={dashboardV2Href('#research')}>Research</a>
+            <a className="text-zinc-400 hover:text-white" href={dashboardV2Href('#automation')}>Automation</a>
             <a className="text-zinc-400 hover:text-white" href="/control/dashboard">Legacy</a>
             <button className="text-zinc-400 hover:text-white" type="button" onClick={() => { saveToken(''); setHasToken(false) }}>Clear token</button>
           </nav>
