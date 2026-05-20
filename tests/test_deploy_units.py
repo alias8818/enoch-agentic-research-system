@@ -119,8 +119,8 @@ def test_research_autopilot_calls_bounded_run_cycle_when_enabled(tmp_path, capsy
     assert calls[0]["path"] == "/control/api/research/run-cycle"
     assert calls[0]["payload"]["enabled"] is True
     assert calls[0]["payload"]["max_provider_requests_per_run"] == 1
-    assert calls[0]["payload"]["max_promotions_per_run"] == 1
-    assert calls[0]["payload"]["max_dispatches_per_run"] == 1
+    assert calls[0]["payload"]["max_promotions_per_run"] == 2
+    assert calls[0]["payload"]["max_dispatches_per_run"] == 2
     assert calls[0]["payload"]["max_paper_drafts_per_run"] == 1
     assert calls[0]["payload"]["max_publication_rewrites_per_run"] == 1
     assert json.loads(capsys.readouterr().out)["ok"] is True

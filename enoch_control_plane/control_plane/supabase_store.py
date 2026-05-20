@@ -2936,15 +2936,17 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             with conn.cursor() as cur:
                 rows = cur.execute(
                     """
-                    select candidate_id, generation_mode, status, title, category, priority,
-                           total_score, novelty_score, feasibility_score, accessibility_score,
-                           falsifiability_score, dedupe_key, parent_project_id, parent_run_id,
-                           similar_prior_projects, source_urls, provider, provider_model,
-                           admission_decision, admission_reason, admitted_idea_id, admitted_by,
-                           admitted_queue_status, admitted_current_run_id, admitted_project_name,
-                           created_at, updated_at
-                    from research_facility_workbench
-                    order by updated_at desc, total_score desc, candidate_id asc
+                    select w.candidate_id, w.generation_mode, w.status, w.title, w.category, w.priority,
+                           w.total_score, w.novelty_score, w.feasibility_score, w.accessibility_score,
+                           w.falsifiability_score, w.dedupe_key, w.parent_project_id, w.parent_run_id,
+                           w.similar_prior_projects, w.source_urls, w.provider, w.provider_model,
+                           w.admission_decision, w.admission_reason, w.admitted_idea_id, w.admitted_by,
+                           w.admitted_queue_status, w.admitted_current_run_id, w.admitted_project_name,
+                           c.machine_target, c.model, c.sandbox,
+                           w.created_at, w.updated_at
+                    from research_facility_workbench w
+                    left join research_candidates c on c.candidate_id = w.candidate_id
+                    order by w.updated_at desc, w.total_score desc, w.candidate_id asc
                     limit %s
                     """,
                     (safe_limit,),

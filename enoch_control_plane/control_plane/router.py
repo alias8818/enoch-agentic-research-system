@@ -3985,8 +3985,9 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 "dispatch_started": False,
             }
         max_provider_requests = bounded_int("max_provider_requests_per_run", 1, 0, 3)
-        max_promotions = bounded_int("max_promotions_per_run", 1, 0, 1)
-        max_dispatches = bounded_int("max_dispatches_per_run", 0, 0, 1)
+        worker_lane_limit = max(1, min(4, len(_configured_worker_lanes()) or 1))
+        max_promotions = bounded_int("max_promotions_per_run", min(2, worker_lane_limit), 0, worker_lane_limit)
+        max_dispatches = bounded_int("max_dispatches_per_run", 0, 0, worker_lane_limit)
         max_paper_drafts = bounded_int("max_paper_drafts_per_run", 0, 0, 1)
         max_publication_rewrites = bounded_int("max_publication_rewrites_per_run", 0, 0, 1)
         wait_for_completion = bool(body.get("wait_for_completion", False))
@@ -4012,8 +4013,6 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         blocked_count = int(counts.get("blocked") or 0)
         stop_reasons: list[str] = []
         backpressure_reasons: list[str] = []
-        if active:
-            backpressure_reasons.append("active worker lane already exists")
         if blocked_count and bool(body.get("stop_if_dashboard_attention", True)):
             stop_reasons.append(f"{blocked_count} blocked item(s) need attention")
         if not dry_run and not enabled:
@@ -4043,6 +4042,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if not budget.get("ok") and max_provider_requests and not backpressure_reasons:
             stop_reasons.append("; ".join(str(item) for item in budget.get("failures") or ["provider budget unavailable"]))
 
+        def research_row_lane_key(row: dict[str, Any]) -> str:
+            return _worker_lane_key({"machine_target": str(row.get("machine_target") or "")})
+
+        def open_lane_research_rows(rows: list[dict[str, Any]], active_lane_keys: set[str]) -> list[dict[str, Any]]:
+            if not active_lane_keys:
+                return rows
+            return [row for row in rows if research_row_lane_key(row) not in active_lane_keys]
+
         def promotable_rows() -> list[dict[str, Any]]:
             rows = list(store.research_facility_workbench_projection(limit=100))
             category_counts: dict[str, int] = {}
@@ -4058,10 +4065,13 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             ]
             now_dt = datetime.now(timezone.utc)
 
-            def candidate_priority(row: dict[str, Any]) -> tuple[float, float, str]:
+            active_lane_keys = {_worker_lane_key(row) for row in active}
+
+            def candidate_priority(row: dict[str, Any]) -> tuple[int, float, float, str]:
+                lane_bonus = 1 if research_row_lane_key(row) not in active_lane_keys else 0
                 priority = research_facility.dispatch_priority_score(row, category_counts=category_counts, now=now_dt)
                 score = float(row.get("total_score") or 0)
-                return (priority, score, str(row.get("candidate_id") or ""))
+                return (lane_bonus, priority, score, str(row.get("candidate_id") or ""))
 
             return sorted(candidates, key=candidate_priority, reverse=True)
 
@@ -4108,6 +4118,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             janitor_report = {"enabled": True, "ok": True, "action": "skipped", "reason": "store does not expose a database URL"}
 
         initial_promotable = promotable_rows()
+        active_lane_keys = {_worker_lane_key(row) for row in active}
+        initial_open_lane_promotable = open_lane_research_rows(initial_promotable, active_lane_keys)
+        if active and not initial_open_lane_promotable:
+            backpressure_reasons.append("active worker lane already exists and no promotable candidate targets an idle lane")
         response: dict[str, Any] = {
             "ok": not stop_reasons,
             "action": "dry_run_research_cycle" if dry_run else "research_cycle",
@@ -4142,7 +4156,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 "subscription_remaining", "subscription_renews_at", "failures",
             } if key in budget},
             "initial_promotable_count": len(initial_promotable),
-            "planned_promotions": [row.get("candidate_id") for row in initial_promotable[:max_promotions]],
+            "planned_promotions": [row.get("candidate_id") for row in (initial_open_lane_promotable or initial_promotable)[:max_promotions]],
+            "open_lane_promotable_count": len(initial_open_lane_promotable),
             "generated_count": 0,
             "promoted_count": 0,
             "dispatched_count": 0,
@@ -4245,8 +4260,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     })
                     return False
                 response["dispatch_started"] = True
-                response["dispatched_count"] = 1
-                response["dispatch"] = {"event_id": event_id, "candidate": updated_candidate, "live": live}
+                response["dispatched_count"] = int(response.get("dispatched_count") or 0) + 1
+                dispatch_record = {"event_id": event_id, "candidate": updated_candidate, "live": live}
+                response["dispatch"] = dispatch_record
+                response.setdefault("dispatches", []).append(dispatch_record)
                 response["stages"].append({"stage": "dispatch", "ok": True, "project_id": project_id, "event_id": event_id})
                 return True
             response["stages"].append({"stage": "dispatch", "ok": False, "reason": "queued project was not dispatchable", "project_id": project_id})
@@ -4355,7 +4372,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
 
         promoted: list[dict[str, Any]] = []
         if not response.get("fresh_promotion_skipped"):
-            for row in promotable_rows()[:max_promotions]:
+            promotion_candidates = promotable_rows()
+            open_promotion_candidates = open_lane_research_rows(promotion_candidates, {_worker_lane_key(row) for row in store.active_items()})
+            if open_promotion_candidates:
+                promotion_candidates = open_promotion_candidates
+            for row in promotion_candidates[:max_promotions]:
                 result = store.promote_research_candidate(
                     _validate_research_candidate_id(str(row.get("candidate_id"))),
                     requested_by=requested_by,
@@ -4370,13 +4391,13 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             response["promotions"] = promoted
             response["promoted_count"] = 0
 
-        if max_dispatches and promoted and not response.get("dispatch_started"):
-            active_after_promotion = store.active_items()
-            if active_after_promotion:
-                response["stages"].append({"stage": "dispatch", "ok": False, "reason": "active worker lane exists after promotion"})
-            else:
-                project_id = str(promoted[0].get("idea_id") or promoted[0].get("candidate_id") or "").strip()
-                dispatch_queued_project(project_id)
+        if max_dispatches and promoted:
+            for item in promoted:
+                if int(response.get("dispatched_count") or 0) >= max_dispatches:
+                    break
+                project_id = str(item.get("idea_id") or item.get("candidate_id") or "").strip()
+                if project_id:
+                    dispatch_queued_project(project_id)
 
         wait_result = {"action": "skipped", "reason": "wait_for_completion disabled"}
         if response.get("dispatch_started") and wait_for_completion:
