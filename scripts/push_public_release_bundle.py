@@ -35,6 +35,7 @@ class Repo:
 SECRET_ARG_NAMES = {"--token", "--database-url", "--db-url", "--ledger-database-url"}
 PROJECT_PYTHON = ["uv", "run", "python"]
 DEFAULT_SOURCE_LINEAGE_CREATED_AFTER = "2026-05-19T17:51:00Z"
+DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF = "2026-05-19T17:51:00Z"
 
 
 def printable_cmd(cmd: list[str]) -> str:
@@ -150,7 +151,12 @@ def sync_corpus_import_ledger(system: Repo, corpus: Repo, *, database_url: str, 
                 "--apply",
             ],
             cwd=system.path,
-            env={"ENOCH_SUPABASE_DATABASE_URL": database_url},
+            env={
+            "ENOCH_SUPABASE_DATABASE_URL": database_url,
+            "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF": os.environ.get(
+                "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF", DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF
+            ),
+        },
         )
         run(
             [
@@ -160,7 +166,12 @@ def sync_corpus_import_ledger(system: Repo, corpus: Repo, *, database_url: str, 
                 str(corpus.path),
             ],
             cwd=system.path,
-            env={"ENOCH_SUPABASE_DATABASE_URL": database_url},
+            env={
+            "ENOCH_SUPABASE_DATABASE_URL": database_url,
+            "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF": os.environ.get(
+                "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF", DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF
+            ),
+        },
         )
         return
     if not use_linked:
@@ -227,7 +238,12 @@ def run_promising_signals_check(system: Repo, promising: Repo) -> None:
             "--validate-output-repo",
         ],
         cwd=system.path,
-        env={"ENOCH_SUPABASE_DATABASE_URL": database_url},
+        env={
+            "ENOCH_SUPABASE_DATABASE_URL": database_url,
+            "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF": os.environ.get(
+                "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF", DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF
+            ),
+        },
     )
 
 

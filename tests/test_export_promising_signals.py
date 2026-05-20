@@ -285,6 +285,24 @@ def test_validate_repo_against_rows_catches_control_plane_selection_drift(tmp_pa
     assert "selection_summary.backfilled_exportable:0 != 1" in issues
 
 
+
+
+def test_new_missing_source_lineage_is_blocked_by_default_cutoff() -> None:
+    rows = [
+        _row(
+            project_id="new-unsourced-default",
+            source_ids=[],
+            source_urls=[],
+            source_titles=[],
+            updated_at="2026-05-20T00:00:00Z",
+        ),
+    ]
+
+    report = exporter.validate_source_backfill_policy(rows)
+
+    assert report["ok"] is False
+    assert report["summary"]["new_missing_source_lineage_blocked"] == 1
+
 def test_new_missing_source_lineage_is_blocked_after_cutoff() -> None:
     rows = [
         _row(
