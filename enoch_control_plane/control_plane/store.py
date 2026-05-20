@@ -2021,6 +2021,47 @@ class ControlPlaneStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def queued_items_sql(self, *, limit: int = 200) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 500))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT q.*,
+                    p.project_name AS project_name,
+                    p.project_dir AS project_dir,
+                    p.notion_page_url AS notion_page_url,
+                    p.notion_page_id AS notion_page_id,
+                    p.origin_idea_status AS origin_idea_status,
+                    p.created_at AS project_created_at,
+                    p.updated_at AS project_updated_at
+                FROM queue_items q JOIN projects p USING(project_id)
+                WHERE q.status = ? AND q.manual_review_required = 0
+                ORDER BY q.dispatch_priority ASC, q.selection_rank ASC, q.updated_at ASC
+                LIMIT ?""",
+                (QueueStatus.QUEUED.value, safe_limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def recently_completed_items_sql(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 200))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT q.*,
+                    p.project_name AS project_name,
+                    p.project_dir AS project_dir,
+                    p.notion_page_url AS notion_page_url,
+                    p.notion_page_id AS notion_page_id,
+                    p.origin_idea_status AS origin_idea_status,
+                    p.created_at AS project_created_at,
+                    p.updated_at AS project_updated_at
+                FROM queue_items q JOIN projects p USING(project_id)
+                WHERE q.status = ?
+                   OR q.last_run_state IN ('wake_ready', 'completed', 'complete', 'finished')
+                ORDER BY q.updated_at DESC
+                LIMIT ?""",
+                (QueueStatus.COMPLETED.value, safe_limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def next_candidate_sql(self) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(

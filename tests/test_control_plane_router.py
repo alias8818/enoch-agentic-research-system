@@ -317,6 +317,57 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(body["action"], "drafted")
             self.assertTrue((project_dir / body["paper"]["draft_markdown_path"]).exists())
 
+    def test_operator_state_and_status_do_not_materialize_full_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            import_response = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "import-fast-state",
+                "queue_rows": [
+                    {
+                        "project_id": "completed-gb10",
+                        "project_name": "Completed GB10",
+                        "project_dir": "completed-gb10",
+                        "status": "completed",
+                        "current_run_id": "run-completed",
+                        "machine_target": "gb10",
+                        "manual_review_required": False,
+                    },
+                    {
+                        "project_id": "queued-cpu",
+                        "project_name": "Queued CPU",
+                        "project_dir": "queued-cpu",
+                        "status": "queued",
+                        "machine_target": "cpu-proxmox-1",
+                        "manual_review_required": False,
+                    },
+                    {
+                        "project_id": "completed-old",
+                        "project_name": "Completed Old",
+                        "project_dir": "completed-old",
+                        "status": "completed",
+                        "current_run_id": "run-old",
+                        "manual_review_required": False,
+                    },
+                ],
+                "paper_rows": [],
+            })
+            self.assertEqual(import_response.status_code, 200)
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+
+            with patch.object(ControlPlaneStore, "queue_rows", side_effect=AssertionError("full queue materialization is too expensive")):
+                state = client.get("/control/state", headers=headers)
+                status = client.get("/control/api/status", headers=headers)
+
+            self.assertEqual(state.status_code, 200)
+            self.assertEqual(status.status_code, 200)
+            state_body = state.json()
+            status_body = status.json()
+            self.assertEqual(state_body["counts"]["queue_total"], 3)
+            self.assertEqual(status_body["counts"]["queue_total"], 3)
+            self.assertEqual(state_body["next_candidate"]["project_id"], "queued-cpu")
+            self.assertTrue(any(lane["queued_count"] == 1 for lane in status_body["worker_lanes"]))
+
     def test_v1_dashboard_read_models_are_bounded_and_do_not_call_legacy_full_lists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)

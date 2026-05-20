@@ -1479,6 +1479,27 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             str(row.get("updated_at") or ""),
         )
 
+    def _active_items_fast(*, limit: int = 50) -> list[dict[str, Any]]:
+        if hasattr(store, "active_items_sql"):
+            return store.active_items_sql(limit=limit)  # type: ignore[attr-defined]
+        return store.active_items()
+
+    def _queued_items_fast(*, limit: int = 200) -> list[dict[str, Any]]:
+        if hasattr(store, "queued_items_sql"):
+            return store.queued_items_sql(limit=limit)  # type: ignore[attr-defined]
+        return _queued_dispatch_candidates(store.queue_rows())[:limit]
+
+    def _recently_completed_items_fast(*, limit: int = 50) -> list[dict[str, Any]]:
+        if hasattr(store, "recently_completed_items_sql"):
+            return store.recently_completed_items_sql(limit=limit)  # type: ignore[attr-defined]
+        rows = [
+            row for row in store.queue_rows()
+            if _normal_status(row.get("status")) == "completed"
+            or _normal_status(row.get("last_run_state")) in {"wake_ready", "completed", "complete", "finished"}
+        ]
+        rows.sort(key=lambda row: str(row.get("updated_at") or ""), reverse=True)
+        return rows[:limit]
+
     def _queued_dispatch_candidates(rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
         candidates = [
             row for row in (rows if rows is not None else store.queue_rows())
@@ -1488,11 +1509,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         candidates.sort(key=_dispatch_sort_key)
         return candidates
 
-    def _open_worker_dispatch_candidate() -> dict[str, Any] | None:
+    def _open_worker_dispatch_candidate(*, active: list[dict[str, Any]] | None = None, queued: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
         if store.flags().queue_paused:
             return None
-        active_lane_keys = {_worker_lane_key(row) for row in store.active_items()}
-        for candidate in _queued_dispatch_candidates():
+        active_lane_keys = {_worker_lane_key(row) for row in (active if active is not None else _active_items_fast())}
+        for candidate in _queued_dispatch_candidates(queued) if queued is not None else _queued_items_fast():
             if _worker_lane_key(candidate) not in active_lane_keys:
                 return candidate
         return None
@@ -1748,12 +1769,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         counts = store.queue_counts_sql() if hasattr(store, "queue_counts_sql") else store.status_counts()
         paper_counts = store.paper_counts_sql() if hasattr(store, "paper_counts_sql") else {}
         queue_total = counts.get("all", 0)
+        active = _active_items_fast()
+        queued = _queued_items_fast()
         return ControlStateResponse(
             flags=store.flags(),
             counts={**counts, "papers": int(paper_counts.get("all", 0)), "queue_total": int(queue_total)},
-            active_items=store.active_items(),
-            worker_lanes=_worker_lane_capacity(),
-            next_candidate=_open_worker_dispatch_candidate(),
+            active_items=active,
+            worker_lanes=_worker_lane_capacity(active=active, rows=queued),
+            next_candidate=_open_worker_dispatch_candidate(active=active, queued=queued),
             recent_events=store.recent_events(10),
         )
 
@@ -1969,10 +1992,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         return store.latest_dashboard_observations()
 
     def dashboard_status_response(*, refresh_worker: bool = False) -> DashboardStatusResponse:
-        rows = store.queue_rows()
-        paper_rows = store.paper_rows()
+        rows = _queued_items_fast()
+        paper_counts = store.paper_counts_sql() if hasattr(store, "paper_counts_sql") else {}
         flags = store.flags()
-        active = store.active_items()
+        active = _active_items_fast()
         observations: dict[str, DashboardObservationRecord | None] = {
             # Status uses the bounded preflight payload for dispatch-safety checks.
             "worker_preflight": store.latest_dashboard_observation(source="worker_preflight"),
@@ -1994,7 +2017,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         preflight = observations.get("worker_preflight")
         worker_dashboard = observations.get("worker_dashboard_api")
         recent_events = store.recent_events(10)
-        counts = {**store.status_counts(), "papers": len(paper_rows), "queue_total": len(rows)}
+        queue_counts = store.queue_counts_sql() if hasattr(store, "queue_counts_sql") else store.status_counts()
+        counts = {**queue_counts, "papers": int(paper_counts.get("all", 0)), "queue_total": int(queue_counts.get("all", 0))}
         cfg = _config_status()
         source_freshness = {
             "control_plane_db": DashboardFreshness(
@@ -2030,7 +2054,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if not config.live_dispatch_enabled:
             blockers.append("live dispatch disabled")
             warnings.append(DashboardFinding(severity="warn", source="control_plane_config", authority="static operational config", message="live dispatch is disabled by config", suggested_action="enable live_dispatch_enabled only when ready"))
-        open_worker_candidate = _open_worker_dispatch_candidate()
+        open_worker_candidate = _open_worker_dispatch_candidate(active=active, queued=rows)
         configured_lane_keys = {str(lane.get("lane_key") or "") for lane in _configured_worker_lanes()}
         active_lane_keys = {_worker_lane_key(row) for row in active}
         all_configured_lanes_active = bool(configured_lane_keys) and configured_lane_keys <= active_lane_keys
@@ -2046,7 +2070,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if not active:
             worker_settling_after_vm_completion = _worker_settling_after_vm_completion(
                 preflight=preflight,
-                queue_rows=rows,
+                queue_rows=_recently_completed_items_fast(),
                 run_rows=store.run_rows(),
             )
         for name, freshness in source_freshness.items():

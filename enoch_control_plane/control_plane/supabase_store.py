@@ -669,6 +669,29 @@ class SupabaseReadOnlyControlPlaneStore:
     def active_items(self) -> list[dict[str, Any]]:
         return self.active_items_sql(limit=50)
 
+    def queued_items_sql(self, *, limit: int = 200) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 500))
+        return self._queue_rows(
+            """
+            where q.status = %s and q.manual_review_required = false
+            order by q.dispatch_priority asc, q.selection_rank asc, q.updated_at asc
+            limit %s
+            """,
+            (QueueStatus.QUEUED.value, safe_limit),
+        )
+
+    def recently_completed_items_sql(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 200))
+        return self._queue_rows(
+            """
+            where q.status = %s
+               or q.last_run_state in (%s, %s, %s, %s)
+            order by q.updated_at desc
+            limit %s
+            """,
+            (QueueStatus.COMPLETED.value, "wake_ready", "completed", "complete", "finished", safe_limit),
+        )
+
     def active_machine_targets(self) -> set[str]:
         return {_normal(row.get("machine_target")) for row in self.active_items()}
 
