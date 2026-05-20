@@ -4538,6 +4538,33 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             raise HTTPException(status_code=503, detail="worker preflight requires configured worker_wake_gate_url")
         return worker_url
 
+    def _default_worker_url_key() -> str:
+        return _configured_worker_preflight_url().rstrip("/")
+
+    def _preflight_targets_default_worker(payload: WorkerPreflightRequest) -> bool:
+        return (payload.wake_gate_url or "").strip().rstrip("/") == _default_worker_url_key()
+
+    def _target_aware_preflight_payload(payload: WorkerPreflightRequest) -> WorkerPreflightRequest:
+        machine_target = (payload.machine_target or "").strip()
+        if machine_target:
+            target = config.resolved_worker_target(machine_target)
+            return payload.model_copy(
+                update={
+                    "wake_gate_url": target.wake_gate_url,
+                    "bearer_token": target.bearer_token,
+                    "min_memory_available_mib": target.min_memory_available_mib or payload.min_memory_available_mib,
+                }
+            )
+        worker_host = urlparse((payload.wake_gate_url or "").strip()).hostname or ""
+        if worker_host == "worker.example":
+            return payload.model_copy(
+                update={
+                    "wake_gate_url": _configured_worker_preflight_url(),
+                    "bearer_token": config.worker_wake_gate_bearer_token,
+                }
+            )
+        return payload
+
     @router.post("/worker/preflight", response_model=WorkerPreflightResponse)
     def worker_preflight(payload: WorkerPreflightRequest, authorization: str | None = Header(default=None)) -> WorkerPreflightResponse:
         authorize(authorization)
@@ -4554,7 +4581,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.post("/api/preflight", response_model=WorkerPreflightResponse)
     def dashboard_preflight(payload: WorkerPreflightRequest, authorization: str | None = Header(default=None)) -> WorkerPreflightResponse:
         authorize(authorization)
-        return worker_preflight(payload, authorization)
+        payload = _target_aware_preflight_payload(payload)
+        response = run_worker_preflight(payload, store.flags())
+        if _preflight_targets_default_worker(payload):
+            _record_preflight_observations(response)
+        return response
 
     @router.post("/dispatch-next", response_model=DispatchNextResponse)
     def dispatch_next(payload: DispatchNextRequest, authorization: str | None = Header(default=None)) -> DispatchNextResponse:
