@@ -668,6 +668,10 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn('class="copy-button"', response.text)
             self.assertIn('class="sparkline ', response.text)
             self.assertIn("sparklineTrend", response.text)
+            self.assertIn("workerLaneCards", response.text)
+            self.assertIn("Worker lanes", response.text)
+            self.assertIn("CPU lane", response.text)
+            self.assertIn("GB10 lane", response.text)
             css_response = client.get("/control/dashboard.css")
             self.assertEqual(css_response.status_code, 200)
             self.assertIn("text/css", css_response.headers.get("content-type", ""))
@@ -3169,6 +3173,129 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(status["dispatch_blockers"], [])
             self.assertEqual(status["next_candidate"]["project_id"], "queued-gpu")
             self.assertEqual(status["conflicts"], [])
+
+    def test_dashboard_status_reports_worker_lane_capacity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "lane-capacity-import",
+                "queue_rows": [
+                    {
+                        "project_id": "active-cpu",
+                        "project_name": "Active CPU",
+                        "project_dir": "active-cpu",
+                        "status": "awaiting_wake",
+                        "machine_target": "cpu-proxmox-1",
+                        "current_run_id": "run-active-cpu",
+                    },
+                    {
+                        "project_id": "queued-gpu",
+                        "project_name": "Queued GPU",
+                        "project_dir": "queued-gpu",
+                        "status": "queued",
+                        "machine_target": "gb10",
+                        "dispatch_priority": 1,
+                    },
+                ],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                payload={
+                    "ok": True,
+                    "checks": [
+                        {"name": "wake_gate_healthz", "ok": True, "detail": "ok", "data": {}},
+                        {"name": "worker_no_live_runs", "ok": True, "detail": "active_or_waiting=0, live=0", "data": {"active_or_waiting": 0, "live": 0}},
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+
+            status = client.get("/control/api/status", headers=headers).json()
+
+            lanes = {lane["machine_target"]: lane for lane in status["worker_lanes"]}
+            self.assertEqual(set(lanes), {"cpu-proxmox-1", "gb10"})
+            self.assertNotIn("bearer_token", json.dumps(status["worker_lanes"]))
+            self.assertEqual(lanes["cpu-proxmox-1"]["status"], "active")
+            self.assertEqual(lanes["cpu-proxmox-1"]["active_item"]["project_id"], "active-cpu")
+            self.assertEqual(lanes["cpu-proxmox-1"]["queued_count"], 0)
+            self.assertFalse(lanes["cpu-proxmox-1"]["dispatch_available"])
+            self.assertEqual(lanes["cpu-proxmox-1"]["dispatch_blocker"], "lane active")
+            self.assertEqual(lanes["gb10"]["status"], "idle")
+            self.assertEqual(lanes["gb10"]["queued_count"], 1)
+            self.assertEqual(lanes["gb10"]["next_candidate"]["project_id"], "queued-gpu")
+            self.assertTrue(lanes["gb10"]["dispatch_available"])
+            self.assertEqual(lanes["gb10"]["dispatch_reason"], "lane open with queued candidate")
+
+            state = client.get("/control/state", headers=headers).json()
+            state_lanes = {lane["machine_target"]: lane for lane in state["worker_lanes"]}
+            self.assertFalse(state_lanes["cpu-proxmox-1"]["dispatch_available"])
+            self.assertTrue(state_lanes["gb10"]["dispatch_available"])
+
+    def test_dashboard_status_reports_all_lanes_active_when_no_open_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "lane-capacity-all-active-import",
+                "queue_rows": [
+                    {"project_id": "active-cpu", "project_name": "Active CPU", "project_dir": "active-cpu", "status": "awaiting_wake", "machine_target": "cpu-proxmox-1", "current_run_id": "run-active-cpu"},
+                    {"project_id": "active-gpu", "project_name": "Active GPU", "project_dir": "active-gpu", "status": "awaiting_wake", "machine_target": "gb10", "current_run_id": "run-active-gpu"},
+                    {"project_id": "queued-cpu", "project_name": "Queued CPU", "project_dir": "queued-cpu", "status": "queued", "machine_target": "cpu-proxmox-1"},
+                    {"project_id": "queued-gpu", "project_name": "Queued GPU", "project_dir": "queued-gpu", "status": "queued", "machine_target": "gb10"},
+                ],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+
+            status = client.get("/control/api/status", headers=headers).json()
+
+            lanes = {lane["machine_target"]: lane for lane in status["worker_lanes"]}
+            self.assertEqual(lanes["cpu-proxmox-1"]["queued_count"], 1)
+            self.assertEqual(lanes["gb10"]["queued_count"], 1)
+            self.assertEqual(lanes["cpu-proxmox-1"]["dispatch_blocker"], "lane active")
+            self.assertEqual(lanes["gb10"]["dispatch_blocker"], "lane active")
+            self.assertFalse(lanes["cpu-proxmox-1"]["dispatch_available"])
+            self.assertFalse(lanes["gb10"]["dispatch_available"])
+            self.assertIn("all configured worker lanes active", status["dispatch_blockers"])
 
 
     def test_dashboard_status_flags_worker_live_without_vm_active_row_as_critical(self) -> None:

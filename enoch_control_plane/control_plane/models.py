@@ -555,6 +555,7 @@ class DashboardStatusResponse(BaseModel):
     config: DashboardConfigStatus
     counts: dict[str, int]
     active_items: list[dict[str, Any]]
+    worker_lanes: list[dict[str, Any]] = Field(default_factory=list)
     next_candidate: dict[str, Any] | None = None
     dispatch_safe: bool = False
     dispatch_blockers: list[str] = Field(default_factory=list)
@@ -714,6 +715,7 @@ class ControlStateResponse(BaseModel):
     flags: ControlFlags
     counts: dict[str, int]
     active_items: list[dict[str, Any]]
+    worker_lanes: list[dict[str, Any]] = Field(default_factory=list)
     next_candidate: dict[str, Any] | None = None
     recent_events: list[EventRecord] = Field(default_factory=list)
 
