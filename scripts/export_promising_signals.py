@@ -411,7 +411,7 @@ def validate_signal(signal: dict[str, Any]) -> list[str]:
         issues.append("curation.schema_version:invalid")
     if curation.get("bucket") not in RANKING_BUCKETS:
         issues.append("curation.bucket:invalid")
-    for key in ("score", "bucket", "score_breakdown", "reasons"):
+    for key in ("score", "bucket", "bucket_label", "score_breakdown", "reasons"):
         if curation.get(key) != expected_curation.get(key):
             issues.append(f"curation.{key}:drift")
     serialized = json.dumps(signal, sort_keys=True)
@@ -519,6 +519,10 @@ def validate_export_repo(repo_root: Path) -> list[str]:
     except json.JSONDecodeError:
         return ["manifest:invalid_json"]
     expected = export_manifest(records, selection_summary=manifest.get("selection_summary") if isinstance(manifest.get("selection_summary"), dict) else None)
+    for record in records:
+        project_id = _text(record.get("project_id")) or "unknown_project"
+        for issue in validate_signal(record):
+            issues.append(f"signal.{project_id}.{issue}")
     if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
         issues.append("manifest.schema_version:invalid")
     if manifest.get("record_count") != expected["record_count"]:
