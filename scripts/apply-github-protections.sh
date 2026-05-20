@@ -55,9 +55,42 @@ repo_edit() {
   gh repo edit "$repo" --enable-secret-scanning-push-protection 2>/dev/null || true
 }
 
-# Branch protection is intentionally not applied here. This project currently has
-# one maintainer, so required approving reviews can deadlock maintenance PRs
-# because GitHub does not allow self-approval to satisfy the requirement.
+
+protect_branch() {
+  local repo="$1" checks_csv="$2"
+  local checks_json="[]"
+  IFS=',' read -r -a checks <<< "$checks_csv"
+  for check in "${checks[@]}"; do
+    checks_json="$(python3 - "$checks_json" "$check" <<'PY2'
+import json,sys
+checks=json.loads(sys.argv[1]);checks.append({"context":sys.argv[2]});print(json.dumps(checks,separators=(",",":")))
+PY2
+)"
+  done
+
+  gh api -X PUT "repos/$repo/branches/main/protection" --input - >/dev/null <<JSON
+{
+  "required_status_checks": {
+    "strict": true,
+    "checks": $checks_json
+  },
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "dismiss_stale_reviews": true,
+    "require_last_push_approval": false,
+    "required_approving_review_count": 0
+  },
+  "restrictions": null,
+  "required_linear_history": true,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "block_creations": false,
+  "required_conversation_resolution": true,
+  "lock_branch": false,
+  "allow_fork_syncing": false
+}
+JSON
+}
 
 repo_edit "$CODE_REPO" \
   "Agentic research control plane: queue state, worker preflight, wake-gated execution, evidence sync, dashboard, alerts, and AI-generated paper packaging." \
@@ -68,3 +101,7 @@ repo_edit "$CORPUS_REPO" \
 repo_edit "$PROMISING_REPO" \
   "$PROMISING_SIGNAL_COUNT bounded Enoch promising signals preserved for larger-compute follow-up; not validated papers, not peer reviewed, and separate from the paper corpus." \
   "ai-generated,research-signals,agentic-ai,local-ai,research-automation,provenance"
+
+protect_branch "$CODE_REPO" "tests,public-release-integrity,secret-scan"
+protect_branch "$CORPUS_REPO" "quality,public-release-integrity,secret-scan"
+protect_branch "$PROMISING_REPO" "quality,public-release-integrity,secret-scan"
