@@ -727,6 +727,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("GB10 lane", response.text)
             self.assertIn("Last loaded", response.text)
             self.assertIn("formatRelativeAge", response.text)
+            self.assertIn("Autopilot next:", response.text)
+            self.assertIn("next autopilot feed action for each lane", response.text)
             css_response = client.get("/control/dashboard.css")
             self.assertEqual(css_response.status_code, 200)
             self.assertIn("text/css", css_response.headers.get("content-type", ""))
@@ -2552,6 +2554,114 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(body["dispatches"][0]["live"]["dispatch_route"]["machine_target"], "gb10")
         self.assertEqual({call[0] for call in worker_calls}, {"http://gb10-worker:8787"})
         generate.assert_not_called()
+
+    def test_research_facility_run_cycle_generates_for_empty_idle_gb10_lane_despite_cpu_backlog(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.events = []
+                self.ledger_plans = []
+
+            def active_items(self) -> list[dict[str, str]]:
+                return [{
+                    "project_id": "active-cpu",
+                    "project_name": "Active CPU",
+                    "status": "awaiting_wake",
+                    "machine_target": "cpu-proxmox-1",
+                    "current_run_id": "run-active-cpu",
+                }]
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 0, "active": 1}
+
+            def flags(self):
+                return SimpleNamespace(queue_paused=False, maintenance_mode=False)
+
+            def next_followup_candidate(self, *, max_followup_depth: int = 4, project_id: str = "") -> None:
+                return None
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                return [
+                    {
+                        "candidate_id": f"cpu-backlog-{idx}",
+                        "title": f"CPU Backlog {idx}",
+                        "admission_decision": "admitted",
+                        "admitted_idea_id": "",
+                        "total_score": "90.00",
+                        "category": "agent-reliability",
+                        "machine_target": "cpu-proxmox-1",
+                    }
+                    for idx in range(30)
+                ]
+
+            def record_research_facility_plans(self, plans, *, requested_by: str, queue_admitted: bool = False):
+                self.ledger_plans.extend(plans)
+                return {"inserted": len(plans), "queue_admitted": queue_admitted, "requested_by": requested_by}
+
+            def promote_research_candidate(self, *_args, **_kwargs):  # pragma: no cover - promotion disabled in this test
+                raise AssertionError("this test only verifies lane-targeted generation")
+
+            def append_event(self, **kwargs):
+                self.events.append(kwargs)
+                return len(self.events), True
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+            live_dispatch_enabled=True,
+            worker_wake_gate_url="http://gb10-worker:8787",
+            worker_wake_gate_bearer_token="gb10-token",
+            worker_targets={
+                "cpu-proxmox-1": {"wake_gate_url": "http://cpu-worker:8787", "bearer_token": "cpu-token", "role": "cpu_worker"},
+                "gb10": {"wake_gate_url": "http://gb10-worker:8787", "bearer_token": "gb10-token", "role": "gpu_worker"},
+            },
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        generated_candidate = {"candidate_id": "generated-gb10", "title": "Generated GB10", "machine_target": "gb10"}
+
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+             patch("scripts.research_provider_generate.generate_provider_candidates", return_value={"candidates": [generated_candidate], "provider_response_id": "resp-gb10", "attempts_used": 1}) as generate, \
+             patch("scripts.research_facility.plan_candidates", return_value=[{"candidate": generated_candidate, "admission_decision": "admitted"}]):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={
+                    "dry_run": False,
+                    "enabled": True,
+                    "max_provider_requests_per_run": 1,
+                    "max_promotions_per_run": 0,
+                    "max_dispatches_per_run": 0,
+                    "max_paper_drafts_per_run": 0,
+                    "fresh_generation_backlog_threshold": 1,
+                    "requested_by": "pytest",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertFalse(body.get("backpressure", False))
+        self.assertEqual(body["generated_count"], 1)
+        self.assertFalse(body["fresh_generation_skipped"])
+        self.assertEqual(body["generation_target_lane"]["machine_target"], "gb10")
+        self.assertEqual(body["lane_feed_pressure"]["gb10"]["next_autopilot_action"], "generate_candidate")
+        self.assertEqual(body["lane_feed_pressure"]["gb10"]["operator_summary"], "GB10 lane idle with no queued candidate; autopilot should generate GB10-targeted work.")
+        self.assertEqual(fake_store.ledger_plans[0]["candidate"]["machine_target"], "gb10")
+        self.assertEqual(generate.call_args.kwargs["default_machine"], "gb10")
+        self.assertIn("machine_target=gb10", generate.call_args.kwargs["topic"])
+        self.assertTrue(any(stage.get("stage") == "provider_generation" and stage.get("generation_target_lane") == "gb10" for stage in body["stages"]))
 
     def test_research_facility_run_cycle_active_lane_is_backpressure_not_blocked(self) -> None:
         class FakeSupabaseStore:

@@ -557,6 +557,7 @@ class DashboardStatusResponse(BaseModel):
     counts: dict[str, int]
     active_items: list[dict[str, Any]]
     worker_lanes: list[dict[str, Any]] = Field(default_factory=list)
+    lane_feed_pressure: dict[str, dict[str, Any]] = Field(default_factory=dict)
     next_candidate: dict[str, Any] | None = None
     dispatch_safe: bool = False
     dispatch_blockers: list[str] = Field(default_factory=list)

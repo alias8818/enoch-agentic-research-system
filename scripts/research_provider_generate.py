@@ -50,7 +50,17 @@ def _json_dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def build_generation_prompt(*, max_candidates: int, topic: str, model: str, temperature: float, seed: str) -> str:
+def build_generation_prompt(
+    *,
+    max_candidates: int,
+    topic: str,
+    model: str,
+    temperature: float,
+    seed: str,
+    default_machine: str = "gb10",
+    default_model: str = "gpt-5.5",
+    default_sandbox: str = "danger-full-access",
+) -> str:
     topic_line = topic.strip() or "; ".join(TOPIC_SPREAD)
     return f"""
 Return ONLY compact JSON. No markdown. No prose outside JSON.
@@ -87,7 +97,7 @@ distributed-training, agent-reliability, systems-research.
 Fixed values:
 expected_artifacts=["run_notes.md","metrics.json","failure_cases.json",".enoch/project_decision.json"]
 required_evidence=["baseline comparison","metrics table","failure cases","decision artifact"]
-machine_target="gb10"; model="gpt-5.5"; sandbox="danger-full-access"
+machine_target="{default_machine}"; model="{default_model}"; sandbox="{default_sandbox}"
 estimated_runtime_class must be one of: small, medium, large, overnight.
 expected_token_budget must be one of: small, medium, large.
 
@@ -293,7 +303,16 @@ def generate_provider_candidates(
     for attempt in range(1, attempts + 1):
         attempt_used = attempt
         attempt_seed = seed if attempt == 1 else f"{seed}:retry-{attempt}"
-        prompt = build_generation_prompt(max_candidates=max_candidates, topic=topic, model=model, temperature=temperature, seed=attempt_seed)
+        prompt = build_generation_prompt(
+            max_candidates=max_candidates,
+            topic=topic,
+            model=model,
+            temperature=temperature,
+            seed=attempt_seed,
+            default_machine=default_machine,
+            default_model=default_model,
+            default_sandbox=default_sandbox,
+        )
         try:
             provider_payload = call_openai_compatible_chat(
                 base_url=base_url,

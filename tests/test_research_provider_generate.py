@@ -225,6 +225,24 @@ def test_generation_prompt_includes_research_quality_policy() -> None:
     assert "generation does not queue work until promotion policy allows it" in prompt
 
 
+def test_generation_prompt_uses_requested_machine_target_contract() -> None:
+    prompt = research_provider_generate.build_generation_prompt(
+        max_candidates=1,
+        topic="CPU-bound agent replay",
+        model="hf:zai-org/GLM-5.1",
+        temperature=0.6,
+        seed="seed-cpu",
+        default_machine="cpu-proxmox-1",
+        default_model="gpt-5.5-mini",
+        default_sandbox="workspace-write",
+    )
+
+    assert 'machine_target="cpu-proxmox-1"' in prompt
+    assert 'model="gpt-5.5-mini"' in prompt
+    assert 'sandbox="workspace-write"' in prompt
+    assert 'machine_target="gb10"' not in prompt
+
+
 def test_provider_generate_rejects_non_http_base_url_before_urlopen(monkeypatch) -> None:
     def fake_urlopen(*_args, **_kwargs):
         raise AssertionError("urlopen should not run for unsafe provider URL")
