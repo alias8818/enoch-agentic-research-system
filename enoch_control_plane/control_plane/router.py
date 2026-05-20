@@ -1495,6 +1495,9 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     bearer_token=worker_target.bearer_token,
                     require_paused=False,
                     strict=False,
+                    min_memory_available_mib=worker_target.min_memory_available_mib
+                    if worker_target.min_memory_available_mib is not None
+                    else WorkerPreflightRequest.model_fields["min_memory_available_mib"].default,
                 ),
                 store.flags(),
             )

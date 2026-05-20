@@ -28,6 +28,7 @@ class WorkerTargetConfig(BaseModel):
     wake_gate_url: str
     bearer_token: str = ""
     role: str = ""
+    min_memory_available_mib: int | None = Field(default=None, ge=0)
 
 
 class GateConfig(BaseModel):
@@ -204,6 +205,7 @@ class GateConfig(BaseModel):
                 wake_gate_url=worker.wake_gate_url,
                 bearer_token=worker.bearer_token or self.worker_wake_gate_bearer_token,
                 role=worker.role,
+                min_memory_available_mib=worker.min_memory_available_mib,
             )
         return WorkerTargetConfig(
             wake_gate_url=self.worker_wake_gate_url,

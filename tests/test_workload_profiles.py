@@ -62,6 +62,7 @@ class WorkloadProfileTests(unittest.TestCase):
         self.assertEqual(config.workload_machine_targets["gpu_required"], "gb10")
         self.assertEqual(config.resolved_worker_target("cpu-proxmox-1").role, "cpu_worker")
         self.assertEqual(config.resolved_worker_target("gb10").role, "gpu_worker")
+        self.assertEqual(config.resolved_worker_target("cpu-proxmox-1").min_memory_available_mib, 8192)
         self.assertEqual(config.workload_class_for_machine_target("cpu-proxmox-1"), "cpu_only")
         self.assertEqual(config.workload_class_for_machine_target("gb10"), "gpu_required")
 

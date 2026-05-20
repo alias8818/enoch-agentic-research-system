@@ -4630,6 +4630,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                             "wake_gate_url": "http://cpu-proxmox-1:8787",
                             "bearer_token": "cpu-token",
                             "role": "cpu_worker",
+                            "min_memory_available_mib": 8192,
                         },
                     },
                 }
@@ -4666,6 +4667,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             called_payload = mocked_preflight.call_args.args[0]
             self.assertEqual(called_payload.wake_gate_url, "http://cpu-proxmox-1:8787")
             self.assertEqual(called_payload.bearer_token, "cpu-token")
+            self.assertEqual(called_payload.min_memory_available_mib, 8192)
             self.assertEqual({call[0] for call in calls}, {"http://cpu-proxmox-1:8787"})
             self.assertEqual({call[2] for call in calls}, {"cpu-token"})
             prepare_payload = next(call[3] for call in calls if call[1] == "/prepare-project")
