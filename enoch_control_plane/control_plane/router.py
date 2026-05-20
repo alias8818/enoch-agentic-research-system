@@ -4555,6 +4555,20 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     "min_memory_available_mib": target.min_memory_available_mib or payload.min_memory_available_mib,
                 }
             )
+        requested_url = (payload.wake_gate_url or "").strip().rstrip("/")
+        allowed_urls = {
+            _configured_worker_preflight_url().rstrip("/"),
+            *{
+                (target.wake_gate_url or "").strip().rstrip("/")
+                for target in config.worker_targets.values()
+                if (target.wake_gate_url or "").strip()
+            },
+        }
+        if requested_url and requested_url not in allowed_urls:
+            raise HTTPException(
+                status_code=400,
+                detail="wake_gate_url must match configured worker_wake_gate_url or a configured worker target; use machine_target for named routes",
+            )
         worker_host = urlparse((payload.wake_gate_url or "").strip()).hostname or ""
         if worker_host == "worker.example":
             return payload.model_copy(
