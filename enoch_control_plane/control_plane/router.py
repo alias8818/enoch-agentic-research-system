@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import io
 import hashlib
+import mimetypes
 from pathlib import Path, PurePosixPath
 import os
 import re
@@ -149,6 +150,7 @@ def _active_lane_signature(active_items: list[dict[str, Any]]) -> str:
 
 
 DASHBOARD_CSS_PATH = Path(__file__).with_name("dashboard.css")
+DASHBOARD_V2_DIST_PATH = Path(__file__).with_name("dashboard_v2")
 
 
 CONTROL_DASHBOARD_HTML = """
@@ -2418,6 +2420,26 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.get("/dashboard.css")
     def dashboard_css() -> Response:
         return Response(DASHBOARD_CSS_PATH.read_text(encoding="utf-8"), media_type="text/css", headers={"Cache-Control": "no-store"})
+
+    @router.get("/dashboard-v2", response_class=HTMLResponse)
+    def dashboard_v2() -> HTMLResponse:
+        index_path = DASHBOARD_V2_DIST_PATH / "index.html"
+        if not index_path.is_file():
+            raise HTTPException(status_code=503, detail="Dashboard V2 assets are missing; run npm --prefix dashboard run build.")
+        return HTMLResponse(index_path.read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
+
+    @router.get("/dashboard-v2/assets/{asset_path:path}")
+    def dashboard_v2_asset(asset_path: str) -> Response:
+        asset_root = (DASHBOARD_V2_DIST_PATH / "assets").resolve()
+        candidate = (asset_root / asset_path).resolve()
+        try:
+            candidate.relative_to(asset_root)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="asset not found") from None
+        if not candidate.is_file():
+            raise HTTPException(status_code=404, detail="asset not found")
+        media_type = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
+        return Response(candidate.read_bytes(), media_type=media_type, headers={"Cache-Control": "no-store"})
 
     @router.get("/health")
     def health(authorization: str | None = Header(default=None)) -> dict:

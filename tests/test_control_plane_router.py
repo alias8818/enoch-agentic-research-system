@@ -735,7 +735,10 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn(".copy-button", css_response.text)
             self.assertIn(".sparkline", css_response.text)
             self.assertIn("dialog::backdrop", css_response.text)
-            self.assertIn('enoch_control_plane = ["control_plane/*.css"]', Path("pyproject.toml").read_text(encoding="utf-8"))
+            pyproject_text = Path("pyproject.toml").read_text(encoding="utf-8")
+            self.assertIn("control_plane/*.css", pyproject_text)
+            self.assertIn("control_plane/dashboard_v2/index.html", pyproject_text)
+            self.assertIn("control_plane/dashboard_v2/assets/*", pyproject_text)
             self.assertIn("Supabase idea workbench", response.text)
             self.assertNotIn("Notion Intake", response.text)
             self.assertNotIn(">Notion</a>", response.text)
@@ -807,6 +810,46 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn(".system-state", css_response2.text)
             self.assertIn(".theme-toggle", css_response2.text)
             self.assertIn(".kpi-strip", css_response2.text)
+
+
+    def test_control_dashboard_v2_shell_and_assets_are_served_without_token(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            response = client.get("/control/dashboard-v2")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers.get("cache-control"), "no-store")
+            self.assertIn("Enoch Dashboard V2", response.text)
+            self.assertIn('id="enoch-dashboard-v2-root"', response.text)
+            self.assertIn("/control/dashboard-v2/assets/", response.text)
+            self.assertIn("Bearer token", response.text)
+
+            asset_name = response.text.split('/control/dashboard-v2/assets/', 1)[1].split('"', 1)[0]
+            asset = client.get(f"/control/dashboard-v2/assets/{asset_name}")
+            self.assertEqual(asset.status_code, 200)
+            self.assertIn(asset.headers.get("content-type", "").split(";", 1)[0], {"text/javascript", "application/javascript", "text/css"})
+
+
+    def test_control_dashboard_v2_asset_route_rejects_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+
+            for path in ("../router.py", "%2E%2E/router.py", "nested/../../router.py"):
+                response = client.get(f"/control/dashboard-v2/assets/{path}")
+                self.assertEqual(response.status_code, 404)
+
+    def test_control_dashboard_v2_does_not_replace_legacy_dashboard(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+
+            legacy = client.get("/control/dashboard")
+            v2 = client.get("/control/dashboard-v2")
+
+            self.assertEqual(legacy.status_code, 200)
+            self.assertEqual(v2.status_code, 200)
+            self.assertIn("CONTROL_DASHBOARD_HTML", Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8"))
+            self.assertIn("Professional operator console", legacy.text)
+            self.assertIn("Enoch Dashboard V2", v2.text)
 
     def test_research_facility_provider_budget_sanitizes_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

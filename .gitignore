@@ -7,6 +7,10 @@ coverage.json
 htmlcov/
 .mypy_cache/
 .ruff_cache/
+node_modules/
+dashboard/node_modules/
+dashboard/.vite/
+dashboard/*.tsbuildinfo
 *.egg-info/
 .env
 .env.*
