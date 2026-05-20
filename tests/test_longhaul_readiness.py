@@ -218,6 +218,23 @@ def test_multi_lane_active_queue_counts_are_consistent_when_all_lanes_busy() -> 
     assert check["data"]["worker_lane_capacity"] == 2
 
 
+def test_open_lane_queued_work_requires_top_level_next_candidate() -> None:
+    payload = _ready_payload()
+    payload["state"]["counts"].update({"queued": 1, "active": 1})
+    payload["state"]["next_candidate"] = None
+    payload["state"]["worker_lanes"] = [
+        {"configured": True, "machine_target": "cpu-proxmox-1", "status": "active", "active_count": 1, "queued_count": 0, "dispatch_available": False},
+        {"configured": True, "machine_target": "gb10", "status": "idle", "active_count": 0, "queued_count": 1, "dispatch_available": True},
+    ]
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is False
+    assert "queued/active state inconsistent" in result["blockers"]
+    check = next(item for item in result["checks"] if item["name"] == "queue_counts_consistent")
+    assert check["ok"] is False
+
+
 def test_multi_active_without_lane_capacity_blocks_queue_count_consistency() -> None:
     payload = _ready_payload()
     payload["state"]["counts"].update({"queued": 3, "active": 2})
