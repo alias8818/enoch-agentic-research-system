@@ -1475,17 +1475,20 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             str(row.get("updated_at") or ""),
         )
 
-    def _open_worker_dispatch_candidate() -> dict[str, Any] | None:
-        if store.flags().queue_paused:
-            return None
-        active_lane_keys = {_worker_lane_key(row) for row in store.active_items()}
+    def _queued_dispatch_candidates(rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
         candidates = [
-            row for row in store.queue_rows()
+            row for row in (rows if rows is not None else store.queue_rows())
             if _normal_status(row.get("status")) == "queued"
             and not _truthy_flag(row.get("manual_review_required"))
         ]
         candidates.sort(key=_dispatch_sort_key)
-        for candidate in candidates:
+        return candidates
+
+    def _open_worker_dispatch_candidate() -> dict[str, Any] | None:
+        if store.flags().queue_paused:
+            return None
+        active_lane_keys = {_worker_lane_key(row) for row in store.active_items()}
+        for candidate in _queued_dispatch_candidates():
             if _worker_lane_key(candidate) not in active_lane_keys:
                 return candidate
         return None
@@ -1540,12 +1543,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         queued_by_lane: dict[str, list[dict[str, Any]]] = {}
         for row in active_rows:
             active_by_lane.setdefault(_worker_lane_key(row), []).append(row)
-        queued_candidates = [
-            row for row in queue_rows
-            if _normal_status(row.get("status")) == "queued"
-            and not _truthy_flag(row.get("manual_review_required"))
-        ]
-        queued_candidates.sort(key=_dispatch_sort_key)
+        queued_candidates = _queued_dispatch_candidates(queue_rows)
         for row in queued_candidates:
             queued_by_lane.setdefault(_worker_lane_key(row), []).append(row)
 
@@ -1574,7 +1572,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             dispatch_blocker = ""
             if lane_active:
                 dispatch_blocker = "lane active"
-            elif global_blockers:
+            elif next_candidate and global_blockers:
                 dispatch_blocker = global_blockers[0]
             elif next_candidate:
                 dispatch_available = True
@@ -2027,7 +2025,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             blockers.append("live dispatch disabled")
             warnings.append(DashboardFinding(severity="warn", source="control_plane_config", authority="static operational config", message="live dispatch is disabled by config", suggested_action="enable live_dispatch_enabled only when ready"))
         open_worker_candidate = _open_worker_dispatch_candidate()
-        if active and not open_worker_candidate:
+        configured_lane_keys = {str(lane.get("lane_key") or "") for lane in _configured_worker_lanes()}
+        active_lane_keys = {_worker_lane_key(row) for row in active}
+        all_configured_lanes_active = bool(configured_lane_keys) and configured_lane_keys <= active_lane_keys
+        if active and not open_worker_candidate and (_queued_dispatch_candidates(rows) or all_configured_lanes_active):
             blockers.append("all configured worker lanes active")
         elif not flags.queue_paused and not flags.maintenance_mode and config.live_dispatch_enabled and not open_worker_candidate:
             blockers.append("no queued dispatch candidate")

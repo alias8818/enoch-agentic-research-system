@@ -3297,6 +3297,51 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(lanes["gb10"]["dispatch_available"])
             self.assertIn("all configured worker lanes active", status["dispatch_blockers"])
 
+    def test_dashboard_status_does_not_call_idle_empty_lane_active(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "lane-capacity-idle-empty-import",
+                "queue_rows": [
+                    {
+                        "project_id": "active-cpu",
+                        "project_name": "Active CPU",
+                        "project_dir": "active-cpu",
+                        "status": "awaiting_wake",
+                        "machine_target": "cpu-proxmox-1",
+                        "current_run_id": "run-active-cpu",
+                    },
+                ],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+
+            status = client.get("/control/api/status", headers=headers).json()
+
+            lanes = {lane["machine_target"]: lane for lane in status["worker_lanes"]}
+            self.assertEqual(lanes["gb10"]["status"], "idle")
+            self.assertEqual(lanes["gb10"]["dispatch_blocker"], "no queued candidate for lane")
+            self.assertIn("no queued dispatch candidate", status["dispatch_blockers"])
+            self.assertNotIn("all configured worker lanes active", status["dispatch_blockers"])
+
 
     def test_dashboard_status_flags_worker_live_without_vm_active_row_as_critical(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
