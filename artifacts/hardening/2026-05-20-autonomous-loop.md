@@ -45,5 +45,5 @@
   - `git diff --check` → passed.
   - `uv run pytest -q tests/test_supabase_store_helpers_more.py tests/test_supabase_runtime_cutover.py tests/test_control_plane_store.py -k 'worker_callback or runtime_store_exposes_dashboard_and_dispatch_methods'` → `23 passed, 136 deselected`.
   - `uv run pytest -q` → `1013 passed, 4 warnings, 37 subtests passed`.
-- **Live verification:** not deployed yet at ledger write time; runtime store backend must be checked before deployment.
-- **Commit:** pending at ledger write time.
+- **Live verification:** not deployed in this batch; runtime store backend must be checked before deployment.
+- **Commit:** `d0a043b` (`fix(supabase): upsert callback run rows`).
