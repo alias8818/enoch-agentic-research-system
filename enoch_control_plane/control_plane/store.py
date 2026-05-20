@@ -34,6 +34,7 @@ from .models import (
     ReviewStatus,
     RunState,
 )
+from .workload_routing import route_machine_target
 from .promising_signal_priority import promising_followup_priority_key, ranked_followup_readiness
 from .state_contract import RUN_STATES
 
@@ -2387,6 +2388,11 @@ class ControlPlaneStore:
             if not project_id:
                 skipped_rows.append({"reason": "missing project id", "title": title, "page_id": page_id})
                 continue
+            routing = route_machine_target(
+                raw,
+                default_machine_target=request.default_machine_target,
+                workload_machine_targets=request.workload_machine_targets,
+            )
             candidates.append({
                 "project_id": project_id,
                 "project_name": title,
@@ -2398,7 +2404,9 @@ class ControlPlaneStore:
                 "selection_rank": _priority_rank(raw),
                 "dispatch_priority": _priority_rank(raw),
                 "next_action_hint": "controller_review",
-                "machine_target": request.default_machine_target,
+                "machine_target": routing["machine_target"],
+                "workload_class": routing["workload_class"],
+                "routing_reason": routing["routing_reason"],
                 "model": request.default_model,
                 "sandbox": request.default_sandbox,
                 "source_row": raw,
@@ -2499,6 +2507,11 @@ class ControlPlaneStore:
                 continue
             rank = _int(_first_present(raw, "selection_rank", "dispatch_priority"), _priority_rank(raw))
             dispatch_priority = _int(_first_present(raw, "dispatch_priority", "selection_rank"), rank)
+            routing = route_machine_target(
+                raw,
+                default_machine_target=request.default_machine_target,
+                workload_machine_targets=request.workload_machine_targets,
+            )
             candidates.append({
                 "project_id": project_id,
                 "idea_id": project_id,
@@ -2509,7 +2522,9 @@ class ControlPlaneStore:
                 "selection_rank": rank,
                 "dispatch_priority": dispatch_priority,
                 "next_action_hint": "controller_review",
-                "machine_target": _text(_first_present(raw, "machine_target", "default_machine_target")) or request.default_machine_target,
+                "machine_target": routing["machine_target"],
+                "workload_class": routing["workload_class"],
+                "routing_reason": routing["routing_reason"],
                 "model": _text(_first_present(raw, "model", "default_model")) or request.default_model,
                 "sandbox": _text(_first_present(raw, "sandbox", "default_sandbox")) or request.default_sandbox,
                 "source_kind": _text(raw.get("source_kind")) or request.source or "supabase_native",

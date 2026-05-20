@@ -104,6 +104,87 @@ The control VM uses:
 - `worker_wake_gate_bearer_token` for authenticated worker checks;
 - `paper_evidence_sync_*` settings when importing evidence from worker project folders.
 
+## 4.1 Optional Proxmox CPU worker lane
+
+Use a separate Proxmox VM or CT for CPU-bound research tests that do not need
+the GB10 GPU. This keeps the GB10 lane available for GPU-required inference,
+training, and VRAM-sensitive speculative-decoding work while still letting
+bounded CPU-only jobs run unattended.
+
+This is target routing, not multi-lane parallelism. The controller still keeps
+one active dispatch lane at a time; the CPU worker prevents CPU-only jobs from
+landing on the GB10 when they are selected.
+
+The routing contract is deterministic:
+
+| Workload class | Machine target | Intended lane |
+| --- | --- | --- |
+| `cpu_only` | `cpu-proxmox-1` | Proxmox VM/CT CPU worker |
+| `gpu_required` | `gb10` | GB10 GPU worker |
+| unset/unknown | explicit row `machine_target`, then legacy worker default | Backward-compatible dispatch |
+
+Do not rely on a prompt or LLM note to pick the worker. Queue intake should set
+`workload_class`, and the control-plane config maps that class to the actual
+`machine_target`.
+
+Example control-plane config:
+
+```json
+{
+  "worker_wake_gate_url": "http://gb10-worker.example:8787",
+  "worker_wake_gate_bearer_token": "replace-with-gb10-worker-token",
+  "worker_targets": {
+    "gb10": {
+      "wake_gate_url": "http://gb10-worker.example:8787",
+      "bearer_token": "replace-with-gb10-worker-token",
+      "role": "gpu_worker"
+    },
+    "cpu-proxmox-1": {
+      "wake_gate_url": "http://cpu-proxmox-1.example:8787",
+      "bearer_token": "replace-with-cpu-worker-token",
+      "role": "cpu_worker"
+    }
+  },
+  "workload_machine_targets": {
+    "cpu_only": "cpu-proxmox-1",
+    "gpu_required": "gb10"
+  }
+}
+```
+
+Minimal Proxmox CPU worker setup:
+
+1. Create an Ubuntu or Debian VM/CT with persistent disk, network reachability
+   from the control VM, and enough CPU/RAM for local tests.
+2. Install `git`, `python3`, `uv`, Node.js if needed by Codex, and the Codex CLI
+   stack used by Enoch workers.
+3. Clone this repository on the CPU worker and install it with `uv pip install
+   -e .`.
+4. Create a worker config with a dedicated `state_dir`, `project_root`, and
+   `control_api_bearer_token`. Use a worker-specific token; do not reuse the
+   GB10 worker token.
+5. Run the worker gate on the CPU worker, normally on port `8787`, with systemd
+   using the same service pattern as the GB10 worker.
+6. Add the CPU worker under `worker_targets` on the control VM and map
+   `cpu_only` to that target under `workload_machine_targets`.
+7. Restart the control plane and run a dry dispatch. A CPU-only candidate should
+   include:
+
+```json
+{
+  "machine_target": "cpu-proxmox-1",
+  "dispatch_route": {
+    "wake_gate_url": "http://cpu-proxmox-1.example:8787",
+    "worker_role": "cpu_worker"
+  }
+}
+```
+
+Only enable live dispatch after the dry-run route and CPU worker preflight are
+both clean. If the CPU worker is unavailable, keep `cpu_only` unmapped until the
+VM/CT is ready; unmapped rows fall back to explicit `machine_target` or the
+legacy worker default.
+
 ## 5. Install systemd service on the control VM
 
 ```bash

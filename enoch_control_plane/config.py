@@ -7,6 +7,9 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class WorkloadClass(str, Enum):
+    UNKNOWN = "unknown"
+    CPU_ONLY = "cpu_only"
+    GPU_REQUIRED = "gpu_required"
     INFERENCE_EVAL = "inference_eval"
     TRAINING = "training"
     CONTROL_PLANE = "control_plane"
@@ -19,6 +22,12 @@ class GateThresholdProfile(BaseModel):
     gpu_idle_avg_threshold_pct: float = Field(ge=0.0, le=100.0)
     gpu_idle_peak_threshold_pct: float = Field(ge=0.0, le=100.0)
     vram_delta_threshold_mib: int = Field(ge=0)
+
+
+class WorkerTargetConfig(BaseModel):
+    wake_gate_url: str
+    bearer_token: str = ""
+    role: str = ""
 
 
 class GateConfig(BaseModel):
@@ -64,6 +73,8 @@ class GateConfig(BaseModel):
     live_dispatch_enabled: bool = False
     worker_wake_gate_url: str = "http://worker.example:8787"
     worker_wake_gate_bearer_token: str = ""
+    worker_targets: dict[str, WorkerTargetConfig] = Field(default_factory=dict)
+    workload_machine_targets: dict[str, str] = Field(default_factory=dict)
     pushover_alerts_enabled: bool = False
     pushover_app_token: str = ""
     pushover_user_key: str = ""
@@ -143,6 +154,9 @@ class GateConfig(BaseModel):
             vram_delta_threshold_mib=self.vram_delta_threshold_mib,
         )
         profiles = {
+            WorkloadClass.UNKNOWN.value: inference_eval.model_copy(deep=True),
+            WorkloadClass.CPU_ONLY.value: inference_eval.model_copy(deep=True),
+            WorkloadClass.GPU_REQUIRED.value: training.model_copy(deep=True),
             WorkloadClass.INFERENCE_EVAL.value: inference_eval,
             WorkloadClass.TRAINING.value: training,
             WorkloadClass.CONTROL_PLANE.value: inference_eval.model_copy(deep=True),
@@ -176,3 +190,32 @@ class GateConfig(BaseModel):
     ) -> tuple[str, GateThresholdProfile]:
         workload_class = self.normalize_workload_class(raw)
         return workload_class, self.workload_profile_map()[workload_class]
+
+    def resolved_worker_target(self, machine_target: str | None) -> WorkerTargetConfig:
+        target = (machine_target or "").strip()
+        if target and target in self.worker_targets:
+            raw_worker = self.worker_targets[target]
+            worker = (
+                raw_worker
+                if isinstance(raw_worker, WorkerTargetConfig)
+                else WorkerTargetConfig.model_validate(raw_worker)
+            )
+            return WorkerTargetConfig(
+                wake_gate_url=worker.wake_gate_url,
+                bearer_token=worker.bearer_token or self.worker_wake_gate_bearer_token,
+                role=worker.role,
+            )
+        return WorkerTargetConfig(
+            wake_gate_url=self.worker_wake_gate_url,
+            bearer_token=self.worker_wake_gate_bearer_token,
+            role="default",
+        )
+
+    def workload_class_for_machine_target(self, machine_target: str | None, raw: str | None = None) -> str:
+        if (raw or "").strip():
+            return self.normalize_workload_class(raw)
+        target = (machine_target or "").strip()
+        for mapped_workload_class, mapped_target in self.workload_machine_targets.items():
+            if str(mapped_target).strip() == target:
+                return self.normalize_workload_class(str(mapped_workload_class))
+        return self.default_workload_class.value

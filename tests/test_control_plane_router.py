@@ -4522,6 +4522,109 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(rows["idea-two"]["status"], "queued")
             self.assertFalse(rows["idea-two"].get("current_run_id"))
 
+    def test_cpu_only_dry_run_dispatch_selects_cpu_worker_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "workload_machine_targets": {"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10"},
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            intake = client.post("/control/intake/ideas", headers=headers, json={
+                "idempotency_key": "router-cpu-routing-intake",
+                "dry_run": False,
+                "include_statuses": ["testing"],
+                "default_machine_target": "gb10",
+                "ideas": [{
+                    "idea_id": "router-cpu-routing",
+                    "title": "Router CPU Routing",
+                    "idea_status": "testing",
+                    "workload_class": "cpu_only",
+                    "machine_target": "gb10",
+                }],
+            })
+            self.assertEqual(intake.status_code, 200)
+
+            dry_run = client.post("/control/dispatch-next", headers=headers, json={"dry_run": True})
+
+            self.assertEqual(dry_run.status_code, 200)
+            body = dry_run.json()
+            self.assertEqual(body["action"], "dry_run_dispatch")
+            self.assertEqual(body["candidate"]["machine_target"], "cpu-proxmox-1")
+            self.assertEqual(body["candidate"]["dispatch_route"]["wake_gate_url"], "http://cpu-proxmox-1:8787")
+            self.assertEqual(body["candidate"]["dispatch_route"]["worker_role"], "cpu_worker")
+
+    def test_live_dispatch_uses_configured_cpu_worker_endpoint_for_cpu_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "workload_machine_targets": {"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10"},
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "dispatch-cpu-target-import",
+                "queue_rows": [{
+                    "project_id": "dispatch-cpu-target",
+                    "project_name": "Dispatch CPU Target",
+                    "project_dir": "dispatch-cpu-target",
+                    "status": "queued",
+                    "machine_target": "cpu-proxmox-1",
+                }],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            preflight = WorkerPreflightResponse(ok=True, target="http://cpu-proxmox-1:8787", summary="ok", checks=[])
+            calls = []
+
+            def fake_post(base: str, path: str, token: str, payload: dict) -> HttpResult:
+                calls.append((base, path, token, payload))
+                if path == "/prepare-project":
+                    return HttpResult(ok=True, status=200, body={"prepared": payload["project_id"]})
+                if path == "/dispatch":
+                    return HttpResult(ok=True, status=200, body={"dispatch": {"session_id": "session-cpu"}})
+                return HttpResult(ok=False, status=404, body=None, error="unexpected path")
+
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=preflight) as mocked_preflight, \
+                 patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post):
+                response = client.post("/control/dispatch-next", headers=headers, json={"dry_run": False})
+
+            self.assertEqual(response.status_code, 200)
+            called_payload = mocked_preflight.call_args.args[0]
+            self.assertEqual(called_payload.wake_gate_url, "http://cpu-proxmox-1:8787")
+            self.assertEqual(called_payload.bearer_token, "cpu-token")
+            self.assertEqual({call[0] for call in calls}, {"http://cpu-proxmox-1:8787"})
+            self.assertEqual({call[2] for call in calls}, {"cpu-token"})
+            prepare_payload = next(call[3] for call in calls if call[1] == "/prepare-project")
+            self.assertEqual(prepare_payload["metadata"]["workload_class"], "cpu_only")
+            self.assertEqual(prepare_payload["metadata"]["machine_target"], "cpu-proxmox-1")
+            self.assertEqual(response.json()["live"]["dispatch_route"]["worker_role"], "cpu_worker")
+
     def test_dispatch_one_live_tolerates_malformed_dispatch_success_body(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp)

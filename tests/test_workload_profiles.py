@@ -40,6 +40,31 @@ class WorkloadProfileTests(unittest.TestCase):
             _normalize_prepare_metadata({"workload_class": "burst_eval"})
         self.assertEqual(raised.exception.status_code, 400)
 
+    def test_config_accepts_cpu_only_and_gpu_required_workload_classes(self) -> None:
+        config = GateConfig(
+            state_dir="/tmp/enoch-worker-gate-test",
+            project_root="/tmp/enoch-worker-gate-test",
+            dispatch_script_path="/tmp/enoch-worker-gate-test/dispatch.sh",
+            control_api_bearer_token="secret",
+            completion_callback_url="http://127.0.0.1/callback",
+            completion_callback_token="callback-token",
+        )
+
+        self.assertEqual(config.resolve_workload_profile("cpu-only")[0], "cpu_only")
+        self.assertEqual(config.resolve_workload_profile("gpu_required")[0], "gpu_required")
+
+    def test_config_example_declares_cpu_and_gpu_worker_targets(self) -> None:
+        config_path = Path(__file__).resolve().parents[1] / "config.example.json"
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+        config = GateConfig.model_validate(payload)
+
+        self.assertEqual(config.workload_machine_targets["cpu_only"], "cpu-proxmox-1")
+        self.assertEqual(config.workload_machine_targets["gpu_required"], "gb10")
+        self.assertEqual(config.resolved_worker_target("cpu-proxmox-1").role, "cpu_worker")
+        self.assertEqual(config.resolved_worker_target("gb10").role, "gpu_worker")
+        self.assertEqual(config.workload_class_for_machine_target("cpu-proxmox-1"), "cpu_only")
+        self.assertEqual(config.workload_class_for_machine_target("gb10"), "gpu_required")
+
     def test_project_metadata_resolution_defaults_to_inference_eval(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp)

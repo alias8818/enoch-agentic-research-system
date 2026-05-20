@@ -98,6 +98,7 @@ class NotionIntakeRequest(BaseModel):
     dry_run: bool = True
     include_statuses: list[str] = Field(default_factory=lambda: ["exploring", "testing"])
     default_machine_target: str = "worker.example"
+    workload_machine_targets: dict[str, str] = Field(default_factory=dict)
     default_model: str = "gpt-5.5"
     default_sandbox: str = "danger-full-access"
     override_existing_dispatch_metadata: bool = False
@@ -121,6 +122,7 @@ class IdeaIntakeRequest(BaseModel):
     dry_run: bool = True
     include_statuses: list[str] = Field(default_factory=lambda: ["exploring", "testing"])
     default_machine_target: str = "worker.example"
+    workload_machine_targets: dict[str, str] = Field(default_factory=dict)
     default_model: str = "gpt-5.5"
     default_sandbox: str = "danger-full-access"
     override_existing_dispatch_metadata: bool = False
@@ -437,6 +439,7 @@ class LiveDispatchResult(BaseModel):
     prepare: dict[str, Any] = Field(default_factory=dict)
     dispatch: dict[str, Any] = Field(default_factory=dict)
     preflight: WorkerPreflightResponse | None = None
+    dispatch_route: dict[str, Any] = Field(default_factory=dict)
 
 
 class DispatchNextResponse(BaseModel):

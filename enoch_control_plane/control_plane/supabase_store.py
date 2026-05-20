@@ -76,6 +76,7 @@ from .store import (
     _snapshot_rows,
     _text,
 )
+from .workload_routing import route_machine_target
 
 
 ConnectionFactory = Callable[[], Any]
@@ -2515,6 +2516,11 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 skipped_rows.append({"reason": "missing project id", "title": title, "page_id": page_id})
                 continue
             rank = _priority_rank(raw)
+            routing = route_machine_target(
+                raw,
+                default_machine_target=request.default_machine_target,
+                workload_machine_targets=request.workload_machine_targets,
+            )
             candidates.append({
                 "project_id": project_id,
                 "project_name": title,
@@ -2526,7 +2532,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 "selection_rank": rank,
                 "dispatch_priority": rank,
                 "next_action_hint": "controller_review",
-                "machine_target": request.default_machine_target,
+                "machine_target": routing["machine_target"],
+                "workload_class": routing["workload_class"],
+                "routing_reason": routing["routing_reason"],
                 "model": request.default_model,
                 "sandbox": request.default_sandbox,
                 "source_kind": request.source or "notion",
@@ -2630,6 +2638,11 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 continue
             rank = _int(_first_present(raw, "selection_rank", "dispatch_priority"), _priority_rank(raw))
             dispatch_priority = _int(_first_present(raw, "dispatch_priority", "selection_rank"), rank)
+            routing = route_machine_target(
+                raw,
+                default_machine_target=request.default_machine_target,
+                workload_machine_targets=request.workload_machine_targets,
+            )
             candidates.append({
                 "project_id": project_id,
                 "idea_id": project_id,
@@ -2640,7 +2653,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 "selection_rank": rank,
                 "dispatch_priority": dispatch_priority,
                 "next_action_hint": "controller_review",
-                "machine_target": _text(_first_present(raw, "machine_target", "default_machine_target")) or request.default_machine_target,
+                "machine_target": routing["machine_target"],
+                "workload_class": routing["workload_class"],
+                "routing_reason": routing["routing_reason"],
                 "model": _text(_first_present(raw, "model", "default_model")) or request.default_model,
                 "sandbox": _text(_first_present(raw, "sandbox", "default_sandbox")) or request.default_sandbox,
                 "source_kind": _text(raw.get("source_kind")) or request.source or "supabase_native",

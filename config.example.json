@@ -27,6 +27,20 @@
       "gpu_idle_avg_threshold_pct": 10.0,
       "gpu_idle_peak_threshold_pct": 20.0,
       "vram_delta_threshold_mib": 1024
+    },
+    "cpu_only": {
+      "idle_sustain_sec": 300,
+      "cpu_idle_threshold_pct": 20.0,
+      "gpu_idle_avg_threshold_pct": 10.0,
+      "gpu_idle_peak_threshold_pct": 20.0,
+      "vram_delta_threshold_mib": 1024
+    },
+    "gpu_required": {
+      "idle_sustain_sec": 180,
+      "cpu_idle_threshold_pct": 35.0,
+      "gpu_idle_avg_threshold_pct": 10.0,
+      "gpu_idle_peak_threshold_pct": 20.0,
+      "vram_delta_threshold_mib": 1024
     }
   },
   "max_wait_after_idle_sec": 43200,
@@ -43,6 +57,24 @@
   "completion_callback_url": "https://automation.example.com/webhook/enoch-worker-callback",
   "completion_callback_token": "replace-with-callback-token",
   "completion_callback_timeout_sec": 120,
+  "worker_wake_gate_url": "http://worker.example:8787",
+  "worker_wake_gate_bearer_token": "replace-with-worker-token",
+  "worker_targets": {
+    "gb10": {
+      "wake_gate_url": "http://gb10-worker.example:8787",
+      "bearer_token": "replace-with-gb10-worker-token",
+      "role": "gpu_worker"
+    },
+    "cpu-proxmox-1": {
+      "wake_gate_url": "http://cpu-proxmox-1.example:8787",
+      "bearer_token": "replace-with-cpu-worker-token",
+      "role": "cpu_worker"
+    }
+  },
+  "workload_machine_targets": {
+    "cpu_only": "cpu-proxmox-1",
+    "gpu_required": "gb10"
+  },
   "log_events": true,
   "pushover_alerts_enabled": false,
   "pushover_app_token": "",

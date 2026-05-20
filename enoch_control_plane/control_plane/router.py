@@ -1446,6 +1446,19 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         notification = _alert_paper_evidence_blocked(project_id=project_id, run_id=run_id, paper_id=paper_id, reason=reason)
         return {**notification, "event_id": event_id}
 
+    def _annotate_dispatch_route(candidate: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not candidate:
+            return candidate
+        target = config.resolved_worker_target(str(candidate.get("machine_target") or ""))
+        return {
+            **candidate,
+            "dispatch_route": {
+                "machine_target": str(candidate.get("machine_target") or ""),
+                "wake_gate_url": target.wake_gate_url,
+                "worker_role": target.role,
+            },
+        }
+
 
     def _live_dispatch(candidate: dict, requested_by: str, force_preflight: bool, *, allow_paused: bool = False) -> tuple[dict, int | None, dict]:
         if not config.live_dispatch_enabled:
@@ -1456,25 +1469,30 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             raise HTTPException(status_code=409, detail="control plane must be out of maintenance mode before live dispatch")
         if flags.queue_paused and not allow_paused:
             raise HTTPException(status_code=409, detail="control plane must be resumed before live dispatch")
-        if not config.worker_wake_gate_bearer_token:
-            raise HTTPException(status_code=500, detail="worker wake-gate bearer token is not configured")
         project_id = str(candidate.get("project_id") or "").strip()
         if not project_id:
             raise HTTPException(status_code=400, detail="candidate lacks project_id")
+        worker_target = config.resolved_worker_target(str(candidate.get("machine_target") or ""))
+        if not worker_target.bearer_token:
+            raise HTTPException(status_code=500, detail=f"worker bearer token is not configured for machine_target={candidate.get('machine_target') or 'default'}")
         project_dir = _safe_slug(str(candidate.get("project_dir") or project_id), project_id)
         run_id = _live_run_id(project_id)
         claim = store.claim_dispatch_candidate(project_id=project_id, run_id=run_id, requested_by=requested_by)
         if not claim:
             raise HTTPException(status_code=409, detail="dispatch candidate was already claimed or is no longer queued")
         candidate = claim
+        worker_target = config.resolved_worker_target(str(candidate.get("machine_target") or ""))
+        if not worker_target.bearer_token:
+            store.release_dispatch_claim(project_id=project_id, run_id=run_id, reason="worker bearer token missing for routed target")
+            raise HTTPException(status_code=500, detail=f"worker bearer token is not configured for machine_target={candidate.get('machine_target') or 'default'}")
         # Live dispatch is never allowed to bypass fresh worker evidence.  The
         # request field remains for API compatibility, but the control plane
         # always performs the non-mutating worker preflight before prepare/dispatch.
         try:
             preflight = run_worker_preflight(
                 WorkerPreflightRequest(
-                    wake_gate_url=config.worker_wake_gate_url,
-                    bearer_token=config.worker_wake_gate_bearer_token,
+                    wake_gate_url=worker_target.wake_gate_url,
+                    bearer_token=worker_target.bearer_token,
                     require_paused=False,
                     strict=False,
                 ),
@@ -1490,6 +1508,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             raise HTTPException(status_code=409, detail={"message": "worker preflight failed", "preflight": preflight.model_dump(mode="json"), "force_preflight_ignored": not force_preflight})
         prompt_file = f"{project_dir}/prompts/initial.md"
         resume_prompt_file = f"{project_dir}/prompts/resume.md"
+        workload_class = config.workload_class_for_machine_target(
+            str(candidate.get("machine_target") or ""),
+            str(candidate.get("workload_class") or ""),
+        )
         prepare_payload = {
             "run_id": run_id,
             "project_id": project_id,
@@ -1500,10 +1522,16 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "prompt_text": _project_prompt(candidate),
             "resume_prompt_file": resume_prompt_file,
             "resume_prompt_text": _project_prompt(candidate) + "\n\nResume from the existing project artifacts and continue to a verified decision.\n",
-            "metadata": {"workload_class": "inference_eval", "source": "langgraph_control_plane", "requested_by": requested_by},
+            "metadata": {
+                "workload_class": workload_class,
+                "machine_target": str(candidate.get("machine_target") or ""),
+                "dispatch_route": worker_target.model_dump(mode="json"),
+                "source": "langgraph_control_plane",
+                "requested_by": requested_by,
+            },
             "overwrite": True,
         }
-        prepare = post_worker_json(config.worker_wake_gate_url, "/prepare-project", config.worker_wake_gate_bearer_token, prepare_payload)
+        prepare = post_worker_json(worker_target.wake_gate_url, "/prepare-project", worker_target.bearer_token, prepare_payload)
         if not prepare.ok:
             store.release_dispatch_claim(project_id=project_id, run_id=run_id, reason="worker prepare-project failed")
             raise HTTPException(status_code=502, detail={"message": "worker prepare-project failed", "status": prepare.status, "error": prepare.error, "body": prepare.body})
@@ -1518,7 +1546,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "reasoning_effort": "medium",
             "sandbox": str(candidate.get("sandbox") or "danger-full-access"),
         }
-        dispatch = post_worker_json(config.worker_wake_gate_url, "/dispatch", config.worker_wake_gate_bearer_token, dispatch_payload)
+        dispatch = post_worker_json(worker_target.wake_gate_url, "/dispatch", worker_target.bearer_token, dispatch_payload)
         if not dispatch.ok:
             store.release_dispatch_claim(project_id=project_id, run_id=run_id, reason="worker dispatch failed")
             raise HTTPException(status_code=502, detail={"message": "worker dispatch failed", "status": dispatch.status, "error": dispatch.error, "body": dispatch.body})
@@ -1540,6 +1568,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "prepare": prepare_body,
             "dispatch": body,
             "preflight": preflight.model_dump(mode="json") if preflight else None,
+            "dispatch_route": {
+                "machine_target": str(candidate.get("machine_target") or ""),
+                "wake_gate_url": worker_target.wake_gate_url,
+                "worker_role": worker_target.role,
+            },
         }, event_id, updated_candidate
 
     def state_response() -> ControlStateResponse:
@@ -4349,6 +4382,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             configured_worker = urlparse(config.worker_wake_gate_url).hostname or ""
             if configured_worker:
                 payload = payload.model_copy(update={"default_machine_target": configured_worker})
+        if config.workload_machine_targets and not payload.workload_machine_targets:
+            payload = payload.model_copy(update={"workload_machine_targets": config.workload_machine_targets})
         try:
             inserted, created, updated, skipped, candidates, skipped_rows = store.ingest_notion_ideas(payload)
         except IdempotencyConflict as exc:
@@ -4380,6 +4415,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             configured_worker = urlparse(config.worker_wake_gate_url).hostname or ""
             if configured_worker:
                 payload = payload.model_copy(update={"default_machine_target": configured_worker})
+        if config.workload_machine_targets and not payload.workload_machine_targets:
+            payload = payload.model_copy(update={"workload_machine_targets": config.workload_machine_targets})
         try:
             inserted, created, updated, skipped, candidates, skipped_rows = store.ingest_ideas(payload)
         except IdempotencyConflict as exc:
@@ -4475,11 +4512,12 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         graph = build_dispatch_graph(store)
         result = graph.invoke({"requested_by": payload.requested_by, "dry_run": True})
         action = result.get("action") or "noop"
+        candidate = _annotate_dispatch_route(result.get("candidate"))
         return DispatchNextResponse(
             ok=action in {"paused", "noop", "dry_run_dispatch"},
             action=action,
             reason=result.get("reason") or "",
-            candidate=result.get("candidate"),
+            candidate=candidate,
             active_count=int(result.get("active_count") or 0),
             event_id=result.get("event_id"),
         )
@@ -4506,7 +4544,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 ok=True,
                 action="dry_run_dispatch_one",
                 reason="dry-run selected explicit queued candidate; no state mutated",
-                candidate=candidate,
+                candidate=_annotate_dispatch_route(candidate),
                 active_count=0,
             )
         live, event_id, updated_candidate = _live_dispatch(

@@ -248,6 +248,59 @@ class ControlPlaneStoreTests(unittest.TestCase):
 
             self.assertEqual(store.project_row("origin-status-project")["origin_idea_status"], "testing")
 
+    def test_native_intake_routes_cpu_only_to_cpu_worker_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+
+            inserted, created, updated, skipped, candidates, skipped_rows = store.ingest_ideas(
+                IdeaIntakeRequest(
+                    source="unit",
+                    idempotency_key="native-route-cpu-only",
+                    dry_run=True,
+                    include_statuses=("testing",),
+                    default_machine_target="gb10",
+                    workload_machine_targets={"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10"},
+                    ideas=[{
+                        "idea_id": "cpu-only-routing",
+                        "title": "CPU-only routing",
+                        "idea_status": "testing",
+                        "workload_class": "cpu_only",
+                        "machine_target": "gb10",
+                    }],
+                )
+            )
+
+            self.assertFalse(inserted)
+            self.assertEqual((created, updated, skipped), (0, 0, 0))
+            self.assertEqual(skipped_rows, [])
+            self.assertEqual(candidates[0]["machine_target"], "cpu-proxmox-1")
+            self.assertEqual(candidates[0]["workload_class"], "cpu_only")
+            self.assertEqual(candidates[0]["routing_reason"], "workload_class:cpu_only")
+
+    def test_native_intake_keeps_gpu_required_on_gb10(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+
+            _inserted, _created, _updated, _skipped, candidates, _skipped_rows = store.ingest_ideas(
+                IdeaIntakeRequest(
+                    source="unit",
+                    idempotency_key="native-route-gpu-required",
+                    dry_run=True,
+                    include_statuses=("testing",),
+                    default_machine_target="cpu-proxmox-1",
+                    workload_machine_targets={"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10"},
+                    ideas=[{
+                        "idea_id": "gpu-routing",
+                        "title": "GPU routing",
+                        "idea_status": "testing",
+                        "workload_class": "gpu_required",
+                    }],
+                )
+            )
+
+            self.assertEqual(candidates[0]["machine_target"], "gb10")
+            self.assertEqual(candidates[0]["workload_class"], "gpu_required")
+
     def test_import_snapshot_rejects_conflicting_duplicate_queue_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
