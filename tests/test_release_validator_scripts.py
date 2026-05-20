@@ -110,3 +110,28 @@ def test_generate_ecosystem_manifest_includes_promising_signal_count(tmp_path, m
     manifest = json.loads(output.read_text(encoding="utf-8"))
     assert manifest["promising_signal_count"] == 2
     assert manifest["repos"]["promising_signals"]["name"] == "alias8818/enoch-promising-signals"
+
+
+def test_generate_ecosystem_manifest_rejects_boolean_counts(tmp_path, monkeypatch) -> None:
+    system = tmp_path / "system"
+    docs = tmp_path / "docs"
+    corpus = tmp_path / "corpus"
+    system.mkdir()
+    docs.mkdir()
+    (corpus / "papers").mkdir(parents=True)
+    (corpus / "quality").mkdir()
+    (corpus / "papers" / "index.json").write_text(json.dumps({"count": True, "papers": [{}]}), encoding="utf-8")
+    (corpus / "quality" / "quality_report.json").write_text(json.dumps({"count": True, "passed": True}), encoding="utf-8")
+    output = tmp_path / "ecosystem.json"
+
+    monkeypatch.setattr(sys, "argv", [
+        "generate_ecosystem_manifest.py",
+        "--system", str(system),
+        "--docs", str(docs),
+        "--corpus", str(corpus),
+        "--output", str(output),
+    ])
+
+    with pytest.raises(SystemExit, match="corpus index count must be a non-negative integer"):
+        generate_ecosystem_manifest.main()
+    assert not output.exists()

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from scripts.update_public_release_counts import update_text
+import json
+
+import pytest
+
+from scripts.update_public_release_counts import artifact_stats, update_text
 
 
 def test_update_text_rewrites_current_public_count_phrases_without_touching_history() -> None:
@@ -65,3 +69,15 @@ def test_update_text_rewrites_current_public_count_phrases_without_touching_hist
     assert "9 later finalized corpus imports moved the live denominator to 385" in updated
     assert "376 unique topics, not 497 directory entries" in updated
     assert "1,1,429" not in updated
+
+
+def test_artifact_stats_rejects_boolean_counts(tmp_path) -> None:
+    corpus = tmp_path / "enoch-ai-research-corpus"
+    (corpus / "papers").mkdir(parents=True)
+    (corpus / "quality").mkdir()
+    (corpus / "papers" / "index.json").write_text(json.dumps({"count": True, "papers": [{}]}), encoding="utf-8")
+    (corpus / "quality" / "quality_report.json").write_text(json.dumps({"passed": 1}), encoding="utf-8")
+    (corpus / "quality" / "claim_evidence_audit.json").write_text(json.dumps({"count": 1, "strict_claim_evidence_pass_count": 1}), encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="artifact_count must be a non-negative integer"):
+        artifact_stats(tmp_path)

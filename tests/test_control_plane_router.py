@@ -3351,6 +3351,46 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(lanes["gb10"]["dispatch_available"])
             self.assertIn("all configured worker lanes active", status["dispatch_blockers"])
 
+    def test_overview_and_lanes_top_level_next_candidate_require_open_lane(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "lane-aware-overview-next-import",
+                "queue_rows": [
+                    {"project_id": "active-cpu", "project_name": "Active CPU", "project_dir": "active-cpu", "status": "awaiting_wake", "machine_target": "cpu-proxmox-1", "current_run_id": "run-active-cpu"},
+                    {"project_id": "active-gpu", "project_name": "Active GPU", "project_dir": "active-gpu", "status": "awaiting_wake", "machine_target": "gb10", "current_run_id": "run-active-gpu"},
+                    {"project_id": "queued-cpu", "project_name": "Queued CPU", "project_dir": "queued-cpu", "status": "queued", "machine_target": "cpu-proxmox-1", "dispatch_priority": 1},
+                    {"project_id": "queued-gpu", "project_name": "Queued GPU", "project_dir": "queued-gpu", "status": "queued", "machine_target": "gb10", "dispatch_priority": 1},
+                ],
+            })
+
+            status = client.get("/control/api/status", headers=headers).json()
+            overview = client.get("/control/api/v1/overview", headers=headers).json()
+            lanes = client.get("/control/api/v1/lanes", headers=headers).json()
+
+            self.assertIsNone(status["next_candidate"])
+            self.assertIsNone(overview["next_candidate"])
+            self.assertIsNone(lanes["next_candidate"])
+
     def test_dashboard_status_does_not_call_idle_empty_lane_active(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp).model_copy(

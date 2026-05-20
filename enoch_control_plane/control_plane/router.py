@@ -2602,6 +2602,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     ) -> dict[str, Any]:
         authorize(authorization)
         data = read_models.overview(store, active_limit=active_limit, event_limit=event_limit)
+        open_candidate = _open_worker_dispatch_candidate()
+        data["next_candidate"] = read_models.summarize_queue_row(open_candidate) if open_candidate else None
         return {
             "ok": True,
             "source": "control_api_v1_overview",
@@ -2644,7 +2646,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     def dashboard_v1_lanes(authorization: str | None = Header(default=None)) -> dict[str, Any]:
         authorize(authorization)
         active = [read_models.summarize_queue_row(row) for row in store.active_items_sql(limit=10)]
-        next_candidate = store.next_candidate_sql()
+        next_candidate = _open_worker_dispatch_candidate()
         return {
             "ok": True,
             "source": "control_api_v1_lanes",

@@ -35,22 +35,28 @@ def fmt_int(value: int) -> str:
     return f"{value:,}"
 
 
+def require_nonnegative_int(value: object, *, label: str) -> int:
+    if type(value) is not int or value < 0:
+        raise SystemExit(f"{label} must be a non-negative integer")
+    return value
+
+
 def artifact_stats(root: Path) -> dict[str, int]:
     corpus = root / "enoch-ai-research-corpus"
     index = load_json(corpus / "papers" / "index.json")
     quality = load_json(corpus / "quality" / "quality_report.json")
     claim = load_json(corpus / "quality" / "claim_evidence_audit.json")
-    artifact_count = int(index.get("count", len(index.get("papers", []))))
-    strict_pass = int(claim.get("strict_claim_evidence_pass_count", 0))
+    artifact_count = require_nonnegative_int(index.get("count", len(index.get("papers", []))), label="artifact_count")
+    strict_pass = require_nonnegative_int(claim.get("strict_claim_evidence_pass_count", 0), label="strict_pass")
     return {
         "artifact_count": artifact_count,
-        "packaging_pass": int(quality.get("passed", artifact_count)),
+        "packaging_pass": require_nonnegative_int(quality.get("passed", artifact_count), label="packaging_pass"),
         "strict_pass": strict_pass,
-        "strict_total": int(claim.get("count", artifact_count)),
+        "strict_total": require_nonnegative_int(claim.get("count", artifact_count), label="strict_total"),
         "strict_fail": artifact_count - strict_pass,
-        "empty_claim_ledgers": int(claim.get("claim_ledgers_empty", claim.get("empty_claim_ledgers", 0))),
-        "result_file_refs": int(claim.get("result_file_refs", 0)),
-        "result_file_refs_missing": int(claim.get("result_file_refs_missing", 0)),
+        "empty_claim_ledgers": require_nonnegative_int(claim.get("claim_ledgers_empty", claim.get("empty_claim_ledgers", 0)), label="empty_claim_ledgers"),
+        "result_file_refs": require_nonnegative_int(claim.get("result_file_refs", 0), label="result_file_refs"),
+        "result_file_refs_missing": require_nonnegative_int(claim.get("result_file_refs_missing", 0), label="result_file_refs_missing"),
         "post_dedupe_imports": max(0, artifact_count - DEDUPE_BASELINE),
     }
 

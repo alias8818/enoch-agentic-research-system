@@ -12,6 +12,12 @@ def load_json(path: Path) -> dict:
         return json.load(handle)
 
 
+def require_nonnegative_int(value: object, *, label: str) -> int:
+    if type(value) is not int or value < 0:
+        raise SystemExit(f"{label} must be a non-negative integer")
+    return value
+
+
 def require_repo_path(label: str, path: Path) -> Path:
     resolved = path.resolve()
     if not resolved.exists():
@@ -39,12 +45,12 @@ def main() -> int:
     claim_audit_path = corpus / "quality" / "claim_evidence_audit.json"
     claim_audit = load_json(claim_audit_path) if claim_audit_path.exists() else report.get("claim_evidence_audit", {})
 
-    artifact_count = int(index.get("count", len(index.get("papers", []))))
+    artifact_count = require_nonnegative_int(index.get("count", len(index.get("papers", []))), label="corpus index count")
     promising_signal_count = 0
     if promising:
         signals_path = promising / "data" / "signals.jsonl"
         promising_signal_count = sum(1 for line in signals_path.read_text(encoding="utf-8").splitlines() if line.strip())
-    pass_count = int(report["passed"])
+    pass_count = require_nonnegative_int(report.get("passed"), label="packaging provenance pass count")
     gate_name = report.get("gate_name", "packaging_provenance_gate")
     gate_version = report.get("gate_version", "1.0")
 
@@ -53,14 +59,14 @@ def main() -> int:
         "artifact_count": artifact_count,
         "promising_signal_count": promising_signal_count,
         "packaging_provenance_pass_count": pass_count,
-        "strict_claim_evidence_pass_count": int(claim_audit.get("strict_claim_evidence_pass_count", 0)),
-        "strict_claim_evidence_total_count": int(claim_audit.get("count", artifact_count)),
+        "strict_claim_evidence_pass_count": require_nonnegative_int(claim_audit.get("strict_claim_evidence_pass_count", 0), label="strict claim/evidence pass count"),
+        "strict_claim_evidence_total_count": require_nonnegative_int(claim_audit.get("count", artifact_count), label="strict claim/evidence total count"),
         "strict_claim_evidence_gate_name": claim_audit.get("gate_name", "strict_claim_evidence_audit"),
         "strict_claim_evidence_gate_status": claim_audit.get("status", "blocked_audit_gaps"),
         "strict_claim_evidence_gap_summary": claim_audit.get("gap_summary", "Strict claim/evidence audit has not passed for every artifact."),
-        "claim_ledgers_empty": int(claim_audit.get("claim_ledgers_empty", 0)),
-        "result_file_refs": int(claim_audit.get("result_file_refs", 0)),
-        "result_file_refs_missing": int(claim_audit.get("result_file_refs_missing", 0)),
+        "claim_ledgers_empty": require_nonnegative_int(claim_audit.get("claim_ledgers_empty", 0), label="empty claim ledger count"),
+        "result_file_refs": require_nonnegative_int(claim_audit.get("result_file_refs", 0), label="result file ref count"),
+        "result_file_refs_missing": require_nonnegative_int(claim_audit.get("result_file_refs_missing", 0), label="missing result file ref count"),
         "gate_name": gate_name,
         "gate_version": gate_version,
         "gate_scope": report.get("gate_scope", "artifact packaging, provenance, placeholder, and overclaim linting"),
@@ -88,12 +94,13 @@ def main() -> int:
         ],
     }
 
-    if artifact_count != int(report["count"]):
+    report_count = require_nonnegative_int(report.get("count"), label="gate report count")
+    if artifact_count != report_count:
         raise SystemExit(f"corpus index count {artifact_count} does not match gate report count {report['count']}")
     if pass_count > artifact_count:
         raise SystemExit(f"pass count {pass_count} cannot exceed artifact count {artifact_count}")
-    strict_total = int(claim_audit.get("count", artifact_count))
-    strict_pass = int(claim_audit.get("strict_claim_evidence_pass_count", 0))
+    strict_total = require_nonnegative_int(claim_audit.get("count", artifact_count), label="strict claim/evidence total count")
+    strict_pass = require_nonnegative_int(claim_audit.get("strict_claim_evidence_pass_count", 0), label="strict claim/evidence pass count")
     if strict_total != artifact_count:
         raise SystemExit(f"strict claim/evidence total {strict_total} does not match artifact count {artifact_count}")
     if strict_pass > strict_total:
