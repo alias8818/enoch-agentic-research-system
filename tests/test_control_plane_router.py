@@ -7028,6 +7028,11 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertGreater(memory_pos, overview_pos)
             self.assertNotIn("Promise.all([api('/control/api/v1/overview", response.text)
             self.assertIn("if(e.name==='AbortError')return", response.text)
+            self.assertGreaterEqual(
+                response.text.count("if(e.name==='AbortError')return"),
+                5,
+                "stale route aborts must be ignored by route() and every async secondary overview panel",
+            )
             for stale_path in ["/control/api/status?refresh_worker=true", "/control/api/queues/", "/control/api/events?page_size=200", "/control/api/papers?page_size=100", "/control/api/paper-reviews", "#reviews", "#review:", "['event_id','event_type','entity_type','entity_id','created_at','payload_summary']"]:
                 self.assertNotIn(stale_path, response.text)
             for ui_text in ["Publication Automation", "Automated rewrite/finalization lane", "prepare finalization package", "Formatted control-plane events", "Search, filter, sort, and page", "Recently added", "Find projects", "Find papers", "Find runs", "Find events", "choose 200 per page"]:
