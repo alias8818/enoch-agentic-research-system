@@ -22,7 +22,7 @@ it('renders the leave-running hero from backend diagnosis', () => {
 it('renders only the first primary action', () => {
   render(<PrimaryAction action={{ kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'One queued candidate matches the idle lane.', action_label: 'Dispatch', action_hash: '#queue:queued' }} />)
   expect(screen.getByText('Primary action')).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: 'Dispatch' })).toHaveAttribute('href', '/control/dashboard#queue:queued')
+  expect(screen.getByRole('link', { name: 'Dispatch' })).toHaveAttribute('href', '/control/dashboard-v2#queue:queued')
 })
 
 it('renders worker lane commands without deriving queue truth from aggregate counts', () => {
@@ -39,6 +39,6 @@ it('renders the paper mini strip and movement diagnosis', () => {
   expect(screen.getByText('Paper pipeline')).toBeInTheDocument()
   expect(screen.getByText('Why no work is moving?')).toBeInTheDocument()
   expect(screen.getByText('GB10 lane can dispatch')).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: 'Open' })).toHaveAttribute('href', '/control/dashboard#queue:queued')
-  expect(screen.getByRole('link', { name: /Write/ })).toHaveAttribute('href', '/control/dashboard#papers?status=publication_draft')
+  expect(screen.getByRole('link', { name: 'Open' })).toHaveAttribute('href', '/control/dashboard-v2#queue:queued')
+  expect(screen.getByRole('link', { name: /Write/ })).toHaveAttribute('href', '/control/dashboard-v2#papers?status=publication_draft')
 })
