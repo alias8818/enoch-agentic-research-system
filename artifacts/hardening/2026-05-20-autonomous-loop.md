@@ -47,3 +47,19 @@
   - `uv run pytest -q` → `1013 passed, 4 warnings, 37 subtests passed`.
 - **Live verification:** not deployed in this batch; runtime store backend must be checked before deployment.
 - **Commit:** `d0a043b` (`fix(supabase): upsert callback run rows`).
+
+## Pass 4 — dispatch command panel lane-specific launch truth
+
+- **Target:** dashboard command panel launch controls and worker-lane operator truth.
+- **Invariant:** when Start next is disabled, the dashboard must explain lane-specific capacity: active lane, queued count per lane, and whether any queued item is dispatchable on an open lane.
+- **Bug found:** yes. Live state had CPU lane active with two CPU-targeted queued items and GB10 idle with zero GB10-targeted queued items. Backend scheduling was correct, but the command panel gave a coarse disabled reason that made it appear GB10 idleness was ignored.
+- **Proof:** extended `test_dashboard_html_links_to_multiview_apis` to require `laneCommandSummary`, explicit `No queued item is dispatchable on an open worker lane.`, and CPU/GB10 lane wording. The test failed before the patch.
+- **Patch:** added `laneCommandSummary()` to the dashboard JS and rendered per-lane command status inside the command panel. Disabled Start next now says no queued item is dispatchable on an open worker lane, not that every lane is generically unavailable.
+- **Verification:**
+  - `uv run pytest -q tests/test_control_plane_router.py::ControlPlaneRouterTests::test_dashboard_html_links_to_multiview_apis` → `1 passed` after red failure.
+  - `python3 -m py_compile enoch_control_plane/control_plane/router.py` → passed.
+  - `git diff --check` → passed.
+  - `uv run pytest -q tests/test_control_plane_router.py -k 'dashboard_html_links_to_multiview_apis or overview_and_lanes_top_level_next_candidate_require_open_lane or dashboard_status_reports_worker_lane_capacity'` → `3 passed, 167 deselected`.
+  - `uv run pytest -q` → `1013 passed, 4 warnings, 37 subtests passed`.
+- **Live verification:** deployed `router.py`, restarted `enoch-control-plane.service`, `/healthz` returned `ok: true`, and live `/control/dashboard` contains `laneCommandSummary` plus the explicit open-lane disabled reason.
+- **Commit:** pending at ledger write time.

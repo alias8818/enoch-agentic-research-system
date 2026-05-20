@@ -7037,6 +7037,13 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 self.assertNotIn(stale_path, response.text)
             for ui_text in ["Publication Automation", "Automated rewrite/finalization lane", "prepare finalization package", "Formatted control-plane events", "Search, filter, sort, and page", "Recently added", "Find projects", "Find papers", "Find runs", "Find events", "choose 200 per page"]:
                 self.assertIn(ui_text, response.text)
+            for lane_command_text in [
+                "laneCommandSummary",
+                "No queued item is dispatchable on an open worker lane.",
+                "CPU lane",
+                "GB10 lane",
+            ]:
+                self.assertIn(lane_command_text, response.text)
             for removed_manual_review_text in ["Auto-pass checklist", "approve-finalization", "Paper Review Queue", "Review queue backfilled"]:
                 self.assertNotIn(removed_manual_review_text, response.text)
             for removed_raw_state_label in [
