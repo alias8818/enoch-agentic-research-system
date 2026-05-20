@@ -4601,6 +4601,26 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         )
         return {"artifact_root": str(artifact_root), "evidence_sync": evidence_sync, "local_evidence_present": _local_paper_evidence_present(artifact_root)}
 
+    def _pre_evidence_paper_decision_gate(candidate: dict[str, Any]) -> tuple[dict[str, Any], str]:
+        """Return paper eligibility before any remote evidence sync side effect.
+
+        Evidence sync is operator-visible and can alert. It must only run after
+        a deterministic local/control-plane gate says the candidate is actually
+        writable. Raw wake-ready rows are not enough.
+        """
+
+        legacy_finalize_positive = str(candidate.get("last_run_state") or "").strip() == "finalize_positive"
+        if legacy_finalize_positive:
+            return {"eligible": True, "reason": "legacy finalize_positive state"}, str(_candidate_project_dir(candidate))
+        row_gate = bounded_useful_signal_row_gate(candidate)
+        if row_gate.get("eligible"):
+            return row_gate, str(_candidate_project_dir(candidate))
+        artifact_root = str(_candidate_project_dir(candidate))
+        artifact_gate = paper_draft_decision_gate(artifact_root)
+        if artifact_gate.get("eligible"):
+            return artifact_gate, artifact_root
+        return row_gate, artifact_root
+
     @router.post("/papers/draft-next", response_model=DraftNextResponse)
     def draft_next(payload: DraftNextRequest, authorization: str | None = Header(default=None)) -> DraftNextResponse:
         authorize(authorization)
@@ -4609,10 +4629,21 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if not candidates:
             return DraftNextResponse(ok=True, action="noop", reason="no eligible completed paper-draft candidate without paper remains")
         for candidate in candidates:
+            decision_gate, artifact_root = _pre_evidence_paper_decision_gate(candidate)
+            if not decision_gate.get("eligible"):
+                skipped.append({
+                    "project_id": candidate.get("project_id"),
+                    "run_id": candidate.get("current_run_id"),
+                    "reason": "project decision is not paper-ready",
+                    "decision_gate": decision_gate,
+                    "artifact_root": artifact_root,
+                })
+                continue
             if payload.dry_run:
                 paper = _paper_record_from_candidate(candidate, force=payload.force)
                 dry_candidate = draft_candidate_payload(candidate)
                 dry_candidate["evidence_sync"] = {"enabled": config.paper_evidence_sync_enabled, "skipped": True, "reason": "dry_run"}
+                dry_candidate["decision_gate"] = decision_gate
                 return DraftNextResponse(
                     ok=True,
                     action="dry_run_draft",
@@ -4622,7 +4653,6 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 )
             _require_writable_store("paper draft-next")
             evidence = _prepare_draft_evidence(candidate)
-            legacy_finalize_positive = str(candidate.get("last_run_state") or "").strip() == "finalize_positive"
             if not evidence["local_evidence_present"]:
                 _record_paper_evidence_blocked(
                     entity_type="project",
@@ -4634,20 +4664,6 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 )
                 skipped.append({"project_id": candidate.get("project_id"), "run_id": candidate.get("current_run_id"), "reason": "missing paper evidence", "evidence_sync": evidence.get("evidence_sync")})
                 continue
-            decision_gate = {"eligible": True, "reason": "legacy finalize_positive state"}
-            if not legacy_finalize_positive:
-                decision_gate = bounded_useful_signal_row_gate(candidate)
-                if not decision_gate.get("eligible"):
-                    decision_gate = paper_draft_decision_gate(str(evidence.get("artifact_root") or ""))
-                if not decision_gate.get("eligible"):
-                    skipped.append({
-                        "project_id": candidate.get("project_id"),
-                        "run_id": candidate.get("current_run_id"),
-                        "reason": "project decision is not paper-ready",
-                        "decision_gate": decision_gate,
-                        "evidence_sync": evidence.get("evidence_sync"),
-                    })
-                    continue
             paper = _paper_record_from_candidate(candidate, force=payload.force)
             candidate_for_write = {**candidate, "project_dir": evidence.get("artifact_root") or candidate.get("project_dir"), "evidence_sync": evidence.get("evidence_sync")}
             writer = write_paper_artifacts(config, candidate_for_write, paper, force=payload.force)
@@ -4697,6 +4713,6 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             response_candidate = draft_candidate_payload(candidate)
             response_candidate["writer"] = writer
             return DraftNextResponse(ok=True, action="drafted", reason=reason, paper=paper, candidate=response_candidate)
-        return DraftNextResponse(ok=True, action="noop", reason="eligible paper-draft candidates lacked sufficient positive local or synced evidence", candidate={"skipped": skipped[:10]})
+        return DraftNextResponse(ok=True, action="noop", reason="eligible paper-draft candidates were not paper-ready or lacked sufficient positive local or synced evidence", candidate={"skipped": skipped[:10]})
 
     return router

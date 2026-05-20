@@ -6394,6 +6394,59 @@ def test_legacy_finalize_positive_missing_evidence_records_blocked_alert() -> No
         assert snapshot["paper_rows"] == []
 
 
+def test_raw_wake_ready_without_paper_decision_does_not_sync_or_alert() -> None:
+    from enoch_control_plane.control_plane.alerts import PushoverResult
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp).model_copy(update={
+            "paper_evidence_sync_enabled": True,
+            "pushover_alerts_enabled": True,
+            "pushover_api_token": "token",
+            "pushover_user_key": "user",
+        })
+        client = _client_with_config(config)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        response = client.post("/control/import/legacy-snapshot", headers=headers, json={
+            "idempotency_key": "import-raw-wake-ready-no-decision",
+            "queue_rows": [{
+                "project_id": "raw-wake-ready-no-decision",
+                "project_name": "Raw Wake Ready No Decision",
+                "project_dir": "raw-wake-ready-no-decision",
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-raw-wake-ready-no-decision",
+                "manual_review_required": False,
+            }],
+            "paper_rows": [],
+        })
+        assert response.status_code == 200
+        calls = []
+
+        def fake_send_pushover(*args, **kwargs):  # noqa: ANN001 - patched function
+            del args
+            calls.append(kwargs)
+            return PushoverResult(attempted=True, ok=True, status_code=200, detail="ok")
+
+        with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence") as sync:
+            with patch("enoch_control_plane.control_plane.router.send_pushover", side_effect=fake_send_pushover):
+                dry_run = client.post("/control/papers/draft-next", headers=headers, json={"force": True, "dry_run": True})
+                draft = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
+
+        assert dry_run.status_code == 200
+        assert dry_run.json()["action"] == "noop"
+        assert "paper-ready" in dry_run.json()["reason"]
+        assert draft.status_code == 200
+        assert draft.json()["action"] == "noop"
+        assert "paper-ready" in draft.json()["reason"]
+        assert sync.call_count == 0
+        assert calls == []
+        snapshot = client.get("/control/export/snapshot", headers=headers).json()
+        events = [event for event in snapshot["events"] if event["event_type"] == "paper.evidence_sync_blocked"]
+        assert events == []
+        assert snapshot["paper_rows"] == []
+
+
 def test_missing_evidence_alert_is_bucketed_per_run() -> None:
     from enoch_control_plane.control_plane.alerts import PushoverResult
 
@@ -6413,7 +6466,7 @@ def test_missing_evidence_alert_is_bucketed_per_run() -> None:
                 "project_name": "Alert Missing Evidence",
                 "project_dir": "alert-missing-evidence",
                 "status": "completed",
-                "last_run_state": "wake_ready",
+                "last_run_state": "finalize_positive",
                 "next_action_hint": "draft_paper_or_select_next_project",
                 "current_run_id": "run-alert-missing-evidence",
                 "manual_review_required": False,
@@ -6467,7 +6520,7 @@ def test_missing_evidence_alert_suppresses_reason_changes_for_same_candidate_day
                 "project_name": "Alert Reason Change",
                 "project_dir": "alert-reason-change",
                 "status": "completed",
-                "last_run_state": "wake_ready",
+                "last_run_state": "finalize_positive",
                 "next_action_hint": "draft_paper_or_select_next_project",
                 "current_run_id": "run-alert-reason-change",
                 "manual_review_required": False,
@@ -6518,7 +6571,7 @@ def test_missing_evidence_alert_suppresses_same_candidate_across_same_day() -> N
                 "project_name": "Alert Same Day",
                 "project_dir": "alert-same-day",
                 "status": "completed",
-                "last_run_state": "wake_ready",
+                "last_run_state": "finalize_positive",
                 "next_action_hint": "draft_paper_or_select_next_project",
                 "current_run_id": "run-alert-same-day",
                 "manual_review_required": False,
@@ -6570,7 +6623,7 @@ def test_missing_evidence_alert_still_notifies_when_event_store_fails() -> None:
                 "project_name": "Alert Event Store Fails",
                 "project_dir": "alert-event-store-fails",
                 "status": "completed",
-                "last_run_state": "wake_ready",
+                "last_run_state": "finalize_positive",
                 "next_action_hint": "draft_paper_or_select_next_project",
                 "current_run_id": "run-alert-event-store-fails",
                 "manual_review_required": False,
