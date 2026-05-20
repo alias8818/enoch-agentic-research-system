@@ -722,6 +722,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("sparklineTrend", response.text)
             self.assertIn("workerLaneCards", response.text)
             self.assertIn("Worker lanes", response.text)
+            self.assertIn("No queued item matches an idle worker lane", response.text)
             self.assertIn("CPU lane", response.text)
             self.assertIn("GB10 lane", response.text)
             self.assertIn("Last loaded", response.text)
@@ -7039,7 +7040,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 self.assertIn(ui_text, response.text)
             for lane_command_text in [
                 "laneCommandSummary",
-                "No queued item is dispatchable on an open worker lane.",
+                "No queued item matches an idle worker lane",
                 "CPU lane",
                 "GB10 lane",
             ]:

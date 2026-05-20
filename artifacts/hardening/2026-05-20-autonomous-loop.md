@@ -63,3 +63,19 @@
   - `uv run pytest -q` → `1013 passed, 4 warnings, 37 subtests passed`.
 - **Live verification:** deployed `router.py`, restarted `enoch-control-plane.service`, `/healthz` returned `ok: true`, and live `/control/dashboard` contains `laneCommandSummary` plus the explicit open-lane disabled reason.
 - **Commit:** `2bf43ea` (`fix(dashboard): show lane-specific dispatch blockers`).
+
+## Pass 5 - Lane dispatch disabled-state clarity
+
+Symptom/risk: The command panel could look like it was ignoring an idle GB10 lane when the only queued work belonged to an active CPU lane.
+
+Invariant: Start-next is enabled only when at least one queued item matches an idle worker lane; an idle lane with no queued candidate must be described explicitly instead of implying a global active-count block.
+
+Deterministic guard:
+- `tests/test_control_plane_router.py` asserts the dashboard bundle includes the explicit disabled-state copy: `No queued item matches an idle worker lane`.
+- Existing lane-capacity/router tests assert CPU-active plus GB10-queued remains dispatch-safe and GB10 dispatchable.
+
+Verification:
+- `uv run pytest -q tests/test_control_plane_router.py` -> 170 passed.
+- `uv run pytest -q` -> 1013 passed, 4 warnings, 37 subtests passed.
+- Live deploy to `enoch-core.exe.xyz` restarted `enoch-control-plane.service`; `/healthz` returned ok.
+- Live state after deploy: CPU lane active with 1 CPU queued item; GB10 lane idle with 0 queued GB10 items; `next_candidate=null` is therefore correct.
