@@ -210,6 +210,16 @@
 
     details { border:1px solid var(--line-soft); border-radius:14px; padding:12px 14px; background:var(--surface-muted); margin-top:14px; }
     summary { cursor:pointer; color:var(--text); font-weight:680; }
+    /*
+     * Secondary content (active work, system health, recent activity) lives
+     * behind <details class="overview-secondary"> so it does not compete
+     * visually with the action model (top actions / lanes / paper pipeline /
+     * automation readiness) above the fold.
+     */
+    .overview-secondary { background:transparent; border-style:dashed; }
+    .overview-secondary[open] { background:var(--surface-muted); border-style:solid; }
+    .overview-secondary > summary { color:var(--muted); font-weight:600; }
+    .overview-secondary > summary:hover { color:var(--text); }
     pre { white-space:pre-wrap; color:var(--muted); margin:10px 0 0; max-height:480px; overflow:auto; }
 
     @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; } }
@@ -222,8 +232,23 @@
     tr:hover .copy-button,.id-cell:focus-within .copy-button { opacity:1; }
     .copy-button:hover { background:var(--surface-muted); color:var(--info); }
 
-    .sparkline { display:flex; align-items:end; gap:3px; height:22px; margin-top:10px; color:var(--muted); opacity:.78; }
-    .sparkline i { display:block; width:100%; min-width:5px; max-width:11px; border-radius:999px 999px 3px 3px; background:currentColor; opacity:.22; }
+    /*
+     * .sparkline used to render a 7-bar synthetic sequence from the current
+     * value, which on an operations dashboard implied historical trend data
+     * the dashboard does not actually have. The class name is preserved for
+     * test contracts and downstream selectors, but the markup is now an
+     * explicit "snapshot indicator" — a single horizontal bar whose fill
+     * tier (zero/low/mid/high) reflects the magnitude of the current value,
+     * plus a literal "snapshot" label so the operator is never misled.
+     */
+    .sparkline { display:inline-flex; align-items:center; gap:6px; margin-top:10px; color:var(--muted); font-size:11px; line-height:1; opacity:.85; }
+    .sparkline__bar { position:relative; flex:1 1 auto; max-width:120px; height:6px; border-radius:999px; background:var(--surface-muted); overflow:hidden; }
+    .sparkline__fill { position:absolute; inset:0 auto 0 0; width:0; background:currentColor; border-radius:999px; opacity:.55; }
+    .sparkline.tier-zero .sparkline__fill { width:0; }
+    .sparkline.tier-low .sparkline__fill { width:25%; }
+    .sparkline.tier-mid .sparkline__fill { width:55%; }
+    .sparkline.tier-high .sparkline__fill { width:90%; }
+    .sparkline__label { font-variant:all-small-caps; letter-spacing:.06em; color:var(--muted); }
     .sparkline.good { color:var(--good); }
     .sparkline.warn { color:var(--warn); }
     .sparkline.bad,.sparkline.critical { color:var(--bad); }

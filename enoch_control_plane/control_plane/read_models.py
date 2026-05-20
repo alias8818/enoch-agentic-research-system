@@ -5,7 +5,7 @@ import os
 import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 from urllib.parse import quote
 
 from enoch_control_plane.enoch_core.logic import draft_candidate_payload, eligible_paper_draft_candidates, paper_draft_decision_gate
@@ -1162,12 +1162,105 @@ def _candidate_target(candidate: Mapping[str, Any] | None) -> dict[str, str]:
     return target
 
 
+def _safe_count(value: Any, default: int = 0) -> int:
+    """Defensively coerce an arbitrary value into a non-negative count.
+
+    The /control/dashboard overview is an operator surface and must fail closed
+    on malformed projection inputs rather than crashing. This helper:
+
+    - Returns ``default`` for ``None`` or empty/whitespace strings.
+    - Rejects booleans explicitly. ``True`` and ``False`` are NOT counts even
+      though Python treats ``bool`` as a subclass of ``int``.
+    - Accepts real ints and numeric strings (including signed and whitespace
+      padded decimals).
+    - Returns ``default`` on any ``TypeError`` or ``ValueError`` raised during
+      coercion (e.g. ``"bad"``, dicts, lists, NaN-like floats).
+    - Clamps negative values to ``0`` so the projection never emits a card
+      that says "-3 items waiting".
+
+    The default itself is normalized to a non-negative int via the same rules
+    so callers cannot accidentally smuggle a negative or non-numeric default
+    into the projection.
+    """
+
+    if isinstance(default, bool):
+        default_int = 0
+    elif not isinstance(default, int):
+        try:
+            default_int = int(default)
+        except (TypeError, ValueError):
+            default_int = 0
+    else:
+        default_int = default
+    if default_int < 0:
+        default_int = 0
+
+    if value is None:
+        return default_int
+    if isinstance(value, bool):
+        return default_int
+    if isinstance(value, int):
+        return value if value >= 0 else 0
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):  # NaN / inf guard
+            return default_int
+        return int(value) if value >= 0 else 0
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return default_int
+        try:
+            parsed = int(stripped)
+        except ValueError:
+            try:
+                parsed = int(float(stripped))
+            except (TypeError, ValueError):
+                return default_int
+        return parsed if parsed >= 0 else 0
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default_int
+    return parsed if parsed >= 0 else 0
+
+
+def _open_lane_labels(worker_lanes: Sequence[Mapping[str, Any]] | None) -> list[str]:
+    """Return human-readable labels for worker lanes that can dispatch right now.
+
+    Used by ``top_operator_actions`` to make ``dispatch_next`` lane-aware.
+    Returns an empty list when ``worker_lanes`` is ``None`` or no lane is open,
+    which is the signal to suppress the dispatch_next card entirely.
+    """
+
+    if not worker_lanes:
+        return []
+    labels: list[str] = []
+    for lane in worker_lanes:
+        if not isinstance(lane, Mapping):
+            continue
+        if not bool(lane.get("dispatch_available")):
+            continue
+        machine = str(lane.get("machine_target") or "").strip()
+        role = str(lane.get("worker_role") or "").strip().lower()
+        lower_machine = machine.lower()
+        if "cpu" in lower_machine or "cpu" in role:
+            labels.append("CPU lane")
+        elif "gb10" in lower_machine or "gpu" in role:
+            labels.append("GB10 lane")
+        elif machine:
+            labels.append(f"{machine} lane")
+        else:
+            labels.append("default lane")
+    return labels
+
+
 def top_operator_actions(
     *,
     operator_counts: Mapping[str, Any],
     paper_pipeline: Mapping[str, Any],
     investigation_pipeline: Mapping[str, Any],
     counts: Mapping[str, Any],
+    worker_lanes: Sequence[Mapping[str, Any]] | None = None,
     limit: int = 3,
 ) -> list[dict[str, Any]]:
     """Bounded ranked list of the top operator actions.
@@ -1176,12 +1269,28 @@ def top_operator_actions(
     fields already present in the overview response; no extra store reads.
     The returned list is empty when nothing actionable is pending so callers
     can render a clean "all clear" state.
+
+    Counts are coerced through ``_safe_count`` so malformed upstream values
+    (booleans, junk strings, negatives) degrade to "no ranked action" instead
+    of crashing the overview projection.
+
+    The ``dispatch_next`` action is lane-aware: it is only emitted when
+    ``worker_lanes`` is provided AND at least one lane reports
+    ``dispatch_available`` truthy. Aggregate ``counts.active`` /
+    ``counts.queued`` are NEVER used to imply lane dispatch truth, so the CPU
+    lane being busy does not suppress dispatch on an idle GB10 lane and vice
+    versa.
     """
 
-    safe_limit = max(0, min(int(limit) if limit else 3, 5))
+    safe_limit = _safe_count(limit, default=3)
+    if safe_limit > 5:
+        safe_limit = 5
     candidates: list[dict[str, Any]] = []
 
-    needs_attention = int(operator_counts.get("needs_attention") or counts.get("blocked") or 0)
+    needs_attention_value = operator_counts.get("needs_attention")
+    needs_attention = _safe_count(needs_attention_value)
+    if needs_attention == 0 and needs_attention_value in (None, ""):
+        needs_attention = _safe_count(counts.get("blocked"))
     if needs_attention > 0:
         candidates.append({
             "kind": "needs_attention",
@@ -1196,7 +1305,7 @@ def top_operator_actions(
             "target": None,
         })
 
-    write_needed = int(paper_pipeline.get("write_needed") or 0)
+    write_needed = _safe_count(paper_pipeline.get("write_needed"))
     if write_needed > 0:
         next_write = paper_pipeline.get("next_write_candidate") or {}
         next_label = _candidate_label(next_write) or "next paper-ready run"
@@ -1214,7 +1323,7 @@ def top_operator_actions(
             "target": _candidate_target(next_write) or None,
         })
 
-    finalize_needed = int(paper_pipeline.get("finalize_needed") or 0)
+    finalize_needed = _safe_count(paper_pipeline.get("finalize_needed"))
     if finalize_needed > 0:
         candidates.append({
             "kind": "finalize_paper",
@@ -1230,7 +1339,7 @@ def top_operator_actions(
             "target": None,
         })
 
-    publish_ready = int(paper_pipeline.get("publish_ready") or 0)
+    publish_ready = _safe_count(paper_pipeline.get("publish_ready"))
     if publish_ready > 0:
         next_publish = paper_pipeline.get("next_publish_candidate") or {}
         next_label = _candidate_label(next_publish) or "the next finalized draft"
@@ -1248,7 +1357,7 @@ def top_operator_actions(
             "target": _candidate_target(next_publish) or None,
         })
 
-    followup_ready = int(investigation_pipeline.get("ranked_followup_ready") or 0)
+    followup_ready = _safe_count(investigation_pipeline.get("ranked_followup_ready"))
     if followup_ready > 0:
         next_followup = (
             investigation_pipeline.get("next_ranked_followup_candidate")
@@ -1270,17 +1379,31 @@ def top_operator_actions(
             "target": _candidate_target(next_followup) or None,
         })
 
-    active = int(counts.get("active") or 0)
-    queued = int(counts.get("queued") or 0)
-    if not candidates and queued > 0 and active == 0:
+    # dispatch_next is intentionally lane-aware. We never use the aggregate
+    # `counts.active` / `counts.queued` to imply lane dispatch truth, because
+    # the system has CPU + GB10 lanes that can dispatch independently. If the
+    # caller does not pass `worker_lanes`, we omit the dispatch_next card
+    # entirely rather than guess. With lanes, we surface dispatch_next only
+    # when at least one lane is open AND the lane has a queued candidate (the
+    # `dispatch_available` flag from `_worker_lane_capacity` already enforces
+    # both conditions).
+    open_lanes = _open_lane_labels(worker_lanes) if not candidates else []
+    if open_lanes:
+        lane_summary = ", ".join(open_lanes)
+        queued_for_lanes = 0
+        for lane in worker_lanes or ():
+            if isinstance(lane, Mapping) and bool(lane.get("dispatch_available")):
+                queued_for_lanes += _safe_count(lane.get("queued_count"))
         candidates.append({
             "kind": "dispatch_next",
             "tone": "info",
             "title": "Dispatch the next queued item",
             "summary": (
-                f"{queued} queued item{'s' if queued != 1 else ''} are waiting and no worker lane is busy."
+                f"{lane_summary} {'is' if len(open_lanes) == 1 else 'are'} idle with "
+                f"{queued_for_lanes} queued candidate{'s' if queued_for_lanes != 1 else ''} "
+                "ready to dispatch."
             ),
-            "count": queued,
+            "count": queued_for_lanes,
             "action_label": "Open ready queue",
             "action_hash": "#queue:queued",
             "target": None,
@@ -1293,7 +1416,7 @@ def top_operator_actions(
 
 
 
-def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: int = 10) -> dict[str, Any]:
+def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: int = 10, worker_lanes: Sequence[Mapping[str, Any]] | None = None) -> dict[str, Any]:
     batched_parts = None
     batched_reader = getattr(store, "overview_read_model_parts", None)
     if callable(batched_reader):
@@ -1424,6 +1547,7 @@ def overview(store: ControlPlaneStore, *, active_limit: int = 5, event_limit: in
         paper_pipeline=paper_pipeline,
         investigation_pipeline=investigation_pipeline,
         counts=counts,
+        worker_lanes=worker_lanes,
         limit=3,
     )
     return {

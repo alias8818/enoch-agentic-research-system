@@ -3463,6 +3463,197 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertLessEqual(len(queued["top_actions"]), 3)
             self.assertTrue(top["action_hash"].startswith("#"))
 
+    def test_overview_top_actions_dispatch_is_lane_aware(self) -> None:
+        # PR 42 review acceptance criterion: dispatch action must be
+        # lane-aware. Configure CPU + GB10 lanes, mark the CPU lane busy by
+        # seeding an active row, and seed a queued GB10-targeted candidate.
+        # Aggregate counts.active>0 must NOT suppress dispatch_next when GB10
+        # is idle and has a queued candidate.
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "lane-aware-dispatch-import",
+                "queue_rows": [
+                    {
+                        "project_id": "active-cpu",
+                        "project_name": "Active CPU",
+                        "project_dir": "active-cpu",
+                        "status": "awaiting_wake",
+                        "machine_target": "cpu-proxmox-1",
+                        "current_run_id": "run-active-cpu",
+                    },
+                    {
+                        "project_id": "gb10-queued",
+                        "project_name": "GB10 Queued",
+                        "project_dir": "gb10-queued",
+                        "status": "queued",
+                        "machine_target": "gb10",
+                        "dispatch_priority": 1,
+                    },
+                ],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+
+            overview = client.get("/control/api/v1/overview", headers=headers).json()
+            kinds = [a["kind"] for a in overview["top_actions"]]
+            self.assertIn("dispatch_next", kinds)
+            dispatch = next(a for a in overview["top_actions"] if a["kind"] == "dispatch_next")
+            # The summary must reference the open lane (GB10) — not the
+            # aggregate "no worker lane is busy" copy from the old projection.
+            self.assertIn("GB10 lane", dispatch["summary"])
+
+    def test_overview_top_actions_dispatch_suppressed_when_all_lanes_busy(self) -> None:
+        # CPU + GB10 both busy. Aggregate counts.queued>0 must NOT surface
+        # dispatch_next via the read model when no lane is dispatch_available.
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "lane-aware-suppression-import",
+                "queue_rows": [
+                    {
+                        "project_id": "active-cpu",
+                        "project_name": "Active CPU",
+                        "project_dir": "active-cpu",
+                        "status": "awaiting_wake",
+                        "machine_target": "cpu-proxmox-1",
+                        "current_run_id": "run-active-cpu",
+                    },
+                    {
+                        "project_id": "active-gb10",
+                        "project_name": "Active GB10",
+                        "project_dir": "active-gb10",
+                        "status": "awaiting_wake",
+                        "machine_target": "gb10",
+                        "current_run_id": "run-active-gb10",
+                    },
+                    {
+                        "project_id": "gb10-also-queued",
+                        "project_name": "GB10 Also Queued",
+                        "project_dir": "gb10-also-queued",
+                        "status": "queued",
+                        "machine_target": "gb10",
+                    },
+                ],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+
+            overview = client.get("/control/api/v1/overview", headers=headers).json()
+            kinds = [a["kind"] for a in overview["top_actions"]]
+            self.assertNotIn("dispatch_next", kinds)
+
+    def test_overview_top_actions_max_length_is_bounded(self) -> None:
+        # Acceptance criterion: top_actions max length is bounded (<=3).
+        # Even if the projection had many candidates, the API contract caps
+        # the list. We exercise this through the public endpoint to guard
+        # the contract end-to-end.
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "top-actions-bounded-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "blocked-1",
+                            "project_name": "Blocked 1",
+                            "project_dir": "blocked-1",
+                            "status": "blocked",
+                        },
+                        {
+                            "project_id": "queued-1",
+                            "project_name": "Queued 1",
+                            "project_dir": "queued-1",
+                            "status": "queued",
+                            "dispatch_priority": 1,
+                        },
+                    ],
+                },
+            )
+            overview = client.get("/control/api/v1/overview", headers=headers).json()
+            self.assertLessEqual(len(overview["top_actions"]), 3)
+            for index, action in enumerate(overview["top_actions"], start=1):
+                self.assertEqual(action["priority"], index)
+
+    def test_dashboard_overview_html_keeps_required_structure(self) -> None:
+        # Acceptance criterion: overview HTML still contains worker lanes,
+        # top actions, and a collapsed operator detail breakdown. AbortError
+        # guards must remain intact (5 occurrences). No fake-trend sparkline
+        # bar markup must remain.
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            response = client.get("/control/dashboard")
+            self.assertEqual(response.status_code, 200)
+            html = response.text
+
+            # Worker lanes section must remain in the overview shell.
+            self.assertIn("workerLaneCards", html)
+            self.assertIn('id="workerLanes"', html)
+            self.assertIn("Worker lanes", html)
+
+            # Top-actions ranked list and primary heading must remain.
+            self.assertIn("topActionsCard", html)
+            self.assertIn("What needs me right now?", html)
+
+            # Operator detail breakdown must stay collapsed by default.
+            self.assertIn('<details id="operatorDetailBreakdown"', html)
+            self.assertIn("Operator detail breakdown", html)
+
+            # Active work / system health / recent activity moved into a
+            # collapsed <details> so they do not compete with the action model.
+            self.assertIn('id="overviewSecondary"', html)
+            self.assertIn("overview-secondary", html)
+            self.assertIn("Active work, system health, and recent activity", html)
+
+            # AbortError guards must stay at exactly 5 occurrences.
+            self.assertEqual(html.count("e.name==='AbortError'"), 5)
+
+            # No 7-bar synthetic sparkline markup. The class is preserved
+            # (existing test contract) but trend bars are gone in favour of
+            # an honest "snapshot" indicator.
+            self.assertNotIn('aria-label="current snapshot trend"', html)
+            self.assertIn("snapshot indicator (not a trend)", html)
+            self.assertIn("sparkline--snapshot", html)
+
     def test_dashboard_status_does_not_call_idle_empty_lane_active(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp).model_copy(
