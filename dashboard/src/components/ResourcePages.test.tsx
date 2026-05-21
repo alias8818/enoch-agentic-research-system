@@ -260,6 +260,23 @@ it('applies queue filters and follows the backend cursor without inventing pagin
   expectParam(url, 'status', 'active')
 })
 
+
+it('writes applied event filters back to the V2 hash', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ id: 7, event_type: 'Queue Alert', summary: 'Alert summary' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ id: 8, event_type: 'worker.callback', summary: 'Callback summary' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+
+  renderWithClient(<EventsPage />)
+  await screen.findByText('Alert summary')
+  fireEvent.change(screen.getByLabelText(/Search/i), { target: { value: 'stalled' } })
+  fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: 'worker.callback' } })
+  fireEvent.click(screen.getByRole('button', { name: /Apply filters/i }))
+
+  await screen.findByText('Callback summary')
+  expect(window.location.hash).toBe('#events?event_type=worker.callback&search=stalled')
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+})
+
 it('applies paper and event filters to the backed endpoints', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-1', status: 'publication_draft', title: 'Draft paper' }], page: { returned: 1, has_more: false } }), { status: 200 }))
