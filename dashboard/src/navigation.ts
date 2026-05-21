@@ -1,1 +1,1 @@
-export { dashboardV2Href as legacyDashboardHref } from './routes'
+export { legacyDashboardHref } from './routes'

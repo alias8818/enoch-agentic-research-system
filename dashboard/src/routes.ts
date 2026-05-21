@@ -79,3 +79,8 @@ export function dashboardV2Href(hashOrPath: string | undefined, fallbackHash = '
   const route = parseDashboardRoute(hashOrPath || fallbackHash)
   return `${DASHBOARD_V2_PATH}${route.hash}`
 }
+
+export function legacyDashboardHref(hashOrPath: string | undefined, fallbackHash = '#overview'): string {
+  const route = parseDashboardRoute(hashOrPath || fallbackHash)
+  return `${LEGACY_DASHBOARD_PATH}${route.hash}`
+}
