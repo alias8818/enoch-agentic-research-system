@@ -691,6 +691,47 @@ it('live-dispatches every open lane candidate with dispatch-one after confirmati
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
+it('shows queued versus desired depth on CPU and GB10 lane cards', () => {
+  render(<WorkerLanes lanes={[
+    {
+      lane_key: 'cpu',
+      machine_target: 'cpu-proxmox-1',
+      status: 'active',
+      queued_count: 14,
+      dispatch_available: false,
+      active_item: { project_name: 'CPU job' },
+      feed_pressure: { desired_queue_depth: 25, queue_deficit: 11, next_autopilot_action: 'generate_candidate' },
+    },
+    {
+      lane_key: 'gb10',
+      machine_target: 'gb10',
+      status: 'idle',
+      queued_count: 3,
+      dispatch_available: false,
+      feed_pressure: { desired_queue_depth: 25, queue_deficit: 22, next_autopilot_action: 'generate_candidate', operator_summary: 'GB10 lane idle with no queued candidate; autopilot should generate GB10-targeted work.' },
+    },
+  ]} onRefresh={() => undefined} />)
+
+  expect(screen.getByLabelText('CPU lane queue depth 14 / 25 queued')).toBeInTheDocument()
+  expect(screen.getByLabelText('GB10 lane queue depth 3 / 25 queued')).toBeInTheDocument()
+  expect(screen.getAllByText('14 / 25')).toHaveLength(1)
+  expect(screen.getAllByText('3 / 25')).toHaveLength(1)
+})
+
+it('shows one feed reason per lane when below desired queue depth', () => {
+  render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 3, dispatch_available: false, feed_pressure: { desired_queue_depth: 25, queue_deficit: 22, next_autopilot_action: 'generate_candidate', operator_summary: 'GB10 lane idle with no queued candidate; autopilot should generate GB10-targeted work.' } }]} onRefresh={() => undefined} />)
+
+  expect(screen.getByText('GB10 lane idle with no queued candidate; autopilot should generate GB10-targeted work.')).toBeInTheDocument()
+  expect(screen.getAllByText(/GB10 lane idle with no queued candidate/)).toHaveLength(1)
+})
+
+it('shows backlog waiting on active lanes that still have queued work', () => {
+  render(<WorkerLanes lanes={[{ lane_key: 'cpu', machine_target: 'cpu-proxmox-1', status: 'active', queued_count: 14, dispatch_available: false, active_item: { project_name: 'CPU job' }, feed_pressure: { desired_queue_depth: 25, queue_deficit: 11, next_autopilot_action: 'generate_candidate' } }]} onRefresh={() => undefined} />)
+
+  expect(screen.getByText('14 queued waiting while this lane is active.')).toBeInTheDocument()
+  expect(screen.getByText('Lane is active.')).toBeInTheDocument()
+})
+
 it('explains when no worker lane capacity is returned', () => {
   render(<WorkerLanes lanes={[]} onRefresh={() => undefined} />)
 
