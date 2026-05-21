@@ -2432,6 +2432,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         return dashboard_status_response(refresh_worker=refresh_worker)
 
     def _artifact_root_for_queue_row(row: dict[str, Any]) -> tuple[Path, str]:
+        project_id = str(row.get("project_id") or "").strip()
         project_dir_text = str(row.get("project_dir") or project_id).strip()
         return _local_artifact_root(config, project_id=project_id, project_dir_text=project_dir_text), project_dir_text
 
@@ -2455,7 +2456,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             return []
         reconciled: list[dict[str, Any]] = []
         for row in status.active_items:
-                run_id = str(row.get("current_run_id") or "").strip()
+            project_id = str(row.get("project_id") or "").strip()
+            run_id = str(row.get("current_run_id") or "").strip()
             if not project_id or not run_id:
                 continue
             artifact_root, project_dir_text = _artifact_root_for_queue_row(row)
