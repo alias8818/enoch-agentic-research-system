@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
@@ -96,19 +97,25 @@ function AutomationDetailCard({ detail, onMarkChecklistPass, checklistBusy = fal
 export function AutomationPage({ paperId = '' }: { paperId?: string }) {
   const queryClient = useQueryClient()
   const { confirm, dialog } = useOperatorDialog()
+  const [selectedPaperId, setSelectedPaperId] = useState(paperId)
   const automation = useQuery({
     queryKey: ['publication-automation'],
     queryFn: () => apiGet<AutomationResponse>('/control/api/publication-automation?page_size=50&paper_status=publication_draft&sort=-rank_score'),
   })
+  useEffect(() => {
+    setSelectedPaperId(paperId)
+  }, [paperId])
+  const rows = automation.data?.rows || []
+  const activePaperId = selectedPaperId
   const detail = useQuery({
-    queryKey: ['publication-automation-detail', paperId],
-    queryFn: () => apiGet<AutomationDetailResponse>(`/control/api/publication-automation/${encodeURIComponent(paperId)}`),
-    enabled: Boolean(paperId),
+    queryKey: ['publication-automation-detail', activePaperId],
+    queryFn: () => apiGet<AutomationDetailResponse>(`/control/api/publication-automation/${encodeURIComponent(activePaperId)}`),
+    enabled: Boolean(activePaperId),
   })
   const rewriteDryRun = useMutation({ mutationFn: () => apiPost<MutationResult>('/control/api/paper-reviews/rewrite-batch', { idempotency_key: idempotencyKey('paper-review-bulk-rewrite'), requested_by: 'dashboard-v2', paper_status: 'publication_draft', dry_run: true, limit: 10, skip_rewritten: true }) })
   const finalizationDryRun = useMutation({
     mutationFn: (paperId: string) => apiPost<MutationResult>(`/control/api/paper-reviews/${encodeURIComponent(paperId)}/prepare-finalization-package`, { idempotency_key: idempotencyKey(`paper-review-package:${paperId}`), requested_by: 'dashboard-v2', target_label: 'dashboard-v2-dry-run', dry_run: true }),
-    onSuccess: () => {
+    onSuccess: (_result, paperId) => {
       void queryClient.invalidateQueries({ queryKey: ['publication-automation'] })
       void queryClient.invalidateQueries({ queryKey: ['publication-automation-detail', paperId] })
     },
@@ -135,12 +142,11 @@ export function AutomationPage({ paperId = '' }: { paperId?: string }) {
     })
     if (ok) checklistUpdate.mutate(input)
   }
-  const rows = automation.data?.rows || []
   const counts = automation.data?.counts || {}
-  const selectedPaperId = firstPaperId(rows, paperId)
+  const actionPaperId = activePaperId || firstPaperId(rows)
   function refreshAutomation() {
     void automation.refetch()
-    if (paperId) void detail.refetch()
+    if (selectedPaperId) void detail.refetch()
   }
 
   return (
@@ -152,7 +158,7 @@ export function AutomationPage({ paperId = '' }: { paperId?: string }) {
           <p>Paper workflow controls for draft rewrite planning and finalization package dry-runs. Live publish remains out of V2 for now.</p>
           <div className="action-row">
             <button className="secondary-button" type="button" onClick={() => rewriteDryRun.mutate()} disabled={rewriteDryRun.isPending}>Dry-run rewrite batch</button>
-            <button className="secondary-button" type="button" onClick={() => selectedPaperId && finalizationDryRun.mutate(selectedPaperId)} disabled={!selectedPaperId || finalizationDryRun.isPending}>Dry-run finalization package</button>
+            <button className="secondary-button" type="button" onClick={() => actionPaperId && finalizationDryRun.mutate(actionPaperId)} disabled={!actionPaperId || finalizationDryRun.isPending}>Dry-run finalization package</button>
           </div>
         </div>
         <div className="page-hero-action">
@@ -172,11 +178,11 @@ export function AutomationPage({ paperId = '' }: { paperId?: string }) {
         ))}
       </section>
 
-      {paperId ? (
+      {activePaperId ? (
         <section className="result-card" aria-label="Targeted paper">
           <h2>Targeted paper</h2>
-          <p>{paperId}</p>
-          <p>Finalization dry-run uses this paper id from the route, not the first visible table row.</p>
+          <p>{activePaperId}</p>
+          <p>Finalization dry-run uses this selected paper id, not an implicit unrelated table row.</p>
         </section>
       ) : null}
 
@@ -192,7 +198,13 @@ export function AutomationPage({ paperId = '' }: { paperId?: string }) {
       {dialog}
 
       {!automation.isLoading && !automation.isError ? (
-        <DataTable rows={rows} columns={['paper_id', 'review_status', 'paper_status', 'project_name', 'rank_score', 'updated_at']} empty="No publication automation rows returned." cellHref={automationCellHref} />
+        <DataTable
+          rows={rows}
+          columns={['paper_id', 'review_status', 'paper_status', 'project_name', 'rank_score', 'updated_at']}
+          empty="No publication automation rows returned."
+          cellHref={automationCellHref}
+          onSelectRow={(row) => setSelectedPaperId(String(row.paper_id || ''))}
+        />
       ) : null}
     </section>
   )

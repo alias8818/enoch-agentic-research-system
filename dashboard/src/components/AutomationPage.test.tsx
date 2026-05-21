@@ -26,6 +26,22 @@ it('loads publication automation rows from the bounded API', async () => {
   expect(fetchMock).toHaveBeenCalledWith('/control/api/publication-automation?page_size=50&paper_status=publication_draft&sort=-rank_score', expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }))
 })
 
+it('opens automation detail from selected table rows', async () => {
+  saveToken('test-token')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-select', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Selectable paper' }] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ item: { paper_id: 'paper-select', project_name: 'Selectable paper', review_status: 'triage_ready', paper_status: 'publication_draft', rank_score: 77, rank_reasons: ['row selected'] }, checklist: { items: [{ item_id: 'evidence', label: 'Evidence bundle present', status: 'pending' }] } }), { status: 200 }))
+
+  renderWithClient(<AutomationPage />)
+
+  fireEvent.click(await screen.findByText('Selectable paper'))
+
+  await screen.findByLabelText('Automation detail')
+  expect(screen.getByLabelText('Targeted paper')).toHaveTextContent('paper-select')
+  expect(screen.getByText('row selected')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/publication-automation/paper-select', expect.any(Object))
+})
+
 it('refreshes publication automation rows explicitly from V2', async () => {
   saveToken('test-token')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
