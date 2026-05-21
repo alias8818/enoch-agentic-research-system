@@ -101,7 +101,7 @@ function RoutedPage({ route }: { route: DashboardRoute }) {
   if (route.page === 'observability') return <ObservabilityPage />
   if (route.page === 'corpus') return <CorpusPage />
   if (route.page === 'research') return <ResearchPage />
-  if (route.page === 'automation') return <AutomationPage />
+  if (route.page === 'automation') return <AutomationPage paperId={route.paperId} />
   if (route.page === 'legacy') {
     return (
       <section className="legacy-card">

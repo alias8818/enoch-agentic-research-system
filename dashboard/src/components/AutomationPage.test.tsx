@@ -25,6 +25,25 @@ it('loads publication automation rows from the bounded API', async () => {
   expect(fetchMock).toHaveBeenCalledWith('/control/api/publication-automation?page_size=50&paper_status=publication_draft&sort=-rank_score', expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }))
 })
 
+
+it('uses the paper id from automation detail hashes for finalization dry-runs', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-first', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'First paper' }, { paper_id: 'paper-target', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Target paper' }] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, package_path: '/tmp/package.json', paper_id: 'paper-target' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-target' }] }), { status: 200 }))
+
+  renderWithClient(<AutomationPage paperId="paper-target" />)
+
+  await screen.findByText('Target paper')
+  const targeted = screen.getByLabelText('Targeted paper')
+  expect(targeted).toHaveTextContent('Targeted paper')
+  expect(targeted).toHaveTextContent('paper-target')
+  fireEvent.click(screen.getByRole('button', { name: 'Dry-run finalization package' }))
+
+  await screen.findByText('Finalization dry-run result')
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/paper-reviews/paper-target/prepare-finalization-package', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
+})
+
 it('dry-runs rewrite batch and finalization package without live rewrite', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-1', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Paper project' }] }), { status: 200 }))

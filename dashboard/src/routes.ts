@@ -9,7 +9,7 @@ export type DashboardRoute =
   | { page: 'observability'; hash: string }
   | { page: 'corpus'; hash: string }
   | { page: 'research'; hash: string }
-  | { page: 'automation'; hash: string }
+  | { page: 'automation'; paperId: string; hash: string }
   | { page: 'legacy'; hash: string }
 
 export const DASHBOARD_V2_PATH = '/control/dashboard-v2'
@@ -61,7 +61,8 @@ export function parseDashboardRoute(hashOrPath: string | undefined): DashboardRo
   if (hash.startsWith('#observability')) return { page: 'observability', hash }
   if (hash.startsWith('#corpus')) return { page: 'corpus', hash }
   if (hash.startsWith('#research')) return { page: 'research', hash }
-  if (hash.startsWith('#automation')) return { page: 'automation', hash }
+  if (hash.startsWith('#automation:')) return { page: 'automation', paperId: detailId(hash, '#automation:'), hash }
+  if (hash.startsWith('#automation')) return { page: 'automation', paperId: '', hash }
   if (hash === '#overview' || hash === '#') return { page: 'overview', hash: '#overview' }
   return { page: 'legacy', hash }
 }

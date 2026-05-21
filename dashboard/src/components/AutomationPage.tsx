@@ -13,7 +13,8 @@ function idempotencyKey(prefix: string): string {
   return `${prefix}:dashboard-v2:${Date.now()}`
 }
 
-function firstPaperId(rows: Record<string, unknown>[]): string {
+function firstPaperId(rows: Record<string, unknown>[], preferredPaperId = ''): string {
+  if (preferredPaperId) return preferredPaperId
   return String(rows.find((row) => row.paper_id)?.paper_id || '')
 }
 
@@ -22,7 +23,7 @@ function ResultCard({ result }: { result?: MutationResult }) {
   return <pre className="json-block">{JSON.stringify(result, null, 2)}</pre>
 }
 
-export function AutomationPage() {
+export function AutomationPage({ paperId = '' }: { paperId?: string }) {
   const queryClient = useQueryClient()
   const automation = useQuery({
     queryKey: ['publication-automation'],
@@ -35,7 +36,7 @@ export function AutomationPage() {
   })
   const rows = automation.data?.rows || []
   const counts = automation.data?.counts || {}
-  const selectedPaperId = firstPaperId(rows)
+  const selectedPaperId = firstPaperId(rows, paperId)
 
   return (
     <section className="page-stack">
@@ -57,6 +58,14 @@ export function AutomationPage() {
           </div>
         ))}
       </section>
+
+      {paperId ? (
+        <section className="result-card" aria-label="Targeted paper">
+          <h2>Targeted paper</h2>
+          <p>{paperId}</p>
+          <p>Finalization dry-run uses this paper id from the route, not the first visible table row.</p>
+        </section>
+      ) : null}
 
       {rewriteDryRun.data ? <section className="result-card"><h2>Rewrite dry-run result</h2><ResultCard result={rewriteDryRun.data} /></section> : null}
       {finalizationDryRun.data ? <section className="result-card"><h2>Finalization dry-run result</h2><ResultCard result={finalizationDryRun.data} /></section> : null}
