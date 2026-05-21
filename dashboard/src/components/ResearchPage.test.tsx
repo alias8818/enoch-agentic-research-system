@@ -59,6 +59,9 @@ it('opens routed candidate details and candidate links inside V2', async () => {
   expect(detail).toHaveTextContent('Routed candidate')
   expect(detail).toHaveTextContent('cand-route')
   expect(detail).toHaveTextContent('gb10')
+  expect(detail).toHaveTextContent('Current state')
+  expect(detail).toHaveTextContent('Next safe action')
+  expect(detail).toHaveTextContent('Promote only after dry-run confirms this exact candidate still maps to a queue item.')
   expect(screen.getByRole('link', { name: /cand-route/ })).toHaveAttribute('href', '/control/dashboard-v2#candidate:cand-route')
 })
 

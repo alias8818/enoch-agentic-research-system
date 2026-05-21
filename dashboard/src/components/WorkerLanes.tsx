@@ -3,6 +3,7 @@ import { apiPost } from '../api/client'
 import { dryRunCyclePayload, liveCyclePayload } from '../researchCyclePayloads'
 import type { WorkerLane } from '../types'
 import { useOperatorDialog } from './OperatorDialog'
+import { CommandResultSummary } from './CommandResultSummary'
 
 type CommandResult = {
   title: string
@@ -38,15 +39,7 @@ function laneDisabledReason(lane: WorkerLane, canFeed: boolean, canDispatch: boo
 }
 
 function ResultCard({ result }: { result: CommandResult | null }) {
-  if (!result) return null
-  const reason = String(result.payload.reason || result.payload.detail || result.payload.action || 'Command completed.')
-  return (
-    <section className="result-card lane-command-result" aria-live="polite">
-      <h3>{result.title}</h3>
-      <p>{reason}</p>
-      <pre>{JSON.stringify(result.payload, null, 2)}</pre>
-    </section>
-  )
+  return <CommandResultSummary result={result} />
 }
 
 function errorMessage(error: unknown): string {

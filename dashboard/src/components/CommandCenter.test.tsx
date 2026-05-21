@@ -27,7 +27,7 @@ it('renders the leave-running hero from backend diagnosis', () => {
 
 it('runs dispatch primary actions as safe dry-runs instead of only linking away', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
-    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch', reason: 'dry-run dispatch selected candidate' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch', reason: 'dry-run dispatch selected candidate', candidate: { project_id: 'project-1', machine_target: 'gb10' } }), { status: 200 }))
   const onRefresh = vi.fn()
 
   render(<PrimaryAction action={{ kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'One queued candidate matches the idle lane.', action_label: 'Dispatch', action_hash: '#queue:queued' }} onRefresh={onRefresh} />)
@@ -42,6 +42,12 @@ it('runs dispatch primary actions as safe dry-runs instead of only linking away'
   }))
   expect(screen.getByText('Primary action dry-run')).toBeInTheDocument()
   expect(screen.getByText('dry-run dispatch selected candidate')).toBeInTheDocument()
+  expect(screen.getByText('Selected work')).toBeInTheDocument()
+  expect(screen.getByText('project-1')).toBeInTheDocument()
+  expect(screen.getByText('Lane / target')).toBeInTheDocument()
+  expect(screen.getByText('gb10')).toBeInTheDocument()
+  expect(screen.getByText('Next safe action')).toBeInTheDocument()
+  expect(screen.getByText('Raw JSON')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 

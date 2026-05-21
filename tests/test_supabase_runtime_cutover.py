@@ -287,6 +287,34 @@ def test_supabase_event_page_offset_sorts_stay_bounded() -> None:
     assert params == (51, 200)
 
 
+def test_supabase_event_page_filters_by_event_id_for_v2_detail_route() -> None:
+    store = _CapturingSupabaseStore(
+        [
+            {
+                "event_id": 7174,
+                "idempotency_key": "event-7174",
+                "event_type": "Queue Alert",
+                "entity_type": "queue_alert",
+                "entity_id": "active-lane",
+                "payload_json": '{"reason":"lane active"}',
+                "created_at": "2026-05-21T04:58:32+00:00",
+            }
+        ]
+    )
+
+    rows, next_cursor, has_more = store.event_page(event_id="7174", page_size=1, include_payload=True, sort="recent")
+
+    assert next_cursor is None
+    assert has_more is False
+    assert rows[0]["event_id"] == 7174
+    assert rows[0]["payload"] == {"reason": "lane active"}
+    sql, params = store.calls[0]
+    normalized_sql = " ".join(sql.lower().split())
+    assert "event_id = %s" in normalized_sql
+    assert "payload_json" in normalized_sql
+    assert params == (7174, 2)
+
+
 def test_supabase_queue_page_pushes_filters_sort_and_pagination_into_sql() -> None:
     store = _CapturingSupabaseStore([{"project_id": "p1"}, {"project_id": "p2"}, {"project_id": "p3"}])
 

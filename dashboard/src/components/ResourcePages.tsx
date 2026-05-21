@@ -6,6 +6,7 @@ import type { DashboardRoute } from '../routes'
 import { DataTable } from './DataTable'
 import { DetailPanel } from './DetailPanel'
 import { useOperatorDialog } from './OperatorDialog'
+import { CommandResultSummary } from './CommandResultSummary'
 
 type PageMeta = { next_cursor?: string; has_more?: boolean; returned?: number; page_size?: number }
 type PageResponse = { rows?: Record<string, unknown>[]; counts?: Record<string, unknown>; generated_at?: string; page?: PageMeta }
@@ -44,6 +45,22 @@ function LoadingCard({ label }: { label: string }) {
 
 function ErrorCard({ error }: { error: unknown }) {
   return <div className="state-card state-card--error">V2 data unavailable: {String(error instanceof Error ? error.message : error)}</div>
+}
+
+function EventsErrorCard({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  const message = String(error instanceof Error ? error.message : error)
+  return (
+    <section className="state-card state-card--error v2-error-card">
+      <p className="eyebrow">Events read model</p>
+      <h2>Events could not load</h2>
+      <p>The backend events read model returned an error. Refresh once; if it persists, check the control-plane logs for the bounded events endpoint.</p>
+      <p className="error-detail">{message}</p>
+      <div className="action-row">
+        <button className="secondary-button" type="button" onClick={onRetry}>Retry events</button>
+        <a className="secondary-button" href="/control/dashboard#events">Open legacy events</a>
+      </div>
+    </section>
+  )
 }
 
 function PageRefreshAction({ generatedAt, isFetching, onRefresh, label = 'Last loaded', refreshLabel = 'Refresh rows' }: { generatedAt?: string; isFetching: boolean; onRefresh: () => void; label?: string; refreshLabel?: string }) {
@@ -133,6 +150,11 @@ function firstValue(...values: unknown[]): unknown {
   return values.find((value) => value !== null && value !== undefined && value !== '')
 }
 
+function shortId(value: string): string {
+  if (value.length <= 30) return value
+  return `${value.slice(0, 14)}…${value.slice(-10)}`
+}
+
 function selectedDispatchReason(selection: DetailSelection | null): string {
   if (!selection) return 'Select a queued row to check whether that exact candidate can dispatch.'
   if (!selection.id) return 'Selected row has no project id.'
@@ -163,15 +185,7 @@ function selectedDispatchDisabledReason(canDryRunSelected: boolean, liveReady: b
 }
 
 function CommandResultCard({ result }: { result: CommandResult | null }) {
-  if (!result) return null
-  const reason = String(result.payload.reason || result.payload.detail || result.payload.action || 'Command completed.')
-  return (
-    <section className="result-card" aria-live="polite">
-      <h3>{result.title}</h3>
-      <p>{reason}</p>
-      <pre>{JSON.stringify(result.payload, null, 2)}</pre>
-    </section>
-  )
+  return <CommandResultSummary result={result} />
 }
 
 function CountCard({ label, value, detail }: { label: string; value: unknown; detail: string }) {
@@ -428,7 +442,8 @@ function IntakeIdeaDetail({ row, ideaId, onClose }: { row: Record<string, unknow
         <div className="detail-panel-head">
           <div>
             <p className="eyebrow">Intake idea detail</p>
-            <h2>{ideaId}</h2>
+            <h2>Idea detail</h2>
+            <span className="detail-id-chip" title={ideaId}>{shortId(ideaId)}</span>
           </div>
           <button className="secondary-button" type="button" onClick={onClose}>Close</button>
         </div>
@@ -439,6 +454,17 @@ function IntakeIdeaDetail({ row, ideaId, onClose }: { row: Record<string, unknow
     )
   }
   if (!row) return null
+  const ideaStatus = String(row.idea_status || '—')
+  const queueStatus = String(row.queue_status || '—')
+  const nextHint = String(row.next_action_hint || '—')
+  const paperStatus = String(row.paper_status || '—')
+  const nextAction = queueStatus === 'queued'
+    ? 'Open the matching project or queue row and run a dispatch dry-run before starting work.'
+    : queueStatus === 'active' || queueStatus === 'running'
+      ? 'Open the current project/run detail and verify the lane is still moving.'
+      : nextHint !== '—'
+        ? `Follow backend hint: ${nextHint}.`
+        : 'Review source lineage and admission state before creating more queue work.'
   return (
     <section className="detail-panel" aria-label="Intake idea detail">
       <div className="detail-panel-head">
@@ -458,6 +484,17 @@ function IntakeIdeaDetail({ row, ideaId, onClose }: { row: Record<string, unknow
           <div className="detail-field"><dt>paper status</dt><dd>{String(row.paper_status || '—')}</dd></div>
           <div className="detail-field"><dt>source kind</dt><dd>{String(row.source_kind || '—')}</dd></div>
         </dl>
+        <section className="detail-operator-summary" aria-label="Idea operator summary">
+          <div>
+            <p className="eyebrow">Current state</p>
+            <strong>{ideaStatus}</strong>
+            <span>Queue {queueStatus}; paper {paperStatus}.</span>
+          </div>
+          <div>
+            <p className="eyebrow">Next safe action</p>
+            <span>{nextAction}</span>
+          </div>
+        </section>
         <details className="raw-details">
           <summary>Raw intake row</summary>
           <pre className="json-block">{JSON.stringify(row, null, 2)}</pre>
@@ -524,7 +561,7 @@ export function EventsPage({ route }: { route?: Extract<DashboardRoute, { page: 
   if (filters.cursor) params.set('cursor', filters.cursor)
   const query = useQuery({ queryKey: ['events', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/events?${params}`) })
   if (query.isLoading) return <LoadingCard label="events" />
-  if (query.isError) return <ErrorCard error={query.error} />
+  if (query.isError) return <EventsErrorCard error={query.error} onRetry={() => { void query.refetch() }} />
   return (
     <PageShell title="Events" subtitle="Recent formatted control-plane events from /control/api/v1/events." action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
       <FilterBar state={filters} statusOptions={[{ label: 'all event types', value: '' }, { label: 'Queue Alert', value: 'Queue Alert' }, { label: 'worker.callback', value: 'worker.callback' }, { label: 'paper.drafted', value: 'paper.drafted' }, { label: 'research.run_cycle.live', value: 'research.run_cycle.live' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash('#events', 'event_type', next)) }} onReset={() => { const next = { search: '', status: '', pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash('#events', 'event_type', next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
