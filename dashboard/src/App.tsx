@@ -33,7 +33,6 @@ function TokenGate({ onSave }: { onSave: () => void }) {
           <input type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Bearer token" aria-label="Bearer token" />
           <button className="primary-button" type="submit">Save token</button>
         </form>
-        <a className="text-link" href="/control/dashboard">Open legacy dashboard</a>
       </section>
     </main>
   )
@@ -302,7 +301,6 @@ function Shell() {
                 <a className={navClass(route, 'research')} href={dashboardV2Href('#research')}>Research</a>
                 <a className={navClass(route, 'intake')} href={dashboardV2Href('#intake')}>Intake</a>
                 <a className={navClass(route, 'automation')} href={dashboardV2Href('#automation')}>Automation</a>
-                <a className="nav-link" href="/control/dashboard">Legacy dashboard</a>
                 <button className="nav-link" type="button" onClick={() => { saveToken(''); setHasToken(false) }}>Clear token</button>
               </div>
             </details>

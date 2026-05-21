@@ -24,7 +24,7 @@ it('keeps overview secondary links in V2 and exposes data freshness', async () =
   expect(screen.getByRole('link', { name: 'Overview' })).toBeInTheDocument()
   fireEvent.click(screen.getByText('More'))
   expect(screen.getByRole('link', { name: 'Events' })).toHaveAttribute('href', '/control/dashboard-v2#events')
-  expect(screen.getByRole('link', { name: 'Legacy dashboard' })).toHaveAttribute('href', '/control/dashboard')
+  expect(screen.queryByRole('link', { name: 'Legacy dashboard' })).not.toBeInTheDocument()
   fireEvent.click(screen.getByText('Show secondary details'))
   expect(screen.getAllByRole('link', { name: 'Runs' }).some((link) => link.getAttribute('href') === '/control/dashboard-v2#runs')).toBe(true)
   expect(screen.getAllByRole('link', { name: 'Papers' }).some((link) => link.getAttribute('href') === '/control/dashboard-v2#papers')).toBe(true)
@@ -187,6 +187,7 @@ it('uses V2-authored token and fallback surfaces', () => {
   expect(screen.getByRole('heading', { name: 'Bearer token required' })).toBeInTheDocument()
   expect(screen.getByLabelText('Bearer token')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Save token' })).toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: 'Open legacy dashboard' })).not.toBeInTheDocument()
 })
 
 
