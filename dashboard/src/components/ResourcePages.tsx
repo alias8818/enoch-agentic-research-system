@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { apiGet, apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
 import type { DashboardRoute } from '../routes'
+import { publicCorpusIndexUrl, publicCorpusPaperUrl, publicReleaseValidatorUrl } from '../corpusLinks'
+import { shortId } from '../format'
 import { DataTable } from './DataTable'
 import { DetailPanel } from './DetailPanel'
 import { useOperatorDialog } from './OperatorDialog'
@@ -150,11 +152,6 @@ function withRunParams(state: FilterState): URLSearchParams {
 
 function firstValue(...values: unknown[]): unknown {
   return values.find((value) => value !== null && value !== undefined && value !== '')
-}
-
-function shortId(value: string): string {
-  if (value.length <= 30) return value
-  return `${value.slice(0, 14)}…${value.slice(-10)}`
 }
 
 function selectedDispatchReason(selection: DetailSelection | null): string {
@@ -421,6 +418,26 @@ export function CorpusPage({ route }: { route?: Extract<DashboardRoute, { page: 
         <CountCard label="Already imported" value={imported} detail="Publication-ready drafts already recorded in corpus_imports." />
         <CountCard label="Publication-ready total" value={publicationReady} detail="Finalized drafts whether imported or still missing import." />
         <CountCard label="Import validation" value={publishReady > 0 ? 'pending' : 'clean'} detail={validationDetail} />
+      </section>
+      <section className="corpus-links-card" aria-label="Public corpus and release validation">
+        <p className="eyebrow">External evidence</p>
+        <p className="corpus-links-copy">Open the public corpus index, release-validator script, or a row&apos;s published paper.md after import.</p>
+        <div className="action-row">
+          <a className="secondary-button secondary-button--link" href={publicCorpusIndexUrl()} target="_blank" rel="noreferrer">Corpus index (GitHub)</a>
+          <a className="secondary-button secondary-button--link" href={publicReleaseValidatorUrl()} target="_blank" rel="noreferrer">Release validator script</a>
+        </div>
+        {selection?.kind === 'paper' && selection.row ? (
+          (() => {
+            const paperUrl = publicCorpusPaperUrl(selection.row)
+            return paperUrl ? (
+              <div className="action-row">
+                <a className="primary-button primary-button--link" href={paperUrl} target="_blank" rel="noreferrer">Open public paper.md</a>
+              </div>
+            ) : (
+              <p className="composed-empty-state-hint">Select an imported row with an artifact slug to open its public corpus path.</p>
+            )
+          })()
+        ) : null}
       </section>
       <FilterBar state={filters} statusOptions={[{ label: 'publication draft', value: 'publication_draft' }, { label: 'draft review', value: 'draft_review' }, { label: 'archived', value: 'archived' }, { label: 'all paper statuses', value: '' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash('#corpus', 'status', next)) }} onReset={() => { const next = { search: '', status: route?.status || 'publication_draft', pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash('#corpus', 'status', next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={corpusTableColumns} empty={deriveCorpusEmpty({ search: filters.search, status: filters.status, defaultStatus: 'publication_draft' })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'paper', id: String(row.paper_id || ''), row })} />

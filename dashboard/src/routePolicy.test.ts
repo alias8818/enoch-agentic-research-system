@@ -12,6 +12,7 @@ import {
 describe('routePolicy', () => {
   it('canonicalizes alias and legacy dead hashes to supported routes', () => {
     expect(canonicalDashboardHash('#reviews')).toBe('#automation')
+    expect(canonicalDashboardHash('#reviews?search=oracle&review_status=queued')).toBe('#automation?search=oracle&review_status=queued')
     expect(canonicalDashboardHash('#review:paper-1')).toBe('#automation:paper-1')
     expect(canonicalDashboardHash('#candidate:cand-1')).toBe('#research:cand-1')
     expect(canonicalDashboardHash('#idea:idea-1')).toBe('#intake:idea-1')

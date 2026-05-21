@@ -56,4 +56,6 @@ it('keeps blocked command raw JSON inside details.raw-details', () => {
   assertJsonBlocksInRawDetails(container)
   expect(screen.getByText('Dispatch blocked')).toBeInTheDocument()
   expect(screen.getByText('Do not dispatch')).toBeInTheDocument()
+  expect(screen.getByText('Selected work').closest('.command-result-field')?.querySelector('dd')).toHaveTextContent('—')
+  expect(screen.queryByText('dispatch_blocked')).not.toBeInTheDocument()
 })

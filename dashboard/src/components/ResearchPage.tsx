@@ -4,6 +4,7 @@ import { apiGet, apiPost } from '../api/client'
 import { dryRunCyclePayload, liveCyclePayload } from '../researchCyclePayloads'
 import { dashboardV2Href } from '../routes'
 import type { DashboardRoute } from '../routes'
+import { shortId } from '../format'
 import { DataTable } from './DataTable'
 import { simpleTableColumns } from '../tablePresentation'
 import { useOperatorDialog } from './OperatorDialog'
@@ -46,11 +47,6 @@ type PromotionResponse = {
   idea_id?: string
   queued_count?: number
   dispatch_started?: boolean
-}
-
-function shortId(value: string): string {
-  if (value.length <= 30) return value
-  return `${value.slice(0, 14)}…${value.slice(-10)}`
 }
 
 function ResultCard({ result, context, stale }: { result?: Record<string, unknown>; context?: CommandPresentationContext; stale?: boolean }) {

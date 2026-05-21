@@ -37,7 +37,6 @@ export function PageResourceErrorCard({
       </details>
       <div className="action-row">
         <button className="secondary-button" type="button" onClick={onRetry}>{retryLabel}</button>
-        {copy.legacyLink ? <a className="secondary-button" href={copy.legacyLink.href}>{copy.legacyLink.label}</a> : null}
       </div>
     </section>
   )

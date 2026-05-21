@@ -32,8 +32,9 @@ describe('resourceStatePresentation', () => {
     expect(deriveEventsEmpty({}).kind).toBe('idle')
   })
 
-  it('keeps legacy events fallback on events endpoint errors', () => {
+  it('maps events endpoint errors without legacy fallback links', () => {
     const copy = deriveResourceErrorCopy('events', new Error('server error'))
-    expect(copy.legacyLink?.href).toBe('/control/dashboard#events')
+    expect(copy.title).toBe('Events could not load')
+    expect(copy.nextSteps.length).toBeGreaterThan(0)
   })
 })

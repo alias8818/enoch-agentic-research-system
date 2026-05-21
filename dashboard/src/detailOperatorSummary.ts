@@ -1,3 +1,5 @@
+import { shortId } from './format'
+
 export type DetailKind = 'project' | 'run' | 'paper' | 'event'
 
 export type EntityLink = {
@@ -51,11 +53,6 @@ function text(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—'
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
   return String(value)
-}
-
-function shortId(value: string): string {
-  if (value.length <= 30) return value
-  return `${value.slice(0, 14)}…${value.slice(-10)}`
 }
 
 function entityLink(kind: DetailKind, id: unknown, label?: unknown): EntityLink | null {

@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from ..config import GateConfig
 from ..enoch_core.logic import bounded_useful_signal_row_gate, draft_candidate_payload, eligible_paper_draft_candidates, paper_draft_decision_gate
@@ -2339,8 +2339,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         out["links"] = {
             "project": f"/control/api/projects/{row.get('project_id') or ''}",
             "run": f"/control/api/runs/{row.get('current_run_id') or ''}" if row.get("current_run_id") else "",
-            "dashboard_project": f"/control/dashboard#project:{row.get('project_id') or ''}",
-            "dashboard_run": f"/control/dashboard#run:{row.get('current_run_id') or ''}" if row.get("current_run_id") else "",
+            "dashboard_project": f"/control/dashboard-v2#project:{row.get('project_id') or ''}",
+            "dashboard_run": f"/control/dashboard-v2#run:{row.get('current_run_id') or ''}" if row.get("current_run_id") else "",
         }
         if row.get("stale_after") and _is_stale(str(row.get("stale_after")), 0):
             out["stale"] = True
@@ -2423,9 +2423,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             )
 
 
-    @router.get("/dashboard", response_class=HTMLResponse)
-    def dashboard() -> HTMLResponse:
-        return HTMLResponse(CONTROL_DASHBOARD_HTML, headers={"Cache-Control": "no-store"})
+    @router.get("/dashboard")
+    def dashboard() -> RedirectResponse:
+        """Legacy dashboard URL redirects to canonical Dashboard V2 (hash preserved client-side)."""
+        return RedirectResponse(url="/control/dashboard-v2", status_code=307)
 
     @router.get("/dashboard.css")
     def dashboard_css() -> Response:

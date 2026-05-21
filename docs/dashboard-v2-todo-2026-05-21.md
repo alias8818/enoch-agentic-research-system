@@ -1,6 +1,6 @@
 # Dashboard V2 TODO checklist
 
-Status: **P0–P7 landing** — branch `feat/dashboard-v2-trust-guards` (2026-05-21). Dashboard V2 operator pass complete through styling cleanup; parking-lot items deferred.
+Status: **P0–P7 merged to `main`** (2026-05-21). Dashboard V2 operator pass complete through styling cleanup; live on reference control VM ([`current-runtime-snapshot.md`](current-runtime-snapshot.md), SSH `enoch-core.exe.xyz`); parking-lot items deferred until post-cutover.
 
 Screenshot evidence reviewed from:
 
@@ -19,9 +19,9 @@ What is already live as of 2026-05-21:
   - detail page headers use cleaner title/subtitle/short ID structure;
   - project/run/paper/event detail views include current-state and next-safe-action summaries;
   - `/control/api/v1/events?page_size=50&sort=recent` and event detail queries return 200 in live smoke tests.
-- Live smoke after deploy:
+- Live smoke after deploy (current bundle on `main`):
   - `/healthz` returned OK;
-  - V2 static asset `index-gHvwIXhi.js` was present;
+  - V2 static asset `index-Q9C_jUsR.js` was present (see `enoch_control_plane/control_plane/dashboard_v2/index.html`);
   - events index returned 200;
   - event detail by `event_id` returned 200.
 

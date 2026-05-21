@@ -230,7 +230,7 @@ it('explains event read-model failures without dumping a generic 500 card', asyn
   expect(await screen.findByText('Events could not load')).toBeInTheDocument()
   expect(screen.getByText(/Dispatch impact:/)).toBeInTheDocument()
   expect(screen.getByText('Retry events')).toBeInTheDocument()
-  expect(screen.getByText('Open legacy events')).toBeInTheDocument()
+  expect(screen.queryByText('Open legacy events')).not.toBeInTheDocument()
   expect(screen.queryByText(/V2 data unavailable/)).not.toBeInTheDocument()
 })
 
@@ -445,6 +445,33 @@ it('shows corpus import movement summary from the overview read model', async ()
   expect(screen.getByText('Import validation needs corpus autopilot.')).toBeInTheDocument()
   expect(await screen.findByText('Corpus candidate')).toBeInTheDocument()
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/overview?active_limit=1&event_limit=1', expect.any(Object))
+})
+
+it('shows corpus public artifact and validator links', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ paper_pipeline: { publish_ready: 0, published_imported: 1, publication_ready_total: 1 }, generated_at: '2026-05-21T01:00:00Z' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      rows: [{
+        paper_id: 'paper-corpus',
+        project_id: 'project-1',
+        status: 'publication_draft',
+        corpus_imported: true,
+        artifact_slug: 'controlled-drill',
+        title: 'Corpus candidate',
+      }],
+      page: { returned: 1, has_more: false },
+    }), { status: 200 }))
+
+  renderWithClient(<CorpusPage />)
+
+  expect(await screen.findByRole('link', { name: 'Corpus index (GitHub)' })).toHaveAttribute(
+    'href',
+    'https://github.com/alias8818/enoch-ai-research-corpus/blob/main/papers/index.json',
+  )
+  expect(screen.getByRole('link', { name: 'Release validator script' })).toHaveAttribute(
+    'href',
+    'https://github.com/alias8818/enoch-agentic-research-system/blob/main/scripts/validate_public_release.py',
+  )
 })
 
 it('shows raw event detail without inventing a missing event endpoint', async () => {

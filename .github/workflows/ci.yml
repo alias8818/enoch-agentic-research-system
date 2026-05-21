@@ -41,6 +41,8 @@ jobs:
           npm test -- --run
           npm run typecheck
           npm run lint
+      - name: Validate dashboard V2 committed assets
+        run: python3 scripts/validate_dashboard_v2_assets.py --skip-npm-ci
       - name: Run tests
         run: uv run pytest -q
   secret-scan:

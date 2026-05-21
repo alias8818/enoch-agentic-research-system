@@ -25,7 +25,6 @@ export type ResourceErrorCopy = {
   dispatchImpact: string
   nextSteps: string[]
   logCommand: string
-  legacyLink?: { label: string; href: string }
 }
 
 export type ListFilterContext = {
@@ -115,7 +114,6 @@ export function deriveResourceErrorCopy(endpoint: ResourceEndpoint, error: unkno
       summary: 'The bounded events endpoint returned an error before any event rows could render.',
       dispatchImpact: 'Event history is unavailable here; dispatch and lane controls are unaffected.',
       ...base,
-      legacyLink: { label: 'Open legacy events', href: '/control/dashboard#events' },
     }
   }
 

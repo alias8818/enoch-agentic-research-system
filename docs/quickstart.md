@@ -43,19 +43,28 @@ export ENOCH_CONFIG=$PWD/.local/config/config.json
 uv run uvicorn enoch_control_plane.app:app --host 127.0.0.1 --port 8787
 ```
 
-Open:
+Open the **canonical** operator console (Dashboard V2):
 
 ```text
-http://127.0.0.1:8787/dashboard
+http://127.0.0.1:8787/control/dashboard-v2
 ```
 
-The legacy worker-gate dashboard remains available at `/dashboard`. For the redesigned operator console, open:
+Paste the generated token when prompted. V2 uses bounded `/control/api/v1/*` read models, so local smoke checks and large live ledgers stay predictable.
+
+Other dashboard paths (local dev only):
 
 ```text
-http://127.0.0.1:8787/control/dashboard
+http://127.0.0.1:8787/dashboard              # worker-gate shell
+http://127.0.0.1:8787/control/dashboard    # legacy inline shell (redirect to V2 after cutover)
 ```
 
-Paste the generated token when prompted. The redesigned console starts on bounded `/control/api/v1/*` read models, so local smoke checks and large live ledgers stay predictable.
+After changing dashboard source, rebuild committed assets per [`dashboard-v2-deploy.md`](dashboard-v2-deploy.md), then run:
+
+```bash
+python3 scripts/dashboard_v2_smoke.py \
+  --base-url http://127.0.0.1:8787 \
+  --token "$(jq -r .control_api_bearer_token .local/config/config.json)"
+```
 
 ## 4. Run smoke tests
 

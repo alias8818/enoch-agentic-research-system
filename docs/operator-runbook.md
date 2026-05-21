@@ -1,6 +1,6 @@
 # Enoch operator runbook
 
-Status: current operator guide as of 2026-05-10.
+Status: current operator guide as of 2026-05-21.
 
 This runbook describes the current native Codex/control-plane deployment model. It is intentionally question-first: use it to decide whether long-haul automation is safe, what needs attention, and whether paper writing is correctly gated.
 
@@ -50,6 +50,40 @@ python3 scripts/validate_runtime_deploy.py \
 Healthy output has `"ok": true` and no failures. A hash drift, missing runtime
 file, or source commit mismatch means the running service is not proven to match
 the pushed repo and should not be treated as current truth.
+
+## Operator dashboard (V2)
+
+Open the **canonical** console at `/control/dashboard-v2`. On `enoch-core.exe.xyz` (reference control VM at `/opt/enoch-control-plane`):
+
+```text
+http://127.0.0.1:8787/control/dashboard-v2
+```
+
+Legacy `/control/dashboard` remains available until Phase 2 cutover redirects it to V2 with hash preserved. Prefer V2 for all operator workflows; bounded read models live under `/control/api/v1/*`.
+
+Build, rsync excludes, and full smoke details: [`dashboard-v2-deploy.md`](dashboard-v2-deploy.md). Product checklist: [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md).
+
+### Post-deploy smoke sequence
+
+After syncing code to `/opt/enoch-control-plane` on `enoch-core.exe.xyz`:
+
+```bash
+sudo systemctl restart enoch-control-plane.service
+
+cd /opt/enoch-release/enoch-agentic-research-system
+python3 scripts/validate_runtime_deploy.py \
+  --source /opt/enoch-release/enoch-agentic-research-system \
+  --runtime /opt/enoch-control-plane \
+  --expected-commit origin/main \
+  --summary-only
+
+TOKEN="$(jq -r .control_api_bearer_token /etc/enoch-control-plane/config.json)"
+python3 /opt/enoch-control-plane/scripts/dashboard_v2_smoke.py \
+  --base-url http://127.0.0.1:8787 \
+  --token "$TOKEN"
+```
+
+Expect `"ok": true` from runtime validation and a passing smoke summary (V2 shell marker, current hashed assets such as `index-Q9C_jUsR.js`, overview, and events index/detail).
 
 ## Dashboard questions
 
