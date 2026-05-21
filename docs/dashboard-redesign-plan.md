@@ -2,6 +2,8 @@
 
 Status: first vertical slice shipped. This document defines the dashboard contract so the UI does not drift back into raw backend-state exposure.
 
+Current paused TODO tracker: [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md).
+
 ## Goal
 
 Make `/control/dashboard` feel like a professional shadcn-style operator console while preserving Enoch's new state model:

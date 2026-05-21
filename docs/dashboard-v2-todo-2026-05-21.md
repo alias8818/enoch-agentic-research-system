@@ -1,0 +1,229 @@
+# Dashboard V2 TODO checklist
+
+Status: paused after the 2026-05-21 V2 detail/results fix. This checklist exists so dashboard work can resume later without re-discovering the same problems.
+
+Screenshot evidence reviewed from:
+
+```text
+~/Pictures/Screenshots/new-enoch-dashboard-5-21/
+```
+
+## Current baseline
+
+What is already live as of 2026-05-21:
+
+- V2 command center is deployed under `/control/dashboard-v2`.
+- PR #74 fixed the worst scaffold issues:
+  - command results now show summarized operator fields before raw JSON;
+  - raw payloads are collapsed under debug sections;
+  - detail page headers use cleaner title/subtitle/short ID structure;
+  - project/run/paper/event detail views include current-state and next-safe-action summaries;
+  - `/control/api/v1/events?page_size=50&sort=recent` and event detail queries return 200 in live smoke tests.
+- Live smoke after deploy:
+  - `/healthz` returned OK;
+  - V2 static asset `index-gHvwIXhi.js` was present;
+  - events index returned 200;
+  - event detail by `event_id` returned 200.
+
+## Product rule
+
+Do not add another page or panel unless it answers an operator question.
+
+If a view only dumps JSON, echoes an ID, or exposes raw backend state without interpretation, either:
+
+1. replace it with a structured operator summary, or
+2. remove/redirect the route to the nearest useful table/panel.
+
+Raw JSON is allowed only as collapsed debug evidence.
+
+## Priority 0 — keep the dashboard trustworthy
+
+- [ ] Add a small dashboard smoke script that checks the live V2 build after deployment:
+  - [ ] `/control/dashboard-v2` loads;
+  - [ ] current asset referenced by `index.html` exists;
+  - [ ] `/control/api/v1/overview` returns 200;
+  - [ ] `/control/api/v1/events?page_size=50&sort=recent` returns 200;
+  - [ ] event detail with `event_id=...&include_payload=true&page_size=1&sort=recent` returns 200;
+  - [ ] no first-screen raw JSON block is visible in the command center.
+- [ ] Document the safe deploy command for V2 so rsync does not copy `.hypothesis`, `.coverage`, `.venv`, `.egg-info`, or `node_modules`.
+- [ ] Add a regression test or static check that raw JSON labels are always inside collapsed `<details>` blocks, not primary cards.
+- [ ] Add a regression test that detail hero `<h1>` values are human titles and never start with `project:`, `paper:`, `run:`, or `event:`.
+
+## Priority 1 — command result UX
+
+Problem seen in screenshots: dispatch dry-run produced a giant JSON block in the main viewport. PR #74 improved this, but the next pass should make result cards more decisive.
+
+- [ ] Replace generic command-result titles like `Primary action dry-run` with action-specific titles:
+  - [ ] `Dispatch dry-run passed`;
+  - [ ] `Dispatch blocked`;
+  - [ ] `Paper finalize dry-run passed`;
+  - [ ] `Paper action blocked`.
+- [ ] Add explicit result severity styling:
+  - [ ] passed;
+  - [ ] dry-run only;
+  - [ ] blocked;
+  - [ ] failed;
+  - [ ] stale state.
+- [ ] Include the exact operator decision in each result card:
+  - [ ] `Safe to dispatch`;
+  - [ ] `Do not dispatch`;
+  - [ ] `Refresh and check again`;
+  - [ ] `Fix blocker first`.
+- [ ] Collapse or remove fields that are mostly backend implementation details.
+- [ ] Keep raw JSON in collapsed debug details only.
+
+Acceptance test idea:
+
+```text
+Given a dry-run dispatch response,
+when the result renders,
+then the visible card contains result, selected project, lane/target, reason, and next action,
+and the raw candidate JSON is visible only after expanding Raw JSON.
+```
+
+## Priority 2 — detail pages must become real pages
+
+Problem seen in screenshots: direct routes showed huge raw IDs/slugs as hero text and minimal useful detail.
+
+- [ ] Project detail page should answer:
+  - [ ] What is this project?
+  - [ ] Is it queued, running, completed, blocked, or paper-ready?
+  - [ ] Which lane/machine target owns it?
+  - [ ] What is the current/latest run?
+  - [ ] What happened most recently?
+  - [ ] Is action needed now?
+  - [ ] Is there a paper row or publication status?
+- [ ] Run detail page should answer:
+  - [ ] What project did this run execute?
+  - [ ] Current state and gate state;
+  - [ ] worker/lane/machine target;
+  - [ ] start/update/finish timestamps;
+  - [ ] current activity;
+  - [ ] final reason/error if stopped;
+  - [ ] artifacts/evidence available;
+  - [ ] recent events for this run.
+- [ ] Paper detail page should answer:
+  - [ ] paper status;
+  - [ ] evidence/claim-ledger availability;
+  - [ ] draft/finalization/import status;
+  - [ ] artifact preview buttons;
+  - [ ] blocking checklist items;
+  - [ ] next safe paper action.
+- [ ] Event detail page should answer:
+  - [ ] event type;
+  - [ ] entity type and entity ID;
+  - [ ] timestamp;
+  - [ ] concise summary;
+  - [ ] related project/run/paper links;
+  - [ ] payload collapsed.
+- [ ] Intake idea detail page should answer:
+  - [ ] source and lineage;
+  - [ ] admission/promote/queue state;
+  - [ ] why it was or was not queued;
+  - [ ] related project if promoted;
+  - [ ] next operator action.
+
+Acceptance test idea:
+
+```text
+For each detail kind, render a representative payload and assert visible text includes Current state, Next safe action, related IDs as chips/links, and no raw full ID in the hero h1.
+```
+
+## Priority 3 — reduce visual noise
+
+The V2 direction is better, but the dashboard still has too much chrome and duplicated framing.
+
+- [ ] Re-evaluate the huge hero typography on secondary pages. It still consumes too much vertical space for operator work.
+- [ ] Use compact page headers for list/detail pages:
+  - [ ] title;
+  - [ ] short subtitle;
+  - [ ] refresh timestamp/action.
+- [ ] Reduce repeated `Enoch Dashboard V2 / Operator command center` branding on every page.
+- [ ] Keep the command center as the only page with a large hero treatment.
+- [ ] Move debug/meta labels such as endpoint names into small muted text or help details.
+- [ ] Avoid card nesting where a section inside a card contains more cards that look equally important.
+
+## Priority 4 — table/list usefulness
+
+Problem seen in screenshots: tables are usable but still expose raw IDs and backend-ish columns too prominently.
+
+- [ ] Projects table:
+  - [ ] primary visible column should be project title/name;
+  - [ ] project ID should be secondary/copy chip;
+  - [ ] show lane/target, status, latest run state, paper status, updated age;
+  - [ ] row click opens structured detail panel;
+  - [ ] copy button should not be the most visually prominent item.
+- [ ] Queue table:
+  - [ ] show dispatch readiness and lane match clearly;
+  - [ ] expose why a queued row can/cannot dispatch;
+  - [ ] make selected-row command card concise.
+- [ ] Runs table:
+  - [ ] show project title, run state, gate state, lane, updated age, current activity;
+  - [ ] hide raw run ID behind copy chip unless needed.
+- [ ] Papers table:
+  - [ ] show title, paper status, evidence availability, finalization/import status;
+  - [ ] direct action buttons should be contextual, not global.
+- [ ] Events table:
+  - [ ] event type and summary first;
+  - [ ] entity link second;
+  - [ ] payload never inline by default.
+
+## Priority 5 — error and empty states
+
+Problem seen in screenshots: `V2 data unavailable: endpoint -> 500` is technically true but operationally weak.
+
+- [ ] Replace generic API error cards with endpoint-specific guidance:
+  - [ ] what failed;
+  - [ ] whether dispatch is affected;
+  - [ ] what to check next;
+  - [ ] link/action to refresh;
+  - [ ] optional log command for operator runbook.
+- [ ] Add composed empty states for:
+  - [ ] no queued work;
+  - [ ] no active runs;
+  - [ ] no paper actions;
+  - [ ] no events matching filters;
+  - [ ] no admitted/promoted ideas.
+- [ ] Empty state should answer whether the system is idle by design or blocked.
+
+## Priority 6 — navigation and route policy
+
+- [ ] Audit every V2 route and classify:
+  - [ ] command center;
+  - [ ] list page;
+  - [ ] structured detail page;
+  - [ ] debug-only page;
+  - [ ] dead route to remove.
+- [ ] Any route that cannot be made useful should redirect to the relevant list page with a selected row/panel.
+- [ ] Add a visible back/breadcrumb affordance on detail pages.
+- [ ] Preserve deep links for project/run/paper/event IDs, but make the destination useful.
+
+## Priority 7 — styling cleanup
+
+Lower priority than operator usefulness.
+
+- [ ] Native select dropdowns are ugly; replace only if it can be done without adding fragile complexity.
+- [ ] Tighten table density and column spacing.
+- [ ] Improve right-side detail panel overflow behavior.
+- [ ] Ensure long titles wrap cleanly without dominating the screen.
+- [ ] Verify keyboard focus states after any custom control work.
+
+## Parking lot — larger redesign questions
+
+- [ ] Decide whether Vite remains sufficient or whether a future Next.js app is justified.
+- [ ] If staying with Vite, define a small component system instead of one-off page components.
+- [ ] Consider a dedicated `/dashboard-smoke` Playwright suite using captured fixtures.
+- [ ] Consider screenshot/visual regression only after the information architecture stabilizes.
+- [ ] Consider extracting API DTO schemas so frontend rendering cannot drift from backend read models.
+
+## Resume order
+
+When work resumes, do this sequence:
+
+1. Add/verify dashboard smoke script and route policy tests.
+2. Make command results decisive and less generic.
+3. Make project/run/paper/event/idea detail pages answer the entity-specific operator questions.
+4. Reduce secondary page hero/header footprint.
+5. Improve tables and empty/error states.
+6. Only then do visual polish.
+
