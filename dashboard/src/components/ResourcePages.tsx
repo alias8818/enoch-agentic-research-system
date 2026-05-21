@@ -5,6 +5,7 @@ import { dashboardV2Href } from '../routes'
 import type { DashboardRoute } from '../routes'
 import { DataTable } from './DataTable'
 import { DetailPanel } from './DetailPanel'
+import { useOperatorDialog } from './OperatorDialog'
 
 type PageMeta = { next_cursor?: string; has_more?: boolean; returned?: number; page_size?: number }
 type PageResponse = { rows?: Record<string, unknown>[]; counts?: Record<string, unknown>; generated_at?: string; page?: PageMeta }
@@ -161,11 +162,14 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [dispatchResult, setDispatchResult] = useState<CommandResult | null>(null)
   const [dispatchBusy, setDispatchBusy] = useState(false)
+  const [liveDispatchProjectId, setLiveDispatchProjectId] = useState('')
   const [filters, setFilters] = useState<FilterState>({ search: '', status: route.status, pageSize: '50', cursor: '' })
+  const { confirm, dialog } = useOperatorDialog()
   useEffect(() => {
     setFilters((current) => current.status === route.status ? current : { ...current, status: route.status, cursor: '' })
     setSelection(null)
     setDispatchResult(null)
+    setLiveDispatchProjectId('')
   }, [route.status])
   const params = withCommonParams(filters, 'priority')
   params.set('queue', 'all')
@@ -186,29 +190,64 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
         force_preflight: true,
       })
       setDispatchResult({ title: 'Selected dispatch dry-run', payload })
+      setLiveDispatchProjectId(payload.action === 'dry_run_dispatch_one' ? selectedProjectId : '')
     } catch (error) {
       setDispatchResult({ title: 'Selected dispatch dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setLiveDispatchProjectId('')
+    } finally {
+      setDispatchBusy(false)
+    }
+  }
+  async function liveDispatchSelected() {
+    if (!selectedProjectId || liveDispatchProjectId !== selectedProjectId) return
+    const confirmed = await confirm({
+      title: 'Dispatch selected project?',
+      message: `This starts live dispatch for exactly ${selectedProjectId}. Use Check selected dispatch again if the row changed or went stale.`,
+      confirmLabel: 'Dispatch selected',
+      tone: 'warn',
+    })
+    if (!confirmed) return
+    setDispatchBusy(true)
+    try {
+      const payload = await apiPost<Record<string, unknown>>('/control/dispatch-one', {
+        project_id: selectedProjectId,
+        dry_run: false,
+        requested_by: 'dashboard-v2',
+        force_preflight: true,
+      })
+      setDispatchResult({ title: 'Selected live dispatch', payload })
+      setLiveDispatchProjectId('')
+    } catch (error) {
+      setDispatchResult({ title: 'Selected live dispatch failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
     } finally {
       setDispatchBusy(false)
     }
   }
   return (
-    <PageShell title="Queue" subtitle="Bounded queue rows from /control/api/v1/queue. No frontend lifecycle inference." action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
-      <FilterBar state={filters} statusOptions={[{ label: 'all statuses', value: '' }, { label: 'queued', value: 'queued' }, { label: 'active', value: 'active' }, { label: 'blocked', value: 'blocked' }, { label: 'completed', value: 'completed' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.status, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <section className="queue-command-card">
-        <div>
-          <p className="eyebrow">Selected queue row</p>
-          <h2>{selectedProjectId || 'No row selected'}</h2>
-          <p>{selectedDispatchReason(selection)}</p>
-        </div>
-        <button className="primary-button" type="button" disabled={!canDryRunSelected || dispatchBusy} onClick={dryRunSelectedDispatch}>
-          {dispatchBusy ? 'Checking…' : 'Check selected dispatch'}
-        </button>
-      </section>
-      <CommandResultCard result={dispatchResult} />
-      <DataTable rows={query.data?.rows || []} columns={['project_id', 'status', 'lane', 'machine_target', 'title', 'updated_at']} empty="No queue rows match this filter." cellHref={detailCellHref} onSelectRow={(row) => { setDispatchResult(null); setSelection({ kind: 'project', id: String(row.project_id || ''), row }) }} />
-      <DetailPanel selection={selection} onClose={() => setSelection(null)} />
-    </PageShell>
+    <>
+      <PageShell title="Queue" subtitle="Bounded queue rows from /control/api/v1/queue. No frontend lifecycle inference." action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
+        <FilterBar state={filters} statusOptions={[{ label: 'all statuses', value: '' }, { label: 'queued', value: 'queued' }, { label: 'active', value: 'active' }, { label: 'blocked', value: 'blocked' }, { label: 'completed', value: 'completed' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.status, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
+        <section className="queue-command-card">
+          <div>
+            <p className="eyebrow">Selected queue row</p>
+            <h2>{selectedProjectId || 'No row selected'}</h2>
+            <p>{selectedDispatchReason(selection)}</p>
+          </div>
+          <div className="action-row">
+            <button className="secondary-button" type="button" disabled={!canDryRunSelected || dispatchBusy} onClick={dryRunSelectedDispatch}>
+              {dispatchBusy ? 'Checking…' : 'Check selected dispatch'}
+            </button>
+            <button className="primary-button" type="button" disabled={!canDryRunSelected || liveDispatchProjectId !== selectedProjectId || dispatchBusy} onClick={liveDispatchSelected}>
+              Dispatch selected project
+            </button>
+          </div>
+        </section>
+        <CommandResultCard result={dispatchResult} />
+        <DataTable rows={query.data?.rows || []} columns={['project_id', 'status', 'lane', 'machine_target', 'title', 'updated_at']} empty="No queue rows match this filter." cellHref={detailCellHref} onSelectRow={(row) => { setDispatchResult(null); setLiveDispatchProjectId(''); setSelection({ kind: 'project', id: String(row.project_id || ''), row }) }} />
+        <DetailPanel selection={selection} onClose={() => setSelection(null)} />
+      </PageShell>
+      {dialog}
+    </>
   )
 }
 

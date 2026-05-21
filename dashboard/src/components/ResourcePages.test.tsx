@@ -137,6 +137,37 @@ it('checks selected queued rows with dispatch-one dry-run only', async () => {
   }))
 })
 
+it('live-dispatches a selected queued row only after dry-run and dialog confirmation', async () => {
+  saveToken('test-token')
+  const confirmSpy = vi.spyOn(window, 'confirm')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'project-live', status: 'queued', machine_target: 'gb10', title: 'Live queue item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ project_id: 'project-live', project: { project_name: 'Live queue item' } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'dry_run_dispatch_one', reason: 'dry-run selected explicit queued candidate', candidate: { project_id: 'project-live' } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'live_dispatch_one', reason: 'live dispatch started selected queued candidate', candidate: { project_id: 'project-live' } }), { status: 200 }))
+
+  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', hash: '#queue:queued' }} />)
+
+  fireEvent.click(await screen.findByText('Live queue item'))
+  await screen.findByLabelText('Dashboard detail panel')
+  expect(screen.getByRole('button', { name: 'Dispatch selected project' })).toBeDisabled()
+
+  fireEvent.click(screen.getByRole('button', { name: /Check selected dispatch/i }))
+  await screen.findByText('dry-run selected explicit queued candidate')
+  fireEvent.click(screen.getByRole('button', { name: 'Dispatch selected project' }))
+
+  expect(await screen.findByRole('dialog', { name: 'Dispatch selected project?' })).toBeInTheDocument()
+  expect(confirmSpy).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Dispatch selected' }))
+
+  await screen.findByText('live dispatch started selected queued candidate')
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/control/dispatch-one', expect.objectContaining({
+    method: 'POST',
+    headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_id: 'project-live', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
+  }))
+})
+
 it('loads project discovery rows from the V1 projects endpoint', async () => {
   saveToken('test-token')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
