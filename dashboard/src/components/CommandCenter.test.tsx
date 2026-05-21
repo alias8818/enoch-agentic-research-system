@@ -45,6 +45,37 @@ it('runs dispatch primary actions as safe dry-runs instead of only linking away'
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
+it('dispatches the top dispatch action only after dry-run and dialog confirmation', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch', reason: 'dry-run dispatch selected candidate' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dispatch_started', reason: 'live dispatch accepted selected candidate' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<PrimaryAction action={{ kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'One queued candidate matches the idle lane.', action_label: 'Dispatch', action_hash: '#queue:queued' }} onRefresh={onRefresh} />)
+  expect(screen.getByRole('button', { name: 'Dispatch work' })).toBeDisabled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Check dispatch' }))
+  await screen.findByText('dry-run dispatch selected candidate')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Dispatch work' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Dispatch top action?' })
+  expect(dialog).toHaveTextContent('starts live dispatch')
+  expect(confirmSpy).not.toHaveBeenCalled()
+  fireEvent.click(dialog.querySelectorAll('button')[1])
+
+  await screen.findByText('live dispatch accepted selected candidate')
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-next', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
+  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-next', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
+  }))
+  expect(onRefresh).toHaveBeenCalledTimes(2)
+})
+
 it('runs follow-up primary actions as safe dry-runs instead of only linking away', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_followup', reason: 'would queue bounded follow-up', followup: { idea_id: 'follow-1' } }), { status: 200 }))

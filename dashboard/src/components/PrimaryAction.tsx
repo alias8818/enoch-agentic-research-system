@@ -39,6 +39,7 @@ function idempotencyKey(prefix: string): string {
 export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRefresh?: () => void }) {
   const [result, setResult] = useState<CommandResult | null>(null)
   const [isPending, setIsPending] = useState(false)
+  const [dispatchReady, setDispatchReady] = useState(false)
   const [draftReady, setDraftReady] = useState(false)
   const [finalizeReady, setFinalizeReady] = useState(false)
   const { confirm, dialog } = useOperatorDialog()
@@ -62,13 +63,39 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
               })
             : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
       setResult({ title: 'Primary action dry-run', payload })
+      setDispatchReady(action.kind === 'dispatch_next' && String(payload.action || '').includes('dry_run'))
       setDraftReady(action.kind === 'write_paper' && payload.action === 'dry_run_draft')
       setFinalizeReady(action.kind === 'finalize_paper' && payload.dry_run === true && Number(payload.processed || 0) > 0)
       onRefresh?.()
     } catch (error) {
       setResult({ title: 'Primary action dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setDispatchReady(false)
       setDraftReady(false)
       setFinalizeReady(false)
+    } finally {
+      setIsPending(false)
+    }
+  }
+
+  async function runLiveDispatch() {
+    if (!action || action.kind !== 'dispatch_next' || !dispatchReady) return
+    const confirmed = await confirm({
+      title: 'Dispatch top action?',
+      message: 'This starts live dispatch for the current backend-selected queued work. Use Check dispatch again if lane or queue state may have changed.',
+      confirmLabel: 'Dispatch work',
+      tone: 'warn',
+    })
+    if (!confirmed) return
+    setIsPending(true)
+    try {
+      const payload = await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
+      setResult({ title: 'Primary action live dispatch', payload })
+      setDispatchReady(false)
+      setDraftReady(false)
+      setFinalizeReady(false)
+      onRefresh?.()
+    } catch (error) {
+      setResult({ title: 'Primary action live dispatch failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
     } finally {
       setIsPending(false)
     }
@@ -87,6 +114,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
     try {
       const payload = await apiPost<Record<string, unknown>>('/control/papers/draft-next', { dry_run: false, requested_by: 'dashboard-v2', force: true })
       setResult({ title: 'Primary action live draft', payload })
+      setDispatchReady(false)
       setDraftReady(false)
       setFinalizeReady(false)
       onRefresh?.()
@@ -118,6 +146,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
         skip_rewritten: true,
       })
       setResult({ title: 'Primary action live finalization', payload })
+      setDispatchReady(false)
       setFinalizeReady(false)
       setDraftReady(false)
       onRefresh?.()
@@ -148,7 +177,10 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
       </div>
       {isDryRunCommand(action) ? (
         <div className="primary-action-buttons">
-          <button className={action.kind === 'write_paper' || action.kind === 'finalize_paper' ? 'secondary-button primary-action-cta' : 'primary-button primary-action-cta'} type="button" disabled={isPending} onClick={runDryRun}>{dryRunLabel(action)}</button>
+          <button className={action.kind === 'dispatch_next' || action.kind === 'write_paper' || action.kind === 'finalize_paper' ? 'secondary-button primary-action-cta' : 'primary-button primary-action-cta'} type="button" disabled={isPending} onClick={runDryRun}>{dryRunLabel(action)}</button>
+          {action.kind === 'dispatch_next' ? (
+            <button className="primary-button primary-action-cta" type="button" disabled={isPending || !dispatchReady} onClick={runLiveDispatch}>Dispatch work</button>
+          ) : null}
           {action.kind === 'write_paper' ? (
             <button className="primary-button primary-action-cta" type="button" disabled={isPending || !draftReady} onClick={runLiveDraft}>Draft paper</button>
           ) : null}
