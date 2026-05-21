@@ -166,7 +166,7 @@ it('dry-runs rewrite batch and finalization package without live rewrite', async
 })
 
 it('only enables live finalization for the paper that completed dry-run', async () => {
-  let resolveDryRun: ((value: Response) => void) | null = null
+  let resolveDryRun!: (value: Response) => void
   const dryRunPromise = new Promise<Response>((resolve) => {
     resolveDryRun = resolve
   })
@@ -189,7 +189,7 @@ it('only enables live finalization for the paper that completed dry-run', async 
     expect(fetchMock).toHaveBeenCalledWith('/control/api/publication-automation/paper-b', expect.any(Object))
   })
 
-  resolveDryRun?.(new Response(JSON.stringify({ dry_run: true, paper_id: 'paper-a' }), { status: 200 }))
+  resolveDryRun(new Response(JSON.stringify({ dry_run: true, paper_id: 'paper-a' }), { status: 200 }))
 
   const liveButton = screen.getByRole('button', { name: 'Prepare live finalization package' })
   await waitFor(() => expect(liveButton).toBeDisabled())
