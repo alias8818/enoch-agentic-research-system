@@ -7,6 +7,8 @@ import { DetailPanel } from './DetailPanel'
 
 type PageMeta = { next_cursor?: string; has_more?: boolean; returned?: number; page_size?: number }
 type PageResponse = { rows?: Record<string, unknown>[]; counts?: Record<string, unknown>; generated_at?: string; page?: PageMeta }
+type ObservabilityHealth = { generated_at?: string; route_observability_enabled?: boolean; route_observability_log_configured?: boolean; latest_route_observation?: string | null }
+type ObservabilityMemory = { generated_at?: string; rss_mib?: number | null; peak_rss_mib?: number | null; warn_threshold_mib?: number | null; memory_warn?: boolean; route_observability_enabled?: boolean }
 type DetailSelection = { kind: 'project' | 'run' | 'paper' | 'event'; id: string; row?: Record<string, unknown> }
 type FilterState = { search: string; status: string; pageSize: string; cursor: string }
 
@@ -156,6 +158,64 @@ export function EventsPage() {
       <FilterBar state={filters} statusOptions={[{ label: 'all event types', value: '' }, { label: 'Queue Alert', value: 'Queue Alert' }, { label: 'worker.callback', value: 'worker.callback' }, { label: 'paper.drafted', value: 'paper.drafted' }, { label: 'research.run_cycle.live', value: 'research.run_cycle.live' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: '', pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={['id', 'entity_type', 'entity_id', 'event_type', 'created_at', 'summary']} empty="No recent events returned." onSelectRow={(row) => setSelection({ kind: 'event', id: String(row.id || row.event_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
+    </PageShell>
+  )
+}
+
+function boolText(value: unknown): string {
+  if (value === true) return 'yes'
+  if (value === false) return 'no'
+  return '—'
+}
+
+function mibText(value: unknown): string {
+  return typeof value === 'number' ? `${value.toFixed(1)} MiB` : '—'
+}
+
+function latestObservationText(value: string | null | undefined): string {
+  if (!value) return 'No route observation sample available.'
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return JSON.stringify(parsed, null, 2)
+  } catch {
+    return value
+  }
+}
+
+export function ObservabilityPage() {
+  const health = useQuery({ queryKey: ['observability', 'health'], queryFn: () => apiGet<ObservabilityHealth>('/control/api/v1/observability/health') })
+  const memory = useQuery({ queryKey: ['observability', 'memory'], queryFn: () => apiGet<ObservabilityMemory>('/control/api/v1/observability/memory') })
+  if (health.isLoading || memory.isLoading) return <LoadingCard label="observability" />
+  if (health.isError) return <ErrorCard error={health.error} />
+  if (memory.isError) return <ErrorCard error={memory.error} />
+  const healthData = health.data || {}
+  const memoryData = memory.data || {}
+  return (
+    <PageShell title="Observability" subtitle="Controller process and route-observability state from bounded V1 read models.">
+      <section className="detail-summary">
+        <p className="eyebrow">Controller memory</p>
+        <h2>{memoryData.memory_warn ? 'Memory warning active' : 'Memory is inside configured threshold'}</h2>
+        <dl className="detail-field-grid">
+          <div className="detail-field"><dt>rss</dt><dd>{mibText(memoryData.rss_mib)}</dd></div>
+          <div className="detail-field"><dt>peak rss</dt><dd>{mibText(memoryData.peak_rss_mib)}</dd></div>
+          <div className="detail-field"><dt>warn threshold</dt><dd>{mibText(memoryData.warn_threshold_mib)}</dd></div>
+          <div className="detail-field"><dt>warning</dt><dd>{boolText(memoryData.memory_warn)}</dd></div>
+        </dl>
+      </section>
+      <section className="detail-summary">
+        <p className="eyebrow">Route observability</p>
+        <h2>{healthData.route_observability_enabled ? 'Route logging enabled' : 'Route logging disabled'}</h2>
+        <dl className="detail-field-grid">
+          <div className="detail-field"><dt>enabled</dt><dd>{boolText(healthData.route_observability_enabled)}</dd></div>
+          <div className="detail-field"><dt>custom log path</dt><dd>{boolText(healthData.route_observability_log_configured)}</dd></div>
+          <div className="detail-field"><dt>health sampled</dt><dd>{healthData.generated_at || '—'}</dd></div>
+          <div className="detail-field"><dt>memory sampled</dt><dd>{memoryData.generated_at || '—'}</dd></div>
+        </dl>
+        <details className="raw-details">
+          <summary>Latest route observation</summary>
+          <pre className="json-block">{latestObservationText(healthData.latest_route_observation)}</pre>
+        </details>
+      </section>
     </PageShell>
   )
 }
