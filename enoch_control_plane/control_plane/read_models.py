@@ -868,7 +868,17 @@ def summarize_queue_row(row: dict[str, Any]) -> dict[str, Any]:
     }))
 
 
+def _idea_has_queue_context(row: dict[str, Any]) -> bool:
+    if _text(row.get("queue_status") or row.get("status")):
+        return True
+    if _text(row.get("current_run_id")):
+        return True
+    return bool(_text(row.get("last_run_state")))
+
+
 def summarize_idea_workbench_row(row: dict[str, Any]) -> dict[str, Any]:
+    if not _idea_has_queue_context(row):
+        return dict(row)
     stage_source = {
         **row,
         "project_id": row.get("project_id") or row.get("idea_id") or "",

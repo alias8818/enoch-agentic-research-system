@@ -152,6 +152,18 @@ class OperatorStatusTests(unittest.TestCase):
         self.assertEqual(summary["operator_stage_label"], "Ready")
         self.assertIn("Dispatch", summary["operator_next_step"])
 
+    def test_summarize_idea_workbench_row_skips_queue_stage_for_unqueued_ideas(self) -> None:
+        for idea_status in ("candidate", "rejected"):
+            summary = summarize_idea_workbench_row({
+                "idea_id": f"idea-{idea_status}",
+                "idea_status": idea_status,
+                "queue_status": "",
+                "source_kind": "research_facility",
+            })
+            self.assertNotIn("operator_stage", summary)
+            self.assertNotIn("operator_attention", summary)
+            self.assertNotIn("operator_next_step", summary)
+
     def test_summarize_paper_row_requires_readable_publish_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "paper-project"
