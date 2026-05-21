@@ -34,6 +34,8 @@ RANKING_BUCKETS: dict[str, str] = {
     "weak_local_only_preserved": "Weak/local-only preserved signals",
     "likely_stale_low_value_archive": "Likely stale/low-value archive",
 }
+DEFAULT_SOURCE_LINEAGE_CUTOFF = "2026-05-19T17:51:00Z"
+
 RANKING_BUCKET_ORDER = [
     "top_external_researcher_candidates",
     "compute_scale_blocked",
@@ -593,7 +595,10 @@ def validate_repo_against_rows(rows: Iterable[dict[str, Any]], repo_root: Path) 
             issues.append(f"selection_summary.{key}:{actual} != {expected}")
     if manifest.get("record_count") != expected_summary["export_cleanly_now"]:
         issues.append(f"manifest.record_count:{manifest.get('record_count')} != export_cleanly_now:{expected_summary['export_cleanly_now']}")
-    policy = validate_source_backfill_policy(materialized, created_after=os.environ.get("ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF", ""))
+    policy = validate_source_backfill_policy(
+        materialized,
+        created_after=os.environ.get("ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF", DEFAULT_SOURCE_LINEAGE_CUTOFF),
+    )
     if not policy.get("ok", True):
         for problem in policy.get("problems") or []:
             issues.append(
@@ -603,7 +608,9 @@ def validate_repo_against_rows(rows: Iterable[dict[str, Any]], repo_root: Path) 
     return sorted(set(issues))
 
 
-def validate_source_backfill_policy(rows: Iterable[dict[str, Any]], *, created_after: str = "") -> dict[str, Any]:
+def validate_source_backfill_policy(
+    rows: Iterable[dict[str, Any]], *, created_after: str = DEFAULT_SOURCE_LINEAGE_CUTOFF
+) -> dict[str, Any]:
     cutoff = _parse_time(created_after)
     summary = {
         "legacy_backfilled_source_ok": 0,
