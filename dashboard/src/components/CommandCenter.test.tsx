@@ -137,6 +137,43 @@ it('runs finalize-paper primary actions as safe dry-runs instead of only linking
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
+it('finalizes the top paper action only after dry-run and dialog confirmation', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, matched: 2, processed: 2, reason: 'would finalize 2 publication drafts' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: false, rewritten: 2, failed: 0, reason: 'finalized 2 publication drafts' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<PrimaryAction action={{ kind: 'finalize_paper', title: 'Finalize publication drafts', summary: 'Publication drafts need packages.', action_label: 'Open automation queue', action_hash: '#automation' }} onRefresh={onRefresh} />)
+  expect(screen.getByRole('button', { name: 'Finalize drafts' })).toBeDisabled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Check finalization' }))
+  await screen.findByText('would finalize 2 publication drafts')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Finalize drafts' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Finalize publication drafts?' })
+  expect(dialog).toHaveTextContent('rewrites publication draft packages')
+  expect(confirmSpy).not.toHaveBeenCalled()
+  fireEvent.click(dialog.querySelectorAll('button')[1])
+
+  await screen.findByText('finalized 2 publication drafts')
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/paper-reviews/rewrite-batch', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"idempotency_key":"primary-action-rewrite-batch:dashboard-v2:'),
+  }))
+  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"dry_run":true')
+  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"paper_status":"publication_draft"')
+  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"skip_rewritten":true')
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/paper-reviews/rewrite-batch', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"idempotency_key":"primary-action-rewrite-batch-live:dashboard-v2:'),
+  }))
+  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"dry_run":false')
+  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"force":true')
+  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"paper_status":"publication_draft"')
+  expect(onRefresh).toHaveBeenCalledTimes(2)
+})
+
 it('keeps non-command primary actions as V2 links', () => {
   render(<PrimaryAction action={{ kind: 'publish_paper', title: 'Import finalized drafts', summary: 'Finalized drafts need corpus import.', action_label: 'Open corpus import', action_hash: '#corpus' }} />)
   expect(screen.getByRole('link', { name: 'Open corpus import' })).toHaveAttribute('href', '/control/dashboard-v2#corpus')

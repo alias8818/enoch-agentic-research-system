@@ -40,6 +40,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
   const [result, setResult] = useState<CommandResult | null>(null)
   const [isPending, setIsPending] = useState(false)
   const [draftReady, setDraftReady] = useState(false)
+  const [finalizeReady, setFinalizeReady] = useState(false)
   const { confirm, dialog } = useOperatorDialog()
 
   async function runDryRun() {
@@ -62,10 +63,12 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
             : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
       setResult({ title: 'Primary action dry-run', payload })
       setDraftReady(action.kind === 'write_paper' && payload.action === 'dry_run_draft')
+      setFinalizeReady(action.kind === 'finalize_paper' && payload.dry_run === true && Number(payload.processed || 0) > 0)
       onRefresh?.()
     } catch (error) {
       setResult({ title: 'Primary action dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
       setDraftReady(false)
+      setFinalizeReady(false)
     } finally {
       setIsPending(false)
     }
@@ -85,9 +88,41 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
       const payload = await apiPost<Record<string, unknown>>('/control/papers/draft-next', { dry_run: false, requested_by: 'dashboard-v2', force: true })
       setResult({ title: 'Primary action live draft', payload })
       setDraftReady(false)
+      setFinalizeReady(false)
       onRefresh?.()
     } catch (error) {
       setResult({ title: 'Primary action live draft failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+    } finally {
+      setIsPending(false)
+    }
+  }
+
+  async function runLiveFinalization() {
+    if (!action || action.kind !== 'finalize_paper' || !finalizeReady) return
+    const confirmed = await confirm({
+      title: 'Finalize publication drafts?',
+      message: 'This rewrites publication draft packages for the backend-selected batch. Use Check finalization again if the queue may have changed.',
+      confirmLabel: 'Finalize drafts',
+      tone: 'warn',
+    })
+    if (!confirmed) return
+    setIsPending(true)
+    try {
+      const payload = await apiPost<Record<string, unknown>>('/control/api/paper-reviews/rewrite-batch', {
+        idempotency_key: idempotencyKey('primary-action-rewrite-batch-live'),
+        requested_by: 'dashboard-v2',
+        paper_status: 'publication_draft',
+        dry_run: false,
+        force: true,
+        limit: 10,
+        skip_rewritten: true,
+      })
+      setResult({ title: 'Primary action live finalization', payload })
+      setFinalizeReady(false)
+      setDraftReady(false)
+      onRefresh?.()
+    } catch (error) {
+      setResult({ title: 'Primary action live finalization failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
     } finally {
       setIsPending(false)
     }
@@ -113,9 +148,12 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
       </div>
       {isDryRunCommand(action) ? (
         <div className="primary-action-buttons">
-          <button className={action.kind === 'write_paper' ? 'secondary-button primary-action-cta' : 'primary-button primary-action-cta'} type="button" disabled={isPending} onClick={runDryRun}>{dryRunLabel(action)}</button>
+          <button className={action.kind === 'write_paper' || action.kind === 'finalize_paper' ? 'secondary-button primary-action-cta' : 'primary-button primary-action-cta'} type="button" disabled={isPending} onClick={runDryRun}>{dryRunLabel(action)}</button>
           {action.kind === 'write_paper' ? (
             <button className="primary-button primary-action-cta" type="button" disabled={isPending || !draftReady} onClick={runLiveDraft}>Draft paper</button>
+          ) : null}
+          {action.kind === 'finalize_paper' ? (
+            <button className="primary-button primary-action-cta" type="button" disabled={isPending || !finalizeReady} onClick={runLiveFinalization}>Finalize drafts</button>
           ) : null}
         </div>
       ) : (
