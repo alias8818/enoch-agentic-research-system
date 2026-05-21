@@ -24,7 +24,6 @@ include = ["enoch_control_plane*"]
 
 [tool.setuptools.package-data]
 enoch_control_plane = [
-    "control_plane/*.css",
     "control_plane/dashboard_v2/index.html",
     "control_plane/dashboard_v2/assets/*",
 ]

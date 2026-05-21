@@ -23,7 +23,13 @@ it('loads publication automation rows from the bounded API', async () => {
 
   await screen.findByText('Paper project')
   expect(screen.getByRole('link', { name: /paper-1/ })).toHaveAttribute('href', '/control/dashboard-v2#automation:paper-1')
-  expect(fetchMock).toHaveBeenCalledWith('/control/api/publication-automation?page_size=50&paper_status=publication_draft&sort=-rank_score', expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }))
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringContaining('/control/api/publication-automation?'),
+    expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }),
+  )
+  expect(String(fetchMock.mock.calls[0]?.[0])).toContain('page_size=50')
+  expect(String(fetchMock.mock.calls[0]?.[0])).toContain('paper_status=publication_draft')
+  expect(String(fetchMock.mock.calls[0]?.[0])).toContain('sort=-rank_score')
 })
 
 it('opens automation detail from selected table rows', async () => {
@@ -122,10 +128,10 @@ it('updates automation checklist items through dialog-confirmed V2 mutation', as
   await screen.findByText('Evidence bundle present')
   fireEvent.click(screen.getByRole('button', { name: 'Mark evidence pass' }))
 
-  expect(screen.getByRole('dialog', { name: 'Mark checklist item passed?' })).toBeInTheDocument()
+  expect(screen.getByRole('dialog', { name: 'Mark checklist item pass?' })).toBeInTheDocument()
   expect(confirmSpy).not.toHaveBeenCalled()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Mark passed' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Mark pass' }))
 
   await screen.findByText('Command completed')
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/publication-automation/paper-target/checklist/evidence', expect.objectContaining({
@@ -133,7 +139,7 @@ it('updates automation checklist items through dialog-confirmed V2 mutation', as
     body: expect.stringContaining('"status":"pass"'),
   }))
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/publication-automation/paper-target/checklist/evidence', expect.objectContaining({
-    body: expect.stringContaining('"note":"Marked passed from dashboard-v2"'),
+    body: expect.stringContaining('"note":"Marked pass from dashboard-v2"'),
   }))
 })
 

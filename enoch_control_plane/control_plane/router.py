@@ -2692,7 +2692,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         authorize(authorization)
         safe_size = read_models.page_size(page_size)
         rows, next_cursor, has_more = store.queue_page(queue=queue, status=status, search=search, cursor=cursor, page_size=safe_size, sort=sort)
-        out = [read_models.summarize_queue_row(row) for row in rows]
+        out = [read_models.summarize_queue_list_row(row) for row in rows]
         return {
             "ok": True,
             "source": "control_api_v1_queue",
@@ -2716,7 +2716,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         authorize(authorization)
         safe_size = read_models.page_size(page_size)
         rows, next_cursor, has_more = store.run_page(state=state, project_id=project_id, search=search, cursor=cursor, page_size=safe_size, sort=sort)
-        out = [read_models.summarize_run_row(row) for row in rows]
+        out = [read_models.summarize_run_list_row(row) for row in rows]
         return {
             "ok": True,
             "source": "control_api_v1_runs",
@@ -2761,7 +2761,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         authorize(authorization)
         safe_size = read_models.page_size(page_size)
         rows, next_cursor, has_more = store.project_page(status=status, search=search, cursor=cursor, page_size=safe_size, sort=sort)
-        out = [read_models.summarize_project_row(row) for row in rows]
+        out = [read_models.summarize_project_list_row(row) for row in rows]
         return {
             "ok": True,
             "source": "control_api_v1_projects",
@@ -2809,7 +2809,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         authorize(authorization)
         safe_size = read_models.page_size(page_size)
         rows, next_cursor, has_more = store.paper_page(status=status, search=search, cursor=cursor, page_size=safe_size, sort=sort)
-        out = [read_models.summarize_paper_row(row) for row in rows]
+        out = [read_models.summarize_paper_list_row(row) for row in rows]
         return {
             "ok": True,
             "source": "control_api_v1_papers",

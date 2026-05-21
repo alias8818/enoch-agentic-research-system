@@ -10,7 +10,7 @@ export type DashboardRoute =
   | { page: 'corpus'; status: string; search: string; hash: string }
   | { page: 'research'; candidateId: string; hash: string }
   | { page: 'intake'; ideaId: string; hash: string }
-  | { page: 'automation'; paperId: string; hash: string }
+  | { page: 'automation'; paperId: string; search: string; reviewStatus: string; hash: string }
   | { page: 'unsupported'; hash: string }
 
 export const DASHBOARD_V2_PATH = '/control/dashboard-v2'
@@ -82,9 +82,33 @@ export function parseDashboardRoute(hashOrPath: string | undefined): DashboardRo
   if (hash.startsWith('#idea:')) return { page: 'intake', ideaId: detailId(hash, '#idea:'), hash }
   if (hash.startsWith('#intake:')) return { page: 'intake', ideaId: detailId(hash, '#intake:'), hash }
   if (hash.startsWith('#intake')) return { page: 'intake', ideaId: '', hash }
-  if (hash.startsWith('#automation:')) return { page: 'automation', paperId: detailId(hash, '#automation:'), hash }
-  if (hash.startsWith('#review:')) return { page: 'automation', paperId: detailId(hash, '#review:'), hash }
-  if (hash.startsWith('#automation') || hash.startsWith('#reviews')) return { page: 'automation', paperId: '', hash }
+  if (hash.startsWith('#automation:')) {
+    return {
+      page: 'automation',
+      paperId: detailId(hash, '#automation:'),
+      search: queryParam(hash, 'search'),
+      reviewStatus: queryParam(hash, 'review_status'),
+      hash,
+    }
+  }
+  if (hash.startsWith('#review:')) {
+    return {
+      page: 'automation',
+      paperId: detailId(hash, '#review:'),
+      search: queryParam(hash, 'search'),
+      reviewStatus: queryParam(hash, 'review_status'),
+      hash,
+    }
+  }
+  if (hash.startsWith('#automation') || hash.startsWith('#reviews')) {
+    return {
+      page: 'automation',
+      paperId: '',
+      search: queryParam(hash, 'search'),
+      reviewStatus: queryParam(hash, 'review_status'),
+      hash,
+    }
+  }
   if (hash === '#overview' || hash === '#') return { page: 'overview', hash: '#overview' }
   return { page: 'unsupported', hash }
 }

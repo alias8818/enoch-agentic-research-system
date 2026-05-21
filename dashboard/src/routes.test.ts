@@ -26,10 +26,11 @@ it('parses V2-owned command-center routes', () => {
   expect(parseDashboardRoute('#intake')).toEqual({ page: 'intake', ideaId: '', hash: '#intake' })
   expect(parseDashboardRoute('#idea:idea%2F1')).toEqual({ page: 'intake', ideaId: 'idea/1', hash: '#idea:idea%2F1' })
   expect(parseDashboardRoute('#intake:idea%2F1')).toEqual({ page: 'intake', ideaId: 'idea/1', hash: '#intake:idea%2F1' })
-  expect(parseDashboardRoute('#automation')).toEqual({ page: 'automation', paperId: '', hash: '#automation' })
-  expect(parseDashboardRoute('#automation:paper%2F1')).toEqual({ page: 'automation', paperId: 'paper/1', hash: '#automation:paper%2F1' })
-  expect(parseDashboardRoute('#reviews')).toEqual({ page: 'automation', paperId: '', hash: '#reviews' })
-  expect(parseDashboardRoute('#review:paper%2F1')).toEqual({ page: 'automation', paperId: 'paper/1', hash: '#review:paper%2F1' })
+  expect(parseDashboardRoute('#automation')).toEqual({ page: 'automation', paperId: '', search: '', reviewStatus: '', hash: '#automation' })
+  expect(parseDashboardRoute('#automation?search=oracle&review_status=triage_ready')).toEqual({ page: 'automation', paperId: '', search: 'oracle', reviewStatus: 'triage_ready', hash: '#automation?search=oracle&review_status=triage_ready' })
+  expect(parseDashboardRoute('#automation:paper%2F1')).toEqual({ page: 'automation', paperId: 'paper/1', search: '', reviewStatus: '', hash: '#automation:paper%2F1' })
+  expect(parseDashboardRoute('#reviews')).toEqual({ page: 'automation', paperId: '', search: '', reviewStatus: '', hash: '#reviews' })
+  expect(parseDashboardRoute('#review:paper%2F1')).toEqual({ page: 'automation', paperId: 'paper/1', search: '', reviewStatus: '', hash: '#review:paper%2F1' })
 })
 
 it('keeps dashboard hashes inside the V2 route surface', () => {

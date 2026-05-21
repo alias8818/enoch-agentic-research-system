@@ -353,7 +353,7 @@ it('writes applied event filters back to the V2 hash', async () => {
   renderWithClient(<EventsPage />)
   await screen.findByText('Alert summary')
   fireEvent.change(screen.getByLabelText(/Search/i), { target: { value: 'stalled' } })
-  fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: 'worker.callback' } })
+  fireEvent.change(screen.getByLabelText(/Event type/i), { target: { value: 'worker.callback' } })
   fireEvent.click(screen.getByRole('button', { name: /Apply filters/i }))
 
   await screen.findByText('Callback summary')
@@ -384,7 +384,7 @@ it('applies paper and event filters to the backed endpoints', async () => {
   renderWithClient(<EventsPage />)
   await screen.findByText('Alert summary')
   fireEvent.change(screen.getByLabelText(/Search/i), { target: { value: 'stalled' } })
-  fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: 'worker.callback' } })
+  fireEvent.change(screen.getByLabelText(/Event type/i), { target: { value: 'worker.callback' } })
   fireEvent.click(screen.getByRole('button', { name: /Apply filters/i }))
   await screen.findByText('Callback summary')
 

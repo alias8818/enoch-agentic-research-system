@@ -314,6 +314,32 @@ def test_active_queue_summary_ignores_stale_related_paper_projection() -> None:
     assert summary["operator_next_step"] == "Wait for worker callback or gate completion."
 
 
+def test_summarize_queue_list_row_omits_followup_and_related_artifact_paths() -> None:
+    from enoch_control_plane.control_plane.read_models import summarize_queue_list_row, summarize_queue_row
+
+    row = _active_queue(
+        "list-project",
+        "list-run",
+        related_paper_id="paper-1",
+        related_finalization_package_path="package.json",
+        related_draft_markdown_path="draft.md",
+        followup_type="scale_blocked",
+        followup_status="pending",
+    )
+    full = summarize_queue_row(row)
+    summary = summarize_queue_list_row(row)
+
+    assert full["related_paper_id"] == "paper-1"
+    assert full["followup_type"] == "scale_blocked"
+    assert "related_paper_id" not in summary
+    assert "related_finalization_package_path" not in summary
+    assert "related_draft_markdown_path" not in summary
+    assert "followup_type" not in summary
+    assert "followup_status" not in summary
+    assert summary["project_id"] == "list-project"
+    assert summary["operator_lane"] == full["operator_lane"]
+
+
 def test_queue_summary_normalizes_manual_review_flag() -> None:
     from enoch_control_plane.control_plane.read_models import summarize_queue_row
 

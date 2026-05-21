@@ -939,6 +939,75 @@ def summarize_run_row(row: dict[str, Any]) -> dict[str, Any]:
     }))
 
 
+def _list_projection(
+    row: dict[str, Any],
+    *,
+    drop_keys: frozenset[str] = frozenset(),
+    drop_prefixes: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in row.items()
+        if key not in drop_keys and not any(key.startswith(prefix) for prefix in drop_prefixes)
+    }
+
+
+_QUEUE_LIST_DROP_KEYS = frozenset({
+    "project_dir",
+    "current_session_id",
+    "last_run_state",
+    "related_paper_id",
+    "related_paper_status",
+    "related_review_status",
+    "related_finalization_package_path",
+    "related_draft_markdown_path",
+    "related_evidence_bundle_path",
+    "related_claim_ledger_path",
+    "related_manifest_path",
+    "related_corpus_imported",
+    "related_corpus_import_id",
+    "related_artifact_slug",
+    "related_source_record_fingerprint",
+})
+_PROJECT_LIST_DROP_KEYS = frozenset({
+    "origin_idea_status",
+    "related_paper_id",
+    "related_paper_status",
+})
+_RUN_LIST_DROP_KEYS = frozenset({
+    "project_dir",
+    "session_id",
+    "related_paper_id",
+    "related_paper_status",
+    "related_review_status",
+    "related_finalization_package_path",
+    "related_draft_markdown_path",
+    "related_evidence_bundle_path",
+    "related_claim_ledger_path",
+    "related_manifest_path",
+})
+
+
+def summarize_queue_list_row(row: dict[str, Any]) -> dict[str, Any]:
+    return _list_projection(
+        summarize_queue_row(row),
+        drop_keys=_QUEUE_LIST_DROP_KEYS,
+        drop_prefixes=("followup_",),
+    )
+
+
+def summarize_project_list_row(row: dict[str, Any]) -> dict[str, Any]:
+    return _list_projection(summarize_project_row(row), drop_keys=_PROJECT_LIST_DROP_KEYS)
+
+
+def summarize_run_list_row(row: dict[str, Any]) -> dict[str, Any]:
+    return _list_projection(summarize_run_row(row), drop_keys=_RUN_LIST_DROP_KEYS)
+
+
+def summarize_paper_list_row(row: dict[str, Any]) -> dict[str, Any]:
+    return summarize_paper_row(row)
+
+
 OPERATOR_STAGE_PRECEDENCE = {
     "blocked_needs_operator": 100,
     "needs_review": 90,
