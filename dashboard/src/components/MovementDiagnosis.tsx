@@ -1,5 +1,6 @@
 import { dashboardV2Href } from '../routes'
 import type { MovementDiagnosis as MovementDiagnosisType } from '../types'
+import { resolveMovementPanelCopy } from './movementPanelCopy'
 
 const commonReasons = [
   'no admitted candidates',
@@ -14,13 +15,14 @@ const commonReasons = [
 
 export function MovementDiagnosis({ diagnosis }: { diagnosis: MovementDiagnosisType }) {
   const blockers = diagnosis.blockers || []
+  const { title, subtitle } = resolveMovementPanelCopy(diagnosis)
   return (
-    <section className="movement-panel" aria-label="Why no work is moving?">
+    <section className="movement-panel" aria-label={title}>
       <div className="movement-head">
         <div>
           <p className="eyebrow">Operator answer</p>
-          <h2>Why no work is moving?</h2>
-          <p>Backend-diagnosed blocker before lane controls. The frontend does not infer queue truth.</p>
+          <h2>{title}</h2>
+          <p>{subtitle}</p>
         </div>
         <span>{diagnosis.status || 'unknown'}</span>
       </div>

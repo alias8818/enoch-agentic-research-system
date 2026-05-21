@@ -520,7 +520,7 @@ it('live-dispatches a lane candidate only after exact lane dry-run and dialog co
 it('renders the paper mini strip and movement diagnosis', () => {
   render(<><PaperMiniStrip pipeline={{ write_needed: 2, finalize_needed: 1, publish_ready: 0 }} /><MovementDiagnosis diagnosis={diagnosis} /></>)
   expect(screen.getByText('Paper pipeline')).toBeInTheDocument()
-  expect(screen.getByText('Why no work is moving?')).toBeInTheDocument()
+  expect(screen.getByText('What can I do next?')).toBeInTheDocument()
   expect(screen.getByText('GB10 lane can dispatch')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: 'Open' })).toHaveAttribute('href', '/control/dashboard-v2#queue:queued')
   expect(screen.getByRole('link', { name: /Write/ })).toHaveAttribute('href', '/control/dashboard-v2#papers?status=publication_draft')
