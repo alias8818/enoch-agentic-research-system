@@ -38,7 +38,7 @@ test('detail hash opens structured run detail', async ({ page }) => {
 test('dispatch dry-run keeps raw JSON collapsed', async ({ page }) => {
   await openDashboardWithToken(page, '#overview')
   await page.getByRole('button', { name: 'Check dispatch' }).click()
-  await expect(page.getByText(/Dispatch dry-run passed|lane open/i)).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Dispatch dry-run passed' })).toBeVisible()
   const raw = page.locator('details.command-result-raw')
   await expect(raw).toHaveCount(1)
   await expect(raw).not.toHaveAttribute('open')
