@@ -63,6 +63,7 @@ button:disabled { cursor: not-allowed; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 1rem;
   padding: 0.65rem 0 0.85rem;
   border-bottom: 1px solid rgba(244, 241, 234, 0.12);
@@ -93,6 +94,37 @@ button:disabled { cursor: not-allowed; }
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.4rem;
+}
+
+.app-header-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.65rem;
+  margin-left: auto;
+}
+
+.app-global-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.45rem;
+}
+
+.app-global-search label {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  color: #9f988f;
+}
+
+.app-global-search input {
+  min-width: 12rem;
+  border: 1px solid rgba(244, 241, 234, 0.14);
+  border-radius: 0.65rem;
+  background: rgba(0, 0, 0, 0.28);
+  color: inherit;
+  padding: 0.45rem 0.65rem;
 }
 
 .nav-link {
@@ -1259,4 +1291,65 @@ span.cell-primary.cell-truncate {
 }
 .v2-error-log {
   margin-top: 0.75rem;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+[data-theme="light"] body {
+  background: linear-gradient(180deg, #f7f4ee 0%, #efeae1 48%, #e8e2d8 100%);
+}
+
+[data-theme="light"] body::before {
+  opacity: 0.06;
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+}
+
+[data-theme="light"] .app-frame {
+  color: #1a1814;
+}
+
+[data-theme="light"] .app-header {
+  border-bottom-color: rgba(26, 24, 20, 0.12);
+}
+
+[data-theme="light"] .app-header-context,
+[data-theme="light"] .app-global-search label,
+[data-theme="light"] .page-header-meta,
+[data-theme="light"] .eyebrow {
+  color: #6f6a62;
+}
+
+[data-theme="light"] .nav-link,
+[data-theme="light"] .nav-more > summary {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(26, 24, 20, 0.12);
+  color: #4d4942;
+}
+
+[data-theme="light"] .secondary-button {
+  background: rgba(255, 255, 255, 0.78);
+  border-color: rgba(26, 24, 20, 0.14);
+  color: #1a1814;
+}
+
+[data-theme="light"] .app-global-search input,
+[data-theme="light"] .filter-bar input,
+[data-theme="light"] .filter-bar select {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(26, 24, 20, 0.14);
+  color: #1a1814;
+}
+
+[data-theme="light"] .state-card,
+[data-theme="light"] .queue-command-card,
+[data-theme="light"] .page-header,
+[data-theme="light"] .result-card,
+[data-theme="light"] .detail-panel,
+[data-theme="light"] .count-card {
+  background: rgba(255, 255, 255, 0.78);
+  border-color: rgba(26, 24, 20, 0.12);
 }

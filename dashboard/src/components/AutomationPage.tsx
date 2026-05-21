@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { AutomationDetail, AutomationListRow, PagedRows } from '../api/readModels'
+import { parseAutomationDetail, parseAutomationListResponse } from '../api/readModelSchemas'
 import { apiGet, apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
 import { DataTable } from './DataTable'
@@ -184,13 +185,13 @@ export function AutomationPage({
 
   const automation = useQuery({
     queryKey: ['publication-automation', filters],
-    queryFn: () => apiGet<PagedRows<AutomationListRow>>(automationListUrl(filters)),
+    queryFn: () => apiGet<unknown>(automationListUrl(filters)).then(parseAutomationListResponse),
   })
   const rows = automation.data?.rows || []
   const activePaperId = selectedPaperId
   const detail = useQuery({
     queryKey: ['publication-automation-detail', activePaperId],
-    queryFn: () => apiGet<AutomationDetail>(`/control/api/publication-automation/${encodeURIComponent(activePaperId)}`),
+    queryFn: () => apiGet<unknown>(`/control/api/publication-automation/${encodeURIComponent(activePaperId)}`).then(parseAutomationDetail),
     enabled: Boolean(activePaperId),
   })
 

@@ -15,7 +15,8 @@
   "dependencies": {
     "@tanstack/react-query": "^5.90.12",
     "react": "^19.2.1",
-    "react-dom": "^19.2.1"
+    "react-dom": "^19.2.1",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

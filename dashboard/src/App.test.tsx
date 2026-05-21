@@ -616,3 +616,54 @@ it('uses compact secondary page headers instead of repeating the command-center 
   expect(container.querySelector('.page-hero')).toBeNull()
   expect(screen.getByText('Data source')).toBeInTheDocument()
 })
+
+it('routes global search to the projects list with a search query', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-21T10:00:00Z',
+      counts: { active: 0, queued: 0 },
+      paper_counts: {},
+      movement_diagnosis: { status: 'ready', primary_reason: 'No blockers.', blockers: [] },
+      flags: {},
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T10:00:05Z', worker_lanes: [] }), { status: 200 }))
+    .mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-21T10:00:00Z',
+      page: { returned: 0, has_more: false },
+      rows: [],
+    }), { status: 200 }))
+  saveToken('test-token')
+  window.location.hash = '#overview'
+
+  render(<App />)
+  await screen.findByText('Can I leave this running?')
+
+  fireEvent.change(screen.getByLabelText('Global search'), { target: { value: 'oracle lane' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Search projects' }))
+
+  expect(window.location.hash).toBe('#projects?search=oracle%20lane')
+})
+
+it('toggles the dashboard theme from the shell header', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-21T10:00:00Z',
+      counts: { active: 0, queued: 0 },
+      paper_counts: {},
+      movement_diagnosis: { status: 'ready', primary_reason: 'No blockers.', blockers: [] },
+      flags: {},
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T10:00:05Z', worker_lanes: [] }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+  await screen.findByText('Can I leave this running?')
+
+  expect(document.documentElement.dataset.theme).toBe('dark')
+  fireEvent.click(screen.getByRole('button', { name: 'Switch to light theme' }))
+  expect(document.documentElement.dataset.theme).toBe('light')
+  expect(screen.getByRole('button', { name: 'Switch to dark theme' })).toBeInTheDocument()
+})

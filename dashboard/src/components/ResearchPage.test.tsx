@@ -91,8 +91,26 @@ it('requires a bounded-cycle dry-run before live research cycle is enabled', asy
   renderWithClient(<ResearchPage />)
 
   await screen.findByText('No research candidates returned.')
-  expect(screen.getByRole('button', { name: 'Run one bounded cycle' })).toBeDisabled()
-  expect(screen.getByText('Run one bounded cycle disabled: dry-run bounded cycle first.')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Generate candidate batch' })).toBeDisabled()
+  expect(screen.getByText('Generate candidate batch disabled: dry-run candidate generation first.')).toBeInTheDocument()
+})
+
+it('dry-runs internal candidate generation and enables live batch after success', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'dry_run_generate_candidates', dry_run: true, candidate_count: 3, queued_count: 0 }), { status: 200 }))
+
+  renderWithClient(<ResearchPage />)
+
+  await screen.findByText('No research candidates returned.')
+  fireEvent.click(screen.getByRole('button', { name: 'Dry-run generate batch' }))
+  await screen.findByText('Research dry-run passed')
+
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/research/generate-batch', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"dry_run":true'),
+  }))
+  expect(screen.getByRole('button', { name: 'Generate candidate batch' })).toBeEnabled()
 })
 
 it('uses a dialog before running a bounded live research cycle after dry-run', async () => {

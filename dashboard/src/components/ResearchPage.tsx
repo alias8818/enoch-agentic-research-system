@@ -49,6 +49,16 @@ type PromotionResponse = {
   dispatch_started?: boolean
 }
 
+type GenerateBatchResponse = {
+  ok?: boolean
+  action?: string
+  reason?: string
+  dry_run?: boolean
+  candidate_count?: number
+  admitted_count?: number
+  queued_count?: number
+}
+
 function ResultCard({ result, context, stale }: { result?: Record<string, unknown>; context?: CommandPresentationContext; stale?: boolean }) {
   if (!result) return null
   return <CommandResultSummary result={{ payload: result, context: { ...context, stale } }} />
@@ -85,6 +95,27 @@ function liveCycleDisabledReason(canLiveCycle: boolean, dryRunReady: boolean, st
   if (canLiveCycle) return ''
   if (staleDryRun) return 'Run one bounded cycle disabled: facility state changed; dry-run bounded cycle again.'
   if (!dryRunReady) return 'Run one bounded cycle disabled: dry-run bounded cycle first.'
+  return ''
+}
+
+function generateBatchAllowsLive(payload?: GenerateBatchResponse): boolean {
+  if (!payload?.ok) return false
+  const action = String(payload.action || '').toLowerCase()
+  if (action.includes('blocked')) return false
+  return payload.dry_run === true && action.includes('dry_run_generate')
+}
+
+function providerBatchAllowsLive(payload?: GenerateBatchResponse): boolean {
+  if (!payload?.ok) return false
+  const action = String(payload.action || '').toLowerCase()
+  if (action.includes('blocked')) return false
+  return payload.dry_run === true && action.includes('dry_run_provider')
+}
+
+function liveGenerateDisabledReason(canLive: boolean, dryRunReady: boolean, isPending: boolean, label: string): string {
+  if (isPending) return `${label} disabled: research command is running.`
+  if (canLive) return ''
+  if (!dryRunReady) return `${label} disabled: dry-run candidate generation first.`
   return ''
 }
 
@@ -163,6 +194,8 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
   const [selectedCandidate, setSelectedCandidate] = useState<Record<string, unknown> | null>(null)
   const [cycleDryRunSignature, setCycleDryRunSignature] = useState('')
   const [cycleDryRunReady, setCycleDryRunReady] = useState(false)
+  const [batchDryRunReady, setBatchDryRunReady] = useState(false)
+  const [providerBatchDryRunReady, setProviderBatchDryRunReady] = useState(false)
   const facility = useQuery({ queryKey: ['research-facility'], queryFn: () => apiGet<ResearchFacilityResponse>('/control/api/research/facility?page_size=50') })
   const budget = useMutation({ mutationFn: () => apiGet<BudgetResponse>('/control/api/research/provider-budget?estimated_requests=1&reserve_requests=2') })
   const cycle = useMutation({
@@ -174,6 +207,28 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
     onSuccess: (payload) => {
       if (payload.action === 'promote_candidate') {
         setSelectedCandidate(null)
+        void queryClient.invalidateQueries({ queryKey: ['research-facility'] })
+      }
+    },
+  })
+  const generateBatch = useMutation({
+    mutationFn: (payload: { dry_run: boolean; max_candidates: number; requested_by: string }) => apiPost<GenerateBatchResponse>('/control/api/research/generate-batch', payload),
+    onSuccess: (payload, variables) => {
+      if (variables.dry_run) {
+        setBatchDryRunReady(generateBatchAllowsLive(payload))
+      } else {
+        setBatchDryRunReady(false)
+        void queryClient.invalidateQueries({ queryKey: ['research-facility'] })
+      }
+    },
+  })
+  const generateProviderBatch = useMutation({
+    mutationFn: (payload: { dry_run: boolean; max_candidates: number; requested_by: string }) => apiPost<GenerateBatchResponse>('/control/api/research/generate-provider-batch', payload),
+    onSuccess: (payload, variables) => {
+      if (variables.dry_run) {
+        setProviderBatchDryRunReady(providerBatchAllowsLive(payload))
+      } else {
+        setProviderBatchDryRunReady(false)
         void queryClient.invalidateQueries({ queryKey: ['research-facility'] })
       }
     },
@@ -200,11 +255,39 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
     setCycleDryRunSignature('')
   }
 
+  async function runLiveGenerateBatch() {
+    if (!canLiveGenerateBatch) return
+    const confirmed = await confirm({
+      title: 'Generate research candidates now?',
+      message: 'This writes new internal research candidates to the facility ledger. Review dry-run counts before proceeding.',
+      confirmLabel: 'Generate candidates',
+      tone: 'warn',
+    })
+    if (!confirmed) return
+    await generateBatch.mutateAsync({ dry_run: false, max_candidates: 3, requested_by: 'dashboard-v2' })
+  }
+
+  async function runLiveProviderBatch() {
+    if (!canLiveProviderBatch) return
+    const confirmed = await confirm({
+      title: 'Generate provider-backed candidates now?',
+      message: 'This spends provider inference budget and writes candidates to the facility ledger. Review dry-run budget checks first.',
+      confirmLabel: 'Generate provider batch',
+      tone: 'danger',
+    })
+    if (!confirmed) return
+    await generateProviderBatch.mutateAsync({ dry_run: false, max_candidates: 2, requested_by: 'dashboard-v2' })
+  }
+
   const rows = facility.data?.rows || []
   const currentFacilitySignature = facilitySignature(facility.data)
   const canLiveCycle = cycleDryRunReady && Boolean(currentFacilitySignature) && cycleDryRunSignature === currentFacilitySignature
   const staleCycleDryRun = cycleDryRunReady && cycleDryRunSignature !== currentFacilitySignature
   const cycleDisabledReason = liveCycleDisabledReason(canLiveCycle, cycleDryRunReady, staleCycleDryRun, cycle.isPending)
+  const canLiveGenerateBatch = batchDryRunReady && generateBatchAllowsLive(generateBatch.data)
+  const canLiveProviderBatch = providerBatchDryRunReady && providerBatchAllowsLive(generateProviderBatch.data)
+  const generateBatchDisabledReason = liveGenerateDisabledReason(canLiveGenerateBatch, batchDryRunReady, generateBatch.isPending, 'Generate candidate batch')
+  const providerBatchDisabledReason = liveGenerateDisabledReason(canLiveProviderBatch, providerBatchDryRunReady, generateProviderBatch.isPending, 'Generate provider batch')
   const routeCandidateId = route?.candidateId || ''
   const activeCandidate = selectedCandidate || rows.find((row) => String(row.candidate_id || '') === routeCandidateId) || null
   const selectedCandidateId = String(activeCandidate?.candidate_id || routeCandidateId || '')
@@ -232,6 +315,8 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
   function refreshCandidates() {
     setSelectedCandidate(null)
     promotion.reset()
+    setBatchDryRunReady(false)
+    setProviderBatchDryRunReady(false)
     void facility.refetch()
   }
 
@@ -259,6 +344,22 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
       />
       {cycleDisabledReason ? <p className="primary-action-disabled-reason">{cycleDisabledReason}</p> : null}
 
+      <section className="queue-command-card queue-command-card--compact" aria-label="Research candidate generation">
+        <div>
+          <p className="eyebrow">Candidate generation</p>
+          <h2>Generate research candidates</h2>
+          <p>Dry-run internal or provider-backed batches first. Live generation writes facility ledger rows only; it does not dispatch queue work.</p>
+        </div>
+        <div className="action-row">
+          <button className="secondary-button" type="button" disabled={generateBatch.isPending} onClick={() => { void generateBatch.mutateAsync({ dry_run: true, max_candidates: 3, requested_by: 'dashboard-v2' }) }}>Dry-run generate batch</button>
+          <button className="primary-button" type="button" disabled={generateBatch.isPending || !canLiveGenerateBatch} onClick={() => { void runLiveGenerateBatch() }}>Generate candidate batch</button>
+          <button className="secondary-button" type="button" disabled={generateProviderBatch.isPending} onClick={() => { void generateProviderBatch.mutateAsync({ dry_run: true, max_candidates: 2, requested_by: 'dashboard-v2' }) }}>Dry-run provider batch</button>
+          <button className="danger-button" type="button" disabled={generateProviderBatch.isPending || !canLiveProviderBatch} onClick={() => { void runLiveProviderBatch() }}>Generate provider batch</button>
+        </div>
+      </section>
+      {generateBatchDisabledReason ? <p className="primary-action-disabled-reason">{generateBatchDisabledReason}</p> : null}
+      {providerBatchDisabledReason ? <p className="primary-action-disabled-reason">{providerBatchDisabledReason}</p> : null}
+
       <section className="count-grid">
         {Object.entries(counts).slice(0, 8).map(([key, value]) => (
           <div key={key} className="count-card">
@@ -270,6 +371,8 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
 
       <ResultCard result={budget.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} />
       <ResultCard result={cycle.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} stale={staleCycleDryRun} />
+      <ResultCard result={generateBatch.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} />
+      <ResultCard result={generateProviderBatch.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} />
 
       <section className="queue-command-card">
         <div>

@@ -16,6 +16,7 @@ import { DASHBOARD_V2_PATH, canonicalDashboardHash, dashboardV2Href, dashboardRo
 import type { DashboardRoute } from './routes'
 import { detailParentPage, unsupportedRouteSuggestions } from './routePolicy'
 import type { AutomationReadiness, OverviewResponse, StatusResponse } from './types'
+import { applyTheme, getSavedTheme, saveTheme, toggleTheme, type DashboardTheme } from './theme'
 
 function TokenGate({ onSave }: { onSave: () => void }) {
   const [token, setToken] = useState(getSavedToken())
@@ -325,9 +326,36 @@ function moreNavClass(route: DashboardRoute): string {
   return ['events', 'observability', 'corpus', 'research', 'intake', 'automation', 'unsupported'].includes(route.page) ? 'nav-more nav-more--active' : 'nav-more'
 }
 
+function GlobalSearchForm() {
+  const [query, setQuery] = useState('')
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    const trimmed = query.trim()
+    window.location.href = dashboardV2Href(trimmed ? `#projects?search=${encodeURIComponent(trimmed)}` : '#projects')
+  }
+  return (
+    <form className="app-global-search" onSubmit={submit}>
+      <label>
+        Global search
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search projects"
+        />
+      </label>
+      <button className="secondary-button" type="submit">Search projects</button>
+    </form>
+  )
+}
+
 function Shell() {
   const [hasToken, setHasToken] = useState(Boolean(getSavedToken()))
   const [route, setRoute] = useState<DashboardRoute>(() => currentRoute())
+  const [theme, setTheme] = useState<DashboardTheme>(() => getSavedTheme())
+
+  useEffect(() => {
+    applyTheme(theme)
+  }, [theme])
 
   useEffect(() => {
     const onHashChange = () => setRoute(currentRoute())
@@ -365,6 +393,21 @@ function Shell() {
               </div>
             </details>
           </nav>
+          <div className="app-header-tools">
+            <GlobalSearchForm />
+            <button
+              className="secondary-button"
+              type="button"
+              aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              onClick={() => {
+                const next = toggleTheme(theme)
+                setTheme(next)
+                saveTheme(next)
+              }}
+            >
+              {theme === 'dark' ? 'Light theme' : 'Dark theme'}
+            </button>
+          </div>
         </header>
         <RoutedPage route={route} />
       </div>
