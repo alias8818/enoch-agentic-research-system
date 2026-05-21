@@ -44,3 +44,24 @@ it('renders event detail from the selected row without fetching an event endpoin
   expect(screen.getByText('Raw payload')).toBeInTheDocument()
   expect(fetchMock).not.toHaveBeenCalled()
 })
+
+
+it('renders related project runs and papers as V2 links instead of raw-only JSON', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    project_id: 'project-1',
+    project: { project_name: 'Structured project' },
+    runs: [{ run_id: 'run-1', state: 'running', current_activity: 'testing' }],
+    papers: [{ paper_id: 'paper-1', title: 'Draft paper', status: 'publication_draft' }],
+    events: [{ id: 9, event_type: 'Queue Alert', summary: 'Lane blocked' }],
+  }), { status: 200 }))
+
+  renderWithClient(<DetailPanel selection={{ kind: 'project', id: 'project-1' }} onClose={() => undefined} />)
+
+  expect(await screen.findByRole('heading', { name: 'Structured project' })).toBeInTheDocument()
+  expect(screen.getByText('Related runs')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /run-1/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-1')
+  expect(screen.getByText('Related papers')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /Draft paper/ })).toHaveAttribute('href', '/control/dashboard-v2#paper:paper-1')
+  expect(screen.getByText('Recent events')).toBeInTheDocument()
+  expect(screen.getByText('Lane blocked')).toBeInTheDocument()
+})

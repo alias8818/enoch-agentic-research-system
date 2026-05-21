@@ -1,4 +1,5 @@
 import { apiGet } from '../api/client'
+import { dashboardV2Href } from '../routes'
 import { useQuery } from '@tanstack/react-query'
 
 export type DetailKind = 'project' | 'run' | 'paper' | 'event'
@@ -31,6 +32,58 @@ function stringifyValue(value: unknown): string {
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
+}
+
+function recordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item)) : []
+}
+
+function rowTitle(row: Record<string, unknown>, fallback: string): string {
+  return stringifyValue(firstValue(row.title, row.project_name, row.paper_title, row.summary, row.current_activity, row.event_type, fallback))
+}
+
+function RelatedSection({ title, rows, kind }: { title: string; rows: Record<string, unknown>[]; kind: 'run' | 'paper' | 'event' }) {
+  if (!rows.length) return null
+  return (
+    <section className="detail-related">
+      <h4>{title}</h4>
+      <div className="detail-related-list">
+        {rows.slice(0, 6).map((row, index) => {
+          const id = stringifyValue(firstValue(row.run_id, row.paper_id, row.id, row.event_id, `row-${index + 1}`))
+          const titleText = kind === 'run' ? id : rowTitle(row, id)
+          const meta = stringifyValue(firstValue(row.state, row.status, row.event_type, row.updated_at, row.created_at))
+          if (kind === 'event') {
+            return (
+              <div key={`${kind}-${id}-${index}`} className="detail-related-row">
+                <strong>{titleText}</strong>
+                {meta !== '—' && meta !== titleText ? <span>{meta}</span> : null}
+              </div>
+            )
+          }
+          return (
+            <a key={`${kind}-${id}-${index}`} className="detail-related-row detail-related-row--link" href={dashboardV2Href(`#${kind}:${encodeURIComponent(id)}`)}>
+              <strong>{titleText}</strong>
+              {meta !== '—' && meta !== titleText ? <span>{meta}</span> : null}
+            </a>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function RelatedDetails({ payload }: { payload: Record<string, unknown> }) {
+  const runs = recordArray(payload.runs)
+  const papers = recordArray(payload.papers)
+  const events = recordArray(payload.events)
+  if (!runs.length && !papers.length && !events.length) return null
+  return (
+    <section className="detail-related-group" aria-label="Related detail records">
+      <RelatedSection title="Related runs" rows={runs} kind="run" />
+      <RelatedSection title="Related papers" rows={papers} kind="paper" />
+      <RelatedSection title="Recent events" rows={events} kind="event" />
+    </section>
+  )
 }
 
 function detailTitle(kind: DetailKind, payload: Record<string, unknown>, fallbackId: string): string {
@@ -121,6 +174,7 @@ function StructuredDetail({ kind, id, payload }: { kind: DetailKind; id: string;
         {summary !== '—' && summary !== title ? <p>{summary}</p> : null}
         <FieldGrid fields={detailFields(kind, payload, id)} />
       </section>
+      <RelatedDetails payload={payload} />
       <details className="raw-details">
         <summary>Raw payload</summary>
         <pre className="json-block">{JSON.stringify(payload, null, 2)}</pre>
