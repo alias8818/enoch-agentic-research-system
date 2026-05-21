@@ -209,8 +209,11 @@ callback URL:
 sudo useradd --system --home /var/lib/enoch-cpu-worker --shell /usr/sbin/nologin enoch-cpu-worker || true
 sudo mkdir -p /etc/enoch-cpu-worker /var/lib/enoch-cpu-worker/state /var/lib/enoch-cpu-worker/projects
 sudo cp /tmp/enoch-cpu-worker-config/config.json /etc/enoch-cpu-worker/config.json
+sudo chown root:enoch-cpu-worker /etc/enoch-cpu-worker/config.json
+sudo chmod 0640 /etc/enoch-cpu-worker/config.json
 sudo chown -R enoch-cpu-worker:enoch-cpu-worker /var/lib/enoch-cpu-worker
 sudo editor /etc/enoch-cpu-worker/config.json
+sudo chmod 0640 /etc/enoch-cpu-worker/config.json
 ```
 
 Set these CPU worker config values:

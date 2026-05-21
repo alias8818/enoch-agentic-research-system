@@ -32,6 +32,11 @@ GPU_REQUIRED_TERMS = (
     "vram",
 )
 
+NEGATED_GPU_TERMS = (
+    "no gpu",
+    "non-gpu",
+)
+
 TRAINING_TERMS = (
     "pretraining",
     "pre-train",
@@ -121,6 +126,8 @@ def infer_workload_class_from_text(row: dict[str, Any]) -> str:
     text = _field_text(row)
     if not text:
         return "unknown"
+    if _contains_any(text, NEGATED_GPU_TERMS):
+        return "cpu_only"
     if _contains_any(text, GPU_REQUIRED_TERMS):
         return "gpu_required"
     if _contains_any(text, TRAINING_TERMS):
