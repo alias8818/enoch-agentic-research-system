@@ -207,25 +207,54 @@ describe('deriveDetailOperatorSummary', () => {
     expect(blockers?.answers.find((answer) => answer.label === 'missing artifacts')?.value).toContain('corpus import')
   })
 
-  it('answers event operator questions with entity links', () => {
+  it('answers event operator questions with entity links and payload proof', () => {
     const summary = deriveDetailOperatorSummary('event', {
       id: 9,
       event_type: 'Queue Alert',
       project_id: 'project-1',
+      run_id: 'run-1',
       summary: 'Lane blocked on gb10',
       created_at: '2026-05-21T10:00:00Z',
+      payload: { reason: 'lane active', gate_state: 'awaiting_wake' },
     })
 
-    expect(summary.state).toBe('Queue Alert')
-    expect(summary.entityLinks[0]).toMatchObject({ kind: 'project', id: 'project-1' })
-    expect(summary.sections[0].answers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: 'summary', value: 'Lane blocked on gb10' }),
+    expect(summary.state).toBe('Lane blocked on gb10')
+    expect(summary.context).toContain('project-1')
+    expect(summary.context).toContain('2026-05-21T10:00:00Z')
+    expect(summary.entityLinks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'project', id: 'project-1' }),
+      expect.objectContaining({ kind: 'run', id: 'run-1' }),
     ]))
+    expect(summary.sections.some((section) => section.title === 'What happened?')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'When?')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'Which entity was affected?')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'What does the payload prove?')).toBe(true)
+    const proof = summary.sections.find((section) => section.title === 'What does the payload prove?')
+    expect(proof?.answers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'reason', value: 'lane active' }),
+      expect.objectContaining({ label: 'gate state', value: 'awaiting_wake' }),
+    ]))
+    expect(summary.actionNeeded).toBe('lane active')
+    expect(summary.next).toContain('lane active')
+  })
+
+  it('derives entity links from nested payload and entity_type', () => {
+    const summary = deriveDetailOperatorSummary('event', {
+      event_id: 42,
+      event_type: 'Run Error',
+      entity_type: 'run',
+      entity_id: 'run-9',
+      created_at: '2026-05-21T11:00:00Z',
+      payload: { error: 'dispatch failed', run_id: 'run-9' },
+    })
+
+    expect(summary.entityLinks[0]).toMatchObject({ kind: 'run', id: 'run-9' })
+    expect(summary.actionNeeded).toBe('dispatch failed')
   })
 })
 
 describe('deriveIntakeIdeaOperatorSummary', () => {
-  it('answers intake admission and queue questions', () => {
+  it('answers intake admission and queue questions from read-model fields', () => {
     const summary = deriveIntakeIdeaOperatorSummary({
       idea_id: 'idea-1',
       project_id: 'project-1',
@@ -234,12 +263,63 @@ describe('deriveIntakeIdeaOperatorSummary', () => {
       queue_status: 'queued',
       paper_status: 'none',
       source_kind: 'supabase_idea',
+      source_external_id: 'ext-42',
+      source_external_url: 'https://example.invalid/idea',
+      machine_target: 'gb10',
+      current_run_id: 'run-1',
       next_action_hint: 'Dispatch dry-run recommended',
+      operator_stage_label: 'Ready queue',
+      operator_next_step: 'Dispatch when the lane is available.',
     })
 
-    expect(summary.state).toBe('admitted')
-    expect(summary.next).toContain('dry-run')
-    expect(summary.entityLinks[0]).toMatchObject({ kind: 'project', id: 'project-1' })
-    expect(summary.sections.some((section) => section.title === 'Admission and queue')).toBe(true)
+    expect(summary.state).toBe('Ready queue')
+    expect(summary.next).toBe('Dispatch when the lane is available.')
+    expect(summary.context).toContain('gb10')
+    expect(summary.entityLinks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'project', id: 'project-1' }),
+      expect.objectContaining({ kind: 'run', id: 'run-1' }),
+    ]))
+    expect(summary.sections.some((section) => section.title === 'Admission and promote')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'Queue and lane')).toBe(true)
+    const lineage = summary.sections.find((section) => section.title === 'Source and lineage')
+    expect(lineage?.answers.find((answer) => answer.label === 'source external id')?.value).toBe('ext-42')
+    const queue = summary.sections.find((section) => section.title === 'Queue and lane')
+    expect(queue?.answers.find((answer) => answer.label === 'why not queued')?.value).toBe('currently queued')
+  })
+
+  it('explains rejected and candidate ideas that are not queued', () => {
+    const rejected = deriveIntakeIdeaOperatorSummary({
+      idea_id: 'idea-reject',
+      idea_status: 'rejected',
+      queue_status: '',
+      source_kind: 'research_facility',
+    })
+    expect(rejected.next).toContain('Do not queue')
+    expect(rejected.actionNeeded).toContain('rejected')
+    const queue = rejected.sections.find((section) => section.title === 'Queue and lane')
+    expect(queue?.answers.find((answer) => answer.label === 'why not queued')?.value).toContain('rejected')
+
+    const candidate = deriveIntakeIdeaOperatorSummary({
+      idea_id: 'idea-candidate',
+      idea_status: 'candidate',
+      queue_status: '',
+      source_kind: 'internal_generated',
+    })
+    expect(candidate.next).toContain('Admit or promote')
+    expect(candidate.sections.find((section) => section.title === 'Admission and promote')?.answers.find((answer) => answer.label === 'promoted project')?.value).toBe('not promoted yet')
+  })
+
+  it('marks promoted ideas with related project context', () => {
+    const summary = deriveIntakeIdeaOperatorSummary({
+      idea_id: 'idea-src',
+      project_id: 'project-promoted',
+      title: 'Promoted trace',
+      idea_status: 'admitted',
+      queue_status: 'queued',
+      source_kind: 'chatgpt_pro',
+      machine_target: 'cpu',
+    })
+    expect(summary.context).toContain('Promoted to project')
+    expect(summary.sections.find((section) => section.title === 'Admission and promote')?.answers.find((answer) => answer.label === 'promoted project')?.value).toBe('project-promoted')
   })
 })

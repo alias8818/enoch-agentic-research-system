@@ -301,3 +301,61 @@ it('renders P2 operator question sections for paper detail with entity links', a
   expect(screen.getByRole('link', { name: /project: Structured project/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
   expect(screen.getByRole('link', { name: /run: run-1/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-1')
 })
+
+it('renders P2 operator question sections for event detail with entity links', async () => {
+  renderWithClient(<DetailPage selection={{
+    kind: 'event',
+    id: '9',
+    row: {
+      id: 9,
+      event_type: 'Queue Alert',
+      project_id: 'project-1',
+      run_id: 'run-1',
+      summary: 'Lane blocked on gb10',
+      created_at: '2026-05-21T10:00:00Z',
+      payload: { reason: 'lane active', gate_state: 'awaiting_wake' },
+    },
+  }} />)
+
+  expect(await screen.findByText('Current state')).toBeInTheDocument()
+  expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toHaveTextContent('Events')
+  expect(screen.getByRole('link', { name: 'Events' })).toHaveAttribute('href', '/control/dashboard-v2#events')
+  expect(screen.getByText('What happened?')).toBeInTheDocument()
+  expect(screen.getByText('When?')).toBeInTheDocument()
+  expect(screen.getByText('Which entity was affected?')).toBeInTheDocument()
+  expect(screen.getByText('What does the payload prove?')).toBeInTheDocument()
+  expect(screen.getByText('Record fields')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /project: project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
+  expect(screen.getByRole('link', { name: /run: run-1/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-1')
+  const rawDetails = screen.getByText('Raw payload').closest('details')
+  expect(rawDetails).not.toHaveAttribute('open')
+})
+
+it('renders P2 operator question sections for event detail with entity links', async () => {
+  renderWithClient(<DetailPage selection={{
+    kind: 'event',
+    id: '9',
+    row: {
+      id: 9,
+      event_type: 'Queue Alert',
+      project_id: 'project-1',
+      run_id: 'run-1',
+      summary: 'Lane blocked on gb10',
+      created_at: '2026-05-21T10:00:00Z',
+      payload: { reason: 'lane active', gate_state: 'awaiting_wake' },
+    },
+  }} />)
+
+  expect(await screen.findByText('Current state')).toBeInTheDocument()
+  expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toHaveTextContent('Events')
+  expect(screen.getByRole('link', { name: 'Events' })).toHaveAttribute('href', '/control/dashboard-v2#events')
+  expect(screen.getByText('What happened?')).toBeInTheDocument()
+  expect(screen.getByText('When?')).toBeInTheDocument()
+  expect(screen.getByText('Which entity was affected?')).toBeInTheDocument()
+  expect(screen.getByText('What does the payload prove?')).toBeInTheDocument()
+  expect(screen.getByText('Record fields')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /project: project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
+  expect(screen.getByRole('link', { name: /run: run-1/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-1')
+  const rawDetails = screen.getByText('Raw payload').closest('details')
+  expect(rawDetails).not.toHaveAttribute('open')
+})
