@@ -70,7 +70,7 @@ export interface OverviewResponse {
   recent_events?: Record<string, unknown>[]
   operator_counts?: Record<string, unknown>
   operator_detail_counts?: Record<string, unknown>
-  paper_pipeline?: { write_needed?: number; finalize_needed?: number; publish_ready?: number }
+  paper_pipeline?: { write_needed?: number; finalize_needed?: number; publish_ready?: number; published_imported?: number; publication_ready_total?: number; missing_from_corpus?: number }
   movement_diagnosis?: MovementDiagnosis
   flags?: { queue_paused?: boolean; maintenance_mode?: boolean; [key: string]: unknown }
 }

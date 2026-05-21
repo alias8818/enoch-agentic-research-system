@@ -1,24 +1,55 @@
 import { expect, it } from 'vitest'
 import {
+  eventListRowSchema,
+  OPERATOR_LIST_FIELD_KEYS,
+  listRowSchemaKeys,
+  overviewResponseSchema,
+  paperListRowSchema,
   parseAutomationDetail,
   parseAutomationListResponse,
+  parseAutomationReadiness,
+  parseEventListResponse,
+  parseOverviewResponse,
+  parsePaperListResponse,
   parseProjectListResponse,
   parseQueueListResponse,
+  parseRunListResponse,
+  parseStatusResponse,
+  projectListRowSchema,
+  queueListRowSchema,
+  runListRowSchema,
+  statusResponseSchema,
 } from './readModelSchemas'
+import {
+  eventListFixture,
+  overviewFixture,
+  paperListFixture,
+  projectListFixture,
+  queueListFixture,
+  runListFixture,
+  statusFixture,
+} from './readModelFixtures'
 
 it('parses bounded queue list responses and rejects malformed rows', () => {
-  const parsed = parseQueueListResponse({
-    rows: [{ project_id: 'p-1', project_name: 'Oracle lane', status: 'queued' }],
-    page: { returned: 1, has_more: false },
-  })
-
+  const parsed = parseQueueListResponse(queueListFixture)
   expect(parsed.rows?.[0]?.project_name).toBe('Oracle lane')
   expect(() => parseQueueListResponse({ rows: 'bad' })).toThrow()
 })
 
-it('parses project and automation list responses', () => {
-  expect(parseProjectListResponse({ rows: [{ project_id: 'p-1' }] }).rows?.[0]?.project_id).toBe('p-1')
+it('parses project, run, paper, event, and automation list responses', () => {
+  expect(parseProjectListResponse(projectListFixture).rows?.[0]?.project_id).toBe('project-1')
+  expect(parseRunListResponse(runListFixture).rows?.[0]?.state).toBe('running')
+  expect(parsePaperListResponse(paperListFixture).rows?.[0]?.paper_status).toBe('publication_draft')
+  expect(parseEventListResponse(eventListFixture).rows?.[0]?.event_type).toBe('worker_callback.received')
   expect(parseAutomationListResponse({ rows: [{ paper_id: 'paper-1', rank_score: 91 }] }).rows?.[0]?.rank_score).toBe(91)
+})
+
+it('parses command-center overview, status, and readiness payloads', () => {
+  const overview = parseOverviewResponse(overviewFixture)
+  expect(overview.movement_diagnosis?.status).toBe('actionable')
+  expect(overview.primary_operator_action?.kind).toBe('dispatch_next')
+  expect(parseStatusResponse(statusFixture).worker_lanes?.[0]?.machine_target).toBe('cpu-proxmox-1')
+  expect(parseAutomationReadiness({ ok: true, label: 'Long-haul mode: READY' }).label).toBe('Long-haul mode: READY')
 })
 
 it('parses automation detail payloads', () => {
@@ -26,7 +57,26 @@ it('parses automation detail payloads', () => {
     item: { paper_id: 'paper-1', review_status: 'triage_ready' },
     checklist: { items: [{ item_id: 'evidence', status: 'pending' }] },
   })
-
   expect(parsed.item?.paper_id).toBe('paper-1')
   expect(parsed.checklist?.items?.[0]?.item_id).toBe('evidence')
+})
+
+it('keeps operator table fields in list row schemas', () => {
+  const schemaByKind = {
+    queue: queueListRowSchema,
+    projects: projectListRowSchema,
+    runs: runListRowSchema,
+    papers: paperListRowSchema,
+    events: eventListRowSchema,
+  } as const
+  for (const [kind, requiredKeys] of Object.entries(OPERATOR_LIST_FIELD_KEYS) as Array<[keyof typeof schemaByKind, readonly string[]]>) {
+    const keys = listRowSchemaKeys(schemaByKind[kind])
+    for (const key of requiredKeys) expect(keys, `${kind} schema must validate ${key}`).toContain(key)
+  }
+})
+
+it('accepts representative fixtures through strict row schemas', () => {
+  expect(overviewResponseSchema.parse(overviewFixture).ok).toBe(true)
+  expect(statusResponseSchema.parse(statusFixture).worker_lanes?.length).toBe(1)
+  expect(paperListRowSchema.parse(paperListFixture.rows[0]).title).toBe('Draft on oracle lane')
 })

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FormEvent, useEffect, useState } from 'react'
 import { apiGet, getSavedToken, saveToken } from './api/client'
+import { parseAutomationReadiness, parseOverviewResponse, parseStatusResponse } from './api/readModelSchemas'
 import { CommandHero } from './components/CommandHero'
 import { MovementDiagnosis } from './components/MovementDiagnosis'
 import { OverviewFreshness } from './components/OverviewFreshness'
@@ -15,7 +16,7 @@ import { WorkerLanes } from './components/WorkerLanes'
 import { DASHBOARD_V2_PATH, canonicalDashboardHash, dashboardV2Href, dashboardRouteTitle, parseDashboardRoute } from './routes'
 import type { DashboardRoute } from './routes'
 import { detailParentPage, unsupportedRouteSuggestions } from './routePolicy'
-import type { AutomationReadiness, OverviewResponse, StatusResponse } from './types'
+import type { AutomationReadiness } from './types'
 import { applyTheme, getSavedTheme, saveTheme, toggleTheme, type DashboardTheme } from './theme'
 
 function TokenGate({ onSave }: { onSave: () => void }) {
@@ -44,11 +45,11 @@ function OverviewPage() {
   const queryClient = useQueryClient()
   const [secondaryOpen, setSecondaryOpen] = useState(false)
   const [readinessRequested, setReadinessRequested] = useState(false)
-  const overview = useQuery({ queryKey: ['overview'], queryFn: () => apiGet<OverviewResponse>('/control/api/v1/overview?active_limit=8&event_limit=6'), refetchInterval: 30_000 })
-  const status = useQuery({ queryKey: ['status'], queryFn: () => apiGet<StatusResponse>('/control/api/status'), refetchInterval: 30_000 })
+  const overview = useQuery({ queryKey: ['overview'], queryFn: () => apiGet<unknown>('/control/api/v1/overview?active_limit=8&event_limit=6').then(parseOverviewResponse), refetchInterval: 30_000 })
+  const status = useQuery({ queryKey: ['status'], queryFn: () => apiGet<unknown>('/control/api/status').then(parseStatusResponse), refetchInterval: 30_000 })
   const readiness = useQuery({
     queryKey: ['automation-readiness'],
-    queryFn: () => apiGet<AutomationReadiness>('/control/api/v1/automation-readiness'),
+    queryFn: () => apiGet<unknown>('/control/api/v1/automation-readiness').then(parseAutomationReadiness),
     refetchInterval: 60_000,
     enabled: secondaryOpen || readinessRequested,
   })

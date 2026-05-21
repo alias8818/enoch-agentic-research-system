@@ -1,6 +1,14 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiGet, apiPost } from '../api/client'
+import {
+  parseEventListResponse,
+  parseOverviewResponse,
+  parsePaperListResponse,
+  parseProjectListResponse,
+  parseQueueListResponse,
+  parseRunListResponse,
+} from '../api/readModelSchemas'
 import { dashboardV2Href } from '../routes'
 import type { DashboardRoute } from '../routes'
 import { publicCorpusIndexUrl, publicCorpusPaperUrl, publicReleaseValidatorUrl } from '../corpusLinks'
@@ -37,14 +45,6 @@ import { hashQuery, ListFilterBar } from './ListFilterBar'
 import { PageResourceErrorCard } from './ResourceStateCards'
 
 type PageMeta = { next_cursor?: string; has_more?: boolean; returned?: number; page_size?: number }
-type PageResponse = { rows?: Record<string, unknown>[]; counts?: Record<string, unknown>; generated_at?: string; page?: PageMeta }
-type OverviewPaperPipeline = {
-  publish_ready?: number
-  published_imported?: number
-  publication_ready_total?: number
-  missing_from_corpus?: number
-}
-type OverviewLite = { paper_pipeline?: OverviewPaperPipeline; generated_at?: string }
 type ObservabilityHealth = { generated_at?: string; route_observability_enabled?: boolean; route_observability_log_configured?: boolean; latest_route_observation?: string | null }
 type ObservabilityMemory = { generated_at?: string; rss_mib?: number | null; peak_rss_mib?: number | null; warn_threshold_mib?: number | null; memory_warn?: boolean; route_observability_enabled?: boolean }
 type DetailSelection = { kind: 'project' | 'run' | 'paper' | 'event'; id: string; row?: Record<string, unknown> }
@@ -197,7 +197,7 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
   }, [route.search, route.status])
   const params = withCommonParams(filters, 'priority')
   params.set('queue', 'all')
-  const query = useQuery({ queryKey: ['queue', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/queue?${params}`) })
+  const query = useQuery({ queryKey: ['queue', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/queue?${params}`).then(parseQueueListResponse) })
   if (query.isLoading) return <LoadingCard label="queue" />
   if (query.isError) return <ResourceErrorCard endpoint="queue" error={query.error} onRetry={() => { void query.refetch() }} retryLabel="Retry queue" />
   const selectedProjectId = selection?.id || ''
@@ -298,7 +298,7 @@ export function ProjectsPage({ route }: { route: Extract<DashboardRoute, { page:
     setSelection(null)
   }, [route.search, route.status])
   const params = withCommonParams(filters, 'recent')
-  const query = useQuery({ queryKey: ['projects', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/projects?${params}`) })
+  const query = useQuery({ queryKey: ['projects', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/projects?${params}`).then(parseProjectListResponse) })
   if (query.isLoading) return <LoadingCard label="projects" />
   if (query.isError) return <ResourceErrorCard endpoint="projects" error={query.error} onRetry={() => { void query.refetch() }} retryLabel="Retry projects" />
   return (
@@ -318,7 +318,7 @@ export function RunsPage({ route }: { route: Extract<DashboardRoute, { page: 'ru
     setSelection(null)
   }, [route.search, route.state])
   const params = withRunParams(filters)
-  const query = useQuery({ queryKey: ['runs', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/runs?${params}`) })
+  const query = useQuery({ queryKey: ['runs', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/runs?${params}`).then(parseRunListResponse) })
   if (query.isLoading) return <LoadingCard label="runs" />
   if (query.isError) return <ResourceErrorCard endpoint="runs" error={query.error} onRetry={() => { void query.refetch() }} retryLabel="Retry runs" />
   return (
@@ -338,7 +338,7 @@ export function PapersPage({ route }: { route: Extract<DashboardRoute, { page: '
     setSelection(null)
   }, [route.search, route.status])
   const params = withCommonParams(filters, 'recent')
-  const query = useQuery({ queryKey: ['papers', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/papers?${params}`) })
+  const query = useQuery({ queryKey: ['papers', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/papers?${params}`).then(parsePaperListResponse) })
   if (query.isLoading) return <LoadingCard label="papers" />
   if (query.isError) return <ResourceErrorCard endpoint="papers" error={query.error} onRetry={() => { void query.refetch() }} retryLabel="Retry papers" />
   return (
@@ -360,8 +360,8 @@ export function CorpusPage({ route }: { route?: Extract<DashboardRoute, { page: 
     setSelection(null)
   }, [route?.search, route?.status])
   const params = withCommonParams(filters, 'recent')
-  const overview = useQuery({ queryKey: ['corpus', 'overview'], queryFn: () => apiGet<OverviewLite>('/control/api/v1/overview?active_limit=1&event_limit=1') })
-  const query = useQuery({ queryKey: ['corpus', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/papers?${params}`) })
+  const overview = useQuery({ queryKey: ['corpus', 'overview'], queryFn: () => apiGet<unknown>('/control/api/v1/overview?active_limit=1&event_limit=1').then(parseOverviewResponse) })
+  const query = useQuery({ queryKey: ['corpus', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/papers?${params}`).then(parsePaperListResponse) })
   if (query.isLoading) return <LoadingCard label="corpus import" />
   if (query.isError) return <ResourceErrorCard endpoint="corpus" error={query.error} onRetry={() => { void query.refetch() }} retryLabel="Retry corpus rows" />
   const pipeline = overview.data?.paper_pipeline || {}
@@ -550,7 +550,7 @@ export function EventsPage({ route }: { route?: Extract<DashboardRoute, { page: 
   if (filters.status) params.set('event_type', filters.status)
   if (filters.search) params.set('search', filters.search)
   if (filters.cursor) params.set('cursor', filters.cursor)
-  const query = useQuery({ queryKey: ['events', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/events?${params}`) })
+  const query = useQuery({ queryKey: ['events', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/events?${params}`).then(parseEventListResponse) })
   if (query.isLoading) return <LoadingCard label="events" />
   if (query.isError) return <ResourceErrorCard endpoint="events" error={query.error} onRetry={() => { void query.refetch() }} retryLabel="Retry events" />
   return (
