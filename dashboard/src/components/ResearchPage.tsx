@@ -52,9 +52,9 @@ const liveCyclePayload = {
 function ResultCard({ title, result }: { title: string; result?: Record<string, unknown> }) {
   if (!result) return null
   return (
-    <section className="rounded-2xl border border-zinc-800 bg-black/20 p-5">
-      <h3 className="font-bold text-white">{title}</h3>
-      <pre className="mt-3 max-h-72 overflow-auto rounded-xl bg-black/40 p-4 text-xs text-zinc-300">{JSON.stringify(result, null, 2)}</pre>
+    <section className="result-card">
+      <h3>{title}</h3>
+      <pre>{JSON.stringify(result, null, 2)}</pre>
     </section>
   )
 }
@@ -88,23 +88,23 @@ export function ResearchPage() {
   const counts = facility.data?.counts || {}
 
   return (
-    <section className="space-y-5">
-      <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
-        <p className="text-xs font-bold uppercase tracking-[0.28em] text-sky-300">Dashboard V2</p>
-        <h1 className="mt-2 text-3xl font-black text-white">Research Facility</h1>
-        <p className="mt-2 text-sm text-zinc-400">Bounded candidate workbench and autopilot controls. Backend APIs remain the source of truth.</p>
-        <div className="mt-5 flex flex-wrap gap-2">
-          <button className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-40" type="button" onClick={() => budget.mutate()} disabled={budget.isPending}>Check provider budget</button>
-          <button className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-40" type="button" onClick={runDryCycle} disabled={cycle.isPending}>Dry-run bounded cycle</button>
-          <button className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-bold text-white disabled:opacity-40" type="button" onClick={runLiveCycle} disabled={cycle.isPending}>Run one bounded cycle</button>
+    <section className="page-stack">
+      <div className="page-hero">
+        <p className="eyebrow">Dashboard V2</p>
+        <h1>Research Facility</h1>
+        <p>Bounded candidate workbench and autopilot controls. Backend APIs remain the source of truth.</p>
+        <div className="action-row">
+          <button className="secondary-button" type="button" onClick={() => budget.mutate()} disabled={budget.isPending}>Check provider budget</button>
+          <button className="secondary-button" type="button" onClick={runDryCycle} disabled={cycle.isPending}>Dry-run bounded cycle</button>
+          <button className="primary-button" type="button" onClick={runLiveCycle} disabled={cycle.isPending}>Run one bounded cycle</button>
         </div>
       </div>
 
-      <section className="grid gap-3 md:grid-cols-4">
+      <section className="count-grid">
         {Object.entries(counts).slice(0, 8).map(([key, value]) => (
-          <div key={key} className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
-            <div className="text-2xl font-black tabular-nums text-white">{String(value)}</div>
-            <div className="mt-1 text-xs uppercase tracking-[0.16em] text-zinc-500">{key.replaceAll('_', ' ')}</div>
+          <div key={key} className="count-card">
+            <div>{String(value)}</div>
+            <div>{key.replaceAll('_', ' ')}</div>
           </div>
         ))}
       </section>
@@ -114,8 +114,8 @@ export function ResearchPage() {
 
       {dialog}
 
-      {facility.isLoading ? <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">Loading research facility…</div> : null}
-      {facility.isError ? <div className="rounded-2xl border border-red-900 bg-red-950/40 p-8 text-red-100">Research data unavailable: {String(facility.error.message)}</div> : null}
+      {facility.isLoading ? <div className="state-card">Loading research facility…</div> : null}
+      {facility.isError ? <div className="state-card state-card--error">Research data unavailable: {String(facility.error.message)}</div> : null}
       {!facility.isLoading && !facility.isError ? (
         <DataTable rows={rows} columns={['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at']} empty="No research candidates returned." />
       ) : null}

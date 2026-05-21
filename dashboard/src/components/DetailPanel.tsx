@@ -83,11 +83,11 @@ function FieldGrid({ fields }: { fields: Field[] }) {
   const visible = fields.filter((field) => field.value !== null && field.value !== undefined && field.value !== '')
   if (!visible.length) return null
   return (
-    <dl className="mt-5 grid gap-3 sm:grid-cols-2">
+    <dl className="detail-field-grid">
       {visible.map((field) => (
-        <div key={field.label} className="rounded-2xl border border-zinc-800 bg-black/20 p-4">
-          <dt className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">{field.label}</dt>
-          <dd className="mt-2 break-words text-sm font-semibold text-zinc-100">{stringifyValue(field.value)}</dd>
+        <div key={field.label} className="detail-field">
+          <dt>{field.label}</dt>
+          <dd>{stringifyValue(field.value)}</dd>
         </div>
       ))}
     </dl>
@@ -98,16 +98,16 @@ function StructuredDetail({ kind, id, payload }: { kind: DetailKind; id: string;
   const title = detailTitle(kind, payload, id)
   const summary = stringifyValue(firstValue(payload.summary, record(payload.project).abstract, record(payload.paper).summary, record(payload.paper).abstract))
   return (
-    <div className="mt-4 overflow-auto pr-1">
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
-        <p className="text-xs font-bold uppercase tracking-[0.22em] text-sky-300">Structured summary</p>
-        <h3 className="mt-2 text-2xl font-black text-white">{title}</h3>
-        {summary !== '—' && summary !== title ? <p className="mt-3 text-sm leading-6 text-zinc-300">{summary}</p> : null}
+    <div className="detail-body">
+      <section className="detail-summary">
+        <p className="eyebrow">Structured summary</p>
+        <h3>{title}</h3>
+        {summary !== '—' && summary !== title ? <p>{summary}</p> : null}
         <FieldGrid fields={detailFields(kind, payload, id)} />
       </section>
-      <details className="mt-4 rounded-2xl border border-dashed border-zinc-800 bg-black/20 p-4 text-zinc-300">
-        <summary className="cursor-pointer text-sm font-bold text-zinc-200">Raw payload</summary>
-        <pre className="mt-4 max-h-[42vh] overflow-auto rounded-xl bg-black/50 p-4 text-xs text-zinc-300">{JSON.stringify(payload, null, 2)}</pre>
+      <details className="raw-details">
+        <summary>Raw payload</summary>
+        <pre className="json-block">{JSON.stringify(payload, null, 2)}</pre>
       </details>
     </div>
   )
@@ -122,21 +122,21 @@ function DetailBody({ selection }: { selection: DetailSelection }) {
     retry: false,
   })
   if (!url) return <StructuredDetail kind={selection.kind} id={selection.id} payload={selection.row || {}} />
-  if (query.isLoading) return <div className="mt-4 rounded-2xl border border-zinc-800 bg-black/20 p-4 text-zinc-400">Loading detail…</div>
-  if (query.isError) return <div className="mt-4 rounded-2xl border border-red-900 bg-red-950/40 p-4 text-red-100">Detail unavailable: {String(query.error.message)}</div>
+  if (query.isLoading) return <div className="state-card">Loading detail…</div>
+  if (query.isError) return <div className="state-card state-card--error">Detail unavailable: {String(query.error.message)}</div>
   return <StructuredDetail kind={selection.kind} id={selection.id} payload={query.data || {}} />
 }
 
 export function DetailPanel({ selection, onClose }: { selection: DetailSelection | null; onClose: () => void }) {
   if (!selection) return null
   return (
-    <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-2xl flex-col border-l border-zinc-800 bg-zinc-950 p-5 shadow-2xl shadow-black/60" aria-label="Dashboard detail panel">
-      <div className="flex items-start justify-between gap-4 border-b border-zinc-800 pb-4">
+    <aside className="detail-panel" aria-label="Dashboard detail panel">
+      <div className="detail-panel-head">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.24em] text-sky-300">{selection.kind} detail</p>
-          <h2 className="mt-2 text-xl font-black text-white">{selection.id}</h2>
+          <p className="eyebrow">{selection.kind} detail</p>
+          <h2>{selection.id}</h2>
         </div>
-        <button className="rounded-lg border border-zinc-700 px-3 py-2 text-sm font-bold text-white" type="button" onClick={onClose}>Close</button>
+        <button className="secondary-button" type="button" onClick={onClose}>Close</button>
       </div>
       <DetailBody selection={selection} />
     </aside>
