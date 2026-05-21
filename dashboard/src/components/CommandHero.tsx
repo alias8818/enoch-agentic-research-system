@@ -7,20 +7,39 @@ type HeroReadinessState = {
   requiresReadinessCheck?: boolean
 }
 
+export type CommandHeroState = {
+  className: string
+  answer: string
+  reason?: string
+}
+
 function movementTone(status: string | undefined): string {
   if (status === 'ready') return 'command-hero command-hero--ready'
   if (status === 'actionable') return 'command-hero command-hero--actionable'
   return 'command-hero command-hero--blocked'
 }
 
-function movementAnswer(status: string | undefined): string {
-  if (status === 'ready') return 'Yes — leave it running'
-  if (status === 'actionable') return 'Yes, but there is work you can start'
+function hasHealthyActiveWork(diagnosis: MovementDiagnosis): boolean {
+  const blockers = diagnosis.blockers ?? []
+  return diagnosis.status === 'ready' && blockers.some((blocker) => blocker.kind === 'lane_active')
+}
+
+function movementAnswer(status: string | undefined, diagnosis: MovementDiagnosis): string {
+  if (status === 'ready') {
+    return hasHealthyActiveWork(diagnosis) ? 'Yes — active work is running' : 'Yes — leave it running'
+  }
+  if (status === 'actionable') return 'Action available'
   return 'Not yet'
 }
 
-function heroState(status: string | undefined, readinessState: HeroReadinessState): { className: string; answer: string; reason?: string } {
-  if (!readinessState.requiresReadinessCheck) return { className: movementTone(status), answer: movementAnswer(status) }
+export function resolveCommandHeroState(
+  diagnosis: MovementDiagnosis,
+  readinessState: HeroReadinessState,
+): CommandHeroState {
+  const status = diagnosis.status || 'unknown'
+  if (!readinessState.requiresReadinessCheck) {
+    return { className: movementTone(status), answer: movementAnswer(status, diagnosis) }
+  }
   if (readinessState.readinessLoading) {
     return {
       className: 'command-hero command-hero--actionable',
@@ -42,7 +61,7 @@ function heroState(status: string | undefined, readinessState: HeroReadinessStat
       reason: readinessState.readiness.blockers?.[0] || readinessState.readiness.label || 'Automation readiness is blocked.',
     }
   }
-  return { className: movementTone(status), answer: movementAnswer(status) }
+  return { className: movementTone(status), answer: movementAnswer(status, diagnosis) }
 }
 
 export function CommandHero({
@@ -56,7 +75,6 @@ export function CommandHero({
   overview: OverviewResponse
   diagnosis: MovementDiagnosis
 } & HeroReadinessState) {
-  const status = diagnosis.status || 'unknown'
   const active = overview.counts?.active ?? 0
   const queued = overview.counts?.queued ?? 0
   const drafts = Number(overview.paper_counts?.publication_draft ?? 0) + Number(overview.paper_counts?.draft_review ?? 0)
@@ -65,7 +83,7 @@ export function CommandHero({
     ['queued', queued],
     ['drafts', drafts],
   ] as const
-  const state = heroState(status, { readiness, readinessRequested, readinessLoading, requiresReadinessCheck })
+  const state = resolveCommandHeroState(diagnosis, { readiness, readinessRequested, readinessLoading, requiresReadinessCheck })
   const reason = state.reason || diagnosis.primary_reason || 'No deterministic movement diagnosis returned.'
 
   return (

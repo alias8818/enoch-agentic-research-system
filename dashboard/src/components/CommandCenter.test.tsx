@@ -21,7 +21,7 @@ afterEach(() => {
 it('renders the leave-running hero from backend diagnosis', () => {
   render(<CommandHero overview={{ ok: true, counts: { active: 1, queued: 2 }, paper_counts: { publication_draft: 1 } }} diagnosis={diagnosis} />)
   expect(screen.getByText('Can I leave this running?')).toBeInTheDocument()
-  expect(screen.getByText('Yes, but there is work you can start')).toBeInTheDocument()
+  expect(screen.getByText('Action available')).toBeInTheDocument()
   expect(screen.getByText('GB10 lane can dispatch queued work.')).toBeInTheDocument()
 })
 
