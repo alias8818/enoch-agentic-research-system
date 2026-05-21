@@ -136,6 +136,24 @@ def test_excludes_paper_positive_and_hard_negative_rows() -> None:
     assert [row["project_id"] for row in exported] == ["useful"]
 
 
+def test_excludes_bounded_paper_ready_row() -> None:
+    exported = exporter.export_signals(
+        [
+            _row(project_id="bounded-ready", bounded_paper_ready=True),
+            _row(project_id="useful"),
+        ]
+    )
+
+    assert [row["project_id"] for row in exported] == ["useful"]
+
+
+def test_compute_scale_blocked_requires_allowed_no_paper_outcome() -> None:
+    assert exporter.is_exportable_row(
+        _row(project_id="bad-conflict", research_outcome="paper_positive", compute_scale_blocked=True)
+    ) is False
+    assert exporter._export_status(_row(research_outcome="paper_positive", compute_scale_blocked=True)) == ""
+
+
 def test_missing_required_fields_fail_closed() -> None:
     signal = exporter.signal_from_row(_row(useful_signal_summary=""))
 
