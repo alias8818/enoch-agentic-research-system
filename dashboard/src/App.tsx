@@ -5,7 +5,7 @@ import { CommandHero } from './components/CommandHero'
 import { MovementDiagnosis } from './components/MovementDiagnosis'
 import { OverviewFreshness } from './components/OverviewFreshness'
 import { PaperMiniStrip } from './components/PaperMiniStrip'
-import { PrimaryAction } from './components/PrimaryAction'
+import { PrimaryAction, resolvePrimaryAction } from './components/PrimaryAction'
 import { SafetyBar } from './components/SafetyBar'
 import { AutomationPage } from './components/AutomationPage'
 import { DetailPage } from './components/DetailPanel'
@@ -67,6 +67,7 @@ function OverviewPage() {
 
   const data = overview.data
   const diagnosis = data.movement_diagnosis || { status: 'unknown', primary_reason: 'No movement diagnosis returned.', blockers: [] }
+  const primaryAction = resolvePrimaryAction(data, readinessRequested)
   const recentEvents = data.recent_events || []
   const activeItems = data.active_items || []
   const operatorCounts = data.operator_counts || {}
@@ -92,7 +93,14 @@ function OverviewPage() {
       <div className="command-grid">
         <WorkerLanes lanes={status.data?.worker_lanes || []} isLoading={status.isLoading} error={status.error} onRefresh={refresh} />
         <div className="side-rail">
-          <PrimaryAction action={data.top_actions?.[0]} onRefresh={refresh} />
+          <PrimaryAction
+            action={primaryAction}
+            onRefresh={refresh}
+            onCheckReadiness={() => {
+              setReadinessRequested(true)
+              if (readinessRequested) void readiness.refetch()
+            }}
+          />
           <PaperMiniStrip pipeline={data.paper_pipeline} onRefresh={refresh} />
         </div>
       </div>
