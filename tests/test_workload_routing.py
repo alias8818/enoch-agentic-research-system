@@ -68,3 +68,35 @@ def test_negated_gpu_phrase_routes_to_cpu_only() -> None:
         "workload_class": "cpu_only",
         "routing_reason": "workload_class:cpu_only",
     }
+
+
+def test_negated_gpu_phrase_does_not_override_cuda_signal() -> None:
+    row = {
+        "title": "CUDA training; no GPU fallback exists",
+        "machine_target": "gb10",
+    }
+
+    routing = route_machine_target(
+        row,
+        default_machine_target="gb10",
+        workload_machine_targets={"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10", "training": "gb10"},
+    )
+
+    assert routing["workload_class"] == "gpu_required"
+    assert routing["machine_target"] == "gb10"
+
+
+def test_non_gpu_baseline_phrase_does_not_override_cuda_signal() -> None:
+    row = {
+        "title": "non-GPU baseline plus CUDA benchmark",
+        "machine_target": "gb10",
+    }
+
+    routing = route_machine_target(
+        row,
+        default_machine_target="gb10",
+        workload_machine_targets={"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10"},
+    )
+
+    assert routing["workload_class"] == "gpu_required"
+    assert routing["machine_target"] == "gb10"

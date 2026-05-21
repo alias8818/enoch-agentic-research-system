@@ -31,6 +31,10 @@ GPU_REQUIRED_TERMS = (
     "gpu",
     "vram",
 )
+GPU_STRONG_POSITIVE_TERMS = (
+    "cuda",
+    "vram",
+)
 
 NEGATED_GPU_TERMS = (
     "no gpu",
@@ -126,12 +130,19 @@ def infer_workload_class_from_text(row: dict[str, Any]) -> str:
     text = _field_text(row)
     if not text:
         return "unknown"
-    if _contains_any(text, NEGATED_GPU_TERMS):
-        return "cpu_only"
-    if _contains_any(text, GPU_REQUIRED_TERMS):
+    has_negated_gpu = _contains_any(text, NEGATED_GPU_TERMS)
+    has_gpu_required = _contains_any(text, GPU_REQUIRED_TERMS)
+    has_strong_gpu_positive = _contains_any(text, GPU_STRONG_POSITIVE_TERMS)
+    has_training = _contains_any(text, TRAINING_TERMS)
+
+    if has_strong_gpu_positive:
         return "gpu_required"
-    if _contains_any(text, TRAINING_TERMS):
+    if has_training:
         return "training"
+    if has_negated_gpu:
+        return "cpu_only"
+    if has_gpu_required:
+        return "gpu_required"
     if _contains_any(text, CONTROL_PLANE_TERMS):
         return "control_plane"
     if _contains_any(text, AGENT_HARNESS_TERMS):
