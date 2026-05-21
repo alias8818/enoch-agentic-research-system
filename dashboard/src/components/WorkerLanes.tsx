@@ -60,10 +60,12 @@ function ResultCard({ result }: { result: CommandResult | null }) {
 export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefresh: () => void }) {
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null)
   const [busyAction, setBusyAction] = useState<'feed' | 'dispatch' | 'dispatch-live' | null>(null)
+  const [liveLaneProjectId, setLiveLaneProjectId] = useState('')
   const { confirm, dialog } = useOperatorDialog()
 
   async function feedLane() {
     setBusyAction('feed')
+    setLiveLaneProjectId('')
     try {
       const result = await apiPost<Record<string, unknown>>('/control/api/research/run-cycle', dryRunCyclePayload)
       setCommandResult({ title: 'Feed dry-run result', payload: result })
@@ -83,9 +85,11 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
         ? await apiPost<Record<string, unknown>>('/control/dispatch-one', { project_id: projectId, dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
         : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
       setCommandResult({ title: 'Dispatch dry-run result', payload: result })
+      setLiveLaneProjectId(projectId && result.action === 'dry_run_dispatch_one' ? projectId : '')
       onRefresh()
     } catch (error) {
       setCommandResult({ title: 'Dispatch dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setLiveLaneProjectId('')
     } finally {
       setBusyAction(null)
     }
@@ -100,12 +104,37 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
     })
     if (!confirmed) return
     setBusyAction('dispatch-live')
+    setLiveLaneProjectId('')
     try {
       const result = await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
       setCommandResult({ title: 'Live dispatch result', payload: result })
       onRefresh()
     } catch (error) {
       setCommandResult({ title: 'Live dispatch failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  async function liveDispatchLane(lane: WorkerLane) {
+    const projectId = lane.next_candidate?.project_id || ''
+    if (!projectId || liveLaneProjectId !== projectId) return
+    const label = laneLabel(lane)
+    const confirmed = await confirm({
+      title: `Dispatch ${label}?`,
+      message: `This starts live dispatch for exactly ${projectId}. Use Check dispatch again if the lane candidate changed.`,
+      confirmLabel: 'Dispatch lane',
+      tone: 'warn',
+    })
+    if (!confirmed) return
+    setBusyAction('dispatch-live')
+    try {
+      const result = await apiPost<Record<string, unknown>>('/control/dispatch-one', { project_id: projectId, dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
+      setCommandResult({ title: 'Lane live dispatch result', payload: result })
+      setLiveLaneProjectId('')
+      onRefresh()
+    } catch (error) {
+      setCommandResult({ title: 'Lane live dispatch failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
     } finally {
       setBusyAction(null)
     }
@@ -136,6 +165,8 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
             const feedAction = lane.feed_pressure?.next_autopilot_action || 'observe'
             const canFeed = feedAction === 'generate_candidate' || feedAction === 'promote_candidate'
             const canDispatch = Boolean(lane.dispatch_available)
+            const projectId = lane.next_candidate?.project_id || ''
+            const canLiveDispatchLane = canDispatch && Boolean(projectId) && liveLaneProjectId === projectId
             const active = lane.active_item?.project_name || lane.active_item?.project_id
             const next = lane.next_candidate?.project_name || lane.next_candidate?.project_id
             return (
@@ -167,7 +198,8 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
                 <p className={canDispatch ? 'lane-reason lane-reason--ready' : 'lane-reason'}>{laneDisabledReason(lane, canFeed, canDispatch)}</p>
                 <div className="lane-actions">
                   <button className="secondary-button" disabled={!canFeed || busyAction !== null} onClick={feedLane}>Feed idle lane</button>
-                  <button className="primary-button" disabled={!canDispatch || busyAction !== null} onClick={() => { void dispatchLane(lane) }}>Check dispatch</button>
+                  <button className="secondary-button" disabled={!canDispatch || busyAction !== null} onClick={() => { void dispatchLane(lane) }}>Check dispatch</button>
+                  <button className="primary-button" disabled={!canLiveDispatchLane || busyAction !== null} onClick={() => { void liveDispatchLane(lane) }}>Dispatch lane</button>
                 </div>
               </article>
             )

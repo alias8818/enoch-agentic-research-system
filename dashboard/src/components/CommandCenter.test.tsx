@@ -222,6 +222,37 @@ it('uses dispatch-one for lane-card dispatch checks so the selected lane candida
   expect(screen.getByText('Dispatch dry-run result')).toBeInTheDocument()
 })
 
+it('live-dispatches a lane candidate only after exact lane dry-run and dialog confirmation', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'dry-run selected explicit queued candidate', candidate: { project_id: 'gb10-project' } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'live_dispatch_one', reason: 'live dispatch started exact GB10 candidate', candidate: { project_id: 'gb10-project' } }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_id: 'gb10-project', project_name: 'GB10 job' } }]} onRefresh={onRefresh} />)
+  expect(screen.getByRole('button', { name: 'Dispatch lane' })).toBeDisabled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Check dispatch' }))
+  await screen.findByText('dry-run selected explicit queued candidate')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Dispatch lane' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Dispatch GB10 lane?' })
+  expect(dialog).toBeInTheDocument()
+  expect(confirmSpy).not.toHaveBeenCalled()
+  fireEvent.click(dialog.querySelectorAll('button')[1])
+
+  await screen.findByText('live dispatch started exact GB10 candidate')
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
+  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ project_id: 'gb10-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
+  }))
+  expect(onRefresh).toHaveBeenCalledTimes(2)
+})
+
 it('renders the paper mini strip and movement diagnosis', () => {
   render(<><PaperMiniStrip pipeline={{ write_needed: 2, finalize_needed: 1, publish_ready: 0 }} /><MovementDiagnosis diagnosis={diagnosis} /></>)
   expect(screen.getByText('Paper pipeline')).toBeInTheDocument()
