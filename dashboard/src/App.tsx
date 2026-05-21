@@ -9,7 +9,7 @@ import { PrimaryAction } from './components/PrimaryAction'
 import { SafetyBar } from './components/SafetyBar'
 import { AutomationPage } from './components/AutomationPage'
 import { DetailPage } from './components/DetailPanel'
-import { CorpusPage, EventsPage, ObservabilityPage, PapersPage, ProjectsPage, QueuePage, RunsPage } from './components/ResourcePages'
+import { CorpusPage, EventsPage, IntakePage, ObservabilityPage, PapersPage, ProjectsPage, QueuePage, RunsPage } from './components/ResourcePages'
 import { ResearchPage } from './components/ResearchPage'
 import { WorkerLanes } from './components/WorkerLanes'
 import { dashboardV2Href, parseDashboardRoute } from './routes'
@@ -101,6 +101,7 @@ function RoutedPage({ route }: { route: DashboardRoute }) {
   if (route.page === 'observability') return <ObservabilityPage />
   if (route.page === 'corpus') return <CorpusPage />
   if (route.page === 'research') return <ResearchPage />
+  if (route.page === 'intake') return <IntakePage />
   if (route.page === 'automation') return <AutomationPage paperId={route.paperId} />
   if (route.page === 'legacy') {
     return (
@@ -120,7 +121,7 @@ function navClass(route: DashboardRoute, page: DashboardRoute['page']): string {
 }
 
 function moreNavClass(route: DashboardRoute): string {
-  return ['events', 'observability', 'corpus', 'research', 'automation', 'legacy'].includes(route.page) ? 'nav-more nav-more--active' : 'nav-more'
+  return ['events', 'observability', 'corpus', 'research', 'intake', 'automation', 'legacy'].includes(route.page) ? 'nav-more nav-more--active' : 'nav-more'
 }
 
 function Shell() {
@@ -155,6 +156,7 @@ function Shell() {
                 <a className={navClass(route, 'observability')} href={dashboardV2Href('#observability')}>Observability</a>
                 <a className={navClass(route, 'corpus')} href={dashboardV2Href('#corpus')}>Corpus</a>
                 <a className={navClass(route, 'research')} href={dashboardV2Href('#research')}>Research</a>
+                <a className={navClass(route, 'intake')} href={dashboardV2Href('#intake')}>Intake</a>
                 <a className={navClass(route, 'automation')} href={dashboardV2Href('#automation')}>Automation</a>
                 <a className="nav-link" href="/control/dashboard">Legacy dashboard</a>
                 <button className="nav-link" type="button" onClick={() => { saveToken(''); setHasToken(false) }}>Clear token</button>

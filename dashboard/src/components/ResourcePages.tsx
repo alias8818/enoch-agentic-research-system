@@ -240,6 +240,46 @@ export function CorpusPage() {
   )
 }
 
+
+type IntakeResponse = {
+  latest_sync?: Record<string, unknown> | null
+  projection_counts?: Record<string, number>
+  queued_projection?: Record<string, unknown>[]
+  skipped_reasons?: Record<string, number>
+  recent_events?: Record<string, unknown>[]
+}
+
+export function IntakePage() {
+  const query = useQuery({ queryKey: ['intake'], queryFn: () => apiGet<IntakeResponse>('/control/api/intake/ideas?page_size=100') })
+  if (query.isLoading) return <LoadingCard label="ideas intake" />
+  if (query.isError) return <ErrorCard error={query.error} />
+  const data = query.data || {}
+  const counts = data.projection_counts || {}
+  const skipped = Object.entries(data.skipped_reasons || {}).map(([reason, count]) => ({ reason, count }))
+  const latestSync = data.latest_sync ? [data.latest_sync] : []
+  return (
+    <PageShell title="Ideas intake" subtitle="Supabase-native idea workbench from /control/api/intake/ideas. Notion fields are provenance only.">
+      <section className="count-grid">
+        {Object.entries(counts).slice(0, 8).map(([key, value]) => (
+          <div key={key} className="count-card">
+            <div>{String(value)}</div>
+            <div>{key.replaceAll('_', ' ')}</div>
+          </div>
+        ))}
+      </section>
+      <section className="result-card">
+        <h2>Latest intake sync</h2>
+        <DataTable rows={latestSync} columns={['source', 'status', 'observed_at', 'authority']} empty="No intake sync observation returned." />
+      </section>
+      <section className="result-card">
+        <h2>Skipped reasons</h2>
+        <DataTable rows={skipped} columns={['reason', 'count']} empty="No skipped intake rows returned." />
+      </section>
+      <DataTable rows={data.queued_projection || []} columns={['idea_id', 'title', 'idea_status', 'queue_status', 'next_action_hint', 'paper_status', 'source_kind', 'updated_at']} empty="No intake idea rows returned." />
+    </PageShell>
+  )
+}
+
 export function EventsPage() {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [filters, setFilters] = useState<FilterState>({ search: '', status: '', pageSize: '50', cursor: '' })

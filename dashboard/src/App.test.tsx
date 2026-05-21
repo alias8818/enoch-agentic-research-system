@@ -85,3 +85,24 @@ it('opens legacy review hashes in the V2 automation page instead of legacy fallb
   expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/publication-automation/paper-legacy', expect.any(Object))
 })
+
+
+it('opens intake hashes in the V2 ideas intake page instead of legacy fallback', async () => {
+  window.location.hash = '#intake'
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      latest_sync: { source: 'idea_intake', status: 'ok', observed_at: '2026-05-21T00:00:00Z', payload: { payload_omitted: true, skipped_row_count: 1 } },
+      projection_counts: { queued: 1 },
+      skipped_reasons: { duplicate: 1 },
+      queued_projection: [{ idea_id: 'idea-1', title: 'Better queue policy', idea_status: 'admitted', queue_status: 'queued', next_action_hint: 'dispatch', source_kind: 'synthetic' }],
+    }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByRole('heading', { name: 'Ideas intake' })).toBeInTheDocument()
+  expect(await screen.findByText('Better queue policy')).toBeInTheDocument()
+  expect(screen.getByText('duplicate')).toBeInTheDocument()
+  expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith('/control/api/intake/ideas?page_size=100', expect.any(Object))
+})
