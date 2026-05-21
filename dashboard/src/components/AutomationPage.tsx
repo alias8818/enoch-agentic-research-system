@@ -6,6 +6,7 @@ import { DataTable } from './DataTable'
 import { useOperatorDialog } from './OperatorDialog'
 import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
+import { automationTableColumns, simpleTableColumns } from '../tablePresentation'
 import { PageHeader } from './PageHeader'
 
 type AutomationResponse = {
@@ -112,7 +113,7 @@ function AutomationDetailCard({
       {checklistItems.length ? (
         <>
           <h3>Checklist</h3>
-          <DataTable rows={checklistItems} columns={['item_id', 'label', 'status', 'note']} empty="No checklist rows returned." />
+          <DataTable rows={checklistItems} columns={simpleTableColumns(['item_id', 'label', 'status', 'note'], { label: { kind: 'primary' } })} empty="No checklist rows returned." />
           {onMarkChecklistPass && paperId ? (
             <div className="action-row" aria-label="Checklist actions">
               {checklistItems.map((checklistItem) => {
@@ -217,28 +218,30 @@ export function AutomationPage({ paperId = '' }: { paperId?: string }) {
             </button>
           </>
         )}
-        toolbar={(
-          <div className="action-row">
-            <button className="secondary-button" type="button" onClick={() => rewriteDryRun.mutate()} disabled={rewriteDryRun.isPending}>Dry-run rewrite batch</button>
-            <button className="secondary-button" type="button" onClick={() => actionPaperId && finalizationDryRun.mutate(actionPaperId)} disabled={!actionPaperId || finalizationDryRun.isPending}>Dry-run finalization package</button>
-          </div>
-        )}
       />
 
-      <section className="count-grid">
-        {Object.entries(counts).slice(0, 8).map(([key, value]) => (
-          <div key={key} className="count-card">
-            <div>{String(value)}</div>
-            <div>{key.replaceAll('_', ' ')}</div>
-          </div>
-        ))}
-      </section>
+      {!automation.isLoading && !automation.isError ? (
+        <DataTable
+          rows={rows}
+          columns={automationTableColumns}
+          empty="No publication automation rows returned."
+          cellHref={automationCellHref}
+          onSelectRow={(row) => setSelectedPaperId(String(row.paper_id || ''))}
+        />
+      ) : null}
 
       {activePaperId ? (
-        <section className="result-card" aria-label="Targeted paper">
-          <h2>Targeted paper</h2>
-          <p>{activePaperId}</p>
-          <p>Finalization dry-run uses this selected paper id, not an implicit unrelated table row.</p>
+        <section className="queue-command-card queue-command-card--compact" aria-label="Selected paper actions">
+          <div>
+            <p className="eyebrow">Selected paper actions</p>
+            <h2>{String(rows.find((row) => String(row.paper_id || '') === activePaperId)?.project_name || activePaperId)}</h2>
+            <span className="detail-id-chip" title={activePaperId}>{activePaperId.length > 24 ? `${activePaperId.slice(0, 12)}…${activePaperId.slice(-8)}` : activePaperId}</span>
+            <p>Dry-run commands apply to this selected paper only.</p>
+          </div>
+          <div className="action-row">
+            <button className="secondary-button" type="button" onClick={() => rewriteDryRun.mutate()} disabled={rewriteDryRun.isPending}>Dry-run rewrite batch</button>
+            <button className="secondary-button" type="button" onClick={() => finalizationDryRun.mutate(activePaperId)} disabled={finalizationDryRun.isPending}>Dry-run finalization package</button>
+          </div>
         </section>
       ) : null}
 
@@ -267,15 +270,14 @@ export function AutomationPage({ paperId = '' }: { paperId?: string }) {
       {automation.isError ? <div className="state-card state-card--error">Publication automation unavailable: {String(automation.error.message)}</div> : null}
       {dialog}
 
-      {!automation.isLoading && !automation.isError ? (
-        <DataTable
-          rows={rows}
-          columns={['paper_id', 'review_status', 'paper_status', 'project_name', 'rank_score', 'updated_at']}
-          empty="No publication automation rows returned."
-          cellHref={automationCellHref}
-          onSelectRow={(row) => setSelectedPaperId(String(row.paper_id || ''))}
-        />
-      ) : null}
+      <section className="count-grid">
+        {Object.entries(counts).slice(0, 8).map(([key, value]) => (
+          <div key={key} className="count-card">
+            <div>{String(value)}</div>
+            <div>{key.replaceAll('_', ' ')}</div>
+          </div>
+        ))}
+      </section>
     </section>
   )
 }

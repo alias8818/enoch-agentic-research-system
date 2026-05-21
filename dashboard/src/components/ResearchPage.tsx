@@ -5,6 +5,7 @@ import { dryRunCyclePayload, liveCyclePayload } from '../researchCyclePayloads'
 import { dashboardV2Href } from '../routes'
 import type { DashboardRoute } from '../routes'
 import { DataTable } from './DataTable'
+import { simpleTableColumns } from '../tablePresentation'
 import { useOperatorDialog } from './OperatorDialog'
 import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
@@ -299,7 +300,7 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
       {facility.isError ? <div className="state-card state-card--error">Research data unavailable: {String(facility.error.message)}</div> : null}
       {!facility.isLoading && !facility.isError ? (
         <>
-          <DataTable rows={rows} columns={['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at']} empty="No research candidates returned." cellHref={candidateCellHref} onSelectRow={setSelectedCandidate} />
+          <DataTable rows={rows} columns={simpleTableColumns(['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at'], { title: { kind: 'primary' }, candidate_id: { kind: 'id' } })} empty="No research candidates returned." cellHref={candidateCellHref} onSelectRow={setSelectedCandidate} />
           <CandidateDetail row={activeCandidate} candidateId={routeCandidateId} />
         </>
       ) : null}

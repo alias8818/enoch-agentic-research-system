@@ -771,6 +771,43 @@ button:disabled { cursor: not-allowed; }
   text-transform: uppercase;
 }
 .copy-button:hover { border-color: rgba(226,177,91,0.62); color: #fff8ea; }
+.copy-button--subtle {
+  padding: 0.12rem 0.32rem;
+  font-size: 0.58rem;
+  opacity: 0.72;
+}
+.copy-button--subtle:hover { opacity: 1; }
+.cell-primary { color: #fff8ea; font-weight: 800; }
+.data-table-col--primary { min-width: 12rem; }
+.table-id-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  border: 1px solid rgba(244,241,234,0.1);
+  border-radius: 999px;
+  padding: 0.12rem 0.35rem;
+  color: #9f988f;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.72rem;
+}
+.table-status {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 0.16rem 0.45rem;
+  background: rgba(255,255,255,0.04);
+  color: #cfc6b8;
+  font-size: 0.76rem;
+}
+.table-status--ready { color: #86efac; }
+.table-status--blocked { color: #fcd34d; }
+.table-status--neutral { color: #9f988f; }
+.queue-command-card--compact {
+  padding: 0.85rem 1rem;
+  border-radius: 1rem;
+}
+.queue-command-card--compact h2 { font-size: 0.98rem; }
+.queue-command-card--compact .detail-id-chip { margin-top: 0.35rem; }
 .cell-link { color: #e2b15b; text-decoration: none; }
 .cell-link:hover { color: #fff8ea; text-decoration: underline; text-underline-offset: 0.18em; }
 

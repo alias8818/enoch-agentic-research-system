@@ -1,6 +1,6 @@
 # Dashboard V2 TODO checklist
 
-Status: **P0 + P1 + P2 + P3 landing** — branch `feat/dashboard-v2-trust-guards` (2026-05-21). Trust guards, command-result UX, detail operator sections, and compact secondary headers in one PR stack; P4+ deferred.
+Status: **P0 + P1 + P2 + P3 + P4 landing** — branch `feat/dashboard-v2-trust-guards` (2026-05-21). Trust guards through compact headers and operator-first tables in one PR stack; P5+ deferred.
 
 Screenshot evidence reviewed from:
 
@@ -149,26 +149,26 @@ The V2 direction is better, but the dashboard still has too much chrome and dupl
 
 Problem seen in screenshots: tables are usable but still expose raw IDs and backend-ish columns too prominently.
 
-- [ ] Projects table:
-  - [ ] primary visible column should be project title/name;
-  - [ ] project ID should be secondary/copy chip;
-  - [ ] show lane/target, status, latest run state, paper status, updated age;
-  - [ ] row click opens structured detail panel;
-  - [ ] copy button should not be the most visually prominent item.
-- [ ] Queue table:
-  - [ ] show dispatch readiness and lane match clearly;
-  - [ ] expose why a queued row can/cannot dispatch;
-  - [ ] make selected-row command card concise.
-- [ ] Runs table:
-  - [ ] show project title, run state, gate state, lane, updated age, current activity;
-  - [ ] hide raw run ID behind copy chip unless needed.
-- [ ] Papers table:
-  - [ ] show title, paper status, evidence availability, finalization/import status;
-  - [ ] direct action buttons should be contextual, not global.
-- [ ] Events table:
-  - [ ] event type and summary first;
-  - [ ] entity link second;
-  - [ ] payload never inline by default.
+- [x] Projects table:
+  - [x] primary visible column should be project title/name;
+  - [x] project ID should be secondary/copy chip;
+  - [x] show lane/target, status, latest run state, paper status, updated age;
+  - [x] row click opens structured detail panel;
+  - [x] copy button should not be the most visually prominent item.
+- [x] Queue table:
+  - [x] show dispatch readiness and lane match clearly;
+  - [x] expose why a queued row can/cannot dispatch;
+  - [x] make selected-row command card concise.
+- [x] Runs table:
+  - [x] show project title, run state, gate state, lane, updated age, current activity;
+  - [x] hide raw run ID behind copy chip unless needed.
+- [x] Papers table:
+  - [x] show title, paper status, evidence availability, finalization/import status;
+  - [x] direct action buttons should be contextual, not global.
+- [x] Events table:
+  - [x] event type and summary first;
+  - [x] entity link second;
+  - [x] payload never inline by default.
 
 ## Priority 5 — error and empty states
 
@@ -226,6 +226,6 @@ When work resumes, do this sequence:
 2. ~~Make command results decisive and less generic.~~ (P1)
 3. ~~Make project/run/paper/event/idea detail pages answer the entity-specific operator questions.~~ (P2 — [`detailOperatorSummary.ts`](../dashboard/src/detailOperatorSummary.ts))
 4. ~~Reduce secondary page hero/header footprint.~~ (P3 — [`PageHeader.tsx`](../dashboard/src/components/PageHeader.tsx))
-5. Improve tables and empty/error states.
+5. ~~Improve tables and empty/error states.~~ (P4 table pass — [`tablePresentation.ts`](../dashboard/src/tablePresentation.ts); P5 error cards still open)
 6. Only then do visual polish.
 

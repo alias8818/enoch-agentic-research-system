@@ -242,7 +242,6 @@ it('loads runs from the V1 runs endpoint with state filters and detail fetches',
 
   await screen.findByText('run-1')
   expect(screen.getByRole('link', { name: /run-1/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-1')
-  expect(screen.getByRole('link', { name: /project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
   const url = requestUrl(fetchMock.mock.calls[0])
   expect(url.pathname).toBe('/control/api/v1/runs')
   expectParam(url, 'state', 'running')
@@ -398,9 +397,8 @@ it('loads corpus import rows as a first-class V2 subview', async () => {
 
   renderWithClient(<CorpusPage />)
 
-  await screen.findByText('Corpus candidate')
+  expect(await screen.findByText('Corpus candidate')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /paper-corpus/ })).toHaveAttribute('href', '/control/dashboard-v2#paper:paper-corpus')
-  expect(screen.getByRole('link', { name: /project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
   const url = requestUrl(fetchMock.mock.calls[1])
   expect(url.pathname).toBe('/control/api/v1/papers')
   expectParam(url, 'status', 'publication_draft')
@@ -431,7 +429,6 @@ it('shows raw event detail without inventing a missing event endpoint', async ()
   renderWithClient(<EventsPage />)
   fireEvent.click(await screen.findByText('Alert summary'))
 
-  expect(screen.getByRole('link', { name: /9/ })).toHaveAttribute('href', '/control/dashboard-v2#event:9')
   expect(await screen.findByLabelText('Dashboard detail panel')).toHaveTextContent('Queue Alert')
   expect(globalThis.fetch).toHaveBeenCalledTimes(1)
 })
