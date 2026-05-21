@@ -353,7 +353,38 @@ type IntakeResponse = {
   recent_events?: Record<string, unknown>[]
 }
 
+function IntakeIdeaDetail({ row, onClose }: { row: Record<string, unknown> | null; onClose: () => void }) {
+  if (!row) return null
+  return (
+    <section className="detail-panel" aria-label="Intake idea detail">
+      <div className="detail-panel-head">
+        <div>
+          <p className="eyebrow">Intake idea detail</p>
+          <h2>{String(row.title || row.idea_id || 'Selected idea')}</h2>
+        </div>
+        <button className="secondary-button" type="button" onClick={onClose}>Close</button>
+      </div>
+      <section className="detail-summary">
+        <p className="eyebrow">Deterministic projection row</p>
+        <dl className="detail-field-grid">
+          <div className="detail-field"><dt>idea id</dt><dd>{String(row.idea_id || '—')}</dd></div>
+          <div className="detail-field"><dt>idea status</dt><dd>{String(row.idea_status || '—')}</dd></div>
+          <div className="detail-field"><dt>queue status</dt><dd>{String(row.queue_status || '—')}</dd></div>
+          <div className="detail-field"><dt>next action</dt><dd>{String(row.next_action_hint || '—')}</dd></div>
+          <div className="detail-field"><dt>paper status</dt><dd>{String(row.paper_status || '—')}</dd></div>
+          <div className="detail-field"><dt>source kind</dt><dd>{String(row.source_kind || '—')}</dd></div>
+        </dl>
+        <details className="raw-details">
+          <summary>Raw intake row</summary>
+          <pre className="json-block">{JSON.stringify(row, null, 2)}</pre>
+        </details>
+      </section>
+    </section>
+  )
+}
+
 export function IntakePage() {
+  const [selection, setSelection] = useState<Record<string, unknown> | null>(null)
   const query = useQuery({ queryKey: ['intake'], queryFn: () => apiGet<IntakeResponse>('/control/api/intake/ideas?page_size=100') })
   if (query.isLoading) return <LoadingCard label="ideas intake" />
   if (query.isError) return <ErrorCard error={query.error} />
@@ -362,7 +393,7 @@ export function IntakePage() {
   const skipped = Object.entries(data.skipped_reasons || {}).map(([reason, count]) => ({ reason, count }))
   const latestSync = data.latest_sync ? [data.latest_sync] : []
   return (
-    <PageShell title="Ideas intake" subtitle="Supabase-native idea workbench from /control/api/intake/ideas. Notion fields are provenance only." action={<PageRefreshAction generatedAt={data.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} refreshLabel="Refresh intake" />}>
+    <PageShell title="Ideas intake" subtitle="Supabase-native idea workbench from /control/api/intake/ideas. Notion fields are provenance only." action={<PageRefreshAction generatedAt={data.generated_at} isFetching={query.isFetching} onRefresh={() => { setSelection(null); void query.refetch() }} refreshLabel="Refresh intake" />}>
       <section className="count-grid">
         {Object.entries(counts).slice(0, 8).map(([key, value]) => (
           <div key={key} className="count-card">
@@ -379,7 +410,8 @@ export function IntakePage() {
         <h2>Skipped reasons</h2>
         <DataTable rows={skipped} columns={['reason', 'count']} empty="No skipped intake rows returned." />
       </section>
-      <DataTable rows={data.queued_projection || []} columns={['idea_id', 'title', 'idea_status', 'queue_status', 'next_action_hint', 'paper_status', 'source_kind', 'updated_at']} empty="No intake idea rows returned." />
+      <DataTable rows={data.queued_projection || []} columns={['idea_id', 'title', 'idea_status', 'queue_status', 'next_action_hint', 'paper_status', 'source_kind', 'updated_at']} empty="No intake idea rows returned." onSelectRow={setSelection} />
+      <IntakeIdeaDetail row={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )
 }

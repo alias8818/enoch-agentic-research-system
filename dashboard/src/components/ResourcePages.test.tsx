@@ -416,3 +416,30 @@ it('refreshes intake workbench rows explicitly from the V2 page', async () => {
   expect(screen.getByText('Last loaded 2026-05-21T10:05:00Z')).toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
+
+it('opens intake idea details from selected rows without a legacy fallback', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    generated_at: '2026-05-21T10:00:00Z',
+    latest_sync: { source: 'supabase', status: 'ok', observed_at: '2026-05-21T09:59:00Z', authority: 'ideas' },
+    projection_counts: { queued_projection: 1 },
+    queued_projection: [{
+      idea_id: 'idea-detail',
+      title: 'Detailed intake idea',
+      idea_status: 'admitted',
+      queue_status: 'queued',
+      next_action_hint: 'dispatch',
+      source_kind: 'chatgpt_pro',
+    }],
+  }), { status: 200 }))
+
+  renderWithClient(<IntakePage />)
+
+  fireEvent.click(await screen.findByText('Detailed intake idea'))
+
+  const detail = await screen.findByLabelText('Intake idea detail')
+  expect(detail).toHaveTextContent('idea-detail')
+  expect(detail).toHaveTextContent('admitted')
+  expect(detail).toHaveTextContent('queued')
+  expect(detail).toHaveTextContent('dispatch')
+  expect(screen.queryByRole('link', { name: /legacy/i })).not.toBeInTheDocument()
+})
