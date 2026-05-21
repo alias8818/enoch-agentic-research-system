@@ -470,6 +470,8 @@ def test_source_lineage_check_unit_is_post_cutover_guard() -> None:
     assert "scripts/validate_source_lineage.py" not in service
     assert "deploy/enoch_source_lineage_check.py --json" in service
     assert "EnvironmentFile=-/etc/enoch-control-plane/postgres.env" in service
+    assert "User=enoch" in service
+    assert "Group=enoch" in service
     assert "EnvironmentFile=-/etc/enoch-control-plane/supabase.env" in service
     assert "Environment=ENOCH_SOURCE_LINEAGE_CREATED_AFTER=2026-05-19T17:51:00Z" in service
     assert "Environment=ENOCH_SOURCE_LINEAGE_REPORT_PATH=/var/lib/enoch-control-plane/source-lineage/latest-report.json" in service
