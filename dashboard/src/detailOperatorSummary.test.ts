@@ -40,6 +40,27 @@ describe('deriveDetailOperatorSummary', () => {
     expect(paperSection?.answers.find((answer) => answer.label === 'corpus imported')?.value).toBe('unknown')
   })
 
+  it('maps numeric corpus import flags from queue rows', () => {
+    const summary = deriveDetailOperatorSummary('project', {
+      project_id: 'project-1',
+      project: { project_name: 'Trace oracle' },
+      queue_item: { status: 'queued', related_paper_id: 'paper-1', related_corpus_imported: 1 },
+    })
+    const paperSection = summary.sections.find((section) => section.title === 'Paper and publication path')
+    expect(paperSection?.answers.find((answer) => answer.label === 'corpus imported')?.value).toBe('yes')
+  })
+
+  it('prefers queue finalization status over stale paper row data', () => {
+    const summary = deriveDetailOperatorSummary('project', {
+      project_id: 'project-1',
+      project: { project_name: 'Trace oracle' },
+      queue_item: { status: 'queued', related_finalization_status: 'package_ready' },
+      papers: [{ paper_id: 'paper-1', finalization_status: 'draft_only' }],
+    })
+    const paperSection = summary.sections.find((section) => section.title === 'Paper and publication path')
+    expect(paperSection?.answers.find((answer) => answer.label === 'finalization status')?.value).toBe('package_ready')
+  })
+
   it('does not duplicate operator stage in the paper publication section', () => {
     const summary = deriveDetailOperatorSummary('project', {
       project_id: 'project-1',
