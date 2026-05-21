@@ -205,6 +205,40 @@ it('dry-runs feed actions without spending provider requests or promoting work',
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
+it('runs a confirmed live feed cycle only after a feed dry-run', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'research_cycle_dry_run', dry_run: true, reason: 'would generate one candidate' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'research_cycle_live', dry_run: false, reason: 'generated one candidate without dispatch' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 0, dispatch_available: false, feed_pressure: { next_autopilot_action: 'generate_candidate' } }]} onRefresh={onRefresh} />)
+  expect(screen.getByRole('button', { name: 'Run feed cycle' })).toBeDisabled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Feed idle lanes' }))
+  await screen.findByText('would generate one candidate')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Run feed cycle' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Run one bounded feed cycle?' })
+  expect(dialog).toHaveTextContent('will not dispatch')
+  expect(confirmSpy).not.toHaveBeenCalled()
+  fireEvent.click(dialog.querySelectorAll('button')[1])
+
+  await screen.findByText('generated one candidate without dispatch')
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/research/run-cycle', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"dry_run":true'),
+  }))
+  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"enabled":false')
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/research/run-cycle', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"dry_run":false'),
+  }))
+  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"enabled":true')
+  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"max_dispatches_per_run":0')
+  expect(onRefresh).toHaveBeenCalledTimes(2)
+})
+
 it('uses dispatch-one for lane-card dispatch checks so the selected lane candidate is tested', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'dry-run selected explicit queued candidate', candidate: { project_id: 'gb10-project' } }), { status: 200 }))

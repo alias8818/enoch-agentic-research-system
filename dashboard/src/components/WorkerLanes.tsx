@@ -24,6 +24,12 @@ const dryRunCyclePayload = {
   temperature: 0.6,
 }
 
+const liveCyclePayload = {
+  ...dryRunCyclePayload,
+  enabled: true,
+  dry_run: false,
+}
+
 function laneLabel(lane: WorkerLane): string {
   const target = String(lane.machine_target || lane.lane_key || '').toLowerCase()
   const role = String(lane.worker_role || '').toLowerCase()
@@ -59,7 +65,8 @@ function ResultCard({ result }: { result: CommandResult | null }) {
 
 export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefresh: () => void }) {
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null)
-  const [busyAction, setBusyAction] = useState<'feed' | 'dispatch' | 'dispatch-live' | null>(null)
+  const [busyAction, setBusyAction] = useState<'feed' | 'feed-live' | 'dispatch' | 'dispatch-live' | null>(null)
+  const [liveFeedReady, setLiveFeedReady] = useState(false)
   const [liveLaneProjectId, setLiveLaneProjectId] = useState('')
   const { confirm, dialog } = useOperatorDialog()
 
@@ -69,9 +76,34 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
     try {
       const result = await apiPost<Record<string, unknown>>('/control/api/research/run-cycle', dryRunCyclePayload)
       setCommandResult({ title: 'Feed dry-run result', payload: result })
+      setLiveFeedReady(result.dry_run === true || String(result.action || '').includes('dry_run'))
       onRefresh()
     } catch (error) {
       setCommandResult({ title: 'Feed dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setLiveFeedReady(false)
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  async function liveFeedCycle() {
+    if (!liveFeedReady) return
+    const confirmed = await confirm({
+      title: 'Run one bounded feed cycle?',
+      message: 'This can spend one provider request and promote candidates. It will not dispatch, wait for completion, write papers, or finalize publications.',
+      confirmLabel: 'Run feed cycle',
+      tone: 'warn',
+    })
+    if (!confirmed) return
+    setBusyAction('feed-live')
+    setLiveLaneProjectId('')
+    try {
+      const result = await apiPost<Record<string, unknown>>('/control/api/research/run-cycle', liveCyclePayload)
+      setCommandResult({ title: 'Live feed result', payload: result })
+      setLiveFeedReady(false)
+      onRefresh()
+    } catch (error) {
+      setCommandResult({ title: 'Live feed failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
     } finally {
       setBusyAction(null)
     }
@@ -79,6 +111,7 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
 
   async function dispatchLane(lane?: WorkerLane) {
     setBusyAction('dispatch')
+    setLiveFeedReady(false)
     try {
       const projectId = lane?.next_candidate?.project_id || ''
       const result = projectId
@@ -105,6 +138,7 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
     if (!confirmed) return
     setBusyAction('dispatch-live')
     setLiveLaneProjectId('')
+    setLiveFeedReady(false)
     try {
       const result = await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
       setCommandResult({ title: 'Live dispatch result', payload: result })
@@ -128,6 +162,7 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
     })
     if (!confirmed) return
     setBusyAction('dispatch-live')
+    setLiveFeedReady(false)
     try {
       const result = await apiPost<Record<string, unknown>>('/control/dispatch-one', { project_id: projectId, dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
       setCommandResult({ title: 'Lane live dispatch result', payload: result })
@@ -155,6 +190,7 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
           </div>
           <div className="lane-console-actions">
             <button className="secondary-button" disabled={!canFeedAny || busyAction !== null} onClick={feedLane}>Feed idle lanes</button>
+            <button className="primary-button" disabled={!liveFeedReady || busyAction !== null} onClick={() => { void liveFeedCycle() }}>Run feed cycle</button>
             <button className="secondary-button" disabled={!canDispatchAny || busyAction !== null} onClick={() => { void dispatchLane() }}>Check open lanes</button>
             <button className="primary-button" disabled={!canDispatchAny || busyAction !== null} onClick={() => { void liveDispatchOpenLanes() }}>Dispatch open lanes</button>
           </div>
