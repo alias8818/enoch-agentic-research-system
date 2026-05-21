@@ -69,6 +69,34 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
   const [liveFeedReady, setLiveFeedReady] = useState(false)
   const [liveLaneProjectId, setLiveLaneProjectId] = useState('')
   const { confirm, dialog } = useOperatorDialog()
+  const visible = lanes.filter((lane) => ['CPU lane', 'GB10 lane'].includes(laneLabel(lane)))
+  const rendered = visible.length ? visible : lanes
+  const explicitOpenLaneCandidates = rendered.filter((lane) => lane.dispatch_available && lane.next_candidate?.project_id)
+  const canFeedAny = rendered.some((lane) => ['generate_candidate', 'promote_candidate'].includes(lane.feed_pressure?.next_autopilot_action || ''))
+  const canDispatchAny = rendered.some((lane) => lane.dispatch_available)
+
+  async function dispatchExplicitLaneCandidates(candidateLanes: WorkerLane[], dryRun: boolean): Promise<Record<string, unknown>> {
+    const results = []
+    for (const lane of candidateLanes) {
+      const projectId = lane.next_candidate?.project_id || ''
+      results.push({
+        lane: laneLabel(lane),
+        project_id: projectId,
+        result: await apiPost<Record<string, unknown>>('/control/dispatch-one', {
+          project_id: projectId,
+          dry_run: dryRun,
+          requested_by: 'dashboard-v2',
+          force_preflight: true,
+        }),
+      })
+    }
+    return {
+      action: dryRun ? 'dry_run_dispatch_lanes' : 'dispatch_lanes_started',
+      reason: `${dryRun ? 'checked' : 'dispatched'} ${results.length} lane candidates`,
+      candidate_count: results.length,
+      results,
+    }
+  }
 
   async function feedLane() {
     setBusyAction('feed')
@@ -116,7 +144,9 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
       const projectId = lane?.next_candidate?.project_id || ''
       const result = projectId
         ? await apiPost<Record<string, unknown>>('/control/dispatch-one', { project_id: projectId, dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
-        : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+        : explicitOpenLaneCandidates.length > 0
+          ? await dispatchExplicitLaneCandidates(explicitOpenLaneCandidates, true)
+          : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
       setCommandResult({ title: 'Dispatch dry-run result', payload: result })
       setLiveLaneProjectId(projectId && result.action === 'dry_run_dispatch_one' ? projectId : '')
       onRefresh()
@@ -140,7 +170,9 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
     setLiveLaneProjectId('')
     setLiveFeedReady(false)
     try {
-      const result = await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
+      const result = explicitOpenLaneCandidates.length > 0
+        ? await dispatchExplicitLaneCandidates(explicitOpenLaneCandidates, false)
+        : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
       setCommandResult({ title: 'Live dispatch result', payload: result })
       onRefresh()
     } catch (error) {
@@ -175,10 +207,6 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
     }
   }
 
-  const visible = lanes.filter((lane) => ['CPU lane', 'GB10 lane'].includes(laneLabel(lane)))
-  const rendered = visible.length ? visible : lanes
-  const canFeedAny = rendered.some((lane) => ['generate_candidate', 'promote_candidate'].includes(lane.feed_pressure?.next_autopilot_action || ''))
-  const canDispatchAny = rendered.some((lane) => lane.dispatch_available)
   return (
     <>
       <section className="lane-console" aria-label="Worker lanes">

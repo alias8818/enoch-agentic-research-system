@@ -478,3 +478,59 @@ it('finalizes paper strip drafts only after dry-run and dialog confirmation', as
   expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"force":true')
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
+
+it('checks every open lane candidate with dispatch-one instead of aggregate dispatch-next', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'cpu candidate can dispatch' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'gb10 candidate can dispatch' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<WorkerLanes lanes={[
+    { lane_key: 'cpu', machine_target: 'cpu-proxmox-1', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_id: 'cpu-project', project_name: 'CPU job' } },
+    { lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_id: 'gb10-project', project_name: 'GB10 job' } },
+  ]} onRefresh={onRefresh} />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Check open lanes' }))
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ project_id: 'cpu-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
+  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
+  }))
+  expect(screen.getByText('Dispatch dry-run result')).toBeInTheDocument()
+  expect(screen.getByText('checked 2 lane candidates')).toBeInTheDocument()
+  expect(onRefresh).toHaveBeenCalledTimes(1)
+})
+
+it('live-dispatches every open lane candidate with dispatch-one after confirmation', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dispatch_started', reason: 'cpu dispatch started' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dispatch_started', reason: 'gb10 dispatch started' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<WorkerLanes lanes={[
+    { lane_key: 'cpu', machine_target: 'cpu-proxmox-1', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_id: 'cpu-project', project_name: 'CPU job' } },
+    { lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_id: 'gb10-project', project_name: 'GB10 job' } },
+  ]} onRefresh={onRefresh} />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Dispatch open lanes' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Dispatch open lanes?' })
+  fireEvent.click(dialog.querySelectorAll('button')[1])
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ project_id: 'cpu-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
+  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ project_id: 'gb10-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
+  }))
+  expect(screen.getByText('Live dispatch result')).toBeInTheDocument()
+  expect(screen.getByText('dispatched 2 lane candidates')).toBeInTheDocument()
+  expect(onRefresh).toHaveBeenCalledTimes(1)
+})
