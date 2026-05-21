@@ -5810,7 +5810,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("worker_callback_token_compatible", body_text)
             self.assertNotIn(TOKEN, body_text)
             called_payload = mocked_preflight.call_args.args[0]
-            self.assertEqual(called_payload.expected_callback_token_fingerprint, "")
+            self.assertEqual(called_payload.expected_callback_token_fingerprint, "c26f32e18f0434a705ea5417d0b9b80bd4097678f05d45e1c3915767b5e8c38f")
             rows = {row["project_id"]: row for row in client.get("/control/queue", headers=headers).json()["rows"]}
             self.assertEqual(rows["dispatch-callback-mismatch"]["status"], "queued")
             self.assertIn("worker preflight failed", rows["dispatch-callback-mismatch"]["last_error"])

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hmac
 import math
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -83,6 +84,14 @@ def _int_or(value: Any, *, missing: int, malformed: int) -> int:
 
 def _auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def _callback_token_compatible(expected: str, observed: Any) -> bool:
+    if not expected:
+        return True
+    if not isinstance(observed, str) or not observed:
+        return False
+    return hmac.compare_digest(observed, expected)
 
 
 
@@ -198,6 +207,7 @@ def run_worker_preflight(
         telemetry = (dashboard_body or {}).get("telemetry") or {}
         queue = (dashboard_body or {}).get("queue") or {}
         totals = (dashboard_body or {}).get("totals") or {}
+        service = (dashboard_body or {}).get("service") or {}
         gpu_pct = _float_or(telemetry.get("gpu_pct"), missing=0.0, malformed=101.0)
         mem_available = _int_or(telemetry.get("memory_available_mib"), missing=0, malformed=0)
         swap_free = _int_or(telemetry.get("swap_free_mib"), missing=0, malformed=0)
@@ -212,6 +222,17 @@ def run_worker_preflight(
                 _check("worker_no_live_runs", active_or_waiting == 0 and live == 0, f"active_or_waiting={active_or_waiting}, live={live}", {"active_or_waiting": active_or_waiting, "live": live}),
                 _check("worker_queue_snapshot_no_active", queue_active == 0, f"queue_active_count={queue_active}", {"queue_active_count": queue_active}),
                 _check("worker_swapless_allowed", True, f"swap_free_mib={swap_free}; swapless GB10 is allowed when earlyoom is active", {"swap_free_mib": swap_free}),
+                _check(
+                    "worker_callback_token_compatible",
+                    _callback_token_compatible(payload.expected_callback_token_fingerprint, service.get("completion_callback_token_fingerprint")),
+                    "callback token fingerprint matches control-plane expectation"
+                    if _callback_token_compatible(payload.expected_callback_token_fingerprint, service.get("completion_callback_token_fingerprint"))
+                    else "callback token fingerprint mismatch or missing",
+                    {
+                        "expected_supplied": bool(payload.expected_callback_token_fingerprint),
+                        "worker_fingerprint_present": bool(service.get("completion_callback_token_fingerprint")),
+                    },
+                ),
             ]
         )
     else:
@@ -220,6 +241,8 @@ def run_worker_preflight(
     required_names = {"control_queue_paused", "wake_gate_healthz"} if payload.require_paused else {"wake_gate_healthz"}
     if payload.bearer_token:
         required_names.update({"wake_gate_dashboard_api", "worker_gpu_idle", "worker_memory_available", "worker_no_live_runs", "worker_queue_snapshot_no_active"})
+        if payload.expected_callback_token_fingerprint:
+            required_names.add("worker_callback_token_compatible")
     passed = all(check.ok for check in checks if check.name in required_names or payload.strict)
     summary = "worker preflight passed" if passed else "worker preflight failed"
     return WorkerPreflightResponse(ok=passed, target=payload.wake_gate_url, summary=summary, checks=checks)

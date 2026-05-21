@@ -1491,9 +1491,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         return (target.wake_gate_url or str(candidate.get("machine_target") or "")).strip().rstrip("/")
 
     def _callback_acceptance_token_fingerprint() -> str:
-        # Do not expose or propagate token-derived verifiers in preflight payloads.
-        # Token compatibility should be validated by direct callback behavior.
-        return ""
+        token = (config.completion_callback_token or "").strip()
+        if not token:
+            return ""
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
     def _dispatch_sort_key(row: dict[str, Any]) -> tuple[int, int, str]:
         priority = _int_or_none(row.get("dispatch_priority"))
