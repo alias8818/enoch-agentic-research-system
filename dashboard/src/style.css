@@ -395,6 +395,8 @@ button:disabled { cursor: not-allowed; }
 }
 .lane-empty-state strong { color: #fff8ea; font-size: 0.95rem; }
 .lane-empty-state p { margin: 0.35rem 0 0; color: #9d978f; font-size: 0.84rem; line-height: 1.45; }
+.lane-empty-state--error { border-color: rgba(239,68,68,0.42); background: rgba(88,24,24,0.18); }
+.lane-empty-state--error p { color: #fecaca; }
 
 .lane-card {
   min-height: 18rem;

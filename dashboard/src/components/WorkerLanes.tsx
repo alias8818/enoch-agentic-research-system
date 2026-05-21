@@ -8,6 +8,13 @@ type CommandResult = {
   payload: Record<string, unknown>
 }
 
+type WorkerLanesProps = {
+  lanes: WorkerLane[]
+  onRefresh: () => void
+  isLoading?: boolean
+  error?: unknown
+}
+
 const dryRunCyclePayload = {
   enabled: false,
   dry_run: true,
@@ -63,7 +70,11 @@ function ResultCard({ result }: { result: CommandResult | null }) {
   )
 }
 
-export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefresh: () => void }) {
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: WorkerLanesProps) {
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null)
   const [busyAction, setBusyAction] = useState<'feed' | 'feed-live' | 'dispatch' | 'dispatch-live' | null>(null)
   const [liveFeedReady, setLiveFeedReady] = useState(false)
@@ -224,7 +235,17 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
           </div>
         </div>
         <ResultCard result={commandResult} />
-        {rendered.length === 0 ? (
+        {error ? (
+          <div className="lane-empty-state lane-empty-state--error" role="status">
+            <strong>Worker lane status unavailable.</strong>
+            <p>{errorMessage(error)}</p>
+          </div>
+        ) : isLoading ? (
+          <div className="lane-empty-state" role="status">
+            <strong>Loading worker lane capacity…</strong>
+            <p>Waiting for /control/api/status before enabling feed or dispatch controls.</p>
+          </div>
+        ) : rendered.length === 0 ? (
           <div className="lane-empty-state" role="status">
             <strong>No worker lane capacity returned.</strong>
             <p>The status endpoint did not include CPU or GB10 lane data, so V2 cannot safely feed or dispatch work from this panel.</p>

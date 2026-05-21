@@ -543,3 +543,18 @@ it('explains when no worker lane capacity is returned', () => {
   expect(screen.getByRole('button', { name: 'Feed idle lanes' })).toBeDisabled()
   expect(screen.getByRole('button', { name: 'Check open lanes' })).toBeDisabled()
 })
+
+it('distinguishes lane status loading from an empty lane-capacity response', () => {
+  render(<WorkerLanes lanes={[]} isLoading onRefresh={() => undefined} />)
+
+  expect(screen.getByText('Loading worker lane capacity…')).toBeInTheDocument()
+  expect(screen.queryByText('No worker lane capacity returned.')).not.toBeInTheDocument()
+})
+
+it('surfaces worker lane status errors instead of showing an empty lane list', () => {
+  render(<WorkerLanes lanes={[]} error={new Error('/control/api/status -> 503')} onRefresh={() => undefined} />)
+
+  expect(screen.getByText('Worker lane status unavailable.')).toBeInTheDocument()
+  expect(screen.getByText('/control/api/status -> 503')).toBeInTheDocument()
+  expect(screen.queryByText('No worker lane capacity returned.')).not.toBeInTheDocument()
+})

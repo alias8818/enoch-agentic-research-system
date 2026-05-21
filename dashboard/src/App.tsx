@@ -76,7 +76,7 @@ function OverviewPage() {
       </div>
       <CommandHero overview={data} diagnosis={diagnosis} />
       <div className="command-grid">
-        <WorkerLanes lanes={status.data?.worker_lanes || []} onRefresh={refresh} />
+        <WorkerLanes lanes={status.data?.worker_lanes || []} isLoading={status.isLoading} error={status.error} onRefresh={refresh} />
         <div className="side-rail">
           <PrimaryAction action={data.top_actions?.[0]} onRefresh={refresh} />
           <PaperMiniStrip pipeline={data.paper_pipeline} onRefresh={refresh} />
