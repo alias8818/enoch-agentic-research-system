@@ -124,7 +124,19 @@ export function DataTable({
           </thead>
           <tbody>
             {rows.map((row, index) => (
-              <tr key={rowKey(row, index)} className={onSelectRow ? 'selectable-row' : ''} onClick={() => onSelectRow?.(row)}>
+              <tr
+                key={rowKey(row, index)}
+                className={onSelectRow ? 'selectable-row' : undefined}
+                tabIndex={onSelectRow ? 0 : undefined}
+                onClick={() => onSelectRow?.(row)}
+                onKeyDown={(event) => {
+                  if (!onSelectRow) return
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    onSelectRow(row)
+                  }
+                }}
+              >
                 {columns.map((column) => {
                   const allowLink = !onSelectRow || column.kind === 'id' || column.kind === 'link'
                   const href = allowLink ? (cellHref?.(row, column.key) ?? columnLinkHref(row, column)) : undefined

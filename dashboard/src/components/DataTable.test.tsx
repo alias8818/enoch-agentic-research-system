@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { DataTable } from './DataTable'
 import { projectsTableColumns } from '../tablePresentation'
 
 afterEach(() => {
+  cleanup()
   vi.restoreAllMocks()
 })
 
@@ -30,4 +31,16 @@ it('renders linked id cells without selecting the row', () => {
 
   expect(screen.getByRole('link', { name: 'project-1' })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
   expect(onSelectRow).not.toHaveBeenCalled()
+})
+
+it('selects rows from keyboard Enter on focusable table rows', () => {
+  const onSelectRow = vi.fn()
+
+  render(<DataTable rows={[{ project_id: 'project-1', project_name: 'Trace oracle', queue_status: 'queued' }]} columns={projectsTableColumns} empty="empty" onSelectRow={onSelectRow} />)
+
+  const row = screen.getByText('Trace oracle').closest('tr')
+  expect(row).toHaveAttribute('tabindex', '0')
+  fireEvent.keyDown(row!, { key: 'Enter' })
+
+  expect(onSelectRow).toHaveBeenCalledTimes(1)
 })

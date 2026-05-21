@@ -1,6 +1,6 @@
 # Dashboard V2 TODO checklist
 
-Status: **P0 + P1 + P2 + P3 + P4 + P5 + P6 landing** — branch `feat/dashboard-v2-trust-guards` (2026-05-21). Trust guards through route policy in one PR stack; P7+ deferred.
+Status: **P0–P7 landing** — branch `feat/dashboard-v2-trust-guards` (2026-05-21). Dashboard V2 operator pass complete through styling cleanup; parking-lot items deferred.
 
 Screenshot evidence reviewed from:
 
@@ -204,11 +204,11 @@ Problem seen in screenshots: `V2 data unavailable: endpoint -> 500` is technical
 
 Lower priority than operator usefulness.
 
-- [ ] Native select dropdowns are ugly; replace only if it can be done without adding fragile complexity.
-- [ ] Tighten table density and column spacing.
-- [ ] Improve right-side detail panel overflow behavior.
-- [ ] Ensure long titles wrap cleanly without dominating the screen.
-- [ ] Verify keyboard focus states after any custom control work.
+- [x] Native select dropdowns are ugly; replace only if it can be done without adding fragile complexity.
+- [x] Tighten table density and column spacing.
+- [x] Improve right-side detail panel overflow behavior.
+- [x] Ensure long titles wrap cleanly without dominating the screen.
+- [x] Verify keyboard focus states after any custom control work.
 
 ## Parking lot — larger redesign questions
 
@@ -228,5 +228,5 @@ When work resumes, do this sequence:
 4. ~~Reduce secondary page hero/header footprint.~~ (P3 — [`PageHeader.tsx`](../dashboard/src/components/PageHeader.tsx))
 5. ~~Improve tables and empty/error states.~~ (P4 table pass — [`tablePresentation.ts`](../dashboard/src/tablePresentation.ts); P5 error/empty cards — [`resourceStatePresentation.ts`](../dashboard/src/resourceStatePresentation.ts))
 6. ~~Audit routes, canonicalize aliases, and add detail breadcrumbs.~~ (P6 — [`routePolicy.ts`](../dashboard/src/routePolicy.ts))
-7. Only then do visual polish.
+7. ~~Polish table density, panel overflow, title wrapping, and focus rings.~~ (P7 — [`style.css`](../dashboard/src/style.css), [`styleGuards.test.ts`](../dashboard/src/styleGuards.test.ts))
 
