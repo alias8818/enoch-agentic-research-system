@@ -67,7 +67,7 @@ function OverviewPage() {
 
   const data = overview.data
   const diagnosis = data.movement_diagnosis || { status: 'unknown', primary_reason: 'No movement diagnosis returned.', blockers: [] }
-  const primaryAction = resolvePrimaryAction(data, readinessRequested)
+  const primaryAction = resolvePrimaryAction(data, readiness.data)
   const recentEvents = data.recent_events || []
   const activeItems = data.active_items || []
   const operatorCounts = data.operator_counts || {}

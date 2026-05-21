@@ -716,12 +716,15 @@ it('surfaces worker lane status errors instead of showing an empty lane list', (
 })
 
 it('prefers readiness check before backend primary action', () => {
-  const action = resolvePrimaryAction({ ok: true, primary_operator_action: { kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'Ready.' } }, false)
+  const action = resolvePrimaryAction({ ok: true, primary_operator_action: { kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'Ready.' } })
   expect(action?.kind).toBe('check_readiness')
 })
 
 it('uses backend primary action after readiness is checked', () => {
-  const action = resolvePrimaryAction({ ok: true, primary_operator_action: { kind: 'feed_lanes', title: 'Feed GB10 lane', summary: 'Needs backlog.' } }, true)
+  const action = resolvePrimaryAction(
+    { ok: true, primary_operator_action: { kind: 'feed_lanes', title: 'Feed GB10 lane', summary: 'Needs backlog.' } },
+    { ok: true, label: 'Long-haul mode: READY', blockers: [] },
+  )
   expect(action?.kind).toBe('feed_lanes')
 })
 

@@ -408,7 +408,7 @@ class PrimaryOperatorActionTests(unittest.TestCase):
 
     def test_feed_lane_when_no_dispatch(self) -> None:
         lanes = [{"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "queued_count": 0, "dispatch_available": False, "feed_pressure": {"next_autopilot_action": "generate_candidate"}}]
-        movement = movement_diagnosis(flags={"queue_paused": False, "maintenance_mode": False}, worker_lanes=lanes, paper_pipeline={}, investigation_pipeline={})
+        movement = {"status": "ready", "primary_reason": "No dispatch blocker.", "blockers": []}
         action = primary_operator_action(worker_lanes=lanes, movement=movement)
         self.assertIsNotNone(action)
         assert action is not None
@@ -416,6 +416,21 @@ class PrimaryOperatorActionTests(unittest.TestCase):
 
     def test_open_blocker_when_blocked(self) -> None:
         lanes = [{"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "queued_count": 1, "dispatch_available": False}]
+        movement = movement_diagnosis(flags={"queue_paused": True, "maintenance_mode": False}, worker_lanes=lanes, paper_pipeline={}, investigation_pipeline={})
+        action = primary_operator_action(worker_lanes=lanes, movement=movement)
+        self.assertIsNotNone(action)
+        assert action is not None
+        self.assertEqual(action["kind"], "open_blocker")
+
+    def test_open_blocker_beats_feed_when_movement_blocked(self) -> None:
+        lanes = [{
+            "machine_target": "gb10",
+            "worker_role": "gpu_worker",
+            "status": "idle",
+            "queued_count": 0,
+            "dispatch_available": False,
+            "feed_pressure": {"next_autopilot_action": "generate_candidate"},
+        }]
         movement = movement_diagnosis(flags={"queue_paused": True, "maintenance_mode": False}, worker_lanes=lanes, paper_pipeline={}, investigation_pipeline={})
         action = primary_operator_action(worker_lanes=lanes, movement=movement)
         self.assertIsNotNone(action)

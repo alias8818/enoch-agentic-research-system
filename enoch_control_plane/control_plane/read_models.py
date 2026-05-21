@@ -1766,6 +1766,21 @@ def primary_operator_action(
             payload["target"] = _candidate_target(next_candidate) or {"project_id": project_id}
         return payload
 
+    status = str(movement.get("status") or "")
+    blockers = movement.get("blockers") or []
+    if status == "blocked" and blockers:
+        primary = blockers[0] if isinstance(blockers[0], Mapping) else {}
+        return {
+            "kind": "open_blocker",
+            "tone": primary.get("tone", "warn"),
+            "title": str(primary.get("title") or "Resolve blocker"),
+            "summary": str(primary.get("summary") or movement.get("primary_reason") or ""),
+            "action_label": str(primary.get("action_label") or "Open details"),
+            "action_hash": str(primary.get("action_hash") or "#overview"),
+            "blocker_kind": primary.get("kind"),
+            "lane": primary.get("lane"),
+        }
+
     for lane in lanes:
         feed = lane.get("feed_pressure") or {}
         feed_action = str(feed.get("next_autopilot_action") or "")
@@ -1785,21 +1800,6 @@ def primary_operator_action(
             "lane": label,
             "machine_target": lane.get("machine_target"),
             "feed_action": feed_action,
-        }
-
-    status = str(movement.get("status") or "")
-    blockers = movement.get("blockers") or []
-    if status == "blocked" and blockers:
-        primary = blockers[0] if isinstance(blockers[0], Mapping) else {}
-        return {
-            "kind": "open_blocker",
-            "tone": primary.get("tone", "warn"),
-            "title": str(primary.get("title") or "Resolve blocker"),
-            "summary": str(primary.get("summary") or movement.get("primary_reason") or ""),
-            "action_label": str(primary.get("action_label") or "Open details"),
-            "action_hash": str(primary.get("action_hash") or "#overview"),
-            "blocker_kind": primary.get("kind"),
-            "lane": primary.get("lane"),
         }
 
     return None

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
 import { dryRunCyclePayload, liveCyclePayload } from '../researchCyclePayloads'
-import type { OverviewResponse, TopAction } from '../types'
+import type { AutomationReadiness, OverviewResponse, TopAction } from '../types'
 import { useOperatorDialog } from './OperatorDialog'
 import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
@@ -80,9 +80,9 @@ function liveActionDisabledReason(action: TopAction, ready: boolean, staleReady:
 
 export function resolvePrimaryAction(
   overview: OverviewResponse,
-  readinessRequested: boolean,
+  readiness?: AutomationReadiness,
 ): TopAction | undefined {
-  if (!readinessRequested) {
+  if (!readiness) {
     return {
       kind: 'check_readiness',
       tone: 'warn',
