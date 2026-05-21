@@ -41,6 +41,28 @@ it('loads queue rows from the V1 queue endpoint with the route status', async ()
   expectParam(url, 'status', 'queued')
 })
 
+
+it('checks selected queued rows with dispatch-one dry-run only', async () => {
+  saveToken('test-token')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'project-1', status: 'queued', machine_target: 'gb10', title: 'Queue item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ project_id: 'project-1', project: { project_name: 'Queue item' } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'dry_run_dispatch_one', reason: 'dry-run selected explicit queued candidate; no state mutated', candidate: { project_id: 'project-1' } }), { status: 200 }))
+
+  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', hash: '#queue:queued' }} />)
+
+  fireEvent.click(await screen.findByText('Queue item'))
+  await screen.findByLabelText('Dashboard detail panel')
+  fireEvent.click(screen.getByRole('button', { name: /Check selected dispatch/i }))
+
+  await screen.findByText('dry-run selected explicit queued candidate; no state mutated')
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/dispatch-one', expect.objectContaining({
+    method: 'POST',
+    headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_id: 'project-1', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
+  }))
+})
+
 it('loads project discovery rows from the V1 projects endpoint', async () => {
   saveToken('test-token')
   const fetchMock = vi.spyOn(globalThis, 'fetch')

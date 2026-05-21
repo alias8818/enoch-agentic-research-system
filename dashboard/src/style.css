@@ -562,6 +562,26 @@ button:disabled { cursor: not-allowed; }
 }
 .copy-button:hover { border-color: rgba(226,177,91,0.62); color: #fff8ea; }
 
+.queue-command-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid rgba(226,177,91,0.22);
+  border-radius: 1.35rem;
+  background: linear-gradient(135deg, rgba(226,177,91,0.12), rgba(12,12,10,0.72));
+  padding: 1rem;
+}
+.queue-command-card h2 {
+  margin: 0.2rem 0;
+  color: #fff8ea;
+  font-size: 1.05rem;
+  font-weight: 950;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.queue-command-card p { margin: 0; color: #b7ada0; }
+
 .action-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
 .count-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.65rem; }
 .count-card {

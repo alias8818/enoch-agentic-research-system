@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { apiGet } from '../api/client'
+import { apiGet, apiPost } from '../api/client'
 import type { DashboardRoute } from '../routes'
 import { DataTable } from './DataTable'
 import { DetailPanel } from './DetailPanel'
@@ -11,6 +11,7 @@ type ObservabilityHealth = { generated_at?: string; route_observability_enabled?
 type ObservabilityMemory = { generated_at?: string; rss_mib?: number | null; peak_rss_mib?: number | null; warn_threshold_mib?: number | null; memory_warn?: boolean; route_observability_enabled?: boolean }
 type DetailSelection = { kind: 'project' | 'run' | 'paper' | 'event'; id: string; row?: Record<string, unknown> }
 type FilterState = { search: string; status: string; pageSize: string; cursor: string }
+type CommandResult = { title: string; payload: Record<string, unknown> }
 
 function PageShell({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
@@ -78,18 +79,71 @@ function withRunParams(state: FilterState): URLSearchParams {
   return params
 }
 
+function selectedDispatchReason(selection: DetailSelection | null): string {
+  if (!selection) return 'Select a queued row to check whether that exact candidate can dispatch.'
+  if (!selection.id) return 'Selected row has no project id.'
+  const status = String(selection.row?.status || '').toLowerCase()
+  if (status !== 'queued') return `Selected row is ${status || 'not queued'}.`
+  return 'Dry-run checks /control/dispatch-one for the selected project only.'
+}
+
+function CommandResultCard({ result }: { result: CommandResult | null }) {
+  if (!result) return null
+  const reason = String(result.payload.reason || result.payload.detail || result.payload.action || 'Command completed.')
+  return (
+    <section className="result-card" aria-live="polite">
+      <h3>{result.title}</h3>
+      <p>{reason}</p>
+      <pre>{JSON.stringify(result.payload, null, 2)}</pre>
+    </section>
+  )
+}
+
 export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'queue' }> }) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
+  const [dispatchResult, setDispatchResult] = useState<CommandResult | null>(null)
+  const [dispatchBusy, setDispatchBusy] = useState(false)
   const [filters, setFilters] = useState<FilterState>({ search: '', status: route.status, pageSize: '50', cursor: '' })
   const params = withCommonParams(filters, 'priority')
   params.set('queue', 'all')
   const query = useQuery({ queryKey: ['queue', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/queue?${params}`) })
   if (query.isLoading) return <LoadingCard label="queue" />
   if (query.isError) return <ErrorCard error={query.error} />
+  const selectedProjectId = selection?.id || ''
+  const selectedStatus = String(selection?.row?.status || '').toLowerCase()
+  const canDryRunSelected = Boolean(selectedProjectId) && selectedStatus === 'queued'
+  async function dryRunSelectedDispatch() {
+    if (!canDryRunSelected) return
+    setDispatchBusy(true)
+    try {
+      const payload = await apiPost<Record<string, unknown>>('/control/dispatch-one', {
+        project_id: selectedProjectId,
+        dry_run: true,
+        requested_by: 'dashboard-v2',
+        force_preflight: true,
+      })
+      setDispatchResult({ title: 'Selected dispatch dry-run', payload })
+    } catch (error) {
+      setDispatchResult({ title: 'Selected dispatch dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+    } finally {
+      setDispatchBusy(false)
+    }
+  }
   return (
     <PageShell title="Queue" subtitle="Bounded queue rows from /control/api/v1/queue. No frontend lifecycle inference.">
       <FilterBar state={filters} statusOptions={[{ label: 'all statuses', value: '' }, { label: 'queued', value: 'queued' }, { label: 'active', value: 'active' }, { label: 'blocked', value: 'blocked' }, { label: 'completed', value: 'completed' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.status, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <DataTable rows={query.data?.rows || []} columns={['project_id', 'status', 'lane', 'machine_target', 'title', 'updated_at']} empty="No queue rows match this filter." onSelectRow={(row) => setSelection({ kind: 'project', id: String(row.project_id || ''), row })} />
+      <section className="queue-command-card">
+        <div>
+          <p className="eyebrow">Selected queue row</p>
+          <h2>{selectedProjectId || 'No row selected'}</h2>
+          <p>{selectedDispatchReason(selection)}</p>
+        </div>
+        <button className="primary-button" type="button" disabled={!canDryRunSelected || dispatchBusy} onClick={dryRunSelectedDispatch}>
+          {dispatchBusy ? 'Checking…' : 'Check selected dispatch'}
+        </button>
+      </section>
+      <CommandResultCard result={dispatchResult} />
+      <DataTable rows={query.data?.rows || []} columns={['project_id', 'status', 'lane', 'machine_target', 'title', 'updated_at']} empty="No queue rows match this filter." onSelectRow={(row) => { setDispatchResult(null); setSelection({ kind: 'project', id: String(row.project_id || ''), row }) }} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )
