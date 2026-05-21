@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test'
 import { TOKEN_STORAGE_KEY } from '../src/api/client'
+import { SAVED_TABLE_FILTERS_STORAGE_KEY } from '../src/savedTableFilters'
 
 const overviewPayload = {
   generated_at: '2026-05-21T12:00:00Z',
@@ -165,8 +166,9 @@ export async function openDashboardWithToken(
 ): Promise<void> {
   await installDashboardApiMocks(page)
   if (options?.afterMocks) await options.afterMocks(page)
-  await page.addInitScript((storageKey) => {
+  await page.addInitScript((storageKey, savedFiltersKey) => {
     window.localStorage.setItem(storageKey, 'playwright-token')
-  }, TOKEN_STORAGE_KEY)
+    window.localStorage.removeItem(savedFiltersKey)
+  }, TOKEN_STORAGE_KEY, SAVED_TABLE_FILTERS_STORAGE_KEY)
   await page.goto(`/control/dashboard-v2/${hash}`)
 }
