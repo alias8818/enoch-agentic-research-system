@@ -2698,8 +2698,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.get("/api/v1/lanes")
     def dashboard_v1_lanes(authorization: str | None = Header(default=None)) -> dict[str, Any]:
         authorize(authorization)
-        active = [read_models.summarize_queue_row(row) for row in store.active_items_sql(limit=10)]
-        next_candidate = _open_worker_dispatch_candidate()
+        active_for_lanes = _active_items_fast(limit=10)
+        queued_for_lanes = _queued_items_fast()
+        active = [read_models.summarize_queue_row(row) for row in active_for_lanes]
+        next_candidate = _open_worker_dispatch_candidate(active=active_for_lanes, queued=queued_for_lanes)
         return {
             "ok": True,
             "source": "control_api_v1_lanes",
