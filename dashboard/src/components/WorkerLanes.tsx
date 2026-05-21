@@ -99,6 +99,20 @@ function dispatchDryRunAllowsLive(result: Record<string, unknown>): boolean {
   return action.includes('dry_run')
 }
 
+function globalFeedDisabledReason(canFeedAny: boolean, liveFeedReady: boolean, busyAction: string | null): string {
+  if (busyAction) return 'Feed idle lanes disabled: another lane command is running.'
+  if (!canFeedAny) return 'Feed idle lanes disabled: no lane is asking to generate or promote work.'
+  if (!liveFeedReady) return 'Run feed cycle disabled: run Feed idle lanes first.'
+  return ''
+}
+
+function globalDispatchDisabledReason(canDispatchAny: boolean, canLiveDispatchOpenLanes: boolean, busyAction: string | null): string {
+  if (busyAction) return 'Dispatch open lanes disabled: another lane command is running.'
+  if (!canDispatchAny) return 'Dispatch open lanes disabled: no lane can dispatch queued work.'
+  if (!canLiveDispatchOpenLanes) return 'Dispatch open lanes disabled: run Check open lanes first.'
+  return ''
+}
+
 export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: WorkerLanesProps) {
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null)
   const [busyAction, setBusyAction] = useState<'feed' | 'feed-live' | 'dispatch' | 'dispatch-live' | null>(null)
@@ -115,6 +129,8 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
     ? explicitOpenLaneCandidates.map((lane) => lane.next_candidate?.project_id || '').join('|')
     : canDispatchAny ? 'aggregate-dispatch-next' : ''
   const canLiveDispatchOpenLanes = canDispatchAny && liveOpenLaneSignature === openLaneSignature
+  const feedDisabledReason = globalFeedDisabledReason(canFeedAny, liveFeedReady, busyAction)
+  const dispatchDisabledReason = globalDispatchDisabledReason(canDispatchAny, canLiveDispatchOpenLanes, busyAction)
 
   async function dispatchExplicitLaneCandidates(candidateLanes: WorkerLane[], dryRun: boolean): Promise<Record<string, unknown>> {
     const results = []
@@ -267,6 +283,12 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
             <button className="primary-button" disabled={!liveFeedReady || busyAction !== null} onClick={() => { void liveFeedCycle() }}>Run feed cycle</button>
             <button className="secondary-button" disabled={!canDispatchAny || busyAction !== null} onClick={() => { void dispatchLane() }}>Check open lanes</button>
             <button className="primary-button" disabled={!canLiveDispatchOpenLanes || busyAction !== null} onClick={() => { void liveDispatchOpenLanes() }}>Dispatch open lanes</button>
+            {feedDisabledReason || dispatchDisabledReason ? (
+              <div className="lane-command-reasons" aria-label="Worker lane command disabled reasons">
+                {feedDisabledReason ? <p>{feedDisabledReason}</p> : null}
+                {dispatchDisabledReason ? <p>{dispatchDisabledReason}</p> : null}
+              </div>
+            ) : null}
           </div>
         </div>
         <ResultCard result={commandResult} />

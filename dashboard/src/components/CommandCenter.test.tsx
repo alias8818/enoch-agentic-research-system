@@ -293,6 +293,13 @@ it('dry-runs dispatch from lane buttons without starting live dispatch', async (
 })
 
 
+it('explains why global lane commands are disabled', () => {
+  render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_id: 'gb10-project', project_name: 'GB10 job' } }]} onRefresh={() => undefined} />)
+
+  expect(screen.getByRole('button', { name: 'Dispatch open lanes' })).toBeDisabled()
+  expect(screen.getByText('Dispatch open lanes disabled: run Check open lanes first.')).toBeInTheDocument()
+})
+
 it('requires an open-lanes dry-run before live dispatch is enabled', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'gb10 can dispatch' }), { status: 200 }))
