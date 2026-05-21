@@ -77,7 +77,7 @@ describe('deriveDetailOperatorSummary', () => {
     expect(summary.state).toBe('Write papers')
   })
 
-  it('answers run operator questions with project link and timestamps', () => {
+  it('answers run operator questions with lane, outcome, and publication path', () => {
     const summary = deriveDetailOperatorSummary('run', {
       run_id: 'run-1',
       run: {
@@ -87,21 +87,49 @@ describe('deriveDetailOperatorSummary', () => {
         state: 'running',
         gate_state: 'awaiting_wake',
         current_activity: 'testing',
+        operator_lane: 'gb10',
         started_at: '2026-05-21T09:00:00Z',
         updated_at: '2026-05-21T10:00:00Z',
-        related_artifact_paths_present: { evidence_bundle: true, claim_ledger: false },
+        related_paper_id: 'paper-1',
+        related_paper_status: 'publication_draft',
+        related_review_status: 'ready',
+        related_artifact_paths_present: { evidence_bundle: true, claim_ledger: false, finalization_package: true },
       },
+      queue_item: { machine_target: 'gb10', operator_lane: 'gb10' },
       events: [{ summary: 'Wake callback pending', created_at: '2026-05-21T10:01:00Z' }],
     })
 
     expect(summary.state).toBe('running')
-    expect(summary.next).toContain('Watch activity')
+    expect(summary.context).toContain('waiting for wake')
+    expect(summary.next).toContain('wake callback')
     expect(summary.entityLinks[0]).toMatchObject({ kind: 'project', id: 'project-1' })
+    expect(summary.sections.some((section) => section.title === 'Worker and lane')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'Run outcome')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'Paper and publication path')).toBe(true)
+    const laneSection = summary.sections.find((section) => section.title === 'Worker and lane')
+    expect(laneSection?.answers.find((answer) => answer.label === 'machine target')?.value).toBe('gb10')
+    const outcomeSection = summary.sections.find((section) => section.title === 'Run outcome')
+    expect(outcomeSection?.answers.find((answer) => answer.label === 'outcome')?.value).toBe('waiting for wake')
     expect(summary.sections.flatMap((section) => section.answers)).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: 'gate', value: 'awaiting_wake' }),
       expect.objectContaining({ label: 'evidence bundle', value: 'present' }),
+      expect.objectContaining({ label: 'finalization package', value: 'present' }),
     ]))
     expect(summary.recentActivity).toContain('Wake callback pending')
+  })
+
+  it('labels finished runs from ended_at even when gate is still awaiting_wake', () => {
+    const summary = deriveDetailOperatorSummary('run', {
+      run_id: 'run-1',
+      run: {
+        run_id: 'run-1',
+        state: 'completed',
+        gate_state: 'awaiting_wake',
+        ended_at: '2026-05-21T11:00:00Z',
+      },
+    })
+    const outcomeSection = summary.sections.find((section) => section.title === 'Run outcome')
+    expect(outcomeSection?.answers.find((answer) => answer.label === 'outcome')?.value).toBe('finished')
   })
 
   it('answers paper operator questions with checklist and related links', () => {

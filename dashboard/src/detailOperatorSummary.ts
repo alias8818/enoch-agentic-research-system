@@ -192,9 +192,24 @@ function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary
   }
 }
 
+function runOutcomeLabel(state: string, gate: string, endedAt: string): string {
+  const normalizedState = state.toLowerCase()
+  const normalizedGate = gate.toLowerCase()
+  if (normalizedState.includes('error') || normalizedGate.includes('error')) return 'failed'
+  if (endedAt !== '—') return 'finished'
+  if (normalizedGate === 'awaiting_wake' || normalizedState === 'awaiting_wake' || normalizedState === 'wake_received') {
+    return 'waiting for wake'
+  }
+  if (normalizedState === 'running' || normalizedState === 'dispatching' || normalizedState === 'reconciling') {
+    return 'still running'
+  }
+  return state !== '—' ? state : 'unknown'
+}
+
 function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const run = record(payload.run)
   const project = record(payload.project)
+  const queue = queueRecord(payload)
   const papers = recordArray(payload.papers)
   const events = recordArray(payload.events)
   const stageSource = { ...run, ...payload }
@@ -203,27 +218,44 @@ function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const activity = text(firstValue(run.current_activity, payload.current_activity))
   const projectId = text(firstValue(run.project_id, project.project_id, payload.project_id))
   const projectName = text(firstValue(project.project_name, run.project_name))
+  const machineTarget = text(firstValue(queue.machine_target, run.operator_lane, payload.machine_target))
+  const operatorLane = text(firstValue(run.operator_lane, queue.operator_lane))
+  const endedAt = text(firstValue(run.ended_at, payload.ended_at))
+  const lastCallbackAt = text(firstValue(run.last_callback_at, payload.last_callback_at))
   const paperId = text(firstValue(run.related_paper_id, papers[0]?.paper_id))
+  const paperStatus = text(firstValue(run.related_paper_status, papers[0]?.paper_status, papers[0]?.status))
+  const paperReview = text(firstValue(run.related_review_status, papers[0]?.review_status))
   const entityLinks: EntityLink[] = []
   pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, projectName))
   pushLink(entityLinks, entityLink('paper', paperId !== '—' ? paperId : null, papers[0]?.paper_title || papers[0]?.title))
   const errorState = state.includes('error') || gate.includes('error')
   const artifactFlags = record(run.related_artifact_paths_present)
+  const outcome = runOutcomeLabel(state, gate, endedAt)
 
   return {
     state: operatorStageLabel(stageSource, state),
-    context: `Gate ${gate}; activity ${activity}.`,
+    context: `Gate ${gate}; activity ${activity}; outcome ${outcome}.`,
     next: operatorNextStep(stageSource, errorState
       ? 'Inspect recent events and worker logs before retrying dispatch.'
-      : state === 'running' || state === 'dispatching'
-        ? 'Watch activity and recent events; intervene only if the gate stops moving.'
-        : 'Review related paper artifacts before queuing another action.'),
+      : outcome === 'waiting for wake'
+        ? 'Wait for the worker wake callback unless the gate has been stale for too long.'
+        : state === 'running' || state === 'dispatching'
+          ? 'Watch activity and recent events; intervene only if the gate stops moving.'
+          : 'Review related paper artifacts before queuing another action.'),
     entityLinks,
     sections: [
       {
-        title: 'Project and worker context',
+        title: 'Which project ran?',
         answers: [
           { label: 'project', value: projectName !== '—' ? projectName : projectId },
+          { label: 'project id', value: projectId },
+        ],
+      },
+      {
+        title: 'Worker and lane',
+        answers: [
+          { label: 'machine target', value: machineTarget },
+          { label: 'operator lane', value: operatorLane },
           { label: 'dispatch mode', value: text(firstValue(run.dispatch_mode, payload.dispatch_mode)) },
           { label: 'session', value: text(firstValue(run.session_id, payload.session_id)) },
         ],
@@ -237,11 +269,28 @@ function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
         ],
       },
       {
+        title: 'Run outcome',
+        answers: [
+          { label: 'outcome', value: outcome },
+          { label: 'last callback', value: lastCallbackAt },
+          { label: 'ended', value: endedAt },
+        ],
+      },
+      {
         title: 'Timestamps',
         answers: [
           { label: 'started', value: text(firstValue(run.started_at, payload.started_at)) },
           { label: 'updated', value: text(firstValue(run.updated_at, payload.updated_at)) },
-          { label: 'ended', value: text(firstValue(run.ended_at, payload.ended_at)) },
+          { label: 'ended', value: endedAt },
+        ],
+      },
+      {
+        title: 'Paper and publication path',
+        answers: [
+          { label: 'related paper', value: paperId },
+          { label: 'paper status', value: paperStatus },
+          { label: 'review status', value: paperReview },
+          { label: 'finalization package', value: artifactFlags.finalization_package ? 'present' : 'missing' },
         ],
       },
       {

@@ -170,7 +170,7 @@ function detailTitle(kind: DetailKind, payload: Record<string, unknown>, fallbac
   const project = record(payload.project)
   const run = record(payload.run)
   const paper = record(payload.paper)
-  return sanitizeHeroTitle(stringifyValue(firstValue(
+  const raw = stringifyValue(firstValue(
     project.project_name,
     project.title,
     run.project_name,
@@ -181,7 +181,9 @@ function detailTitle(kind: DetailKind, payload: Record<string, unknown>, fallbac
     payload.summary,
     payload.event_type,
     fallbackId,
-  )), kind)
+  ))
+  const sanitized = sanitizeHeroTitle(raw, kind)
+  return sanitized.length > 30 ? shortId(sanitized) : sanitized
 }
 
 function sanitizeHeroTitle(title: string, kind: DetailKind): string {
