@@ -183,7 +183,13 @@ function detailTitle(kind: DetailKind, payload: Record<string, unknown>, fallbac
     fallbackId,
   ))
   const sanitized = sanitizeHeroTitle(raw, kind)
-  return sanitized.length > 30 ? shortId(sanitized) : sanitized
+  return isSlugLikeTitle(sanitized) ? shortId(sanitized) : sanitized
+}
+
+function isSlugLikeTitle(title: string): boolean {
+  const trimmed = title.trim()
+  if (!trimmed || /\s/.test(trimmed)) return false
+  return trimmed.length > 30 && /^[a-z0-9_:\-]+$/i.test(trimmed)
 }
 
 function sanitizeHeroTitle(title: string, kind: DetailKind): string {

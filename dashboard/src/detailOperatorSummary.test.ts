@@ -87,7 +87,7 @@ describe('deriveDetailOperatorSummary', () => {
         state: 'running',
         gate_state: 'awaiting_wake',
         current_activity: 'testing',
-        operator_lane: 'gb10',
+        operator_lane: 'write_paper',
         started_at: '2026-05-21T09:00:00Z',
         updated_at: '2026-05-21T10:00:00Z',
         related_paper_id: 'paper-1',
@@ -95,7 +95,7 @@ describe('deriveDetailOperatorSummary', () => {
         related_review_status: 'ready',
         related_artifact_paths_present: { evidence_bundle: true, claim_ledger: false, finalization_package: true },
       },
-      queue_item: { machine_target: 'gb10', operator_lane: 'gb10' },
+      queue_item: { machine_target: 'gb10', operator_lane: 'write_paper' },
       events: [{ summary: 'Wake callback pending', created_at: '2026-05-21T10:01:00Z' }],
     })
 
@@ -108,6 +108,7 @@ describe('deriveDetailOperatorSummary', () => {
     expect(summary.sections.some((section) => section.title === 'Paper and publication path')).toBe(true)
     const laneSection = summary.sections.find((section) => section.title === 'Worker and lane')
     expect(laneSection?.answers.find((answer) => answer.label === 'machine target')?.value).toBe('gb10')
+    expect(laneSection?.answers.find((answer) => answer.label === 'operator lane')?.value).toBe('write_paper')
     const outcomeSection = summary.sections.find((section) => section.title === 'Run outcome')
     expect(outcomeSection?.answers.find((answer) => answer.label === 'outcome')?.value).toBe('waiting for wake')
     expect(summary.sections.flatMap((section) => section.answers)).toEqual(expect.arrayContaining([
@@ -116,6 +117,20 @@ describe('deriveDetailOperatorSummary', () => {
       expect.objectContaining({ label: 'finalization package', value: 'present' }),
     ]))
     expect(summary.recentActivity).toContain('Wake callback pending')
+  })
+
+  it('does not treat operator_lane as machine target without queue_item', () => {
+    const summary = deriveDetailOperatorSummary('run', {
+      run_id: 'run-1',
+      run: {
+        run_id: 'run-1',
+        state: 'running',
+        operator_lane: 'write_paper',
+      },
+    })
+    const laneSection = summary.sections.find((section) => section.title === 'Worker and lane')
+    expect(laneSection?.answers.find((answer) => answer.label === 'machine target')?.value).toBe('—')
+    expect(laneSection?.answers.find((answer) => answer.label === 'operator lane')?.value).toBe('write_paper')
   })
 
   it('labels finished runs from ended_at even when gate is still awaiting_wake', () => {

@@ -218,7 +218,7 @@ function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const activity = text(firstValue(run.current_activity, payload.current_activity))
   const projectId = text(firstValue(run.project_id, project.project_id, payload.project_id))
   const projectName = text(firstValue(project.project_name, run.project_name))
-  const machineTarget = text(firstValue(queue.machine_target, run.operator_lane, payload.machine_target))
+  const machineTarget = text(firstValue(queue.machine_target, payload.machine_target))
   const operatorLane = text(firstValue(run.operator_lane, queue.operator_lane))
   const endedAt = text(firstValue(run.ended_at, payload.ended_at))
   const lastCallbackAt = text(firstValue(run.last_callback_at, payload.last_callback_at))
@@ -290,7 +290,6 @@ function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
           { label: 'related paper', value: paperId },
           { label: 'paper status', value: paperStatus },
           { label: 'review status', value: paperReview },
-          { label: 'finalization package', value: artifactFlags.finalization_package ? 'present' : 'missing' },
         ],
       },
       {

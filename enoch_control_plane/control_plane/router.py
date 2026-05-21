@@ -2769,6 +2769,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         events, next_cursor, has_more = store.event_page(entity_id=run_id, page_size=event_limit, include_payload=False)
         papers, paper_cursor, paper_more = store.paper_page(run_id=run_id, page_size=25)
         queue_item = store.queue_row(project_id) if project_id else None
+        if queue_item and str(queue_item.get("current_run_id") or "").strip() != run_id:
+            queue_item = None
         return {
             "ok": True,
             "source": "control_api_v1_run",

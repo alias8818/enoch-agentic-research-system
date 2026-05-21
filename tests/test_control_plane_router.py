@@ -505,6 +505,33 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(body["queue_item"]["project_id"], "idea-0")
             self.assertEqual(body["queue_item"]["machine_target"], "gb10")
 
+    def test_dashboard_v1_run_detail_omits_queue_item_for_other_current_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "v1-run-detail-queue-item-mismatch",
+                "queue_rows": [{
+                    "project_id": "idea-0",
+                    "project_name": "Project 0",
+                    "project_dir": "idea-0",
+                    "status": "queued",
+                    "current_run_id": "run-current",
+                    "machine_target": "gb10",
+                }],
+            })
+            self.assertEqual(imported.status_code, 200)
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            with store._connect() as conn:
+                conn.execute(
+                    """INSERT INTO runs(run_id,project_id,session_id,state,dispatch_mode,started_at,ended_at,last_callback_at,gate_state,current_activity,idempotency_key,updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    ("run-historical", "idea-0", "", "completed", "dispatch", "2026-05-21T09:00:00Z", "2026-05-21T10:00:00Z", None, "completed", "", "", "2026-05-21T10:00:00Z"),
+                )
+            run_detail = client.get("/control/api/v1/runs/run-historical", headers=headers)
+            self.assertEqual(run_detail.status_code, 200)
+            self.assertIsNone(run_detail.json()["queue_item"])
+
     def test_dashboard_queue_filter_normalizes_status_and_manual_review_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
