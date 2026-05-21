@@ -710,5 +710,11 @@ it('opens keyboard shortcut help from the header button and question-mark shortc
   expect(screen.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeInTheDocument()
 
   fireEvent.keyDown(window, { key: '/' })
+  expect(screen.getByRole('textbox', { name: /global search/i })).not.toHaveFocus()
+
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('heading', { name: 'Keyboard shortcuts' })).not.toBeInTheDocument()
+
+  fireEvent.keyDown(window, { key: '/' })
   expect(screen.getByRole('textbox', { name: /global search/i })).toHaveFocus()
 })

@@ -36,6 +36,12 @@ it('replaces queue presets with the same name', () => {
   expect(presets[0]?.pageSize).toBe('25')
 })
 
+it('ignores malformed queue preset payloads in localStorage', () => {
+  window.localStorage.setItem(SAVED_TABLE_FILTERS_STORAGE_KEY, JSON.stringify({ queue: {} }))
+
+  expect(loadSavedTableFilters('queue')).toEqual([])
+})
+
 it('deletes saved queue presets by id', () => {
   saveTableFilterPreset('queue', { name: 'One', search: 'a', status: '', pageSize: '50' })
   const [preset] = loadSavedTableFilters('queue')

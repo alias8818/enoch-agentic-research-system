@@ -28,7 +28,7 @@ export function useDashboardKeyboardShortcuts({
         return
       }
 
-      if (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      if (event.key === '/' && !helpOpen && !event.ctrlKey && !event.metaKey && !event.altKey) {
         event.preventDefault()
         searchInputRef.current?.focus()
         searchInputRef.current?.select()

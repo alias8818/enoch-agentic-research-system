@@ -44,14 +44,22 @@ function normalizePreset(value: unknown): SavedTableFilterPreset | null {
   }
 }
 
+function readTablePresetEntries(tableId: SavedTableFilterTableId): unknown[] {
+  const presets = readStore()[tableId]
+  return Array.isArray(presets) ? presets : []
+}
+
 export function loadSavedTableFilters(tableId: SavedTableFilterTableId): SavedTableFilterPreset[] {
-  const presets = readStore()[tableId] || []
-  return presets.map(normalizePreset).filter((preset): preset is SavedTableFilterPreset => Boolean(preset))
+  return readTablePresetEntries(tableId)
+    .map(normalizePreset)
+    .filter((preset): preset is SavedTableFilterPreset => Boolean(preset))
 }
 
 export function saveTableFilterPreset(tableId: SavedTableFilterTableId, draft: SavedTableFilterDraft): SavedTableFilterPreset[] {
   const store = readStore()
-  const current = loadSavedTableFilters(tableId)
+  const current = readTablePresetEntries(tableId)
+    .map(normalizePreset)
+    .filter((preset): preset is SavedTableFilterPreset => Boolean(preset))
   const nextPreset: SavedTableFilterPreset = {
     id: crypto.randomUUID(),
     name: draft.name.trim(),
