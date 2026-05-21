@@ -11,6 +11,7 @@ import { useOperatorDialog } from './OperatorDialog'
 import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
 import { PageHeader } from './PageHeader'
+import { Eyebrow, InlineErrorStateCard, LoadingStateCard, OperatorDetailSummary, RawJsonDetails } from './ui'
 
 type ResearchFacilityResponse = {
   rows?: Record<string, unknown>[]
@@ -154,7 +155,7 @@ function CandidateDetail({ row, candidateId }: { row: Record<string, unknown> | 
         </div>
       </div>
       <section className="detail-summary">
-        <p className="eyebrow">Deterministic facility row</p>
+        <Eyebrow>Deterministic facility row</Eyebrow>
         <dl className="detail-field-grid">
           <div className="detail-field"><dt>candidate id</dt><dd>{String(row.candidate_id || '—')}</dd></div>
           <div className="detail-field"><dt>status</dt><dd>{String(row.status || '—')}</dd></div>
@@ -162,21 +163,13 @@ function CandidateDetail({ row, candidateId }: { row: Record<string, unknown> | 
           <div className="detail-field"><dt>machine target</dt><dd>{String(row.machine_target || '—')}</dd></div>
           <div className="detail-field"><dt>updated</dt><dd>{String(row.updated_at || '—')}</dd></div>
         </dl>
-        <section className="detail-operator-summary" aria-label="Research candidate operator summary">
-          <div>
-            <p className="eyebrow">Current state</p>
-            <strong>{status}</strong>
-            <span>Admission {admission}; target {target}.</span>
-          </div>
-          <div>
-            <p className="eyebrow">Next safe action</p>
-            <span>{nextAction}</span>
-          </div>
-        </section>
-        <details className="raw-details">
-          <summary>Raw candidate row</summary>
-          <pre className="json-block">{JSON.stringify(row, null, 2)}</pre>
-        </details>
+        <OperatorDetailSummary
+          state={status}
+          context={`Admission ${admission}; target ${target}.`}
+          next={nextAction}
+          ariaLabel="Research candidate operator summary"
+        />
+        <RawJsonDetails summary="Raw candidate row" payload={row} />
       </section>
     </section>
   )
@@ -395,8 +388,8 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
 
       {dialog}
 
-      {facility.isLoading ? <div className="state-card">Loading research facility…</div> : null}
-      {facility.isError ? <div className="state-card state-card--error">Research data unavailable: {String(facility.error.message)}</div> : null}
+      {facility.isLoading ? <LoadingStateCard label="research facility" /> : null}
+      {facility.isError ? <InlineErrorStateCard prefix="Research data unavailable" message={String(facility.error.message)} /> : null}
       {!facility.isLoading && !facility.isError ? (
         <>
           <DataTable rows={rows} columns={simpleTableColumns(['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at'], { title: { kind: 'primary' }, candidate_id: { kind: 'id' } })} empty="No research candidates returned." cellHref={candidateCellHref} onSelectRow={setSelectedCandidate} />

@@ -1,11 +1,21 @@
 import { useState } from 'react'
 import { apiGet } from '../api/client'
-import { deriveDetailOperatorSummary, type DetailKind, type DetailOperatorSummary, type EntityLink } from '../detailOperatorSummary'
+import { deriveDetailOperatorSummary, type DetailKind, type DetailOperatorSummary } from '../detailOperatorSummary'
 import { shortId } from '../format'
 import { detailBreadcrumb } from '../routePolicy'
 import { dashboardV2Href } from '../routes'
 import { useQuery } from '@tanstack/react-query'
 import { PageHeader } from './PageHeader'
+import {
+  EntityLinkChips,
+  Eyebrow,
+  InlineErrorStateCard,
+  LoadingStateCard,
+  OperatorDetailSummary,
+  OperatorQuestionSections,
+  RawJsonDetails,
+  StateCard,
+} from './ui'
 
 export type { DetailKind }
 
@@ -247,68 +257,6 @@ function FieldGrid({ fields }: { fields: Field[] }) {
   )
 }
 
-function EntityLinkChips({ links }: { links: EntityLink[] }) {
-  if (!links.length) return null
-  return (
-    <div className="detail-entity-links" aria-label="Related entity links">
-      {links.map((link) => (
-        <a key={`${link.kind}-${link.id}`} className="detail-id-chip detail-id-chip--link" href={dashboardV2Href(`#${link.kind}:${encodeURIComponent(link.id)}`)} title={link.id}>
-          {link.kind}: {link.label}
-        </a>
-      ))}
-    </div>
-  )
-}
-
-function OperatorQuestionSections({ sections, recentActivity, actionNeeded }: { sections: ReturnType<typeof deriveDetailOperatorSummary>['sections']; recentActivity: string | null; actionNeeded: string | null }) {
-  if (!sections.length && !recentActivity && !actionNeeded) return null
-  return (
-    <section className="detail-operator-questions" aria-label="Operator questions">
-      {sections.map((section) => (
-        <article key={section.title} className="detail-operator-question">
-          <h4>{section.title}</h4>
-          <dl className="detail-field-grid">
-            {section.answers.map((answer) => (
-              <div key={`${section.title}-${answer.label}`} className="detail-field">
-                <dt>{answer.label}</dt>
-                <dd>{answer.value}</dd>
-              </div>
-            ))}
-          </dl>
-        </article>
-      ))}
-      {recentActivity ? (
-        <article className="detail-operator-question">
-          <h4>What happened most recently?</h4>
-          <p>{recentActivity}</p>
-        </article>
-      ) : null}
-      {actionNeeded ? (
-        <article className="detail-operator-question detail-operator-question--attention">
-          <h4>Action needed now</h4>
-          <p>{actionNeeded}</p>
-        </article>
-      ) : null}
-    </section>
-  )
-}
-
-function OperatorDetailSummary({ state, context, next }: { state: string; context: string; next: string }) {
-  return (
-    <section className="detail-operator-summary" aria-label="Operator detail summary">
-      <div>
-        <p className="eyebrow">Current state</p>
-        <strong>{state}</strong>
-        <span>{context}</span>
-      </div>
-      <div>
-        <p className="eyebrow">Next safe action</p>
-        <span>{next}</span>
-      </div>
-    </section>
-  )
-}
-
 function RecordFields({ kind, id, payload, presentation }: { kind: DetailKind; id: string; payload: Record<string, unknown>; presentation: 'panel' | 'page' }) {
   const fields = detailFields(kind, payload, id)
   if (presentation === 'page') {
@@ -331,7 +279,7 @@ function StructuredDetail({ kind, id, payload, presentation = 'panel', operatorS
       <section className={`detail-summary${presentation === 'page' ? ' detail-summary--flat' : ''}`}>
         {presentation === 'panel' ? (
           <>
-            <p className="eyebrow">{kindLabel(kind)}</p>
+            <Eyebrow>{kindLabel(kind)}</Eyebrow>
             <h3>{title}</h3>
             {summary !== '—' && summary !== title ? <p>{summary}</p> : null}
           </>
@@ -344,10 +292,7 @@ function StructuredDetail({ kind, id, payload, presentation = 'panel', operatorS
       {kind === 'paper' ? <PaperArtifacts id={id} payload={payload} /> : null}
       <RelatedDetails payload={payload} />
       {presentation === 'page' ? <RecordFields kind={kind} id={id} payload={payload} presentation={presentation} /> : null}
-      <details className="raw-details">
-        <summary>Raw payload</summary>
-        <pre className="json-block">{JSON.stringify(payload, null, 2)}</pre>
-      </details>
+      <RawJsonDetails summary="Raw payload" payload={payload} />
     </div>
   )
 }
@@ -366,8 +311,8 @@ function DetailBody({ selection }: { selection: DetailSelection }) {
     return <StructuredDetail kind={selection.kind} id={selection.id} payload={inlineRow} />
   }
   if (!url) return <StructuredDetail kind={selection.kind} id={selection.id} payload={selection.row || {}} />
-  if (query.isLoading) return <div className="state-card">Loading detail…</div>
-  if (query.isError) return <div className="state-card state-card--error">Detail unavailable: {String(query.error.message)}</div>
+  if (query.isLoading) return <LoadingStateCard label="detail" />
+  if (query.isError) return <InlineErrorStateCard prefix="Detail unavailable" message={String(query.error.message)} />
   if (selection.kind === 'event') {
     const rows = Array.isArray(query.data?.rows) ? query.data.rows : []
     return <StructuredDetail kind={selection.kind} id={selection.id} payload={record(rows[0])} />
@@ -437,8 +382,8 @@ export function DetailPage({ selection }: { selection: DetailSelection }) {
         action={<span className="detail-id-chip" title={selection.id}>{shortId(selection.id)}</span>}
       />
       <div className="detail-page-body" aria-label="Dashboard detail page">
-        {query.isLoading && !hasInlineEvent ? <div className="state-card state-card--compact">Loading detail…</div> : null}
-        {query.isError && !hasInlineEvent ? <div className="state-card state-card--error state-card--compact">Detail unavailable: {String(query.error.message)}</div> : null}
+        {query.isLoading && !hasInlineEvent ? <StateCard compact>Loading detail…</StateCard> : null}
+        {query.isError && !hasInlineEvent ? <StateCard variant="error" compact>Detail unavailable: {String(query.error.message)}</StateCard> : null}
         {(hasInlineEvent || query.isSuccess || !url) && !query.isError ? (
           <StructuredDetail
             kind={selection.kind}
