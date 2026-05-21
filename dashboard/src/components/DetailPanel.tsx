@@ -170,7 +170,7 @@ function detailTitle(kind: DetailKind, payload: Record<string, unknown>, fallbac
   const project = record(payload.project)
   const run = record(payload.run)
   const paper = record(payload.paper)
-  return sanitizeHeroTitle(stringifyValue(firstValue(
+  const raw = stringifyValue(firstValue(
     project.project_name,
     project.title,
     run.project_name,
@@ -181,7 +181,15 @@ function detailTitle(kind: DetailKind, payload: Record<string, unknown>, fallbac
     payload.summary,
     payload.event_type,
     fallbackId,
-  )), kind)
+  ))
+  const sanitized = sanitizeHeroTitle(raw, kind)
+  return isSlugLikeTitle(sanitized) ? shortId(sanitized) : sanitized
+}
+
+function isSlugLikeTitle(title: string): boolean {
+  const trimmed = title.trim()
+  if (!trimmed || /\s/.test(trimmed)) return false
+  return trimmed.length > 30 && /^[a-z0-9_:\-]+$/i.test(trimmed)
 }
 
 function sanitizeHeroTitle(title: string, kind: DetailKind): string {

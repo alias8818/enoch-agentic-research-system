@@ -156,9 +156,9 @@ it.each([
   },
   {
     kind: 'run' as const,
-    id: 'run:trace-oracle-slug:00001',
-    payload: { run_id: 'run:trace-oracle-slug:00001', run: { run_id: 'run:trace-oracle-slug:00001', state: 'running' } },
-    expectedTitle: 'trace-oracle-slug:00001',
+    id: 'run:llm-generated-trace-replay-with-a-very-long-run-slug:00001',
+    payload: { run_id: 'run:llm-generated-trace-replay-with-a-very-long-run-slug:00001', run: { run_id: 'run:llm-generated-trace-replay-with-a-very-long-run-slug:00001', state: 'running' } },
+    expectedTitle: 'llm-generated-…slug:00001',
   },
   {
     kind: 'paper' as const,
@@ -232,16 +232,31 @@ it('renders P2 operator question sections for run detail with project link', asy
       state: 'running',
       gate_state: 'awaiting_wake',
       current_activity: 'testing',
+      operator_lane: 'gb10',
       started_at: '2026-05-21T09:00:00Z',
+      related_paper_id: 'paper-1',
+      related_paper_status: 'publication_draft',
     },
+    queue_item: { machine_target: 'gb10', operator_lane: 'gb10' },
+    papers: [{ paper_id: 'paper-1', title: 'Draft paper', paper_status: 'publication_draft' }],
     events: [{ summary: 'Wake callback pending', created_at: '2026-05-21T10:01:00Z' }],
   }), { status: 200 }))
 
   renderWithClient(<DetailPage selection={{ kind: 'run', id: 'run-1' }} />)
 
   expect(await screen.findByText('Run progress')).toBeInTheDocument()
+  expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toHaveTextContent('Runs')
+  expect(screen.getByRole('link', { name: 'Runs' })).toHaveAttribute('href', '/control/dashboard-v2#runs')
+  expect(screen.getByRole('heading', { name: 'Worker and lane' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Run outcome' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Paper and publication path' })).toBeInTheDocument()
   expect(screen.getByText('What happened most recently?')).toBeInTheDocument()
+  expect(screen.getByText('Record fields')).toBeInTheDocument()
+  const currentState = screen.getByText('Current state')
+  const recordFields = screen.getByText('Record fields')
+  expect(currentState.compareDocumentPosition(recordFields) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(screen.getByRole('link', { name: /project: Structured project/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
+  expect(screen.getAllByRole('link', { name: /Draft paper/ }).some((link) => link.getAttribute('href') === '/control/dashboard-v2#paper:paper-1')).toBe(true)
 })
 
 it('renders P2 publication checklist for paper detail', async () => {
