@@ -44,7 +44,6 @@ NEGATED_GPU_TERMS = (
 NEGATED_STRONG_GPU_TERMS = (
     "no cuda",
     "without cuda",
-    "non-cuda",
     "no vram",
     "without vram",
 )
@@ -154,10 +153,10 @@ def infer_workload_class_from_text(row: dict[str, Any]) -> str:
 
     if has_negated_strong_gpu and has_strong_gpu_positive:
         return "cpu_only"
-    if has_negated_gpu and has_training and has_negated_training:
-        return "cpu_only"
     if has_strong_gpu_positive:
         return "gpu_required"
+    if has_training and has_negated_training:
+        return "cpu_only"
     if has_training:
         return "training"
     if has_negated_gpu:
