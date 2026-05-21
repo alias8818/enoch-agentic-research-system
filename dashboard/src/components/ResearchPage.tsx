@@ -13,10 +13,12 @@ import { CommandResultSummary } from './CommandResultSummary'
 import { PageHeader } from './PageHeader'
 import { deriveResearchCandidateOperatorSummary } from '../detailOperatorSummary'
 import { EntityLinkChips, InlineErrorStateCard, LoadingStateCard, OperatorDetailSummary, OperatorQuestionSections, RawJsonDetails } from './ui'
+import { WorkbenchCountsFold, WorkbenchOperatorSummary } from './WorkbenchSummary'
 
 type ResearchFacilityResponse = {
   rows?: Record<string, unknown>[]
   counts?: Record<string, unknown>
+  operator_summary?: string
   authority?: string
   generated_at?: string
 }
@@ -342,14 +344,7 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
       {generateBatchDisabledReason ? <p className="primary-action-disabled-reason">{generateBatchDisabledReason}</p> : null}
       {providerBatchDisabledReason ? <p className="primary-action-disabled-reason">{providerBatchDisabledReason}</p> : null}
 
-      <section className="count-grid">
-        {Object.entries(counts).slice(0, 8).map(([key, value]) => (
-          <div key={key} className="count-card">
-            <div>{String(value)}</div>
-            <div>{key.replaceAll('_', ' ')}</div>
-          </div>
-        ))}
-      </section>
+      <WorkbenchOperatorSummary summary={facility.data?.operator_summary} />
 
       <ResultCard result={budget.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} />
       <ResultCard result={cycle.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} stale={staleCycleDryRun} />
@@ -382,6 +377,7 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
       {!facility.isLoading && !facility.isError ? (
         <>
           <DataTable rows={rows} columns={simpleTableColumns(['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at'], { title: { kind: 'primary' }, candidate_id: { kind: 'id' } })} empty="No research candidates returned." cellHref={candidateCellHref} onSelectRow={setSelectedCandidate} />
+          <WorkbenchCountsFold counts={counts as Record<string, number>} label="Research facility counts" />
           <CandidateDetail row={activeCandidate} candidateId={routeCandidateId} />
         </>
       ) : null}

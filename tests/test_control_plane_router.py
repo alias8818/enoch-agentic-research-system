@@ -733,6 +733,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["projection_counts"]["queued"], 1)
         self.assertEqual(body["queued_projection"][0]["idea_id"], "fallback-idea")
+        self.assertIn("operator_summary", body)
+        self.assertIn("queued for operator review", body["operator_summary"])
         self.assertFalse(body["warnings"])
 
     def test_dashboard_intake_ideas_projection_includes_operator_fields(self) -> None:
@@ -918,6 +920,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("Research Facility ledgers", body["authority"])
             self.assertEqual(body["rows"], [])
             self.assertEqual(body["counts"], {})
+            self.assertIn("operator_summary", body)
+            self.assertIn("empty", body["operator_summary"].lower())
 
     def test_research_facility_api_counts_are_total_not_page_rows(self) -> None:
         class FakeSupabaseStore:
@@ -944,6 +948,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(body["page"]["returned"], 1)
             self.assertEqual(body["page"]["counts_scope"], "all_rows")
             self.assertEqual(body["counts"], {"admitted": 104, "needs_review": 34})
+            self.assertIn("operator_summary", body)
+            self.assertIn("need review before promotion", body["operator_summary"])
 
     def test_research_facility_generate_batch_dry_run_does_not_queue_or_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -7187,6 +7193,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(reviews.json()["page"]["total"], 1)
             self.assertEqual(reviews.json()["counts"].get("queued"), 1)
             self.assertEqual(reviews.json()["counts"].get("publication_draft"), 1)
+            self.assertIn("operator_summary", reviews.json())
+            self.assertIn("queued for the next operator pass", reviews.json()["operator_summary"])
             next_review = client.get("/control/api/paper-reviews/next?paper_status=publication_draft&review_status=queued", headers=headers)
             self.assertEqual(next_review.status_code, 200)
             self.assertEqual(next_review.json()["paper_id"], paper_id)

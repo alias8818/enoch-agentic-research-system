@@ -906,6 +906,117 @@ def summarize_idea_workbench_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _count_value(counts: dict[str, int] | None, *keys: str) -> int:
+    for key in keys:
+        value = int((counts or {}).get(key) or 0)
+        if value:
+            return value
+    return 0
+
+
+def _intake_sync_status(latest_sync: Any) -> str:
+    if latest_sync is None:
+        return ""
+    if hasattr(latest_sync, "status"):
+        return _text(getattr(latest_sync, "status", ""))
+    if isinstance(latest_sync, dict):
+        return _text(latest_sync.get("status"))
+    return ""
+
+
+def summarize_intake_workbench(
+    *,
+    projection_counts: dict[str, int] | None,
+    queued_projection: list[dict[str, Any]] | None,
+    skipped_reasons: dict[str, int] | None,
+    latest_sync: Any = None,
+) -> str:
+    counts = projection_counts or {}
+    visible = len(queued_projection or [])
+    queued = _count_value(counts, "queued", "queued_projection")
+    if not queued and visible:
+        queued = visible
+    skipped_total = sum(int(value or 0) for value in (skipped_reasons or {}).values())
+    sync_status = _intake_sync_status(latest_sync)
+    sync_ok = sync_status in {"", "ok", "success", "succeeded"}
+
+    if visible == 0 and queued == 0:
+        if sync_status and not sync_ok:
+            return f"Intake projection is empty and the latest sync reported {sync_status}; refresh after fixing intake sync."
+        if skipped_total:
+            return f"No ideas in the bounded intake projection; {skipped_total} row(s) were skipped on the last sync."
+        return "No ideas in the bounded intake projection; intake may be caught up or waiting on the next sync."
+
+    headline = visible or queued
+    if skipped_total and sync_status and not sync_ok:
+        return f"{headline} idea(s) queued for review; {skipped_total} row(s) skipped and the latest sync reported {sync_status}."
+    if skipped_total:
+        return f"{headline} idea(s) queued for operator review; {skipped_total} row(s) skipped on the last sync."
+    if sync_status and not sync_ok:
+        return f"{headline} idea(s) queued for review, but the latest intake sync reported {sync_status}."
+    return f"{headline} idea(s) queued for operator review; promote or dispatch from the table below."
+
+
+def summarize_research_facility_workbench(*, counts: dict[str, int] | None, returned_rows: int = 0) -> str:
+    counts = counts or {}
+    admitted = _count_value(counts, "admitted")
+    needs_review = _count_value(counts, "needs_review")
+    total = sum(int(value or 0) for value in counts.values())
+
+    if total == 0 and returned_rows == 0:
+        return "Research facility ledger is empty; generate candidates or run a bounded dry-run cycle first."
+
+    parts: list[str] = []
+    if admitted:
+        parts.append(f"{admitted} admitted candidate(s) ready to promote")
+    if needs_review:
+        parts.append(f"{needs_review} need review before promotion")
+    if parts:
+        return "; ".join(parts) + "."
+
+    if returned_rows:
+        return f"{returned_rows} candidate row(s) visible in this slice; select one to dry-run promotion."
+    return "Research facility has ledger rows but no admitted or needs-review candidates in the current counts."
+
+
+def summarize_automation_workbench(
+    *,
+    counts: dict[str, int] | None,
+    page_total: int = 0,
+    page_returned: int = 0,
+    review_status: str = "",
+    search: str = "",
+) -> str:
+    counts = counts or {}
+    total = _count_value(counts, "all") or page_total
+    triage_ready = _count_value(counts, "triage_ready")
+    queued = _count_value(counts, "queued")
+    blocked = _count_value(counts, "blocked")
+    filtered = bool(_text(review_status) or _text(search))
+
+    if page_returned == 0 and total == 0:
+        return "No publication automation rows in the ledger; backfill or wait for publication drafts."
+
+    if filtered and page_returned == 0:
+        return "No publication automation rows match the current filters; widen review status or clear search."
+
+    if triage_ready:
+        if total:
+            return f"{total} publication draft(s) in automation; {triage_ready} triage-ready for rewrite or finalization."
+        return f"{triage_ready} publication draft(s) triage-ready for rewrite or finalization in the current slice."
+
+    if blocked:
+        headline = total or page_returned
+        return f"{headline} publication draft(s) tracked; {blocked} blocked and need checklist or rewrite attention."
+
+    if queued:
+        headline = total or page_returned
+        return f"{headline} publication draft(s) in automation; {queued} queued for the next operator pass."
+
+    visible = page_returned or total
+    return f"{visible} publication draft(s) in this slice; select a row to dry-run rewrite or finalization."
+
+
 def summarize_paper_row(row: dict[str, Any]) -> dict[str, Any]:
     summary = with_operator_stage({
         "paper_id": row.get("paper_id", ""),

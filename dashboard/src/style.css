@@ -879,6 +879,38 @@ button:disabled { cursor: not-allowed; }
   color: #837d75 !important;
   font-size: 0.78rem !important;
 }
+.workbench-operator-summary {
+  margin: 0;
+  color: #d8d2c8;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.workbench-counts-fold {
+  margin-top: 0.35rem;
+}
+.workbench-counts-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.45rem 0.85rem;
+  margin: 0.55rem 0 0;
+}
+.workbench-counts-item {
+  display: grid;
+  gap: 0.15rem;
+}
+.workbench-counts-item dt {
+  color: #837d75;
+  font-size: 0.67rem;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.workbench-counts-item dd {
+  margin: 0;
+  color: #fff8ea;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
 .composed-empty-state--idle { border-color: rgba(89, 205, 135, 0.22); }
 .composed-empty-state--filtered { border-color: rgba(244,241,234,0.14); }
 .composed-empty-state--blocked { border-color: rgba(252, 211, 77, 0.28); background: rgba(88, 62, 12, 0.12); }

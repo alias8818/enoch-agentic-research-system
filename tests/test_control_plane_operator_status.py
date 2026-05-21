@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from enoch_control_plane.config import GateConfig
-from enoch_control_plane.control_plane.read_models import OPERATOR_DETAIL_LABELS, OPERATOR_LANE_LABELS, operator_stage_for_record, paper_links, paper_source_fingerprint, queue_links, row_age_seconds, summarize_idea_workbench_row, summarize_paper_row
+from enoch_control_plane.control_plane.read_models import OPERATOR_DETAIL_LABELS, OPERATOR_LANE_LABELS, operator_stage_for_record, paper_links, paper_source_fingerprint, queue_links, row_age_seconds, summarize_automation_workbench, summarize_idea_workbench_row, summarize_intake_workbench, summarize_paper_row, summarize_research_facility_workbench
 from enoch_control_plane.control_plane.state_contract import OperatorLane
 from enoch_control_plane.control_plane.store import REVIEW_CHECKLIST_DEFINITION
 from enoch_control_plane.control_plane.router import create_control_plane_router
@@ -163,6 +163,46 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertNotIn("operator_stage", summary)
             self.assertNotIn("operator_attention", summary)
             self.assertNotIn("operator_next_step", summary)
+
+
+    def test_summarize_intake_workbench_reports_empty_projection(self) -> None:
+        summary = summarize_intake_workbench(
+            projection_counts={},
+            queued_projection=[],
+            skipped_reasons={},
+        )
+        self.assertIn("No ideas in the bounded intake projection", summary)
+
+    def test_summarize_intake_workbench_reports_queued_review(self) -> None:
+        summary = summarize_intake_workbench(
+            projection_counts={"queued": 2},
+            queued_projection=[{"idea_id": "idea-1"}, {"idea_id": "idea-2"}],
+            skipped_reasons={},
+        )
+        self.assertIn("2 idea(s) queued for operator review", summary)
+
+    def test_summarize_intake_workbench_falls_back_when_primary_count_is_zero(self) -> None:
+        summary = summarize_intake_workbench(
+            projection_counts={"queued": 0, "queued_projection": 5},
+            queued_projection=[{"idea_id": f"idea-{index}"} for index in range(5)],
+            skipped_reasons={},
+        )
+        self.assertIn("5 idea(s) queued for operator review", summary)
+
+    def test_summarize_research_facility_workbench_prioritizes_needs_review(self) -> None:
+        summary = summarize_research_facility_workbench(
+            counts={"admitted": 4, "needs_review": 2},
+            returned_rows=1,
+        )
+        self.assertIn("2 need review before promotion", summary)
+
+    def test_summarize_automation_workbench_reports_triage_ready(self) -> None:
+        summary = summarize_automation_workbench(
+            counts={"all": 3, "triage_ready": 2},
+            page_total=3,
+            page_returned=2,
+        )
+        self.assertIn("triage-ready", summary)
 
     def test_summarize_paper_row_requires_readable_publish_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

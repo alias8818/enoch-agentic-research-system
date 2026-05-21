@@ -522,12 +522,14 @@ it('refreshes intake workbench rows explicitly from the V2 page', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({
       generated_at: '2026-05-21T10:00:00Z',
+      operator_summary: '1 idea(s) queued for operator review; promote or dispatch from the table below.',
       latest_sync: { source: 'supabase', status: 'ok', observed_at: '2026-05-21T09:59:00Z', authority: 'ideas' },
       projection_counts: { queued_projection: 1 },
       queued_projection: [{ idea_id: 'idea-old', title: 'Old intake idea', idea_status: 'admitted', queue_status: 'queued' }],
     }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({
       generated_at: '2026-05-21T10:05:00Z',
+      operator_summary: '1 idea(s) queued for operator review; promote or dispatch from the table below.',
       latest_sync: { source: 'supabase', status: 'ok', observed_at: '2026-05-21T10:04:00Z', authority: 'ideas' },
       projection_counts: { queued_projection: 1 },
       queued_projection: [{ idea_id: 'idea-fresh', title: 'Fresh intake idea', idea_status: 'admitted', queue_status: 'queued' }],
@@ -539,6 +541,7 @@ it('refreshes intake workbench rows explicitly from the V2 page', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Refresh intake' }))
 
   await screen.findByText('Fresh intake idea')
+  expect(screen.getByText(/queued for operator review/i)).toBeInTheDocument()
   expect(screen.getByText('Last loaded 2026-05-21T10:05:00Z')).toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
