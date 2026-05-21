@@ -27,12 +27,6 @@ from enoch_control_plane.enoch_core.store import IdempotencyConflict
 TOKEN = "test-token"
 
 
-def _legacy_dashboard_html() -> str:
-    from enoch_control_plane.control_plane import router as cp_router
-
-    return cp_router.CONTROL_DASHBOARD_HTML
-
-
 def _config(tmp: str) -> GateConfig:
     root = Path(tmp) / "projects"
     root.mkdir(parents=True, exist_ok=True)
@@ -676,173 +670,6 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(response.status_code, 307)
             self.assertEqual(response.headers.get("location"), "/control/dashboard-v2")
 
-    def test_control_dashboard_legacy_html_constant_retained(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            client = _client(tmp)
-            response_text = _legacy_dashboard_html()
-            self.assertIn("Enoch Control Status", response_text)
-            self.assertIn("Professional operator console", response_text)
-            self.assertIn("/control/api/v1/overview", response_text)
-            self.assertIn("/control/api/v1/observability/memory", response_text)
-            self.assertIn("/control/api/v1/observability/health", response_text)
-            self.assertIn("Work is idle", response_text)
-            self.assertIn("Needs attention", response_text)
-            self.assertIn("/control/api/intake/ideas", response_text)
-            self.assertIn("Research Facility", response_text)
-            self.assertIn("/control/api/research/facility", response_text)
-            self.assertIn("/control/api/research/provider-budget", response_text)
-            self.assertIn("/control/api/v1/automation-readiness", response_text)
-            self.assertIn("Long-haul mode", response_text)
-            self.assertIn("Automation readiness", response_text)
-            self.assertIn("Research quality", response_text)
-            self.assertIn("Source lineage", response_text)
-            self.assertIn("Check provider budget", response_text)
-            self.assertIn("Generated candidates", response_text)
-            self.assertIn("Admitted ideas", response_text)
-            self.assertIn("Queued ideas", response_text)
-            self.assertIn("checkProviderBudget", response_text)
-            self.assertIn("Generate smoke batch", response_text)
-            self.assertIn("generateResearchSmokeBatch", response_text)
-            self.assertIn("/control/api/research/generate-batch", response_text)
-            self.assertIn("This will not queue or dispatch work", response_text)
-            self.assertIn("Provider-backed generation", response_text)
-            self.assertIn("Generate provider batch", response_text)
-            self.assertIn("generateProviderCandidateBatch", response_text)
-            self.assertIn("/control/api/research/generate-provider-batch", response_text)
-            self.assertIn("writes Research Facility ledgers only", response_text)
-            self.assertIn("Research Autopilot", response_text)
-            self.assertIn("Dry-run bounded cycle", response_text)
-            self.assertIn("Run one bounded cycle", response_text)
-            self.assertIn("/control/api/research/run-cycle", response_text)
-            self.assertIn("runResearchCycle", response_text)
-            self.assertIn("Promote selected candidate", response_text)
-            self.assertIn("Admitted candidates", response_text)
-            self.assertIn("Dry-run promote selected", response_text)
-            self.assertIn("selectResearchCandidate", response_text)
-            self.assertIn("candidate_action", response_text)
-            self.assertIn("data-research-candidate-id", response_text)
-            self.assertIn("selectResearchCandidate(this.dataset.researchCandidateId)", response_text)
-            self.assertNotIn("selectResearchCandidate('${esc(r.candidate_id)}')", response_text)
-            self.assertIn("promoteResearchCandidate", response_text)
-            self.assertIn("researchCandidateId", response_text)
-            self.assertIn("/control/api/research/promote-candidate", response_text)
-            self.assertIn("it does not dispatch work", response_text)
-            self.assertIn("Commands", response_text)
-            self.assertIn("Pause queue", response_text)
-            self.assertIn("Resume queue", response_text)
-            self.assertIn("Check next dispatch", response_text)
-            self.assertIn("Start next queued item", response_text)
-            self.assertIn("Controlled one-off dispatch", response_text)
-            self.assertIn("Dispatch selected queued project", response_text)
-            self.assertIn("dispatchSelectedProject", response_text)
-            self.assertIn("dispatchOneProjectId", response_text)
-            self.assertIn("/control/state", response_text)
-            self.assertIn("/control/pause", response_text)
-            self.assertIn("/control/resume", response_text)
-            self.assertIn("/control/dispatch-next", response_text)
-            self.assertIn("/control/dispatch-one", response_text)
-            self.assertIn("Start next does a dry-run first", response_text)
-            self.assertIn('href="/control/dashboard.css"', response_text)
-            self.assertNotIn("<style>", response_text)
-            self.assertIn('<dialog id="confirmDialog"', response_text)
-            self.assertIn("confirmAction(", response_text)
-            self.assertIn("title+'\\n\\n'+message", response_text)
-            self.assertNotIn("confirm(`", response_text)
-            self.assertIn("copyToClipboard", response_text)
-            self.assertIn('class="copy-button"', response_text)
-            self.assertIn('class="sparkline ', response_text)
-            self.assertIn("sparklineTrend", response_text)
-            self.assertIn("workerLaneCards", response_text)
-            self.assertIn("Worker lanes", response_text)
-            self.assertIn("No queued item matches an idle worker lane", response_text)
-            self.assertIn("CPU lane", response_text)
-            self.assertIn("GB10 lane", response_text)
-            self.assertIn("Last loaded", response_text)
-            self.assertIn("formatRelativeAge", response_text)
-            self.assertIn("Autopilot next:", response_text)
-            self.assertIn("next autopilot feed action for each lane", response_text)
-            css_response = client.get("/control/dashboard.css")
-            self.assertEqual(css_response.status_code, 200)
-            self.assertIn("text/css", css_response.headers.get("content-type", ""))
-            self.assertIn(".copy-button", css_response.text)
-            self.assertIn(".sparkline", css_response.text)
-            self.assertIn("dialog::backdrop", css_response.text)
-            pyproject_text = Path("pyproject.toml").read_text(encoding="utf-8")
-            self.assertIn("control_plane/*.css", pyproject_text)
-            self.assertIn("control_plane/dashboard_v2/index.html", pyproject_text)
-            self.assertIn("control_plane/dashboard_v2/assets/*", pyproject_text)
-            self.assertIn("Supabase idea workbench", response_text)
-            self.assertNotIn("Notion Intake", response_text)
-            self.assertNotIn(">Notion</a>", response_text)
-            self.assertIn(">Source</a>", response_text)
-            self.assertIn("Recent activity", response_text)
-            self.assertIn("System health", response_text)
-            self.assertIn("Loading overview", response_text)
-            self.assertIn("Refreshing overview", response_text)
-            self.assertIn("hasOverview=app?.dataset?.page===", response_text)
-            self.assertIn("if(!hasOverview)", response_text)
-            self.assertIn("dataset.page='overview'", response_text)
-            self.assertIn("delete $('app').dataset.page", response_text)
-            self.assertIn("Secondary health checks load after the primary cards render", response_text)
-            self.assertIn("AbortController", response_text)
-            self.assertIn("All projects", response_text)
-            self.assertIn("Corpus Import", response_text)
-            self.assertIn("Ledger-backed publication view", response_text)
-            self.assertIn("Missing corpus import", response_text)
-            self.assertIn("Already imported", response_text)
-            self.assertIn("Recently added", response_text)
-            self.assertIn("Recently updated", response_text)
-            self.assertIn("200 per page", response_text)
-            self.assertIn("cache:'no-store'", response_text)
-            self.assertIn("autoRefreshCurrentPage", response_text)
-            self.assertIn("h==='observability'", response_text)
-            initial_app = response_text.split('<div id="app"', 1)[1].split('</main>', 1)[0]
-            self.assertNotIn("<pre", initial_app)
-            self.assertIn('class="app-shell"', response_text)
-            self.assertIn('class="sidebar"', response_text)
-            self.assertIn('id="globalSearch"', response_text)
-            self.assertIn("globalSearch()", response_text)
-            self.assertIn("Token required", response_text)
-            self.assertIn("does not call authenticated APIs until a token is saved", response_text)
-            self.assertIn("<details><summary>", response_text)
-            self.assertNotIn("overview ·", response_text)
-            self.assertNotIn("Recent event summaries", response_text)
-            self.assertNotIn("source ${", response_text)
-            self.assertNotIn("authority ${", response_text)
-            # Redesigned shell: hero status, top-actions ranked list, theme toggle, system state.
-            self.assertIn('id="systemState"', response_text)
-            self.assertIn("system-state", response_text)
-            self.assertIn("setSystemState", response_text)
-            self.assertIn('id="themeToggle"', response_text)
-            self.assertIn("theme-toggle", response_text)
-            self.assertIn("cycleTheme", response_text)
-            self.assertIn("initTheme()", response_text)
-            self.assertIn("enochDashboardTheme", response_text)
-            self.assertIn("heroStatusCard", response_text)
-            self.assertIn("hero-status", response_text)
-            self.assertIn("kpi-strip", response_text)
-            self.assertIn("topActionsCard", response_text)
-            self.assertIn("action-row", response_text)
-            self.assertIn("What needs me right now?", response_text)
-            self.assertIn("pipelineStepperCard", response_text)
-            self.assertIn("stepper-modern", response_text)
-            self.assertIn('id="operatorDetailBreakdown"', response_text)
-            self.assertIn("Operator detail breakdown", response_text)
-            self.assertIn("kbd-hint", response_text)
-            self.assertIn('class="build-tag"', response_text)
-            # The redesign should NOT regress sub-page test fixtures.
-            self.assertIn("paper-positive runs or paper-scout bounded useful signals", response_text)
-            self.assertIn("Investigation follow-ups", response_text)
-            # CSS additions for the new components.
-            css_response2 = client.get("/control/dashboard.css")
-            self.assertIn(".hero-status", css_response2.text)
-            self.assertIn(".action-row", css_response2.text)
-            self.assertIn(".stepper-modern", css_response2.text)
-            self.assertIn(".system-state", css_response2.text)
-            self.assertIn(".theme-toggle", css_response2.text)
-            self.assertIn(".kpi-strip", css_response2.text)
-
-
     def test_control_dashboard_v2_shell_and_assets_are_served_without_token(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
@@ -879,9 +706,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(legacy.status_code, 307)
             self.assertEqual(legacy.headers.get("location"), "/control/dashboard-v2")
             self.assertEqual(v2.status_code, 200)
-            self.assertIn("CONTROL_DASHBOARD_HTML", Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8"))
-            self.assertIn("Professional operator console", _legacy_dashboard_html())
             self.assertIn("Enoch Dashboard V2", v2.text)
+            self.assertNotIn("CONTROL_DASHBOARD_HTML", Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8"))
 
     def test_research_facility_provider_budget_sanitizes_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3947,63 +3773,6 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertLessEqual(len(overview["top_actions"]), 3)
             for index, action in enumerate(overview["top_actions"], start=1):
                 self.assertEqual(action["priority"], index)
-
-    def test_dashboard_overview_html_keeps_required_structure(self) -> None:
-        # Acceptance criterion: overview HTML still contains worker lanes,
-        # top actions, and a collapsed operator detail breakdown. AbortError
-        # guards must remain intact (5 occurrences). No fake-trend sparkline
-        # bar markup must remain.
-        html = _legacy_dashboard_html()
-
-        # Worker lanes section must remain in the overview shell.
-        self.assertIn("workerLaneCards", html)
-        self.assertIn('id="workerLanes"', html)
-        self.assertIn("Worker lanes", html)
-
-        # Top-actions ranked list and primary heading must remain.
-        self.assertIn("topActionsCard", html)
-        self.assertIn("What needs me right now?", html)
-
-        # Operator detail breakdown must stay collapsed by default.
-        self.assertIn('<details id="operatorDetailBreakdown"', html)
-        self.assertIn("Operator detail breakdown", html)
-
-        # Active work / system health / recent activity moved into a
-        # collapsed <details> so they do not compete with the action model.
-        self.assertIn('id="overviewSecondary"', html)
-        self.assertIn("overview-secondary", html)
-        self.assertIn("Active work, system health, and recent activity", html)
-
-        # AbortError guards must stay at exactly 5 occurrences.
-        self.assertEqual(html.count("e.name==='AbortError'"), 5)
-
-        # No 7-bar synthetic sparkline markup. The class is preserved
-        # (existing test contract) but trend bars are gone in favour of
-        # an honest "snapshot" indicator.
-        self.assertNotIn('aria-label="current snapshot trend"', html)
-        self.assertIn("snapshot indicator (not a trend)", html)
-        self.assertIn("sparkline--snapshot", html)
-
-    def test_dashboard_overview_html_is_ruthless_command_center(self) -> None:
-        html = _legacy_dashboard_html()
-
-        self.assertIn("Can I leave this running?", html)
-        self.assertIn("primaryActionPanel", html)
-        self.assertIn("laneCommandCenter", html)
-        self.assertIn("paperPipelineMiniStrip", html)
-        self.assertIn("movementDiagnosisPanel", html)
-        self.assertIn("Why no work is moving", html)
-        self.assertIn("Feed idle lane", html)
-        self.assertIn("Dispatch this lane", html)
-        self.assertIn("Queue safety", html)
-        self.assertIn("Show secondary details", html)
-
-        overview_start = html.index("async function overviewPage")
-        overview_end = html.index("function projectControls")
-        overview_shell = html[overview_start:overview_end]
-        self.assertNotIn("What is useful?", overview_shell)
-        self.assertNotIn("Done / no paper", overview_shell)
-        self.assertNotIn("Recent activity</h2>", overview_shell.split("overviewSecondary")[0])
 
     def test_overview_exposes_movement_diagnosis(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -7840,45 +7609,6 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(blocked.status_code, 200)
             self.assertEqual(blocked.json()["item"]["review_status"], "blocked")
             self.assertEqual(blocked.json()["item"]["blocker"], "venue choice required")
-
-    def test_dashboard_html_links_to_multiview_apis(self) -> None:
-        html = _legacy_dashboard_html()
-        for path in ["/control/api/v1/overview", "/control/api/v1/queue", "/control/api/v1/projects/", "/control/api/v1/runs", "/control/api/v1/papers", "/control/api/v1/events", "/control/api/v1/observability/memory", "/control/api/publication-automation", "/control/api/intake/ideas"]:
-            self.assertIn(path, html)
-        overview_pos = html.find("/control/api/v1/overview")
-        memory_pos = html.find("/control/api/v1/observability/memory")
-        self.assertGreater(memory_pos, overview_pos)
-        self.assertNotIn("Promise.all([api('/control/api/v1/overview", html)
-        self.assertIn("if(e.name==='AbortError')return", html)
-        self.assertGreaterEqual(
-            html.count("if(e.name==='AbortError')return"),
-            5,
-            "stale route aborts must be ignored by route() and every async secondary overview panel",
-        )
-        for stale_path in ["/control/api/status?refresh_worker=true", "/control/api/queues/", "/control/api/events?page_size=200", "/control/api/papers?page_size=100", "/control/api/paper-reviews", "#reviews", "#review:", "['event_id','event_type','entity_type','entity_id','created_at','payload_summary']"]:
-            self.assertNotIn(stale_path, html)
-        for ui_text in ["Publication Automation", "Automated rewrite/finalization lane", "prepare finalization package", "Formatted control-plane events", "Search, filter, sort, and page", "Recently added", "Find projects", "Find papers", "Find runs", "Find events", "choose 200 per page"]:
-            self.assertIn(ui_text, html)
-        for lane_command_text in [
-            "laneCommandSummary",
-            "No queued item matches an idle worker lane",
-            "CPU lane",
-            "GB10 lane",
-        ]:
-            self.assertIn(lane_command_text, html)
-        for removed_manual_review_text in ["Auto-pass checklist", "approve-finalization", "Paper Review Queue", "Review queue backfilled"]:
-            self.assertNotIn(removed_manual_review_text, html)
-        for removed_raw_state_label in [
-            "Needs Review",
-            "Wake Ready",
-            "Session Finished Ready",
-            "Draft Review",
-            "Approved For Finalization",
-            "Unreviewed",
-            "In Review",
-            "Changes Requested",
-        ]:
-            self.assertNotIn(removed_raw_state_label, html)
 
 
 if __name__ == "__main__":

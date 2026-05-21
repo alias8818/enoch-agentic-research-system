@@ -1,7 +1,7 @@
 # Dashboard V2 cutover audit (legacy vs V2)
 
 **Date:** 2026-05-21  
-**Scope:** Phase 1 parity audit (Agent 1). Compare inline legacy shell (`CONTROL_DASHBOARD_HTML` in `enoch_control_plane/control_plane/router.py`, route `GET /control/dashboard`) against V2 (`dashboard/src/routes.ts`, `routePolicy.ts`, components).  
+**Scope:** Phase 1 parity audit (Agent 1). Compared inline legacy shell (formerly `CONTROL_DASHBOARD_HTML` in `router.py`, removed after Phase 2 cutover) against V2 (`dashboard/src/routes.ts`, `routePolicy.ts`, components).  
 **Out of scope:** Backend redirect/cutover (Phase 2), deploy.
 
 ## Method
@@ -147,7 +147,7 @@ cd dashboard && npm test -- --run src/routePolicy.test.ts src/routes.test.ts
 
 ## References
 
-- Legacy shell: `enoch_control_plane/control_plane/router.py` (`CONTROL_DASHBOARD_HTML`, `route()` ~line 312)
+- Legacy shell: removed from `enoch_control_plane/control_plane/router.py` after Phase 2 redirect cutover; parity captured in this audit.
 - V2 routes: `dashboard/src/routes.ts`, `dashboard/src/routePolicy.ts`
 - Automation: `dashboard/src/components/AutomationPage.tsx`
 - Phase 2 plan: `/home/jeremy/.cursor/plans/dashboard_v2_phase_2_a43293af.plan.md`

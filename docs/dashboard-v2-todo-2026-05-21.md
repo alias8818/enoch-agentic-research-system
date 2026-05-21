@@ -214,7 +214,7 @@ Lower priority than operator usefulness.
 
 - [ ] Decide whether Vite remains sufficient or whether a future Next.js app is justified.
 - [ ] If staying with Vite, define a small component system instead of one-off page components.
-- [ ] Consider a dedicated `/dashboard-smoke` Playwright suite using captured fixtures.
+- [x] Consider a dedicated `/dashboard-smoke` Playwright suite using captured fixtures (wired in CI via `npm run test:e2e`).
 - [ ] Consider screenshot/visual regression only after the information architecture stabilizes.
 - [ ] Consider extracting API DTO schemas so frontend rendering cannot drift from backend read models.
 
