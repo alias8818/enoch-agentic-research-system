@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
 import { DataTable } from './DataTable'
+import { useOperatorDialog } from './OperatorDialog'
 
 type AutomationResponse = {
   rows?: Record<string, unknown>[]
@@ -13,6 +14,7 @@ type AutomationDetailResponse = {
 }
 
 type MutationResult = Record<string, unknown>
+type ChecklistUpdateInput = { paperId: string; itemId: string }
 
 function idempotencyKey(prefix: string): string {
   return `${prefix}:dashboard-v2:${Date.now()}`
@@ -39,10 +41,11 @@ function textList(value: unknown): string[] {
   return value.map((item) => String(item || '').trim()).filter(Boolean)
 }
 
-function AutomationDetailCard({ detail }: { detail?: AutomationDetailResponse }) {
+function AutomationDetailCard({ detail, onMarkChecklistPass, checklistBusy = false }: { detail?: AutomationDetailResponse; onMarkChecklistPass?: (input: ChecklistUpdateInput) => void; checklistBusy?: boolean }) {
   if (!detail?.item) return null
   const item = detail.item
   const checklistItems = detail.checklist?.items || []
+  const paperId = String(item.paper_id || '')
   const reasons = textList(item.rank_reasons)
   return (
     <section className="result-card" aria-label="Automation detail">
@@ -63,6 +66,26 @@ function AutomationDetailCard({ detail }: { detail?: AutomationDetailResponse })
         <>
           <h3>Checklist</h3>
           <DataTable rows={checklistItems} columns={['item_id', 'label', 'status', 'note']} empty="No checklist rows returned." />
+          {onMarkChecklistPass && paperId ? (
+            <div className="action-row" aria-label="Checklist actions">
+              {checklistItems.map((checklistItem) => {
+                const itemId = String(checklistItem.item_id || '')
+                const status = String(checklistItem.status || '').toLowerCase()
+                if (!itemId || status === 'pass' || status === 'passed') return null
+                return (
+                  <button
+                    key={itemId}
+                    className="secondary-button"
+                    type="button"
+                    disabled={checklistBusy}
+                    onClick={() => onMarkChecklistPass({ paperId, itemId })}
+                  >
+                    Mark {itemId} pass
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
         </>
       ) : null}
     </section>
@@ -71,6 +94,7 @@ function AutomationDetailCard({ detail }: { detail?: AutomationDetailResponse })
 
 export function AutomationPage({ paperId = '' }: { paperId?: string }) {
   const queryClient = useQueryClient()
+  const { confirm, dialog } = useOperatorDialog()
   const automation = useQuery({
     queryKey: ['publication-automation'],
     queryFn: () => apiGet<AutomationResponse>('/control/api/publication-automation?page_size=50&paper_status=publication_draft&sort=-rank_score'),
@@ -88,6 +112,28 @@ export function AutomationPage({ paperId = '' }: { paperId?: string }) {
       void queryClient.invalidateQueries({ queryKey: ['publication-automation-detail', paperId] })
     },
   })
+  const checklistUpdate = useMutation({
+    mutationFn: ({ paperId, itemId }: ChecklistUpdateInput) => apiPost<MutationResult>(`/control/api/publication-automation/${encodeURIComponent(paperId)}/checklist/${encodeURIComponent(itemId)}`, {
+      idempotency_key: idempotencyKey(`paper-review-checklist:${paperId}:${itemId}:pass`),
+      requested_by: 'dashboard-v2',
+      status: 'pass',
+      note: 'Marked passed from dashboard-v2',
+    }),
+    onSuccess: (_result, input) => {
+      void queryClient.invalidateQueries({ queryKey: ['publication-automation'] })
+      void queryClient.invalidateQueries({ queryKey: ['publication-automation-detail', input.paperId] })
+    },
+  })
+  async function markChecklistPass(input: ChecklistUpdateInput) {
+    const ok = await confirm({
+      title: 'Mark checklist item passed?',
+      message: `Mark checklist item ${input.itemId} as passed for paper ${input.paperId}. This updates publication automation state.`,
+      confirmLabel: 'Mark passed',
+      cancelLabel: 'Cancel',
+      tone: 'warn',
+    })
+    if (ok) checklistUpdate.mutate(input)
+  }
   const rows = automation.data?.rows || []
   const counts = automation.data?.counts || {}
   const selectedPaperId = firstPaperId(rows, paperId)
@@ -121,14 +167,17 @@ export function AutomationPage({ paperId = '' }: { paperId?: string }) {
         </section>
       ) : null}
 
-      <AutomationDetailCard detail={detail.data} />
+      <AutomationDetailCard detail={detail.data} onMarkChecklistPass={(input) => { void markChecklistPass(input) }} checklistBusy={checklistUpdate.isPending} />
       {detail.isError ? <div className="state-card state-card--error">Automation detail unavailable: {String(detail.error.message)}</div> : null}
 
       {rewriteDryRun.data ? <section className="result-card"><h2>Rewrite dry-run result</h2><ResultCard result={rewriteDryRun.data} /></section> : null}
       {finalizationDryRun.data ? <section className="result-card"><h2>Finalization dry-run result</h2><ResultCard result={finalizationDryRun.data} /></section> : null}
+      {checklistUpdate.data ? <section className="result-card"><h2>Checklist update result</h2><ResultCard result={checklistUpdate.data} /></section> : null}
 
       {automation.isLoading ? <div className="state-card">Loading publication automation…</div> : null}
       {automation.isError ? <div className="state-card state-card--error">Publication automation unavailable: {String(automation.error.message)}</div> : null}
+      {dialog}
+
       {!automation.isLoading && !automation.isError ? (
         <DataTable rows={rows} columns={['paper_id', 'review_status', 'paper_status', 'project_name', 'rank_score', 'updated_at']} empty="No publication automation rows returned." cellHref={automationCellHref} />
       ) : null}

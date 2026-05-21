@@ -49,6 +49,35 @@ it('uses the paper id from automation detail hashes for finalization dry-runs', 
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/paper-reviews/paper-target/prepare-finalization-package', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
 })
 
+it('updates automation checklist items through dialog-confirmed V2 mutation', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-target', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Target paper' }] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ item: { paper_id: 'paper-target', project_name: 'Target paper', review_status: 'triage_ready', paper_status: 'publication_draft', rank_score: 91 }, checklist: { items: [{ item_id: 'evidence', label: 'Evidence bundle present', status: 'pending', note: '' }] } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, paper_id: 'paper-target', item_id: 'evidence', status: 'pass' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ item: { paper_id: 'paper-target', project_name: 'Target paper', review_status: 'triage_ready', paper_status: 'publication_draft', rank_score: 91 }, checklist: { items: [{ item_id: 'evidence', label: 'Evidence bundle present', status: 'pass', note: 'Marked passed from dashboard-v2' }] } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-target' }] }), { status: 200 }))
+
+  renderWithClient(<AutomationPage paperId="paper-target" />)
+
+  await screen.findByText('Evidence bundle present')
+  fireEvent.click(screen.getByRole('button', { name: 'Mark evidence pass' }))
+
+  expect(screen.getByRole('dialog', { name: 'Mark checklist item passed?' })).toBeInTheDocument()
+  expect(confirmSpy).not.toHaveBeenCalled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Mark passed' }))
+
+  await screen.findByText('Checklist update result')
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/publication-automation/paper-target/checklist/evidence', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"status":"pass"'),
+  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/publication-automation/paper-target/checklist/evidence', expect.objectContaining({
+    body: expect.stringContaining('"note":"Marked passed from dashboard-v2"'),
+  }))
+})
+
 it('dry-runs rewrite batch and finalization package without live rewrite', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-1', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Paper project' }] }), { status: 200 }))
