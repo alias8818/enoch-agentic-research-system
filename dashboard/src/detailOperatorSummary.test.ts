@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deriveDetailOperatorSummary, deriveIntakeIdeaOperatorSummary } from './detailOperatorSummary'
+import { deriveDetailOperatorSummary, deriveIntakeIdeaOperatorSummary, deriveResearchCandidateOperatorSummary } from './detailOperatorSummary'
 
 describe('deriveDetailOperatorSummary', () => {
   it('answers project operator questions from queue_item and related rows', () => {
@@ -321,5 +321,42 @@ describe('deriveIntakeIdeaOperatorSummary', () => {
     })
     expect(summary.context).toContain('Promoted to project')
     expect(summary.sections.find((section) => section.title === 'Admission and promote')?.answers.find((answer) => answer.label === 'promoted project')?.value).toBe('project-promoted')
+  })
+})
+
+describe('deriveResearchCandidateOperatorSummary', () => {
+  it('answers admission, promote path, and lane questions for admitted candidates', () => {
+    const summary = deriveResearchCandidateOperatorSummary({
+      candidate_id: 'cand-1',
+      title: 'Routed candidate',
+      status: 'admitted',
+      admission_decision: 'admitted',
+      machine_target: 'gb10',
+      admitted_idea_id: 'idea-9',
+      operator_stage_label: 'Ready to promote',
+      operator_next_step: 'Dry-run promote before queueing.',
+      updated_at: '2026-05-21T08:20:00Z',
+    })
+
+    expect(summary.state).toBe('Ready to promote')
+    expect(summary.next).toBe('Dry-run promote before queueing.')
+    expect(summary.sections.some((section) => section.title === 'Source and lineage')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'Admission and promote')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'Lane and dispatch')).toBe(true)
+    const promote = summary.sections.find((section) => section.title === 'Admission and promote')
+    expect(promote?.answers.find((answer) => answer.label === 'promote path')?.value).toContain('idea-9')
+  })
+
+  it('explains rejected candidates without promote action', () => {
+    const summary = deriveResearchCandidateOperatorSummary({
+      candidate_id: 'cand-reject',
+      status: 'rejected',
+      admission_decision: 'reject',
+      machine_target: 'cpu',
+    })
+
+    expect(summary.next).toContain('negative evidence')
+    expect(summary.actionNeeded).toContain('rejected')
+    expect(summary.sections.find((section) => section.title === 'Admission and promote')?.answers.find((answer) => answer.label === 'promote path')?.value).toContain('rejected')
   })
 })
