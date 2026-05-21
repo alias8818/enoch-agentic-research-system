@@ -224,8 +224,14 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
           </div>
         </div>
         <ResultCard result={commandResult} />
-        <div className="lane-grid">
-          {rendered.map((lane) => {
+        {rendered.length === 0 ? (
+          <div className="lane-empty-state" role="status">
+            <strong>No worker lane capacity returned.</strong>
+            <p>The status endpoint did not include CPU or GB10 lane data, so V2 cannot safely feed or dispatch work from this panel.</p>
+          </div>
+        ) : (
+          <div className="lane-grid">
+            {rendered.map((lane) => {
             const feedAction = lane.feed_pressure?.next_autopilot_action || 'observe'
             const canFeed = feedAction === 'generate_candidate' || feedAction === 'promote_candidate'
             const canDispatch = Boolean(lane.dispatch_available)
@@ -267,8 +273,9 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
                 </div>
               </article>
             )
-          })}
-        </div>
+            })}
+          </div>
+        )}
       </section>
       {dialog}
     </>

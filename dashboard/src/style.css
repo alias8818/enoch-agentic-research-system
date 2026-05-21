@@ -386,6 +386,15 @@ button:disabled { cursor: not-allowed; }
 .lane-console-actions,
 .lane-actions { display: flex; gap: 0.45rem; flex-wrap: wrap; }
 .lane-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; margin-top: 1rem; }
+.lane-empty-state {
+  margin-top: 1rem;
+  border: 1px dashed rgba(244,241,234,0.18);
+  border-radius: 1.2rem;
+  background: rgba(0,0,0,0.16);
+  padding: 1rem;
+}
+.lane-empty-state strong { color: #fff8ea; font-size: 0.95rem; }
+.lane-empty-state p { margin: 0.35rem 0 0; color: #9d978f; font-size: 0.84rem; line-height: 1.45; }
 
 .lane-card {
   min-height: 18rem;

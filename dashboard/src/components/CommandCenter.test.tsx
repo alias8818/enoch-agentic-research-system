@@ -534,3 +534,12 @@ it('live-dispatches every open lane candidate with dispatch-one after confirmati
   expect(screen.getByText('dispatched 2 lane candidates')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
+
+it('explains when no worker lane capacity is returned', () => {
+  render(<WorkerLanes lanes={[]} onRefresh={() => undefined} />)
+
+  expect(screen.getByText('No worker lane capacity returned.')).toBeInTheDocument()
+  expect(screen.getByText('The status endpoint did not include CPU or GB10 lane data, so V2 cannot safely feed or dispatch work from this panel.')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Feed idle lanes' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Check open lanes' })).toBeDisabled()
+})
