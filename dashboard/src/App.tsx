@@ -12,7 +12,7 @@ import { DetailPage } from './components/DetailPanel'
 import { CorpusPage, EventsPage, IntakePage, ObservabilityPage, PapersPage, ProjectsPage, QueuePage, RunsPage } from './components/ResourcePages'
 import { ResearchPage } from './components/ResearchPage'
 import { WorkerLanes } from './components/WorkerLanes'
-import { dashboardV2Href, parseDashboardRoute } from './routes'
+import { dashboardV2Href, dashboardRouteTitle, parseDashboardRoute } from './routes'
 import type { DashboardRoute } from './routes'
 import type { AutomationReadiness, OverviewResponse, StatusResponse } from './types'
 
@@ -329,10 +329,12 @@ function Shell() {
   return (
     <main className="app-frame">
       <div className="app-shell">
-        <header className="app-header">
-          <div>
-            <p className="eyebrow">Enoch Dashboard V2</p>
-            <h1>Operator command center</h1>
+        <header className="app-header app-header--compact">
+          <div className="app-brand">
+            <a className="app-brand-link" href={dashboardV2Href('#overview')}>
+              <span className="eyebrow">Enoch Dashboard V2</span>
+            </a>
+            <p className="app-header-context">{dashboardRouteTitle(route)}</p>
           </div>
           <nav className="app-nav" aria-label="Dashboard V2 navigation">
             <a className={navClass(route, 'overview')} href={dashboardV2Href('#overview')}>Overview</a>

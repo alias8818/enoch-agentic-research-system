@@ -8,6 +8,7 @@ import { DataTable } from './DataTable'
 import { useOperatorDialog } from './OperatorDialog'
 import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
+import { PageHeader } from './PageHeader'
 
 type ResearchFacilityResponse = {
   rows?: Record<string, unknown>[]
@@ -239,25 +240,27 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
 
   return (
     <section className="page-stack">
-      <div className="page-hero page-hero--with-action">
-        <div>
-          <p className="eyebrow">Dashboard V2</p>
-          <h1>Research Facility</h1>
-          <p>Bounded candidate workbench and autopilot controls. Backend APIs remain the source of truth.</p>
+      <PageHeader
+        title="Research Facility"
+        subtitle="Promote admitted candidates and run bounded research cycles safely."
+        dataSource="/control/api/v1/research-facility and autopilot endpoints"
+        action={(
+          <>
+            <span>Last loaded {facility.data?.generated_at || 'unknown'}</span>
+            <button className="secondary-button" type="button" disabled={facility.isFetching} onClick={refreshCandidates}>
+              {facility.isFetching ? 'Refreshing…' : 'Refresh candidates'}
+            </button>
+          </>
+        )}
+        toolbar={(
           <div className="action-row">
             <button className="secondary-button" type="button" onClick={() => budget.mutate()} disabled={budget.isPending}>Check provider budget</button>
             <button className="secondary-button" type="button" onClick={runDryCycle} disabled={cycle.isPending}>Dry-run bounded cycle</button>
             <button className="primary-button" type="button" onClick={runLiveCycle} disabled={cycle.isPending || !canLiveCycle}>Run one bounded cycle</button>
           </div>
-          {cycleDisabledReason ? <p className="primary-action-disabled-reason">{cycleDisabledReason}</p> : null}
-        </div>
-        <div className="page-hero-action">
-          <span>Last loaded {facility.data?.generated_at || 'unknown'}</span>
-          <button className="secondary-button" type="button" disabled={facility.isFetching} onClick={refreshCandidates}>
-            {facility.isFetching ? 'Refreshing…' : 'Refresh candidates'}
-          </button>
-        </div>
-      </div>
+        )}
+      />
+      {cycleDisabledReason ? <p className="primary-action-disabled-reason">{cycleDisabledReason}</p> : null}
 
       <section className="count-grid">
         {Object.entries(counts).slice(0, 8).map(([key, value]) => (

@@ -1,6 +1,6 @@
 # Dashboard V2 TODO checklist
 
-Status: **P0 + P1 + P2 landing** — branch `feat/dashboard-v2-trust-guards` (2026-05-21). Trust guards, command-result UX, and detail-page operator sections in one PR stack; P3+ deferred.
+Status: **P0 + P1 + P2 + P3 landing** — branch `feat/dashboard-v2-trust-guards` (2026-05-21). Trust guards, command-result UX, detail operator sections, and compact secondary headers in one PR stack; P4+ deferred.
 
 Screenshot evidence reviewed from:
 
@@ -135,15 +135,15 @@ For each detail kind, render a representative payload and assert visible text in
 
 The V2 direction is better, but the dashboard still has too much chrome and duplicated framing.
 
-- [ ] Re-evaluate the huge hero typography on secondary pages. It still consumes too much vertical space for operator work.
-- [ ] Use compact page headers for list/detail pages:
-  - [ ] title;
-  - [ ] short subtitle;
-  - [ ] refresh timestamp/action.
-- [ ] Reduce repeated `Enoch Dashboard V2 / Operator command center` branding on every page.
-- [ ] Keep the command center as the only page with a large hero treatment.
-- [ ] Move debug/meta labels such as endpoint names into small muted text or help details.
-- [ ] Avoid card nesting where a section inside a card contains more cards that look equally important.
+- [x] Re-evaluate the huge hero typography on secondary pages. It still consumes too much vertical space for operator work.
+- [x] Use compact page headers for list/detail pages:
+  - [x] title;
+  - [x] short subtitle;
+  - [x] refresh timestamp/action.
+- [x] Reduce repeated `Enoch Dashboard V2 / Operator command center` branding on every page.
+- [x] Keep the command center as the only page with a large hero treatment.
+- [x] Move debug/meta labels such as endpoint names into small muted text or help details.
+- [x] Avoid card nesting where a section inside a card contains more cards that look equally important.
 
 ## Priority 4 — table/list usefulness
 
@@ -225,7 +225,7 @@ When work resumes, do this sequence:
 1. ~~Add/verify dashboard smoke script and route policy tests.~~ (P0)
 2. ~~Make command results decisive and less generic.~~ (P1)
 3. ~~Make project/run/paper/event/idea detail pages answer the entity-specific operator questions.~~ (P2 — [`detailOperatorSummary.ts`](../dashboard/src/detailOperatorSummary.ts))
-4. Reduce secondary page hero/header footprint.
+4. ~~Reduce secondary page hero/header footprint.~~ (P3 — [`PageHeader.tsx`](../dashboard/src/components/PageHeader.tsx))
 5. Improve tables and empty/error states.
 6. Only then do visual polish.
 

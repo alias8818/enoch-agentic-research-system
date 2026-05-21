@@ -6,6 +6,7 @@ import { DataTable } from './DataTable'
 import { useOperatorDialog } from './OperatorDialog'
 import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
+import { PageHeader } from './PageHeader'
 
 type AutomationResponse = {
   rows?: Record<string, unknown>[]
@@ -204,23 +205,25 @@ export function AutomationPage({ paperId = '' }: { paperId?: string }) {
 
   return (
     <section className="page-stack">
-      <div className="page-hero page-hero--with-action">
-        <div>
-          <p className="eyebrow">Dashboard V2</p>
-          <h1>Publication automation</h1>
-          <p>Paper workflow controls for draft rewrite planning and finalization package dry-runs. Live publish remains out of V2 for now.</p>
+      <PageHeader
+        title="Publication automation"
+        subtitle="Dry-run rewrite batches and finalization packages before any live publish work."
+        dataSource="/control/api/v1/automation and paper detail endpoints"
+        action={(
+          <>
+            <span>Last loaded {automation.data?.generated_at || 'unknown'}</span>
+            <button className="secondary-button" type="button" disabled={automation.isFetching || detail.isFetching} onClick={refreshAutomation}>
+              {automation.isFetching || detail.isFetching ? 'Refreshing…' : 'Refresh automation'}
+            </button>
+          </>
+        )}
+        toolbar={(
           <div className="action-row">
             <button className="secondary-button" type="button" onClick={() => rewriteDryRun.mutate()} disabled={rewriteDryRun.isPending}>Dry-run rewrite batch</button>
             <button className="secondary-button" type="button" onClick={() => actionPaperId && finalizationDryRun.mutate(actionPaperId)} disabled={!actionPaperId || finalizationDryRun.isPending}>Dry-run finalization package</button>
           </div>
-        </div>
-        <div className="page-hero-action">
-          <span>Last loaded {automation.data?.generated_at || 'unknown'}</span>
-          <button className="secondary-button" type="button" disabled={automation.isFetching || detail.isFetching} onClick={refreshAutomation}>
-            {automation.isFetching || detail.isFetching ? 'Refreshing…' : 'Refresh automation'}
-          </button>
-        </div>
-      </div>
+        )}
+      />
 
       <section className="count-grid">
         {Object.entries(counts).slice(0, 8).map(([key, value]) => (

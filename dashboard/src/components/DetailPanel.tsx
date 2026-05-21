@@ -3,6 +3,7 @@ import { apiGet } from '../api/client'
 import { deriveDetailOperatorSummary, type DetailKind, type EntityLink } from '../detailOperatorSummary'
 import { dashboardV2Href } from '../routes'
 import { useQuery } from '@tanstack/react-query'
+import { PageHeader } from './PageHeader'
 
 export type { DetailKind }
 
@@ -312,16 +313,20 @@ function OperatorDetailSummary({ kind, payload }: { kind: DetailKind; payload: R
   )
 }
 
-function StructuredDetail({ kind, id, payload }: { kind: DetailKind; id: string; payload: Record<string, unknown> }) {
+function StructuredDetail({ kind, id, payload, presentation = 'panel' }: { kind: DetailKind; id: string; payload: Record<string, unknown>; presentation?: 'panel' | 'page' }) {
   const title = detailTitle(kind, payload, id)
   const summary = stringifyValue(firstValue(payload.summary, record(payload.project).abstract, record(payload.paper).summary, record(payload.paper).abstract))
   const operatorSummary = deriveDetailOperatorSummary(kind, payload)
   return (
-    <div className="detail-body">
-      <section className="detail-summary">
-        <p className="eyebrow">{kindLabel(kind)}</p>
-        <h3>{title}</h3>
-        {summary !== '—' && summary !== title ? <p>{summary}</p> : null}
+    <div className={`detail-body${presentation === 'page' ? ' detail-body--page' : ''}`}>
+      <section className={`detail-summary${presentation === 'page' ? ' detail-summary--flat' : ''}`}>
+        {presentation === 'panel' ? (
+          <>
+            <p className="eyebrow">{kindLabel(kind)}</p>
+            <h3>{title}</h3>
+            {summary !== '—' && summary !== title ? <p>{summary}</p> : null}
+          </>
+        ) : summary !== '—' && summary !== title ? <p className="detail-page-lead">{summary}</p> : null}
         <EntityLinkChips links={operatorSummary.entityLinks} />
         <FieldGrid fields={detailFields(kind, payload, id)} />
       </section>
@@ -390,6 +395,13 @@ export function DetailPanel({ selection, onClose }: { selection: DetailSelection
   )
 }
 
+function detailDataSource(kind: DetailKind, id: string): string {
+  if (kind === 'project') return `/control/api/v1/projects/${encodeURIComponent(id)}`
+  if (kind === 'run') return `/control/api/v1/runs/${encodeURIComponent(id)}`
+  if (kind === 'paper') return `/control/api/v1/papers/${encodeURIComponent(id)}`
+  return `/control/api/v1/events?event_id=${encodeURIComponent(id)}&include_payload=true&page_size=1&sort=recent`
+}
+
 export function DetailPage({ selection }: { selection: DetailSelection }) {
   const inlineRow = selection.row
   const hasInlineEvent = selection.kind === 'event' && inlineRow
@@ -408,17 +420,17 @@ export function DetailPage({ selection }: { selection: DetailSelection }) {
     : `${kindLabel(selection.kind)} · ${shortId(selection.id)} · loading`
   return (
     <section className="page-stack">
-      <div className="page-hero">
-        <p className="eyebrow">Dashboard V2 detail</p>
-        <h1>{title}</h1>
-        <p>{subtitle}</p>
-        <span className="detail-id-chip" title={selection.id}>{shortId(selection.id)}</span>
+      <PageHeader
+        title={title}
+        subtitle={subtitle}
+        dataSource={detailDataSource(selection.kind, selection.id)}
+        action={<span className="detail-id-chip" title={selection.id}>{shortId(selection.id)}</span>}
+      />
+      <div className="detail-page-body" aria-label="Dashboard detail page">
+        {query.isLoading && !hasInlineEvent ? <div className="state-card state-card--compact">Loading detail…</div> : null}
+        {query.isError && !hasInlineEvent ? <div className="state-card state-card--error state-card--compact">Detail unavailable: {String(query.error.message)}</div> : null}
+        {(hasInlineEvent || query.isSuccess || !url) && !query.isError ? <StructuredDetail kind={selection.kind} id={selection.id} payload={payload} presentation="page" /> : null}
       </div>
-      <aside className="detail-panel detail-panel--page" aria-label="Dashboard detail page">
-        {query.isLoading && !hasInlineEvent ? <div className="state-card">Loading detail…</div> : null}
-        {query.isError && !hasInlineEvent ? <div className="state-card state-card--error">Detail unavailable: {String(query.error.message)}</div> : null}
-        {(hasInlineEvent || query.isSuccess || !url) && !query.isError ? <StructuredDetail kind={selection.kind} id={selection.id} payload={payload} /> : null}
-      </aside>
     </section>
   )
 }

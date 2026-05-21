@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { dashboardV2Href, parseDashboardRoute } from './routes'
+import { dashboardRouteTitle, dashboardV2Href, parseDashboardRoute } from './routes'
 
 it('parses V2-owned command-center routes', () => {
   expect(parseDashboardRoute('#project:project-1')).toEqual({ page: 'detail', kind: 'project', id: 'project-1', hash: '#project:project-1' })
@@ -79,4 +79,10 @@ it('maps canonical operator hashes to implemented pages', () => {
     const route = parseDashboardRoute(hash)
     expect(route.page, hash).not.toBe('unsupported')
   }
+})
+
+it('maps routes to compact shell titles', () => {
+  expect(dashboardRouteTitle(parseDashboardRoute('#overview'))).toBe('Command center')
+  expect(dashboardRouteTitle(parseDashboardRoute('#projects'))).toBe('Projects')
+  expect(dashboardRouteTitle(parseDashboardRoute('#project:project-1'))).toBe('Project detail')
 })

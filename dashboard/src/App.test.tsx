@@ -571,3 +571,22 @@ it('opens intake idea hashes as first-class V2 details', async () => {
   expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledWith('/control/api/intake/ideas?page_size=100', expect.any(Object))
 })
+
+it('uses compact secondary page headers instead of repeating the command-center hero', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+    ok: true,
+    generated_at: '2026-05-21T10:00:00Z',
+    page: { returned: 0, has_more: false },
+    rows: [],
+  }), { status: 200 }))
+  saveToken('test-token')
+  window.location.hash = '#projects'
+
+  const { container } = render(<App />)
+
+  expect(await screen.findByRole('heading', { level: 1, name: 'Projects' })).toBeInTheDocument()
+  expect(document.querySelector('.app-header-context')).toHaveTextContent('Projects')
+  expect(screen.queryByRole('heading', { name: 'Operator command center' })).not.toBeInTheDocument()
+  expect(container.querySelector('.page-hero')).toBeNull()
+  expect(screen.getByText('Data source')).toBeInTheDocument()
+})

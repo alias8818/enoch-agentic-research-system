@@ -79,3 +79,36 @@ export function dashboardV2Href(hashOrPath: string | undefined, fallbackHash = '
   const route = parseDashboardRoute(hashOrPath || fallbackHash)
   return `${DASHBOARD_V2_PATH}${route.hash}`
 }
+
+export function dashboardRouteTitle(route: DashboardRoute): string {
+  switch (route.page) {
+    case 'overview':
+      return 'Command center'
+    case 'projects':
+      return 'Projects'
+    case 'queue':
+      return 'Queue'
+    case 'runs':
+      return 'Runs'
+    case 'papers':
+      return 'Papers'
+    case 'events':
+      return 'Events'
+    case 'observability':
+      return 'Observability'
+    case 'corpus':
+      return 'Corpus import'
+    case 'research':
+      return 'Research Facility'
+    case 'intake':
+      return 'Ideas intake'
+    case 'automation':
+      return 'Publication automation'
+    case 'detail':
+      return `${route.kind[0].toUpperCase()}${route.kind.slice(1)} detail`
+    case 'unsupported':
+      return 'Unsupported route'
+    default:
+      return 'Dashboard'
+  }
+}

@@ -9,6 +9,7 @@ import { useOperatorDialog } from './OperatorDialog'
 import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
 import { deriveIntakeIdeaOperatorSummary } from '../detailOperatorSummary'
+import { PageHeader } from './PageHeader'
 
 type PageMeta = { next_cursor?: string; has_more?: boolean; returned?: number; page_size?: number }
 type PageResponse = { rows?: Record<string, unknown>[]; counts?: Record<string, unknown>; generated_at?: string; page?: PageMeta }
@@ -25,17 +26,10 @@ type DetailSelection = { kind: 'project' | 'run' | 'paper' | 'event'; id: string
 type FilterState = { search: string; status: string; pageSize: string; cursor: string }
 type CommandResult = { payload: Record<string, unknown>; context?: CommandPresentationContext }
 
-function PageShell({ title, subtitle, children, action }: { title: string; subtitle: string; children: React.ReactNode; action?: React.ReactNode }) {
+function PageShell({ title, subtitle, dataSource, children, action, toolbar }: { title: string; subtitle: string; dataSource?: string; children: React.ReactNode; action?: React.ReactNode; toolbar?: React.ReactNode }) {
   return (
     <section className="page-stack">
-      <div className="page-hero page-hero--with-action">
-        <div>
-          <p className="eyebrow">Dashboard V2</p>
-          <h1>{title}</h1>
-          <p>{subtitle}</p>
-        </div>
-        {action ? <div className="page-hero-action">{action}</div> : null}
-      </div>
+      <PageHeader title={title} subtitle={subtitle} dataSource={dataSource} action={action} toolbar={toolbar} />
       {children}
     </section>
   )
@@ -305,7 +299,7 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
   }
   return (
     <>
-      <PageShell title="Queue" subtitle="Bounded queue rows from /control/api/v1/queue. No frontend lifecycle inference." action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
+      <PageShell title="Queue" subtitle="Review queue rows, dry-run dispatch, and start selected work safely." dataSource="/control/api/v1/queue" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
         <FilterBar state={filters} statusOptions={[{ label: 'all statuses', value: '' }, { label: 'queued', value: 'queued' }, { label: 'active', value: 'active' }, { label: 'blocked', value: 'blocked' }, { label: 'completed', value: 'completed' }]} onApply={(next) => { setFilters(next); replaceRouteHash(queueHash(next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(queueHash(next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
         <section className="queue-command-card">
           <div>
@@ -344,7 +338,7 @@ export function ProjectsPage({ route }: { route: Extract<DashboardRoute, { page:
   if (query.isLoading) return <LoadingCard label="projects" />
   if (query.isError) return <ErrorCard error={query.error} />
   return (
-    <PageShell title="Projects" subtitle="Project discovery from /control/api/v1/projects. Bounded, searchable, and detail-backed." action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
+    <PageShell title="Projects" subtitle="Search projects and open structured detail before dispatch or paper actions." dataSource="/control/api/v1/projects" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
       <FilterBar state={filters} statusOptions={[{ label: 'all project states', value: '' }, { label: 'testing', value: 'testing' }, { label: 'exploring', value: 'exploring' }, { label: 'queued', value: 'queued' }, { label: 'running', value: 'running' }, { label: 'completed', value: 'completed' }, { label: 'blocked', value: 'blocked' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash('#projects', 'status', next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash('#projects', 'status', next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={['project_id', 'project_name', 'origin_idea_status', 'queue_status', 'latest_run_state', 'related_paper_status', 'updated_at']} empty="No projects match this filter." cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'project', id: String(row.project_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
@@ -364,7 +358,7 @@ export function RunsPage({ route }: { route: Extract<DashboardRoute, { page: 'ru
   if (query.isLoading) return <LoadingCard label="runs" />
   if (query.isError) return <ErrorCard error={query.error} />
   return (
-    <PageShell title="Runs" subtitle="Active and historical run rows from /control/api/v1/runs. This is the V2 owner for active-work inspection." action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
+    <PageShell title="Runs" subtitle="Inspect run state, gates, activity, and related artifacts." dataSource="/control/api/v1/runs" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
       <FilterBar state={filters} statusOptions={[{ label: 'all run states', value: '' }, { label: 'running', value: 'running' }, { label: 'dispatching', value: 'dispatching' }, { label: 'awaiting wake', value: 'awaiting_wake' }, { label: 'dispatch error', value: 'dispatch_error' }, { label: 'completed', value: 'completed' }, { label: 'wake ready', value: 'wake_ready' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash(next.status ? `#runs:${encodeURIComponent(next.status)}` : '#runs', '', { ...next, status: '' })) }} onReset={() => { const next = { search: '', status: route.state, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash(next.status ? `#runs:${encodeURIComponent(next.status)}` : '#runs', '', { ...next, status: '' })) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={['run_id', 'project_id', 'state', 'gate_state', 'dispatch_mode', 'current_activity', 'updated_at']} empty="No run rows match this filter." cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'run', id: String(row.run_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
@@ -384,7 +378,7 @@ export function PapersPage({ route }: { route: Extract<DashboardRoute, { page: '
   if (query.isLoading) return <LoadingCard label="papers" />
   if (query.isError) return <ErrorCard error={query.error} />
   return (
-    <PageShell title="Papers" subtitle="Paper pipeline rows from /control/api/v1/papers." action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
+    <PageShell title="Papers" subtitle="Track draft, finalization, and publication readiness." dataSource="/control/api/v1/papers" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
       <FilterBar state={filters} statusOptions={[{ label: 'all paper statuses', value: '' }, { label: 'publication draft', value: 'publication_draft' }, { label: 'draft review', value: 'draft_review' }, { label: 'archived', value: 'archived' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash('#papers', 'status', next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash('#papers', 'status', next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={['paper_id', 'project_id', 'status', 'title', 'artifact_dir', 'updated_at']} empty="No paper rows match this filter." cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'paper', id: String(row.paper_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
@@ -414,7 +408,7 @@ export function CorpusPage({ route }: { route?: Extract<DashboardRoute, { page: 
     ? 'Import validation needs corpus autopilot.'
     : 'Corpus import ledger has no missing finalized drafts.'
   return (
-    <PageShell title="Corpus import" subtitle="Publication-ready paper rows and corpus-import ledger status. Publish/import work stays scoped to finalized drafts missing corpus import." action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching || overview.isFetching} onRefresh={() => { void query.refetch(); void overview.refetch() }} />}>
+    <PageShell title="Corpus import" subtitle="Find publication-ready drafts that still need corpus import." dataSource="/control/api/v1/papers and corpus import ledger" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching || overview.isFetching} onRefresh={() => { void query.refetch(); void overview.refetch() }} />}>
       <section className="count-grid" aria-label="Corpus import summary">
         <CountCard label="Missing corpus import" value={publishReady} detail="Finalized publication drafts without corpus-import ledger rows." />
         <CountCard label="Already imported" value={imported} detail="Publication-ready drafts already recorded in corpus_imports." />
@@ -536,7 +530,7 @@ export function IntakePage({ route }: { route?: Extract<DashboardRoute, { page: 
   const rows = data.queued_projection || []
   const selectedRow = selection || rows.find((row) => String(row.idea_id || '') === routeIdeaId) || null
   return (
-    <PageShell title="Ideas intake" subtitle="Supabase-native idea workbench from /control/api/intake/ideas. Notion fields are provenance only." action={<PageRefreshAction generatedAt={data.generated_at} isFetching={query.isFetching} onRefresh={() => { setSelection(null); void query.refetch() }} refreshLabel="Refresh intake" />}>
+    <PageShell title="Ideas intake" subtitle="Review admitted ideas, queue state, and next operator actions." dataSource="/control/api/intake/ideas" action={<PageRefreshAction generatedAt={data.generated_at} isFetching={query.isFetching} onRefresh={() => { setSelection(null); void query.refetch() }} refreshLabel="Refresh intake" />}>
       <section className="count-grid">
         {Object.entries(counts).slice(0, 8).map(([key, value]) => (
           <div key={key} className="count-card">
@@ -576,7 +570,7 @@ export function EventsPage({ route }: { route?: Extract<DashboardRoute, { page: 
   if (query.isLoading) return <LoadingCard label="events" />
   if (query.isError) return <EventsErrorCard error={query.error} onRetry={() => { void query.refetch() }} />
   return (
-    <PageShell title="Events" subtitle="Recent formatted control-plane events from /control/api/v1/events." action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
+    <PageShell title="Events" subtitle="Scan recent control-plane events and open related entities." dataSource="/control/api/v1/events" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
       <FilterBar state={filters} statusOptions={[{ label: 'all event types', value: '' }, { label: 'Queue Alert', value: 'Queue Alert' }, { label: 'worker.callback', value: 'worker.callback' }, { label: 'paper.drafted', value: 'paper.drafted' }, { label: 'research.run_cycle.live', value: 'research.run_cycle.live' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash('#events', 'event_type', next)) }} onReset={() => { const next = { search: '', status: '', pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash('#events', 'event_type', next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={['id', 'entity_type', 'entity_id', 'event_type', 'created_at', 'summary']} empty="No recent events returned." cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'event', id: String(row.id || row.event_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
@@ -614,7 +608,7 @@ export function ObservabilityPage() {
   const memoryData = memory.data || {}
   const generatedAt = `health ${healthData.generated_at || 'unknown'} · memory ${memoryData.generated_at || 'unknown'}`
   return (
-    <PageShell title="Observability" subtitle="Controller process and route-observability state from bounded V1 read models." action={<PageRefreshAction generatedAt={generatedAt} isFetching={health.isFetching || memory.isFetching} onRefresh={() => { void health.refetch(); void memory.refetch() }} refreshLabel="Refresh observability" />}>
+    <PageShell title="Observability" subtitle="Check controller health, memory pressure, and route observability status." dataSource="/control/api/v1/observability health and memory read models" action={<PageRefreshAction generatedAt={generatedAt} isFetching={health.isFetching || memory.isFetching} onRefresh={() => { void health.refetch(); void memory.refetch() }} refreshLabel="Refresh observability" />}>
       <section className="detail-summary">
         <p className="eyebrow">Controller memory</p>
         <h2>{memoryData.memory_warn ? 'Memory warning active' : 'Memory is inside configured threshold'}</h2>
