@@ -16,6 +16,8 @@ jobs:
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'self-hosted' }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Validate runtime snapshot links
         run: python3 scripts/validate_runtime_snapshot_links.py
       - uses: astral-sh/setup-uv@v8.1.0
