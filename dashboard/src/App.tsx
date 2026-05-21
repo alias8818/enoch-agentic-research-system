@@ -60,6 +60,7 @@ function OverviewPage() {
   const data = overview.data
   const diagnosis = data.movement_diagnosis || { status: 'unknown', primary_reason: 'No movement diagnosis returned.', blockers: [] }
   const recentEvents = data.recent_events || []
+  const activeItems = data.active_items || []
   return (
     <div className="command-stack">
       <div className="command-topline">
@@ -102,9 +103,44 @@ function OverviewPage() {
             <p>No recent activity returned in the bounded overview snapshot.</p>
           )}
         </section>
+        <ActiveWorkSummary activeItems={activeItems} />
         <AutomationReadinessSummary readiness={readiness.data} isLoading={readiness.isLoading} error={readiness.error} />
       </details>
     </div>
+  )
+}
+
+function ActiveWorkSummary({ activeItems }: { activeItems: Record<string, unknown>[] }) {
+  return (
+    <section className="active-work-snapshot" aria-label="Active work snapshot">
+      <h3>Active work snapshot</h3>
+      {activeItems.length > 0 ? (
+        <ol>
+          {activeItems.slice(0, 6).map((item, index) => {
+            const projectId = String(item.project_id || '')
+            const runId = String(item.current_run_id || item.run_id || '')
+            const label = String(item.project_name || projectId || runId || 'Active work')
+            const machine = String(item.machine_target || item.lane || 'unknown lane')
+            const href = runId
+              ? dashboardV2Href(`#run:${encodeURIComponent(runId)}`)
+              : projectId
+                ? dashboardV2Href(`#project:${encodeURIComponent(projectId)}`)
+                : dashboardV2Href('#runs')
+            return (
+              <li key={runId || projectId || index}>
+                <div>
+                  <strong>{label}</strong>
+                  <span>{machine} · {runId || projectId || 'no run id'}</span>
+                </div>
+                <a href={href}>{runId ? 'Open run' : 'Open project'}</a>
+              </li>
+            )
+          })}
+        </ol>
+      ) : (
+        <p>No active work returned in the bounded overview snapshot.</p>
+      )}
+    </section>
   )
 }
 

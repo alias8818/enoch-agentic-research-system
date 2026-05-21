@@ -90,6 +90,34 @@ it('shows automation readiness in the collapsed overview secondary fold', async 
   expect(globalThis.fetch).toHaveBeenNthCalledWith(3, '/control/api/v1/automation-readiness', expect.any(Object))
 })
 
+it('shows active work inside the collapsed overview secondary fold', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:00Z',
+      counts: { active: 1, queued: 0 },
+      paper_counts: {},
+      movement_diagnosis: { status: 'ready', primary_reason: 'One CPU job is running.', blockers: [] },
+      flags: {},
+      active_items: [
+        { project_id: 'project-cpu', current_run_id: 'run-cpu', project_name: 'Prompt-to-Test Oracle', machine_target: 'cpu-proxmox-1', updated_at: '2026-05-20T12:00:01Z' },
+      ],
+      recent_events: [],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, label: 'Long-haul mode: READY', blockers: [], checks: [], summary: { queued: 0, active: 1 } }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
+  fireEvent.click(screen.getByText('Show secondary details'))
+  expect(screen.getByText('Active work snapshot')).toBeInTheDocument()
+  expect(screen.getByText('Prompt-to-Test Oracle')).toBeInTheDocument()
+  expect(screen.getByText('cpu-proxmox-1 · run-cpu')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /Open run/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-cpu')
+})
+
 it('uses V2-authored token and fallback surfaces', () => {
   render(<App />)
   expect(screen.getByRole('heading', { name: 'Bearer token required' })).toBeInTheDocument()
