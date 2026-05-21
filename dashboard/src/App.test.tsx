@@ -31,7 +31,7 @@ it('keeps overview secondary links in V2 and exposes data freshness', async () =
   expect(screen.getByRole('link', { name: 'Recent activity' })).toHaveAttribute('href', '/control/dashboard-v2#events')
 
   fireEvent.click(screen.getByRole('button', { name: 'Refresh now' }))
-  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(6))
+  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(5))
 })
 
 it('shows recent activity inside the collapsed overview secondary fold', async () => {
@@ -83,9 +83,13 @@ it('shows automation readiness in the collapsed overview secondary fold', async 
   render(<App />)
 
   expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
+  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
+  expect(globalThis.fetch).not.toHaveBeenCalledWith('/control/api/v1/automation-readiness', expect.any(Object))
+
   fireEvent.click(screen.getByText('Show secondary details'))
-  expect(screen.getByText('Automation readiness')).toBeInTheDocument()
-  expect(screen.getByText('Long-haul mode: BLOCKED — queued/active state inconsistent')).toBeInTheDocument()
+
+  expect(await screen.findByText('Automation readiness')).toBeInTheDocument()
+  expect(await screen.findByText('Long-haul mode: BLOCKED — queued/active state inconsistent')).toBeInTheDocument()
   expect(screen.getAllByText('queue_counts_consistent: blocked')).toHaveLength(2)
   expect(globalThis.fetch).toHaveBeenNthCalledWith(3, '/control/api/v1/automation-readiness', expect.any(Object))
 })

@@ -40,9 +40,15 @@ function TokenGate({ onSave }: { onSave: () => void }) {
 
 function OverviewPage() {
   const queryClient = useQueryClient()
+  const [secondaryOpen, setSecondaryOpen] = useState(false)
   const overview = useQuery({ queryKey: ['overview'], queryFn: () => apiGet<OverviewResponse>('/control/api/v1/overview?active_limit=8&event_limit=6'), refetchInterval: 30_000 })
   const status = useQuery({ queryKey: ['status'], queryFn: () => apiGet<StatusResponse>('/control/api/status'), refetchInterval: 30_000 })
-  const readiness = useQuery({ queryKey: ['automation-readiness'], queryFn: () => apiGet<AutomationReadiness>('/control/api/v1/automation-readiness'), refetchInterval: 60_000 })
+  const readiness = useQuery({
+    queryKey: ['automation-readiness'],
+    queryFn: () => apiGet<AutomationReadiness>('/control/api/v1/automation-readiness'),
+    refetchInterval: 60_000,
+    enabled: secondaryOpen,
+  })
   const refresh = () => {
     void overview.refetch()
     void status.refetch()
@@ -77,7 +83,7 @@ function OverviewPage() {
         </div>
       </div>
       <MovementDiagnosis diagnosis={diagnosis} />
-      <details className="secondary-fold">
+      <details className="secondary-fold" onToggle={(event) => setSecondaryOpen(event.currentTarget.open)}>
         <summary>Show secondary details</summary>
         <div className="secondary-links">
           <a href={dashboardV2Href('#runs')}>Runs</a>
