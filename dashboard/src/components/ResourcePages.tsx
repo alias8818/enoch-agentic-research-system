@@ -217,6 +217,8 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
       })
       setDispatchResult({ title: 'Selected live dispatch', payload })
       setLiveDispatchProjectId('')
+      setSelection(null)
+      void query.refetch()
     } catch (error) {
       setDispatchResult({ title: 'Selected live dispatch failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
     } finally {

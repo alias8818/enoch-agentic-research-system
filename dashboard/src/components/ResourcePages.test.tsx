@@ -145,6 +145,7 @@ it('live-dispatches a selected queued row only after dry-run and dialog confirma
     .mockResolvedValueOnce(new Response(JSON.stringify({ project_id: 'project-live', project: { project_name: 'Live queue item' } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'dry_run_dispatch_one', reason: 'dry-run selected explicit queued candidate', candidate: { project_id: 'project-live' } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'live_dispatch_one', reason: 'live dispatch started selected queued candidate', candidate: { project_id: 'project-live' } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T11:00:00Z', rows: [{ project_id: 'project-other', status: 'queued', machine_target: 'gb10', title: 'Fresh queue item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
   renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', hash: '#queue:queued' }} />)
 
@@ -166,6 +167,8 @@ it('live-dispatches a selected queued row only after dry-run and dialog confirma
     headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
     body: JSON.stringify({ project_id: 'project-live', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
   }))
+  await screen.findByText('Fresh queue item')
+  expect(fetchMock).toHaveBeenNthCalledWith(5, expect.stringContaining('/control/api/v1/queue?'), expect.any(Object))
 })
 
 it('loads project discovery rows from the V1 projects endpoint', async () => {
