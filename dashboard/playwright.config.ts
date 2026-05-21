@@ -5,9 +5,19 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
+  expect: {
+    toHaveScreenshot: {
+      animations: 'disabled',
+      maxDiffPixelRatio: 0.01,
+    },
+  },
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'on-first-retry',
+    locale: 'en-US',
+    timezoneId: 'UTC',
+    viewport: { width: 1280, height: 900 },
+    deviceScaleFactor: 1,
   },
   webServer: {
     command: 'npm run preview -- --host 127.0.0.1 --port 4173',

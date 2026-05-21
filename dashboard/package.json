@@ -10,7 +10,8 @@
     "lint": "tsc -b --pretty false",
     "test": "vitest run",
     "preview": "vite preview",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:update-snapshots": "playwright test --update-snapshots"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.12",
