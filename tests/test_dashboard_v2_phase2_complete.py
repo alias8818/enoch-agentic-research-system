@@ -58,8 +58,7 @@ CUTOVER_LANDED_MARKERS = (
 
 def test_todo_records_phase2_complete_on_main() -> None:
     text = TODO.read_text(encoding="utf-8")
-    assert "Phase 2 complete" in text
-    assert "Phase 3" in text
+    assert "Phase 2" in text and "Phase 3" in text and "complete on `main`" in text
     assert "## Phase 2 — command center operator semantics (complete)" in text
     assert "## Phase 3 — optional follow-ups" in text
     for marker in PHASE2_PR_MARKERS:
@@ -76,8 +75,7 @@ def test_todo_phase2_checklist_fully_checked() -> None:
 
 def test_redesign_plan_reflects_phase2_complete() -> None:
     text = REDESIGN.read_text(encoding="utf-8")
-    assert "Phase 2 complete" in text
-    assert "Phase 3" in text
+    assert "Phase 2" in text and "Phase 3" in text and "complete on `main`" in text
     assert "/control/dashboard-v2" in text
 
 
