@@ -2866,6 +2866,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         project_id = str(paper.get("project_id") or "")
         run_id = str(paper.get("run_id") or "")
         events, next_cursor, has_more = store.event_page(entity_id=paper_id, page_size=event_limit, include_payload=False)
+        run_row = store.run_row(run_id) if run_id else None
+        queue_item = store.queue_row(project_id) if project_id else None
         return {
             "ok": True,
             "source": "control_api_v1_paper",
@@ -2874,7 +2876,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "paper_id": paper_id,
             "paper": read_models.summarize_paper_row(paper),
             "project": store.project_row(project_id) if project_id else None,
-            "run": store.run_row(run_id) if run_id else None,
+            "run": read_models.summarize_run_row(run_row) if run_row else None,
+            "queue_item": read_models.summarize_queue_row(queue_item) if queue_item else None,
             "events": events,
             "events_page": read_models.page_response(rows=events, next_cursor=next_cursor, has_more=has_more, page_size_value=read_models.page_size(event_limit, cap=100), cursor="", filters={"entity_id": paper_id}),
         }

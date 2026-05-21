@@ -147,11 +147,12 @@ describe('deriveDetailOperatorSummary', () => {
     expect(outcomeSection?.answers.find((answer) => answer.label === 'outcome')?.value).toBe('finished')
   })
 
-  it('answers paper operator questions with checklist and related links', () => {
+  it('answers paper operator questions with publication blockers and lane context', () => {
     const summary = deriveDetailOperatorSummary('paper', {
       paper_id: 'paper-1',
       paper: {
         paper_id: 'paper-1',
+        title: 'Artifact paper',
         project_id: 'project-1',
         run_id: 'run-1',
         paper_status: 'publication_draft',
@@ -164,15 +165,46 @@ describe('deriveDetailOperatorSummary', () => {
           finalization_package: false,
         },
       },
+      queue_item: { machine_target: 'gb10' },
+      run: { run_id: 'run-1', state: 'completed' },
     })
 
     expect(summary.state).toBe('publication_draft')
-    expect(summary.next).toContain('Preview artifacts')
+    expect(summary.context).toContain('manifest')
+    expect(summary.next).toContain('finalize')
     expect(summary.entityLinks).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'project', id: 'project-1' }),
       expect.objectContaining({ kind: 'run', id: 'run-1' }),
     ]))
-    expect(summary.sections.some((section) => section.title === 'Publication checklist')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'What is this paper?')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'What blocks publication?')).toBe(true)
+    const blockers = summary.sections.find((section) => section.title === 'What blocks publication?')
+    expect(blockers?.answers.find((answer) => answer.label === 'missing artifacts')?.value).toContain('manifest')
+    const laneSection = summary.sections.find((section) => section.title === 'Related project and run')
+    expect(laneSection?.answers.find((answer) => answer.label === 'machine target')?.value).toBe('gb10')
+    expect(summary.actionNeeded).toContain('manifest')
+  })
+
+  it('accepts backend artifact path keys in publication checklist', () => {
+    const summary = deriveDetailOperatorSummary('paper', {
+      paper_id: 'paper-2',
+      paper: {
+        paper_id: 'paper-2',
+        paper_status: 'publication_draft',
+        artifact_paths_present: {
+          draft_markdown_path: '/tmp/draft.md',
+          draft_latex_path: '/tmp/draft.tex',
+          evidence_bundle_path: '/tmp/evidence',
+          claim_ledger_path: '/tmp/claims',
+          manifest_path: '/tmp/manifest.json',
+          finalization_package_path: '/tmp/package',
+        },
+      },
+    })
+    const checklist = summary.sections.find((section) => section.title === 'Publication checklist')
+    expect(checklist?.answers.every((answer) => answer.value === 'present')).toBe(true)
+    const blockers = summary.sections.find((section) => section.title === 'What blocks publication?')
+    expect(blockers?.answers.find((answer) => answer.label === 'missing artifacts')?.value).toContain('corpus import')
   })
 
   it('answers event operator questions with entity links', () => {
