@@ -1778,7 +1778,6 @@ def top_operator_actions(
             "count": needs_attention,
             "action_label": "Open attention queue",
             "action_hash": "#queue:blocked",
-            "target": None,
         })
 
     write_needed = _safe_count(paper_pipeline.get("write_needed"))
@@ -1812,7 +1811,6 @@ def top_operator_actions(
             "count": finalize_needed,
             "action_label": "Open automation queue",
             "action_hash": "#automation",
-            "target": None,
         })
 
     publish_ready = _safe_count(paper_pipeline.get("publish_ready"))
@@ -1882,7 +1880,6 @@ def top_operator_actions(
             "count": queued_for_lanes,
             "action_label": "Open ready queue",
             "action_hash": "#queue:queued",
-            "target": None,
         })
 
     ranked = candidates[:safe_limit]

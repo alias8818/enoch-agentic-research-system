@@ -4338,6 +4338,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             top = queued["top_actions"][0]
             for key in ("kind", "priority", "tone", "title", "summary", "count", "action_label", "action_hash"):
                 self.assertIn(key, top)
+            for action in queued["top_actions"]:
+                if "target" in action:
+                    self.assertIsInstance(action["target"], dict)
             self.assertGreaterEqual(top["priority"], 1)
             self.assertLessEqual(len(queued["top_actions"]), 3)
             self.assertTrue(top["action_hash"].startswith("#"))
