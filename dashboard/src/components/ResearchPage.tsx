@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost } from '../api/client'
 import { DataTable } from './DataTable'
+import { useOperatorDialog } from './OperatorDialog'
 
 type ResearchFacilityResponse = {
   rows?: Record<string, unknown>[]
@@ -60,6 +61,7 @@ function ResultCard({ title, result }: { title: string; result?: Record<string, 
 
 export function ResearchPage() {
   const queryClient = useQueryClient()
+  const { confirm, dialog } = useOperatorDialog()
   const facility = useQuery({ queryKey: ['research-facility'], queryFn: () => apiGet<ResearchFacilityResponse>('/control/api/research/facility?page_size=50') })
   const budget = useMutation({ mutationFn: () => apiGet<BudgetResponse>('/control/api/research/provider-budget?estimated_requests=1&reserve_requests=2') })
   const cycle = useMutation({
@@ -72,7 +74,13 @@ export function ResearchPage() {
   }
 
   async function runLiveCycle() {
-    if (!window.confirm('Run one bounded live Research Facility cycle? This can spend one provider request and promote candidates, but it will not dispatch or write papers from V2.')) return
+    const confirmed = await confirm({
+      title: 'Run one bounded live cycle?',
+      message: 'This can spend one provider request and promote candidates. V2 will not dispatch, wait for completion, write papers, or finalize publications from this action.',
+      confirmLabel: 'Run bounded cycle',
+      tone: 'warn',
+    })
+    if (!confirmed) return
     await cycle.mutateAsync(liveCyclePayload)
   }
 
@@ -103,6 +111,8 @@ export function ResearchPage() {
 
       <ResultCard title="Provider budget result" result={budget.data as Record<string, unknown> | undefined} />
       <ResultCard title="Run-cycle result" result={cycle.data as Record<string, unknown> | undefined} />
+
+      {dialog}
 
       {facility.isLoading ? <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">Loading research facility…</div> : null}
       {facility.isError ? <div className="rounded-2xl border border-red-900 bg-red-950/40 p-8 text-red-100">Research data unavailable: {String(facility.error.message)}</div> : null}

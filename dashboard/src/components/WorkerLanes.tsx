@@ -1,5 +1,6 @@
 import { apiPost } from '../api/client'
 import type { WorkerLane } from '../types'
+import { useOperatorDialog } from './OperatorDialog'
 
 function laneLabel(lane: WorkerLane): string {
   const target = String(lane.machine_target || lane.lane_key || '').toLowerCase()
@@ -10,6 +11,7 @@ function laneLabel(lane: WorkerLane): string {
 }
 
 export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefresh: () => void }) {
+  const { confirm, notify, dialog } = useOperatorDialog()
   async function feedLane() {
     await apiPost('/control/api/research/run-cycle', {
       enabled: true,
@@ -29,14 +31,31 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
     onRefresh()
   }
   async function dispatchLane() {
-    if (!window.confirm('Dry-run and dispatch an open lane?')) return
+    const dryRunConfirmed = await confirm({
+      title: 'Dry-run dispatch?',
+      message: 'The dashboard will ask the control plane to prove an open lane has an eligible candidate before starting live dispatch.',
+      confirmLabel: 'Run dispatch dry-run',
+      tone: 'warn',
+    })
+    if (!dryRunConfirmed) return
     const dryRun = await apiPost<{ action?: string }>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
     if (dryRun.action !== 'dry_run_dispatch') {
-      window.alert('Dispatch dry-run did not find an open lane candidate.')
+      await notify({
+        title: 'No dispatch candidate found',
+        message: 'The dry-run completed, but the backend did not return a dispatchable lane candidate. Refreshing lane state now.',
+        confirmLabel: 'Refresh state',
+        tone: 'info',
+      })
       onRefresh()
       return
     }
-    if (!window.confirm('Dry-run passed. Start live dispatch now?')) {
+    const liveConfirmed = await confirm({
+      title: 'Start live dispatch?',
+      message: 'The dry-run found an eligible candidate. Confirm to start a live dispatch through the control plane.',
+      confirmLabel: 'Start live dispatch',
+      tone: 'danger',
+    })
+    if (!liveConfirmed) {
       onRefresh()
       return
     }
@@ -78,6 +97,7 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
           )
         })}
       </div>
+      {dialog}
     </section>
   )
 }

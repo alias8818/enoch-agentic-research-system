@@ -1,9 +1,10 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CommandHero } from './CommandHero'
 import { MovementDiagnosis } from './MovementDiagnosis'
 import { PaperMiniStrip } from './PaperMiniStrip'
 import { PrimaryAction } from './PrimaryAction'
+import { SafetyBar } from './SafetyBar'
 import { WorkerLanes } from './WorkerLanes'
 
 const diagnosis = {
@@ -11,6 +12,11 @@ const diagnosis = {
   primary_reason: 'GB10 lane can dispatch queued work.',
   blockers: [{ kind: 'dispatch_available', title: 'GB10 lane can dispatch', summary: 'GB10 lane can dispatch queued work.', action_hash: '#queue:queued' }],
 }
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 it('renders the leave-running hero from backend diagnosis', () => {
   render(<CommandHero overview={{ ok: true, counts: { active: 1, queued: 2 }, paper_counts: { publication_draft: 1 } }} diagnosis={diagnosis} />)
@@ -32,6 +38,45 @@ it('renders worker lane commands without deriving queue truth from aggregate cou
   expect(screen.getByText('Current: CPU job')).toBeInTheDocument()
   expect(screen.getByText('Next: GB10 job')).toBeInTheDocument()
   expect(screen.getAllByText('Dispatch this lane')).toHaveLength(2)
+})
+
+it('uses dialog confirmations for queue pause instead of window.confirm', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm')
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<SafetyBar flags={{ queue_paused: false, maintenance_mode: false }} onRefresh={onRefresh} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Pause queue' }))
+
+  expect(await screen.findByRole('dialog', { name: 'Pause the queue?' })).toBeInTheDocument()
+  expect(confirmSpy).not.toHaveBeenCalled()
+  const dialog = screen.getByRole('dialog', { name: 'Pause the queue?' })
+  fireEvent.click(dialog.querySelectorAll('button')[1])
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/control/pause', expect.objectContaining({ method: 'POST' })))
+  expect(onRefresh).toHaveBeenCalledTimes(1)
+})
+
+it('uses staged dialog confirmations for live dispatch and no alert fallback', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm')
+  const alertSpy = vi.spyOn(window, 'alert')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dispatched' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_name: 'GB10 job' } }]} onRefresh={onRefresh} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Dispatch this lane' }))
+
+  expect(await screen.findByRole('dialog', { name: 'Dry-run dispatch?' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Run dispatch dry-run' }))
+  expect(await screen.findByRole('dialog', { name: 'Start live dispatch?' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Start live dispatch' }))
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  expect(confirmSpy).not.toHaveBeenCalled()
+  expect(alertSpy).not.toHaveBeenCalled()
+  expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
 it('renders the paper mini strip and movement diagnosis', () => {

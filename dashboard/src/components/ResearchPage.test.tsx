@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
 import { ResearchPage } from './ResearchPage'
@@ -47,4 +47,29 @@ it('dry-runs the bounded research cycle without live enablement', async () => {
     method: 'POST',
     body: expect.stringContaining('"dry_run":true'),
   }))
+})
+
+
+it('uses a dialog before running a bounded live research cycle', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'research_cycle_live' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [] }), { status: 200 }))
+
+  renderWithClient(<ResearchPage />)
+
+  await screen.findByText('No research candidates returned.')
+  fireEvent.click(screen.getByRole('button', { name: 'Run one bounded cycle' }))
+
+  const dialog = await screen.findByRole('dialog', { name: 'Run one bounded live cycle?' })
+  expect(dialog).toHaveTextContent('will not dispatch')
+  expect(confirmSpy).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Run bounded cycle' }))
+
+  await screen.findByText('Run-cycle result')
+  await waitFor(() => expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/research/run-cycle', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"dry_run":false'),
+  })))
 })
