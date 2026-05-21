@@ -29,6 +29,18 @@ jobs:
       - name: Run Semgrep report-only Enoch guardrails
         continue-on-error: true
         run: uv run semgrep --config .semgrep/enoch-guardrails.yml --metrics=off --no-git-ignore .
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Run dashboard tests
+        working-directory: dashboard
+        run: |
+          npm ci
+          npm test -- --run
+          npm run typecheck
+          npm run lint
       - name: Run tests
         run: uv run pytest -q
   secret-scan:

@@ -97,6 +97,60 @@ it('surfaces the movement diagnosis before lane and action controls', async () =
   expect(within(diagnosis).getByText('No admitted candidates')).toBeInTheDocument()
 })
 
+it('keeps overview command result raw JSON inside collapsed details', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:00Z',
+      counts: { active: 0, queued: 1 },
+      paper_counts: {},
+      movement_diagnosis: { status: 'actionable', primary_reason: 'Dispatch ready.', blockers: [] },
+      flags: {},
+      top_actions: [{
+        kind: 'dispatch_next',
+        title: 'Dispatch GB10 lane',
+        summary: 'One queued candidate matches the idle lane.',
+        action_label: 'Dispatch',
+        action_hash: '#queue:queued',
+      }],
+      recent_events: [],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      action: 'dry_run_dispatch',
+      reason: 'dry-run dispatch selected candidate',
+      candidate: { project_id: 'project-1', machine_target: 'gb10' },
+    }), { status: 200 }))
+    .mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:10Z',
+      counts: { active: 0, queued: 1 },
+      paper_counts: {},
+      movement_diagnosis: { status: 'actionable', primary_reason: 'Dispatch ready.', blockers: [] },
+      flags: {},
+      top_actions: [{
+        kind: 'dispatch_next',
+        title: 'Dispatch GB10 lane',
+        summary: 'One queued candidate matches the idle lane.',
+        action_label: 'Dispatch',
+        action_hash: '#queue:queued',
+      }],
+      recent_events: [],
+    }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  await screen.findByText('Can I leave this running?')
+  fireEvent.click(screen.getByRole('button', { name: 'Check dispatch' }))
+  await screen.findByText('dry-run dispatch selected candidate')
+
+  const resultCard = screen.getByText('Selected work').closest('.command-result-summary') as HTMLElement
+  resultCard.querySelectorAll('.json-block').forEach((block) => {
+    expect(block.closest('details.raw-details')).not.toBeNull()
+  })
+})
+
 it('shows recent activity inside the collapsed overview secondary fold', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({

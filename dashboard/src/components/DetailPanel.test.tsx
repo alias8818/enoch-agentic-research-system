@@ -8,6 +8,15 @@ function renderWithClient(ui: React.ReactElement) {
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
 }
 
+function assertJsonBlocksInRawDetails(container: HTMLElement) {
+  container.querySelectorAll('.json-block').forEach((block) => {
+    if (block.closest('.artifact-preview')) return
+    expect(block.closest('details.raw-details')).not.toBeNull()
+  })
+}
+
+const PREFIXED_ID_PATTERN = /^(project|run|paper|event):/i
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
@@ -22,6 +31,7 @@ it('renders project detail as structured fields with raw payload collapsed', asy
   expect(screen.getByText('machine target')).toBeInTheDocument()
   expect(screen.getAllByText('gb10').length).toBeGreaterThan(0)
   expect(screen.getByText('Raw payload')).toBeInTheDocument()
+  assertJsonBlocksInRawDetails(document.body)
 })
 
 it('renders run detail from the backed run endpoint', async () => {
@@ -32,6 +42,7 @@ it('renders run detail from the backed run endpoint', async () => {
   expect(await screen.findByRole('heading', { name: 'run-1' })).toBeInTheDocument()
   expect(await screen.findByText('gate')).toBeInTheDocument()
   expect(screen.getByText('awaiting_wake')).toBeInTheDocument()
+  assertJsonBlocksInRawDetails(document.body)
 })
 
 it('renders event detail from the selected row without fetching an event endpoint', async () => {
@@ -43,6 +54,7 @@ it('renders event detail from the selected row without fetching an event endpoin
   expect(screen.getByRole('heading', { name: 'Lane blocked' })).toBeInTheDocument()
   expect(screen.getByText('Raw payload')).toBeInTheDocument()
   expect(fetchMock).not.toHaveBeenCalled()
+  assertJsonBlocksInRawDetails(document.body)
 })
 
 it('keeps hook order stable when switching from inline event detail to fetched detail', async () => {
@@ -132,4 +144,45 @@ it('uses compact useful headers instead of raw monster ids on direct detail page
   expect(screen.getByText(/Paper detail · paper:llm-gene…rxiv_draft · publication_draft/)).toBeInTheDocument()
   expect(screen.getAllByText('publication_draft').length).toBeGreaterThan(0)
   expect(screen.getByText('Next safe action')).toBeInTheDocument()
+  assertJsonBlocksInRawDetails(document.body)
+})
+
+it.each([
+  {
+    kind: 'project' as const,
+    id: 'project:trace-oracle-slug',
+    payload: { project_id: 'project:trace-oracle-slug', status: 'queued', queue: { lane: 'gb10' } },
+    expectedTitle: 'trace-oracle-slug',
+  },
+  {
+    kind: 'run' as const,
+    id: 'run:trace-oracle-slug:00001',
+    payload: { run_id: 'run:trace-oracle-slug:00001', run: { run_id: 'run:trace-oracle-slug:00001', state: 'running' } },
+    expectedTitle: 'trace-oracle-slug:00001',
+  },
+  {
+    kind: 'paper' as const,
+    id: 'paper:trace-oracle-slug:00001:arxiv_draft',
+    payload: {
+      paper_id: 'paper:trace-oracle-slug:00001:arxiv_draft',
+      paper: { paper_id: 'paper:trace-oracle-slug:00001:arxiv_draft', status: 'publication_draft' },
+    },
+    expectedTitle: 'trace-oracle-s…rxiv_draft',
+  },
+  {
+    kind: 'event' as const,
+    id: '9',
+    payload: { id: 9, event_type: 'Queue Alert', summary: 'Lane blocked on gb10' },
+    expectedTitle: 'Lane blocked on gb10',
+  },
+])('detail page h1 never uses prefixed slug hero for $kind', async ({ kind, id, payload, expectedTitle }) => {
+  if (kind === 'event') {
+    renderWithClient(<DetailPage selection={{ kind, id, row: payload }} />)
+  } else {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify(payload), { status: 200 }))
+    renderWithClient(<DetailPage selection={{ kind, id }} />)
+  }
+
+  const heading = await screen.findByRole('heading', { level: 1, name: expectedTitle })
+  expect(heading.textContent).not.toMatch(PREFIXED_ID_PATTERN)
 })

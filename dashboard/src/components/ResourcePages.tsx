@@ -6,6 +6,7 @@ import type { DashboardRoute } from '../routes'
 import { DataTable } from './DataTable'
 import { DetailPanel } from './DetailPanel'
 import { useOperatorDialog } from './OperatorDialog'
+import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
 
 type PageMeta = { next_cursor?: string; has_more?: boolean; returned?: number; page_size?: number }
@@ -21,7 +22,7 @@ type ObservabilityHealth = { generated_at?: string; route_observability_enabled?
 type ObservabilityMemory = { generated_at?: string; rss_mib?: number | null; peak_rss_mib?: number | null; warn_threshold_mib?: number | null; memory_warn?: boolean; route_observability_enabled?: boolean }
 type DetailSelection = { kind: 'project' | 'run' | 'paper' | 'event'; id: string; row?: Record<string, unknown> }
 type FilterState = { search: string; status: string; pageSize: string; cursor: string }
-type CommandResult = { title: string; payload: Record<string, unknown> }
+type CommandResult = { payload: Record<string, unknown>; context?: CommandPresentationContext }
 
 function PageShell({ title, subtitle, children, action }: { title: string; subtitle: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
@@ -184,8 +185,9 @@ function selectedDispatchDisabledReason(canDryRunSelected: boolean, liveReady: b
   return ''
 }
 
-function CommandResultCard({ result }: { result: CommandResult | null }) {
-  return <CommandResultSummary result={result} />
+function CommandResultCard({ result, stale }: { result: CommandResult | null; stale?: boolean }) {
+  if (!result) return null
+  return <CommandResultSummary result={{ payload: result.payload, context: { ...result.context, stale: stale || result.context?.stale } }} />
 }
 
 function CountCard({ label, value, detail }: { label: string; value: unknown; detail: string }) {
@@ -261,11 +263,11 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
         requested_by: 'dashboard-v2',
         force_preflight: true,
       })
-      setDispatchResult({ title: 'Selected dispatch dry-run', payload })
+      setDispatchResult({ payload, context: { commandFamily: 'dispatch' } })
       setLiveDispatchProjectId(payload.action === 'dry_run_dispatch_one' ? selectedProjectId : '')
       setLiveDispatchSignature(payload.action === 'dry_run_dispatch_one' ? selectedCurrentSignature : '')
     } catch (error) {
-      setDispatchResult({ title: 'Selected dispatch dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setDispatchResult({ payload: { ok: false, reason: error instanceof Error ? error.message : String(error) }, context: { commandFamily: 'dispatch' } })
       setLiveDispatchProjectId('')
       setLiveDispatchSignature('')
     } finally {
@@ -289,13 +291,13 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
         requested_by: 'dashboard-v2',
         force_preflight: true,
       })
-      setDispatchResult({ title: 'Selected live dispatch', payload })
+      setDispatchResult({ payload, context: { commandFamily: 'dispatch' } })
       setLiveDispatchProjectId('')
       setLiveDispatchSignature('')
       setSelection(null)
       void query.refetch()
     } catch (error) {
-      setDispatchResult({ title: 'Selected live dispatch failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setDispatchResult({ payload: { ok: false, reason: error instanceof Error ? error.message : String(error) }, context: { commandFamily: 'dispatch' } })
     } finally {
       setDispatchBusy(false)
     }
@@ -320,7 +322,7 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
           </div>
           {dispatchDisabledReason ? <p className="primary-action-disabled-reason">{dispatchDisabledReason}</p> : null}
         </section>
-        <CommandResultCard result={dispatchResult} />
+        <CommandResultCard result={dispatchResult} stale={staleDispatchReady} />
         <DataTable rows={query.data?.rows || []} columns={['project_id', 'status', 'lane', 'machine_target', 'title', 'updated_at']} empty="No queue rows match this filter." cellHref={detailCellHref} onSelectRow={(row) => { setDispatchResult(null); setLiveDispatchProjectId(''); setLiveDispatchSignature(''); setSelection({ kind: 'project', id: String(row.project_id || ''), row }) }} />
         <DetailPanel selection={selection} onClose={() => setSelection(null)} />
       </PageShell>

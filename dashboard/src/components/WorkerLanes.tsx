@@ -3,11 +3,12 @@ import { apiPost } from '../api/client'
 import { dryRunCyclePayload, liveCyclePayload } from '../researchCyclePayloads'
 import type { WorkerLane } from '../types'
 import { useOperatorDialog } from './OperatorDialog'
+import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
 
 type CommandResult = {
-  title: string
   payload: Record<string, unknown>
+  context?: CommandPresentationContext
 }
 
 type WorkerLanesProps = {
@@ -38,8 +39,27 @@ function laneDisabledReason(lane: WorkerLane, canFeed: boolean, canDispatch: boo
   return 'Waiting for backend lane eligibility.'
 }
 
-function ResultCard({ result }: { result: CommandResult | null }) {
-  return <CommandResultSummary result={result} />
+function ResultCard({ result, stale }: { result: CommandResult | null; stale?: boolean }) {
+  if (!result) return null
+  return <CommandResultSummary result={{ payload: result.payload, context: { ...result.context, stale: stale || result.context?.stale } }} />
+}
+
+function commandResultStale(
+  result: CommandResult | null,
+  liveFeedReady: boolean,
+  liveFeedSignature: string,
+  feedSignature: string,
+  liveOpenLaneSignature: string,
+  openLaneSignature: string,
+): boolean {
+  if (!result) return false
+  if (result.context?.commandFamily === 'research') {
+    return liveFeedReady && liveFeedSignature !== feedSignature
+  }
+  if (result.context?.commandFamily === 'dispatch') {
+    return Boolean(liveOpenLaneSignature) && liveOpenLaneSignature !== openLaneSignature
+  }
+  return false
 }
 
 function errorMessage(error: unknown): string {
@@ -148,12 +168,12 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
     try {
       const result = await apiPost<Record<string, unknown>>('/control/api/research/run-cycle', dryRunCyclePayload)
       const allowed = feedDryRunAllowsLiveCycle(result)
-      setCommandResult({ title: 'Feed dry-run result', payload: result })
+      setCommandResult({ payload: result, context: { commandFamily: 'research' } })
       setLiveFeedReady(allowed)
       setLiveFeedSignature(allowed ? feedSignature : '')
       onRefresh()
     } catch (error) {
-      setCommandResult({ title: 'Feed dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setCommandResult({ payload: { ok: false, reason: error instanceof Error ? error.message : String(error) }, context: { commandFamily: 'research' } })
       setLiveFeedReady(false)
       setLiveFeedSignature('')
     } finally {
@@ -174,12 +194,12 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
     setLiveLaneProjectId('')
     try {
       const result = await apiPost<Record<string, unknown>>('/control/api/research/run-cycle', liveCyclePayload)
-      setCommandResult({ title: 'Live feed result', payload: result })
+      setCommandResult({ payload: result, context: { commandFamily: 'research' } })
       setLiveFeedReady(false)
       setLiveFeedSignature('')
       onRefresh()
     } catch (error) {
-      setCommandResult({ title: 'Live feed failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setCommandResult({ payload: { ok: false, reason: error instanceof Error ? error.message : String(error) }, context: { commandFamily: 'research' } })
     } finally {
       setBusyAction(null)
     }
@@ -196,12 +216,12 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
         : explicitOpenLaneCandidates.length > 0
           ? await dispatchExplicitLaneCandidates(explicitOpenLaneCandidates, true)
           : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
-      setCommandResult({ title: 'Dispatch dry-run result', payload: result })
+      setCommandResult({ payload: result, context: { commandFamily: 'dispatch' } })
       setLiveLaneProjectId(projectId && result.action === 'dry_run_dispatch_one' ? projectId : '')
       setLiveOpenLaneSignature(!projectId && dispatchDryRunAllowsLive(result) ? openLaneSignature : '')
       onRefresh()
     } catch (error) {
-      setCommandResult({ title: 'Dispatch dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setCommandResult({ payload: { ok: false, reason: error instanceof Error ? error.message : String(error) }, context: { commandFamily: 'dispatch' } })
       setLiveLaneProjectId('')
       setLiveOpenLaneSignature('')
     } finally {
@@ -227,10 +247,10 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
       const result = explicitOpenLaneCandidates.length > 0
         ? await dispatchExplicitLaneCandidates(explicitOpenLaneCandidates, false)
         : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
-      setCommandResult({ title: 'Live dispatch result', payload: result })
+      setCommandResult({ payload: result, context: { commandFamily: 'dispatch' } })
       onRefresh()
     } catch (error) {
-      setCommandResult({ title: 'Live dispatch failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setCommandResult({ payload: { ok: false, reason: error instanceof Error ? error.message : String(error) }, context: { commandFamily: 'dispatch' } })
     } finally {
       setBusyAction(null)
     }
@@ -252,11 +272,11 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
     setLiveFeedSignature('')
     try {
       const result = await apiPost<Record<string, unknown>>('/control/dispatch-one', { project_id: projectId, dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
-      setCommandResult({ title: 'Lane live dispatch result', payload: result })
+      setCommandResult({ payload: result, context: { commandFamily: 'dispatch' } })
       setLiveLaneProjectId('')
       onRefresh()
     } catch (error) {
-      setCommandResult({ title: 'Lane live dispatch failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setCommandResult({ payload: { ok: false, reason: error instanceof Error ? error.message : String(error) }, context: { commandFamily: 'dispatch' } })
     } finally {
       setBusyAction(null)
     }
@@ -284,7 +304,7 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
             ) : null}
           </div>
         </div>
-        <ResultCard result={commandResult} />
+        <ResultCard result={commandResult} stale={commandResultStale(commandResult, liveFeedReady, liveFeedSignature, feedSignature, liveOpenLaneSignature, openLaneSignature)} />
         {error ? (
           <div className="lane-empty-state lane-empty-state--error" role="status">
             <strong>Worker lane status unavailable.</strong>

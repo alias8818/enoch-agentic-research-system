@@ -152,7 +152,7 @@ function detailTitle(kind: DetailKind, payload: Record<string, unknown>, fallbac
   const project = record(payload.project)
   const run = record(payload.run)
   const paper = record(payload.paper)
-  return stringifyValue(firstValue(
+  return sanitizeHeroTitle(stringifyValue(firstValue(
     project.project_name,
     project.title,
     run.project_name,
@@ -163,7 +163,15 @@ function detailTitle(kind: DetailKind, payload: Record<string, unknown>, fallbac
     payload.summary,
     payload.event_type,
     fallbackId,
-  ))
+  )), kind)
+}
+
+function sanitizeHeroTitle(title: string, kind: DetailKind): string {
+  const trimmed = title.trim()
+  const match = trimmed.match(/^(project|run|paper|event):(.+)/i)
+  if (!match) return trimmed
+  const rest = match[2].trim()
+  return rest ? shortId(rest) : kindLabel(kind)
 }
 
 function detailFields(kind: DetailKind, payload: Record<string, unknown>, fallbackId: string): Field[] {

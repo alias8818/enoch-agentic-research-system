@@ -76,7 +76,7 @@ it('uses the paper id from automation detail hashes for finalization dry-runs', 
   expect(targeted).toHaveTextContent('paper-target')
   fireEvent.click(screen.getByRole('button', { name: 'Dry-run finalization package' }))
 
-  await screen.findByText('Finalization dry-run result')
+  await screen.findByText('Paper finalize dry-run passed')
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/publication-automation/paper-target', expect.any(Object))
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/paper-reviews/paper-target/prepare-finalization-package', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
 })
@@ -127,7 +127,7 @@ it('updates automation checklist items through dialog-confirmed V2 mutation', as
 
   fireEvent.click(screen.getByRole('button', { name: 'Mark passed' }))
 
-  await screen.findByText('Checklist update result')
+  await screen.findByText('Command completed')
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/publication-automation/paper-target/checklist/evidence', expect.objectContaining({
     method: 'POST',
     body: expect.stringContaining('"status":"pass"'),
@@ -148,9 +148,9 @@ it('dry-runs rewrite batch and finalization package without live rewrite', async
 
   await screen.findByText('Paper project')
   fireEvent.click(screen.getByRole('button', { name: 'Dry-run rewrite batch' }))
-  await screen.findByText('Rewrite dry-run result')
+  await screen.findByText('Paper finalize dry-run passed')
   fireEvent.click(screen.getByRole('button', { name: 'Dry-run finalization package' }))
-  await screen.findByText('Finalization dry-run result')
+  await screen.findByText('Paper finalize dry-run passed')
 
   expect(globalThis.fetch).toHaveBeenNthCalledWith(2, '/control/api/paper-reviews/rewrite-batch', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
   expect(globalThis.fetch).toHaveBeenNthCalledWith(3, '/control/api/paper-reviews/paper-1/prepare-finalization-package', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))

@@ -56,3 +56,27 @@ it('keeps dashboard hashes inside the V2 route surface', () => {
   expect(parseDashboardRoute('#unknown-workflow')).toEqual({ page: 'unsupported', hash: '#unknown-workflow' })
   expect(dashboardV2Href('#unknown-workflow')).toBe('/control/dashboard-v2#unknown-workflow')
 })
+
+it('maps canonical operator hashes to implemented pages', () => {
+  const canonical = [
+    '#overview',
+    '#projects',
+    '#queue:ready',
+    '#runs',
+    '#papers',
+    '#events',
+    '#observability',
+    '#corpus',
+    '#research',
+    '#intake',
+    '#automation',
+    '#project:project-1',
+    '#run:run-1',
+    '#paper:paper-1',
+    '#event:7',
+  ]
+  for (const hash of canonical) {
+    const route = parseDashboardRoute(hash)
+    expect(route.page, hash).not.toBe('unsupported')
+  }
+})

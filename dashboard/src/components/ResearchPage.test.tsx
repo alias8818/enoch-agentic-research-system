@@ -25,7 +25,7 @@ it('loads research facility rows and checks provider budget through bounded APIs
 
   await screen.findByText('Candidate one')
   fireEvent.click(screen.getByRole('button', { name: 'Check provider budget' }))
-  await screen.findByText('Provider budget result')
+  await screen.findByText('Research action completed')
 
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/research/facility?page_size=50', expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }))
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/research/provider-budget?estimated_requests=1&reserve_requests=2', expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }))
@@ -75,7 +75,7 @@ it('dry-runs the bounded research cycle without live enablement', async () => {
 
   await screen.findByText('No research candidates returned.')
   fireEvent.click(screen.getByRole('button', { name: 'Dry-run bounded cycle' }))
-  await screen.findByText('Run-cycle result')
+  await screen.findByText('Research dry-run passed')
 
   expect(globalThis.fetch).toHaveBeenNthCalledWith(2, '/control/api/research/run-cycle', expect.objectContaining({
     method: 'POST',
@@ -108,7 +108,7 @@ it('uses a dialog before running a bounded live research cycle after dry-run', a
 
   await screen.findByText('No research candidates returned.')
   fireEvent.click(screen.getByRole('button', { name: 'Dry-run bounded cycle' }))
-  await screen.findByText('Run-cycle result')
+  await screen.findByText('Research dry-run passed')
 
   fireEvent.click(screen.getByRole('button', { name: 'Run one bounded cycle' }))
 
@@ -117,7 +117,7 @@ it('uses a dialog before running a bounded live research cycle after dry-run', a
   expect(confirmSpy).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Run bounded cycle' }))
 
-  await screen.findByText('Run-cycle result')
+  await screen.findByText('Research dry-run passed')
   await waitFor(() => expect(fetchMock).toHaveBeenNthCalledWith(4, '/control/api/research/run-cycle', expect.objectContaining({
     method: 'POST',
     body: expect.stringContaining('"dry_run":false'),
@@ -159,7 +159,7 @@ it('dry-runs and confirms admitted candidate promotion without dispatching', asy
   expect(screen.getAllByText('cand-1').length).toBeGreaterThan(0)
   fireEvent.click(screen.getByRole('button', { name: 'Dry-run promote selected' }))
 
-  await screen.findByText('Candidate promotion dry-run')
+  await screen.findByText('Research dry-run passed')
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/research/promote-candidate', expect.objectContaining({
     method: 'POST',
     body: JSON.stringify({ candidate_id: 'cand-1', dry_run: true, requested_by: 'dashboard-v2' }),
@@ -171,7 +171,7 @@ it('dry-runs and confirms admitted candidate promotion without dispatching', asy
   expect(confirmSpy).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Promote candidate' }))
 
-  await screen.findByText('Candidate promotion result')
+  await screen.findByText('Research action completed')
   await waitFor(() => expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/research/promote-candidate', expect.objectContaining({
     method: 'POST',
     body: JSON.stringify({ candidate_id: 'cand-1', dry_run: false, requested_by: 'dashboard-v2' }),

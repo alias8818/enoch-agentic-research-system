@@ -4,6 +4,7 @@ import { apiGet, apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
 import { DataTable } from './DataTable'
 import { useOperatorDialog } from './OperatorDialog'
+import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
 
 type AutomationResponse = {
@@ -33,8 +34,9 @@ function firstPaperId(rows: Record<string, unknown>[], preferredPaperId = ''): s
   return String(rows.find((row) => row.paper_id)?.paper_id || '')
 }
 
-function ResultCard({ title = 'Automation command result', result }: { title?: string; result?: MutationResult }) {
-  return <CommandResultSummary result={result ? { title, payload: result } : null} />
+function ResultCard({ result, context }: { result?: MutationResult; context?: CommandPresentationContext }) {
+  if (!result) return null
+  return <CommandResultSummary result={{ payload: result, context }} />
 }
 
 function automationCellHref(row: Record<string, unknown>, column: string): string | undefined {
@@ -246,9 +248,9 @@ export function AutomationPage({ paperId = '' }: { paperId?: string }) {
       />
       {detail.isError ? <div className="state-card state-card--error">Automation detail unavailable: {String(detail.error.message)}</div> : null}
 
-      {rewriteDryRun.data ? <ResultCard title="Rewrite dry-run result" result={rewriteDryRun.data} /> : null}
-      {finalizationDryRun.data ? <ResultCard title="Finalization dry-run result" result={finalizationDryRun.data} /> : null}
-      {checklistUpdate.data ? <ResultCard title="Checklist update result" result={checklistUpdate.data} /> : null}
+      {rewriteDryRun.data ? <ResultCard result={rewriteDryRun.data} context={{ commandFamily: 'finalize' }} /> : null}
+      {finalizationDryRun.data ? <ResultCard result={finalizationDryRun.data} context={{ commandFamily: 'finalize' }} /> : null}
+      {checklistUpdate.data ? <ResultCard result={checklistUpdate.data} context={{ commandFamily: 'automation' }} /> : null}
       {artifactPreviewQuery.isError ? <div className="state-card state-card--error">Artifact preview unavailable: {String(artifactPreviewQuery.error.message)}</div> : null}
       {artifactPreview ? (
         <section className="result-card artifact-preview" aria-label="Artifact preview">

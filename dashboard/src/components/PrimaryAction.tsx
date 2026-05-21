@@ -3,15 +3,25 @@ import { apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
 import type { TopAction } from '../types'
 import { useOperatorDialog } from './OperatorDialog'
+import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
 
 type CommandResult = {
-  title: string
   payload: Record<string, unknown>
+  context?: CommandPresentationContext
 }
 
-function ResultCard({ result }: { result: CommandResult | null }) {
-  return <CommandResultSummary result={result} />
+function commandFamilyForAction(action: TopAction): CommandPresentationContext['commandFamily'] {
+  if (action.kind === 'dispatch_next') return 'dispatch'
+  if (action.kind === 'investigate_followup') return 'followup'
+  if (action.kind === 'write_paper') return 'paper'
+  if (action.kind === 'finalize_paper') return 'finalize'
+  return 'command'
+}
+
+function ResultCard({ result, stale }: { result: CommandResult | null; stale?: boolean }) {
+  if (!result) return null
+  return <CommandResultSummary result={{ payload: result.payload, context: { ...result.context, stale: stale || result.context?.stale } }} />
 }
 
 function isDryRunCommand(action: TopAction): boolean {
@@ -92,7 +102,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
                 skip_rewritten: true,
               })
             : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
-      setResult({ title: 'Primary action dry-run', payload })
+      setResult({ payload, context: { commandFamily: commandFamilyForAction(action) } })
       const ready = action.kind === 'dispatch_next'
         ? String(payload.action || '').includes('dry_run')
         : action.kind === 'investigate_followup'
@@ -109,7 +119,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
       setReadySignature(ready ? currentActionSignature : '')
       onRefresh?.()
     } catch (error) {
-      setResult({ title: 'Primary action dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setResult({ payload: { ok: false, reason: error instanceof Error ? error.message : String(error) }, context: { commandFamily: commandFamilyForAction(action) } })
       clearReadiness()
     } finally {
       setIsPending(false)
@@ -128,11 +138,11 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
     setIsPending(true)
     try {
       const payload = await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
-      setResult({ title: 'Primary action live dispatch', payload })
+      setResult({ payload, context: { commandFamily: commandFamilyForAction(action) } })
       clearReadiness()
       onRefresh?.()
     } catch (error) {
-      setResult({ title: 'Primary action live dispatch failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setResult({ payload: { ok: false, reason: error instanceof Error ? error.message : String(error) }, context: { commandFamily: commandFamilyForAction(action) } })
     } finally {
       setIsPending(false)
     }
@@ -150,11 +160,11 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
     setIsPending(true)
     try {
       const payload = await apiPost<Record<string, unknown>>('/control/api/v1/followups/launch-next', { dry_run: false, requested_by: 'dashboard-v2', max_followup_depth: 4 })
-      setResult({ title: 'Primary action live follow-up', payload })
+      setResult({ payload, context: { commandFamily: commandFamilyForAction(action) } })
       clearReadiness()
       onRefresh?.()
     } catch (error) {
-      setResult({ title: 'Primary action live follow-up failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setResult({ payload: { ok: false, reason: error instanceof Error ? error.message : String(error) }, context: { commandFamily: commandFamilyForAction(action) } })
     } finally {
       setIsPending(false)
     }
@@ -172,11 +182,11 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
     setIsPending(true)
     try {
       const payload = await apiPost<Record<string, unknown>>('/control/papers/draft-next', { dry_run: false, requested_by: 'dashboard-v2', force: true })
-      setResult({ title: 'Primary action live draft', payload })
+      setResult({ payload, context: { commandFamily: commandFamilyForAction(action) } })
       clearReadiness()
       onRefresh?.()
     } catch (error) {
-      setResult({ title: 'Primary action live draft failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setResult({ payload: { ok: false, reason: error instanceof Error ? error.message : String(error) }, context: { commandFamily: commandFamilyForAction(action) } })
     } finally {
       setIsPending(false)
     }
@@ -202,11 +212,11 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
         limit: 10,
         skip_rewritten: true,
       })
-      setResult({ title: 'Primary action live finalization', payload })
+      setResult({ payload, context: { commandFamily: commandFamilyForAction(action) } })
       clearReadiness()
       onRefresh?.()
     } catch (error) {
-      setResult({ title: 'Primary action live finalization failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setResult({ payload: { ok: false, reason: error instanceof Error ? error.message : String(error) }, context: { commandFamily: commandFamilyForAction(action) } })
     } finally {
       setIsPending(false)
     }
@@ -263,7 +273,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
           {action.action_label || 'Open'}
         </a>
       )}
-      <ResultCard result={result} />
+      <ResultCard result={result} stale={staleReady} />
       {dialog}
     </section>
   )

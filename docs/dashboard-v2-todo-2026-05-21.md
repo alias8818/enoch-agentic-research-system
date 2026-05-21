@@ -1,6 +1,6 @@
 # Dashboard V2 TODO checklist
 
-Status: paused after the 2026-05-21 V2 detail/results fix. This checklist exists so dashboard work can resume later without re-discovering the same problems.
+Status: **P0 + P1 landing** — branch `feat/dashboard-v2-trust-guards` (2026-05-21). Trust guards and command-result UX in one PR stack; P2+ deferred.
 
 Screenshot evidence reviewed from:
 
@@ -38,39 +38,41 @@ Raw JSON is allowed only as collapsed debug evidence.
 
 ## Priority 0 — keep the dashboard trustworthy
 
-- [ ] Add a small dashboard smoke script that checks the live V2 build after deployment:
-  - [ ] `/control/dashboard-v2` loads;
-  - [ ] current asset referenced by `index.html` exists;
-  - [ ] `/control/api/v1/overview` returns 200;
-  - [ ] `/control/api/v1/events?page_size=50&sort=recent` returns 200;
-  - [ ] event detail with `event_id=...&include_payload=true&page_size=1&sort=recent` returns 200;
-  - [ ] no first-screen raw JSON block is visible in the command center.
-- [ ] Document the safe deploy command for V2 so rsync does not copy `.hypothesis`, `.coverage`, `.venv`, `.egg-info`, or `node_modules`.
-- [ ] Add a regression test or static check that raw JSON labels are always inside collapsed `<details>` blocks, not primary cards.
-- [ ] Add a regression test that detail hero `<h1>` values are human titles and never start with `project:`, `paper:`, `run:`, or `event:`.
+- [x] Add a small dashboard smoke script that checks the live V2 build after deployment:
+  - [x] `/control/dashboard-v2` loads;
+  - [x] current asset referenced by `index.html` exists (all JS/CSS refs parsed and GET-checked);
+  - [x] `/control/api/v1/overview` returns 200;
+  - [x] `/control/api/v1/events?page_size=50&sort=recent` returns 200;
+  - [x] event detail with `event_id=...&include_payload=true&page_size=1&sort=recent` returns 200;
+  - [x] no first-screen raw JSON block is visible in the command center — Vitest DOM guard in [`App.test.tsx`](../dashboard/src/App.test.tsx) (GET smoke cannot prove rendering).
+- [x] Document the safe deploy command for V2 so rsync does not copy `.hypothesis`, `.coverage`, `.venv`, `.egg-info`, or `node_modules`. See [`dashboard-v2-deploy.md`](dashboard-v2-deploy.md).
+- [x] Add a regression test that raw JSON labels are always inside collapsed `<details class="raw-details">` blocks (Vitest DOM inspection).
+- [x] Add a regression test that detail hero `<h1>` values are human titles and never start with `project:`, `paper:`, `run:`, or `event:`.
+- [x] Wire dashboard Vitest into CI (`npm ci`, `npm test -- --run`, `npm run typecheck`, `npm run lint` — no `npm run build` in CI).
+- [x] Modest route policy tests: canonical hashes map to implemented pages (not a full P6 audit).
 
 ## Priority 1 — command result UX
 
-Problem seen in screenshots: dispatch dry-run produced a giant JSON block in the main viewport. PR #74 improved this, but the next pass should make result cards more decisive.
+Problem seen in screenshots: dispatch dry-run produced a giant JSON block in the main viewport. PR #74 improved this; P1 centralizes decisive titles/severity in [`commandResultPresentation.ts`](../dashboard/src/commandResultPresentation.ts).
 
-- [ ] Replace generic command-result titles like `Primary action dry-run` with action-specific titles:
-  - [ ] `Dispatch dry-run passed`;
-  - [ ] `Dispatch blocked`;
-  - [ ] `Paper finalize dry-run passed`;
-  - [ ] `Paper action blocked`.
-- [ ] Add explicit result severity styling:
-  - [ ] passed;
-  - [ ] dry-run only;
-  - [ ] blocked;
-  - [ ] failed;
-  - [ ] stale state.
-- [ ] Include the exact operator decision in each result card:
-  - [ ] `Safe to dispatch`;
-  - [ ] `Do not dispatch`;
-  - [ ] `Refresh and check again`;
-  - [ ] `Fix blocker first`.
-- [ ] Collapse or remove fields that are mostly backend implementation details.
-- [ ] Keep raw JSON in collapsed debug details only.
+- [x] Replace generic command-result titles like `Primary action dry-run` with action-specific titles:
+  - [x] `Dispatch dry-run passed`;
+  - [x] `Dispatch blocked`;
+  - [x] `Paper finalize dry-run passed`;
+  - [x] `Paper action blocked`.
+- [x] Add explicit result severity styling:
+  - [x] passed;
+  - [x] dry-run only;
+  - [x] blocked;
+  - [x] failed;
+  - [x] stale state.
+- [x] Include the exact operator decision in each result card:
+  - [x] `Safe to dispatch`;
+  - [x] `Do not dispatch`;
+  - [x] `Refresh and check again`;
+  - [x] `Fix blocker first`.
+- [x] Collapse or remove fields that are mostly backend implementation details (`Backend action` removed from primary grid).
+- [x] Keep raw JSON in collapsed debug details only.
 
 Acceptance test idea:
 

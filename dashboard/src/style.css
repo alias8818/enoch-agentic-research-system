@@ -943,6 +943,12 @@ button:disabled { cursor: not-allowed; }
   font-size: .74rem;
 }
 
+.status-chip--passed { color: #86efac; border-color: rgba(134, 239, 172, .35); }
+.status-chip--dry_run { color: #93c5fd; border-color: rgba(147, 197, 253, .35); }
+.status-chip--blocked { color: #fcd34d; border-color: rgba(252, 211, 77, .35); }
+.status-chip--failed { color: #fca5a5; border-color: rgba(252, 165, 165, .35); }
+.status-chip--stale { color: #fdba74; border-color: rgba(253, 186, 116, .35); }
+
 .v2-error-card h2 {
   margin: .15rem 0 .4rem;
 }

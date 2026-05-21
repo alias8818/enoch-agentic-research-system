@@ -3,19 +3,21 @@ import { apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
 import type { OverviewResponse } from '../types'
 import { useOperatorDialog } from './OperatorDialog'
+import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
 
 type CommandResult = {
-  title: string
   payload: Record<string, unknown>
+  context?: CommandPresentationContext
 }
 
 function idempotencyKey(prefix: string): string {
   return `${prefix}:dashboard-v2:${Date.now()}`
 }
 
-function ResultCard({ result }: { result: CommandResult | null }) {
-  return <CommandResultSummary result={result} />
+function ResultCard({ result, stale }: { result: CommandResult | null; stale?: boolean }) {
+  if (!result) return null
+  return <CommandResultSummary result={{ payload: result.payload, context: { ...result.context, stale: stale || result.context?.stale } }} />
 }
 
 function finalizationDisabledReason(finalizeNeeded: number, finalizeReady: boolean, canLiveFinalize: boolean, isPending: boolean): string {
@@ -51,12 +53,12 @@ export function PaperMiniStrip({ pipeline, onRefresh }: { pipeline: OverviewResp
         skip_rewritten: true,
       })
       const ready = payload.dry_run === true && Number(payload.processed || 0) > 0
-      setResult({ title: 'Paper dry-run result', payload })
+      setResult({ payload, context: { commandFamily: 'finalize' } })
       setFinalizeReady(ready)
       setFinalizeSignature(ready ? pipelineSignature : '')
       onRefresh?.()
     } catch (error) {
-      setResult({ title: 'Paper dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setResult({ payload: { ok: false, reason: error instanceof Error ? error.message : String(error) }, context: { commandFamily: 'finalize' } })
       setFinalizeReady(false)
       setFinalizeSignature('')
     } finally {
@@ -84,12 +86,12 @@ export function PaperMiniStrip({ pipeline, onRefresh }: { pipeline: OverviewResp
         limit: 10,
         skip_rewritten: true,
       })
-      setResult({ title: 'Paper live finalization result', payload })
+      setResult({ payload, context: { commandFamily: 'finalize' } })
       setFinalizeReady(false)
       setFinalizeSignature('')
       onRefresh?.()
     } catch (error) {
-      setResult({ title: 'Paper live finalization failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setResult({ payload: { ok: false, reason: error instanceof Error ? error.message : String(error) }, context: { commandFamily: 'finalize' } })
     } finally {
       setIsPending(false)
     }
@@ -120,7 +122,7 @@ export function PaperMiniStrip({ pipeline, onRefresh }: { pipeline: OverviewResp
         <button className="primary-button" type="button" disabled={isPending || !canLiveFinalize} onClick={liveFinalize}>Finalize drafts</button>
         {finalizeDisabledReason ? <p className="paper-strip-disabled-reason">{finalizeDisabledReason}</p> : null}
       </div>
-      <ResultCard result={result} />
+      <ResultCard result={result} stale={finalizeReady && finalizeSignature !== pipelineSignature} />
       {dialog}
     </section>
   )

@@ -6,6 +6,7 @@ import { dashboardV2Href } from '../routes'
 import type { DashboardRoute } from '../routes'
 import { DataTable } from './DataTable'
 import { useOperatorDialog } from './OperatorDialog'
+import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
 
 type ResearchFacilityResponse = {
@@ -50,8 +51,9 @@ function shortId(value: string): string {
   return `${value.slice(0, 14)}…${value.slice(-10)}`
 }
 
-function ResultCard({ title, result }: { title: string; result?: Record<string, unknown> }) {
-  return <CommandResultSummary result={result ? { title, payload: result } : null} />
+function ResultCard({ result, context, stale }: { result?: Record<string, unknown>; context?: CommandPresentationContext; stale?: boolean }) {
+  if (!result) return null
+  return <CommandResultSummary result={{ payload: result, context: { ...context, stale } }} />
 }
 
 function facilitySignature(facility?: ResearchFacilityResponse): string {
@@ -266,8 +268,8 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
         ))}
       </section>
 
-      <ResultCard title="Provider budget result" result={budget.data as Record<string, unknown> | undefined} />
-      <ResultCard title="Run-cycle result" result={cycle.data as Record<string, unknown> | undefined} />
+      <ResultCard result={budget.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} />
+      <ResultCard result={cycle.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} stale={staleCycleDryRun} />
 
       <section className="queue-command-card">
         <div>
@@ -285,8 +287,8 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
         </div>
       </section>
 
-      {promotion.data?.action === 'dry_run_promote_candidate' ? <ResultCard title="Candidate promotion dry-run" result={promotion.data as Record<string, unknown>} /> : null}
-      {promotion.data?.action === 'promote_candidate' ? <ResultCard title="Candidate promotion result" result={promotion.data as Record<string, unknown>} /> : null}
+      {promotion.data?.action === 'dry_run_promote_candidate' ? <ResultCard result={promotion.data as Record<string, unknown>} context={{ commandFamily: 'research' }} /> : null}
+      {promotion.data?.action === 'promote_candidate' ? <ResultCard result={promotion.data as Record<string, unknown>} context={{ commandFamily: 'research' }} /> : null}
 
       {dialog}
 
