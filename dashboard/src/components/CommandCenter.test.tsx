@@ -423,6 +423,23 @@ it('runs a confirmed live feed cycle only after a feed dry-run', async () => {
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
+it('invalidates live feed authorization when feed-eligible lanes change', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'research_cycle_dry_run', dry_run: true, reason: 'would generate one candidate' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  const { rerender } = render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 0, dispatch_available: false, feed_pressure: { next_autopilot_action: 'generate_candidate' } }]} onRefresh={onRefresh} />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Feed idle lanes' }))
+  await screen.findByText('would generate one candidate')
+  expect(screen.getByRole('button', { name: 'Run feed cycle' })).toBeEnabled()
+
+  rerender(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, feed_pressure: { next_autopilot_action: 'observe' }, next_candidate: { project_id: 'gb10-project', project_name: 'GB10 job' } }]} onRefresh={onRefresh} />)
+
+  expect(screen.getByRole('button', { name: 'Run feed cycle' })).toBeDisabled()
+  expect(screen.getByText('Run feed cycle disabled: lane state changed; run Feed idle lanes again.')).toBeInTheDocument()
+})
+
 it('uses dispatch-one for lane-card dispatch checks so the selected lane candidate is tested', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'dry-run selected explicit queued candidate', candidate: { project_id: 'gb10-project' } }), { status: 200 }))
