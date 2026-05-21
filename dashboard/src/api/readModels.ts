@@ -15,8 +15,11 @@ export type PagedRows<T> = {
 export type QueueListRow = {
   project_id?: string
   project_name?: string
+  title?: string
   status?: string
   dispatch_priority?: number
+  selection_rank?: number
+  current_run_id?: string
   next_action_hint?: string
   manual_review_required?: boolean
   blocked_reason?: string
@@ -34,6 +37,51 @@ export type ProjectListRow = {
   queue_status?: string
   latest_run_state?: string
   related_paper_status?: string
+  machine_target?: string
+  lane?: string
+  updated_at?: string
+  age_seconds?: number
+}
+
+export type RunListRow = {
+  run_id?: string
+  project_id?: string
+  project_name?: string
+  state?: string
+  gate_state?: string
+  dispatch_mode?: string
+  machine_target?: string
+  current_activity?: string
+  updated_at?: string
+  age_seconds?: number
+}
+
+export type PaperListRow = {
+  paper_id?: string
+  project_id?: string
+  project_name?: string
+  title?: string
+  paper_title?: string
+  paper_status?: string
+  review_status?: string
+  corpus_imported?: boolean
+  corpus_import_id?: string
+  artifact_paths_present?: Record<string, unknown>
+  updated_at?: string
+  age_seconds?: number
+}
+
+export type EventListRow = {
+  event_id?: string | number
+  id?: string | number
+  event_type?: string
+  summary?: string
+  entity_type?: string
+  entity_id?: string
+  project_id?: string
+  run_id?: string
+  paper_id?: string
+  created_at?: string
   updated_at?: string
   age_seconds?: number
 }
