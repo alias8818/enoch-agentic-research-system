@@ -30,6 +30,35 @@ function sentence(value?: string | null): string {
   return String(value || 'observe').replaceAll('_', ' ')
 }
 
+const DEFAULT_DESIRED_QUEUE_DEPTH = 25
+
+function laneDesiredQueueDepth(lane: WorkerLane): number {
+  const desired = lane.feed_pressure?.desired_queue_depth
+  return typeof desired === 'number' && desired >= 0 ? desired : DEFAULT_DESIRED_QUEUE_DEPTH
+}
+
+function laneQueueDepthLabel(lane: WorkerLane): string {
+  const queued = lane.queued_count ?? 0
+  return `${queued} / ${laneDesiredQueueDepth(lane)}`
+}
+
+function laneBelowDesiredDepth(lane: WorkerLane): boolean {
+  return (lane.queued_count ?? 0) < laneDesiredQueueDepth(lane)
+}
+
+function laneFeedReason(lane: WorkerLane): string | null {
+  const queued = lane.queued_count ?? 0
+  if (lane.status === 'active' && queued > 0) {
+    return `${queued} queued waiting while this lane is active.`
+  }
+  if (!laneBelowDesiredDepth(lane)) return null
+  if (lane.feed_pressure?.operator_summary) return lane.feed_pressure.operator_summary
+  const feedAction = lane.feed_pressure?.next_autopilot_action || 'observe'
+  if (feedAction === 'promote_candidate') return `${laneLabel(lane)} needs admitted candidates promoted to reach queue depth.`
+  if (feedAction === 'generate_candidate') return `${laneLabel(lane)} needs generated work to reach queue depth.`
+  return `${laneLabel(lane)} is below desired queue depth.`
+}
+
 function laneDisabledReason(lane: WorkerLane, canFeed: boolean, canDispatch: boolean): string {
   if (canDispatch) return 'Ready to dispatch queued work.'
   if (lane.dispatch_blocker) return lane.dispatch_blocker
@@ -324,6 +353,7 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
             const canLiveDispatchLane = canDispatch && Boolean(projectId) && liveLaneProjectId === projectId
             const active = lane.active_item?.project_name || lane.active_item?.project_id
             const next = lane.next_candidate?.project_name || lane.next_candidate?.project_id
+            const feedReason = laneFeedReason(lane)
             return (
               <article key={lane.lane_key || lane.machine_target || laneLabel(lane)} className="lane-card">
                 <div className="lane-card-top">
@@ -331,8 +361,8 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
                     <p className="eyebrow">{laneLabel(lane)}</p>
                     <h3>{lane.status || 'unknown'}</h3>
                   </div>
-                  <div className="lane-queue-count" aria-label={`${laneLabel(lane)} queued count`}>
-                    <strong>{lane.queued_count ?? 0}</strong>
+                  <div className="lane-queue-count" aria-label={`${laneLabel(lane)} queue depth ${laneQueueDepthLabel(lane)} queued`}>
+                    <strong>{laneQueueDepthLabel(lane)}</strong>
                     <span>queued</span>
                   </div>
                 </div>
@@ -350,6 +380,7 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
                     <dd>{sentence(feedAction)}</dd>
                   </div>
                 </dl>
+                {feedReason ? <p className="lane-feed-reason">{feedReason}</p> : null}
                 <p className={canDispatch ? 'lane-reason lane-reason--ready' : 'lane-reason'}>{laneDisabledReason(lane, canFeed, canDispatch)}</p>
                 <div className="lane-actions">
                   <button className="secondary-button" disabled={!canFeed || busyAction !== null} onClick={feedLane}>Feed idle lane</button>

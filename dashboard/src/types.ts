@@ -27,7 +27,12 @@ export interface WorkerLane {
   dispatch_blocker?: string
   active_item?: { project_id?: string; project_name?: string; current_run_id?: string } | null
   next_candidate?: { project_id?: string; project_name?: string } | null
-  feed_pressure?: { next_autopilot_action?: string; operator_summary?: string } | null
+  feed_pressure?: {
+    next_autopilot_action?: string
+    operator_summary?: string
+    desired_queue_depth?: number
+    queue_deficit?: number
+  } | null
 }
 
 export interface MovementBlocker {
