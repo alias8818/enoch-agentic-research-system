@@ -1,8 +1,8 @@
 # Dashboard redesign plan
 
-Status: **P0–P7 and Phase 2 complete; Phase 3 in progress on `main`** (2026-05-21). V2 at `/control/dashboard-v2` is the canonical operator console; legacy `/control/dashboard` redirects with hash preserved. This document is the long-lived contract so the UI does not drift back into raw backend-state exposure.
+Status: **P0–P7, Phase 2, and Phase 3 complete on `main`** (2026-05-21). V2 at `/control/dashboard-v2` is the canonical operator console; legacy `/control/dashboard` redirects with hash preserved. This document is the long-lived contract so the UI does not drift back into raw backend-state exposure.
 
-Active checklist (Phase 3 optional only): [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md).
+Active checklist (ongoing discipline only): [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md).
 
 ## Goal
 
@@ -97,7 +97,7 @@ The first shipped slice is the redesigned shell and overview experience:
 - **Phase 2 detail audits (2026-05-21):** project (#87), run (#100), paper (#104), event (#105), idea/intake (#106), research candidate (#108) — structured summaries via [`detailOperatorSummary.ts`](../dashboard/src/detailOperatorSummary.ts).
 - **Phase 3 landed (2026-05-21):** narrow Playwright visual baselines (#109), corpus drill-down links ([`corpusLinks.ts`](../dashboard/src/corpusLinks.ts)), automation/research soft parity on dedicated pages, Phase 2 doc guards (#107), operator chrome — keyboard shortcut help ([`keyboardShortcuts.ts`](../dashboard/src/keyboardShortcuts.ts), [`KeyboardShortcutHelp.tsx`](../dashboard/src/components/KeyboardShortcutHelp.tsx)) and queue saved table filters in localStorage ([`savedTableFilters.ts`](../dashboard/src/savedTableFilters.ts)).
 - Extract the inline dashboard into static assets or a small frontend package if the UI keeps growing (already done via `dashboard/` → committed `dashboard_v2/`).
-- **Phase 3 open:** read-model hardening (ongoing) — see [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md).
+- **Phase 3 complete (#110–#113, #109):** cutover audit doc sync, operator chrome, queue visual baseline, workbench KPI de-noise. **Ongoing:** read-model DTO hardening — see [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md).
 
 ## Performance slices
 

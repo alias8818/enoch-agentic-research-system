@@ -1,6 +1,6 @@
 # Dashboard V2 TODO checklist
 
-Status: **Phase 2 complete; Phase 3 in progress on `main`** (2026-05-21). P0–P7, command-center semantics (#84–#96, #99–#101), detail-route audits (#87, #100, #104–#106), research candidate panel (#108), Phase 2 doc guards (#107), and narrow visual-regression foundation (#109) are merged. Dashboard V2 at `/control/dashboard-v2` is the canonical operator console on the reference control VM ([`current-runtime-snapshot.md`](current-runtime-snapshot.md), SSH `enoch-core.exe.xyz`). Remaining work is optional Phase 3 polish below — several items below were already landed but are now marked `[x]` so this doc stays the source of truth.
+Status: **P0–P7, Phase 2, and Phase 3 complete on `main`** (2026-05-21). Command-center semantics (#84–#96, #99–#101), detail-route audits (#87, #100, #104–#106, #108), Phase 3 polish (#110–#113, #109 visual baselines), and infra fixes (#114–#116) are merged. Dashboard V2 at `/control/dashboard-v2` is the canonical operator console on the reference control VM ([`current-runtime-snapshot.md`](current-runtime-snapshot.md), SSH `enoch-core.exe.xyz`). Only ongoing read-model DTO discipline remains below (not a blocking checklist item).
 
 Screenshot evidence reviewed from:
 
@@ -252,7 +252,7 @@ Merged per [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructi
 - [x] Detail route audit follow-up: idea detail page (worker-idea-detail-audit, #106)
 - [x] Detail route audit follow-up: research facility candidate panel ([`deriveResearchCandidateOperatorSummary`](../dashboard/src/detailOperatorSummary.ts), #108)
 
-## Phase 3 — optional follow-ups
+## Phase 3 — optional follow-ups (complete)
 
 No blocking gate. Pick one narrow PR at a time; keep [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md) product rules.
 
