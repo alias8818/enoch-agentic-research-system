@@ -67,10 +67,9 @@ Expect `"ok": true`. Hash drift or commit mismatch means the service is not prov
 3. **Smoke** Dashboard V2 shell, assets, and bounded v1 APIs:
 
 ```bash
-ssh enoch-core.exe.xyz 'TOKEN=$(jq -r .control_api_bearer_token /etc/enoch-control-plane/config.json) && \
+ssh enoch-core.exe.xyz 'ENOCH_CONTROL_TOKEN="$(jq -r .control_api_bearer_token /etc/enoch-control-plane/config.json)" \
   python3 /opt/enoch-control-plane/scripts/dashboard_v2_smoke.py \
     --base-url http://127.0.0.1:8787 \
-    --token "$TOKEN" \
     --check-legacy-dashboard-redirect'
 ```
 

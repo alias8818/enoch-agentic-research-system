@@ -77,10 +77,9 @@ python3 scripts/validate_runtime_deploy.py \
   --expected-commit origin/main \
   --summary-only
 
-TOKEN="$(jq -r .control_api_bearer_token /etc/enoch-control-plane/config.json)"
+ENOCH_CONTROL_TOKEN="$(jq -r .control_api_bearer_token /etc/enoch-control-plane/config.json)" \
 python3 /opt/enoch-control-plane/scripts/dashboard_v2_smoke.py \
   --base-url http://127.0.0.1:8787 \
-  --token "$TOKEN" \
   --check-legacy-dashboard-redirect
 ```
 
