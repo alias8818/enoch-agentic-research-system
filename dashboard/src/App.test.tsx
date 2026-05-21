@@ -59,6 +59,41 @@ it('shows recent activity inside the collapsed overview secondary fold', async (
   expect(screen.getByRole('link', { name: /Queue Alert/ })).toHaveAttribute('href', '/control/dashboard-v2#event:42')
 })
 
+it('checks automation readiness above the fold on demand', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:00Z',
+      counts: { active: 0, queued: 0 },
+      paper_counts: {},
+      movement_diagnosis: { status: 'ready', primary_reason: 'No blockers.', blockers: [] },
+      flags: {},
+      recent_events: [],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      label: 'Long-haul mode: READY',
+      blockers: [],
+      checks: [{ name: 'queue_unpaused', ok: true }],
+      summary: { queued: 0, active: 0, queue_paused: false, maintenance_mode: false },
+    }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
+  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
+  const readinessCard = screen.getByLabelText('Readiness check')
+  expect(readinessCard).toHaveTextContent('Not checked')
+  expect(globalThis.fetch).not.toHaveBeenCalledWith('/control/api/v1/automation-readiness', expect.any(Object))
+
+  fireEvent.click(screen.getByRole('button', { name: 'Check readiness' }))
+
+  expect(await within(readinessCard).findByText('Long-haul mode: READY')).toBeInTheDocument()
+  expect(globalThis.fetch).toHaveBeenNthCalledWith(3, '/control/api/v1/automation-readiness', expect.any(Object))
+})
+
 it('shows automation readiness in the collapsed overview secondary fold', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -88,9 +123,10 @@ it('shows automation readiness in the collapsed overview secondary fold', async 
 
   fireEvent.click(screen.getByText('Show secondary details'))
 
-  expect(await screen.findByText('Automation readiness')).toBeInTheDocument()
-  expect(await screen.findByText('Long-haul mode: BLOCKED — queued/active state inconsistent')).toBeInTheDocument()
-  expect(screen.getAllByText('queue_counts_consistent: blocked')).toHaveLength(2)
+  const secondaryReadiness = screen.getByLabelText('Automation readiness')
+  expect(await within(secondaryReadiness).findByText('Automation readiness')).toBeInTheDocument()
+  expect(await within(secondaryReadiness).findByText('Long-haul mode: BLOCKED — queued/active state inconsistent')).toBeInTheDocument()
+  expect(within(secondaryReadiness).getAllByText('queue_counts_consistent: blocked')).toHaveLength(2)
   expect(globalThis.fetch).toHaveBeenNthCalledWith(3, '/control/api/v1/automation-readiness', expect.any(Object))
 })
 

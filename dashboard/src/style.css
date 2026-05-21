@@ -235,6 +235,7 @@ button:disabled { cursor: not-allowed; }
 .primary-action,
 .paper-strip,
 .movement-panel,
+.readiness-check-card,
 .freshness-bar,
 .safety-bar,
 .secondary-fold {
@@ -311,6 +312,31 @@ button:disabled { cursor: not-allowed; }
   line-height: 1;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
+}
+
+
+.readiness-check-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 4.9rem;
+  padding: 0.95rem 1.05rem;
+  border-radius: 1.2rem;
+}
+
+.readiness-check-card h2 {
+  margin: 0.22rem 0 0;
+  color: #fff8ea;
+  font-size: 1rem;
+  line-height: 1.15;
+}
+
+.readiness-check-card p:not(.eyebrow) {
+  margin: 0.3rem 0 0;
+  color: #a7a199;
+  font-size: 0.84rem;
+  line-height: 1.4;
 }
 
 .freshness-bar,
@@ -522,6 +548,7 @@ button:disabled { cursor: not-allowed; }
   .app-frame { padding: 0.65rem; }
   .freshness-bar,
   .safety-bar,
+  .readiness-check-card,
   .lane-console-head,
   .primary-action,
   .movement-head { flex-direction: column; align-items: stretch; }

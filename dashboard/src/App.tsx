@@ -41,13 +41,14 @@ function TokenGate({ onSave }: { onSave: () => void }) {
 function OverviewPage() {
   const queryClient = useQueryClient()
   const [secondaryOpen, setSecondaryOpen] = useState(false)
+  const [readinessRequested, setReadinessRequested] = useState(false)
   const overview = useQuery({ queryKey: ['overview'], queryFn: () => apiGet<OverviewResponse>('/control/api/v1/overview?active_limit=8&event_limit=6'), refetchInterval: 30_000 })
   const status = useQuery({ queryKey: ['status'], queryFn: () => apiGet<StatusResponse>('/control/api/status'), refetchInterval: 30_000 })
   const readiness = useQuery({
     queryKey: ['automation-readiness'],
     queryFn: () => apiGet<AutomationReadiness>('/control/api/v1/automation-readiness'),
     refetchInterval: 60_000,
-    enabled: secondaryOpen,
+    enabled: secondaryOpen || readinessRequested,
   })
   const refresh = () => {
     void overview.refetch()
@@ -75,6 +76,16 @@ function OverviewPage() {
         <SafetyBar flags={data.flags} onRefresh={refresh} />
       </div>
       <CommandHero overview={data} diagnosis={diagnosis} />
+      <ReadinessCheckCard
+        readiness={readiness.data}
+        isLoading={readiness.isLoading || readiness.isFetching}
+        error={readiness.error}
+        requested={readinessRequested}
+        onCheck={() => {
+          setReadinessRequested(true)
+          if (readinessRequested) void readiness.refetch()
+        }}
+      />
       <div className="command-grid">
         <WorkerLanes lanes={status.data?.worker_lanes || []} isLoading={status.isLoading} error={status.error} onRefresh={refresh} />
         <div className="side-rail">
@@ -115,6 +126,37 @@ function OverviewPage() {
         <AutomationReadinessSummary readiness={readiness.data} isLoading={readiness.isLoading} error={readiness.error} />
       </details>
     </div>
+  )
+}
+
+function ReadinessCheckCard({
+  readiness,
+  isLoading,
+  error,
+  requested,
+  onCheck,
+}: {
+  readiness?: AutomationReadiness;
+  isLoading: boolean;
+  error: unknown;
+  requested: boolean;
+  onCheck: () => void;
+}) {
+  const blockers = readiness?.blockers || []
+  const label = error
+    ? `Unavailable: ${String(error instanceof Error ? error.message : error)}`
+    : readiness?.label || (isLoading ? 'Checking…' : requested ? 'No readiness result returned' : 'Not checked')
+  return (
+    <section className="readiness-check-card" aria-label="Readiness check">
+      <div>
+        <p className="eyebrow">Automation readiness</p>
+        <h2>{label}</h2>
+        <p>{blockers.length > 0 ? blockers[0] : readiness?.ok ? 'Long-haul checks currently pass.' : 'Run the readiness check before leaving automation unattended.'}</p>
+      </div>
+      <button className="secondary-button" type="button" disabled={isLoading} onClick={onCheck}>
+        {readiness ? 'Refresh readiness' : 'Check readiness'}
+      </button>
+    </section>
   )
 }
 
