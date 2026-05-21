@@ -86,6 +86,7 @@ export function ResearchPage() {
     mutationFn: (payload: { candidate_id: string; dry_run: boolean; requested_by: string }) => apiPost<PromotionResponse>('/control/api/research/promote-candidate', payload),
     onSuccess: (payload) => {
       if (payload.action === 'promote_candidate') {
+        setSelectedCandidate(null)
         void queryClient.invalidateQueries({ queryKey: ['research-facility'] })
       }
     },

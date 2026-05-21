@@ -121,4 +121,6 @@ it('dry-runs and confirms admitted candidate promotion without dispatching', asy
     method: 'POST',
     body: JSON.stringify({ candidate_id: 'cand-1', dry_run: false, requested_by: 'dashboard-v2' }),
   })))
+  await screen.findByText('No research candidates returned.')
+  expect(screen.getByRole('heading', { name: 'No candidate selected' })).toBeInTheDocument()
 })
