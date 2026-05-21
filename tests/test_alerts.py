@@ -287,3 +287,28 @@ def test_queue_alert_notify_does_not_treat_event_store_failure_as_cooldown(monke
     assert result["sent"] is True
     assert result["suppressed_by_cooldown"] is False
     assert "event store unavailable" in result["event_append_error"]
+
+def test_queue_alert_findings_includes_worker_settling_warning() -> None:
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[],
+        warnings=[
+            SimpleNamespace(
+                severity="warn",
+                source="worker_settling",
+                authority="cross-source active-lane reconciliation",
+                message="GB10 worker is settling a recent worker run with no active process",
+                observed_at="2026-05-21T00:00:00+00:00",
+                suggested_action="wait",
+                data={},
+            )
+        ],
+        source_freshness={},
+    )
+
+    findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
+
+    assert len(findings) == 1
+    assert findings[0].source == "worker_settling"
