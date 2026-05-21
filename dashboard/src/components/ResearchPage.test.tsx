@@ -81,16 +81,32 @@ it('dry-runs the bounded research cycle without live enablement', async () => {
 })
 
 
-it('uses a dialog before running a bounded live research cycle', async () => {
+it('requires a bounded-cycle dry-run before live research cycle is enabled', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T08:10:00Z', counts: {}, rows: [] }), { status: 200 }))
+
+  renderWithClient(<ResearchPage />)
+
+  await screen.findByText('No research candidates returned.')
+  expect(screen.getByRole('button', { name: 'Run one bounded cycle' })).toBeDisabled()
+  expect(screen.getByText('Run one bounded cycle disabled: dry-run bounded cycle first.')).toBeInTheDocument()
+})
+
+it('uses a dialog before running a bounded live research cycle after dry-run', async () => {
   const confirmSpy = vi.spyOn(window, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
-    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T08:10:00Z', counts: {}, rows: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'research_cycle_dry_run', dry_run: true }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T08:10:00Z', counts: {}, rows: [] }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'research_cycle_live' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [] }), { status: 200 }))
 
   renderWithClient(<ResearchPage />)
 
   await screen.findByText('No research candidates returned.')
+  fireEvent.click(screen.getByRole('button', { name: 'Dry-run bounded cycle' }))
+  await screen.findByText('Run-cycle result')
+
   fireEvent.click(screen.getByRole('button', { name: 'Run one bounded cycle' }))
 
   const dialog = await screen.findByRole('dialog', { name: 'Run one bounded live cycle?' })
@@ -99,10 +115,31 @@ it('uses a dialog before running a bounded live research cycle', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Run bounded cycle' }))
 
   await screen.findByText('Run-cycle result')
-  await waitFor(() => expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/research/run-cycle', expect.objectContaining({
+  await waitFor(() => expect(fetchMock).toHaveBeenNthCalledWith(4, '/control/api/research/run-cycle', expect.objectContaining({
     method: 'POST',
     body: expect.stringContaining('"dry_run":false'),
   })))
+})
+
+it('invalidates bounded-cycle live authorization when facility state changes', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T08:10:00Z', counts: { admitted: 0 }, rows: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'research_cycle_dry_run', dry_run: true }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T08:10:00Z', counts: { admitted: 0 }, rows: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T08:12:00Z', counts: { admitted: 1 }, rows: [{ candidate_id: 'cand-new', status: 'admitted', title: 'New candidate' }] }), { status: 200 }))
+
+  renderWithClient(<ResearchPage />)
+
+  await screen.findByText('No research candidates returned.')
+  fireEvent.click(screen.getByRole('button', { name: 'Dry-run bounded cycle' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Run one bounded cycle' })).toBeEnabled())
+
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh candidates' }))
+  await screen.findByText('New candidate')
+
+  expect(fetchMock).toHaveBeenCalledTimes(4)
+  expect(screen.getByRole('button', { name: 'Run one bounded cycle' })).toBeDisabled()
+  expect(screen.getByText('Run one bounded cycle disabled: facility state changed; dry-run bounded cycle again.')).toBeInTheDocument()
 })
 
 it('dry-runs and confirms admitted candidate promotion without dispatching', async () => {

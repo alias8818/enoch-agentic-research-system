@@ -25,6 +25,7 @@ type CycleResponse = {
   ok?: boolean
   action?: string
   reason?: string
+  dry_run?: boolean
   generated_count?: number
   promoted_count?: number
   dispatched_count?: number
@@ -72,6 +73,40 @@ function ResultCard({ title, result }: { title: string; result?: Record<string, 
       <pre>{JSON.stringify(result, null, 2)}</pre>
     </section>
   )
+}
+
+function facilitySignature(facility?: ResearchFacilityResponse): string {
+  if (!facility) return ''
+  const counts = facility.counts && typeof facility.counts === 'object'
+    ? Object.entries(facility.counts).sort(([left], [right]) => left.localeCompare(right))
+    : []
+  return JSON.stringify({
+    generated_at: facility.generated_at || '',
+    counts,
+    rows: (facility.rows || []).map((row) => [
+      String(row.candidate_id || ''),
+      String(row.status || ''),
+      String(row.admission_decision || ''),
+      String(row.machine_target || ''),
+      String(row.updated_at || ''),
+    ]),
+  })
+}
+
+function cycleDryRunAllowsLive(payload?: CycleResponse): boolean {
+  if (!payload) return false
+  const action = String(payload.action || '').toLowerCase()
+  const reason = String(payload.reason || '').toLowerCase()
+  if (action.includes('blocked') || action.includes('skipped') || reason.includes('blocked')) return false
+  return payload.dry_run === true || action.includes('dry_run') || reason.includes('would ')
+}
+
+function liveCycleDisabledReason(canLiveCycle: boolean, dryRunReady: boolean, staleDryRun: boolean, isPending: boolean): string {
+  if (isPending) return 'Run one bounded cycle disabled: research command is running.'
+  if (canLiveCycle) return ''
+  if (staleDryRun) return 'Run one bounded cycle disabled: facility state changed; dry-run bounded cycle again.'
+  if (!dryRunReady) return 'Run one bounded cycle disabled: dry-run bounded cycle first.'
+  return ''
 }
 
 function CandidateDetail({ row, candidateId }: { row: Record<string, unknown> | null; candidateId: string }) {
@@ -127,6 +162,8 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
   const queryClient = useQueryClient()
   const { confirm, dialog } = useOperatorDialog()
   const [selectedCandidate, setSelectedCandidate] = useState<Record<string, unknown> | null>(null)
+  const [cycleDryRunSignature, setCycleDryRunSignature] = useState('')
+  const [cycleDryRunReady, setCycleDryRunReady] = useState(false)
   const facility = useQuery({ queryKey: ['research-facility'], queryFn: () => apiGet<ResearchFacilityResponse>('/control/api/research/facility?page_size=50') })
   const budget = useMutation({ mutationFn: () => apiGet<BudgetResponse>('/control/api/research/provider-budget?estimated_requests=1&reserve_requests=2') })
   const cycle = useMutation({
@@ -144,10 +181,14 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
   })
 
   async function runDryCycle() {
-    await cycle.mutateAsync(dryRunCyclePayload)
+    const payload = await cycle.mutateAsync(dryRunCyclePayload)
+    const ready = cycleDryRunAllowsLive(payload)
+    setCycleDryRunReady(ready)
+    setCycleDryRunSignature(ready ? currentFacilitySignature : '')
   }
 
   async function runLiveCycle() {
+    if (!canLiveCycle) return
     const confirmed = await confirm({
       title: 'Run one bounded live cycle?',
       message: 'This can spend one provider request and promote candidates. V2 will not dispatch, wait for completion, write papers, or finalize publications from this action.',
@@ -156,9 +197,15 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
     })
     if (!confirmed) return
     await cycle.mutateAsync(liveCyclePayload)
+    setCycleDryRunReady(false)
+    setCycleDryRunSignature('')
   }
 
   const rows = facility.data?.rows || []
+  const currentFacilitySignature = facilitySignature(facility.data)
+  const canLiveCycle = cycleDryRunReady && Boolean(currentFacilitySignature) && cycleDryRunSignature === currentFacilitySignature
+  const staleCycleDryRun = cycleDryRunReady && cycleDryRunSignature !== currentFacilitySignature
+  const cycleDisabledReason = liveCycleDisabledReason(canLiveCycle, cycleDryRunReady, staleCycleDryRun, cycle.isPending)
   const routeCandidateId = route?.candidateId || ''
   const activeCandidate = selectedCandidate || rows.find((row) => String(row.candidate_id || '') === routeCandidateId) || null
   const selectedCandidateId = String(activeCandidate?.candidate_id || routeCandidateId || '')
@@ -199,8 +246,9 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
           <div className="action-row">
             <button className="secondary-button" type="button" onClick={() => budget.mutate()} disabled={budget.isPending}>Check provider budget</button>
             <button className="secondary-button" type="button" onClick={runDryCycle} disabled={cycle.isPending}>Dry-run bounded cycle</button>
-            <button className="primary-button" type="button" onClick={runLiveCycle} disabled={cycle.isPending}>Run one bounded cycle</button>
+            <button className="primary-button" type="button" onClick={runLiveCycle} disabled={cycle.isPending || !canLiveCycle}>Run one bounded cycle</button>
           </div>
+          {cycleDisabledReason ? <p className="primary-action-disabled-reason">{cycleDisabledReason}</p> : null}
         </div>
         <div className="page-hero-action">
           <span>Last loaded {facility.data?.generated_at || 'unknown'}</span>
