@@ -255,3 +255,27 @@ it('opens intake hashes in the V2 ideas intake page instead of legacy fallback',
   expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledWith('/control/api/intake/ideas?page_size=100', expect.any(Object))
 })
+
+it('opens intake idea hashes as first-class V2 details', async () => {
+  window.location.hash = '#idea:idea-1'
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      latest_sync: { source: 'idea_intake', status: 'ok', observed_at: '2026-05-21T00:00:00Z' },
+      projection_counts: { queued: 1 },
+      queued_projection: [
+        { idea_id: 'idea-1', title: 'Direct idea detail', idea_status: 'admitted', queue_status: 'queued', next_action_hint: 'dispatch', source_kind: 'synthetic' },
+        { idea_id: 'idea-2', title: 'Other idea', idea_status: 'candidate', queue_status: '' },
+      ],
+    }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByRole('heading', { name: 'Ideas intake' })).toBeInTheDocument()
+  const detail = await screen.findByLabelText('Intake idea detail')
+  expect(detail).toHaveTextContent('Direct idea detail')
+  expect(detail).toHaveTextContent('idea-1')
+  expect(detail).toHaveTextContent('dispatch')
+  expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith('/control/api/intake/ideas?page_size=100', expect.any(Object))
+})

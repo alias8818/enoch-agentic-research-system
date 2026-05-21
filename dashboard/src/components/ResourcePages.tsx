@@ -353,7 +353,23 @@ type IntakeResponse = {
   recent_events?: Record<string, unknown>[]
 }
 
-function IntakeIdeaDetail({ row, onClose }: { row: Record<string, unknown> | null; onClose: () => void }) {
+function IntakeIdeaDetail({ row, ideaId, onClose }: { row: Record<string, unknown> | null; ideaId?: string; onClose: () => void }) {
+  if (!row && ideaId) {
+    return (
+      <section className="detail-panel" aria-label="Intake idea detail">
+        <div className="detail-panel-head">
+          <div>
+            <p className="eyebrow">Intake idea detail</p>
+            <h2>{ideaId}</h2>
+          </div>
+          <button className="secondary-button" type="button" onClick={onClose}>Close</button>
+        </div>
+        <section className="detail-summary">
+          <p>Idea {ideaId} is not present in the bounded intake projection returned by /control/api/intake/ideas.</p>
+        </section>
+      </section>
+    )
+  }
   if (!row) return null
   return (
     <section className="detail-panel" aria-label="Intake idea detail">
@@ -383,7 +399,13 @@ function IntakeIdeaDetail({ row, onClose }: { row: Record<string, unknown> | nul
   )
 }
 
-export function IntakePage() {
+function intakeCellHref(row: Record<string, unknown>, column: string): string | undefined {
+  if (column !== 'idea_id') return undefined
+  const ideaId = String(row.idea_id || '')
+  return ideaId ? dashboardV2Href(`#idea:${encodeURIComponent(ideaId)}`) : undefined
+}
+
+export function IntakePage({ route }: { route?: Extract<DashboardRoute, { page: 'intake' }> }) {
   const [selection, setSelection] = useState<Record<string, unknown> | null>(null)
   const query = useQuery({ queryKey: ['intake'], queryFn: () => apiGet<IntakeResponse>('/control/api/intake/ideas?page_size=100') })
   if (query.isLoading) return <LoadingCard label="ideas intake" />
@@ -392,6 +414,9 @@ export function IntakePage() {
   const counts = data.projection_counts || {}
   const skipped = Object.entries(data.skipped_reasons || {}).map(([reason, count]) => ({ reason, count }))
   const latestSync = data.latest_sync ? [data.latest_sync] : []
+  const routeIdeaId = route?.ideaId || ''
+  const rows = data.queued_projection || []
+  const selectedRow = selection || rows.find((row) => String(row.idea_id || '') === routeIdeaId) || null
   return (
     <PageShell title="Ideas intake" subtitle="Supabase-native idea workbench from /control/api/intake/ideas. Notion fields are provenance only." action={<PageRefreshAction generatedAt={data.generated_at} isFetching={query.isFetching} onRefresh={() => { setSelection(null); void query.refetch() }} refreshLabel="Refresh intake" />}>
       <section className="count-grid">
@@ -410,8 +435,8 @@ export function IntakePage() {
         <h2>Skipped reasons</h2>
         <DataTable rows={skipped} columns={['reason', 'count']} empty="No skipped intake rows returned." />
       </section>
-      <DataTable rows={data.queued_projection || []} columns={['idea_id', 'title', 'idea_status', 'queue_status', 'next_action_hint', 'paper_status', 'source_kind', 'updated_at']} empty="No intake idea rows returned." onSelectRow={setSelection} />
-      <IntakeIdeaDetail row={selection} onClose={() => setSelection(null)} />
+      <DataTable rows={rows} columns={['idea_id', 'title', 'idea_status', 'queue_status', 'next_action_hint', 'paper_status', 'source_kind', 'updated_at']} empty="No intake idea rows returned." cellHref={intakeCellHref} onSelectRow={setSelection} />
+      <IntakeIdeaDetail row={selectedRow} ideaId={routeIdeaId} onClose={() => setSelection(null)} />
     </PageShell>
   )
 }
