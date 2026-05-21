@@ -1,6 +1,6 @@
 # Dashboard V2 TODO checklist
 
-Status: **P0 + P1 + P2 + P3 + P4 landing** — branch `feat/dashboard-v2-trust-guards` (2026-05-21). Trust guards through compact headers and operator-first tables in one PR stack; P5+ deferred.
+Status: **P0 + P1 + P2 + P3 + P4 + P5 landing** — branch `feat/dashboard-v2-trust-guards` (2026-05-21). Trust guards through error/empty states in one PR stack; P6+ deferred.
 
 Screenshot evidence reviewed from:
 
@@ -174,19 +174,19 @@ Problem seen in screenshots: tables are usable but still expose raw IDs and back
 
 Problem seen in screenshots: `V2 data unavailable: endpoint -> 500` is technically true but operationally weak.
 
-- [ ] Replace generic API error cards with endpoint-specific guidance:
-  - [ ] what failed;
-  - [ ] whether dispatch is affected;
-  - [ ] what to check next;
-  - [ ] link/action to refresh;
-  - [ ] optional log command for operator runbook.
-- [ ] Add composed empty states for:
-  - [ ] no queued work;
-  - [ ] no active runs;
-  - [ ] no paper actions;
-  - [ ] no events matching filters;
-  - [ ] no admitted/promoted ideas.
-- [ ] Empty state should answer whether the system is idle by design or blocked.
+- [x] Replace generic API error cards with endpoint-specific guidance:
+  - [x] what failed;
+  - [x] whether dispatch is affected;
+  - [x] what to check next;
+  - [x] link/action to refresh;
+  - [x] optional log command for operator runbook (`journalctl -u enoch-control-plane.service -n 160 --no-pager`).
+- [x] Add composed empty states for:
+  - [x] no queued work;
+  - [x] no active runs;
+  - [x] no paper actions;
+  - [x] no events matching filters;
+  - [x] no admitted/promoted ideas.
+- [x] Empty state should answer whether the system is idle by design or blocked.
 
 ## Priority 6 — navigation and route policy
 
@@ -226,6 +226,6 @@ When work resumes, do this sequence:
 2. ~~Make command results decisive and less generic.~~ (P1)
 3. ~~Make project/run/paper/event/idea detail pages answer the entity-specific operator questions.~~ (P2 — [`detailOperatorSummary.ts`](../dashboard/src/detailOperatorSummary.ts))
 4. ~~Reduce secondary page hero/header footprint.~~ (P3 — [`PageHeader.tsx`](../dashboard/src/components/PageHeader.tsx))
-5. ~~Improve tables and empty/error states.~~ (P4 table pass — [`tablePresentation.ts`](../dashboard/src/tablePresentation.ts); P5 error cards still open)
+5. ~~Improve tables and empty/error states.~~ (P4 table pass — [`tablePresentation.ts`](../dashboard/src/tablePresentation.ts); P5 error/empty cards — [`resourceStatePresentation.ts`](../dashboard/src/resourceStatePresentation.ts))
 6. Only then do visual polish.
 

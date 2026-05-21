@@ -228,7 +228,31 @@ it('explains event read-model failures without dumping a generic 500 card', asyn
   renderWithClient(<EventsPage route={{ page: 'events', eventType: '', search: '', hash: '#events' }} />)
 
   expect(await screen.findByText('Events could not load')).toBeInTheDocument()
-  expect(screen.getByText(/The backend events read model returned an error/)).toBeInTheDocument()
+  expect(screen.getByText(/Dispatch impact:/)).toBeInTheDocument()
+  expect(screen.getByText('Retry events')).toBeInTheDocument()
+  expect(screen.getByText('Open legacy events')).toBeInTheDocument()
+  expect(screen.queryByText(/V2 data unavailable/)).not.toBeInTheDocument()
+})
+
+it('explains idle queue slices when no rows are returned', async () => {
+  saveToken('test-token')
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ rows: [], page: { returned: 0, has_more: false } }), { status: 200 }))
+
+  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
+
+  expect(await screen.findByText('No queued work right now')).toBeInTheDocument()
+  expect(screen.getByText(/empty by design/i)).toBeInTheDocument()
+})
+
+it('explains queue endpoint failures with retry guidance', async () => {
+  saveToken('test-token')
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ detail: 'server error' }), { status: 500 }))
+
+  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
+
+  expect(await screen.findByText('Queue could not load')).toBeInTheDocument()
+  expect(screen.getByText(/Dispatch impact:/)).toBeInTheDocument()
+  expect(screen.getByText('Retry queue')).toBeInTheDocument()
   expect(screen.queryByText(/V2 data unavailable/)).not.toBeInTheDocument()
 })
 

@@ -1,5 +1,7 @@
 import { MouseEvent, ReactNode, useState } from 'react'
+import type { ComposedEmptyStateCopy } from '../resourceStatePresentation'
 import { columnLinkHref, resolveColumnTone, resolveColumnValue, shortTableId, type TableColumnSpec } from '../tablePresentation'
+import { ComposedEmptyState } from './ResourceStateCards'
 
 type Row = Record<string, unknown>
 
@@ -103,12 +105,15 @@ export function DataTable({
 }: {
   rows: Row[]
   columns: TableColumnSpec[]
-  empty: string
+  empty: string | ComposedEmptyStateCopy
   onSelectRow?: (row: Row) => void
   cellHref?: (row: Row, column: string) => string | undefined
 }) {
   if (!rows.length) {
-    return <div className="empty-table">{empty}</div>
+    if (typeof empty === 'string') {
+      return <div className="empty-table">{empty}</div>
+    }
+    return <ComposedEmptyState state={empty} />
   }
   return (
     <div className="data-table-wrap">
