@@ -6,6 +6,7 @@ import {
   detailBreadcrumb,
   detailListHash,
   detailParentPage,
+  unsupportedRouteSuggestions,
 } from './routePolicy'
 
 describe('routePolicy', () => {
@@ -33,5 +34,13 @@ describe('routePolicy', () => {
       { label: 'Papers', href: '/control/dashboard-v2#papers' },
       { label: 'Draft title' },
     ])
+  })
+
+  it('does not duplicate the command center link in unsupported route suggestions', () => {
+    const overviewHref = '/control/dashboard-v2#overview'
+    for (const hash of ['#unknown-workflow', '#paper:missing', '#run:missing', '#event:missing']) {
+      const hrefs = unsupportedRouteSuggestions(hash).map((item) => item.href)
+      expect(hrefs, hash).not.toContain(overviewHref)
+    }
   })
 })

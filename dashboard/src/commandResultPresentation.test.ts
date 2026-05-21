@@ -13,7 +13,7 @@ it('maps dispatch dry-run success to decisive title and safe dispatch decision',
   expect(presentation.decision).toBe('Safe to dispatch')
 })
 
-it('maps blocked dispatch to decisive title and do-not-dispatch decision', () => {
+it('maps ok false to failed severity before blocked action names are considered', () => {
   const presentation = deriveCommandPresentation({
     ok: false,
     action: 'dispatch_blocked',
@@ -23,6 +23,15 @@ it('maps blocked dispatch to decisive title and do-not-dispatch decision', () =>
   expect(presentation.title).toBe('Dispatch blocked')
   expect(presentation.severity).toBe('failed')
   expect(presentation.decision).toBe('Do not dispatch')
+})
+
+it('maps blocked action names to blocked severity when ok is not false', () => {
+  const presentation = deriveCommandPresentation({
+    action: 'dry_run_draft_blocked',
+    reason: 'no eligible paper-ready candidate',
+  }, { commandFamily: 'paper' })
+
+  expect(presentation.severity).toBe('blocked')
 })
 
 it('maps paper finalize dry-run success', () => {

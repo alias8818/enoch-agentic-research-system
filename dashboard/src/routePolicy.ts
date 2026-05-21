@@ -104,7 +104,6 @@ export function classifyDashboardRoute(route: DashboardRoute): RouteClassificati
 
 export function unsupportedRouteSuggestions(hash: string): { label: string; href: string }[] {
   const suggestions = [
-    { label: 'Command center', href: dashboardV2Href('#overview') },
     { label: 'Projects', href: dashboardV2Href('#projects') },
     { label: 'Queue', href: dashboardV2Href('#queue:queued') },
   ]

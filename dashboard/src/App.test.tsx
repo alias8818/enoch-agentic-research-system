@@ -391,6 +391,7 @@ it('keeps unsupported hashes inside the V2 shell with a legacy escape link', () 
 
   expect(screen.getByRole('heading', { name: 'Unsupported V2 route' })).toBeInTheDocument()
   expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
+  expect(screen.getAllByRole('link', { name: /command center/i })).toHaveLength(1)
   expect(screen.getByRole('link', { name: 'Open this hash in legacy dashboard' })).toHaveAttribute('href', '/control/dashboard#unknown-workflow')
 })
 

@@ -28,7 +28,6 @@ function action(payload: Record<string, unknown>): string {
 }
 
 function isBlocked(payload: Record<string, unknown>): boolean {
-  if (payload.ok === false) return true
   const value = action(payload)
   return value.includes('blocked') || value.includes('failed') || value.includes('error')
 }
