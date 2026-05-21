@@ -158,3 +158,18 @@ export function DetailPanel({ selection, onClose }: { selection: DetailSelection
     </aside>
   )
 }
+
+export function DetailPage({ selection }: { selection: DetailSelection }) {
+  return (
+    <section className="page-stack">
+      <div className="page-hero">
+        <p className="eyebrow">Dashboard V2 detail</p>
+        <h1>{selection.kind}: {selection.id}</h1>
+        <p>Direct detail route backed by the V1 read-model endpoint. No legacy dashboard fallback.</p>
+      </div>
+      <aside className="detail-panel detail-panel--page" aria-label="Dashboard detail page">
+        <DetailBody selection={selection} />
+      </aside>
+    </section>
+  )
+}

@@ -8,6 +8,7 @@ import { PaperMiniStrip } from './components/PaperMiniStrip'
 import { PrimaryAction } from './components/PrimaryAction'
 import { SafetyBar } from './components/SafetyBar'
 import { AutomationPage } from './components/AutomationPage'
+import { DetailPage } from './components/DetailPanel'
 import { CorpusPage, EventsPage, ObservabilityPage, PapersPage, ProjectsPage, QueuePage, RunsPage } from './components/ResourcePages'
 import { ResearchPage } from './components/ResearchPage'
 import { WorkerLanes } from './components/WorkerLanes'
@@ -91,6 +92,7 @@ function currentRoute(): DashboardRoute {
 }
 
 function RoutedPage({ route }: { route: DashboardRoute }) {
+  if (route.page === 'detail') return <DetailPage selection={{ kind: route.kind, id: route.id }} />
   if (route.page === 'projects') return <ProjectsPage route={route} />
   if (route.page === 'queue') return <QueuePage route={route} />
   if (route.page === 'runs') return <RunsPage route={route} />

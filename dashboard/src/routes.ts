@@ -1,5 +1,6 @@
 export type DashboardRoute =
   | { page: 'overview'; hash: '#overview' }
+  | { page: 'detail'; kind: 'project' | 'run' | 'paper'; id: string; hash: string }
   | { page: 'projects'; status: string; hash: string }
   | { page: 'queue'; status: string; hash: string }
   | { page: 'runs'; state: string; hash: string }
@@ -28,8 +29,20 @@ function queryParam(hash: string, name: string): string {
   return new URLSearchParams(query).get(name) || ''
 }
 
+function detailId(hash: string, prefix: string): string {
+  const raw = hash.slice(prefix.length).split('?', 1)[0]
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
 export function parseDashboardRoute(hashOrPath: string | undefined): DashboardRoute {
   const hash = normalizeHash(hashOrPath)
+  if (hash.startsWith('#project:')) return { page: 'detail', kind: 'project', id: detailId(hash, '#project:'), hash }
+  if (hash.startsWith('#run:')) return { page: 'detail', kind: 'run', id: detailId(hash, '#run:'), hash }
+  if (hash.startsWith('#paper:')) return { page: 'detail', kind: 'paper', id: detailId(hash, '#paper:'), hash }
   if (hash.startsWith('#projects')) {
     return { page: 'projects', status: queryParam(hash, 'status'), hash }
   }

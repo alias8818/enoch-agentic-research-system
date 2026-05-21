@@ -29,3 +29,17 @@ it('keeps overview secondary links in V2 and exposes data freshness', async () =
   fireEvent.click(screen.getByRole('button', { name: 'Refresh now' }))
   await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(4))
 })
+
+
+it('opens direct V2 detail hashes without legacy fallback', async () => {
+  window.location.hash = '#run:run-1'
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ run_id: 'run-1', run: { run_id: 'run-1', project_id: 'project-1', state: 'running' } }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByLabelText('Dashboard detail page')).toBeInTheDocument()
+  expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith('/control/api/v1/runs/run-1', expect.any(Object))
+})
