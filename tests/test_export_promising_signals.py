@@ -269,6 +269,17 @@ def test_validate_export_repo_catches_ranking_drift(tmp_path) -> None:
     assert "ranking.items:drift" in issues
 
 
+def test_validate_repo_against_rows_preserves_invalid_manifest_issue(tmp_path) -> None:
+    rows = [_row(project_id="clean-signal")]
+    exporter.write_export(exporter.clean_export_rows(rows), tmp_path)
+    manifest_path = tmp_path / "data" / "manifest.json"
+    manifest_path.write_text("{not-json", encoding="utf-8")
+
+    issues = exporter.validate_repo_against_rows(rows, tmp_path)
+
+    assert "manifest:invalid_json" in issues
+
+
 def test_validate_repo_against_rows_catches_control_plane_selection_drift(tmp_path) -> None:
     rows = [
         _row(project_id="clean-signal"),
