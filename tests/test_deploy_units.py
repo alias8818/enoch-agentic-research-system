@@ -82,6 +82,8 @@ def test_research_autopilot_unit_is_opt_in_and_bounded(tmp_path, capsys) -> None
     combined = service + script
     assert "Environment=ENOCH_ENABLE_RESEARCH_AUTOPILOT=0" in service
     assert "EnvironmentFile=-/etc/enoch-control-plane/postgres.env" in service
+    assert "User=enoch" in service
+    assert "Group=enoch" in service
     assert "EnvironmentFile=-/etc/enoch-control-plane/supabase.env" not in service
     assert "Environment=ENOCH_RESEARCH_QUALITY_REPORT_PATH=/var/lib/enoch-control-plane/research-quality/latest-report.json" in service
     assert "Environment=ENOCH_RESEARCH_QUALITY_LIMIT=100" in service
@@ -135,6 +137,8 @@ def test_corpus_import_autopilot_unit_is_opt_in_and_capped(capsys) -> None:
     assert "Environment=HOME=/root" in service
     assert "Environment=ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT=0" in service
     assert "EnvironmentFile=-/etc/enoch-control-plane/postgres.env" in service
+    assert "User=enoch" in service
+    assert "Group=enoch" in service
     assert "EnvironmentFile=-/etc/enoch-control-plane/supabase.env" not in service
     assert "Environment=ENOCH_CORPUS_IMPORT_LIMIT=1" in service
     assert "Environment=ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY=1" in service
@@ -470,6 +474,8 @@ def test_source_lineage_check_unit_is_post_cutover_guard() -> None:
     assert "scripts/validate_source_lineage.py" not in service
     assert "deploy/enoch_source_lineage_check.py --json" in service
     assert "EnvironmentFile=-/etc/enoch-control-plane/postgres.env" in service
+    assert "User=enoch" in service
+    assert "Group=enoch" in service
     assert "EnvironmentFile=-/etc/enoch-control-plane/supabase.env" in service
     assert "Environment=ENOCH_SOURCE_LINEAGE_CREATED_AFTER=2026-05-19T17:51:00Z" in service
     assert "Environment=ENOCH_SOURCE_LINEAGE_REPORT_PATH=/var/lib/enoch-control-plane/source-lineage/latest-report.json" in service
