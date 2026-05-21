@@ -416,6 +416,7 @@ button:disabled { cursor: not-allowed; }
 .paper-steps a:hover { border-color: rgba(226,177,91,0.55); }
 .paper-steps span { display: block; color: #9c968d; font-size: 0.76rem; }
 .paper-steps strong { display: block; margin-top: 0.25rem; color: #fff8ea; font-size: 1.45rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.paper-strip-actions { display: flex; justify-content: flex-end; }
 
 .movement-head span { border: 1px solid rgba(244,241,234,0.16); border-radius: 999px; padding: 0.4rem 0.65rem; color: #d9d1c3; font-size: 0.72rem; font-weight: 850; letter-spacing: 0.12em; text-transform: uppercase; }
 .movement-list { display: grid; gap: 0.5rem; margin-top: 1rem; }

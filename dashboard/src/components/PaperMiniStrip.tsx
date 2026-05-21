@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
 import type { OverviewResponse } from '../types'
+import { useOperatorDialog } from './OperatorDialog'
 
 type CommandResult = {
   title: string
@@ -27,6 +28,8 @@ function ResultCard({ result }: { result: CommandResult | null }) {
 export function PaperMiniStrip({ pipeline, onRefresh }: { pipeline: OverviewResponse['paper_pipeline']; onRefresh?: () => void }) {
   const [result, setResult] = useState<CommandResult | null>(null)
   const [isPending, setIsPending] = useState(false)
+  const [finalizeReady, setFinalizeReady] = useState(false)
+  const { confirm, dialog } = useOperatorDialog()
   const writeNeeded = pipeline?.write_needed ?? 0
   const finalizeNeeded = pipeline?.finalize_needed ?? 0
   const publishReady = pipeline?.publish_ready ?? 0
@@ -43,9 +46,41 @@ export function PaperMiniStrip({ pipeline, onRefresh }: { pipeline: OverviewResp
         skip_rewritten: true,
       })
       setResult({ title: 'Paper dry-run result', payload })
+      setFinalizeReady(payload.dry_run === true && Number(payload.processed || 0) > 0)
       onRefresh?.()
     } catch (error) {
       setResult({ title: 'Paper dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setFinalizeReady(false)
+    } finally {
+      setIsPending(false)
+    }
+  }
+
+  async function liveFinalize() {
+    if (!finalizeReady) return
+    const confirmed = await confirm({
+      title: 'Finalize paper strip drafts?',
+      message: 'This rewrites the publication-draft batch surfaced by the paper strip. Use Dry-run finalize again if paper state may have changed.',
+      confirmLabel: 'Finalize drafts',
+      tone: 'warn',
+    })
+    if (!confirmed) return
+    setIsPending(true)
+    try {
+      const payload = await apiPost<Record<string, unknown>>('/control/api/paper-reviews/rewrite-batch', {
+        idempotency_key: idempotencyKey('paper-strip-rewrite-batch-live'),
+        requested_by: 'dashboard-v2',
+        paper_status: 'publication_draft',
+        dry_run: false,
+        force: true,
+        limit: 10,
+        skip_rewritten: true,
+      })
+      setResult({ title: 'Paper live finalization result', payload })
+      setFinalizeReady(false)
+      onRefresh?.()
+    } catch (error) {
+      setResult({ title: 'Paper live finalization failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
     } finally {
       setIsPending(false)
     }
@@ -72,7 +107,11 @@ export function PaperMiniStrip({ pipeline, onRefresh }: { pipeline: OverviewResp
           <strong>{publishReady}</strong>
         </a>
       </div>
+      <div className="paper-strip-actions">
+        <button className="primary-button" type="button" disabled={isPending || !finalizeReady} onClick={liveFinalize}>Finalize drafts</button>
+      </div>
       <ResultCard result={result} />
+      {dialog}
     </section>
   )
 }

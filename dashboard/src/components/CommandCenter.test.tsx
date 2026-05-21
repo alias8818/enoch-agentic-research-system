@@ -444,3 +444,37 @@ it('runs paper finalize strip actions as dry-runs without rewriting drafts live'
   expect(screen.getByText('would rewrite one publication draft')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
+
+it('finalizes paper strip drafts only after dry-run and dialog confirmation', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, matched: 1, processed: 1, reason: 'would rewrite one publication draft' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: false, rewritten: 1, failed: 0, reason: 'rewrote one publication draft' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<PaperMiniStrip pipeline={{ write_needed: 0, finalize_needed: 1, publish_ready: 0 }} onRefresh={onRefresh} />)
+  expect(screen.getByRole('button', { name: 'Finalize drafts' })).toBeDisabled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Dry-run finalize' }))
+  await screen.findByText('would rewrite one publication draft')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Finalize drafts' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Finalize paper strip drafts?' })
+  expect(dialog).toHaveTextContent('rewrites the publication-draft batch')
+  expect(confirmSpy).not.toHaveBeenCalled()
+  fireEvent.click(dialog.querySelectorAll('button')[1])
+
+  await screen.findByText('rewrote one publication draft')
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/paper-reviews/rewrite-batch', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"idempotency_key":"paper-strip-rewrite-batch:dashboard-v2:'),
+  }))
+  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"dry_run":true')
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/paper-reviews/rewrite-batch', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"idempotency_key":"paper-strip-rewrite-batch-live:dashboard-v2:'),
+  }))
+  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"dry_run":false')
+  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"force":true')
+  expect(onRefresh).toHaveBeenCalledTimes(2)
+})
