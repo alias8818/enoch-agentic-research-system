@@ -59,6 +59,9 @@ function PageRefreshAction({ generatedAt, isFetching, onRefresh, label = 'Last l
 
 function FilterBar({ state, statusOptions, onApply, onNext, onReset, page }: { state: FilterState; statusOptions: { label: string; value: string }[]; onApply: (next: FilterState) => void; onNext: () => void; onReset: () => void; page?: PageMeta }) {
   const [draft, setDraft] = useState(state)
+  useEffect(() => {
+    setDraft(state)
+  }, [state])
   function submit(event: FormEvent) {
     event.preventDefault()
     onApply({ ...draft, cursor: '' })

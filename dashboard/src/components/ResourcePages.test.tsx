@@ -261,6 +261,27 @@ it('applies queue filters and follows the backend cursor without inventing pagin
 })
 
 
+
+it('keeps visible filter controls synced after reset defaults are applied', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ paper_pipeline: { publish_ready: 0, published_imported: 0, publication_ready_total: 0 } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-draft', status: 'publication_draft', title: 'Draft paper' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-review', status: 'draft_review', title: 'Review paper' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-reset', status: 'publication_draft', title: 'Reset paper' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+
+  renderWithClient(<CorpusPage />)
+  await screen.findByText('Draft paper')
+
+  fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: 'draft_review' } })
+  fireEvent.click(screen.getByRole('button', { name: /Apply filters/i }))
+  await screen.findByText('Review paper')
+
+  fireEvent.click(screen.getByRole('button', { name: /Reset/i }))
+  await screen.findByText('Reset paper')
+
+  expect(screen.getByLabelText(/Status/i)).toHaveValue('publication_draft')
+})
+
 it('writes applied event filters back to the V2 hash', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ id: 7, event_type: 'Queue Alert', summary: 'Alert summary' }], page: { returned: 1, has_more: false } }), { status: 200 }))
