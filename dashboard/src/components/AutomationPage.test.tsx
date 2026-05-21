@@ -81,6 +81,33 @@ it('uses the paper id from automation detail hashes for finalization dry-runs', 
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/paper-reviews/paper-target/prepare-finalization-package', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
 })
 
+it('previews selected paper artifacts inside V2 automation detail', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-target', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Target paper' }] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      item: {
+        paper_id: 'paper-target',
+        project_name: 'Target paper',
+        review_status: 'triage_ready',
+        paper_status: 'publication_draft',
+        rank_score: 91,
+        draft_markdown_path: 'papers/paper-target/draft.md',
+      },
+      checklist: { items: [] },
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ project_name: 'Target paper', field: 'draft_markdown_path', content: '# Draft\nEvidence-backed result.' }), { status: 200 }))
+
+  renderWithClient(<AutomationPage paperId="paper-target" />)
+
+  await screen.findByLabelText('Automation detail')
+  fireEvent.click(screen.getByRole('button', { name: 'Preview draft markdown' }))
+
+  await screen.findByText('Artifact preview')
+  expect(screen.getByText(/draft_markdown_path/)).toBeInTheDocument()
+  expect(screen.getByText(/Evidence-backed result/)).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/papers/paper-target/artifact/draft_markdown_path', expect.objectContaining({ cache: 'no-store' }))
+})
+
 it('updates automation checklist items through dialog-confirmed V2 mutation', async () => {
   const confirmSpy = vi.spyOn(window, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
