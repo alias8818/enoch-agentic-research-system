@@ -61,6 +61,38 @@ it('refreshes queue rows explicitly from the V2 page', async () => {
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
 
+it('refreshes project rows explicitly from the V2 page', async () => {
+  saveToken('test-token')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T06:00:00Z', rows: [{ project_id: 'project-old', project_name: 'Old project', origin_idea_status: 'testing' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T06:03:00Z', rows: [{ project_id: 'project-fresh', project_name: 'Fresh project', origin_idea_status: 'testing' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+
+  renderWithClient(<ProjectsPage route={{ page: 'projects', status: 'testing', hash: '#projects?status=testing' }} />)
+  await screen.findByText('Old project')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh rows' }))
+
+  await screen.findByText('Fresh project')
+  expect(screen.getByText('Last loaded 2026-05-21T06:03:00Z')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+})
+
+it('refreshes event rows explicitly from the V2 page', async () => {
+  saveToken('test-token')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T07:00:00Z', rows: [{ id: 7, event_type: 'Queue Alert', summary: 'Old alert' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T07:02:00Z', rows: [{ id: 8, event_type: 'worker.callback', summary: 'Fresh callback' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+
+  renderWithClient(<EventsPage />)
+  await screen.findByText('Old alert')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh rows' }))
+
+  await screen.findByText('Fresh callback')
+  expect(screen.getByText('Last loaded 2026-05-21T07:02:00Z')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+})
+
 it('syncs route-derived status changes into resource page backend filters', async () => {
   saveToken('test-token')
   const fetchMock = vi.spyOn(globalThis, 'fetch')

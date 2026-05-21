@@ -45,6 +45,17 @@ function ErrorCard({ error }: { error: unknown }) {
   return <div className="state-card state-card--error">V2 data unavailable: {String(error instanceof Error ? error.message : error)}</div>
 }
 
+function PageRefreshAction({ generatedAt, isFetching, onRefresh }: { generatedAt?: string; isFetching: boolean; onRefresh: () => void }) {
+  return (
+    <>
+      <span>Last loaded {generatedAt || 'unknown'}</span>
+      <button className="secondary-button" type="button" disabled={isFetching} onClick={onRefresh}>
+        {isFetching ? 'Refreshing…' : 'Refresh rows'}
+      </button>
+    </>
+  )
+}
+
 function FilterBar({ state, statusOptions, onApply, onNext, onReset, page }: { state: FilterState; statusOptions: { label: string; value: string }[]; onApply: (next: FilterState) => void; onNext: () => void; onReset: () => void; page?: PageMeta }) {
   const [draft, setDraft] = useState(state)
   function submit(event: FormEvent) {
@@ -182,7 +193,7 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
     }
   }
   return (
-    <PageShell title="Queue" subtitle="Bounded queue rows from /control/api/v1/queue. No frontend lifecycle inference." action={<><span>Last loaded {query.data?.generated_at || 'unknown'}</span><button className="secondary-button" type="button" disabled={query.isFetching} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh rows'}</button></>}>
+    <PageShell title="Queue" subtitle="Bounded queue rows from /control/api/v1/queue. No frontend lifecycle inference." action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
       <FilterBar state={filters} statusOptions={[{ label: 'all statuses', value: '' }, { label: 'queued', value: 'queued' }, { label: 'active', value: 'active' }, { label: 'blocked', value: 'blocked' }, { label: 'completed', value: 'completed' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.status, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <section className="queue-command-card">
         <div>
@@ -213,7 +224,7 @@ export function ProjectsPage({ route }: { route: Extract<DashboardRoute, { page:
   if (query.isLoading) return <LoadingCard label="projects" />
   if (query.isError) return <ErrorCard error={query.error} />
   return (
-    <PageShell title="Projects" subtitle="Project discovery from /control/api/v1/projects. Bounded, searchable, and detail-backed.">
+    <PageShell title="Projects" subtitle="Project discovery from /control/api/v1/projects. Bounded, searchable, and detail-backed." action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
       <FilterBar state={filters} statusOptions={[{ label: 'all project states', value: '' }, { label: 'testing', value: 'testing' }, { label: 'exploring', value: 'exploring' }, { label: 'queued', value: 'queued' }, { label: 'running', value: 'running' }, { label: 'completed', value: 'completed' }, { label: 'blocked', value: 'blocked' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.status, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={['project_id', 'project_name', 'origin_idea_status', 'queue_status', 'latest_run_state', 'related_paper_status', 'updated_at']} empty="No projects match this filter." cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'project', id: String(row.project_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
@@ -233,7 +244,7 @@ export function RunsPage({ route }: { route: Extract<DashboardRoute, { page: 'ru
   if (query.isLoading) return <LoadingCard label="runs" />
   if (query.isError) return <ErrorCard error={query.error} />
   return (
-    <PageShell title="Runs" subtitle="Active and historical run rows from /control/api/v1/runs. This is the V2 owner for active-work inspection.">
+    <PageShell title="Runs" subtitle="Active and historical run rows from /control/api/v1/runs. This is the V2 owner for active-work inspection." action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
       <FilterBar state={filters} statusOptions={[{ label: 'all run states', value: '' }, { label: 'running', value: 'running' }, { label: 'dispatching', value: 'dispatching' }, { label: 'awaiting wake', value: 'awaiting_wake' }, { label: 'dispatch error', value: 'dispatch_error' }, { label: 'completed', value: 'completed' }, { label: 'wake ready', value: 'wake_ready' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.state, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={['run_id', 'project_id', 'state', 'gate_state', 'dispatch_mode', 'current_activity', 'updated_at']} empty="No run rows match this filter." cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'run', id: String(row.run_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
@@ -253,7 +264,7 @@ export function PapersPage({ route }: { route: Extract<DashboardRoute, { page: '
   if (query.isLoading) return <LoadingCard label="papers" />
   if (query.isError) return <ErrorCard error={query.error} />
   return (
-    <PageShell title="Papers" subtitle="Paper pipeline rows from /control/api/v1/papers.">
+    <PageShell title="Papers" subtitle="Paper pipeline rows from /control/api/v1/papers." action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
       <FilterBar state={filters} statusOptions={[{ label: 'all paper statuses', value: '' }, { label: 'publication draft', value: 'publication_draft' }, { label: 'draft review', value: 'draft_review' }, { label: 'archived', value: 'archived' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.status, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={['paper_id', 'project_id', 'status', 'title', 'artifact_dir', 'updated_at']} empty="No paper rows match this filter." cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'paper', id: String(row.paper_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
@@ -277,7 +288,7 @@ export function CorpusPage() {
     ? 'Import validation needs corpus autopilot.'
     : 'Corpus import ledger has no missing finalized drafts.'
   return (
-    <PageShell title="Corpus import" subtitle="Publication-ready paper rows and corpus-import ledger status. Publish/import work stays scoped to finalized drafts missing corpus import.">
+    <PageShell title="Corpus import" subtitle="Publication-ready paper rows and corpus-import ledger status. Publish/import work stays scoped to finalized drafts missing corpus import." action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching || overview.isFetching} onRefresh={() => { void query.refetch(); void overview.refetch() }} />}>
       <section className="count-grid" aria-label="Corpus import summary">
         <CountCard label="Missing corpus import" value={publishReady} detail="Finalized publication drafts without corpus-import ledger rows." />
         <CountCard label="Already imported" value={imported} detail="Publication-ready drafts already recorded in corpus_imports." />
@@ -342,7 +353,7 @@ export function EventsPage() {
   if (query.isLoading) return <LoadingCard label="events" />
   if (query.isError) return <ErrorCard error={query.error} />
   return (
-    <PageShell title="Events" subtitle="Recent formatted control-plane events from /control/api/v1/events.">
+    <PageShell title="Events" subtitle="Recent formatted control-plane events from /control/api/v1/events." action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
       <FilterBar state={filters} statusOptions={[{ label: 'all event types', value: '' }, { label: 'Queue Alert', value: 'Queue Alert' }, { label: 'worker.callback', value: 'worker.callback' }, { label: 'paper.drafted', value: 'paper.drafted' }, { label: 'research.run_cycle.live', value: 'research.run_cycle.live' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: '', pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={['id', 'entity_type', 'entity_id', 'event_type', 'created_at', 'summary']} empty="No recent events returned." cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'event', id: String(row.id || row.event_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
