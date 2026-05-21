@@ -195,6 +195,7 @@ def sync_corpus_import_ledger(system: Repo, corpus: Repo, *, database_url: str, 
 def run_source_lineage_check(system: Repo) -> None:
     database_url = (
         os.environ.get("ENOCH_SOURCE_LINEAGE_DATABASE_URL")
+        or os.environ.get("ENOCH_CONTROL_DATABASE_URL")
         or os.environ.get("ENOCH_SUPABASE_DATABASE_URL")
         or os.environ.get("DATABASE_URL")
         or ""
@@ -211,6 +212,7 @@ def run_source_lineage_check(system: Repo) -> None:
 def run_promising_signals_check(system: Repo, promising: Repo) -> None:
     database_url = (
         os.environ.get("ENOCH_PROMISING_SIGNALS_DATABASE_URL")
+        or os.environ.get("ENOCH_CONTROL_DATABASE_URL")
         or os.environ.get("ENOCH_SUPABASE_DATABASE_URL")
         or os.environ.get("DATABASE_URL")
         or ""

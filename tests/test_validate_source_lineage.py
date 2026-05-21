@@ -266,3 +266,19 @@ def test_synthesized_candidate_passes_with_branch_and_reflection_lineage():
     )
 
     assert vsl.validate_snapshot(snapshot) == []
+
+
+def test_main_accepts_control_database_url_env(monkeypatch):
+    monkeypatch.delenv("ENOCH_SOURCE_LINEAGE_DATABASE_URL", raising=False)
+    monkeypatch.setenv("ENOCH_CONTROL_DATABASE_URL", "postgres://control")
+    monkeypatch.delenv("ENOCH_SUPABASE_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    def fake_fetch_snapshot(database_url, *, created_after=""):
+        del created_after
+        assert database_url == "postgres://control"
+        return _snapshot()
+
+    monkeypatch.setattr(vsl, "fetch_snapshot", fake_fetch_snapshot)
+
+    assert vsl.main([]) == 0
