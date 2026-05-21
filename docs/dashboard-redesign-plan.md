@@ -97,7 +97,7 @@ The first shipped slice is the redesigned shell and overview experience:
 - **Phase 2 detail audits (2026-05-21):** project (#87), run (#100), paper (#104), event (#105), idea/intake (#106), research candidate (#108) — structured summaries via [`detailOperatorSummary.ts`](../dashboard/src/detailOperatorSummary.ts).
 - **Phase 3 landed (2026-05-21):** narrow Playwright visual baselines (#109), corpus drill-down links ([`corpusLinks.ts`](../dashboard/src/corpusLinks.ts)), automation/research soft parity on dedicated pages, Phase 2 doc guards (#107).
 - Extract the inline dashboard into static assets or a small frontend package if the UI keeps growing (already done via `dashboard/` → committed `dashboard_v2/`).
-- **Phase 3 open:** workbench KPI de-noise, cutover audit doc sync, one list-page visual baseline, keyboard help / saved filters — see [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md).
+- **Phase 3 open:** workbench KPI de-noise, keyboard help / saved filters — see [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md). List-page visual baseline (`#queue:queued`) landed in #112.
 
 ## Performance slices
 

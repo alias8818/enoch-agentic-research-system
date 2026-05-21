@@ -259,7 +259,7 @@ No blocking gate. Pick one narrow PR at a time; keep [`dashboard-v2-cursor-instr
 ### Visual regression
 
 - [x] Narrow foundation: fixture-driven Playwright `toHaveScreenshot` for token gate + command center overview (#109, [`visual.spec.ts`](../dashboard/e2e/visual.spec.ts)).
-- [x] One list-page baseline — `#queue:queued` fixture-driven screenshot in [`visual.spec.ts`](../dashboard/e2e/visual.spec.ts); defer full route matrix until hero/movement copy settles.
+- [x] One list-page baseline — `#queue:queued` fixture-driven screenshot in [`visual.spec.ts`](../dashboard/e2e/visual.spec.ts) (#112); defer full route matrix until hero/movement copy settles.
 
 ### Workbench and corpus UX
 
