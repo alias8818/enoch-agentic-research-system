@@ -158,10 +158,10 @@ def _list(value: Any) -> list[Any]:
             return []
         try:
             parsed = json.loads(text)
-            if isinstance(parsed, list):
-                return parsed
-        except Exception:
-            pass
+        except json.JSONDecodeError:
+            return [text]
+        if isinstance(parsed, list):
+            return parsed
         return [text]
     return [value]
 
