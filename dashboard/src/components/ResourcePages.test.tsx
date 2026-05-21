@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
+import { SAVED_TABLE_FILTERS_STORAGE_KEY } from '../savedTableFilters'
 import { CorpusPage, EventsPage, IntakePage, ObservabilityPage, PapersPage, ProjectsPage, QueuePage, RunsPage } from './ResourcePages'
 
 function renderWithClient(ui: React.ReactElement) {
@@ -23,6 +24,7 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   saveToken('')
+  window.localStorage.removeItem(SAVED_TABLE_FILTERS_STORAGE_KEY)
 })
 
 it('loads queue rows from the V1 queue endpoint with the route status', async () => {
@@ -321,6 +323,48 @@ it('applies queue filters and follows the backend cursor without inventing pagin
   expectParam(url, 'cursor', 'cursor-3')
   expectParam(url, 'search', 'oracle')
   expectParam(url, 'status', 'active')
+})
+
+it('loads saved queue filter presets from localStorage and applies them to the queue read model', async () => {
+  window.localStorage.setItem(SAVED_TABLE_FILTERS_STORAGE_KEY, JSON.stringify({
+    queue: [{ id: 'preset-1', name: 'Queued watch', search: 'oracle', status: 'queued', pageSize: '25' }],
+  }))
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'p1', status: 'queued', title: 'First item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'p2', status: 'queued', title: 'Saved filter item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+
+  renderWithClient(<QueuePage route={{ page: 'queue', status: '', search: '', hash: '#queue' }} />)
+  await screen.findByText('First item')
+
+  fireEvent.change(screen.getByLabelText(/Saved filters/i), { target: { value: 'preset-1' } })
+  await screen.findByText('Saved filter item')
+
+  const url = requestUrl(fetchMock.mock.calls[1])
+  expectParam(url, 'search', 'oracle')
+  expectParam(url, 'status', 'queued')
+  expectParam(url, 'page_size', '25')
+})
+
+it('saves the current queue filter draft as a local preset', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'p1', status: 'queued', title: 'First item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+
+  renderWithClient(<QueuePage route={{ page: 'queue', status: '', search: '', hash: '#queue' }} />)
+  await screen.findByText('First item')
+
+  fireEvent.change(screen.getByLabelText(/Search/i), { target: { value: 'oracle' } })
+  fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: 'queued' } })
+  fireEvent.click(screen.getByRole('button', { name: /Save current/i }))
+  fireEvent.change(screen.getByLabelText(/Preset name/i), { target: { value: 'Queued watch' } })
+  fireEvent.click(screen.getByRole('button', { name: /Save preset/i }))
+
+  const stored = JSON.parse(window.localStorage.getItem(SAVED_TABLE_FILTERS_STORAGE_KEY) || '{}')
+  expect(stored.queue).toEqual([expect.objectContaining({
+    name: 'Queued watch',
+    search: 'oracle',
+    status: 'queued',
+    pageSize: '50',
+  })])
 })
 
 

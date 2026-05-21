@@ -689,3 +689,26 @@ it('toggles the dashboard theme from the shell header', async () => {
   expect(document.documentElement.dataset.theme).toBe('light')
   expect(screen.getByRole('button', { name: 'Switch to dark theme' })).toBeInTheDocument()
 })
+
+it('opens keyboard shortcut help from the header button and question-mark shortcut', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, generated_at: '2026-05-20T12:00:00Z', counts: { active: 0, queued: 0 }, paper_counts: {}, movement_diagnosis: { status: 'ready', primary_reason: 'No blockers.', blockers: [] }, flags: {} }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+  await screen.findByText('Can I leave this running?')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show keyboard shortcuts' }))
+  expect(screen.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeInTheDocument()
+  expect(screen.getByText('Focus global project search')).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+  expect(screen.queryByRole('heading', { name: 'Keyboard shortcuts' })).not.toBeInTheDocument()
+
+  fireEvent.keyDown(window, { key: '?' })
+  expect(screen.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeInTheDocument()
+
+  fireEvent.keyDown(window, { key: '/' })
+  expect(screen.getByRole('textbox', { name: /global search/i })).toHaveFocus()
+})

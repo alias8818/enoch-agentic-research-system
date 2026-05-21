@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, RefObject, useEffect, useRef, useState } from 'react'
 import { apiGet, getSavedToken, saveToken } from './api/client'
 import { parseAutomationReadiness, parseOverviewResponse, parseStatusResponse } from './api/readModelSchemas'
 import { CommandHero } from './components/CommandHero'
@@ -17,7 +17,9 @@ import { DASHBOARD_V2_PATH, canonicalDashboardHash, dashboardV2Href, dashboardRo
 import type { DashboardRoute } from './routes'
 import { detailParentPage, unsupportedRouteSuggestions } from './routePolicy'
 import type { AutomationReadiness } from './types'
+import { KeyboardShortcutHelp } from './components/KeyboardShortcutHelp'
 import { applyTheme, getSavedTheme, saveTheme, toggleTheme, type DashboardTheme } from './theme'
+import { useDashboardKeyboardShortcuts } from './useDashboardKeyboardShortcuts'
 
 function TokenGate({ onSave }: { onSave: () => void }) {
   const [token, setToken] = useState(getSavedToken())
@@ -335,7 +337,7 @@ function moreNavClass(route: DashboardRoute): string {
   return ['events', 'observability', 'corpus', 'research', 'intake', 'automation', 'unsupported'].includes(route.page) ? 'nav-more nav-more--active' : 'nav-more'
 }
 
-function GlobalSearchForm() {
+function GlobalSearchForm({ inputRef }: { inputRef: RefObject<HTMLInputElement | null> }) {
   const [query, setQuery] = useState('')
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -347,6 +349,7 @@ function GlobalSearchForm() {
       <label>
         Global search
         <input
+          ref={inputRef}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search projects"
@@ -361,6 +364,8 @@ function Shell() {
   const [hasToken, setHasToken] = useState(Boolean(getSavedToken()))
   const [route, setRoute] = useState<DashboardRoute>(() => currentRoute())
   const [theme, setTheme] = useState<DashboardTheme>(() => getSavedTheme())
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     applyTheme(theme)
@@ -371,6 +376,13 @@ function Shell() {
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
+
+  useDashboardKeyboardShortcuts({
+    helpOpen: shortcutHelpOpen,
+    onToggleHelp: () => setShortcutHelpOpen((current) => !current),
+    onCloseHelp: () => setShortcutHelpOpen(false),
+    searchInputRef,
+  })
 
   if (!hasToken) return <TokenGate onSave={() => setHasToken(Boolean(getSavedToken()))} />
   return (
@@ -403,7 +415,10 @@ function Shell() {
             </details>
           </nav>
           <div className="app-header-tools">
-            <GlobalSearchForm />
+            <GlobalSearchForm inputRef={searchInputRef} />
+            <button className="secondary-button" type="button" aria-label="Show keyboard shortcuts" onClick={() => setShortcutHelpOpen(true)}>
+              Shortcuts
+            </button>
             <button
               className="secondary-button"
               type="button"
@@ -419,6 +434,7 @@ function Shell() {
           </div>
         </header>
         <RoutedPage route={route} />
+        <KeyboardShortcutHelp open={shortcutHelpOpen} onClose={() => setShortcutHelpOpen(false)} />
       </div>
     </main>
   )
