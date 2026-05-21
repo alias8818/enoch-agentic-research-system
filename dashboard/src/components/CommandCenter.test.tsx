@@ -292,27 +292,52 @@ it('dry-runs dispatch from lane buttons without starting live dispatch', async (
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
+
+it('requires an open-lanes dry-run before live dispatch is enabled', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'gb10 can dispatch' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_id: 'gb10-project', project_name: 'GB10 job' } }]} onRefresh={onRefresh} />)
+
+  expect(screen.getByRole('button', { name: 'Dispatch open lanes' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Check open lanes' }))
+
+  await screen.findByText('checked 1 lane candidates')
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('button', { name: 'Dispatch open lanes' })).toBeEnabled()
+})
+
 it('uses a dialog before live dispatching open lanes', async () => {
   const confirmSpy = vi.spyOn(window, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch', reason: 'dry-run dispatch accepted queued work' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dispatch_started', reason: 'live dispatch accepted queued work' }), { status: 200 }))
   const onRefresh = vi.fn()
 
   render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_name: 'GB10 job' } }]} onRefresh={onRefresh} />)
+  expect(screen.getByRole('button', { name: 'Dispatch open lanes' })).toBeDisabled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Check open lanes' }))
+  await screen.findByText('dry-run dispatch accepted queued work')
   fireEvent.click(screen.getByRole('button', { name: 'Dispatch open lanes' }))
 
   expect(await screen.findByRole('dialog', { name: 'Dispatch open lanes?' })).toBeInTheDocument()
   expect(confirmSpy).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Dispatch work' }))
 
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
-  expect(fetchMock).toHaveBeenCalledWith('/control/dispatch-next', expect.objectContaining({
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-next', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"dry_run":true'),
+  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-next', expect.objectContaining({
     method: 'POST',
     body: expect.stringContaining('"dry_run":false'),
   }))
   expect(screen.getByText('Live dispatch result')).toBeInTheDocument()
   expect(screen.getByText('live dispatch accepted queued work')).toBeInTheDocument()
-  expect(onRefresh).toHaveBeenCalledTimes(1)
+  expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
 it('dry-runs feed actions without spending provider requests or promoting work', async () => {
@@ -521,8 +546,28 @@ it('checks every open lane candidate with dispatch-one instead of aggregate disp
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
+it('keeps open-lanes live dispatch disabled when any lane dry-run is blocked', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'cpu candidate can dispatch' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dispatch_blocked', reason: 'gb10 lane active blocked' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<WorkerLanes lanes={[
+    { lane_key: 'cpu', machine_target: 'cpu-proxmox-1', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_id: 'cpu-project', project_name: 'CPU job' } },
+    { lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_id: 'gb10-project', project_name: 'GB10 job' } },
+  ]} onRefresh={onRefresh} />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Check open lanes' }))
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  expect(screen.getByText('checked 2 lane candidates')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Dispatch open lanes' })).toBeDisabled()
+})
+
 it('live-dispatches every open lane candidate with dispatch-one after confirmation', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'cpu candidate can dispatch' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'gb10 candidate can dispatch' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dispatch_started', reason: 'cpu dispatch started' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dispatch_started', reason: 'gb10 dispatch started' }), { status: 200 }))
   const onRefresh = vi.fn()
@@ -532,22 +577,34 @@ it('live-dispatches every open lane candidate with dispatch-one after confirmati
     { lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_id: 'gb10-project', project_name: 'GB10 job' } },
   ]} onRefresh={onRefresh} />)
 
+  expect(screen.getByRole('button', { name: 'Dispatch open lanes' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Check open lanes' }))
+  await screen.findByText('checked 2 lane candidates')
+
   fireEvent.click(screen.getByRole('button', { name: 'Dispatch open lanes' }))
   const dialog = await screen.findByRole('dialog', { name: 'Dispatch open lanes?' })
   fireEvent.click(dialog.querySelectorAll('button')[1])
 
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ project_id: 'cpu-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
+  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
+  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/dispatch-one', expect.objectContaining({
     method: 'POST',
     body: JSON.stringify({ project_id: 'cpu-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
   }))
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/control/dispatch-one', expect.objectContaining({
     method: 'POST',
     body: JSON.stringify({ project_id: 'gb10-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
   }))
   expect(screen.getByText('Live dispatch result')).toBeInTheDocument()
   expect(screen.getByText('dispatched 2 lane candidates')).toBeInTheDocument()
-  expect(onRefresh).toHaveBeenCalledTimes(1)
+  expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
 it('explains when no worker lane capacity is returned', () => {

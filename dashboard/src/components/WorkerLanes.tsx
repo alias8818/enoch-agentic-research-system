@@ -82,17 +82,39 @@ function feedDryRunAllowsLiveCycle(result: Record<string, unknown>): boolean {
   return action.includes('dry_run') || action.includes('would') || reason.includes('would ')
 }
 
+function dispatchDryRunAllowsLive(result: Record<string, unknown>): boolean {
+  const action = String(result.action || '').toLowerCase()
+  const reason = String(result.reason || result.detail || '').toLowerCase()
+  if (action.includes('blocked') || action.includes('skipped') || reason.includes('blocked')) return false
+  if (result.action === 'dry_run_dispatch_lanes') {
+    if (Number(result.candidate_count || 0) <= 0) return false
+    const laneResults = Array.isArray(result.results) ? result.results : []
+    return laneResults.every((entry) => {
+      if (!entry || typeof entry !== 'object') return false
+      const payload = (entry as { result?: unknown }).result
+      if (!payload || typeof payload !== 'object') return false
+      return dispatchDryRunAllowsLive(payload as Record<string, unknown>)
+    })
+  }
+  return action.includes('dry_run')
+}
+
 export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: WorkerLanesProps) {
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null)
   const [busyAction, setBusyAction] = useState<'feed' | 'feed-live' | 'dispatch' | 'dispatch-live' | null>(null)
   const [liveFeedReady, setLiveFeedReady] = useState(false)
   const [liveLaneProjectId, setLiveLaneProjectId] = useState('')
+  const [liveOpenLaneSignature, setLiveOpenLaneSignature] = useState('')
   const { confirm, dialog } = useOperatorDialog()
   const visible = lanes.filter((lane) => ['CPU lane', 'GB10 lane'].includes(laneLabel(lane)))
   const rendered = visible.length ? visible : lanes
   const explicitOpenLaneCandidates = rendered.filter((lane) => lane.dispatch_available && lane.next_candidate?.project_id)
   const canFeedAny = rendered.some((lane) => ['generate_candidate', 'promote_candidate'].includes(lane.feed_pressure?.next_autopilot_action || ''))
   const canDispatchAny = rendered.some((lane) => lane.dispatch_available)
+  const openLaneSignature = explicitOpenLaneCandidates.length > 0
+    ? explicitOpenLaneCandidates.map((lane) => lane.next_candidate?.project_id || '').join('|')
+    : canDispatchAny ? 'aggregate-dispatch-next' : ''
+  const canLiveDispatchOpenLanes = canDispatchAny && liveOpenLaneSignature === openLaneSignature
 
   async function dispatchExplicitLaneCandidates(candidateLanes: WorkerLane[], dryRun: boolean): Promise<Record<string, unknown>> {
     const results = []
@@ -120,6 +142,7 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
   async function feedLane() {
     setBusyAction('feed')
     setLiveLaneProjectId('')
+    setLiveOpenLaneSignature('')
     try {
       const result = await apiPost<Record<string, unknown>>('/control/api/research/run-cycle', dryRunCyclePayload)
       setCommandResult({ title: 'Feed dry-run result', payload: result })
@@ -168,16 +191,19 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
           : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
       setCommandResult({ title: 'Dispatch dry-run result', payload: result })
       setLiveLaneProjectId(projectId && result.action === 'dry_run_dispatch_one' ? projectId : '')
+      setLiveOpenLaneSignature(!projectId && dispatchDryRunAllowsLive(result) ? openLaneSignature : '')
       onRefresh()
     } catch (error) {
       setCommandResult({ title: 'Dispatch dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
       setLiveLaneProjectId('')
+      setLiveOpenLaneSignature('')
     } finally {
       setBusyAction(null)
     }
   }
 
   async function liveDispatchOpenLanes() {
+    if (!canLiveDispatchOpenLanes) return
     const confirmed = await confirm({
       title: 'Dispatch open lanes?',
       message: 'This starts live dispatch for eligible queued work on open lanes. Use Check open lanes first if you want a dry-run preflight only.',
@@ -187,6 +213,7 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
     if (!confirmed) return
     setBusyAction('dispatch-live')
     setLiveLaneProjectId('')
+    setLiveOpenLaneSignature('')
     setLiveFeedReady(false)
     try {
       const result = explicitOpenLaneCandidates.length > 0
@@ -239,7 +266,7 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
             <button className="secondary-button" disabled={!canFeedAny || busyAction !== null} onClick={feedLane}>Feed idle lanes</button>
             <button className="primary-button" disabled={!liveFeedReady || busyAction !== null} onClick={() => { void liveFeedCycle() }}>Run feed cycle</button>
             <button className="secondary-button" disabled={!canDispatchAny || busyAction !== null} onClick={() => { void dispatchLane() }}>Check open lanes</button>
-            <button className="primary-button" disabled={!canDispatchAny || busyAction !== null} onClick={() => { void liveDispatchOpenLanes() }}>Dispatch open lanes</button>
+            <button className="primary-button" disabled={!canLiveDispatchOpenLanes || busyAction !== null} onClick={() => { void liveDispatchOpenLanes() }}>Dispatch open lanes</button>
           </div>
         </div>
         <ResultCard result={commandResult} />
