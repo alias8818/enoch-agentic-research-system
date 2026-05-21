@@ -8087,6 +8087,48 @@ def test_missing_evidence_alert_still_notifies_when_event_store_fails() -> None:
         assert result.json()["action"] == "noop"
         assert len(calls) == 1
 
+
+def test_draft_next_revalidates_decision_gate_after_evidence_sync() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        client = _client(tmp)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        project_dir = Path(tmp) / "projects" / "paper-sync-gate"
+        (project_dir / ".enoch").mkdir(parents=True)
+        (project_dir / "run_notes.md").write_text("Verified useful result with measured baseline evidence.\n", encoding="utf-8")
+        (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+        imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
+            "idempotency_key": "import-paper-sync-gate",
+            "queue_rows": [{
+                "project_id": "paper-sync-gate",
+                "project_name": "Paper Sync Gate",
+                "project_dir": "paper-sync-gate",
+                "status": "completed",
+                "last_run_state": "finalize_positive",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-paper-sync-gate",
+                "manual_review_required": False,
+            }],
+            "paper_rows": [],
+        })
+        assert imported.status_code == 200
+
+        def sync_overwrites_positive(*args, **kwargs):  # noqa: ANN001 - patched function
+            del args, kwargs
+            (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"negative"}\n', encoding="utf-8")
+            return {"enabled": True, "synced": True, "method": "worker_http"}
+
+        with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", side_effect=sync_overwrites_positive):
+            response = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["action"] == "noop"
+        skipped = body.get("candidate", {}).get("skipped", [])
+        assert skipped and skipped[0]["reason"] == "project decision is not paper-ready after evidence sync"
+        assert skipped[0]["decision_gate"]["eligible"] is False
+        snapshot = client.get("/control/export/snapshot", headers=headers).json()
+        assert snapshot["paper_rows"] == []
+
 def test_paper_draft_event_failure_does_not_publish_partial_paper_row() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         client = _client(tmp)
