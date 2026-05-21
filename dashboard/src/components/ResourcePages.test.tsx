@@ -219,6 +219,7 @@ it('shows raw event detail without inventing a missing event endpoint', async ()
   renderWithClient(<EventsPage />)
   fireEvent.click(await screen.findByText('Alert summary'))
 
+  expect(screen.getByRole('link', { name: /9/ })).toHaveAttribute('href', '/control/dashboard-v2#event:9')
   expect(await screen.findByLabelText('Dashboard detail panel')).toHaveTextContent('Queue Alert')
   expect(globalThis.fetch).toHaveBeenCalledTimes(1)
 })

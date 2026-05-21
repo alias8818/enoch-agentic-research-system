@@ -63,7 +63,7 @@ it('renders related project runs and papers as V2 links instead of raw-only JSON
   expect(screen.getByText('Related papers')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /Draft paper/ })).toHaveAttribute('href', '/control/dashboard-v2#paper:paper-1')
   expect(screen.getByText('Recent events')).toBeInTheDocument()
-  expect(screen.getByText('Lane blocked')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /Lane blocked/ })).toHaveAttribute('href', '/control/dashboard-v2#event:9')
 })
 
 

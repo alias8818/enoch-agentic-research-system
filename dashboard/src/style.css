@@ -561,6 +561,8 @@ button:disabled { cursor: not-allowed; }
   text-transform: uppercase;
 }
 .copy-button:hover { border-color: rgba(226,177,91,0.62); color: #fff8ea; }
+.cell-link { color: #e2b15b; text-decoration: none; }
+.cell-link:hover { color: #fff8ea; text-decoration: underline; text-underline-offset: 0.18em; }
 
 .queue-command-card {
   display: flex;

@@ -54,14 +54,6 @@ function RelatedSection({ title, rows, kind }: { title: string; rows: Record<str
           const id = stringifyValue(firstValue(row.run_id, row.paper_id, row.id, row.event_id, `row-${index + 1}`))
           const titleText = kind === 'run' ? id : rowTitle(row, id)
           const meta = stringifyValue(firstValue(row.state, row.status, row.event_type, row.updated_at, row.created_at))
-          if (kind === 'event') {
-            return (
-              <div key={`${kind}-${id}-${index}`} className="detail-related-row">
-                <strong>{titleText}</strong>
-                {meta !== '—' && meta !== titleText ? <span>{meta}</span> : null}
-              </div>
-            )
-          }
           return (
             <a key={`${kind}-${id}-${index}`} className="detail-related-row detail-related-row--link" href={dashboardV2Href(`#${kind}:${encodeURIComponent(id)}`)}>
               <strong>{titleText}</strong>

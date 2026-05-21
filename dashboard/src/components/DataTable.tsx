@@ -1,6 +1,7 @@
 import { MouseEvent, ReactNode, useState } from 'react'
 
 type Row = Record<string, unknown>
+type CellHref = (row: Row, column: string) => string | undefined
 
 function formatValue(value: unknown): ReactNode {
   if (value === null || value === undefined || value === '') return <span className="muted-value">—</span>
@@ -30,11 +31,14 @@ async function copyToClipboard(text: string): Promise<void> {
   document.body.removeChild(textarea)
 }
 
-function CellValue({ column, value }: { column: string; value: unknown }) {
+function CellValue({ column, value, href }: { column: string; value: unknown; href?: string }) {
   const [copied, setCopied] = useState(false)
-  if (typeof value !== 'string' || !value) return formatValue(value)
+  if (typeof value !== 'string' || !value) {
+    const formatted = formatValue(value)
+    return href ? <a className="cell-link cell-truncate" href={href} onClick={(event) => event.stopPropagation()}>{formatted}</a> : formatted
+  }
   const text = value
-  if (!isCopyableColumn(column)) return <span className="cell-truncate" title={text}>{text}</span>
+  if (!isCopyableColumn(column)) return href ? <a className="cell-link cell-truncate" href={href} onClick={(event) => event.stopPropagation()} title={text}>{text}</a> : <span className="cell-truncate" title={text}>{text}</span>
   async function copy(event: MouseEvent<HTMLButtonElement>) {
     event.stopPropagation()
     await copyToClipboard(text)
@@ -43,7 +47,7 @@ function CellValue({ column, value }: { column: string; value: unknown }) {
   }
   return (
     <span className="copy-cell">
-      <span className="cell-truncate" title={text}>{text}</span>
+      {href ? <a className="cell-link cell-truncate" href={href} onClick={(event) => event.stopPropagation()} title={text}>{text}</a> : <span className="cell-truncate" title={text}>{text}</span>}
       <button className="copy-button" type="button" onClick={copy} aria-label={`Copy ${column.replaceAll('_', ' ')} ${text}`}>{copied ? 'Copied' : 'Copy'}</button>
     </span>
   )
@@ -53,7 +57,7 @@ function rowKey(row: Row, index: number): string {
   return String(row.project_id || row.run_id || row.paper_id || row.event_id || row.id || index)
 }
 
-export function DataTable({ rows, columns, empty, onSelectRow }: { rows: Row[]; columns: string[]; empty: string; onSelectRow?: (row: Row) => void }) {
+export function DataTable({ rows, columns, empty, onSelectRow, cellHref }: { rows: Row[]; columns: string[]; empty: string; onSelectRow?: (row: Row) => void; cellHref?: CellHref }) {
   if (!rows.length) {
     return <div className="empty-table">{empty}</div>
   }
@@ -67,7 +71,7 @@ export function DataTable({ rows, columns, empty, onSelectRow }: { rows: Row[]; 
           <tbody>
             {rows.map((row, index) => (
               <tr key={rowKey(row, index)} className={onSelectRow ? 'selectable-row' : ''} onClick={() => onSelectRow?.(row)}>
-                {columns.map((column) => <td key={column} title={typeof row[column] === 'string' ? String(row[column]) : undefined}><CellValue column={column} value={row[column]} /></td>)}
+                {columns.map((column) => <td key={column} title={typeof row[column] === 'string' ? String(row[column]) : undefined}><CellValue column={column} value={row[column]} href={cellHref?.(row, column)} /></td>)}
               </tr>
             ))}
           </tbody>

@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiGet, apiPost } from '../api/client'
+import { dashboardV2Href } from '../routes'
 import type { DashboardRoute } from '../routes'
 import { DataTable } from './DataTable'
 import { DetailPanel } from './DetailPanel'
@@ -79,6 +80,10 @@ function withRunParams(state: FilterState): URLSearchParams {
   return params
 }
 
+function firstValue(...values: unknown[]): unknown {
+  return values.find((value) => value !== null && value !== undefined && value !== '')
+}
+
 function selectedDispatchReason(selection: DetailSelection | null): string {
   if (!selection) return 'Select a queued row to check whether that exact candidate can dispatch.'
   if (!selection.id) return 'Selected row has no project id.'
@@ -97,6 +102,12 @@ function CommandResultCard({ result }: { result: CommandResult | null }) {
       <pre>{JSON.stringify(result.payload, null, 2)}</pre>
     </section>
   )
+}
+
+function eventCellHref(row: Record<string, unknown>, column: string): string | undefined {
+  if (column !== 'id' && column !== 'event_id') return undefined
+  const id = firstValue(row.event_id, row.id)
+  return id ? dashboardV2Href(`#event:${encodeURIComponent(String(id))}`) : undefined
 }
 
 export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'queue' }> }) {
@@ -226,7 +237,7 @@ export function EventsPage() {
   return (
     <PageShell title="Events" subtitle="Recent formatted control-plane events from /control/api/v1/events.">
       <FilterBar state={filters} statusOptions={[{ label: 'all event types', value: '' }, { label: 'Queue Alert', value: 'Queue Alert' }, { label: 'worker.callback', value: 'worker.callback' }, { label: 'paper.drafted', value: 'paper.drafted' }, { label: 'research.run_cycle.live', value: 'research.run_cycle.live' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: '', pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <DataTable rows={query.data?.rows || []} columns={['id', 'entity_type', 'entity_id', 'event_type', 'created_at', 'summary']} empty="No recent events returned." onSelectRow={(row) => setSelection({ kind: 'event', id: String(row.id || row.event_id || ''), row })} />
+      <DataTable rows={query.data?.rows || []} columns={['id', 'entity_type', 'entity_id', 'event_type', 'created_at', 'summary']} empty="No recent events returned." cellHref={eventCellHref} onSelectRow={(row) => setSelection({ kind: 'event', id: String(row.id || row.event_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )
