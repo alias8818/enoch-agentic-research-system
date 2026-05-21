@@ -39,7 +39,30 @@ const overviewPayload = {
 
 const statusPayload = {
   generated_at: '2026-05-21T12:00:00Z',
-  worker_lanes: [],
+  worker_lanes: [
+    {
+      lane_key: 'cpu',
+      machine_target: 'cpu-proxmox-1',
+      label: 'CPU lane',
+      status: 'active',
+      queued_count: 14,
+      dispatch_available: false,
+      dispatch_blocker: 'lane active',
+      active_item: { project_id: 'project-alpha', project_name: 'Alpha study' },
+      feed_pressure: { desired_queue_depth: 25, queue_deficit: 11 },
+    },
+    {
+      lane_key: 'gb10',
+      machine_target: 'gb10-worker-1',
+      label: 'GB10 lane',
+      status: 'idle',
+      queued_count: 14,
+      dispatch_available: true,
+      dispatch_blocker: null,
+      next_candidate: { project_id: 'project-beta', project_name: 'Beta follow-up' },
+      feed_pressure: { desired_queue_depth: 25, queue_deficit: 11 },
+    },
+  ],
   flags: { queue_paused: false, maintenance_mode: false },
 }
 
