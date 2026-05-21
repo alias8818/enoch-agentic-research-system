@@ -892,7 +892,7 @@ def test_supabase_followup_launch_records_parent_run_source_and_lineage(monkeypa
     joined = "\n".join(sql for sql, _params in lineage_inserts)
     assert "source_type, source_id, target_type, target_id, relation_type" in joined
     assert any(followup_id in params for _sql, params in lineage_inserts)
-    assert any("branched_from" in params for _sql, params in lineage_inserts)
+    assert "branched_from" in joined
 
 
 def test_supabase_launch_followup_append_failure_does_not_queue_followup(monkeypatch) -> None:
