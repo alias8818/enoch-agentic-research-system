@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from enoch_control_plane.config import GateConfig
-from enoch_control_plane.control_plane.read_models import OPERATOR_DETAIL_LABELS, OPERATOR_LANE_LABELS, operator_stage_for_record, paper_links, paper_source_fingerprint, queue_links, row_age_seconds, summarize_paper_row
+from enoch_control_plane.control_plane.read_models import OPERATOR_DETAIL_LABELS, OPERATOR_LANE_LABELS, operator_stage_for_record, paper_links, paper_source_fingerprint, queue_links, row_age_seconds, summarize_idea_workbench_row, summarize_paper_row
 from enoch_control_plane.control_plane.state_contract import OperatorLane
 from enoch_control_plane.control_plane.store import REVIEW_CHECKLIST_DEFINITION
 from enoch_control_plane.control_plane.router import create_control_plane_router
@@ -134,6 +134,35 @@ class OperatorStatusTests(unittest.TestCase):
 
         self.assertEqual(translated["operator_stage"], "automate_publication")
         self.assertEqual(translated["operator_detail_stage"], "finalization_needed")
+
+    def test_summarize_idea_workbench_row_adds_operator_stage_fields(self) -> None:
+        summary = summarize_idea_workbench_row({
+            "idea_id": "idea-queued",
+            "title": "Queued idea",
+            "idea_status": "admitted",
+            "queue_status": "queued",
+            "source_kind": "supabase_idea",
+            "machine_target": "gb10",
+            "project_id": "project-queued",
+            "next_action_hint": "dispatch dry-run",
+        })
+
+        self.assertEqual(summary["operator_stage"], "ready_queue")
+        self.assertEqual(summary["operator_detail_stage"], "idea_queued")
+        self.assertEqual(summary["operator_stage_label"], "Ready")
+        self.assertIn("Dispatch", summary["operator_next_step"])
+
+    def test_summarize_idea_workbench_row_skips_queue_stage_for_unqueued_ideas(self) -> None:
+        for idea_status in ("candidate", "rejected"):
+            summary = summarize_idea_workbench_row({
+                "idea_id": f"idea-{idea_status}",
+                "idea_status": idea_status,
+                "queue_status": "",
+                "source_kind": "research_facility",
+            })
+            self.assertNotIn("operator_stage", summary)
+            self.assertNotIn("operator_attention", summary)
+            self.assertNotIn("operator_next_step", summary)
 
     def test_summarize_paper_row_requires_readable_publish_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

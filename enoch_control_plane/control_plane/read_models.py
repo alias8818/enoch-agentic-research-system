@@ -868,6 +868,44 @@ def summarize_queue_row(row: dict[str, Any]) -> dict[str, Any]:
     }))
 
 
+def _idea_has_queue_context(row: dict[str, Any]) -> bool:
+    if _text(row.get("queue_status") or row.get("status")):
+        return True
+    if _text(row.get("current_run_id")):
+        return True
+    return bool(_text(row.get("last_run_state")))
+
+
+def summarize_idea_workbench_row(row: dict[str, Any]) -> dict[str, Any]:
+    if not _idea_has_queue_context(row):
+        return dict(row)
+    stage_source = {
+        **row,
+        "project_id": row.get("project_id") or row.get("idea_id") or "",
+        "project_name": row.get("title") or "",
+        "status": row.get("queue_status") or row.get("status") or "",
+        "queue_status": row.get("queue_status") or "",
+        "origin_idea_status": row.get("idea_status") or "",
+        "paper_status": row.get("paper_status") or "",
+        "related_paper_status": row.get("paper_status") or "",
+        "paper_id": row.get("paper_id") or "",
+        "related_paper_id": row.get("paper_id") or "",
+        "current_run_id": row.get("current_run_id") or "",
+        "last_run_state": row.get("last_run_state") or "",
+        "next_action_hint": row.get("next_action_hint") or "",
+        "manual_review_required": row.get("manual_review_required", False),
+        "blocked_reason": row.get("blocked_reason") or "",
+        "last_error": row.get("last_error") or "",
+        "machine_target": row.get("machine_target") or "",
+        "updated_at": row.get("queue_updated_at") or row.get("updated_at") or "",
+    }
+    staged = with_operator_stage(stage_source)
+    return {
+        **row,
+        **{key: value for key, value in staged.items() if key.startswith("operator_")},
+    }
+
+
 def summarize_paper_row(row: dict[str, Any]) -> dict[str, Any]:
     summary = with_operator_stage({
         "paper_id": row.get("paper_id", ""),

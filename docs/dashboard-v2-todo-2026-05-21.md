@@ -248,6 +248,6 @@ Follow [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.
 - [x] Filter hero state strip to active/queued only; keep paper counts in [`PaperMiniStrip`](../dashboard/src/components/PaperMiniStrip.tsx)
 - [x] Detail route audit follow-up: run detail page (#100)
 - [x] Detail route audit follow-up: paper detail page (worker-4b-retry, #104)
-- [x] Detail route audit follow-up: event detail page (worker-4c)
-- [ ] Detail route audit follow-up: idea detail page (worker-idea-detail-audit)
+- [x] Detail route audit follow-up: event detail page (worker-4c, #105)
+- [x] Detail route audit follow-up: idea detail page (worker-idea-detail-audit, #106)
 
