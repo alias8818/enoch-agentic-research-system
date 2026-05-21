@@ -165,9 +165,11 @@ def _list(value: Any) -> list[Any]:
 
 
 def _export_status(row: dict[str, Any]) -> str:
+    outcome = _text(row.get("research_outcome")).lower().replace("-", "_").replace(" ", "_")
+    if outcome not in {"useful_signal", "promising_if_scaled"}:
+        return ""
     if _truthy(row.get("compute_scale_blocked")):
         return "compute_scale_blocked"
-    outcome = _text(row.get("research_outcome")).lower().replace("-", "_").replace(" ", "_")
     if outcome in {"useful_signal", "promising_if_scaled"}:
         return outcome
     return ""
@@ -175,6 +177,8 @@ def _export_status(row: dict[str, Any]) -> str:
 
 def is_exportable_row(row: dict[str, Any]) -> bool:
     if _truthy(row.get("write_needed")) or _truthy(row.get("has_live_paper_row")):
+        return False
+    if _truthy(row.get("bounded_paper_ready")):
         return False
     if _text(row.get("paper_id")) or _text(row.get("paper_status")) or _text(row.get("corpus_imported_at")):
         return False
