@@ -65,9 +65,29 @@ it('runs follow-up primary actions as safe dry-runs instead of only linking away
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
+it('runs write-paper primary actions as safe dry-runs instead of only linking away', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_draft', reason: 'eligible paper-ready candidate found', paper: { paper_id: 'paper-1' } }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<PrimaryAction action={{ kind: 'write_paper', title: 'Draft next paper', summary: 'Paper-ready run exists.', action_label: 'Open draft lane', action_hash: '#papers?status=publication_draft' }} onRefresh={onRefresh} />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Check draft' }))
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  expect(fetchMock).toHaveBeenCalledWith('/control/papers/draft-next', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"dry_run":true'),
+  }))
+  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"force":true')
+  expect(screen.getByText('Primary action dry-run')).toBeInTheDocument()
+  expect(screen.getByText('eligible paper-ready candidate found')).toBeInTheDocument()
+  expect(onRefresh).toHaveBeenCalledTimes(1)
+})
+
 it('keeps non-command primary actions as V2 links', () => {
-  render(<PrimaryAction action={{ kind: 'write_paper', title: 'Draft next paper', summary: 'Paper-ready run exists.', action_label: 'Open draft lane', action_hash: '#papers?status=publication_draft' }} />)
-  expect(screen.getByRole('link', { name: 'Open draft lane' })).toHaveAttribute('href', '/control/dashboard-v2#papers?status=publication_draft')
+  render(<PrimaryAction action={{ kind: 'finalize_paper', title: 'Finalize publication drafts', summary: 'Publication drafts need packages.', action_label: 'Open automation queue', action_hash: '#automation' }} />)
+  expect(screen.getByRole('link', { name: 'Open automation queue' })).toHaveAttribute('href', '/control/dashboard-v2#automation')
 })
 
 it('renders worker lane commands without deriving queue truth from aggregate counts', () => {

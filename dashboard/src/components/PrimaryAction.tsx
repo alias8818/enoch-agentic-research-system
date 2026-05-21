@@ -21,11 +21,12 @@ function ResultCard({ result }: { result: CommandResult | null }) {
 }
 
 function isDryRunCommand(action: TopAction): boolean {
-  return action.kind === 'dispatch_next' || action.kind === 'investigate_followup'
+  return action.kind === 'dispatch_next' || action.kind === 'investigate_followup' || action.kind === 'write_paper'
 }
 
 function dryRunLabel(action: TopAction): string {
   if (action.kind === 'investigate_followup') return 'Check follow-up'
+  if (action.kind === 'write_paper') return 'Check draft'
   return 'Check dispatch'
 }
 
@@ -39,7 +40,9 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
     try {
       const payload = action.kind === 'investigate_followup'
         ? await apiPost<Record<string, unknown>>('/control/api/v1/followups/launch-next', { dry_run: true, requested_by: 'dashboard-v2', max_followup_depth: 4 })
-        : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+        : action.kind === 'write_paper'
+          ? await apiPost<Record<string, unknown>>('/control/papers/draft-next', { dry_run: true, requested_by: 'dashboard-v2', force: true })
+          : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
       setResult({ title: 'Primary action dry-run', payload })
       onRefresh?.()
     } catch (error) {
