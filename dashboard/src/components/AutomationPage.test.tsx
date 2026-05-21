@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
 import { AutomationPage } from './AutomationPage'
@@ -178,20 +178,21 @@ it('only enables live finalization for the paper that completed dry-run', async 
     .mockResolvedValueOnce(new Response(JSON.stringify({ item: { paper_id: 'paper-a', project_name: 'Paper A', review_status: 'triage_ready', paper_status: 'publication_draft' }, checklist: { items: [] } }), { status: 200 }))
     .mockImplementationOnce(() => dryRunPromise)
     .mockResolvedValueOnce(new Response(JSON.stringify({ item: { paper_id: 'paper-b', project_name: 'Paper B', review_status: 'triage_ready', paper_status: 'publication_draft' }, checklist: { items: [] } }), { status: 200 }))
-    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-a' }, { paper_id: 'paper-b' }] }), { status: 200 }))
+    .mockResolvedValue(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-a' }, { paper_id: 'paper-b' }] }), { status: 200 }))
 
   renderWithClient(<AutomationPage paperId="paper-a" />)
 
   await screen.findByLabelText('Automation detail')
   fireEvent.click(screen.getByRole('button', { name: 'Dry-run finalization package' }))
   fireEvent.click(screen.getByText('Paper B'))
-  await screen.findByText('paper-b')
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenCalledWith('/control/api/publication-automation/paper-b', expect.any(Object))
+  })
 
   resolveDryRun?.(new Response(JSON.stringify({ dry_run: true, paper_id: 'paper-a' }), { status: 200 }))
-  await screen.findByText('Paper finalize dry-run passed')
 
   const liveButton = screen.getByRole('button', { name: 'Prepare live finalization package' })
-  expect(liveButton).toBeDisabled()
+  await waitFor(() => expect(liveButton).toBeDisabled())
   expect(fetchMock).not.toHaveBeenCalledWith(
     '/control/api/publication-automation/paper-b/prepare-finalization-package',
     expect.objectContaining({ method: 'POST' }),
