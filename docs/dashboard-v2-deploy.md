@@ -18,7 +18,9 @@ CI runs `npm test`, `npm run typecheck`, and `npm run lint` only. It does **not*
 
 ## Safe rsync to the control VM
 
-Do not copy local dev artifacts into production. Exclude test caches, virtualenvs, and frontend `node_modules`:
+Do not copy local dev artifacts into production. Exclude test caches, virtualenvs, and frontend `node_modules`.
+
+Use the live host and runtime path from [`current-runtime-snapshot.md`](current-runtime-snapshot.md) (reference deployment: `enoch-core` at `/opt/enoch-control-plane`):
 
 ```bash
 rsync -a --delete \
