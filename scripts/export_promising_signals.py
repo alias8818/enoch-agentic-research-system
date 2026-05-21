@@ -847,15 +847,18 @@ def _latest_project_keys(rows: Iterable[dict[str, Any]]) -> set[tuple[str, str]]
     return {(project_id, run_id) for project_id, (_updated, run_id) in latest.items()}
 
 
-def _audit_row_summary(row: dict[str, Any], issues: list[str], *, backfill: dict[str, Any] | None = None) -> dict[str, Any]:
+def _audit_row_summary(row: dict[str, Any], issues: list[str], *, backfill: dict[str, Any] | None = None, include_identifiers: bool = True) -> dict[str, Any]:
     summary = {
-        "project_id": _text(row.get("project_id")),
-        "run_id": _text(row.get("run_id") or row.get("current_run_id")),
-        "title": _text(row.get("project_name") or row.get("title")),
-        "research_outcome": _text(row.get("research_outcome")),
-        "compute_scale_blocked": _truthy(row.get("compute_scale_blocked")),
         "issues": sorted(set(issues)),
     }
+    if include_identifiers:
+        summary.update({
+            "project_id": _text(row.get("project_id")),
+            "run_id": _text(row.get("run_id") or row.get("current_run_id")),
+            "title": _text(row.get("project_name") or row.get("title")),
+            "research_outcome": _text(row.get("research_outcome")),
+            "compute_scale_blocked": _truthy(row.get("compute_scale_blocked")),
+        })
     if backfill is not None:
         summary["backfill"] = {
             "classification": sorted(set(_list(backfill.get("classification")))),
@@ -886,12 +889,13 @@ def audit_backfill(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
                     row,
                     ["stale_duplicate_superseded"],
                     backfill={"classification": ["stale_duplicate_superseded"], "actions": [], "remaining_issues": []},
+                    include_identifiers=False,
                 )
             )
             continue
         if _paper_or_corpus_excluded(row):
             buckets["excluded_paper_or_corpus"].append(
-                _audit_row_summary(row, ["paper_or_corpus_row"], backfill={"classification": [], "actions": [], "remaining_issues": []})
+                _audit_row_summary(row, ["paper_or_corpus_row"], backfill={"classification": [], "actions": [], "remaining_issues": []}, include_identifiers=False)
             )
             continue
         backfilled = backfill_promising_signal_row(row)
@@ -899,7 +903,7 @@ def audit_backfill(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
         status = _export_status(backfilled)
         if status not in EXPORT_STATUSES:
             buckets["hard_negative_or_stale"].append(
-                _audit_row_summary(backfilled, ["research_outcome:not_export_status"], backfill=backfill_meta)
+                _audit_row_summary(backfilled, ["research_outcome:not_export_status"], backfill=backfill_meta, include_identifiers=False)
             )
             continue
         signal = signal_from_row(backfilled)
