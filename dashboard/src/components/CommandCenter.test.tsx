@@ -162,6 +162,29 @@ it('dry-runs dispatch from lane buttons without starting live dispatch', async (
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
+it('uses a dialog before live dispatching open lanes', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dispatch_started', reason: 'live dispatch accepted queued work' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_name: 'GB10 job' } }]} onRefresh={onRefresh} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Dispatch open lanes' }))
+
+  expect(await screen.findByRole('dialog', { name: 'Dispatch open lanes?' })).toBeInTheDocument()
+  expect(confirmSpy).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Dispatch work' }))
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  expect(fetchMock).toHaveBeenCalledWith('/control/dispatch-next', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"dry_run":false'),
+  }))
+  expect(screen.getByText('Live dispatch result')).toBeInTheDocument()
+  expect(screen.getByText('live dispatch accepted queued work')).toBeInTheDocument()
+  expect(onRefresh).toHaveBeenCalledTimes(1)
+})
+
 it('dry-runs feed actions without spending provider requests or promoting work', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'research_cycle_blocked', dry_run: true, reason: 'provider budget passed; no provider request spent' }), { status: 200 }))

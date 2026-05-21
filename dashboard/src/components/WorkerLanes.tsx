@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { apiPost } from '../api/client'
 import type { WorkerLane } from '../types'
+import { useOperatorDialog } from './OperatorDialog'
 
 type CommandResult = {
   title: string
@@ -58,7 +59,8 @@ function ResultCard({ result }: { result: CommandResult | null }) {
 
 export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefresh: () => void }) {
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null)
-  const [busyAction, setBusyAction] = useState<'feed' | 'dispatch' | null>(null)
+  const [busyAction, setBusyAction] = useState<'feed' | 'dispatch' | 'dispatch-live' | null>(null)
+  const { confirm, dialog } = useOperatorDialog()
 
   async function feedLane() {
     setBusyAction('feed')
@@ -89,66 +91,90 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
     }
   }
 
+  async function liveDispatchOpenLanes() {
+    const confirmed = await confirm({
+      title: 'Dispatch open lanes?',
+      message: 'This starts live dispatch for eligible queued work on open lanes. Use Check open lanes first if you want a dry-run preflight only.',
+      confirmLabel: 'Dispatch work',
+      tone: 'warn',
+    })
+    if (!confirmed) return
+    setBusyAction('dispatch-live')
+    try {
+      const result = await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
+      setCommandResult({ title: 'Live dispatch result', payload: result })
+      onRefresh()
+    } catch (error) {
+      setCommandResult({ title: 'Live dispatch failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
   const visible = lanes.filter((lane) => ['CPU lane', 'GB10 lane'].includes(laneLabel(lane)))
   const rendered = visible.length ? visible : lanes
   const canFeedAny = rendered.some((lane) => ['generate_candidate', 'promote_candidate'].includes(lane.feed_pressure?.next_autopilot_action || ''))
   const canDispatchAny = rendered.some((lane) => lane.dispatch_available)
   return (
-    <section className="lane-console" aria-label="Worker lanes">
-      <div className="lane-console-head">
-        <div>
-          <p className="eyebrow">Worker lanes</p>
-          <h2>CPU / GB10 command surface</h2>
-          <p>Lane state is the source of truth. Aggregate queue counts do not decide dispatch.</p>
+    <>
+      <section className="lane-console" aria-label="Worker lanes">
+        <div className="lane-console-head">
+          <div>
+            <p className="eyebrow">Worker lanes</p>
+            <h2>CPU / GB10 command surface</h2>
+            <p>Lane state is the source of truth. Aggregate queue counts do not decide dispatch.</p>
+          </div>
+          <div className="lane-console-actions">
+            <button className="secondary-button" disabled={!canFeedAny || busyAction !== null} onClick={feedLane}>Feed idle lanes</button>
+            <button className="secondary-button" disabled={!canDispatchAny || busyAction !== null} onClick={() => { void dispatchLane() }}>Check open lanes</button>
+            <button className="primary-button" disabled={!canDispatchAny || busyAction !== null} onClick={() => { void liveDispatchOpenLanes() }}>Dispatch open lanes</button>
+          </div>
         </div>
-        <div className="lane-console-actions">
-          <button className="secondary-button" disabled={!canFeedAny || busyAction !== null} onClick={feedLane}>Feed idle lanes</button>
-          <button className="primary-button" disabled={!canDispatchAny || busyAction !== null} onClick={() => { void dispatchLane() }}>Check open lanes</button>
+        <ResultCard result={commandResult} />
+        <div className="lane-grid">
+          {rendered.map((lane) => {
+            const feedAction = lane.feed_pressure?.next_autopilot_action || 'observe'
+            const canFeed = feedAction === 'generate_candidate' || feedAction === 'promote_candidate'
+            const canDispatch = Boolean(lane.dispatch_available)
+            const active = lane.active_item?.project_name || lane.active_item?.project_id
+            const next = lane.next_candidate?.project_name || lane.next_candidate?.project_id
+            return (
+              <article key={lane.lane_key || lane.machine_target || laneLabel(lane)} className="lane-card">
+                <div className="lane-card-top">
+                  <div>
+                    <p className="eyebrow">{laneLabel(lane)}</p>
+                    <h3>{lane.status || 'unknown'}</h3>
+                  </div>
+                  <div className="lane-queue-count" aria-label={`${laneLabel(lane)} queued count`}>
+                    <strong>{lane.queued_count ?? 0}</strong>
+                    <span>queued</span>
+                  </div>
+                </div>
+                <dl className="lane-facts">
+                  <div>
+                    <dt>Current</dt>
+                    <dd>{active || 'idle'}</dd>
+                  </div>
+                  <div>
+                    <dt>Next</dt>
+                    <dd>{next || 'none'}</dd>
+                  </div>
+                  <div>
+                    <dt>Feed action</dt>
+                    <dd>{sentence(feedAction)}</dd>
+                  </div>
+                </dl>
+                <p className={canDispatch ? 'lane-reason lane-reason--ready' : 'lane-reason'}>{laneDisabledReason(lane, canFeed, canDispatch)}</p>
+                <div className="lane-actions">
+                  <button className="secondary-button" disabled={!canFeed || busyAction !== null} onClick={feedLane}>Feed idle lane</button>
+                  <button className="primary-button" disabled={!canDispatch || busyAction !== null} onClick={() => { void dispatchLane(lane) }}>Check dispatch</button>
+                </div>
+              </article>
+            )
+          })}
         </div>
-      </div>
-      <ResultCard result={commandResult} />
-      <div className="lane-grid">
-        {rendered.map((lane) => {
-          const feedAction = lane.feed_pressure?.next_autopilot_action || 'observe'
-          const canFeed = feedAction === 'generate_candidate' || feedAction === 'promote_candidate'
-          const canDispatch = Boolean(lane.dispatch_available)
-          const active = lane.active_item?.project_name || lane.active_item?.project_id
-          const next = lane.next_candidate?.project_name || lane.next_candidate?.project_id
-          return (
-            <article key={lane.lane_key || lane.machine_target || laneLabel(lane)} className="lane-card">
-              <div className="lane-card-top">
-                <div>
-                  <p className="eyebrow">{laneLabel(lane)}</p>
-                  <h3>{lane.status || 'unknown'}</h3>
-                </div>
-                <div className="lane-queue-count" aria-label={`${laneLabel(lane)} queued count`}>
-                  <strong>{lane.queued_count ?? 0}</strong>
-                  <span>queued</span>
-                </div>
-              </div>
-              <dl className="lane-facts">
-                <div>
-                  <dt>Current</dt>
-                  <dd>{active || 'idle'}</dd>
-                </div>
-                <div>
-                  <dt>Next</dt>
-                  <dd>{next || 'none'}</dd>
-                </div>
-                <div>
-                  <dt>Feed action</dt>
-                  <dd>{sentence(feedAction)}</dd>
-                </div>
-              </dl>
-              <p className={canDispatch ? 'lane-reason lane-reason--ready' : 'lane-reason'}>{laneDisabledReason(lane, canFeed, canDispatch)}</p>
-              <div className="lane-actions">
-                <button className="secondary-button" disabled={!canFeed || busyAction !== null} onClick={feedLane}>Feed idle lane</button>
-                <button className="primary-button" disabled={!canDispatch || busyAction !== null} onClick={() => { void dispatchLane(lane) }}>Check dispatch</button>
-              </div>
-            </article>
-          )
-        })}
-      </div>
-    </section>
+      </section>
+      {dialog}
+    </>
   )
 }
