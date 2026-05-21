@@ -165,9 +165,11 @@ def _list(value: Any) -> list[Any]:
 
 
 def _export_status(row: dict[str, Any]) -> str:
+    outcome = _text(row.get("research_outcome")).lower().replace("-", "_").replace(" ", "_")
+    if outcome not in {"useful_signal", "promising_if_scaled"}:
+        return ""
     if _truthy(row.get("compute_scale_blocked")):
         return "compute_scale_blocked"
-    outcome = _text(row.get("research_outcome")).lower().replace("-", "_").replace(" ", "_")
     if outcome in {"useful_signal", "promising_if_scaled"}:
         return outcome
     return ""
@@ -175,6 +177,8 @@ def _export_status(row: dict[str, Any]) -> str:
 
 def is_exportable_row(row: dict[str, Any]) -> bool:
     if _truthy(row.get("write_needed")) or _truthy(row.get("has_live_paper_row")):
+        return False
+    if _truthy(row.get("bounded_paper_ready")):
         return False
     if _text(row.get("paper_id")) or _text(row.get("paper_status")) or _text(row.get("corpus_imported_at")):
         return False
@@ -411,7 +415,7 @@ def validate_signal(signal: dict[str, Any]) -> list[str]:
         issues.append("curation.schema_version:invalid")
     if curation.get("bucket") not in RANKING_BUCKETS:
         issues.append("curation.bucket:invalid")
-    for key in ("score", "bucket", "score_breakdown", "reasons"):
+    for key in ("score", "bucket", "bucket_label", "score_breakdown", "reasons"):
         if curation.get(key) != expected_curation.get(key):
             issues.append(f"curation.{key}:drift")
     serialized = json.dumps(signal, sort_keys=True)
@@ -519,6 +523,10 @@ def validate_export_repo(repo_root: Path) -> list[str]:
     except json.JSONDecodeError:
         return ["manifest:invalid_json"]
     expected = export_manifest(records, selection_summary=manifest.get("selection_summary") if isinstance(manifest.get("selection_summary"), dict) else None)
+    for record in records:
+        project_id = _text(record.get("project_id")) or "unknown_project"
+        for issue in validate_signal(record):
+            issues.append(f"signal.{project_id}.{issue}")
     if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
         issues.append("manifest.schema_version:invalid")
     if manifest.get("record_count") != expected["record_count"]:
@@ -575,6 +583,8 @@ def validate_repo_against_rows(rows: Iterable[dict[str, Any]], repo_root: Path) 
     manifest_path = repo_root / "data" / "manifest.json"
     if not manifest_path.exists():
         return sorted(set(issues + ["manifest:missing"]))
+    if "manifest:invalid_json" in issues:
+        return sorted(set(issues))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     actual_summary = manifest.get("selection_summary") if isinstance(manifest.get("selection_summary"), dict) else {}
     for key, expected in expected_summary.items():
@@ -847,15 +857,18 @@ def _latest_project_keys(rows: Iterable[dict[str, Any]]) -> set[tuple[str, str]]
     return {(project_id, run_id) for project_id, (_updated, run_id) in latest.items()}
 
 
-def _audit_row_summary(row: dict[str, Any], issues: list[str], *, backfill: dict[str, Any] | None = None) -> dict[str, Any]:
+def _audit_row_summary(row: dict[str, Any], issues: list[str], *, backfill: dict[str, Any] | None = None, include_identifiers: bool = True) -> dict[str, Any]:
     summary = {
-        "project_id": _text(row.get("project_id")),
-        "run_id": _text(row.get("run_id") or row.get("current_run_id")),
-        "title": _text(row.get("project_name") or row.get("title")),
-        "research_outcome": _text(row.get("research_outcome")),
-        "compute_scale_blocked": _truthy(row.get("compute_scale_blocked")),
         "issues": sorted(set(issues)),
     }
+    if include_identifiers:
+        summary.update({
+            "project_id": _text(row.get("project_id")),
+            "run_id": _text(row.get("run_id") or row.get("current_run_id")),
+            "title": _text(row.get("project_name") or row.get("title")),
+            "research_outcome": _text(row.get("research_outcome")),
+            "compute_scale_blocked": _truthy(row.get("compute_scale_blocked")),
+        })
     if backfill is not None:
         summary["backfill"] = {
             "classification": sorted(set(_list(backfill.get("classification")))),
@@ -886,12 +899,13 @@ def audit_backfill(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
                     row,
                     ["stale_duplicate_superseded"],
                     backfill={"classification": ["stale_duplicate_superseded"], "actions": [], "remaining_issues": []},
+                    include_identifiers=False,
                 )
             )
             continue
         if _paper_or_corpus_excluded(row):
             buckets["excluded_paper_or_corpus"].append(
-                _audit_row_summary(row, ["paper_or_corpus_row"], backfill={"classification": [], "actions": [], "remaining_issues": []})
+                _audit_row_summary(row, ["paper_or_corpus_row"], backfill={"classification": [], "actions": [], "remaining_issues": []}, include_identifiers=False)
             )
             continue
         backfilled = backfill_promising_signal_row(row)
@@ -899,7 +913,7 @@ def audit_backfill(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
         status = _export_status(backfilled)
         if status not in EXPORT_STATUSES:
             buckets["hard_negative_or_stale"].append(
-                _audit_row_summary(backfilled, ["research_outcome:not_export_status"], backfill=backfill_meta)
+                _audit_row_summary(backfilled, ["research_outcome:not_export_status"], backfill=backfill_meta, include_identifiers=False)
             )
             continue
         signal = signal_from_row(backfilled)

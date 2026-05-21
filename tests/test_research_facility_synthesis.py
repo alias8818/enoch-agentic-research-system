@@ -199,6 +199,7 @@ def test_provider_synthesis_builds_one_valid_meta_candidate() -> None:
     candidate = report["synthesized_candidates"][0]
     assert candidate["candidate_id"] == "spec-trace-oracle-v0"
     assert candidate["raw_candidate_json"]["synthesized_from"] == [f"spec-branch-{i}" for i in range(1, 6)]
+    assert candidate["source_kind"] == "internal_generated"
 
 
 def test_enrichment_normalizes_provider_artifact_maps_to_arrays() -> None:
@@ -284,6 +285,8 @@ def test_synthesis_sql_defers_branches_and_records_lineage() -> None:
     sql = synth.emit_synthesis_sql(report, requested_by="unit", queue_synthesized=True)
 
     assert "deferred_pending_oracle" in sql
+    assert sql.count("begin;") == 1
+    assert sql.count("commit;") == 1
     assert "synthesized_from" in sql
     assert "superseded_by" in sql
     assert "spec-trace-oracle-v0" in sql
