@@ -128,11 +128,11 @@ it('opens queue and paper detail panels from selected rows', async () => {
 
   renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', hash: '#queue:queued' }} />)
   fireEvent.click(await screen.findByText('Queue item'))
-  await screen.findByText(/Detailed project/)
+  await screen.findByRole('heading', { name: /Detailed project/ })
 
   renderWithClient(<PapersPage route={{ page: 'papers', status: '', hash: '#papers' }} />)
   fireEvent.click(await screen.findByText('Draft paper'))
-  await screen.findByText(/Detailed paper/)
+  await screen.findByRole('heading', { name: /Detailed paper/ })
 
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/projects/project-1', expect.any(Object))
   expect(fetchMock).toHaveBeenNthCalledWith(4, '/control/api/v1/papers/paper-1', expect.any(Object))
