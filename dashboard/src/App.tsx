@@ -86,6 +86,7 @@ function OverviewPage() {
           if (readinessRequested) void readiness.refetch()
         }}
       />
+      <MovementDiagnosis diagnosis={diagnosis} />
       <div className="command-grid">
         <WorkerLanes lanes={status.data?.worker_lanes || []} isLoading={status.isLoading} error={status.error} onRefresh={refresh} />
         <div className="side-rail">
@@ -93,7 +94,6 @@ function OverviewPage() {
           <PaperMiniStrip pipeline={data.paper_pipeline} onRefresh={refresh} />
         </div>
       </div>
-      <MovementDiagnosis diagnosis={diagnosis} />
       <details className="secondary-fold" onToggle={(event) => setSecondaryOpen(event.currentTarget.open)}>
         <summary>Show secondary details</summary>
         <div className="secondary-links">

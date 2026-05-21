@@ -15,12 +15,12 @@ const commonReasons = [
 export function MovementDiagnosis({ diagnosis }: { diagnosis: MovementDiagnosisType }) {
   const blockers = diagnosis.blockers || []
   return (
-    <section className="movement-panel">
+    <section className="movement-panel" aria-label="Why no work is moving?">
       <div className="movement-head">
         <div>
-          <p className="eyebrow">Movement diagnosis</p>
+          <p className="eyebrow">Operator answer</p>
           <h2>Why no work is moving?</h2>
-          <p>Backend-diagnosed movement state. The frontend does not infer queue truth.</p>
+          <p>Backend-diagnosed blocker before lane controls. The frontend does not infer queue truth.</p>
         </div>
         <span>{diagnosis.status || 'unknown'}</span>
       </div>

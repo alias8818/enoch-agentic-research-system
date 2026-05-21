@@ -34,6 +34,69 @@ it('keeps overview secondary links in V2 and exposes data freshness', async () =
   await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(5))
 })
 
+it('surfaces the movement diagnosis before lane and action controls', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:00Z',
+      counts: { active: 0, queued: 0 },
+      paper_counts: {},
+      flags: {},
+      movement_diagnosis: {
+        status: 'blocked',
+        primary_reason: 'No admitted GB10 candidates.',
+        blockers: [
+          {
+            kind: 'no_admitted_candidates',
+            title: 'No admitted candidates',
+            summary: 'Generate or promote work before dispatching an idle lane.',
+            action_hash: '#research',
+            action_label: 'Open research',
+          },
+        ],
+      },
+      top_actions: [
+        {
+          kind: 'investigate_followup',
+          priority: 40,
+          tone: 'warn',
+          title: 'Investigate follow-up candidates',
+          summary: 'Promote the strongest candidate before dispatching.',
+          action_label: 'Open research',
+          action_hash: '#research',
+          target: {},
+        },
+      ],
+      paper_pipeline: { write_needed: 0, finalize_needed: 0, publish_ready: 0 },
+      recent_events: [],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      generated_at: '2026-05-20T12:00:05Z',
+      worker_lanes: [
+        {
+          lane_key: 'gb10',
+          label: 'GB10 lane',
+          machine_target: 'gb10',
+          status: 'idle',
+          queued_count: 0,
+          dispatch_available: false,
+          feed_pressure: { next_autopilot_action: 'generate_candidate' },
+        },
+      ],
+    }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  const diagnosis = (await screen.findByText('Why no work is moving?')).closest('section') as HTMLElement
+  const lanes = screen.getByLabelText('Worker lanes')
+  const controls = screen.getByLabelText('Primary action')
+
+  expect(Boolean(diagnosis.compareDocumentPosition(lanes) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+  expect(Boolean(diagnosis.compareDocumentPosition(controls) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+  expect(within(diagnosis).getByText('No admitted candidates')).toBeInTheDocument()
+})
+
 it('shows recent activity inside the collapsed overview secondary fold', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({
