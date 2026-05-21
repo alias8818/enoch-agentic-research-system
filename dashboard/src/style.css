@@ -465,6 +465,15 @@ button:disabled { cursor: not-allowed; }
 .movement-head p,
 .primary-action p:not(.eyebrow) { margin: 0.35rem 0 0; color: #918c84; font-size: 0.86rem; line-height: 1.45; }
 
+.lane-bulk-actions { margin-left: auto; text-align: right; }
+.lane-bulk-actions summary {
+  cursor: pointer;
+  color: #918c84;
+  font-size: 0.82rem;
+  list-style: none;
+}
+.lane-bulk-actions summary::-webkit-details-marker { display: none; }
+.lane-bulk-actions[open] .lane-console-actions { margin-top: 0.65rem; justify-content: flex-end; }
 .lane-console-actions,
 .lane-actions { display: flex; gap: 0.45rem; flex-wrap: wrap; }
 .lane-command-reasons {

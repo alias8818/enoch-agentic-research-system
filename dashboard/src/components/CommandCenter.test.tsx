@@ -18,6 +18,10 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+function openBulkLaneCommands() {
+  fireEvent.click(screen.getByText('Bulk lane commands'))
+}
+
 it('renders the leave-running hero from backend diagnosis', () => {
   render(<CommandHero overview={{ ok: true, counts: { active: 1, queued: 2 }, paper_counts: { publication_draft: 1 } }} diagnosis={diagnosis} />)
   expect(screen.getByText('Can I leave this running?')).toBeInTheDocument()
@@ -280,6 +284,7 @@ it('renders worker lane commands without deriving queue truth from aggregate cou
   expect(screen.getByText('Lane is active.')).toBeInTheDocument()
   expect(screen.getByText('Ready to dispatch queued work.')).toBeInTheDocument()
   expect(screen.getAllByText('Check dispatch')).toHaveLength(2)
+  expect(screen.getByText('Bulk lane commands').closest('details')).not.toHaveAttribute('open')
 })
 
 it('uses dialog confirmations for queue pause instead of window.confirm', async () => {
@@ -332,6 +337,7 @@ it('dry-runs dispatch from lane buttons without starting live dispatch', async (
 it('explains why global lane commands are disabled', () => {
   render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_id: 'gb10-project', project_name: 'GB10 job' } }]} onRefresh={() => undefined} />)
 
+  openBulkLaneCommands()
   expect(screen.getByRole('button', { name: 'Dispatch open lanes' })).toBeDisabled()
   expect(screen.getByText('Dispatch open lanes disabled: run Check open lanes first.')).toBeInTheDocument()
 })
@@ -343,6 +349,7 @@ it('requires an open-lanes dry-run before live dispatch is enabled', async () =>
 
   render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_id: 'gb10-project', project_name: 'GB10 job' } }]} onRefresh={onRefresh} />)
 
+  openBulkLaneCommands()
   expect(screen.getByRole('button', { name: 'Dispatch open lanes' })).toBeDisabled()
   fireEvent.click(screen.getByRole('button', { name: 'Check open lanes' }))
 
@@ -359,6 +366,7 @@ it('uses a dialog before live dispatching open lanes', async () => {
   const onRefresh = vi.fn()
 
   render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_name: 'GB10 job' } }]} onRefresh={onRefresh} />)
+  openBulkLaneCommands()
   expect(screen.getByRole('button', { name: 'Dispatch open lanes' })).toBeDisabled()
 
   fireEvent.click(screen.getByRole('button', { name: 'Check open lanes' }))
@@ -410,6 +418,7 @@ it('keeps live feed disabled after a blocked feed dry-run', async () => {
 
   render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 0, dispatch_available: false, feed_pressure: { next_autopilot_action: 'generate_candidate' } }]} onRefresh={onRefresh} />)
 
+  openBulkLaneCommands()
   expect(screen.getByRole('button', { name: 'Run feed cycle' })).toBeDisabled()
   fireEvent.click(screen.getByRole('button', { name: 'Feed idle lanes' }))
 
@@ -426,6 +435,7 @@ it('runs a confirmed live feed cycle only after a feed dry-run', async () => {
   const onRefresh = vi.fn()
 
   render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 0, dispatch_available: false, feed_pressure: { next_autopilot_action: 'generate_candidate' } }]} onRefresh={onRefresh} />)
+  openBulkLaneCommands()
   expect(screen.getByRole('button', { name: 'Run feed cycle' })).toBeDisabled()
 
   fireEvent.click(screen.getByRole('button', { name: 'Feed idle lanes' }))
@@ -459,12 +469,14 @@ it('invalidates live feed authorization when feed-eligible lanes change', async 
 
   const { rerender } = render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 0, dispatch_available: false, feed_pressure: { next_autopilot_action: 'generate_candidate' } }]} onRefresh={onRefresh} />)
 
+  openBulkLaneCommands()
   fireEvent.click(screen.getByRole('button', { name: 'Feed idle lanes' }))
   await screen.findByText('would generate one candidate')
   expect(screen.getByRole('button', { name: 'Run feed cycle' })).toBeEnabled()
 
   rerender(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, feed_pressure: { next_autopilot_action: 'observe' }, next_candidate: { project_id: 'gb10-project', project_name: 'GB10 job' } }]} onRefresh={onRefresh} />)
 
+  openBulkLaneCommands()
   expect(screen.getByRole('button', { name: 'Run feed cycle' })).toBeDisabled()
   expect(screen.getByText('Run feed cycle disabled: lane state changed; run Feed idle lanes again.')).toBeInTheDocument()
 })
@@ -614,6 +626,7 @@ it('checks every open lane candidate with dispatch-one instead of aggregate disp
     { lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_id: 'gb10-project', project_name: 'GB10 job' } },
   ]} onRefresh={onRefresh} />)
 
+  openBulkLaneCommands()
   fireEvent.click(screen.getByRole('button', { name: 'Check open lanes' }))
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
@@ -661,6 +674,7 @@ it('live-dispatches every open lane candidate with dispatch-one after confirmati
     { lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_id: 'gb10-project', project_name: 'GB10 job' } },
   ]} onRefresh={onRefresh} />)
 
+  openBulkLaneCommands()
   expect(screen.getByRole('button', { name: 'Dispatch open lanes' })).toBeDisabled()
   fireEvent.click(screen.getByRole('button', { name: 'Check open lanes' }))
   await screen.findByText('checked 2 lane candidates')
@@ -737,6 +751,7 @@ it('explains when no worker lane capacity is returned', () => {
 
   expect(screen.getByText('No worker lane capacity returned.')).toBeInTheDocument()
   expect(screen.getByText('The status endpoint did not include CPU or GB10 lane data, so V2 cannot safely feed or dispatch work from this panel.')).toBeInTheDocument()
+  openBulkLaneCommands()
   expect(screen.getByRole('button', { name: 'Feed idle lanes' })).toBeDisabled()
   expect(screen.getByRole('button', { name: 'Check open lanes' })).toBeDisabled()
 })

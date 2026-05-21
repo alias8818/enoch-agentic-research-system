@@ -312,20 +312,23 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
           <div>
             <p className="eyebrow">Worker lanes</p>
             <h2>CPU / GB10 command surface</h2>
-            <p>Lane state is the source of truth. Aggregate queue counts do not decide dispatch.</p>
+            <p>Dispatch and feed from each lane card. Bulk lane commands are secondary.</p>
           </div>
-          <div className="lane-console-actions">
-            <button className="secondary-button" disabled={!canFeedAny || busyAction !== null} onClick={feedLane}>Feed idle lanes</button>
-            <button className="primary-button" disabled={!canLiveFeed || busyAction !== null} onClick={() => { void liveFeedCycle() }}>Run feed cycle</button>
-            <button className="secondary-button" disabled={!canDispatchAny || busyAction !== null} onClick={() => { void dispatchLane() }}>Check open lanes</button>
-            <button className="primary-button" disabled={!canLiveDispatchOpenLanes || busyAction !== null} onClick={() => { void liveDispatchOpenLanes() }}>Dispatch open lanes</button>
-            {feedDisabledReason || dispatchDisabledReason ? (
-              <div className="lane-command-reasons" aria-label="Worker lane command disabled reasons">
-                {feedDisabledReason ? <p>{feedDisabledReason}</p> : null}
-                {dispatchDisabledReason ? <p>{dispatchDisabledReason}</p> : null}
-              </div>
-            ) : null}
-          </div>
+          <details className="lane-bulk-actions">
+            <summary>Bulk lane commands</summary>
+            <div className="lane-console-actions">
+              <button className="secondary-button" disabled={!canFeedAny || busyAction !== null} onClick={feedLane}>Feed idle lanes</button>
+              <button className="primary-button" disabled={!canLiveFeed || busyAction !== null} onClick={() => { void liveFeedCycle() }}>Run feed cycle</button>
+              <button className="secondary-button" disabled={!canDispatchAny || busyAction !== null} onClick={() => { void dispatchLane() }}>Check open lanes</button>
+              <button className="primary-button" disabled={!canLiveDispatchOpenLanes || busyAction !== null} onClick={() => { void liveDispatchOpenLanes() }}>Dispatch open lanes</button>
+              {feedDisabledReason || dispatchDisabledReason ? (
+                <div className="lane-command-reasons" aria-label="Worker lane command disabled reasons">
+                  {feedDisabledReason ? <p>{feedDisabledReason}</p> : null}
+                  {dispatchDisabledReason ? <p>{dispatchDisabledReason}</p> : null}
+                </div>
+              ) : null}
+            </div>
+          </details>
         </div>
         <ResultCard result={commandResult} stale={commandResultStale(commandResult, liveFeedReady, liveFeedSignature, feedSignature, liveOpenLaneSignature, openLaneSignature)} />
         {error ? (
