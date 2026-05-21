@@ -39,6 +39,11 @@ NON_BUILD_PATH_PARTS = (
     "dashboard/playwright-report/",
     "dashboard/e2e/",
 )
+BUILD_AFFECTING_PACKAGE_JSON_KEYS = (
+    '"dependencies"',
+    '"devDependencies"',
+    '"version"',
+)
 
 
 def _git_changed_files(base_ref: str) -> list[str]:
@@ -72,12 +77,45 @@ def affects_build_output(path: str) -> bool:
     return any(normalized.startswith(prefix) for prefix in BUILD_AFFECTING_PREFIXES)
 
 
+def package_json_change_affects_build(base_ref: str) -> bool:
+    """Return True when package.json diff touches deps/version, not scripts-only."""
+    for spec in (f"{base_ref}...HEAD", f"{base_ref}..HEAD"):
+        result = subprocess.run(
+            ["git", "diff", spec, "-U0", "--", "dashboard/package.json"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            continue
+        diff = result.stdout
+        if not diff.strip():
+            return False
+        for line in diff.splitlines():
+            if not line.startswith(("+", "-")) or line.startswith(("+++", "---")):
+                continue
+            if any(key in line[1:] for key in BUILD_AFFECTING_PACKAGE_JSON_KEYS):
+                return True
+        return False
+    return True
+
+
 def affects_committed_assets(path: str) -> bool:
     return PurePosixPath(path.replace("\\", "/")).as_posix().startswith(ASSET_PREFIX)
 
 
-def evaluate_pairing(changed_files: list[str]) -> dict[str, object]:
-    source_changed = sorted({path for path in changed_files if affects_build_output(path)})
+def evaluate_pairing(changed_files: list[str], base_ref: str | None = None) -> dict[str, object]:
+    source_changed: list[str] = []
+    for path in changed_files:
+        if not affects_build_output(path):
+            continue
+        if (
+            path == "dashboard/package.json"
+            and base_ref
+            and not package_json_change_affects_build(base_ref)
+        ):
+            continue
+        source_changed.append(path)
+    source_changed = sorted(set(source_changed))
     asset_changed = sorted({path for path in changed_files if affects_committed_assets(path)})
     ok = not source_changed or bool(asset_changed)
     return {
@@ -103,7 +141,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     changed = args.changed_file or _git_changed_files(args.base)
-    report = evaluate_pairing(changed)
+    report = evaluate_pairing(changed, base_ref=None if args.changed_file else args.base)
 
     if report["ok"]:
         if report["source_changed"]:

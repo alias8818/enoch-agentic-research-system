@@ -37,6 +37,8 @@ export type IntakeIdeaOperatorSummary = {
   actionNeeded: string | null
 }
 
+export type ResearchCandidateOperatorSummary = IntakeIdeaOperatorSummary
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
@@ -611,5 +613,71 @@ export function deriveIntakeIdeaOperatorSummary(row: Record<string, unknown>): I
       },
     ],
     actionNeeded: attention ? (blocked !== '—' ? blocked : ideaStatus === 'rejected' ? 'Idea rejected at admission.' : 'Admission or queue state needs operator review.') : null,
+  }
+}
+
+export function deriveResearchCandidateOperatorSummary(row: Record<string, unknown>): ResearchCandidateOperatorSummary {
+  const status = text(row.status)
+  const admission = text(row.admission_decision)
+  const target = text(row.machine_target)
+  const candidateId = text(row.candidate_id)
+  const ideaId = text(firstValue(row.admitted_idea_id, row.idea_id))
+  const projectId = text(row.project_id)
+  const promoted = ideaId !== '—' || projectId !== '—'
+  const rejected = status === 'rejected' || admission.toLowerCase().includes('reject')
+  const admitted = status === 'admitted' || admission.toLowerCase().includes('admit')
+  const attention = rejected || row.manual_review_required === true || row.operator_attention === true
+  const whyNotPromoted = rejected
+    ? 'admission rejected — keep as negative evidence'
+    : !admitted
+      ? 'not admitted — review facility scoring before promote'
+      : promoted
+        ? ideaId !== '—'
+          ? `promoted to idea ${shortId(ideaId)}`
+          : `linked project ${shortId(projectId)}`
+        : 'admitted but not yet promoted to intake/queue'
+  const entityLinks: EntityLink[] = []
+  pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, row.title))
+
+  return {
+    state: operatorStageLabel(row, status),
+    context: `Admission ${admission}; target ${target}; facility status ${status}.`,
+    next: operatorNextStep(row, rejected
+      ? 'No launch action is needed; keep this as negative evidence unless a new follow-up is warranted.'
+      : admitted
+        ? 'Promote only after dry-run confirms this exact candidate still maps to a queue item.'
+        : 'Review admission, source lineage, and machine target before promoting or queuing work.'),
+    entityLinks,
+    sections: [
+      {
+        title: 'Source and lineage',
+        answers: [
+          { label: 'candidate id', value: candidateId },
+          { label: 'source kind', value: text(row.source_kind) },
+          { label: 'source external id', value: text(row.source_external_id) },
+          { label: 'facility status', value: status },
+          { label: 'updated', value: text(row.updated_at) },
+        ],
+      },
+      {
+        title: 'Admission and promote',
+        answers: [
+          { label: 'admission decision', value: admission },
+          { label: 'admitted idea', value: ideaId },
+          { label: 'linked project', value: projectId },
+          { label: 'promote path', value: whyNotPromoted },
+          { label: 'selection rank', value: text(row.selection_rank) },
+        ],
+      },
+      {
+        title: 'Lane and dispatch',
+        answers: [
+          { label: 'machine target', value: target },
+          { label: 'total score', value: text(row.total_score) },
+          { label: 'title', value: text(row.title) },
+        ],
+      },
+    ],
+    actionNeeded: attention ? (rejected ? 'Candidate rejected at admission.' : 'Admission needs operator review before promote.') : null,
   }
 }
