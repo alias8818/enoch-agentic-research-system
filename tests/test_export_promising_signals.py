@@ -211,6 +211,14 @@ def test_source_records_keep_url_title_alignment() -> None:
     assert by_id["url-f3263e492b186b46f502db17"]["title"] == "Token Superposition for Long-Context Anchor Compression"
 
 
+def test_list_parsing_falls_back_for_oversized_integer_literals() -> None:
+    huge_integer_literal = "9" * 5000
+
+    signal = exporter.signal_from_row(_row(followup_required_evidence=huge_integer_literal))
+
+    assert signal["followup"]["required_evidence"] == [huge_integer_literal]
+
+
 def test_writes_deterministic_jsonl_markdown_and_index(tmp_path) -> None:
     rows = [
         _row(project_id="b-signal", project_name="B Signal"),
