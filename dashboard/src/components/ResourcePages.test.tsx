@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
-import { EventsPage, PapersPage, QueuePage } from './ResourcePages'
+import { CorpusPage, EventsPage, PapersPage, QueuePage } from './ResourcePages'
 
 function renderWithClient(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -136,6 +136,18 @@ it('opens queue and paper detail panels from selected rows', async () => {
 
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/projects/project-1', expect.any(Object))
   expect(fetchMock).toHaveBeenNthCalledWith(4, '/control/api/v1/papers/paper-1', expect.any(Object))
+})
+
+it('loads corpus import rows as a first-class V2 subview', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-corpus', project_id: 'project-1', status: 'publication_draft', corpus_imported: false, title: 'Corpus candidate' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+
+  renderWithClient(<CorpusPage />)
+
+  await screen.findByText('Corpus candidate')
+  const url = requestUrl(fetchMock.mock.calls[0])
+  expect(url.pathname).toBe('/control/api/v1/papers')
+  expectParam(url, 'status', 'publication_draft')
+  expectParam(url, 'sort', 'recent')
 })
 
 it('shows raw event detail without inventing a missing event endpoint', async () => {

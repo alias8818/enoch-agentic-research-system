@@ -8,7 +8,7 @@ import { PaperMiniStrip } from './components/PaperMiniStrip'
 import { PrimaryAction } from './components/PrimaryAction'
 import { SafetyBar } from './components/SafetyBar'
 import { AutomationPage } from './components/AutomationPage'
-import { EventsPage, PapersPage, QueuePage } from './components/ResourcePages'
+import { CorpusPage, EventsPage, PapersPage, QueuePage } from './components/ResourcePages'
 import { ResearchPage } from './components/ResearchPage'
 import { WorkerLanes } from './components/WorkerLanes'
 import { dashboardV2Href, parseDashboardRoute } from './routes'
@@ -94,6 +94,7 @@ function RoutedPage({ route }: { route: DashboardRoute }) {
   if (route.page === 'queue') return <QueuePage route={route} />
   if (route.page === 'papers') return <PapersPage route={route} />
   if (route.page === 'events') return <EventsPage />
+  if (route.page === 'corpus') return <CorpusPage />
   if (route.page === 'research') return <ResearchPage />
   if (route.page === 'automation') return <AutomationPage />
   if (route.page === 'legacy') {
@@ -137,6 +138,7 @@ function Shell() {
             <a className={navClass(route, 'queue')} href={dashboardV2Href('#queue:queued')}>Queue</a>
             <a className={navClass(route, 'papers')} href={dashboardV2Href('#papers')}>Papers</a>
             <a className={navClass(route, 'events')} href={dashboardV2Href('#events')}>Events</a>
+            <a className={navClass(route, 'corpus')} href={dashboardV2Href('#corpus')}>Corpus</a>
             <a className={navClass(route, 'research')} href={dashboardV2Href('#research')}>Research</a>
             <a className={navClass(route, 'automation')} href={dashboardV2Href('#automation')}>Automation</a>
             <a className="nav-link" href="/control/dashboard">Legacy</a>

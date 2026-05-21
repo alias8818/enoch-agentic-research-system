@@ -101,6 +101,22 @@ export function PapersPage({ route }: { route: Extract<DashboardRoute, { page: '
   )
 }
 
+export function CorpusPage() {
+  const [selection, setSelection] = useState<DetailSelection | null>(null)
+  const [filters, setFilters] = useState<FilterState>({ search: '', status: 'publication_draft', pageSize: '50', cursor: '' })
+  const params = withCommonParams(filters, 'recent')
+  const query = useQuery({ queryKey: ['corpus', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/papers?${params}`) })
+  if (query.isLoading) return <LoadingCard label="corpus import" />
+  if (query.isError) return <ErrorCard error={query.error} />
+  return (
+    <PageShell title="Corpus import" subtitle="Publication-ready paper rows and corpus-import ledger status. Publish/import work stays scoped to finalized drafts missing corpus import.">
+      <FilterBar state={filters} statusOptions={[{ label: 'publication draft', value: 'publication_draft' }, { label: 'draft review', value: 'draft_review' }, { label: 'archived', value: 'archived' }, { label: 'all paper statuses', value: '' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: 'publication_draft', pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
+      <DataTable rows={query.data?.rows || []} columns={['paper_id', 'project_id', 'status', 'corpus_imported', 'corpus_import_id', 'title', 'updated_at']} empty="No corpus import rows match this filter." onSelectRow={(row) => setSelection({ kind: 'paper', id: String(row.paper_id || ''), row })} />
+      <DetailPanel selection={selection} onClose={() => setSelection(null)} />
+    </PageShell>
+  )
+}
+
 export function EventsPage() {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [filters, setFilters] = useState<FilterState>({ search: '', status: '', pageSize: '50', cursor: '' })
