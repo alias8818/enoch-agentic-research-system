@@ -234,3 +234,17 @@ When work resumes, do this sequence:
 6. ~~Audit routes, canonicalize aliases, and add detail breadcrumbs.~~ (P6 — [`routePolicy.ts`](../dashboard/src/routePolicy.ts))
 7. ~~Polish table density, panel overflow, title wrapping, and focus rings.~~ (P7 — [`style.css`](../dashboard/src/style.css), [`styleGuards.test.ts`](../dashboard/src/styleGuards.test.ts))
 
+## Phase 2 — command center operator semantics (post-P7)
+
+Follow [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md) suggested PR sequence after the P0–P7 checklist.
+
+- [x] PR A — Hero semantics and copy ([`CommandHero.tsx`](../dashboard/src/components/CommandHero.tsx), #84)
+- [x] PR B — Movement panel dynamic title ([`movementPanelCopy.ts`](../dashboard/src/components/movementPanelCopy.ts), #85)
+- [x] PR C — Lane backlog depth clarity ([`WorkerLanes.tsx`](../dashboard/src/components/WorkerLanes.tsx), #86)
+- [x] PR D — Single primary operator action ([`PrimaryAction.tsx`](../dashboard/src/components/PrimaryAction.tsx), #88)
+- [x] PR E — Project detail route audit (#87)
+- [x] PR F — Lane cards own dispatch/feed; collapse global bulk lane commands behind disclosure ([`WorkerLanes.tsx`](../dashboard/src/components/WorkerLanes.tsx))
+- [ ] Remove static movement `reason-strip` chip row from [`MovementDiagnosis.tsx`](../dashboard/src/components/MovementDiagnosis.tsx) (decorative, not backend-driven)
+- [ ] Filter hero state strip to active/queued only; keep paper counts in [`PaperMiniStrip`](../dashboard/src/components/PaperMiniStrip.tsx)
+- [ ] Detail route audit follow-up: run, paper, event, and idea detail pages (one entity kind per PR)
+
