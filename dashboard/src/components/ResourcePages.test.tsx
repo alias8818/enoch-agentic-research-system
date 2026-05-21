@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
-import { CorpusPage, EventsPage, ObservabilityPage, PapersPage, ProjectsPage, QueuePage, RunsPage } from './ResourcePages'
+import { CorpusPage, EventsPage, IntakePage, ObservabilityPage, PapersPage, ProjectsPage, QueuePage, RunsPage } from './ResourcePages'
 
 function renderWithClient(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -368,4 +368,48 @@ it('loads observability health and memory from backed V1 endpoints', async () =>
   expect(screen.getByText((content) => content.includes('/control/api/status'))).toBeInTheDocument()
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/observability/health', expect.any(Object))
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/observability/memory', expect.any(Object))
+})
+
+it('refreshes observability samples explicitly from the V2 page', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:00:00Z', route_observability_enabled: true, route_observability_log_configured: false, latest_route_observation: '{"route":"/old","status":200}' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:00:01Z', rss_mib: 100, peak_rss_mib: 140, warn_threshold_mib: 512, memory_warn: false }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:04:00Z', route_observability_enabled: false, route_observability_log_configured: true, latest_route_observation: '{"route":"/fresh","status":503}' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:04:01Z', rss_mib: 333.3, peak_rss_mib: 444.4, warn_threshold_mib: 512, memory_warn: true }), { status: 200 }))
+
+  renderWithClient(<ObservabilityPage />)
+  await screen.findByRole('heading', { name: 'Memory is inside configured threshold' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh observability' }))
+
+  expect(await screen.findByRole('heading', { name: 'Memory warning active' })).toBeInTheDocument()
+  expect(screen.getByText('333.3 MiB')).toBeInTheDocument()
+  expect(screen.getByText('Last loaded health 2026-05-21T09:04:00Z · memory 2026-05-21T09:04:01Z')).toBeInTheDocument()
+  expect(screen.getByText((content) => content.includes('/fresh'))).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledTimes(4)
+})
+
+it('refreshes intake workbench rows explicitly from the V2 page', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      generated_at: '2026-05-21T10:00:00Z',
+      latest_sync: { source: 'supabase', status: 'ok', observed_at: '2026-05-21T09:59:00Z', authority: 'ideas' },
+      projection_counts: { queued_projection: 1 },
+      queued_projection: [{ idea_id: 'idea-old', title: 'Old intake idea', idea_status: 'admitted', queue_status: 'queued' }],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      generated_at: '2026-05-21T10:05:00Z',
+      latest_sync: { source: 'supabase', status: 'ok', observed_at: '2026-05-21T10:04:00Z', authority: 'ideas' },
+      projection_counts: { queued_projection: 1 },
+      queued_projection: [{ idea_id: 'idea-fresh', title: 'Fresh intake idea', idea_status: 'admitted', queue_status: 'queued' }],
+    }), { status: 200 }))
+
+  renderWithClient(<IntakePage />)
+  await screen.findByText('Old intake idea')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh intake' }))
+
+  await screen.findByText('Fresh intake idea')
+  expect(screen.getByText('Last loaded 2026-05-21T10:05:00Z')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledTimes(2)
 })

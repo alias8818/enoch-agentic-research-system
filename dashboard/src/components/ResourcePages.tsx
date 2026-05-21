@@ -46,12 +46,12 @@ function ErrorCard({ error }: { error: unknown }) {
   return <div className="state-card state-card--error">V2 data unavailable: {String(error instanceof Error ? error.message : error)}</div>
 }
 
-function PageRefreshAction({ generatedAt, isFetching, onRefresh }: { generatedAt?: string; isFetching: boolean; onRefresh: () => void }) {
+function PageRefreshAction({ generatedAt, isFetching, onRefresh, label = 'Last loaded', refreshLabel = 'Refresh rows' }: { generatedAt?: string; isFetching: boolean; onRefresh: () => void; label?: string; refreshLabel?: string }) {
   return (
     <>
-      <span>Last loaded {generatedAt || 'unknown'}</span>
+      <span>{label} {generatedAt || 'unknown'}</span>
       <button className="secondary-button" type="button" disabled={isFetching} onClick={onRefresh}>
-        {isFetching ? 'Refreshing…' : 'Refresh rows'}
+        {isFetching ? 'Refreshing…' : refreshLabel}
       </button>
     </>
   )
@@ -343,6 +343,7 @@ export function CorpusPage() {
 
 
 type IntakeResponse = {
+  generated_at?: string
   latest_sync?: Record<string, unknown> | null
   projection_counts?: Record<string, number>
   queued_projection?: Record<string, unknown>[]
@@ -359,7 +360,7 @@ export function IntakePage() {
   const skipped = Object.entries(data.skipped_reasons || {}).map(([reason, count]) => ({ reason, count }))
   const latestSync = data.latest_sync ? [data.latest_sync] : []
   return (
-    <PageShell title="Ideas intake" subtitle="Supabase-native idea workbench from /control/api/intake/ideas. Notion fields are provenance only.">
+    <PageShell title="Ideas intake" subtitle="Supabase-native idea workbench from /control/api/intake/ideas. Notion fields are provenance only." action={<PageRefreshAction generatedAt={data.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} refreshLabel="Refresh intake" />}>
       <section className="count-grid">
         {Object.entries(counts).slice(0, 8).map(([key, value]) => (
           <div key={key} className="count-card">
@@ -428,8 +429,9 @@ export function ObservabilityPage() {
   if (memory.isError) return <ErrorCard error={memory.error} />
   const healthData = health.data || {}
   const memoryData = memory.data || {}
+  const generatedAt = `health ${healthData.generated_at || 'unknown'} · memory ${memoryData.generated_at || 'unknown'}`
   return (
-    <PageShell title="Observability" subtitle="Controller process and route-observability state from bounded V1 read models.">
+    <PageShell title="Observability" subtitle="Controller process and route-observability state from bounded V1 read models." action={<PageRefreshAction generatedAt={generatedAt} isFetching={health.isFetching || memory.isFetching} onRefresh={() => { void health.refetch(); void memory.refetch() }} refreshLabel="Refresh observability" />}>
       <section className="detail-summary">
         <p className="eyebrow">Controller memory</p>
         <h2>{memoryData.memory_warn ? 'Memory warning active' : 'Memory is inside configured threshold'}</h2>
