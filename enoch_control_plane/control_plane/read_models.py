@@ -1750,28 +1750,30 @@ def primary_operator_action(
     """Single decisive operator CTA for the command center.
 
     Priority (after frontend readiness gating):
-    1. dispatch the first lane that can dispatch;
-    2. open the primary movement blocker when status is blocked;
+    1. open the primary movement blocker when status is blocked;
+    2. dispatch the first lane that can dispatch;
     3. feed the first lane that needs backlog.
+
+    Blocked movement can coexist with per-lane ``dispatch_available`` because lane
+    capacity ignores global pause flags; the primary CTA must still honor pause/
+    maintenance blockers before suggesting dispatch.
     """
 
     lanes = [lane for lane in (worker_lanes or []) if isinstance(lane, Mapping)]
-
     status = str(movement.get("status") or "")
     blockers = movement.get("blockers") or []
     if status == "blocked" and blockers:
-        queue_paused_blocker = next((item for item in blockers if isinstance(item, Mapping) and str(item.get("kind") or "") == "queue_paused"), None)
-        if queue_paused_blocker is not None:
-            return {
-                "kind": "open_blocker",
-                "tone": queue_paused_blocker.get("tone", "warn"),
-                "title": str(queue_paused_blocker.get("title") or "Resolve blocker"),
-                "summary": str(queue_paused_blocker.get("summary") or movement.get("primary_reason") or ""),
-                "action_label": str(queue_paused_blocker.get("action_label") or "Open details"),
-                "action_hash": str(queue_paused_blocker.get("action_hash") or "#overview"),
-                "blocker_kind": queue_paused_blocker.get("kind"),
-                "lane": queue_paused_blocker.get("lane"),
-            }
+        primary = blockers[0] if isinstance(blockers[0], Mapping) else {}
+        return {
+            "kind": "open_blocker",
+            "tone": primary.get("tone", "warn"),
+            "title": str(primary.get("title") or "Resolve blocker"),
+            "summary": str(primary.get("summary") or movement.get("primary_reason") or ""),
+            "action_label": str(primary.get("action_label") or "Open details"),
+            "action_hash": str(primary.get("action_hash") or "#overview"),
+            "blocker_kind": primary.get("kind"),
+            "lane": primary.get("lane"),
+        }
 
     for lane in lanes:
         if not bool(lane.get("dispatch_available")):
@@ -1794,21 +1796,6 @@ def primary_operator_action(
             payload["project_id"] = project_id
             payload["target"] = _candidate_target(next_candidate) or {"project_id": project_id}
         return payload
-
-    status = str(movement.get("status") or "")
-    blockers = movement.get("blockers") or []
-    if status == "blocked" and blockers:
-        primary = blockers[0] if isinstance(blockers[0], Mapping) else {}
-        return {
-            "kind": "open_blocker",
-            "tone": primary.get("tone", "warn"),
-            "title": str(primary.get("title") or "Resolve blocker"),
-            "summary": str(primary.get("summary") or movement.get("primary_reason") or ""),
-            "action_label": str(primary.get("action_label") or "Open details"),
-            "action_hash": str(primary.get("action_hash") or "#overview"),
-            "blocker_kind": primary.get("kind"),
-            "lane": primary.get("lane"),
-        }
 
     for lane in lanes:
         feed = lane.get("feed_pressure") or {}
