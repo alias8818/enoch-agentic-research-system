@@ -100,3 +100,35 @@ def test_non_gpu_baseline_phrase_does_not_override_cuda_signal() -> None:
 
     assert routing["workload_class"] == "gpu_required"
     assert routing["machine_target"] == "gb10"
+
+
+def test_negated_cuda_phrase_overrides_cuda_substring_signal() -> None:
+    row = {
+        "title": "no CUDA and no GPU required; CPU-only regex validator",
+        "machine_target": "gb10",
+    }
+
+    routing = route_machine_target(
+        row,
+        default_machine_target="gb10",
+        workload_machine_targets={"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10", "training": "gb10"},
+    )
+
+    assert routing["workload_class"] == "cpu_only"
+    assert routing["machine_target"] == "cpu-proxmox-1"
+
+
+def test_negated_training_phrase_with_no_gpu_routes_to_cpu_only() -> None:
+    row = {
+        "title": "no GPU training-free baseline; CPU-only sqlite benchmark",
+        "machine_target": "gb10",
+    }
+
+    routing = route_machine_target(
+        row,
+        default_machine_target="gb10",
+        workload_machine_targets={"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10", "training": "gb10"},
+    )
+
+    assert routing["workload_class"] == "cpu_only"
+    assert routing["machine_target"] == "cpu-proxmox-1"
