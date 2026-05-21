@@ -222,6 +222,21 @@ it('opens direct V2 event detail hashes from the events read model', async () =>
 
 
 
+
+it('keeps corpus hash filters in the V2 corpus read model', async () => {
+  window.location.hash = '#corpus?status=draft_review&search=manifest'
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ paper_pipeline: { publish_ready: 0, published_imported: 0, publication_ready_total: 0 } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-manifest', status: 'draft_review', title: 'Manifest review paper' }], page: { returned: 1 } }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByRole('heading', { name: 'Corpus import' })).toBeInTheDocument()
+  expect(await screen.findByText('Manifest review paper')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/papers?page_size=50&sort=recent&status=draft_review&search=manifest', expect.any(Object))
+})
+
 it('keeps project and run hash search filters in V2 read models', async () => {
   window.location.hash = '#projects?status=testing&search=oracle'
   const fetchMock = vi.spyOn(globalThis, 'fetch')

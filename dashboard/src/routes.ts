@@ -7,7 +7,7 @@ export type DashboardRoute =
   | { page: 'papers'; status: string; search: string; hash: string }
   | { page: 'events'; eventType: string; search: string; hash: string }
   | { page: 'observability'; hash: string }
-  | { page: 'corpus'; hash: string }
+  | { page: 'corpus'; status: string; search: string; hash: string }
   | { page: 'research'; candidateId: string; hash: string }
   | { page: 'intake'; ideaId: string; hash: string }
   | { page: 'automation'; paperId: string; hash: string }
@@ -61,7 +61,7 @@ export function parseDashboardRoute(hashOrPath: string | undefined): DashboardRo
   }
   if (hash.startsWith('#events')) return { page: 'events', eventType: queryParam(hash, 'event_type'), search: queryParam(hash, 'search'), hash }
   if (hash.startsWith('#observability')) return { page: 'observability', hash }
-  if (hash.startsWith('#corpus')) return { page: 'corpus', hash }
+  if (hash.startsWith('#corpus')) return { page: 'corpus', status: queryParam(hash, 'status'), search: queryParam(hash, 'search'), hash }
   if (hash.startsWith('#candidate:')) return { page: 'research', candidateId: detailId(hash, '#candidate:'), hash }
   if (hash.startsWith('#research:')) return { page: 'research', candidateId: detailId(hash, '#research:'), hash }
   if (hash.startsWith('#research')) return { page: 'research', candidateId: '', hash }

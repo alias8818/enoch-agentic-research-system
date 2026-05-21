@@ -313,9 +313,15 @@ export function PapersPage({ route }: { route: Extract<DashboardRoute, { page: '
   )
 }
 
-export function CorpusPage() {
+export function CorpusPage({ route }: { route?: Extract<DashboardRoute, { page: 'corpus' }> }) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
-  const [filters, setFilters] = useState<FilterState>({ search: '', status: 'publication_draft', pageSize: '50', cursor: '' })
+  const [filters, setFilters] = useState<FilterState>({ search: route?.search || '', status: route?.status || 'publication_draft', pageSize: '50', cursor: '' })
+  useEffect(() => {
+    const nextSearch = route?.search || ''
+    const nextStatus = route?.status || 'publication_draft'
+    setFilters((current) => current.search === nextSearch && current.status === nextStatus ? current : { ...current, search: nextSearch, status: nextStatus, cursor: '' })
+    setSelection(null)
+  }, [route?.search, route?.status])
   const params = withCommonParams(filters, 'recent')
   const overview = useQuery({ queryKey: ['corpus', 'overview'], queryFn: () => apiGet<OverviewLite>('/control/api/v1/overview?active_limit=1&event_limit=1') })
   const query = useQuery({ queryKey: ['corpus', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/papers?${params}`) })
@@ -336,7 +342,7 @@ export function CorpusPage() {
         <CountCard label="Publication-ready total" value={publicationReady} detail="Finalized drafts whether imported or still missing import." />
         <CountCard label="Import validation" value={publishReady > 0 ? 'pending' : 'clean'} detail={validationDetail} />
       </section>
-      <FilterBar state={filters} statusOptions={[{ label: 'publication draft', value: 'publication_draft' }, { label: 'draft review', value: 'draft_review' }, { label: 'archived', value: 'archived' }, { label: 'all paper statuses', value: '' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: 'publication_draft', pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
+      <FilterBar state={filters} statusOptions={[{ label: 'publication draft', value: 'publication_draft' }, { label: 'draft review', value: 'draft_review' }, { label: 'archived', value: 'archived' }, { label: 'all paper statuses', value: '' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route?.status || 'publication_draft', pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={['paper_id', 'project_id', 'status', 'corpus_imported', 'corpus_import_id', 'title', 'updated_at']} empty="No corpus import rows match this filter." cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'paper', id: String(row.paper_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
