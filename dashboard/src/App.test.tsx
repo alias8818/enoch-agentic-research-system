@@ -219,6 +219,19 @@ it('opens direct V2 event detail hashes from the events read model', async () =>
   expect(fetchMock).toHaveBeenCalledWith('/control/api/v1/events?event_id=7&include_payload=true&page_size=1&sort=recent', expect.any(Object))
 })
 
+it('keeps event hash filters in the V2 events read model', async () => {
+  window.location.hash = '#events?event_type=Queue%20Alert&search=active-lane'
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ id: 'event-filtered', event_type: 'Queue Alert', summary: 'active-lane blocked' }], page: { returned: 1 } }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByRole('heading', { name: 'Events' })).toBeInTheDocument()
+  expect(await screen.findByText('active-lane blocked')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith('/control/api/v1/events?page_size=50&sort=recent&event_type=Queue+Alert&search=active-lane', expect.any(Object))
+})
+
 
 it('opens legacy review hashes in the V2 automation page instead of legacy fallback', async () => {
   window.location.hash = '#review:paper-legacy'

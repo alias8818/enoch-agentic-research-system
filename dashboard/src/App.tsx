@@ -237,7 +237,7 @@ function RoutedPage({ route }: { route: DashboardRoute }) {
   if (route.page === 'queue') return <QueuePage route={route} />
   if (route.page === 'runs') return <RunsPage route={route} />
   if (route.page === 'papers') return <PapersPage route={route} />
-  if (route.page === 'events') return <EventsPage />
+  if (route.page === 'events') return <EventsPage route={route} />
   if (route.page === 'observability') return <ObservabilityPage />
   if (route.page === 'corpus') return <CorpusPage />
   if (route.page === 'research') return <ResearchPage route={route} />

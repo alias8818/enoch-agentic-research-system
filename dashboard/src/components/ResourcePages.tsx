@@ -441,9 +441,15 @@ export function IntakePage({ route }: { route?: Extract<DashboardRoute, { page: 
   )
 }
 
-export function EventsPage() {
+export function EventsPage({ route }: { route?: Extract<DashboardRoute, { page: 'events' }> }) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
-  const [filters, setFilters] = useState<FilterState>({ search: '', status: '', pageSize: '50', cursor: '' })
+  const [filters, setFilters] = useState<FilterState>({ search: route?.search || '', status: route?.eventType || '', pageSize: '50', cursor: '' })
+  useEffect(() => {
+    const nextSearch = route?.search || ''
+    const nextStatus = route?.eventType || ''
+    setFilters((current) => current.search === nextSearch && current.status === nextStatus ? current : { ...current, search: nextSearch, status: nextStatus, cursor: '' })
+    setSelection(null)
+  }, [route?.eventType, route?.search])
   const params = new URLSearchParams({ page_size: filters.pageSize, sort: 'recent' })
   if (filters.status) params.set('event_type', filters.status)
   if (filters.search) params.set('search', filters.search)
