@@ -282,7 +282,7 @@ def enrich_synthesized_candidate(candidate: dict[str, Any], cluster: dict[str, A
     row.setdefault("machine_target", "gb10")
     row.setdefault("model", "gpt-5.5")
     row.setdefault("sandbox", "danger-full-access")
-    row.setdefault("source_kind", "research_synthesis")
+    row.setdefault("source_kind", "internal_generated")
     row.setdefault("source_ids", [])
     row.setdefault("source_urls", [cluster.get("source_url")] if cluster.get("source_url") else [])
     row.setdefault("provider", "synthetic_synthesis")
@@ -361,7 +361,10 @@ def emit_synthesis_sql(report: dict[str, Any], *, requested_by: str, queue_synth
         )
         raise ValueError(f"synthesized candidates must pass admission before SQL emission: {summary}")
     sql = research_facility.emit_sql(plans, requested_by=requested_by, queue_admitted=queue_synthesized)
-    lines = [sql.rstrip(), "", "begin;", ""]
+    sql_lines = sql.rstrip().splitlines()
+    if sql_lines and sql_lines[-1].strip().lower() == "commit;":
+        sql_lines = sql_lines[:-1]
+    lines = [*sql_lines, ""]
     for cluster, candidate in zip(report.get("clusters", []), candidates, strict=False):
         synthesized_id = _text(candidate.get("candidate_id"))
         if not synthesized_id:
@@ -396,7 +399,7 @@ def emit_synthesis_sql(report: dict[str, Any], *, requested_by: str, queue_synth
                     f"('project', {research_facility.sql_literal(source_id)}, 'candidate', {research_facility.sql_literal(synthesized_id)}, 'inspired_by_success', {research_facility.sql_json({'not_system_truth': True})}) "
                     "on conflict do nothing;"
                 )
-    lines.extend(["", "commit;", ""])
+    lines.extend(["commit;", ""])
     return "\n".join(lines)
 
 

@@ -35,8 +35,8 @@ Use the janitor before publishing when the audit bucket reports missing fields:
 
 ```bash
 python3 scripts/backfill_promising_signals.py \
-  --report-json artifacts/promising-signals-backfill-report.json \
-  --report-markdown artifacts/promising-signals-backfill-report.md \
+  --report-json /tmp/promising-signals-backfill-report.json \
+  --report-markdown /tmp/promising-signals-backfill-report.md \
   --backfilled-rows-json /tmp/promising-signals-backfilled-rows.json
 ```
 

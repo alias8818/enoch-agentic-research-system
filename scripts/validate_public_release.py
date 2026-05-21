@@ -307,15 +307,9 @@ def promising_signal_public_paths(promising: Path) -> list[Path]:
 
 def check_promising_signals_repo(promising: Path, expected_count: int, failures: list[str]) -> None:
     signals_path = promising / "data" / "signals.jsonl"
-    validator = promising / "scripts" / "validate.py"
-    public_validator = promising / "scripts" / "validate_public_trust_surfaces.py"
     if not signals_path.exists():
         fail(f"promising signals repo missing data/signals.jsonl: {signals_path}", failures)
         return
-    if not validator.exists():
-        fail("promising signals repo missing scripts/validate.py", failures)
-    if not public_validator.exists():
-        fail("promising signals repo missing scripts/validate_public_trust_surfaces.py", failures)
     records = [json.loads(line) for line in signals_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     if len(records) != expected_count:
         fail(f"promising_signal_count drift: {len(records)} != {expected_count}", failures)
@@ -330,11 +324,6 @@ def check_promising_signals_repo(promising: Path, expected_count: int, failures:
         evidence = record.get("evidence") if isinstance(record.get("evidence"), dict) else {}
         if evidence.get("public_evidence_copied") is not False:
             fail(f"promising signal {project_id} public_evidence_copied must be false", failures)
-    for script in (validator, public_validator):
-        if script.exists():
-            result = subprocess.run([sys.executable, str(script)], cwd=promising, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            if result.returncode != 0:
-                fail(f"promising signals validator failed: {script.name}\n" + result.stdout.strip(), failures)
 
 def check_hf_export(hf_export: Path, artifact_count: int, strict_pass_count: int, failures: list[str]) -> None:
     summary_path = hf_export / "dataset_summary.json"

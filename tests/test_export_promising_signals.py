@@ -136,6 +136,24 @@ def test_excludes_paper_positive_and_hard_negative_rows() -> None:
     assert [row["project_id"] for row in exported] == ["useful"]
 
 
+def test_excludes_bounded_paper_ready_row() -> None:
+    exported = exporter.export_signals(
+        [
+            _row(project_id="bounded-ready", bounded_paper_ready=True),
+            _row(project_id="useful"),
+        ]
+    )
+
+    assert [row["project_id"] for row in exported] == ["useful"]
+
+
+def test_compute_scale_blocked_requires_allowed_no_paper_outcome() -> None:
+    assert exporter.is_exportable_row(
+        _row(project_id="bad-conflict", research_outcome="paper_positive", compute_scale_blocked=True)
+    ) is False
+    assert exporter._export_status(_row(research_outcome="paper_positive", compute_scale_blocked=True)) == ""
+
+
 def test_missing_required_fields_fail_closed() -> None:
     signal = exporter.signal_from_row(_row(useful_signal_summary=""))
 
@@ -257,6 +275,24 @@ def test_validate_export_manifest_catches_count_and_status_drift(tmp_path) -> No
     assert "manifest.status_counts.compute_scale_blocked:0 != 1" in issues
 
 
+
+
+def test_validate_export_repo_rejects_tampered_signal_curation(tmp_path) -> None:
+    exporter.write_export([_row(project_id="signal-a")], tmp_path)
+    signals_path = tmp_path / "data" / "signals.jsonl"
+    signal = json.loads(signals_path.read_text(encoding="utf-8").splitlines()[0])
+    signal["curation"]["score"] = 100
+    signal["curation"]["bucket"] = "top_external_researcher_candidates"
+    signal["curation"]["bucket_label"] = "Tampered bucket label"
+    signal["curation"]["reasons"] = ["tampered"]
+    signal["curation"]["score_breakdown"] = {"tampered": 100}
+    signals_path.write_text(json.dumps(signal) + "\n", encoding="utf-8")
+
+    issues = exporter.validate_export_repo(tmp_path)
+
+    assert "signal.signal-a.curation.score:drift" in issues
+    assert "signal.signal-a.curation.bucket:drift" in issues
+    assert "signal.signal-a.curation.bucket_label:drift" in issues
 def test_validate_export_repo_catches_ranking_drift(tmp_path) -> None:
     exporter.write_export([_row(project_id="signal-a"), _row(project_id="signal-b", compute_scale_blocked=True)], tmp_path)
     ranking_path = tmp_path / "data" / "ranking.json"
@@ -267,6 +303,17 @@ def test_validate_export_repo_catches_ranking_drift(tmp_path) -> None:
     issues = exporter.validate_export_repo(tmp_path)
 
     assert "ranking.items:drift" in issues
+
+
+def test_validate_repo_against_rows_preserves_invalid_manifest_issue(tmp_path) -> None:
+    rows = [_row(project_id="clean-signal")]
+    exporter.write_export(exporter.clean_export_rows(rows), tmp_path)
+    manifest_path = tmp_path / "data" / "manifest.json"
+    manifest_path.write_text("{not-json", encoding="utf-8")
+
+    issues = exporter.validate_repo_against_rows(rows, tmp_path)
+
+    assert "manifest:invalid_json" in issues
 
 
 def test_validate_repo_against_rows_catches_control_plane_selection_drift(tmp_path) -> None:
@@ -449,7 +496,7 @@ def test_audit_classifies_stale_duplicate_superseded_before_missing_fields() -> 
     assert report["summary"]["export_cleanly_now"] == 1
     assert report["summary"]["hard_negative_or_stale"] == 1
     stale = report["buckets"]["hard_negative_or_stale"][0]
-    assert stale["run_id"] == "old"
+    assert "run_id" not in stale
     assert "stale_duplicate_superseded" in stale["backfill"]["classification"]
 
 
@@ -508,12 +555,12 @@ def test_audit_backfill_report_classifies_paper_corpus_and_stale_rows() -> None:
         "excluded_paper_or_corpus": 2,
         "hard_negative_or_stale": 2,
     }
-    paper = {row["project_id"]: row for row in report["buckets"]["excluded_paper_or_corpus"]}
-    assert "paper_or_corpus_row" in paper["paper-row"]["issues"]
-    assert "paper_or_corpus_row" in paper["corpus-row"]["issues"]
-    stale = {row["project_id"]: row for row in report["buckets"]["hard_negative_or_stale"]}
-    assert "research_outcome:not_export_status" in stale["hard-negative"]["issues"]
-    assert "research_outcome:not_export_status" in stale["stale"]["issues"]
+    excluded = report["buckets"]["excluded_paper_or_corpus"]
+    assert [row["issues"] for row in excluded] == [["paper_or_corpus_row"], ["paper_or_corpus_row"]]
+    assert all("project_id" not in row for row in excluded)
+    stale = report["buckets"]["hard_negative_or_stale"]
+    assert [row["issues"] for row in stale] == [["research_outcome:not_export_status"], ["research_outcome:not_export_status"]]
+    assert all("project_id" not in row for row in stale)
 
 
 def test_audit_backfill_markdown_includes_backfill_plan() -> None:
@@ -578,3 +625,16 @@ def test_cli_clean_only_exports_valid_subset(tmp_path) -> None:
     assert [record["project_id"] for record in records] == ["clean-signal", "missing-source"]
     assert manifest["selection_summary"]["backfilled_exportable"] == 1
     assert manifest["selection_summary"]["missing_required_evidence_or_fields"] == 0
+
+def test_audit_backfill_redacts_non_exported_row_identifiers() -> None:
+    report = exporter.audit_backfill([
+        _row(project_id="excluded", has_live_paper_row=True),
+        _row(project_id="negative", research_outcome=""),
+    ])
+
+    for bucket in ("excluded_paper_or_corpus", "hard_negative_or_stale"):
+        assert report["buckets"][bucket]
+        for item in report["buckets"][bucket]:
+            assert "project_id" not in item
+            assert "run_id" not in item
+            assert "title" not in item
