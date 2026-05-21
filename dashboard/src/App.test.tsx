@@ -221,6 +221,28 @@ it('opens direct V2 event detail hashes from the events read model', async () =>
 
 
 
+
+it('keeps project and run hash search filters in V2 read models', async () => {
+  window.location.hash = '#projects?status=testing&search=oracle'
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'project-filtered', project_name: 'Oracle project', origin_idea_status: 'testing' }], page: { returned: 1 } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ run_id: 'run-filtered', state: 'running', current_activity: 'oracle replay' }], page: { returned: 1 } }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByRole('heading', { name: 'Projects' })).toBeInTheDocument()
+  expect(await screen.findByText('Oracle project')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/projects?page_size=50&sort=recent&status=testing&search=oracle', expect.any(Object))
+
+  window.location.hash = '#runs:running?search=replay'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+
+  expect(await screen.findByRole('heading', { name: 'Runs' })).toBeInTheDocument()
+  expect(await screen.findByText('oracle replay')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/runs?page_size=50&sort=recent&state=running&search=replay', expect.any(Object))
+})
+
 it('keeps queue hash search filters in the V2 queue read model', async () => {
   window.location.hash = '#queue:queued?search=gb10'
   const fetchMock = vi.spyOn(globalThis, 'fetch')

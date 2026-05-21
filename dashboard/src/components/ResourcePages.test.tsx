@@ -67,7 +67,7 @@ it('refreshes project rows explicitly from the V2 page', async () => {
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T06:00:00Z', rows: [{ project_id: 'project-old', project_name: 'Old project', origin_idea_status: 'testing' }], page: { returned: 1, has_more: false } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T06:03:00Z', rows: [{ project_id: 'project-fresh', project_name: 'Fresh project', origin_idea_status: 'testing' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
-  renderWithClient(<ProjectsPage route={{ page: 'projects', status: 'testing', hash: '#projects?status=testing' }} />)
+  renderWithClient(<ProjectsPage route={{ page: 'projects', status: 'testing', search: '', hash: '#projects?status=testing' }} />)
   await screen.findByText('Old project')
 
   fireEvent.click(screen.getByRole('button', { name: 'Refresh rows' }))
@@ -177,7 +177,7 @@ it('loads project discovery rows from the V1 projects endpoint', async () => {
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'project-1', project_name: 'Trace Oracle', origin_idea_status: 'testing', queue_status: 'queued', latest_run_state: 'running' }], page: { returned: 1, has_more: false } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ project_id: 'project-1', project: { project_name: 'Trace Oracle' } }), { status: 200 }))
 
-  renderWithClient(<ProjectsPage route={{ page: 'projects', status: 'testing', hash: '#projects?status=testing' }} />)
+  renderWithClient(<ProjectsPage route={{ page: 'projects', status: 'testing', search: '', hash: '#projects?status=testing' }} />)
 
   await screen.findByText('Trace Oracle')
   expect(screen.getByRole('link', { name: /project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
@@ -198,7 +198,7 @@ it('loads runs from the V1 runs endpoint with state filters and detail fetches',
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ run_id: 'run-1', project_id: 'project-1', state: 'running', gate_state: 'awaiting_wake', current_activity: 'testing' }], page: { returned: 1, has_more: false } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ run_id: 'run-1', run: { run_id: 'run-1', project_id: 'project-1', state: 'running', current_activity: 'testing' } }), { status: 200 }))
 
-  renderWithClient(<RunsPage route={{ page: 'runs', state: 'running', hash: '#runs:running' }} />)
+  renderWithClient(<RunsPage route={{ page: 'runs', state: 'running', search: '', hash: '#runs:running' }} />)
 
   await screen.findByText('run-1')
   expect(screen.getByRole('link', { name: /run-1/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-1')

@@ -255,11 +255,11 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
 
 export function ProjectsPage({ route }: { route: Extract<DashboardRoute, { page: 'projects' }> }) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
-  const [filters, setFilters] = useState<FilterState>({ search: '', status: route.status, pageSize: '50', cursor: '' })
+  const [filters, setFilters] = useState<FilterState>({ search: route.search || '', status: route.status, pageSize: '50', cursor: '' })
   useEffect(() => {
-    setFilters((current) => current.status === route.status ? current : { ...current, status: route.status, cursor: '' })
+    setFilters((current) => current.status === route.status && current.search === route.search ? current : { ...current, status: route.status, search: route.search || '', cursor: '' })
     setSelection(null)
-  }, [route.status])
+  }, [route.search, route.status])
   const params = withCommonParams(filters, 'recent')
   const query = useQuery({ queryKey: ['projects', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/projects?${params}`) })
   if (query.isLoading) return <LoadingCard label="projects" />
@@ -275,11 +275,11 @@ export function ProjectsPage({ route }: { route: Extract<DashboardRoute, { page:
 
 export function RunsPage({ route }: { route: Extract<DashboardRoute, { page: 'runs' }> }) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
-  const [filters, setFilters] = useState<FilterState>({ search: '', status: route.state, pageSize: '50', cursor: '' })
+  const [filters, setFilters] = useState<FilterState>({ search: route.search || '', status: route.state, pageSize: '50', cursor: '' })
   useEffect(() => {
-    setFilters((current) => current.status === route.state ? current : { ...current, status: route.state, cursor: '' })
+    setFilters((current) => current.status === route.state && current.search === route.search ? current : { ...current, status: route.state, search: route.search || '', cursor: '' })
     setSelection(null)
-  }, [route.state])
+  }, [route.search, route.state])
   const params = withRunParams(filters)
   const query = useQuery({ queryKey: ['runs', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/runs?${params}`) })
   if (query.isLoading) return <LoadingCard label="runs" />

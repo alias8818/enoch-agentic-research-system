@@ -1,9 +1,9 @@
 export type DashboardRoute =
   | { page: 'overview'; hash: '#overview' }
   | { page: 'detail'; kind: 'project' | 'run' | 'paper' | 'event'; id: string; hash: string }
-  | { page: 'projects'; status: string; hash: string }
+  | { page: 'projects'; status: string; search: string; hash: string }
   | { page: 'queue'; status: string; search: string; hash: string }
-  | { page: 'runs'; state: string; hash: string }
+  | { page: 'runs'; state: string; search: string; hash: string }
   | { page: 'papers'; status: string; search: string; hash: string }
   | { page: 'events'; eventType: string; search: string; hash: string }
   | { page: 'observability'; hash: string }
@@ -46,7 +46,7 @@ export function parseDashboardRoute(hashOrPath: string | undefined): DashboardRo
   if (hash.startsWith('#paper:')) return { page: 'detail', kind: 'paper', id: detailId(hash, '#paper:'), hash }
   if (hash.startsWith('#event:')) return { page: 'detail', kind: 'event', id: detailId(hash, '#event:'), hash }
   if (hash.startsWith('#projects')) {
-    return { page: 'projects', status: queryParam(hash, 'status'), hash }
+    return { page: 'projects', status: queryParam(hash, 'status'), search: queryParam(hash, 'search'), hash }
   }
   if (hash.startsWith('#queue')) {
     const status = hash.includes(':') ? hash.split(':', 2)[1].split('?', 1)[0] : queryParam(hash, 'status')
@@ -54,7 +54,7 @@ export function parseDashboardRoute(hashOrPath: string | undefined): DashboardRo
   }
   if (hash.startsWith('#runs')) {
     const state = hash.includes(':') ? hash.split(':', 2)[1].split('?', 1)[0] : queryParam(hash, 'state')
-    return { page: 'runs', state, hash }
+    return { page: 'runs', state, search: queryParam(hash, 'search'), hash }
   }
   if (hash.startsWith('#papers')) {
     return { page: 'papers', status: queryParam(hash, 'status'), search: queryParam(hash, 'search'), hash }
