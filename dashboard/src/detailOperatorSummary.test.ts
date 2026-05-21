@@ -207,20 +207,49 @@ describe('deriveDetailOperatorSummary', () => {
     expect(blockers?.answers.find((answer) => answer.label === 'missing artifacts')?.value).toContain('corpus import')
   })
 
-  it('answers event operator questions with entity links', () => {
+  it('answers event operator questions with entity links and payload proof', () => {
     const summary = deriveDetailOperatorSummary('event', {
       id: 9,
       event_type: 'Queue Alert',
       project_id: 'project-1',
+      run_id: 'run-1',
       summary: 'Lane blocked on gb10',
       created_at: '2026-05-21T10:00:00Z',
+      payload: { reason: 'lane active', gate_state: 'awaiting_wake' },
     })
 
-    expect(summary.state).toBe('Queue Alert')
-    expect(summary.entityLinks[0]).toMatchObject({ kind: 'project', id: 'project-1' })
-    expect(summary.sections[0].answers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: 'summary', value: 'Lane blocked on gb10' }),
+    expect(summary.state).toBe('Lane blocked on gb10')
+    expect(summary.context).toContain('project-1')
+    expect(summary.context).toContain('2026-05-21T10:00:00Z')
+    expect(summary.entityLinks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'project', id: 'project-1' }),
+      expect.objectContaining({ kind: 'run', id: 'run-1' }),
     ]))
+    expect(summary.sections.some((section) => section.title === 'What happened?')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'When?')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'Which entity was affected?')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'What does the payload prove?')).toBe(true)
+    const proof = summary.sections.find((section) => section.title === 'What does the payload prove?')
+    expect(proof?.answers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'reason', value: 'lane active' }),
+      expect.objectContaining({ label: 'gate state', value: 'awaiting_wake' }),
+    ]))
+    expect(summary.actionNeeded).toBe('lane active')
+    expect(summary.next).toContain('lane active')
+  })
+
+  it('derives entity links from nested payload and entity_type', () => {
+    const summary = deriveDetailOperatorSummary('event', {
+      event_id: 42,
+      event_type: 'Run Error',
+      entity_type: 'run',
+      entity_id: 'run-9',
+      created_at: '2026-05-21T11:00:00Z',
+      payload: { error: 'dispatch failed', run_id: 'run-9' },
+    })
+
+    expect(summary.entityLinks[0]).toMatchObject({ kind: 'run', id: 'run-9' })
+    expect(summary.actionNeeded).toBe('dispatch failed')
   })
 })
 

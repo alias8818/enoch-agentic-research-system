@@ -476,7 +476,7 @@ it('opens direct V2 event detail hashes from the events read model', async () =>
 
   expect(await screen.findByLabelText('Dashboard detail page')).toBeInTheDocument()
   await screen.findByRole('heading', { name: 'Target event summary', level: 1 })
-  expect(screen.getByText('Event detail · 7 · Queue Alert')).toBeInTheDocument()
+  expect(screen.getByText('Event detail · 7 · Target event summary')).toBeInTheDocument()
   expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledWith('/control/api/v1/events?event_id=7&include_payload=true&page_size=1&sort=recent', expect.any(Object))
 })
