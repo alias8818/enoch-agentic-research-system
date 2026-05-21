@@ -1,6 +1,27 @@
+import { useState } from 'react'
 import { apiPost } from '../api/client'
 import type { WorkerLane } from '../types'
-import { useOperatorDialog } from './OperatorDialog'
+
+type CommandResult = {
+  title: string
+  payload: Record<string, unknown>
+}
+
+const dryRunCyclePayload = {
+  enabled: false,
+  dry_run: true,
+  requested_by: 'dashboard-v2',
+  max_provider_requests_per_run: 1,
+  max_promotions_per_run: 2,
+  max_dispatches_per_run: 0,
+  wait_for_completion: false,
+  max_wait_seconds: 0,
+  max_paper_drafts_per_run: 0,
+  max_publication_rewrites_per_run: 0,
+  generation_max_tokens: 8000,
+  generation_attempts: 2,
+  temperature: 0.6,
+}
 
 function laneLabel(lane: WorkerLane): string {
   const target = String(lane.machine_target || lane.lane_key || '').toLowerCase()
@@ -23,58 +44,48 @@ function laneDisabledReason(lane: WorkerLane, canFeed: boolean, canDispatch: boo
   return 'Waiting for backend lane eligibility.'
 }
 
+function ResultCard({ result }: { result: CommandResult | null }) {
+  if (!result) return null
+  const reason = String(result.payload.reason || result.payload.detail || result.payload.action || 'Command completed.')
+  return (
+    <section className="result-card lane-command-result" aria-live="polite">
+      <h3>{result.title}</h3>
+      <p>{reason}</p>
+      <pre>{JSON.stringify(result.payload, null, 2)}</pre>
+    </section>
+  )
+}
+
 export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefresh: () => void }) {
-  const { confirm, notify, dialog } = useOperatorDialog()
+  const [commandResult, setCommandResult] = useState<CommandResult | null>(null)
+  const [busyAction, setBusyAction] = useState<'feed' | 'dispatch' | null>(null)
+
   async function feedLane() {
-    await apiPost('/control/api/research/run-cycle', {
-      enabled: true,
-      dry_run: false,
-      requested_by: 'dashboard-v2',
-      max_provider_requests_per_run: 1,
-      max_promotions_per_run: 2,
-      max_dispatches_per_run: 0,
-      wait_for_completion: false,
-      max_wait_seconds: 0,
-      max_paper_drafts_per_run: 0,
-      max_publication_rewrites_per_run: 0,
-      generation_max_tokens: 8000,
-      generation_attempts: 2,
-      temperature: 0.6,
-    })
-    onRefresh()
+    setBusyAction('feed')
+    try {
+      const result = await apiPost<Record<string, unknown>>('/control/api/research/run-cycle', dryRunCyclePayload)
+      setCommandResult({ title: 'Feed dry-run result', payload: result })
+      onRefresh()
+    } catch (error) {
+      setCommandResult({ title: 'Feed dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+    } finally {
+      setBusyAction(null)
+    }
   }
+
   async function dispatchLane() {
-    const dryRunConfirmed = await confirm({
-      title: 'Dry-run dispatch?',
-      message: 'The dashboard will ask the control plane to prove an open lane has an eligible candidate before starting live dispatch.',
-      confirmLabel: 'Run dispatch dry-run',
-      tone: 'warn',
-    })
-    if (!dryRunConfirmed) return
-    const dryRun = await apiPost<{ action?: string }>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
-    if (dryRun.action !== 'dry_run_dispatch') {
-      await notify({
-        title: 'No dispatch candidate found',
-        message: 'The dry-run completed, but the backend did not return a dispatchable lane candidate. Refreshing lane state now.',
-        confirmLabel: 'Refresh state',
-        tone: 'info',
-      })
+    setBusyAction('dispatch')
+    try {
+      const result = await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+      setCommandResult({ title: 'Dispatch dry-run result', payload: result })
       onRefresh()
-      return
+    } catch (error) {
+      setCommandResult({ title: 'Dispatch dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+    } finally {
+      setBusyAction(null)
     }
-    const liveConfirmed = await confirm({
-      title: 'Start live dispatch?',
-      message: 'The dry-run found an eligible candidate. Confirm to start a live dispatch through the control plane.',
-      confirmLabel: 'Start live dispatch',
-      tone: 'danger',
-    })
-    if (!liveConfirmed) {
-      onRefresh()
-      return
-    }
-    await apiPost('/control/dispatch-next', { dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
-    onRefresh()
   }
+
   const visible = lanes.filter((lane) => ['CPU lane', 'GB10 lane'].includes(laneLabel(lane)))
   const rendered = visible.length ? visible : lanes
   const canFeedAny = rendered.some((lane) => ['generate_candidate', 'promote_candidate'].includes(lane.feed_pressure?.next_autopilot_action || ''))
@@ -88,10 +99,11 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
           <p>Lane state is the source of truth. Aggregate queue counts do not decide dispatch.</p>
         </div>
         <div className="lane-console-actions">
-          <button className="secondary-button" disabled={!canFeedAny} onClick={feedLane}>Feed idle lanes</button>
-          <button className="primary-button" disabled={!canDispatchAny} onClick={dispatchLane}>Dispatch open lanes</button>
+          <button className="secondary-button" disabled={!canFeedAny || busyAction !== null} onClick={feedLane}>Feed idle lanes</button>
+          <button className="primary-button" disabled={!canDispatchAny || busyAction !== null} onClick={dispatchLane}>Check open lanes</button>
         </div>
       </div>
+      <ResultCard result={commandResult} />
       <div className="lane-grid">
         {rendered.map((lane) => {
           const feedAction = lane.feed_pressure?.next_autopilot_action || 'observe'
@@ -127,14 +139,13 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
               </dl>
               <p className={canDispatch ? 'lane-reason lane-reason--ready' : 'lane-reason'}>{laneDisabledReason(lane, canFeed, canDispatch)}</p>
               <div className="lane-actions">
-                <button className="secondary-button" disabled={!canFeed} onClick={feedLane}>Feed idle lane</button>
-                <button className="primary-button" disabled={!canDispatch} onClick={dispatchLane}>Dispatch this lane</button>
+                <button className="secondary-button" disabled={!canFeed || busyAction !== null} onClick={feedLane}>Feed idle lane</button>
+                <button className="primary-button" disabled={!canDispatch || busyAction !== null} onClick={dispatchLane}>Check dispatch</button>
               </div>
             </article>
           )
         })}
       </div>
-      {dialog}
     </section>
   )
 }

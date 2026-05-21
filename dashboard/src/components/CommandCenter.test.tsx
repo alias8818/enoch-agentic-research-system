@@ -39,7 +39,7 @@ it('renders worker lane commands without deriving queue truth from aggregate cou
   expect(screen.getByText('GB10 job')).toBeInTheDocument()
   expect(screen.getByText('Lane is active.')).toBeInTheDocument()
   expect(screen.getByText('Ready to dispatch queued work.')).toBeInTheDocument()
-  expect(screen.getAllByText('Dispatch this lane')).toHaveLength(2)
+  expect(screen.getAllByText('Check dispatch')).toHaveLength(2)
 })
 
 it('uses dialog confirmations for queue pause instead of window.confirm', async () => {
@@ -59,25 +59,46 @@ it('uses dialog confirmations for queue pause instead of window.confirm', async 
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
-it('uses staged dialog confirmations for live dispatch and no alert fallback', async () => {
+it('dry-runs dispatch from lane buttons without starting live dispatch', async () => {
   const confirmSpy = vi.spyOn(window, 'confirm')
   const alertSpy = vi.spyOn(window, 'alert')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
-    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch' }), { status: 200 }))
-    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dispatched' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch', reason: 'dry-run dispatch selected candidate', candidate: { project_name: 'GB10 job' } }), { status: 200 }))
   const onRefresh = vi.fn()
 
   render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_name: 'GB10 job' } }]} onRefresh={onRefresh} />)
-  fireEvent.click(screen.getByRole('button', { name: 'Dispatch this lane' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Check dispatch' }))
 
-  expect(await screen.findByRole('dialog', { name: 'Dry-run dispatch?' })).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Run dispatch dry-run' }))
-  expect(await screen.findByRole('dialog', { name: 'Start live dispatch?' })).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Start live dispatch' }))
-
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  expect(fetchMock).toHaveBeenCalledWith('/control/dispatch-next', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"dry_run":true'),
+  }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(screen.getByText('Dispatch dry-run result')).toBeInTheDocument()
+  expect(screen.getByText('dry-run dispatch selected candidate')).toBeInTheDocument()
   expect(confirmSpy).not.toHaveBeenCalled()
   expect(alertSpy).not.toHaveBeenCalled()
+  expect(onRefresh).toHaveBeenCalledTimes(1)
+})
+
+it('dry-runs feed actions without spending provider requests or promoting work', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'research_cycle_blocked', dry_run: true, reason: 'provider budget passed; no provider request spent' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 0, dispatch_available: false, feed_pressure: { next_autopilot_action: 'generate_candidate' } }]} onRefresh={onRefresh} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Feed idle lane' }))
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  expect(fetchMock).toHaveBeenCalledWith('/control/api/research/run-cycle', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"dry_run":true'),
+  }))
+  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"enabled":false')
+  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"max_dispatches_per_run":0')
+  expect(screen.getByText('Feed dry-run result')).toBeInTheDocument()
+  expect(screen.getByText('provider budget passed; no provider request spent')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
