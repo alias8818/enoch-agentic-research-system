@@ -42,13 +42,19 @@ NON_BUILD_PATH_PARTS = (
 
 
 def _git_changed_files(base_ref: str) -> list[str]:
-    result = subprocess.run(
+    for spec in (f"{base_ref}...HEAD", f"{base_ref}..HEAD"):
+        result = subprocess.run(
+            ["git", "diff", "--name-only", spec],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    raise subprocess.CalledProcessError(
+        1,
         ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
-        check=True,
-        capture_output=True,
-        text=True,
+        result.stderr or f"unable to diff against base ref {base_ref}",
     )
-    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
 def affects_build_output(path: str) -> bool:
