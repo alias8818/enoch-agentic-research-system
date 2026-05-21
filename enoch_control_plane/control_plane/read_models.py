@@ -908,8 +908,9 @@ def summarize_idea_workbench_row(row: dict[str, Any]) -> dict[str, Any]:
 
 def _count_value(counts: dict[str, int] | None, *keys: str) -> int:
     for key in keys:
-        if key in (counts or {}):
-            return int((counts or {}).get(key) or 0)
+        value = int((counts or {}).get(key) or 0)
+        if value:
+            return value
     return 0
 
 

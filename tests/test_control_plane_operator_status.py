@@ -181,6 +181,14 @@ class OperatorStatusTests(unittest.TestCase):
         )
         self.assertIn("2 idea(s) queued for operator review", summary)
 
+    def test_summarize_intake_workbench_falls_back_when_primary_count_is_zero(self) -> None:
+        summary = summarize_intake_workbench(
+            projection_counts={"queued": 0, "queued_projection": 5},
+            queued_projection=[{"idea_id": f"idea-{index}"} for index in range(5)],
+            skipped_reasons={},
+        )
+        self.assertIn("5 idea(s) queued for operator review", summary)
+
     def test_summarize_research_facility_workbench_prioritizes_needs_review(self) -> None:
         summary = summarize_research_facility_workbench(
             counts={"admitted": 4, "needs_review": 2},
