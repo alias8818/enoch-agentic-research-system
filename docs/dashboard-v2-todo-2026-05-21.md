@@ -25,6 +25,10 @@ What is already live as of 2026-05-21:
   - events index returned 200;
   - event detail by `event_id` returned 200.
 
+## Cursor implementation guidance
+
+For future Dashboard V2 work, start with [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md). It captures the operator semantics, lane/readiness rules, anti-patterns, and suggested narrow PR sequence for Cursor-driven work.
+
 ## Product rule
 
 Do not add another page or panel unless it answers an operator question.

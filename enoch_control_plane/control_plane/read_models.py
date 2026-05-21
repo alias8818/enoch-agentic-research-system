@@ -1522,6 +1522,17 @@ def movement_diagnosis(
 
     primary = blockers[0] if blockers else None
     actionable = next((item for item in blockers if item["kind"] in {"dispatch_available", "followup_ready"}), None)
+    hard_blocker_kinds = {
+        "maintenance_mode",
+        "queue_paused",
+        "no_matching_machine_target",
+        "lane_queue_empty",
+        "no_admitted_candidates",
+        "lane_blocked",
+        "evidence_missing",
+    }
+    hard_blocker = next((item for item in blockers if item["kind"] in hard_blocker_kinds), None)
+    active_lanes = [item for item in blockers if item["kind"] == "lane_active"]
     if flags.get("maintenance_mode"):
         status = "blocked"
         primary_reason = "Maintenance mode is on."
@@ -1531,9 +1542,18 @@ def movement_diagnosis(
     elif actionable:
         status = "actionable"
         primary_reason = actionable["summary"]
-    elif blockers:
+    elif hard_blocker:
         status = "blocked"
-        primary_reason = str(primary["summary"])
+        primary_reason = str(hard_blocker["summary"])
+    elif active_lanes:
+        status = "ready"
+        if len(active_lanes) > 1:
+            primary_reason = "Configured worker lanes are occupied by active runs; this is normal while queued backlog waits."
+        else:
+            primary_reason = str(active_lanes[0]["summary"]) + " This is normal active work, not a health blocker."
+    elif primary:
+        status = "ready"
+        primary_reason = "No dispatch or automation health blocker is preventing unattended operation."
     else:
         status = "ready"
         primary_reason = "No deterministic blocker is preventing movement."

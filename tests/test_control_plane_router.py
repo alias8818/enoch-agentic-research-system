@@ -4392,6 +4392,101 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("lane_active", kinds)
             self.assertIn("dispatch_available", kinds)
 
+    def test_overview_does_not_treat_active_worker_lanes_as_bad_health(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "movement-diagnosis-active-lanes-import",
+                "queue_rows": [
+                    {
+                        "project_id": "active-cpu",
+                        "project_name": "Active CPU",
+                        "project_dir": "active-cpu",
+                        "status": "awaiting_wake",
+                        "machine_target": "cpu-proxmox-1",
+                        "current_run_id": "run-active-cpu",
+                    },
+                    {
+                        "project_id": "active-gb10",
+                        "project_name": "Active GB10",
+                        "project_dir": "active-gb10",
+                        "status": "awaiting_wake",
+                        "machine_target": "gb10",
+                        "current_run_id": "run-active-gb10",
+                    },
+                    {
+                        "project_id": "queued-cpu",
+                        "project_name": "Queued CPU",
+                        "project_dir": "queued-cpu",
+                        "status": "queued",
+                        "machine_target": "cpu-proxmox-1",
+                        "dispatch_priority": 2,
+                    },
+                    {
+                        "project_id": "queued-gb10",
+                        "project_name": "Queued GB10",
+                        "project_dir": "queued-gb10",
+                        "status": "queued",
+                        "machine_target": "gb10",
+                        "dispatch_priority": 1,
+                    },
+                ],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+
+            overview = client.get("/control/api/v1/overview", headers=headers).json()
+
+            diagnosis = overview["movement_diagnosis"]
+            self.assertEqual(diagnosis["status"], "ready")
+            self.assertIn("normal", diagnosis["primary_reason"].lower())
+            kinds = [item["kind"] for item in diagnosis["blockers"]]
+            self.assertEqual(kinds.count("lane_active"), 2)
+            self.assertNotEqual(diagnosis["primary_reason"], diagnosis["blockers"][0]["summary"])
+
+    def test_movement_diagnosis_treats_evidence_missing_as_hard_blocker_but_paper_gate_as_non_health_info(self) -> None:
+        from enoch_control_plane.control_plane.read_models import movement_diagnosis
+
+        paper_gate_only = movement_diagnosis(
+            flags={"queue_paused": False, "maintenance_mode": False},
+            worker_lanes=[],
+            paper_pipeline={"not_writable_by_decision_gate": 3, "finalize_needed": 0},
+            investigation_pipeline={},
+        )
+
+        self.assertEqual(paper_gate_only["status"], "ready")
+        self.assertTrue(any(item["kind"] == "paper_gate_blocked" for item in paper_gate_only["blockers"]))
+        self.assertIn("No dispatch or automation health blocker", paper_gate_only["primary_reason"])
+
+        evidence_missing = movement_diagnosis(
+            flags={"queue_paused": False, "maintenance_mode": False},
+            worker_lanes=[],
+            paper_pipeline={"not_writable_by_decision_gate": 3, "finalize_needed": 1},
+            investigation_pipeline={},
+        )
+
+        self.assertEqual(evidence_missing["status"], "blocked")
+        self.assertTrue(any(item["kind"] == "evidence_missing" for item in evidence_missing["blockers"]))
+        self.assertIn("publication draft", evidence_missing["primary_reason"])
+
     def test_dashboard_status_does_not_call_idle_empty_lane_active(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp).model_copy(
