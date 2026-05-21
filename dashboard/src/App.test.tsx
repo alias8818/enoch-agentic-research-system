@@ -150,6 +150,26 @@ it('shows operator queue counts inside the collapsed overview secondary fold', a
   expect(within(snapshot).getByText('5')).toBeInTheDocument()
 })
 
+
+it('keeps visible resource filters aligned with hash navigation', async () => {
+  window.location.hash = '#queue:queued'
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'queued-project', status: 'queued', title: 'Queued item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'active-project', status: 'active', title: 'Active item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+  await screen.findByText('Queued item')
+
+  window.location.hash = '#queue:active'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+
+  await screen.findByText('Active item')
+  expect(screen.getByLabelText(/Status/i)).toHaveValue('active')
+  expect(new URL(String(fetchMock.mock.calls[0][0]), 'https://enoch.local').searchParams.get('status')).toBe('queued')
+  expect(new URL(String(fetchMock.mock.calls[1][0]), 'https://enoch.local').searchParams.get('status')).toBe('active')
+})
+
 it('keeps unsupported hashes inside the V2 shell with a legacy escape link', () => {
   window.location.hash = '#unknown-workflow'
   saveToken('test-token')

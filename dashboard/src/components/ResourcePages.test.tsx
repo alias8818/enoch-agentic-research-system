@@ -44,6 +44,23 @@ it('loads queue rows from the V1 queue endpoint with the route status', async ()
 
 
 
+
+it('refreshes queue rows explicitly from the V2 page', async () => {
+  saveToken('test-token')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T05:00:00Z', rows: [{ project_id: 'queued-project', status: 'queued', title: 'Queued item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T05:01:00Z', rows: [{ project_id: 'fresh-project', status: 'queued', title: 'Fresh item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+
+  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', hash: '#queue:queued' }} />)
+  await screen.findByText('Queued item')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh rows' }))
+
+  await screen.findByText('Fresh item')
+  expect(screen.getByText('Last loaded 2026-05-21T05:01:00Z')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+})
+
 it('syncs route-derived status changes into resource page backend filters', async () => {
   saveToken('test-token')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
@@ -60,6 +77,7 @@ it('syncs route-derived status changes into resource page backend filters', asyn
   )
 
   await screen.findByText('Active item')
+  expect(screen.getByLabelText(/Status/i)).toHaveValue('active')
   const first = requestUrl(fetchMock.mock.calls[0])
   const second = requestUrl(fetchMock.mock.calls[1])
   expectParam(first, 'status', 'queued')

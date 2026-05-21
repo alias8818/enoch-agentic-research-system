@@ -21,13 +21,16 @@ type DetailSelection = { kind: 'project' | 'run' | 'paper' | 'event'; id: string
 type FilterState = { search: string; status: string; pageSize: string; cursor: string }
 type CommandResult = { title: string; payload: Record<string, unknown> }
 
-function PageShell({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+function PageShell({ title, subtitle, children, action }: { title: string; subtitle: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <section className="page-stack">
-      <div className="page-hero">
-        <p className="eyebrow">Dashboard V2</p>
-        <h1>{title}</h1>
-        <p>{subtitle}</p>
+      <div className="page-hero page-hero--with-action">
+        <div>
+          <p className="eyebrow">Dashboard V2</p>
+          <h1>{title}</h1>
+          <p>{subtitle}</p>
+        </div>
+        {action ? <div className="page-hero-action">{action}</div> : null}
       </div>
       {children}
     </section>
@@ -179,7 +182,7 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
     }
   }
   return (
-    <PageShell title="Queue" subtitle="Bounded queue rows from /control/api/v1/queue. No frontend lifecycle inference.">
+    <PageShell title="Queue" subtitle="Bounded queue rows from /control/api/v1/queue. No frontend lifecycle inference." action={<><span>Last loaded {query.data?.generated_at || 'unknown'}</span><button className="secondary-button" type="button" disabled={query.isFetching} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh rows'}</button></>}>
       <FilterBar state={filters} statusOptions={[{ label: 'all statuses', value: '' }, { label: 'queued', value: 'queued' }, { label: 'active', value: 'active' }, { label: 'blocked', value: 'blocked' }, { label: 'completed', value: 'completed' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.status, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <section className="queue-command-card">
         <div>
