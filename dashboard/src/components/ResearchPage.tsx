@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { apiGet, apiPost } from '../api/client'
 import { DataTable } from './DataTable'
 import { useOperatorDialog } from './OperatorDialog'
@@ -25,6 +26,17 @@ type CycleResponse = {
   promoted_count?: number
   dispatched_count?: number
   queued_count?: number
+}
+
+type PromotionResponse = {
+  ok?: boolean
+  action?: string
+  reason?: string
+  candidate_id?: string
+  title?: string
+  idea_id?: string
+  queued_count?: number
+  dispatch_started?: boolean
 }
 
 const dryRunCyclePayload = {
@@ -62,11 +74,20 @@ function ResultCard({ title, result }: { title: string; result?: Record<string, 
 export function ResearchPage() {
   const queryClient = useQueryClient()
   const { confirm, dialog } = useOperatorDialog()
+  const [selectedCandidate, setSelectedCandidate] = useState<Record<string, unknown> | null>(null)
   const facility = useQuery({ queryKey: ['research-facility'], queryFn: () => apiGet<ResearchFacilityResponse>('/control/api/research/facility?page_size=50') })
   const budget = useMutation({ mutationFn: () => apiGet<BudgetResponse>('/control/api/research/provider-budget?estimated_requests=1&reserve_requests=2') })
   const cycle = useMutation({
     mutationFn: (payload: typeof dryRunCyclePayload) => apiPost<CycleResponse>('/control/api/research/run-cycle', payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['research-facility'] }),
+  })
+  const promotion = useMutation({
+    mutationFn: (payload: { candidate_id: string; dry_run: boolean; requested_by: string }) => apiPost<PromotionResponse>('/control/api/research/promote-candidate', payload),
+    onSuccess: (payload) => {
+      if (payload.action === 'promote_candidate') {
+        void queryClient.invalidateQueries({ queryKey: ['research-facility'] })
+      }
+    },
   })
 
   async function runDryCycle() {
@@ -82,6 +103,27 @@ export function ResearchPage() {
     })
     if (!confirmed) return
     await cycle.mutateAsync(liveCyclePayload)
+  }
+
+  const selectedCandidateId = String(selectedCandidate?.candidate_id || '')
+  const selectedCandidateTitle = String(selectedCandidate?.title || selectedCandidateId || 'No candidate selected')
+  const candidateDryRunPassed = promotion.data?.action === 'dry_run_promote_candidate' && promotion.data?.candidate_id === selectedCandidateId
+
+  async function dryRunPromotion() {
+    if (!selectedCandidateId) return
+    await promotion.mutateAsync({ candidate_id: selectedCandidateId, dry_run: true, requested_by: 'dashboard-v2' })
+  }
+
+  async function promoteCandidate() {
+    if (!selectedCandidateId) return
+    const confirmed = await confirm({
+      title: 'Promote admitted candidate?',
+      message: `Promote ${selectedCandidateId} into queued idea/project rows? This writes queue ledgers only and will not dispatch work.`,
+      confirmLabel: 'Promote candidate',
+      tone: 'warn',
+    })
+    if (!confirmed) return
+    await promotion.mutateAsync({ candidate_id: selectedCandidateId, dry_run: false, requested_by: 'dashboard-v2' })
   }
 
   const rows = facility.data?.rows || []
@@ -112,12 +154,31 @@ export function ResearchPage() {
       <ResultCard title="Provider budget result" result={budget.data as Record<string, unknown> | undefined} />
       <ResultCard title="Run-cycle result" result={cycle.data as Record<string, unknown> | undefined} />
 
+      <section className="queue-command-card">
+        <div>
+          <p className="eyebrow">Selected candidate</p>
+          <h2>{selectedCandidateTitle}</h2>
+          <p>{selectedCandidateId ? 'Dry-run promotion first. Live promotion queues the idea/project row only; it does not dispatch.' : 'Select an admitted candidate row before promotion.'}</p>
+        </div>
+        <div className="action-row">
+          <button className="secondary-button" type="button" disabled={!selectedCandidateId || promotion.isPending} onClick={dryRunPromotion}>
+            {promotion.isPending ? 'Checking…' : 'Dry-run promote selected'}
+          </button>
+          <button className="primary-button" type="button" disabled={!selectedCandidateId || !candidateDryRunPassed || promotion.isPending} onClick={promoteCandidate}>
+            Promote selected candidate
+          </button>
+        </div>
+      </section>
+
+      {promotion.data?.action === 'dry_run_promote_candidate' ? <ResultCard title="Candidate promotion dry-run" result={promotion.data as Record<string, unknown>} /> : null}
+      {promotion.data?.action === 'promote_candidate' ? <ResultCard title="Candidate promotion result" result={promotion.data as Record<string, unknown>} /> : null}
+
       {dialog}
 
       {facility.isLoading ? <div className="state-card">Loading research facility…</div> : null}
       {facility.isError ? <div className="state-card state-card--error">Research data unavailable: {String(facility.error.message)}</div> : null}
       {!facility.isLoading && !facility.isError ? (
-        <DataTable rows={rows} columns={['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at']} empty="No research candidates returned." />
+        <DataTable rows={rows} columns={['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at']} empty="No research candidates returned." onSelectRow={setSelectedCandidate} />
       ) : null}
     </section>
   )

@@ -73,3 +73,36 @@ it('uses a dialog before running a bounded live research cycle', async () => {
     body: expect.stringContaining('"dry_run":false'),
   })))
 })
+
+it('dry-runs and confirms admitted candidate promotion without dispatching', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: { admitted: 1 }, rows: [{ candidate_id: 'cand-1', status: 'admitted', admission_decision: 'admitted', admitted_idea_id: '', title: 'Candidate one' }] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'dry_run_promote_candidate', candidate_id: 'cand-1', title: 'Candidate one', reason: 'candidate can be promoted' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'promote_candidate', candidate_id: 'cand-1', idea_id: 'cand-1', queued_count: 1, dispatch_started: false, reason: 'promoted without dispatch' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [] }), { status: 200 }))
+
+  renderWithClient(<ResearchPage />)
+
+  fireEvent.click(await screen.findByText('Candidate one'))
+  expect(screen.getByText('cand-1')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Dry-run promote selected' }))
+
+  await screen.findByText('Candidate promotion dry-run')
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/research/promote-candidate', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ candidate_id: 'cand-1', dry_run: true, requested_by: 'dashboard-v2' }),
+  }))
+
+  fireEvent.click(screen.getByRole('button', { name: 'Promote selected candidate' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Promote admitted candidate?' })
+  expect(dialog).toHaveTextContent('will not dispatch')
+  expect(confirmSpy).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Promote candidate' }))
+
+  await screen.findByText('Candidate promotion result')
+  await waitFor(() => expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/research/promote-candidate', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ candidate_id: 'cand-1', dry_run: false, requested_by: 'dashboard-v2' }),
+  })))
+})
