@@ -86,16 +86,30 @@ def _load_package_json_from_ref(ref: str) -> dict[str, object] | None:
     return data if isinstance(data, dict) else None
 
 
+def _merge_base_ref(base_ref: str) -> str | None:
+    result = subprocess.run(
+        ["git", "merge-base", base_ref, "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.strip()
+
+
 def package_json_change_affects_build(base_ref: str) -> bool:
     """Return True when package.json diff touches deps/version, not scripts-only."""
-    base_data = _load_package_json_from_ref(base_ref)
+    compare_ref = _merge_base_ref(base_ref) or base_ref
+    base_data = _load_package_json_from_ref(compare_ref)
     head_data = _load_package_json_from_ref("HEAD")
 
     if base_data is None or head_data is None:
         return True
 
-    for key in ("version", "dependencies", "devDependencies"):
-        if base_data.get(key) != head_data.get(key):
+    if base_data.get("version") != head_data.get("version"):
+        return True
+    for key in ("dependencies", "devDependencies"):
+        if (base_data.get(key) or {}) != (head_data.get(key) or {}):
             return True
     return False
 

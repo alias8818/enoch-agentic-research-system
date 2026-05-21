@@ -41,7 +41,7 @@ def test_package_json_scripts_only_do_not_require_assets(monkeypatch) -> None:
 
 def test_package_json_dependency_change_affects_build(monkeypatch) -> None:
     def fake_loader(ref: str) -> dict[str, object] | None:
-        if ref == "origin/main":
+        if ref == "branch-base":
             return {
                 "version": "1.0.0",
                 "dependencies": {"react": "^19.2.1"},
@@ -57,13 +57,14 @@ def test_package_json_dependency_change_affects_build(monkeypatch) -> None:
             }
         return None
 
+    monkeypatch.setattr(pairing, "_merge_base_ref", lambda _base: "branch-base")
     monkeypatch.setattr(pairing, "_load_package_json_from_ref", fake_loader)
     assert pairing.package_json_change_affects_build("origin/main") is True
 
 
 def test_package_json_scripts_only_change_does_not_affect_build(monkeypatch) -> None:
     def fake_loader(ref: str) -> dict[str, object] | None:
-        if ref == "origin/main":
+        if ref == "branch-base":
             return {
                 "version": "1.0.0",
                 "dependencies": {"react": "^19.2.1"},
@@ -79,5 +80,38 @@ def test_package_json_scripts_only_change_does_not_affect_build(monkeypatch) -> 
             }
         return None
 
+    monkeypatch.setattr(pairing, "_merge_base_ref", lambda _base: "branch-base")
+    monkeypatch.setattr(pairing, "_load_package_json_from_ref", fake_loader)
+    assert pairing.package_json_change_affects_build("origin/main") is False
+
+
+def test_package_json_scripts_only_ignores_unrelated_main_dep_changes(monkeypatch) -> None:
+    """Branch scripts-only edits must not fail when origin/main moved deps forward."""
+
+    def fake_loader(ref: str) -> dict[str, object] | None:
+        if ref == "branch-base":
+            return {
+                "version": "1.0.0",
+                "dependencies": {"react": "^19.2.1"},
+                "devDependencies": {"vite": "^5.0.0"},
+                "scripts": {"test": "vitest"},
+            }
+        if ref == "HEAD":
+            return {
+                "version": "1.0.0",
+                "dependencies": {"react": "^19.2.1"},
+                "devDependencies": {"vite": "^5.0.0"},
+                "scripts": {"test": "vitest --watch"},
+            }
+        if ref == "origin/main":
+            return {
+                "version": "1.0.0",
+                "dependencies": {"react": "^19.3.0"},
+                "devDependencies": {"vite": "^5.0.0"},
+                "scripts": {"test": "vitest"},
+            }
+        return None
+
+    monkeypatch.setattr(pairing, "_merge_base_ref", lambda _base: "branch-base")
     monkeypatch.setattr(pairing, "_load_package_json_from_ref", fake_loader)
     assert pairing.package_json_change_affects_build("origin/main") is False
