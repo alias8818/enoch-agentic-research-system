@@ -207,17 +207,37 @@ it('opens queue and paper detail panels from selected rows', async () => {
 })
 
 it('loads corpus import rows as a first-class V2 subview', async () => {
-  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-corpus', project_id: 'project-1', status: 'publication_draft', corpus_imported: false, title: 'Corpus candidate' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ paper_pipeline: { publish_ready: 0, published_imported: 0, publication_ready_total: 0 } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-corpus', project_id: 'project-1', status: 'publication_draft', corpus_imported: false, title: 'Corpus candidate' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
   renderWithClient(<CorpusPage />)
 
   await screen.findByText('Corpus candidate')
   expect(screen.getByRole('link', { name: /paper-corpus/ })).toHaveAttribute('href', '/control/dashboard-v2#paper:paper-corpus')
   expect(screen.getByRole('link', { name: /project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
-  const url = requestUrl(fetchMock.mock.calls[0])
+  const url = requestUrl(fetchMock.mock.calls[1])
   expect(url.pathname).toBe('/control/api/v1/papers')
   expectParam(url, 'status', 'publication_draft')
   expectParam(url, 'sort', 'recent')
+})
+
+it('shows corpus import movement summary from the overview read model', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ paper_pipeline: { publish_ready: 2, published_imported: 7, publication_ready_total: 9, missing_from_corpus: 2 }, generated_at: '2026-05-21T01:00:00Z' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-corpus', project_id: 'project-1', status: 'publication_draft', corpus_imported: false, title: 'Corpus candidate' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+
+  renderWithClient(<CorpusPage />)
+
+  expect(await screen.findByText('Missing corpus import')).toBeInTheDocument()
+  expect(screen.getByText('2')).toBeInTheDocument()
+  expect(screen.getByText('Already imported')).toBeInTheDocument()
+  expect(screen.getByText('7')).toBeInTheDocument()
+  expect(screen.getByText('Publication-ready total')).toBeInTheDocument()
+  expect(screen.getByText('9')).toBeInTheDocument()
+  expect(screen.getByText('Import validation needs corpus autopilot.')).toBeInTheDocument()
+  expect(await screen.findByText('Corpus candidate')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/overview?active_limit=1&event_limit=1', expect.any(Object))
 })
 
 it('shows raw event detail without inventing a missing event endpoint', async () => {

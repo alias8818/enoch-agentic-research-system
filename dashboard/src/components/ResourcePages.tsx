@@ -8,6 +8,13 @@ import { DetailPanel } from './DetailPanel'
 
 type PageMeta = { next_cursor?: string; has_more?: boolean; returned?: number; page_size?: number }
 type PageResponse = { rows?: Record<string, unknown>[]; counts?: Record<string, unknown>; generated_at?: string; page?: PageMeta }
+type OverviewPaperPipeline = {
+  publish_ready?: number
+  published_imported?: number
+  publication_ready_total?: number
+  missing_from_corpus?: number
+}
+type OverviewLite = { paper_pipeline?: OverviewPaperPipeline; generated_at?: string }
 type ObservabilityHealth = { generated_at?: string; route_observability_enabled?: boolean; route_observability_log_configured?: boolean; latest_route_observation?: string | null }
 type ObservabilityMemory = { generated_at?: string; rss_mib?: number | null; peak_rss_mib?: number | null; warn_threshold_mib?: number | null; memory_warn?: boolean; route_observability_enabled?: boolean }
 type DetailSelection = { kind: 'project' | 'run' | 'paper' | 'event'; id: string; row?: Record<string, unknown> }
@@ -101,6 +108,16 @@ function CommandResultCard({ result }: { result: CommandResult | null }) {
       <p>{reason}</p>
       <pre>{JSON.stringify(result.payload, null, 2)}</pre>
     </section>
+  )
+}
+
+function CountCard({ label, value, detail }: { label: string; value: unknown; detail: string }) {
+  return (
+    <div className="count-card">
+      <div>{String(value ?? 0)}</div>
+      <div>{label}</div>
+      <p>{detail}</p>
+    </div>
   )
 }
 
@@ -228,11 +245,25 @@ export function CorpusPage() {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [filters, setFilters] = useState<FilterState>({ search: '', status: 'publication_draft', pageSize: '50', cursor: '' })
   const params = withCommonParams(filters, 'recent')
+  const overview = useQuery({ queryKey: ['corpus', 'overview'], queryFn: () => apiGet<OverviewLite>('/control/api/v1/overview?active_limit=1&event_limit=1') })
   const query = useQuery({ queryKey: ['corpus', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/papers?${params}`) })
   if (query.isLoading) return <LoadingCard label="corpus import" />
   if (query.isError) return <ErrorCard error={query.error} />
+  const pipeline = overview.data?.paper_pipeline || {}
+  const publishReady = pipeline.publish_ready ?? pipeline.missing_from_corpus ?? 0
+  const imported = pipeline.published_imported ?? 0
+  const publicationReady = pipeline.publication_ready_total ?? 0
+  const validationDetail = publishReady > 0
+    ? 'Import validation needs corpus autopilot.'
+    : 'Corpus import ledger has no missing finalized drafts.'
   return (
     <PageShell title="Corpus import" subtitle="Publication-ready paper rows and corpus-import ledger status. Publish/import work stays scoped to finalized drafts missing corpus import.">
+      <section className="count-grid" aria-label="Corpus import summary">
+        <CountCard label="Missing corpus import" value={publishReady} detail="Finalized publication drafts without corpus-import ledger rows." />
+        <CountCard label="Already imported" value={imported} detail="Publication-ready drafts already recorded in corpus_imports." />
+        <CountCard label="Publication-ready total" value={publicationReady} detail="Finalized drafts whether imported or still missing import." />
+        <CountCard label="Import validation" value={publishReady > 0 ? 'pending' : 'clean'} detail={validationDetail} />
+      </section>
       <FilterBar state={filters} statusOptions={[{ label: 'publication draft', value: 'publication_draft' }, { label: 'draft review', value: 'draft_review' }, { label: 'archived', value: 'archived' }, { label: 'all paper statuses', value: '' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: 'publication_draft', pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={['paper_id', 'project_id', 'status', 'corpus_imported', 'corpus_import_id', 'title', 'updated_at']} empty="No corpus import rows match this filter." cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'paper', id: String(row.paper_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
