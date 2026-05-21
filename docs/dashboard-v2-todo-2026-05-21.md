@@ -264,7 +264,7 @@ No blocking gate. Pick one narrow PR at a time; keep [`dashboard-v2-cursor-instr
 ### Workbench and corpus UX
 
 - [x] Corpus import drill-down — public corpus index, per-paper URLs, and release-validator links on `#corpus` ([`corpusLinks.ts`](../dashboard/src/corpusLinks.ts), [`ResourcePages.tsx`](../dashboard/src/components/ResourcePages.tsx); tests in [`corpusLinks.test.ts`](../dashboard/src/corpusLinks.test.ts)).
-- [ ] **Workbench KPI noise (narrow PR)** — replace decorative `count-grid` / `count-card` rows on Intake, Research, and Automation workbench pages (and optionally soften Corpus summary cards) with one backend-driven operator sentence or collapse counts below the table fold. Anti-pattern: decorative KPI cards ([`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md) § Visual design).
+- [x] **Workbench KPI noise (narrow PR)** — Replace decorative `count-grid` / `count-card` rows on [`IntakePage`](../dashboard/src/components/ResourcePages.tsx), [`ResearchPage`](../dashboard/src/components/ResearchPage.tsx), and [`AutomationPage`](../dashboard/src/components/AutomationPage.tsx) with one backend-driven operator sentence or collapse counts below the table fold (anti-pattern: decorative KPI cards in [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md) § Visual design). — [`WorkbenchSummary.tsx`](../dashboard/src/components/WorkbenchSummary.tsx), backend `summarize_*_workbench` read models (#113).
 
 ### Cutover audit and legacy parity
 

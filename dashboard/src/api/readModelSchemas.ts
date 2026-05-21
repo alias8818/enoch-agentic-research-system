@@ -31,6 +31,7 @@ function pagedRowsSchema<T extends z.ZodTypeAny>(rowSchema: T) {
     page: pageMetaSchema.optional(),
     generated_at: z.string().optional(),
     counts: z.record(z.unknown()).optional(),
+    operator_summary: z.string().optional(),
   }).passthrough()
 }
 

@@ -646,6 +646,7 @@ class DashboardPaperReviewsResponse(BaseModel):
     source: Literal["control_api_paper_reviews"] = "control_api_paper_reviews"
     authority: str = "control_plane_db paper review read model"
     generated_at: str = Field(default_factory=utc_now)
+    operator_summary: str = ""
     page: DashboardPageMeta
     counts: dict[str, int] = Field(default_factory=dict)
     rows: list[ReviewQueueItem] = Field(default_factory=list)
@@ -702,6 +703,7 @@ class DashboardIntakeResponse(BaseModel):
     source: Literal["control_api_intake_ideas", "control_api_intake_notion"] = "control_api_intake_ideas"
     authority: str = "Supabase-native ideas workbench plus latest intake observation"
     generated_at: str = Field(default_factory=utc_now)
+    operator_summary: str = ""
     latest_sync: DashboardObservationRecord | None = None
     projection_counts: dict[str, int] = Field(default_factory=dict)
     queued_projection: list[dict[str, Any]] = Field(default_factory=list)

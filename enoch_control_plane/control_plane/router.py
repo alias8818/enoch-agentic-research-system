@@ -3153,6 +3153,13 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         rows = _sort_rows(_search_rows(rows, search), sort)
         page_rows, safe_page, safe_size = _paginate(rows, page=page, page_size=page_size)
         return DashboardPaperReviewsResponse(
+            operator_summary=read_models.summarize_automation_workbench(
+                counts=all_counts,
+                page_total=len(rows),
+                page_returned=len(page_rows),
+                review_status=review_status,
+                search=search,
+            ),
             page=DashboardPageMeta(page=safe_page, page_size=safe_size, total=len(rows), returned=len(page_rows), queue=queue_label, filters={"search": search, "review_status": review_status, "paper_status": paper_status, "include_rank_reasons": include_rank_reasons}, sort=sort),
             counts=all_counts,
             rows=page_rows,
@@ -3770,6 +3777,12 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         return DashboardIntakeResponse(
             source="control_api_intake_notion" if legacy_notion_alias else "control_api_intake_ideas",
             authority="Legacy Notion projection alias; Supabase ideas are canonical" if legacy_notion_alias else "Supabase-native ideas workbench; Notion is provenance only",
+            operator_summary=read_models.summarize_intake_workbench(
+                projection_counts=projection_counts,
+                queued_projection=projection,
+                skipped_reasons=skipped_reasons,
+                latest_sync=latest,
+            ),
             latest_sync=latest,
             projection_counts=projection_counts,
             queued_projection=projection,
@@ -3808,6 +3821,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         return {
             "ok": True,
             "authority": "Research Facility ledgers: sources, candidates, admissions, lineage",
+            "operator_summary": read_models.summarize_research_facility_workbench(counts=counts, returned_rows=len(rows)),
             "rows": rows,
             "counts": counts,
             "page": {
