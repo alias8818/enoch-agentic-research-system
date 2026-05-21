@@ -1,6 +1,6 @@
 # Dashboard V2 TODO checklist
 
-Status: **Phase 2 complete on `main`** (2026-05-21). P0–P7 checklist, command-center operator semantics (PRs #84–#96, #99–#101), and all detail-route audits (project #87, run #100, paper #104, event #105, idea #106) are merged. Dashboard V2 at `/control/dashboard-v2` is the canonical operator console on the reference control VM ([`current-runtime-snapshot.md`](current-runtime-snapshot.md), SSH `enoch-core.exe.xyz`). Remaining work is optional Phase 3 polish below.
+Status: **Phase 2 complete; Phase 3 in progress on `main`** (2026-05-21). P0–P7, command-center semantics (#84–#96, #99–#101), detail-route audits (#87, #100, #104–#106), research candidate panel (#108), Phase 2 doc guards (#107), and narrow visual-regression foundation (#109) are merged. Dashboard V2 at `/control/dashboard-v2` is the canonical operator console on the reference control VM ([`current-runtime-snapshot.md`](current-runtime-snapshot.md), SSH `enoch-core.exe.xyz`). Remaining work is optional Phase 3 polish below — several items below were already landed but are now marked `[x]` so this doc stays the source of truth.
 
 Screenshot evidence reviewed from:
 
@@ -250,17 +250,33 @@ Merged per [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructi
 - [x] Detail route audit follow-up: paper detail page (worker-4b-retry, #104)
 - [x] Detail route audit follow-up: event detail page (worker-4c, #105)
 - [x] Detail route audit follow-up: idea detail page (worker-idea-detail-audit, #106)
-- [x] Detail route audit follow-up: research facility candidate panel (`deriveResearchCandidateOperatorSummary`, worker-3 gap audit)
+- [x] Detail route audit follow-up: research facility candidate panel ([`deriveResearchCandidateOperatorSummary`](../dashboard/src/detailOperatorSummary.ts), #108)
 
-## Phase 3 — optional follow-ups (when resuming)
+## Phase 3 — optional follow-ups
 
 No blocking gate. Pick one narrow PR at a time; keep [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md) product rules.
 
-1. **Visual regression** — screenshot/Playwright visual diff for command center + one list page once IA is stable (parking lot; Playwright smoke already wired).
-2. **Corpus import drill-down** — direct links to public corpus artifacts and release-validator evidence on `#corpus` ([`dashboard-redesign-plan.md`](dashboard-redesign-plan.md)).
-3. **Operator chrome** — keyboard shortcut help and saved table filters (redesign plan follow-up).
-4. **Cutover audit closure** — confirm B7 pause/`maintenance_mode` semantics on live VM; update [`dashboard-v2-cutover-audit.md`](dashboard-v2-cutover-audit.md) gate table if B8 link targets are fully on `/control/dashboard-v2` (read models in `router.py` / `read_models.py`).
-5. **Automation parity (soft)** — per-paper live rewrite/finalize/reject on automation detail if operators reject API-only workaround (B1–B3 in cutover audit).
-6. **Read-model hardening** — extend DTO boundary tests (#97) when adding new overview/lane fields; fix semantics in backend first per cursor instructions.
-7. **Workbench KPI noise (narrow PR)** — Replace decorative `count-grid` / `count-card` rows on [`IntakePage`](../dashboard/src/components/ResourcePages.tsx), [`ResearchPage`](../dashboard/src/components/ResearchPage.tsx), and [`AutomationPage`](../dashboard/src/components/AutomationPage.tsx) with one backend-driven operator sentence or collapse counts below the table fold (anti-pattern: decorative KPI cards in [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md) § Visual design).
+### Visual regression
+
+- [x] Narrow foundation: fixture-driven Playwright `toHaveScreenshot` for token gate + command center overview (#109, [`visual.spec.ts`](../dashboard/e2e/visual.spec.ts)).
+- [x] One list-page baseline — `#queue:queued` fixture-driven screenshot in [`visual.spec.ts`](../dashboard/e2e/visual.spec.ts); defer full route matrix until hero/movement copy settles.
+
+### Workbench and corpus UX
+
+- [x] Corpus import drill-down — public corpus index, per-paper URLs, and release-validator links on `#corpus` ([`corpusLinks.ts`](../dashboard/src/corpusLinks.ts), [`ResourcePages.tsx`](../dashboard/src/components/ResourcePages.tsx); tests in [`corpusLinks.test.ts`](../dashboard/src/corpusLinks.test.ts)).
+- [ ] **Workbench KPI noise (narrow PR)** — replace decorative `count-grid` / `count-card` rows on Intake, Research, and Automation workbench pages (and optionally soften Corpus summary cards) with one backend-driven operator sentence or collapse counts below the table fold. Anti-pattern: decorative KPI cards ([`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md) § Visual design).
+
+### Cutover audit and legacy parity
+
+- [x] B7 pause semantics in UI — [`SafetyBar.tsx`](../dashboard/src/components/SafetyBar.tsx) sends `maintenance_mode: true` on pause (verify on live VM during doc closure).
+- [x] B8 read-model dashboard links — backend emits `/control/dashboard-v2#…` ([`router.py`](../enoch_control_plane/control_plane/router.py)); legacy `/control/dashboard` 307-redirects to V2.
+- [x] Automation parity (soft, B1–B3) — per-paper live rewrite, finalization package, and reject on [`AutomationPage.tsx`](../dashboard/src/components/AutomationPage.tsx) (dry-run first).
+- [x] Research generate-batch UI (B5) — dry-run + live generate/provider batch on [`ResearchPage.tsx`](../dashboard/src/components/ResearchPage.tsx).
+- [x] Global search + theme toggle (B6) — [`GlobalSearchForm`](../dashboard/src/App.tsx), light/dark theme in [`theme.ts`](../dashboard/src/theme.ts); no legacy escape hatch.
+- [x] **Cutover audit doc sync** — update [`dashboard-v2-cutover-audit.md`](dashboard-v2-cutover-audit.md) gate table (B1–B8) to reflect landed V2 behavior; note VM verification for B7.
+
+### Operator chrome and discipline
+
+- [ ] Keyboard shortcut help and saved table filters ([`dashboard-redesign-plan.md`](dashboard-redesign-plan.md) follow-up).
+- [ ] Read-model hardening (ongoing) — extend DTO boundary tests ([#97](../dashboard/src/api/readModelSchemas.ts)) when adding overview/lane/intake fields; fix semantics in backend first per cursor instructions.
 

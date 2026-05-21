@@ -1,6 +1,6 @@
 # Dashboard redesign plan
 
-Status: **P0–P7 and Phase 2 complete on `main`** (2026-05-21). V2 at `/control/dashboard-v2` is the canonical operator console; legacy `/control/dashboard` redirects with hash preserved. This document is the long-lived contract so the UI does not drift back into raw backend-state exposure.
+Status: **P0–P7 and Phase 2 complete; Phase 3 in progress on `main`** (2026-05-21). V2 at `/control/dashboard-v2` is the canonical operator console; legacy `/control/dashboard` redirects with hash preserved. This document is the long-lived contract so the UI does not drift back into raw backend-state exposure.
 
 Active checklist (Phase 3 optional only): [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md).
 
@@ -94,11 +94,10 @@ The first shipped slice is the redesigned shell and overview experience:
 - **Component system (2026-05-21):** shared UI primitives — [`dashboard-v2-component-system.md`](dashboard-v2-component-system.md), #98.
 - **DTO boundaries (2026-05-21):** read-model DTO validation at API boundaries — #97.
 - **Phase 2 command center (2026-05-21):** hero/readiness matrix (#84), dynamic movement title (#85), lane backlog depth (#86), single primary CTA (#88, #94), lane-owned dispatch/feed (#96), decorative movement strip removed (#99), hero state strip filtered (#101).
-- **Phase 2 detail audits (2026-05-21):** project (#87), run (#100), paper (#104), event (#105), idea/intake (#106) — structured summaries via [`detailOperatorSummary.ts`](../dashboard/src/detailOperatorSummary.ts).
+- **Phase 2 detail audits (2026-05-21):** project (#87), run (#100), paper (#104), event (#105), idea/intake (#106), research candidate (#108) — structured summaries via [`detailOperatorSummary.ts`](../dashboard/src/detailOperatorSummary.ts).
+- **Phase 3 landed (2026-05-21):** narrow Playwright visual baselines (#109), corpus drill-down links ([`corpusLinks.ts`](../dashboard/src/corpusLinks.ts)), automation/research soft parity on dedicated pages, Phase 2 doc guards (#107).
 - Extract the inline dashboard into static assets or a small frontend package if the UI keeps growing (already done via `dashboard/` → committed `dashboard_v2/`).
-- **Phase 3 optional:** expand corpus import view with direct links to public corpus artifacts and release-validator evidence.
-- **Phase 3 optional:** keyboard shortcut help and saved filters.
-- **Phase 3 optional:** screenshot-based visual regression for the dashboard shell (after IA stabilizes).
+- **Phase 3 open:** workbench KPI de-noise, cutover audit doc sync, one list-page visual baseline, keyboard help / saved filters — see [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md).
 
 ## Performance slices
 
