@@ -19,3 +19,11 @@ test('command center overview matches baseline screenshot @visual', async ({ pag
   await expect(page.getByLabel('Worker lanes')).toBeVisible()
   await expect(page.locator('.command-stack')).toHaveScreenshot('command-center-overview.png')
 })
+
+test('queue list page matches baseline screenshot @visual', async ({ page }) => {
+  await openDashboardWithToken(page, '#queue:queued')
+  await expect(page.getByRole('heading', { name: 'Queue' })).toBeVisible()
+  await expect(page.getByText('Beta follow-up')).toBeVisible()
+  await expect(page.getByText('Gamma calibration')).toBeVisible()
+  await expect(page.locator('.page-stack')).toHaveScreenshot('queue-list-queued.png')
+})

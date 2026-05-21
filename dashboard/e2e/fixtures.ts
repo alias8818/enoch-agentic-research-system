@@ -83,6 +83,31 @@ const dispatchDryRunPayload = {
   candidate: { project_id: 'project-alpha', lane: 'cpu', machine_target: 'cpu-proxmox-1' },
 }
 
+const queueListPayload = {
+  generated_at: '2026-05-21T12:00:00Z',
+  rows: [
+    {
+      project_id: 'project-beta',
+      project_name: 'Beta follow-up',
+      title: 'Beta follow-up',
+      status: 'queued',
+      machine_target: 'gb10-worker-1',
+      age_seconds: 1800,
+      next_action_hint: 'Dry-run before dispatch',
+    },
+    {
+      project_id: 'project-gamma',
+      project_name: 'Gamma calibration',
+      title: 'Gamma calibration',
+      status: 'queued',
+      machine_target: 'cpu-proxmox-1',
+      age_seconds: 7200,
+      blocked_reason: 'lane busy',
+    },
+  ],
+  page: { returned: 2, has_more: false },
+}
+
 export async function installDashboardApiMocks(page: Page): Promise<void> {
   await page.route('**/control/api/v1/**', async (route) => {
     const url = new URL(route.request().url())
@@ -93,7 +118,7 @@ export async function installDashboardApiMocks(page: Page): Promise<void> {
       return
     }
     if (path.endsWith('/queue')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rows: [], page: { returned: 0, has_more: false } }) })
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(queueListPayload) })
       return
     }
     if (path.endsWith('/runs')) {
