@@ -57,7 +57,7 @@ export async function installDashboardApiMocks(page: Page): Promise<void> {
       return
     }
 
-    await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'fixture miss' }) })
+    await route.fallback()
   })
 
   await page.route('**/control/dispatch-next', async (route) => {
