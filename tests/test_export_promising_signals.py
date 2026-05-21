@@ -257,6 +257,24 @@ def test_validate_export_manifest_catches_count_and_status_drift(tmp_path) -> No
     assert "manifest.status_counts.compute_scale_blocked:0 != 1" in issues
 
 
+
+
+def test_validate_export_repo_rejects_tampered_signal_curation(tmp_path) -> None:
+    exporter.write_export([_row(project_id="signal-a")], tmp_path)
+    signals_path = tmp_path / "data" / "signals.jsonl"
+    signal = json.loads(signals_path.read_text(encoding="utf-8").splitlines()[0])
+    signal["curation"]["score"] = 100
+    signal["curation"]["bucket"] = "top_external_researcher_candidates"
+    signal["curation"]["bucket_label"] = "Tampered bucket label"
+    signal["curation"]["reasons"] = ["tampered"]
+    signal["curation"]["score_breakdown"] = {"tampered": 100}
+    signals_path.write_text(json.dumps(signal) + "\n", encoding="utf-8")
+
+    issues = exporter.validate_export_repo(tmp_path)
+
+    assert "signal.signal-a.curation.score:drift" in issues
+    assert "signal.signal-a.curation.bucket:drift" in issues
+    assert "signal.signal-a.curation.bucket_label:drift" in issues
 def test_validate_export_repo_catches_ranking_drift(tmp_path) -> None:
     exporter.write_export([_row(project_id="signal-a"), _row(project_id="signal-b", compute_scale_blocked=True)], tmp_path)
     ranking_path = tmp_path / "data" / "ranking.json"
