@@ -555,6 +555,10 @@ it('opens intake idea details from selected rows without a legacy fallback', asy
       queue_status: 'queued',
       next_action_hint: 'dispatch',
       source_kind: 'chatgpt_pro',
+      source_external_url: 'https://example.invalid/source',
+      machine_target: 'gb10',
+      operator_stage_label: 'Ready queue',
+      operator_next_step: 'Dispatch when the lane is available.',
     }],
   }), { status: 200 }))
 
@@ -566,9 +570,12 @@ it('opens intake idea details from selected rows without a legacy fallback', asy
   expect(detail).toHaveTextContent('idea-detail')
   expect(detail).toHaveTextContent('admitted')
   expect(detail).toHaveTextContent('queued')
-  expect(detail).toHaveTextContent('dispatch')
+  expect(detail).toHaveTextContent('gb10')
+  expect(detail).toHaveTextContent('Ready queue')
   expect(detail).toHaveTextContent('Current state')
   expect(detail).toHaveTextContent('Next safe action')
-  expect(detail).toHaveTextContent('Open the matching project and run a dispatch dry-run before starting work.')
+  expect(detail).toHaveTextContent('Dispatch when the lane is available.')
+  expect(detail).toHaveTextContent('Source and lineage')
+  expect(detail).toHaveTextContent('Admission and promote')
   expect(screen.queryByRole('link', { name: /legacy/i })).not.toBeInTheDocument()
 })

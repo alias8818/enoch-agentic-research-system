@@ -3722,6 +3722,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         warnings = []
         if not projection:
             warnings.append(DashboardFinding(severity="warn", source="idea_intake", authority="Supabase-native ideas workbench", message="No Supabase-native ideas are visible", observed_at=utc_now(), suggested_action="load ideas into Supabase before resuming the queue"))
+        projection = [read_models.summarize_idea_workbench_row(row) for row in projection[:page_size]]
         return DashboardIntakeResponse(
             source="control_api_intake_notion" if legacy_notion_alias else "control_api_intake_ideas",
             authority="Legacy Notion projection alias; Supabase ideas are canonical" if legacy_notion_alias else "Supabase-native ideas workbench; Notion is provenance only",
