@@ -140,6 +140,37 @@ def test_source_lineage_check_defaults_to_post_cutover_window(monkeypatch, tmp_p
     ]
 
 
+
+
+def test_source_lineage_check_uses_control_database_url_when_primary_unset(monkeypatch, tmp_path: Path) -> None:
+    system = repo(tmp_path, "enoch-agentic-research-system")
+    calls: list[tuple[list[str], dict[str, str] | None]] = []
+
+    def fake_run(cmd, *, cwd=None, check=True, capture=False, env=None):
+        del cwd, check, capture
+        calls.append((list(cmd), env))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.delenv("ENOCH_SOURCE_LINEAGE_DATABASE_URL", raising=False)
+    monkeypatch.setenv("ENOCH_CONTROL_DATABASE_URL", "postgres://control")
+    monkeypatch.delenv("ENOCH_SUPABASE_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("ENOCH_SOURCE_LINEAGE_CREATED_AFTER", raising=False)
+    monkeypatch.setattr(push_public_release_bundle, "run", fake_run)
+
+    push_public_release_bundle.run_source_lineage_check(system)
+
+    assert calls == [
+        (
+            [
+                *push_public_release_bundle.PROJECT_PYTHON,
+                "scripts/validate_source_lineage.py",
+                "--created-after",
+                push_public_release_bundle.DEFAULT_SOURCE_LINEAGE_CREATED_AFTER,
+            ],
+            {"ENOCH_SOURCE_LINEAGE_DATABASE_URL": "postgres://control"},
+        )
+    ]
 def test_local_release_checks_runs_promising_signals_validation_when_database_url_is_set(monkeypatch, tmp_path: Path) -> None:
     system = repo(tmp_path, "enoch-agentic-research-system")
     corpus = repo(tmp_path, "enoch-ai-research-corpus")
@@ -187,7 +218,7 @@ def test_local_release_checks_runs_promising_signals_validation_when_database_ur
     ]
     promising_call = next(item for item in calls if "scripts/export_promising_signals.py" in item[0])
     assert promising_call[1] == system.path
-    assert promising_call[2] == {"ENOCH_SUPABASE_DATABASE_URL": "postgres://promising"}
+    assert promising_call[2] == {"ENOCH_SUPABASE_DATABASE_URL": "postgres://promising", "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF": push_public_release_bundle.DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF}
 
 
 def test_local_release_checks_stop_when_promising_signals_validation_fails(monkeypatch, tmp_path: Path) -> None:
@@ -314,7 +345,7 @@ def test_sync_corpus_import_ledger_passes_database_url_via_env_not_argv(monkeypa
     assert len(calls) == 2
     for cmd, env in calls:
         assert "postgresql://user:secret@example/db" not in " ".join(cmd)
-        assert env == {"ENOCH_SUPABASE_DATABASE_URL": "postgresql://user:secret@example/db"}
+        assert env == {"ENOCH_SUPABASE_DATABASE_URL": "postgresql://user:secret@example/db", "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF": push_public_release_bundle.DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF}
 
 
 def test_printable_cmd_redacts_secret_args() -> None:

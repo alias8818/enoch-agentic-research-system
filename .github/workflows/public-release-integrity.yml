@@ -66,7 +66,7 @@ jobs:
           python3 scripts/validate_corpus_import_ledger.py --corpus ../enoch-ai-research-corpus --sql-output /tmp/enoch-corpus-ledger-validate.sql
       - name: Set up Supabase CLI for live corpus ledger drift check
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        uses: supabase/setup-cli@df56b21da46c98abb12a9804e4fb1f657773e333
+        uses: supabase/setup-cli@a4d563a017eb7e7da097c40c441f85dbdcc4411f
         with:
           version: 2.98.1
       - name: Validate live Supabase corpus import ledger

@@ -223,13 +223,10 @@ def test_corpus_public_trust_validator_is_not_executed_by_default(monkeypatch, t
 def test_promising_signals_repo_validation_rejects_count_drift(tmp_path) -> None:
     promising = tmp_path / "promising"
     (promising / "data").mkdir(parents=True)
-    (promising / "scripts").mkdir()
     (promising / "data" / "signals.jsonl").write_text(
         '{"project_id":"p1","status":"useful_signal","do_not_overclaim":{"disclaimer":"These are not validated papers.","not_a_paper":true,"not_peer_reviewed":true,"not_publication_validated":true,"not_in_main_corpus":true},"evidence":{"public_evidence_copied":false}}\n',
         encoding="utf-8",
     )
-    (promising / "scripts" / "validate.py").write_text("print('ok')\n", encoding="utf-8")
-    (promising / "scripts" / "validate_public_trust_surfaces.py").write_text("print('ok')\n", encoding="utf-8")
     failures: list[str] = []
 
     validate_public_release.check_promising_signals_repo(promising, expected_count=2, failures=failures)
