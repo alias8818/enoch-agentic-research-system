@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
 import type { TopAction } from '../types'
+import { useOperatorDialog } from './OperatorDialog'
 
 type CommandResult = {
   title: string
@@ -38,6 +39,8 @@ function idempotencyKey(prefix: string): string {
 export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRefresh?: () => void }) {
   const [result, setResult] = useState<CommandResult | null>(null)
   const [isPending, setIsPending] = useState(false)
+  const [draftReady, setDraftReady] = useState(false)
+  const { confirm, dialog } = useOperatorDialog()
 
   async function runDryRun() {
     if (!action || !isDryRunCommand(action)) return
@@ -58,9 +61,33 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
               })
             : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
       setResult({ title: 'Primary action dry-run', payload })
+      setDraftReady(action.kind === 'write_paper' && payload.action === 'dry_run_draft')
       onRefresh?.()
     } catch (error) {
       setResult({ title: 'Primary action dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+      setDraftReady(false)
+    } finally {
+      setIsPending(false)
+    }
+  }
+
+  async function runLiveDraft() {
+    if (!action || action.kind !== 'write_paper' || !draftReady) return
+    const confirmed = await confirm({
+      title: 'Draft next paper?',
+      message: 'This writes draft artifacts for the backend-selected paper-ready candidate. Use Check draft again if the candidate may have changed.',
+      confirmLabel: 'Draft paper',
+      tone: 'warn',
+    })
+    if (!confirmed) return
+    setIsPending(true)
+    try {
+      const payload = await apiPost<Record<string, unknown>>('/control/papers/draft-next', { dry_run: false, requested_by: 'dashboard-v2', force: true })
+      setResult({ title: 'Primary action live draft', payload })
+      setDraftReady(false)
+      onRefresh?.()
+    } catch (error) {
+      setResult({ title: 'Primary action live draft failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
     } finally {
       setIsPending(false)
     }
@@ -85,13 +112,19 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
         <p>{action.summary}</p>
       </div>
       {isDryRunCommand(action) ? (
-        <button className="primary-button primary-action-cta" type="button" disabled={isPending} onClick={runDryRun}>{dryRunLabel(action)}</button>
+        <div className="primary-action-buttons">
+          <button className={action.kind === 'write_paper' ? 'secondary-button primary-action-cta' : 'primary-button primary-action-cta'} type="button" disabled={isPending} onClick={runDryRun}>{dryRunLabel(action)}</button>
+          {action.kind === 'write_paper' ? (
+            <button className="primary-button primary-action-cta" type="button" disabled={isPending || !draftReady} onClick={runLiveDraft}>Draft paper</button>
+          ) : null}
+        </div>
       ) : (
         <a className="primary-button primary-action-cta" href={dashboardV2Href(action.action_hash || '#overview')}>
           {action.action_label || 'Open'}
         </a>
       )}
       <ResultCard result={result} />
+      {dialog}
     </section>
   )
 }

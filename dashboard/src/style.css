@@ -408,6 +408,7 @@ button:disabled { cursor: not-allowed; }
 .primary-action { min-height: 9rem; align-items: center; }
 .primary-action--idle { border-color: rgba(89, 205, 135, 0.18); }
 .primary-action-cta { text-decoration: none; }
+.primary-action-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; }
 
 .paper-strip { align-items: stretch; flex-direction: column; }
 .paper-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.45rem; }

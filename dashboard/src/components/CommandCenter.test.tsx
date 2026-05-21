@@ -85,6 +85,37 @@ it('runs write-paper primary actions as safe dry-runs instead of only linking aw
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
+it('drafts the top write-paper action only after dry-run and dialog confirmation', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_draft', reason: 'eligible paper-ready candidate found', paper: { paper_id: 'paper-1' } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'draft_created', reason: 'draft written for paper-ready candidate', paper: { paper_id: 'paper-1' } }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<PrimaryAction action={{ kind: 'write_paper', title: 'Draft next paper', summary: 'Paper-ready run exists.', action_label: 'Open draft lane', action_hash: '#papers?status=publication_draft' }} onRefresh={onRefresh} />)
+  expect(screen.getByRole('button', { name: 'Draft paper' })).toBeDisabled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Check draft' }))
+  await screen.findByText('eligible paper-ready candidate found')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Draft paper' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Draft next paper?' })
+  expect(dialog).toHaveTextContent('writes draft artifacts')
+  expect(confirmSpy).not.toHaveBeenCalled()
+  fireEvent.click(dialog.querySelectorAll('button')[1])
+
+  await screen.findByText('draft written for paper-ready candidate')
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/papers/draft-next', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ dry_run: true, requested_by: 'dashboard-v2', force: true }),
+  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/papers/draft-next', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ dry_run: false, requested_by: 'dashboard-v2', force: true }),
+  }))
+  expect(onRefresh).toHaveBeenCalledTimes(2)
+})
+
 it('runs finalize-paper primary actions as safe dry-runs instead of only linking away', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_rewrite_batch', reason: 'would finalize 2 publication drafts', candidates: [{ paper_id: 'paper-1' }] }), { status: 200 }))
