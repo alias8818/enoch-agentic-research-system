@@ -26,16 +26,16 @@ function TokenGate({ onSave }: { onSave: () => void }) {
     onSave()
   }
   return (
-    <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100">
-      <section className="mx-auto mt-24 max-w-xl rounded-3xl border border-zinc-800 bg-zinc-900 p-8 shadow-2xl">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-sky-300">Enoch Dashboard V2</p>
-        <h1 className="mt-4 text-3xl font-black">Bearer token required</h1>
-        <p className="mt-3 text-sm text-zinc-400">The React dashboard does not call authenticated APIs until a token is saved locally in this browser.</p>
-        <form className="mt-6 flex gap-3" onSubmit={submit}>
-          <input className="min-w-0 flex-1 rounded-xl border border-zinc-700 bg-black px-4 py-3 text-white" type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Bearer token" />
-          <button className="rounded-xl bg-sky-500 px-4 py-3 font-bold text-white">Save</button>
+    <main className="auth-frame">
+      <section className="auth-card">
+        <p className="eyebrow">Enoch Dashboard V2</p>
+        <h1>Bearer token required</h1>
+        <p>The React dashboard does not call authenticated APIs until a token is saved locally in this browser.</p>
+        <form className="auth-form" onSubmit={submit}>
+          <input type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Bearer token" aria-label="Bearer token" />
+          <button className="primary-button" type="submit">Save token</button>
         </form>
-        <a className="mt-6 inline-block text-sm text-zinc-400 underline" href="/control/dashboard">Open legacy dashboard</a>
+        <a className="text-link" href="/control/dashboard">Open legacy dashboard</a>
       </section>
     </main>
   )
@@ -104,11 +104,11 @@ function RoutedPage({ route }: { route: DashboardRoute }) {
   if (route.page === 'automation') return <AutomationPage />
   if (route.page === 'legacy') {
     return (
-      <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8">
-        <p className="text-xs font-bold uppercase tracking-[0.28em] text-zinc-500">Legacy fallback</p>
-        <h1 className="mt-2 text-3xl font-black text-white">This V2 page is not implemented yet</h1>
-        <p className="mt-2 text-sm text-zinc-400">Use the legacy dashboard for this workflow until the React subview owns it.</p>
-        <a className="mt-5 inline-block rounded-xl bg-sky-500 px-4 py-2 text-sm font-bold text-white" href={`/control/dashboard${route.hash}`}>Open legacy view</a>
+      <section className="legacy-card">
+        <p className="eyebrow">Legacy fallback</p>
+        <h1>This V2 page is not implemented yet</h1>
+        <p>Use the legacy dashboard for this workflow until the React subview owns it.</p>
+        <a className="primary-button primary-button--link" href={`/control/dashboard${route.hash}`}>Open legacy view</a>
       </section>
     )
   }
@@ -117,6 +117,10 @@ function RoutedPage({ route }: { route: DashboardRoute }) {
 
 function navClass(route: DashboardRoute, page: DashboardRoute['page']): string {
   return route.page === page ? 'nav-link nav-link--active' : 'nav-link'
+}
+
+function moreNavClass(route: DashboardRoute): string {
+  return ['events', 'observability', 'corpus', 'research', 'automation', 'legacy'].includes(route.page) ? 'nav-more nav-more--active' : 'nav-more'
 }
 
 function Shell() {
@@ -144,13 +148,18 @@ function Shell() {
             <a className={navClass(route, 'queue')} href={dashboardV2Href('#queue:queued')}>Queue</a>
             <a className={navClass(route, 'runs')} href={dashboardV2Href('#runs')}>Runs</a>
             <a className={navClass(route, 'papers')} href={dashboardV2Href('#papers')}>Papers</a>
-            <a className={navClass(route, 'events')} href={dashboardV2Href('#events')}>Events</a>
-            <a className={navClass(route, 'observability')} href={dashboardV2Href('#observability')}>Observability</a>
-            <a className={navClass(route, 'corpus')} href={dashboardV2Href('#corpus')}>Corpus</a>
-            <a className={navClass(route, 'research')} href={dashboardV2Href('#research')}>Research</a>
-            <a className={navClass(route, 'automation')} href={dashboardV2Href('#automation')}>Automation</a>
-            <a className="nav-link" href="/control/dashboard">Legacy</a>
-            <button className="nav-link" type="button" onClick={() => { saveToken(''); setHasToken(false) }}>Clear token</button>
+            <details className={moreNavClass(route)}>
+              <summary>More</summary>
+              <div className="nav-menu">
+                <a className={navClass(route, 'events')} href={dashboardV2Href('#events')}>Events</a>
+                <a className={navClass(route, 'observability')} href={dashboardV2Href('#observability')}>Observability</a>
+                <a className={navClass(route, 'corpus')} href={dashboardV2Href('#corpus')}>Corpus</a>
+                <a className={navClass(route, 'research')} href={dashboardV2Href('#research')}>Research</a>
+                <a className={navClass(route, 'automation')} href={dashboardV2Href('#automation')}>Automation</a>
+                <a className="nav-link" href="/control/dashboard">Legacy dashboard</a>
+                <button className="nav-link" type="button" onClick={() => { saveToken(''); setHasToken(false) }}>Clear token</button>
+              </div>
+            </details>
           </nav>
         </header>
         <RoutedPage route={route} />

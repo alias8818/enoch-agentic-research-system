@@ -21,6 +21,10 @@ it('keeps overview secondary links in V2 and exposes data freshness', async () =
 
   expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
   expect(screen.getByLabelText('Dashboard data freshness')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Overview' })).toBeInTheDocument()
+  fireEvent.click(screen.getByText('More'))
+  expect(screen.getByRole('link', { name: 'Events' })).toHaveAttribute('href', '/control/dashboard-v2#events')
+  expect(screen.getByRole('link', { name: 'Legacy dashboard' })).toHaveAttribute('href', '/control/dashboard')
   fireEvent.click(screen.getByText('Show secondary details'))
   expect(screen.getAllByRole('link', { name: 'Runs' }).some((link) => link.getAttribute('href') === '/control/dashboard-v2#runs')).toBe(true)
   expect(screen.getAllByRole('link', { name: 'Papers' }).some((link) => link.getAttribute('href') === '/control/dashboard-v2#papers')).toBe(true)
@@ -28,6 +32,13 @@ it('keeps overview secondary links in V2 and exposes data freshness', async () =
 
   fireEvent.click(screen.getByRole('button', { name: 'Refresh now' }))
   await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(4))
+})
+
+it('uses V2-authored token and fallback surfaces', () => {
+  render(<App />)
+  expect(screen.getByRole('heading', { name: 'Bearer token required' })).toBeInTheDocument()
+  expect(screen.getByLabelText('Bearer token')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Save token' })).toBeInTheDocument()
 })
 
 
