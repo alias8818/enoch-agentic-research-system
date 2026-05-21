@@ -583,6 +583,8 @@ def validate_repo_against_rows(rows: Iterable[dict[str, Any]], repo_root: Path) 
     manifest_path = repo_root / "data" / "manifest.json"
     if not manifest_path.exists():
         return sorted(set(issues + ["manifest:missing"]))
+    if "manifest:invalid_json" in issues:
+        return sorted(set(issues))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     actual_summary = manifest.get("selection_summary") if isinstance(manifest.get("selection_summary"), dict) else {}
     for key, expected in expected_summary.items():
