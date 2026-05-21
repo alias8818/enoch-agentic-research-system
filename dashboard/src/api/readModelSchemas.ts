@@ -22,6 +22,9 @@ const pageMetaSchema = z.object({
   page_size: z.number().optional(),
 }).passthrough()
 
+/** SQL LEFT JOINs and idle projects may send explicit null instead of omitting keys. */
+const apiString = z.string().nullish()
+
 function pagedRowsSchema<T extends z.ZodTypeAny>(rowSchema: T) {
   return z.object({
     rows: z.array(rowSchema).optional(),
@@ -51,13 +54,13 @@ export const queueListRowSchema = z.object({
 }).passthrough()
 
 export const projectListRowSchema = z.object({
-  project_id: z.string().optional(),
-  project_name: z.string().optional(),
-  queue_status: z.string().optional(),
-  latest_run_state: z.string().optional(),
-  related_paper_status: z.string().optional(),
-  machine_target: z.string().optional(),
-  lane: z.string().optional(),
+  project_id: apiString,
+  project_name: apiString,
+  queue_status: apiString,
+  latest_run_state: apiString,
+  related_paper_status: apiString,
+  machine_target: apiString,
+  lane: apiString,
   updated_at: z.string().optional(),
   age_seconds: z.number().optional(),
 }).passthrough()
@@ -81,8 +84,8 @@ export const paperListRowSchema = z.object({
   project_name: z.string().optional(),
   title: z.string().optional(),
   paper_title: z.string().optional(),
-  paper_status: z.string().optional(),
-  review_status: z.string().optional(),
+  paper_status: apiString,
+  review_status: apiString,
   corpus_imported: z.boolean().optional(),
   corpus_import_id: z.string().optional(),
   artifact_paths_present: z.record(z.unknown()).optional(),
@@ -108,8 +111,8 @@ export const eventListRowSchema = z.object({
 export const automationListRowSchema = z.object({
   paper_id: z.string().optional(),
   project_name: z.string().optional(),
-  paper_status: z.string().optional(),
-  review_status: z.string().optional(),
+  paper_status: apiString,
+  review_status: apiString,
   rank_score: z.number().optional(),
 }).passthrough()
 

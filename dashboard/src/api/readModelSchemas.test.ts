@@ -80,3 +80,12 @@ it('accepts representative fixtures through strict row schemas', () => {
   expect(statusResponseSchema.parse(statusFixture).worker_lanes?.length).toBe(1)
   expect(paperListRowSchema.parse(paperListFixture.rows[0]).title).toBe('Draft on oracle lane')
 })
+
+it('accepts explicit nulls from SQL joins on project and paper list rows', () => {
+  expect(parseProjectListResponse({
+    rows: [{ project_id: 'project-new', project_name: 'Idle project', latest_run_state: null, related_paper_status: null }],
+  }).rows?.[0]?.latest_run_state).toBeNull()
+  expect(parsePaperListResponse({
+    rows: [{ paper_id: 'paper-1', title: 'Untriaged draft', review_status: null }],
+  }).rows?.[0]?.review_status).toBeNull()
+})
