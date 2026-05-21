@@ -359,4 +359,29 @@ describe('deriveResearchCandidateOperatorSummary', () => {
     expect(summary.actionNeeded).toContain('rejected')
     expect(summary.sections.find((section) => section.title === 'Admission and promote')?.answers.find((answer) => answer.label === 'promote path')?.value).toContain('rejected')
   })
+
+  it('uses idea_id when admitted_idea_id is absent', () => {
+    const summary = deriveResearchCandidateOperatorSummary({
+      candidate_id: 'cand-fallback',
+      status: 'admitted',
+      admission_decision: 'admitted',
+      idea_id: 'idea-fallback',
+    })
+    const promote = summary.sections.find((section) => section.title === 'Admission and promote')
+    expect(promote?.answers.find((answer) => answer.label === 'admitted idea')?.value).toBe('idea-fallback')
+    expect(promote?.answers.find((answer) => answer.label === 'promote path')?.value).toContain('idea-fallback')
+  })
+
+  it('describes admitted candidates not yet promoted', () => {
+    const summary = deriveResearchCandidateOperatorSummary({
+      candidate_id: 'cand-pending',
+      status: 'admitted',
+      admission_decision: 'admitted',
+      machine_target: 'gb10',
+    })
+    expect(summary.sections.find((section) => section.title === 'Admission and promote')?.answers.find((answer) => answer.label === 'promote path')?.value).toBe(
+      'admitted but not yet promoted to intake/queue',
+    )
+    expect(summary.next).toContain('dry-run')
+  })
 })
