@@ -1546,7 +1546,9 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if store.flags().queue_paused:
             return None
         active_lane_keys = {_worker_lane_key(row) for row in (active if active is not None else _active_items_fast())}
-        for candidate in _queued_dispatch_candidates(queued) if queued is not None else _queued_items_fast():
+        # Keep dashboard/status reads bounded when a queued window is provided, but for
+        # authoritative dispatch selection always evaluate the full queued candidate set.
+        for candidate in _queued_dispatch_candidates(queued):
             if _worker_lane_key(candidate) not in active_lane_keys:
                 return candidate
         return None
