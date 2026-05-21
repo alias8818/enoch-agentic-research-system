@@ -112,6 +112,12 @@ function artifactChecklist(flags: Record<string, unknown>): OperatorAnswer[] {
   }))
 }
 
+function triStateFlag(value: unknown): string {
+  if (value === true || value === 1 || value === '1' || value === 'true') return 'yes'
+  if (value === false || value === 0 || value === '0' || value === 'false') return 'no'
+  return 'unknown'
+}
+
 function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const project = record(payload.project)
   const queue = queueRecord(payload)
@@ -125,6 +131,9 @@ function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary
   const runState = text(firstValue(queue.last_run_state, payload.latest_run_state, runs[0]?.state))
   const paperStatus = text(firstValue(queue.related_paper_status, papers[0]?.paper_status, papers[0]?.status, payload.related_paper_status))
   const paperId = text(firstValue(queue.related_paper_id, papers[0]?.paper_id))
+  const paperReview = text(firstValue(queue.related_review_status, papers[0]?.review_status))
+  const paperFinalization = text(firstValue(queue.related_finalization_status, papers[0]?.finalization_status, papers[0]?.package_status))
+  const corpusImported = triStateFlag(firstValue(queue.related_corpus_imported, papers[0]?.corpus_imported))
   const blocked = text(firstValue(queue.blocked_reason, queue.last_error, queue.decision_summary))
   const attention = queue.operator_attention === true || state.includes('blocked') || state.includes('review')
   const entityLinks: EntityLink[] = []
@@ -161,12 +170,20 @@ function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary
         ],
       },
       {
-        title: 'Latest run and paper',
+        title: 'Latest run',
         answers: [
           { label: 'current run', value: runId },
           { label: 'run state', value: runState },
-          { label: 'paper status', value: paperStatus },
+        ],
+      },
+      {
+        title: 'Paper and publication path',
+        answers: [
           { label: 'related paper', value: paperId },
+          { label: 'paper status', value: paperStatus },
+          { label: 'review status', value: paperReview },
+          { label: 'finalization status', value: paperFinalization },
+          { label: 'corpus imported', value: corpusImported },
         ],
       },
     ],
