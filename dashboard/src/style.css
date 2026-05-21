@@ -813,6 +813,91 @@ button:disabled { cursor: not-allowed; }
   box-shadow: var(--focus-ring);
 }
 .filter-bar span { color: #8d867d; font-size: 0.82rem; padding: 0.65rem 0.35rem; }
+.filter-bar-saved {
+  display: flex;
+  align-items: end;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  width: 100%;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(244,241,234,0.08);
+}
+.filter-bar-save-form {
+  display: flex;
+  align-items: end;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+.filter-bar-save-label { min-width: 12rem; }
+
+.keyboard-help-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  margin: 0;
+  max-width: none;
+  max-height: none;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  padding: 0;
+  background: rgba(0,0,0,0.72);
+}
+.keyboard-help-card {
+  width: min(92vw, 34rem);
+  margin: 10vh auto 0;
+  border: 1px solid rgba(244,241,234,0.14);
+  border-radius: 1.5rem;
+  background: rgba(12,12,10,0.96);
+  padding: 1.25rem 1.35rem 1.4rem;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+}
+.keyboard-help-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.keyboard-help-lead {
+  margin-top: 0.45rem;
+  color: #8d867d;
+  font-size: 0.88rem;
+}
+.keyboard-help-section { margin-top: 1.1rem; }
+.keyboard-help-section h3 {
+  margin: 0 0 0.55rem;
+  color: #7f776e;
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.keyboard-help-list { margin: 0; }
+.keyboard-help-row {
+  display: grid;
+  grid-template-columns: 9rem 1fr;
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+  border-top: 1px solid rgba(244,241,234,0.06);
+}
+.keyboard-help-row dt { margin: 0; }
+.keyboard-help-row dd {
+  margin: 0;
+  color: #d9d1c3;
+  font-size: 0.9rem;
+}
+.keyboard-help-row kbd {
+  display: inline-block;
+  min-width: 2.4rem;
+  border: 1px solid rgba(244,241,234,0.16);
+  border-radius: 0.55rem;
+  background: rgba(0,0,0,0.35);
+  color: #f4f1ea;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.78rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-align: center;
+}
 
 .data-table-wrap {
   overflow: hidden;

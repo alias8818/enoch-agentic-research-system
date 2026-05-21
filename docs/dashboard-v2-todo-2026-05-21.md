@@ -277,6 +277,6 @@ No blocking gate. Pick one narrow PR at a time; keep [`dashboard-v2-cursor-instr
 
 ### Operator chrome and discipline
 
-- [ ] Keyboard shortcut help and saved table filters ([`dashboard-redesign-plan.md`](dashboard-redesign-plan.md) follow-up).
+- [x] Keyboard shortcut help and saved table filters — `?` / header **Shortcuts** panel ([`KeyboardShortcutHelp.tsx`](../dashboard/src/components/KeyboardShortcutHelp.tsx), [`keyboardShortcuts.ts`](../dashboard/src/keyboardShortcuts.ts)); queue saved filter presets in localStorage ([`savedTableFilters.ts`](../dashboard/src/savedTableFilters.ts), [`ListFilterBar.tsx`](../dashboard/src/components/ListFilterBar.tsx)).
 - [ ] Read-model hardening (ongoing) — extend DTO boundary tests ([#97](../dashboard/src/api/readModelSchemas.ts)) when adding overview/lane/intake fields; fix semantics in backend first per cursor instructions.
 
