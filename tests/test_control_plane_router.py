@@ -2498,7 +2498,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 row = self.queue.get(project_id)
                 if not row or row["status"] != "queued":
                     return None
-                if row.get("machine_target") in set(conflicting_machine_targets or []):
+                active_targets = {str(active.get("machine_target") or "").strip() for active in self.active_items()}
+                if active_targets & set(conflicting_machine_targets or []):
                     return None
                 row.update({"status": "dispatching", "current_run_id": run_id})
                 return dict(row)
