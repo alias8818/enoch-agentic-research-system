@@ -444,7 +444,7 @@ function IntakeIdeaDetail({ row, ideaId, onClose }: { row: Record<string, unknow
       <section className="detail-summary">
         <EntityLinkChips links={operatorSummary.entityLinks} />
         <OperatorDetailSummary state={operatorSummary.state} context={operatorSummary.context} next={operatorSummary.next} ariaLabel="Idea operator summary" />
-        <OperatorQuestionSections sections={operatorSummary.sections} recentActivity={operatorSummary.recentActivity} actionNeeded={operatorSummary.actionNeeded} />
+        <OperatorQuestionSections sections={operatorSummary.sections} recentActivity={null} actionNeeded={operatorSummary.actionNeeded} />
         <RawJsonDetails summary="Raw intake row" payload={row} />
       </section>
     </section>
@@ -568,10 +568,7 @@ export function ObservabilityPage() {
           <div className="detail-field"><dt>health sampled</dt><dd>{healthData.generated_at || '—'}</dd></div>
           <div className="detail-field"><dt>memory sampled</dt><dd>{memoryData.generated_at || '—'}</dd></div>
         </dl>
-        <details className="raw-details">
-          <summary>Latest route observation</summary>
-          <pre className="json-block">{latestObservationText(healthData.latest_route_observation)}</pre>
-        </details>
+        <RawJsonDetails summary="Latest route observation" payload={healthData.latest_route_observation} />
       </section>
     </PageShell>
   )
