@@ -17,6 +17,7 @@ function endpoint(selection: DetailSelection): string | null {
   if (selection.kind === 'project') return `/control/api/v1/projects/${encodeURIComponent(selection.id)}`
   if (selection.kind === 'run') return `/control/api/v1/runs/${encodeURIComponent(selection.id)}`
   if (selection.kind === 'paper') return `/control/api/v1/papers/${encodeURIComponent(selection.id)}`
+  if (selection.kind === 'event') return `/control/api/v1/events?event_id=${encodeURIComponent(selection.id)}&include_payload=true&page_size=1&sort=recent`
   return null
 }
 
@@ -245,6 +246,9 @@ function StructuredDetail({ kind, id, payload }: { kind: DetailKind; id: string;
 }
 
 function DetailBody({ selection }: { selection: DetailSelection }) {
+  if (selection.kind === 'event' && selection.row) {
+    return <StructuredDetail kind={selection.kind} id={selection.id} payload={selection.row} />
+  }
   const url = endpoint(selection)
   const query = useQuery({
     queryKey: ['detail', selection.kind, selection.id],
@@ -255,6 +259,10 @@ function DetailBody({ selection }: { selection: DetailSelection }) {
   if (!url) return <StructuredDetail kind={selection.kind} id={selection.id} payload={selection.row || {}} />
   if (query.isLoading) return <div className="state-card">Loading detail…</div>
   if (query.isError) return <div className="state-card state-card--error">Detail unavailable: {String(query.error.message)}</div>
+  if (selection.kind === 'event') {
+    const rows = Array.isArray(query.data?.rows) ? query.data.rows : []
+    return <StructuredDetail kind={selection.kind} id={selection.id} payload={record(rows[0])} />
+  }
   return <StructuredDetail kind={selection.kind} id={selection.id} payload={query.data || {}} />
 }
 

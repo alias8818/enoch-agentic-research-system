@@ -54,3 +54,18 @@ it('opens direct V2 detail hashes without legacy fallback', async () => {
   expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledWith('/control/api/v1/runs/run-1', expect.any(Object))
 })
+
+
+it('opens direct V2 event detail hashes from the events read model', async () => {
+  window.location.hash = '#event:7'
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ event_id: 7, event_type: 'Queue Alert', summary: 'Target event summary', entity_id: 'project-1', created_at: '2026-05-21T00:00:00Z' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByLabelText('Dashboard detail page')).toBeInTheDocument()
+  await screen.findByRole('heading', { name: 'Target event summary' })
+  expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith('/control/api/v1/events?event_id=7&include_payload=true&page_size=1&sort=recent', expect.any(Object))
+})

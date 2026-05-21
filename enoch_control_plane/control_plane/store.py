@@ -1942,6 +1942,7 @@ class ControlPlaneStore:
     def event_page(
         self,
         *,
+        event_id: str = "",
         entity_type: str = "",
         entity_id: str = "",
         event_type: str = "",
@@ -1954,6 +1955,10 @@ class ControlPlaneStore:
         safe_size = max(1, min(page_size, 200))
         clauses: list[str] = []
         params: list[Any] = []
+        event_id_int = _int(event_id, 0)
+        if event_id_int > 0:
+            clauses.append("event_id = ?")
+            params.append(event_id_int)
         if entity_type:
             clauses.append("entity_type = ?")
             params.append(entity_type)

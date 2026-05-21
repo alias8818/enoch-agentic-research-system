@@ -450,6 +450,13 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 if events.json()["rows"]:
                     self.assertIn("payload_summary", events.json()["rows"][0])
                     self.assertNotIn("payload", events.json()["rows"][0])
+                    event_id = events.json()["rows"][0]["event_id"]
+                    event_by_id = client.get(f"/control/api/v1/events?event_id={event_id}&include_payload=true&page_size=1", headers=headers)
+                    self.assertEqual(event_by_id.status_code, 200)
+                    self.assertEqual(event_by_id.json()["page"]["returned"], 1)
+                    self.assertEqual(event_by_id.json()["page"]["filters"]["event_id"], str(event_id))
+                    self.assertEqual(event_by_id.json()["rows"][0]["event_id"], event_id)
+                    self.assertIn("payload", event_by_id.json()["rows"][0])
 
                 runs = client.get("/control/api/v1/runs?page_size=2&sort=state&search=project", headers=headers)
                 self.assertEqual(runs.status_code, 200)

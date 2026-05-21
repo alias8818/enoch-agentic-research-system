@@ -2995,6 +2995,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.get("/api/v1/events")
     def dashboard_v1_events(
         authorization: str | None = Header(default=None),
+        event_id: str = "",
         entity_type: str = "",
         entity_id: str = "",
         event_type: str = "",
@@ -3006,13 +3007,13 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     ) -> dict[str, Any]:
         authorize(authorization)
         safe_size = read_models.page_size(page_size)
-        rows, next_cursor, has_more = store.event_page(entity_type=entity_type, entity_id=entity_id, event_type=event_type, search=search, cursor=cursor, page_size=safe_size, include_payload=include_payload, sort=sort)
+        rows, next_cursor, has_more = store.event_page(event_id=event_id, entity_type=entity_type, entity_id=entity_id, event_type=event_type, search=search, cursor=cursor, page_size=safe_size, include_payload=include_payload, sort=sort)
         return {
             "ok": True,
             "source": "control_api_v1_events",
             "authority": "bounded SQL event read model",
             "generated_at": utc_now(),
-            "page": read_models.page_response(rows=rows, next_cursor=next_cursor, has_more=has_more, page_size_value=safe_size, cursor=cursor, filters={"entity_type": entity_type, "entity_id": entity_id, "event_type": event_type, "search": search, "include_payload": include_payload, "sort": sort}),
+            "page": read_models.page_response(rows=rows, next_cursor=next_cursor, has_more=has_more, page_size_value=safe_size, cursor=cursor, filters={"event_id": event_id, "entity_type": entity_type, "entity_id": entity_id, "event_type": event_type, "search": search, "include_payload": include_payload, "sort": sort}),
             "rows": rows,
         }
 
