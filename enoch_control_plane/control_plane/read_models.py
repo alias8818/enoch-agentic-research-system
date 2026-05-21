@@ -1440,6 +1440,18 @@ def movement_diagnosis(
                 "action_hash": "#queue:queued",
             })
         elif str(lane.get("status") or "") == "active":
+            active_count = _safe_count(lane.get("active_count"))
+            if active_count > 1:
+                blockers.append({
+                    "kind": "lane_conflict_active",
+                    "lane": label,
+                    "tone": "warn",
+                    "title": f"{label} has duplicate active work",
+                    "summary": f"{label} reports {active_count} active runs, which violates the single-active-run lane invariant.",
+                    "action_label": "Open active work",
+                    "action_hash": "#queue:active",
+                })
+                continue
             blockers.append({
                 "kind": "lane_active",
                 "lane": label,
@@ -1529,6 +1541,7 @@ def movement_diagnosis(
         "lane_queue_empty",
         "no_admitted_candidates",
         "lane_blocked",
+        "lane_conflict_active",
         "evidence_missing",
     }
     hard_blocker = next((item for item in blockers if item["kind"] in hard_blocker_kinds), None)
