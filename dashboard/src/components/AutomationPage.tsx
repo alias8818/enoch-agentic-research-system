@@ -158,7 +158,7 @@ export function AutomationPage({
   const { confirm, dialog } = useOperatorDialog()
   const [selectedPaperId, setSelectedPaperId] = useState(paperId)
   const [artifactPreview, setArtifactPreview] = useState<{ project_name?: string; field?: string; content?: string } | null>(null)
-  const [finalizationReady, setFinalizationReady] = useState(false)
+  const [finalizationReadyPaperId, setFinalizationReadyPaperId] = useState<string | null>(null)
   const [filters, setFilters] = useState<ListFilterState>({
     search,
     status: reviewStatus,
@@ -179,9 +179,6 @@ export function AutomationPage({
     }))
   }, [search, reviewStatus])
 
-  useEffect(() => {
-    setFinalizationReady(false)
-  }, [selectedPaperId])
 
   const automation = useQuery({
     queryKey: ['publication-automation', filters],
@@ -228,7 +225,7 @@ export function AutomationPage({
       dry_run: true,
     }),
     onSuccess: (_result, targetPaperId) => {
-      setFinalizationReady(true)
+      setFinalizationReadyPaperId(targetPaperId)
       invalidateAutomation(targetPaperId)
     },
   })
@@ -241,7 +238,7 @@ export function AutomationPage({
       dry_run: false,
     }),
     onSuccess: (_result, targetPaperId) => {
-      setFinalizationReady(false)
+      setFinalizationReadyPaperId(null)
       invalidateAutomation(targetPaperId)
     },
   })
@@ -413,7 +410,7 @@ export function AutomationPage({
         >
           <button className="secondary-button" type="button" onClick={() => rewriteDryRun.mutate()} disabled={rewriteDryRun.isPending}>Dry-run rewrite batch</button>
           <button className="secondary-button" type="button" onClick={() => finalizationDryRun.mutate(activePaperId)} disabled={finalizationDryRun.isPending}>Dry-run finalization package</button>
-          <button className="secondary-button" type="button" disabled={!finalizationReady || finalizationLive.isPending} onClick={() => { void runLiveFinalization(activePaperId) }}>Prepare live finalization package</button>
+          <button className="secondary-button" type="button" disabled={finalizationReadyPaperId !== activePaperId || finalizationLive.isPending} onClick={() => { void runLiveFinalization(activePaperId) }}>Prepare live finalization package</button>
           <button className="danger-button" type="button" disabled={rewriteDraft.isPending} onClick={() => { void runRewriteDraft(activePaperId) }}>Rewrite draft now</button>
           <button className="danger-button" type="button" disabled={rejectPaper.isPending} onClick={() => { void runReject(activePaperId) }}>Reject paper</button>
         </SelectedEntityActions>
