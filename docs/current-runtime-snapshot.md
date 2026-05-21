@@ -18,7 +18,7 @@ drift, update this page first.
 | Path | Role |
 | --- | --- |
 | `/control/dashboard-v2` | **Canonical** operator console (React Dashboard V2). Use this URL for day-to-day operations. |
-| `/control/dashboard` | Legacy inline shell. Still served today; Phase 2 cutover will **redirect** here to V2 (hash preserved). |
+| `/control/dashboard` | Legacy URL; **307 redirect** to `/control/dashboard-v2` (hash preserved). |
 
 On the reference control VM (`enoch-core.exe.xyz`, port `8787`):
 
@@ -28,7 +28,7 @@ http://127.0.0.1:8787/control/dashboard-v2
 
 From a browser via Tailscale or tunnel, substitute the host you use for the control plane API. Paste the control API bearer token when the V2 shell prompts.
 
-Current committed V2 bundle (verify after deploy): `index-Q9C_jUsR.js` referenced from `enoch_control_plane/control_plane/dashboard_v2/index.html`.
+Current committed V2 bundle (verify after deploy): read the hashed `index-*.js` filename from `enoch_control_plane/control_plane/dashboard_v2/index.html` (currently `index-BX2lBAxQ.js` on `main`).
 
 ### Post-deploy verification (control VM)
 
@@ -51,7 +51,8 @@ python3 scripts/validate_runtime_deploy.py \
 TOKEN="$(jq -r .control_api_bearer_token /etc/enoch-control-plane/config.json)"
 python3 /opt/enoch-control-plane/scripts/dashboard_v2_smoke.py \
   --base-url http://127.0.0.1:8787 \
-  --token "$TOKEN"
+  --token "$TOKEN" \
+  --check-legacy-dashboard-redirect
 ```
 
 Healthy smoke output ends with all checks passing; the script GETs the V2 shell, every asset named in `index.html`, `/healthz`, and bounded `/control/api/v1/*` endpoints.

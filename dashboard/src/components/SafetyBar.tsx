@@ -14,7 +14,11 @@ export function SafetyBar({ flags, onRefresh }: { flags: OverviewResponse['flags
       tone: 'danger',
     })
     if (!confirmed) return
-    await apiPost('/control/pause', { paused_by: 'dashboard-v2' })
+    await apiPost('/control/pause', {
+      reason: 'dashboard operator pause',
+      paused_by: 'dashboard-v2',
+      maintenance_mode: true,
+    })
     onRefresh()
   }
   async function resume() {

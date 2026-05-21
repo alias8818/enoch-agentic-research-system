@@ -1,6 +1,6 @@
 # Dashboard V2 TODO checklist
 
-Status: **P0–P7 merged to `main`** (2026-05-21). Dashboard V2 operator pass complete through styling cleanup; live on reference control VM ([`current-runtime-snapshot.md`](current-runtime-snapshot.md), SSH `enoch-core.exe.xyz`); parking-lot items deferred until post-cutover.
+Status: **P0–P7 and Phase 2 cutover merged to `main`** (2026-05-21). Dashboard V2 is the canonical operator console on the reference control VM ([`current-runtime-snapshot.md`](current-runtime-snapshot.md), SSH `enoch-core.exe.xyz`); parking-lot items below are optional follow-ups.
 
 Screenshot evidence reviewed from:
 
@@ -21,7 +21,7 @@ What is already live as of 2026-05-21:
   - `/control/api/v1/events?page_size=50&sort=recent` and event detail queries return 200 in live smoke tests.
 - Live smoke after deploy (current bundle on `main`):
   - `/healthz` returned OK;
-  - V2 static asset `index-Q9C_jUsR.js` was present (see `enoch_control_plane/control_plane/dashboard_v2/index.html`);
+  - V2 static asset `index-BX2lBAxQ.js` was present (see `enoch_control_plane/control_plane/dashboard_v2/index.html`);
   - events index returned 200;
   - event detail by `event_id` returned 200.
 

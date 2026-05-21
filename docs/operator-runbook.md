@@ -80,10 +80,11 @@ python3 scripts/validate_runtime_deploy.py \
 TOKEN="$(jq -r .control_api_bearer_token /etc/enoch-control-plane/config.json)"
 python3 /opt/enoch-control-plane/scripts/dashboard_v2_smoke.py \
   --base-url http://127.0.0.1:8787 \
-  --token "$TOKEN"
+  --token "$TOKEN" \
+  --check-legacy-dashboard-redirect
 ```
 
-Expect `"ok": true` from runtime validation and a passing smoke summary (V2 shell marker, current hashed assets such as `index-Q9C_jUsR.js`, overview, and events index/detail).
+Expect `"ok": true` from runtime validation and a passing smoke summary (V2 shell marker, current hashed assets from `index.html`, legacy redirect check, overview, and events index/detail).
 
 ## Dashboard questions
 

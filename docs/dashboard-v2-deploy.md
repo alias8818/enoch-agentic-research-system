@@ -1,6 +1,6 @@
 # Dashboard V2 deploy and smoke
 
-This document covers building, deploying, and verifying the React Dashboard V2 shell at `/control/dashboard-v2` — the **canonical** operator console. Legacy `/control/dashboard` will redirect here after Phase 2 cutover.
+This document covers building, deploying, and verifying the React Dashboard V2 shell at `/control/dashboard-v2` — the **canonical** operator console. Legacy `/control/dashboard` **redirects** here (hash preserved) after Phase 2 cutover (merged 2026-05-21).
 
 ## Build before deploy
 
@@ -70,7 +70,8 @@ Expect `"ok": true`. Hash drift or commit mismatch means the service is not prov
 ssh enoch-core.exe.xyz 'TOKEN=$(jq -r .control_api_bearer_token /etc/enoch-control-plane/config.json) && \
   python3 /opt/enoch-control-plane/scripts/dashboard_v2_smoke.py \
     --base-url http://127.0.0.1:8787 \
-    --token "$TOKEN"'
+    --token "$TOKEN" \
+    --check-legacy-dashboard-redirect'
 ```
 
 4. **Browser spot-check** (optional): open `/control/dashboard-v2#overview` with your control-plane token; confirm overview loads without a first-screen raw JSON block.

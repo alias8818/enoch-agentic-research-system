@@ -296,6 +296,12 @@ it('uses dialog confirmations for queue pause instead of window.confirm', async 
   fireEvent.click(dialog.querySelectorAll('button')[1])
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/control/pause', expect.objectContaining({ method: 'POST' })))
+  const pauseCall = fetchMock.mock.calls.find(([path]) => path === '/control/pause')
+  expect(JSON.parse(String(pauseCall?.[1]?.body))).toEqual({
+    reason: 'dashboard operator pause',
+    paused_by: 'dashboard-v2',
+    maintenance_mode: true,
+  })
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
