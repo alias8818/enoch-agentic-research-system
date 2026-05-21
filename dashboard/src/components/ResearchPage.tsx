@@ -158,7 +158,7 @@ function CandidateDetail({ row, candidateId }: { row: Record<string, unknown> | 
 function candidateCellHref(row: Record<string, unknown>, column: string): string | undefined {
   if (column !== 'candidate_id') return undefined
   const candidateId = String(row.candidate_id || '')
-  return candidateId ? dashboardV2Href(`#candidate:${encodeURIComponent(candidateId)}`) : undefined
+  return candidateId ? dashboardV2Href(`#research:${encodeURIComponent(candidateId)}`) : undefined
 }
 
 export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page: 'research' }> }) {

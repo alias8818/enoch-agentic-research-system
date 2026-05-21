@@ -394,6 +394,31 @@ it('keeps unsupported hashes inside the V2 shell with a legacy escape link', () 
   expect(screen.getByRole('link', { name: 'Open this hash in legacy dashboard' })).toHaveAttribute('href', '/control/dashboard#unknown-workflow')
 })
 
+it('canonicalizes alias hashes to supported routes on load', () => {
+  window.location.hash = '#reviews'
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(window.location.hash).toBe('#automation')
+  expect(screen.getByRole('heading', { name: 'Publication automation' })).toBeInTheDocument()
+})
+
+it('redirects legacy status hashes to the command center', () => {
+  window.location.hash = '#status'
+  saveToken('test-token')
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+    generated_at: '2026-05-21T12:00:00Z',
+    queue: { queued: 0, active: 0 },
+    paper_pipeline: { publish_ready: 0, published_imported: 0, publication_ready_total: 0 },
+    events: [],
+  }), { status: 200 }))
+
+  render(<App />)
+
+  expect(window.location.hash).toBe('#overview')
+})
+
 
 it('uses V2-authored token and fallback surfaces', () => {
   render(<App />)

@@ -35,8 +35,7 @@ function isBlocked(payload: Record<string, unknown>): boolean {
 
 function isDryRun(payload: Record<string, unknown>): boolean {
   if (payload.dry_run === true) return true
-  const value = action(payload)
-  return value.includes('dry_run') || value.startsWith('dry_run_')
+  return action(payload).includes('dry_run')
 }
 
 function commandFamily(payload: Record<string, unknown>, context?: CommandPresentationContext): string {

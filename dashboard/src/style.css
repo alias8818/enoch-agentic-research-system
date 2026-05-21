@@ -607,6 +607,27 @@ button:disabled { cursor: not-allowed; }
   font-weight: 850;
   letter-spacing: -0.04em;
 }
+.page-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.35rem;
+  color: #837d75;
+  font-size: 0.72rem;
+}
+.page-breadcrumb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.page-breadcrumb-link {
+  color: #e2b15b;
+  font-weight: 750;
+  text-decoration: none;
+}
+.page-breadcrumb-link:hover { text-decoration: underline; }
+.page-breadcrumb-sep { color: #6f6860; }
 .page-header-copy > p {
   max-width: 60ch;
   margin: 0.35rem 0 0;

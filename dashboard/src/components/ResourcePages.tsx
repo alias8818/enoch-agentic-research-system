@@ -521,7 +521,7 @@ function IntakeIdeaDetail({ row, ideaId, onClose }: { row: Record<string, unknow
 function intakeCellHref(row: Record<string, unknown>, column: string): string | undefined {
   if (column !== 'idea_id') return undefined
   const ideaId = String(row.idea_id || '')
-  return ideaId ? dashboardV2Href(`#idea:${encodeURIComponent(ideaId)}`) : undefined
+  return ideaId ? dashboardV2Href(`#intake:${encodeURIComponent(ideaId)}`) : undefined
 }
 
 export function IntakePage({ route }: { route?: Extract<DashboardRoute, { page: 'intake' }> }) {

@@ -39,6 +39,20 @@ function detailId(hash: string, prefix: string): string {
   }
 }
 
+export function canonicalDashboardHash(hashOrPath: string | undefined, fallback = '#overview'): string {
+  let hash = normalizeHash(hashOrPath, fallback)
+
+  if (hash.startsWith('#review:')) hash = `#automation:${hash.slice('#review:'.length)}`
+  else if (hash === '#reviews') hash = '#automation'
+  else if (hash.startsWith('#candidate:')) hash = `#research:${hash.slice('#candidate:'.length)}`
+  else if (hash.startsWith('#idea:')) hash = `#intake:${hash.slice('#idea:'.length)}`
+  else if (hash === '#status' || hash.startsWith('#status?')) hash = '#overview'
+  else if (hash.startsWith('#dispatch')) hash = '#queue:queued'
+  else if (hash.startsWith('#workers')) hash = '#overview'
+
+  return hash
+}
+
 export function parseDashboardRoute(hashOrPath: string | undefined): DashboardRoute {
   const hash = normalizeHash(hashOrPath)
   if (hash.startsWith('#project:')) return { page: 'detail', kind: 'project', id: detailId(hash, '#project:'), hash }
@@ -76,8 +90,8 @@ export function parseDashboardRoute(hashOrPath: string | undefined): DashboardRo
 }
 
 export function dashboardV2Href(hashOrPath: string | undefined, fallbackHash = '#overview'): string {
-  const route = parseDashboardRoute(hashOrPath || fallbackHash)
-  return `${DASHBOARD_V2_PATH}${route.hash}`
+  const hash = canonicalDashboardHash(hashOrPath || fallbackHash, fallbackHash)
+  return `${DASHBOARD_V2_PATH}${hash}`
 }
 
 export function dashboardRouteTitle(route: DashboardRoute): string {

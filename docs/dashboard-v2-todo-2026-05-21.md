@@ -1,6 +1,6 @@
 # Dashboard V2 TODO checklist
 
-Status: **P0 + P1 + P2 + P3 + P4 + P5 landing** — branch `feat/dashboard-v2-trust-guards` (2026-05-21). Trust guards through error/empty states in one PR stack; P6+ deferred.
+Status: **P0 + P1 + P2 + P3 + P4 + P5 + P6 landing** — branch `feat/dashboard-v2-trust-guards` (2026-05-21). Trust guards through route policy in one PR stack; P7+ deferred.
 
 Screenshot evidence reviewed from:
 
@@ -190,15 +190,15 @@ Problem seen in screenshots: `V2 data unavailable: endpoint -> 500` is technical
 
 ## Priority 6 — navigation and route policy
 
-- [ ] Audit every V2 route and classify:
-  - [ ] command center;
-  - [ ] list page;
-  - [ ] structured detail page;
-  - [ ] debug-only page;
-  - [ ] dead route to remove.
-- [ ] Any route that cannot be made useful should redirect to the relevant list page with a selected row/panel.
-- [ ] Add a visible back/breadcrumb affordance on detail pages.
-- [ ] Preserve deep links for project/run/paper/event IDs, but make the destination useful.
+- [x] Audit every V2 route and classify:
+  - [x] command center;
+  - [x] list page;
+  - [x] structured detail page;
+  - [x] debug-only page;
+  - [x] dead route to remove.
+- [x] Any route that cannot be made useful should redirect to the relevant list page with a selected row/panel.
+- [x] Add a visible back/breadcrumb affordance on detail pages.
+- [x] Preserve deep links for project/run/paper/event IDs, but make the destination useful.
 
 ## Priority 7 — styling cleanup
 
@@ -227,5 +227,6 @@ When work resumes, do this sequence:
 3. ~~Make project/run/paper/event/idea detail pages answer the entity-specific operator questions.~~ (P2 — [`detailOperatorSummary.ts`](../dashboard/src/detailOperatorSummary.ts))
 4. ~~Reduce secondary page hero/header footprint.~~ (P3 — [`PageHeader.tsx`](../dashboard/src/components/PageHeader.tsx))
 5. ~~Improve tables and empty/error states.~~ (P4 table pass — [`tablePresentation.ts`](../dashboard/src/tablePresentation.ts); P5 error/empty cards — [`resourceStatePresentation.ts`](../dashboard/src/resourceStatePresentation.ts))
-6. Only then do visual polish.
+6. ~~Audit routes, canonicalize aliases, and add detail breadcrumbs.~~ (P6 — [`routePolicy.ts`](../dashboard/src/routePolicy.ts))
+7. Only then do visual polish.
 

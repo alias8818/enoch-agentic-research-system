@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { apiGet } from '../api/client'
 import { deriveDetailOperatorSummary, type DetailKind, type DetailOperatorSummary, type EntityLink } from '../detailOperatorSummary'
+import { detailBreadcrumb } from '../routePolicy'
 import { dashboardV2Href } from '../routes'
 import { useQuery } from '@tanstack/react-query'
 import { PageHeader } from './PageHeader'
@@ -422,6 +423,7 @@ export function DetailPage({ selection }: { selection: DetailSelection }) {
       <PageHeader
         title={title}
         subtitle={subtitle}
+        breadcrumb={detailBreadcrumb(selection.kind, title)}
         dataSource={detailDataSource(selection.kind, selection.id)}
         action={<span className="detail-id-chip" title={selection.id}>{shortId(selection.id)}</span>}
       />

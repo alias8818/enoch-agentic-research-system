@@ -205,6 +205,8 @@ it('renders P2 operator question sections with entity links for project detail',
   renderWithClient(<DetailPage selection={{ kind: 'project', id: 'project-1' }} />)
 
   expect(await screen.findByText('Current state')).toBeInTheDocument()
+  expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toHaveTextContent('Projects')
+  expect(screen.getByRole('link', { name: 'Projects' })).toHaveAttribute('href', '/control/dashboard-v2#projects')
   expect(screen.getByText('Next safe action')).toBeInTheDocument()
   expect(screen.getByText('What is this project?')).toBeInTheDocument()
   expect(screen.getByText('What happened most recently?')).toBeInTheDocument()
