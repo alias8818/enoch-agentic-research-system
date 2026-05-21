@@ -1328,6 +1328,25 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         target = config.resolved_worker_target(str(candidate.get("machine_target") or ""))
         return (target.wake_gate_url or str(candidate.get("machine_target") or "")).strip().rstrip("/")
 
+    def _preflight_observation_lane_key(preflight: DashboardObservationRecord | None) -> str:
+        payload = preflight.payload if preflight else {}
+        target = str(payload.get("target") or "").strip() if isinstance(payload, dict) else ""
+        if not target:
+            return _worker_lane_key({"machine_target": ""})
+        if "://" in target:
+            if (urlparse(target).hostname or "") == "worker.example":
+                return _worker_lane_key({"machine_target": ""})
+            return target.rstrip("/")
+        return _worker_lane_key({"machine_target": target})
+
+    def _preflight_observation_applies_to_candidate(preflight: DashboardObservationRecord | None, candidate: dict[str, Any] | None) -> bool:
+        if not preflight or not candidate:
+            return True
+        preflight_lane = _preflight_observation_lane_key(preflight)
+        if not preflight_lane:
+            return True
+        return preflight_lane == _worker_lane_key(candidate)
+
     def _callback_acceptance_token_fingerprint() -> str:
         # /control/api/worker-callback is mounted on the control-plane router
         # and is protected by the same bearer dependency as other control APIs.
@@ -1535,7 +1554,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             promotable_by_lane.setdefault(_worker_lane_key(row), []).append(row)
 
         pressure: dict[str, dict[str, Any]] = {}
-        min_queue_depth = max(0, min(int(min_queue_depth), 5))
+        min_queue_depth = max(0, min(int(min_queue_depth), 100))
         for lane in lane_rows:
             lane_key = str(lane.get("lane_key") or "")
             machine_target = str(lane.get("machine_target") or "")
@@ -1920,8 +1939,11 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         preflight = observations.get("worker_preflight")
         no_live = _preflight_check(preflight, "worker_no_live_runs")
         if no_live:
-            worker_reports_idle = bool(no_live.get("ok"))
             default_worker_lane = _worker_lane_key({"machine_target": ""})
+            preflight_lane = _preflight_observation_lane_key(preflight)
+            if preflight_lane and preflight_lane != default_worker_lane:
+                return False
+            worker_reports_idle = bool(no_live.get("ok"))
             control_reports_active = any(_worker_lane_key(row) == default_worker_lane for row in active)
             if worker_reports_idle == control_reports_active:
                 # The cached worker/control active-lane projections disagree.
@@ -2021,10 +2043,13 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             blockers.append("no queued dispatch candidate")
         no_live = _preflight_check(preflight, "worker_no_live_runs")
         default_worker_lane = _worker_lane_key({"machine_target": ""})
+        preflight_lane = _preflight_observation_lane_key(preflight)
+        preflight_targets_default_worker = not preflight or not preflight_lane or preflight_lane == default_worker_lane
+        preflight_applies_to_open_candidate = _preflight_observation_applies_to_candidate(preflight, open_worker_candidate)
         active_on_default_worker = [row for row in active if _worker_lane_key(row) == default_worker_lane]
-        worker_live_matches_active = bool(active_on_default_worker and no_live and no_live.get("ok") is False)
+        worker_live_matches_active = bool(preflight_targets_default_worker and active_on_default_worker and no_live and no_live.get("ok") is False)
         worker_settling_after_vm_completion = None
-        if not active:
+        if preflight_targets_default_worker and not active:
             worker_settling_after_vm_completion = _worker_settling_after_vm_completion(
                 preflight=preflight,
                 queue_rows=_recently_completed_items_fast(),
@@ -2039,23 +2064,28 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 if name == "worker_preflight" and (worker_live_matches_active or worker_settling_after_vm_completion):
                     continue
                 warnings.append(DashboardFinding(severity="warn", source=name, authority=freshness.authority, message=f"{name} status is {freshness.status}", observed_at=freshness.observed_at, suggested_action="run /control/api/preflight and verify GB10 health before dispatch"))
-                if config.live_dispatch_enabled and not flags.queue_paused and not flags.maintenance_mode:
+                if (
+                    config.live_dispatch_enabled
+                    and not flags.queue_paused
+                    and not flags.maintenance_mode
+                    and (name != "worker_preflight" or preflight_applies_to_open_candidate)
+                ):
                     blockers.append(f"{name} not ok")
         health = _preflight_check(preflight, "wake_gate_healthz")
         dashboard = _preflight_check(preflight, "wake_gate_dashboard_api")
-        resource_findings = classify_low_utilization_runs(_worker_dashboard_body_from_preflight(preflight))
+        resource_findings = classify_low_utilization_runs(_worker_dashboard_body_from_preflight(preflight)) if preflight_targets_default_worker else []
         if resource_findings:
             warnings.extend(resource_findings)
             blockers.append("GB10 low-utilization CPU-only active run")
         if health and not health.get("ok"):
-            warnings.append(DashboardFinding(severity="warn", source="worker_preflight", authority="GB10 reachability evidence", message="GB10 wake gate health check failed", observed_at=preflight.observed_at if preflight else None, suggested_action="verify worker service before dispatch", data=health))
-            if config.live_dispatch_enabled and not flags.queue_paused and not flags.maintenance_mode:
+            warnings.append(DashboardFinding(severity="warn", source="worker_preflight", authority="worker reachability evidence", message="cached worker wake gate health check failed", observed_at=preflight.observed_at if preflight else None, suggested_action="verify the affected worker service before dispatch", data=health))
+            if config.live_dispatch_enabled and not flags.queue_paused and not flags.maintenance_mode and preflight_applies_to_open_candidate:
                 blockers.append("worker health check failed")
         if dashboard and dashboard.get("data", {}).get("skipped"):
-            warnings.append(DashboardFinding(severity="warn", source="worker_preflight", authority="GB10 runtime evidence", message="authenticated worker dashboard checks were skipped", observed_at=preflight.observed_at if preflight else None, suggested_action="configure worker bearer token before live dispatch", data=dashboard))
-            if config.live_dispatch_enabled and not flags.queue_paused and not flags.maintenance_mode:
+            warnings.append(DashboardFinding(severity="warn", source="worker_preflight", authority="worker runtime evidence", message="authenticated worker dashboard checks were skipped", observed_at=preflight.observed_at if preflight else None, suggested_action="configure worker bearer token before live dispatch", data=dashboard))
+            if config.live_dispatch_enabled and not flags.queue_paused and not flags.maintenance_mode and preflight_applies_to_open_candidate:
                 blockers.append("worker dashboard telemetry skipped")
-        if active_on_default_worker and no_live and no_live.get("ok") is True:
+        if preflight_targets_default_worker and active_on_default_worker and no_live and no_live.get("ok") is True:
             conflicts.append(DashboardFinding(
                 severity="warn",
                 source="control_plane_db+worker_preflight",
@@ -2065,7 +2095,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 suggested_action="inspect run detail and reconcile if the worker truly exited",
                 data={"active_count": len(active_on_default_worker), "worker_check": no_live},
             ))
-        if not active_on_default_worker and no_live and no_live.get("ok") is False:
+        if preflight_targets_default_worker and not active_on_default_worker and no_live and no_live.get("ok") is False:
             if worker_settling_after_vm_completion:
                 warnings.append(DashboardFinding(
                     severity="warn",
@@ -2076,19 +2106,20 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     suggested_action="wait for the worker quiet-window to clear before dispatch",
                     data=worker_settling_after_vm_completion,
                 ))
-                if config.live_dispatch_enabled and not flags.queue_paused and not flags.maintenance_mode:
+                if config.live_dispatch_enabled and not flags.queue_paused and not flags.maintenance_mode and preflight_applies_to_open_candidate:
                     blockers.append("GB10 worker settling completed run")
             else:
                 conflicts.append(DashboardFinding(
-                    severity="critical",
+                    severity="critical" if preflight_applies_to_open_candidate else "warn",
                     source="control_plane_db+worker_preflight",
                     authority="single active GB10 lane safety",
                     message="GB10 reports live/active work but VM control plane has no active row",
                     observed_at=preflight.observed_at if preflight else None,
-                    suggested_action="pause dispatch and reconcile before starting another job",
+                    suggested_action="pause dispatch to the affected worker lane and reconcile before starting another job",
                     data={"worker_check": no_live},
                 ))
-                blockers.append("GB10/VM active-lane conflict")
+                if preflight_applies_to_open_candidate:
+                    blockers.append("GB10/VM active-lane conflict")
         has_critical = any(item.severity == "critical" for item in conflicts)
         dispatch_safe = not blockers and not has_critical
         worker_lanes = _worker_lane_capacity(active=active, rows=rows, global_blockers=blockers)
@@ -2100,7 +2131,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             active=active,
             queued=rows,
             lanes=worker_lanes,
-            min_queue_depth=_bounded_int_env("ENOCH_RESEARCH_MIN_QUEUE_DEPTH_PER_LANE", 1, 0, 5),
+            min_queue_depth=_bounded_int_env("ENOCH_RESEARCH_MIN_QUEUE_DEPTH_PER_LANE", 25, 0, 100),
             min_admission_score=status_min_admission_score,
         )
         for lane in worker_lanes:
@@ -2610,7 +2641,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             active=active_for_lanes,
             queued=queued_for_lanes,
             lanes=worker_lanes,
-            min_queue_depth=_bounded_int_env("ENOCH_RESEARCH_MIN_QUEUE_DEPTH_PER_LANE", 1, 0, 5),
+            min_queue_depth=_bounded_int_env("ENOCH_RESEARCH_MIN_QUEUE_DEPTH_PER_LANE", 25, 0, 100),
             min_admission_score=overview_min_admission_score,
         )
         for lane in worker_lanes:
@@ -4029,13 +4060,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             }
         max_provider_requests = bounded_int("max_provider_requests_per_run", 1, 0, 3)
         worker_lane_limit = max(1, min(4, len(_configured_worker_lanes()) or 1))
-        max_promotions = bounded_int("max_promotions_per_run", min(2, worker_lane_limit), 0, worker_lane_limit)
+        promotion_batch_limit = _bounded_int_env("ENOCH_RESEARCH_MAX_PROMOTIONS_PER_RUN_CAP", 25, 1, 100)
+        max_promotions = bounded_int("max_promotions_per_run", min(2, worker_lane_limit), 0, promotion_batch_limit)
         max_dispatches = bounded_int("max_dispatches_per_run", 0, 0, worker_lane_limit)
         min_queue_depth_per_lane = bounded_int(
             "min_queue_depth_per_lane",
-            _bounded_int_env("ENOCH_RESEARCH_MIN_QUEUE_DEPTH_PER_LANE", 1, 0, 5),
+            _bounded_int_env("ENOCH_RESEARCH_MIN_QUEUE_DEPTH_PER_LANE", 25, 0, 100),
             0,
-            5,
+            100,
         )
         max_paper_drafts = bounded_int("max_paper_drafts_per_run", 0, 0, 1)
         max_publication_rewrites = bounded_int("max_publication_rewrites_per_run", 0, 0, 1)
@@ -4043,7 +4075,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         max_wait_seconds = bounded_int("max_wait_seconds", 0, 0, 1800)
         poll_interval_seconds = bounded_int("poll_interval_seconds", 10, 2, 60)
         min_admission_score = bounded_float("min_admission_score", bounded_float("admit_threshold", 72.0, 0.0, 100.0), 0.0, 100.0)
-        max_candidates = bounded_int("max_candidates", 2, 1, 5)
+        max_candidates = bounded_int("max_candidates", 2, 1, 10)
         default_backlog_threshold = _bounded_int_env("ENOCH_RESEARCH_FRESH_GENERATION_BACKLOG_THRESHOLD", 25, 0, 500)
         fresh_generation_backlog_threshold = bounded_int("fresh_generation_backlog_threshold", default_backlog_threshold, 0, 500)
         topic = str(body.get("topic") or "").strip()
@@ -4178,13 +4210,23 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             min_queue_depth=min_queue_depth_per_lane,
             min_admission_score=min_admission_score,
         )
-        generation_target_lane = next(
-            (
-                item for item in lane_feed_pressure.values()
-                if item.get("queue_deficit") and item.get("next_autopilot_action") == "generate_candidate"
-                and not item.get("active_count")
+        generation_target_actions = {"generate_candidate"}
+        if max_dispatches <= 0:
+            generation_target_actions.add("dispatch_queued")
+        generation_target_candidates = [
+            item for item in lane_feed_pressure.values()
+            if item.get("queue_deficit")
+            and item.get("next_autopilot_action") in generation_target_actions
+            and not item.get("promotable_count")
+        ]
+        generation_target_lane = max(
+            generation_target_candidates,
+            key=lambda item: (
+                int(item.get("queue_deficit") or 0),
+                -int(item.get("queued_count") or 0),
+                str(item.get("machine_target") or ""),
             ),
-            None,
+            default=None,
         )
         if active and not initial_open_lane_promotable and not (generation_target_lane and max_provider_requests):
             backpressure_reasons.append("active worker lane already exists and no promotable candidate targets an idle lane")

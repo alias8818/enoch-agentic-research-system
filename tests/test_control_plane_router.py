@@ -1559,7 +1559,12 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     response = client.post(
                         "/control/api/research/run-cycle",
                         headers=headers,
-                        json={"dry_run": False, "enabled": True, "requested_by": "pytest"},
+                        json={
+                            "dry_run": False,
+                            "enabled": True,
+                            "max_provider_requests_per_run": 0,
+                            "requested_by": "pytest",
+                        },
                     )
                     self.assertEqual(response.status_code, 200)
                     self.assertTrue(response.json()["backpressure"])
@@ -1611,7 +1616,12 @@ class ControlPlaneRouterTests(unittest.TestCase):
             response = client.post(
                 "/control/api/research/run-cycle",
                 headers={"Authorization": f"Bearer {TOKEN}"},
-                json={"dry_run": False, "enabled": True, "requested_by": "pytest"},
+                json={
+                    "dry_run": False,
+                    "enabled": True,
+                    "max_provider_requests_per_run": 0,
+                    "requested_by": "pytest",
+                },
             )
 
         self.assertEqual(response.status_code, 200)
@@ -1723,6 +1733,119 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(fake_store.promoted[0], ("generated-candidate", "pytest", False))
         self.assertEqual(fake_store.events[0]["event_type"], "research.run_cycle.live")
         self.assertEqual(generate.call_args.kwargs["attempts"], 2)
+
+    def test_research_facility_run_cycle_generates_backlog_for_active_lane(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.events = []
+                self.recorded = []
+                self.promoted = []
+                self.generated_available = False
+
+            def active_items(self) -> list[dict[str, str]]:
+                return [{"project_id": "active-gb10", "status": "awaiting_wake", "current_run_id": "run-active"}]
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 0, "active": 1}
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                if not self.generated_available:
+                    return []
+                return [{
+                    "candidate_id": "generated-backlog-candidate",
+                    "admission_decision": "admitted",
+                    "admitted_idea_id": "",
+                    "total_score": "82.00",
+                    "machine_target": "",
+                }]
+
+            def record_research_facility_plans(self, plans, *, requested_by: str, queue_admitted: bool = False) -> dict[str, int]:
+                self.generated_available = True
+                self.recorded.append((plans, requested_by, queue_admitted))
+                return {"sources_upserted": 1, "candidates_upserted": len(plans), "admissions_inserted": len(plans), "lineage_inserted": 1}
+
+            def promote_research_candidate(self, candidate_id: str, *, requested_by: str, dry_run: bool = True) -> dict[str, object]:
+                self.promoted.append((candidate_id, requested_by, dry_run))
+                return {"ok": True, "action": "promote_candidate", "candidate_id": candidate_id, "idea_id": candidate_id, "queued_count": 1, "dispatch_started": False}
+
+            def append_event(self, **kwargs):
+                self.events.append(kwargs)
+                return 1, True
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+            worker_wake_gate_url="http://gb10-worker:8787",
+            worker_wake_gate_bearer_token="gb10-token",
+            worker_targets={
+                "gb10": {"wake_gate_url": "http://gb10-worker:8787", "bearer_token": "gb10-token", "role": "gpu_worker"},
+            },
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        generated_candidate = {
+            "title": "Generated Backlog Candidate",
+            "generation_mode": "moonshot",
+            "category": "quantization",
+            "priority": "High",
+            "source_kind": "internal_generated",
+            "source_ids": ["provider-source"],
+            "source_urls": ["enoch://provider/test"],
+            "source_records": [{"source_id": "provider-source", "source_kind": "internal_generated", "title": "provider", "url": "enoch://provider/test"}],
+            "hypothesis": "A bounded local quantization experiment can reduce VRAM with measured quality tradeoffs.",
+            "mechanism": "Use learned residual quantization and compare against int4 baselines.",
+            "description": "Provider generated candidate.",
+            "implementation": "Run a small local benchmark and record metrics, failure cases, and decision artifact.",
+            "baseline_to_beat": "Uniform int4 quantization.",
+            "success_threshold": "Beat int4 memory at comparable quality.",
+            "kill_condition": "Stop if quality collapses or runtime exceeds baseline by 2x.",
+            "accessibility_delta": "Could reduce local VRAM requirements.",
+            "expected_artifacts": ["run_notes.md", "metrics.json", "failure_cases.json", ".enoch/project_decision.json"],
+            "required_evidence": ["baseline comparison", "metrics table", "failure cases", "decision artifact"],
+            "likely_failure_modes": ["quality collapse", "runtime overhead"],
+            "estimated_runtime_class": "medium",
+            "expected_token_budget": "medium",
+            "machine_target": "gb10",
+            "model": "gpt-5.5",
+            "sandbox": "danger-full-access",
+            "novelty_score": 8,
+            "feasibility_score": 7,
+            "accessibility_score": 8,
+            "falsifiability_score": 8,
+            "novelty_comparison": "Different from generic quantization because it tests residual allocation under a hard VRAM cap.",
+            "risk_notes": "May not transfer to larger models.",
+        }
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+             patch("scripts.research_provider_generate.generate_provider_candidates", return_value={"ok": True, "provider_response_id": "cmpl-cycle", "attempts_used": 1, "candidates": [generated_candidate]}) as generate:
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={"dry_run": False, "enabled": True, "max_dispatches_per_run": 0, "requested_by": "pytest"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["action"], "research_cycle")
+        self.assertNotIn("backpressure", body)
+        self.assertEqual(body["generation_target_lane"]["machine_target"], "gb10")
+        self.assertEqual(body["generated_count"], 1)
+        self.assertEqual(body["promoted_count"], 1)
+        self.assertEqual(body["queued_count"], 1)
+        self.assertEqual(fake_store.promoted[0], ("generated-backlog-candidate", "pytest", False))
+        self.assertIn("machine_target=gb10", generate.call_args.kwargs["topic"])
 
     def test_research_facility_run_cycle_prioritizes_followup_before_fresh_generation(self) -> None:
         class FakeSupabaseStore:
@@ -2600,6 +2723,213 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertIn("machine_target=gb10", generate.call_args.kwargs["topic"])
         self.assertTrue(any(stage.get("stage") == "provider_generation" and stage.get("generation_target_lane") == "gb10" for stage in body["stages"]))
 
+    def test_research_facility_run_cycle_targets_largest_lane_queue_deficit(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.events = []
+                self.ledger_plans = []
+
+            def active_items(self) -> list[dict[str, str]]:
+                return [
+                    {
+                        "project_id": "active-cpu",
+                        "project_name": "Active CPU",
+                        "status": "awaiting_wake",
+                        "machine_target": "cpu-proxmox-1",
+                        "current_run_id": "run-active-cpu",
+                    },
+                    {
+                        "project_id": "active-gb10",
+                        "project_name": "Active GB10",
+                        "status": "awaiting_wake",
+                        "machine_target": "gb10",
+                        "current_run_id": "run-active-gb10",
+                    },
+                ]
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 8, "active": 2}
+
+            def flags(self):
+                return SimpleNamespace(queue_paused=False, maintenance_mode=False)
+
+            def next_followup_candidate(self, *, max_followup_depth: int = 4, project_id: str = "") -> None:
+                return None
+
+            def queued_items_sql(self, *, limit: int = 200) -> list[dict[str, str]]:
+                return [
+                    {"project_id": f"cpu-{idx}", "status": "queued", "machine_target": "cpu-proxmox-1"}
+                    for idx in range(5)
+                ] + [
+                    {"project_id": f"gb10-{idx}", "status": "queued", "machine_target": "gb10"}
+                    for idx in range(3)
+                ]
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                return []
+
+            def record_research_facility_plans(self, plans, *, requested_by: str, queue_admitted: bool = False):
+                self.ledger_plans.extend(plans)
+                return {"inserted": len(plans), "queue_admitted": queue_admitted, "requested_by": requested_by}
+
+            def promote_research_candidate(self, *_args, **_kwargs):  # pragma: no cover - promotion disabled in this test
+                raise AssertionError("this test only verifies lane-targeted generation")
+
+            def append_event(self, **kwargs):
+                self.events.append(kwargs)
+                return len(self.events), True
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+            live_dispatch_enabled=True,
+            worker_wake_gate_url="http://gb10-worker:8787",
+            worker_wake_gate_bearer_token="gb10-token",
+            worker_targets={
+                "cpu-proxmox-1": {"wake_gate_url": "http://cpu-worker:8787", "bearer_token": "cpu-token", "role": "cpu_worker"},
+                "gb10": {"wake_gate_url": "http://gb10-worker:8787", "bearer_token": "gb10-token", "role": "gpu_worker"},
+            },
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        generated_candidate = {"candidate_id": "generated-gb10", "title": "Generated GB10", "machine_target": "gb10"}
+
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+             patch("scripts.research_provider_generate.generate_provider_candidates", return_value={"candidates": [generated_candidate], "provider_response_id": "resp-gb10", "attempts_used": 1}) as generate, \
+             patch("scripts.research_facility.plan_candidates", return_value=[{"candidate": generated_candidate, "admission_decision": "admitted"}]):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={
+                    "dry_run": False,
+                    "enabled": True,
+                    "max_provider_requests_per_run": 1,
+                    "max_promotions_per_run": 0,
+                    "max_dispatches_per_run": 0,
+                    "max_paper_drafts_per_run": 0,
+                    "min_queue_depth_per_lane": 25,
+                    "requested_by": "pytest",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["generation_target_lane"]["machine_target"], "gb10")
+        self.assertEqual(body["lane_feed_pressure"]["cpu-proxmox-1"]["queue_deficit"], 20)
+        self.assertEqual(body["lane_feed_pressure"]["gb10"]["queue_deficit"], 22)
+        self.assertEqual(generate.call_args.kwargs["default_machine"], "gb10")
+        self.assertIn("machine_target=gb10", generate.call_args.kwargs["topic"])
+
+    def test_research_facility_run_cycle_feed_only_targets_deficient_idle_lane(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.events = []
+                self.ledger_plans = []
+
+            def active_items(self) -> list[dict[str, str]]:
+                return []
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 8, "active": 0}
+
+            def flags(self):
+                return SimpleNamespace(queue_paused=False, maintenance_mode=False)
+
+            def next_followup_candidate(self, *, max_followup_depth: int = 4, project_id: str = "") -> None:
+                return None
+
+            def queued_items_sql(self, *, limit: int = 200) -> list[dict[str, str]]:
+                return [
+                    {"project_id": f"cpu-{idx}", "status": "queued", "machine_target": "cpu-proxmox-1"}
+                    for idx in range(9)
+                ] + [
+                    {"project_id": f"gb10-{idx}", "status": "queued", "machine_target": "gb10"}
+                    for idx in range(3)
+                ]
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                return []
+
+            def record_research_facility_plans(self, plans, *, requested_by: str, queue_admitted: bool = False):
+                self.ledger_plans.extend(plans)
+                return {"inserted": len(plans), "queue_admitted": queue_admitted, "requested_by": requested_by}
+
+            def promote_research_candidate(self, *_args, **_kwargs):  # pragma: no cover - promotion disabled in this test
+                raise AssertionError("this test only verifies lane-targeted feed generation")
+
+            def append_event(self, **kwargs):
+                self.events.append(kwargs)
+                return len(self.events), True
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+            live_dispatch_enabled=True,
+            worker_wake_gate_url="http://gb10-worker:8787",
+            worker_wake_gate_bearer_token="gb10-token",
+            worker_targets={
+                "cpu-proxmox-1": {"wake_gate_url": "http://cpu-worker:8787", "bearer_token": "cpu-token", "role": "cpu_worker"},
+                "gb10": {"wake_gate_url": "http://gb10-worker:8787", "bearer_token": "gb10-token", "role": "gpu_worker"},
+            },
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        generated_candidate = {"candidate_id": "generated-gb10", "title": "Generated GB10", "machine_target": "gb10"}
+
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+             patch("scripts.research_provider_generate.generate_provider_candidates", return_value={"candidates": [generated_candidate], "provider_response_id": "resp-gb10", "attempts_used": 1}) as generate, \
+             patch("scripts.research_facility.plan_candidates", return_value=[{"candidate": generated_candidate, "admission_decision": "admitted"}]):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={
+                    "dry_run": False,
+                    "enabled": True,
+                    "max_provider_requests_per_run": 1,
+                    "max_promotions_per_run": 0,
+                    "max_dispatches_per_run": 0,
+                    "max_paper_drafts_per_run": 0,
+                    "min_queue_depth_per_lane": 25,
+                    "requested_by": "pytest",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["generation_target_lane"]["machine_target"], "gb10")
+        self.assertEqual(body["lane_feed_pressure"]["cpu-proxmox-1"]["next_autopilot_action"], "dispatch_queued")
+        self.assertEqual(body["lane_feed_pressure"]["gb10"]["next_autopilot_action"], "dispatch_queued")
+        self.assertEqual(body["lane_feed_pressure"]["cpu-proxmox-1"]["queue_deficit"], 16)
+        self.assertEqual(body["lane_feed_pressure"]["gb10"]["queue_deficit"], 22)
+        self.assertEqual(generate.call_args.kwargs["default_machine"], "gb10")
+        self.assertIn("machine_target=gb10", generate.call_args.kwargs["topic"])
+
     def test_research_facility_run_cycle_active_lane_is_backpressure_not_blocked(self) -> None:
         class FakeSupabaseStore:
             def __init__(self) -> None:
@@ -3414,12 +3744,245 @@ class ControlPlaneRouterTests(unittest.TestCase):
             )
             store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
 
-            status = client.get("/control/api/status", headers=headers).json()
+            response = WorkerPreflightResponse(
+                ok=False,
+                target="http://gb10-worker:8787",
+                summary="worker preflight failed",
+                checks=[
+                    WorkerPreflightCheck(name="wake_gate_healthz", ok=True, detail="ok", data={}),
+                    WorkerPreflightCheck(name="worker_no_live_runs", ok=False, detail="active_or_waiting=1, live=1", data={"active_or_waiting": 1, "live": 1}),
+                ],
+            )
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=response):
+                status = client.get("/control/api/status", headers=headers).json()
 
             self.assertTrue(status["dispatch_safe"])
             self.assertEqual(status["dispatch_blockers"], [])
             self.assertEqual(status["next_candidate"]["project_id"], "queued-gpu")
             self.assertEqual(status["conflicts"], [])
+
+
+    def test_dashboard_status_keeps_cpu_lane_dispatchable_when_default_worker_is_settling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "gb10-settling-cpu-open-import",
+                "queue_rows": [
+                    {
+                        "project_id": "completed-gb10",
+                        "project_name": "Completed GB10",
+                        "project_dir": "completed-gb10",
+                        "status": "completed",
+                        "machine_target": "gb10",
+                        "current_run_id": "run-completed-gb10",
+                        "last_run_state": "wake_ready",
+                        "last_callback_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                    {
+                        "project_id": "queued-cpu",
+                        "project_name": "Queued CPU",
+                        "project_dir": "queued-cpu",
+                        "status": "queued",
+                        "machine_target": "cpu-proxmox-1",
+                        "dispatch_priority": 1,
+                    },
+                ],
+                "run_rows": [
+                    {
+                        "run_id": "run-completed-gb10",
+                        "project_id": "completed-gb10",
+                        "status": "completed",
+                    }
+                ],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="warn",
+                payload={
+                    "ok": False,
+                    "target": "http://gb10-worker:8787",
+                    "summary": "worker preflight failed",
+                    "checks": [
+                        {"name": "wake_gate_healthz", "ok": True, "detail": "ok", "data": {}},
+                        {"name": "worker_no_live_runs", "ok": False, "detail": "active_or_waiting=1, live=1", "data": {"active_or_waiting": 1, "live": 1}},
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+
+            response = WorkerPreflightResponse(
+                ok=False,
+                target="http://gb10-worker:8787",
+                summary="worker preflight failed",
+                checks=[
+                    WorkerPreflightCheck(name="wake_gate_healthz", ok=True, detail="ok", data={}),
+                    WorkerPreflightCheck(name="worker_no_live_runs", ok=False, detail="active_or_waiting=1, live=1", data={"active_or_waiting": 1, "live": 1}),
+                ],
+            )
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=response):
+                status = client.get("/control/api/status", headers=headers).json()
+
+            self.assertTrue(status["dispatch_safe"])
+            self.assertEqual(status["dispatch_blockers"], [])
+            self.assertEqual(status["next_candidate"]["project_id"], "queued-cpu")
+            lanes = {lane["machine_target"]: lane for lane in status["worker_lanes"]}
+            self.assertTrue(lanes["cpu-proxmox-1"]["dispatch_available"])
+            self.assertEqual(lanes["cpu-proxmox-1"]["dispatch_blocker"], "")
+            self.assertEqual(lanes["gb10"]["dispatch_blocker"], "no queued candidate for lane")
+
+    def test_dashboard_status_keeps_other_lane_dispatchable_when_cached_preflight_failed_for_cpu_lane(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "cpu-preflight-fail-gb10-open-import",
+                "queue_rows": [
+                    {
+                        "project_id": "queued-gpu",
+                        "project_name": "Queued GPU",
+                        "project_dir": "queued-gpu",
+                        "status": "queued",
+                        "machine_target": "gb10",
+                        "dispatch_priority": 1,
+                    },
+                ],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="warn",
+                payload={
+                    "ok": False,
+                    "target": "http://cpu-proxmox-1:8787",
+                    "summary": "worker preflight failed",
+                    "checks": [
+                        {"name": "wake_gate_healthz", "ok": True, "detail": "ok", "data": {}},
+                        {"name": "worker_no_live_runs", "ok": False, "detail": "active_or_waiting=1, live=1", "data": {"active_or_waiting": 1, "live": 1}},
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+
+            status = client.get("/control/api/status", headers=headers).json()
+
+            self.assertTrue(status["dispatch_safe"])
+            self.assertEqual(status["dispatch_blockers"], [])
+            self.assertEqual(status["next_candidate"]["project_id"], "queued-gpu")
+            lanes = {lane["machine_target"]: lane for lane in status["worker_lanes"]}
+            self.assertTrue(lanes["gb10"]["dispatch_available"])
+            self.assertEqual(lanes["gb10"]["dispatch_blocker"], "")
+
+
+
+    def test_dashboard_status_treats_blank_machine_target_as_default_worker_lane(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "blank-target-default-lane-import",
+                "queue_rows": [
+                    {
+                        "project_id": "active-cpu",
+                        "project_name": "Active CPU",
+                        "project_dir": "active-cpu",
+                        "status": "awaiting_wake",
+                        "machine_target": "cpu-proxmox-1",
+                        "current_run_id": "run-active-cpu",
+                    },
+                    {
+                        "project_id": "queued-default",
+                        "project_name": "Queued Default",
+                        "project_dir": "queued-default",
+                        "status": "queued",
+                        "machine_target": "",
+                        "dispatch_priority": 1,
+                    },
+                ],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                payload={
+                    "ok": True,
+                    "checks": [
+                        {"name": "wake_gate_healthz", "ok": True, "detail": "ok", "data": {}},
+                        {"name": "worker_no_live_runs", "ok": True, "detail": "active_or_waiting=0, live=0", "data": {"active_or_waiting": 0, "live": 0}},
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+
+            status = client.get("/control/api/status", headers=headers).json()
+            dry_run = client.post("/control/dispatch-next", headers=headers, json={"dry_run": True}).json()
+
+            self.assertTrue(status["dispatch_safe"])
+            self.assertEqual(status["dispatch_blockers"], [])
+            self.assertEqual(status["next_candidate"]["project_id"], "queued-default")
+            self.assertEqual(dry_run["action"], "dry_run_dispatch")
+            self.assertEqual(dry_run["candidate"]["project_id"], "queued-default")
+            lanes = {lane["machine_target"]: lane for lane in status["worker_lanes"]}
+            self.assertEqual(lanes["gb10"]["queued_count"], 1)
+            self.assertTrue(lanes["gb10"]["dispatch_available"])
 
     def test_dashboard_status_reports_worker_lane_capacity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
