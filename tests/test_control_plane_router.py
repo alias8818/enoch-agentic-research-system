@@ -5899,6 +5899,89 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(rows["queued-cpu-open-lane"]["status"], "awaiting_wake")
             self.assertEqual(rows["queued-gpu-same-lane"]["status"], "queued")
 
+
+    def test_dispatch_one_claim_uses_lane_alias_conflict_targets(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.queue = {
+                    "queued-default": {
+                        "project_id": "queued-default",
+                        "project_name": "Queued Default",
+                        "project_dir": "queued-default",
+                        "status": "queued",
+                        "machine_target": "",
+                    }
+                }
+                self.last_conflicting_machine_targets = None
+
+            def flags(self):
+                return SimpleNamespace(queue_paused=False, maintenance_mode=False)
+
+            def queue_row(self, project_id: str):
+                return self.queue.get(project_id)
+
+            def active_items(self) -> list[dict[str, str]]:
+                return []
+
+            def claim_dispatch_candidate(self, *, project_id: str, run_id: str, requested_by: str, conflicting_machine_targets=None):
+                self.last_conflicting_machine_targets = set(conflicting_machine_targets or [])
+                row = self.queue.get(project_id)
+                if not row or row["status"] != "queued":
+                    return None
+                row.update({"status": "dispatching", "current_run_id": run_id})
+                return dict(row)
+
+            def release_dispatch_claim(self, *, project_id: str, run_id: str, reason: str):
+                self.queue[project_id]["status"] = "queued"
+                return True
+
+            def update_project_dir(self, project_id: str, project_dir: str) -> None:
+                self.queue[project_id]["project_dir"] = project_dir
+
+            def mark_dispatch_started(self, *, project_id: str, run_id: str, session_id: str, dispatch_payload: dict, requested_by: str):
+                self.queue[project_id].update({"status": "awaiting_wake", "current_run_id": run_id, "current_session_id": session_id})
+                return 123, dict(self.queue[project_id])
+
+            def append_event(self, **_kwargs):
+                return 1, True
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+            live_dispatch_enabled=True,
+            worker_wake_gate_url="http://gb10-worker:8787",
+            worker_wake_gate_bearer_token="gb10-token",
+            worker_targets={
+                "gb10": {"wake_gate_url": "http://gb10-worker:8787", "bearer_token": "gb10-token", "role": "gpu_worker"},
+            },
+        )
+
+        preflight = WorkerPreflightResponse(ok=True, target="http://gb10-worker:8787", summary="ok", checks=[])
+
+        def fake_post(_base: str, path: str, _token: str, payload: dict) -> HttpResult:
+            if path == "/prepare-project":
+                return HttpResult(ok=True, status=200, body={"prepared": payload["project_id"]})
+            if path == "/dispatch":
+                return HttpResult(ok=True, status=200, body={"dispatch": {"session_id": "gb10-session"}})
+            return HttpResult(ok=False, status=404, body=None, error="unexpected path")
+
+        app = build_control_plane_app(config=config, store=fake_store)
+        client = TestClient(app)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+
+        with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=preflight),              patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post):
+            response = client.post("/control/dispatch-one", headers=headers, json={"project_id": "queued-default", "dry_run": False, "requested_by": "test"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(fake_store.last_conflicting_machine_targets, {"", "gb10"})
+
     def test_dispatch_next_blocks_when_only_same_worker_lane_is_queued(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp).model_copy(
