@@ -30,15 +30,15 @@ export function SafetyBar({ flags, onRefresh }: { flags: OverviewResponse['flags
   }
   return (
     <>
-      <section className="flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 md:flex-row md:items-center md:justify-between">
-      <div>
-        <strong className="text-sm text-white">Queue safety</strong>
-        <span className="ml-2 text-sm text-zinc-400">paused={String(paused)} · maintenance={maintenance ? 'on' : 'off'}</span>
-      </div>
-      <div className="flex gap-2">
-        <button className="rounded-lg bg-red-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-40" disabled={paused} onClick={pause}>Pause queue</button>
-        <button className="rounded-lg border border-zinc-700 px-3 py-2 text-sm font-bold text-white disabled:opacity-40" disabled={!paused && !maintenance} onClick={resume}>Resume queue</button>
-      </div>
+      <section className="safety-bar" aria-label="Queue safety">
+        <div>
+          <strong>Queue safety</strong>
+          <span>{paused ? 'paused' : 'unpaused'} · maintenance {maintenance ? 'on' : 'off'}</span>
+        </div>
+        <div>
+          <button className="danger-button" disabled={paused} onClick={pause}>Pause queue</button>
+          <button className="secondary-button" disabled={!paused && !maintenance} onClick={resume}>Resume queue</button>
+        </div>
       </section>
       {dialog}
     </>

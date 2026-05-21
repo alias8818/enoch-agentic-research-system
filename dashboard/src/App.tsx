@@ -60,20 +60,26 @@ function OverviewPage() {
   const data = overview.data
   const diagnosis = data.movement_diagnosis || { status: 'unknown', primary_reason: 'No movement diagnosis returned.', blockers: [] }
   return (
-    <div className="space-y-5">
-      <OverviewFreshness generatedAt={data.generated_at} laneGeneratedAt={status.data?.generated_at} isFetching={overview.isFetching || status.isFetching} onRefresh={refresh} />
+    <div className="command-stack">
+      <div className="command-topline">
+        <OverviewFreshness generatedAt={data.generated_at} laneGeneratedAt={status.data?.generated_at} isFetching={overview.isFetching || status.isFetching} onRefresh={refresh} />
+        <SafetyBar flags={data.flags} onRefresh={refresh} />
+      </div>
       <CommandHero overview={data} diagnosis={diagnosis} />
-      <SafetyBar flags={data.flags} onRefresh={refresh} />
-      <PrimaryAction action={data.top_actions?.[0]} />
-      <WorkerLanes lanes={status.data?.worker_lanes || []} onRefresh={refresh} />
-      <PaperMiniStrip pipeline={data.paper_pipeline} />
+      <div className="command-grid">
+        <WorkerLanes lanes={status.data?.worker_lanes || []} onRefresh={refresh} />
+        <div className="side-rail">
+          <PrimaryAction action={data.top_actions?.[0]} />
+          <PaperMiniStrip pipeline={data.paper_pipeline} />
+        </div>
+      </div>
       <MovementDiagnosis diagnosis={diagnosis} />
-      <details className="rounded-2xl border border-dashed border-zinc-800 bg-zinc-950/50 p-5 text-zinc-400">
-        <summary className="cursor-pointer font-bold text-zinc-200">Show secondary details</summary>
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <a className="rounded-xl border border-zinc-800 p-4 hover:border-zinc-600" href={dashboardV2Href('#queue:active')}>Active work</a>
-          <a className="rounded-xl border border-zinc-800 p-4 hover:border-zinc-600" href={dashboardV2Href('#papers')}>Papers</a>
-          <a className="rounded-xl border border-zinc-800 p-4 hover:border-zinc-600" href={dashboardV2Href('#events')}>Recent activity</a>
+      <details className="secondary-fold">
+        <summary>Show secondary details</summary>
+        <div>
+          <a href={dashboardV2Href('#queue:active')}>Active work</a>
+          <a href={dashboardV2Href('#papers')}>Papers</a>
+          <a href={dashboardV2Href('#events')}>Recent activity</a>
         </div>
       </details>
     </div>
@@ -103,6 +109,10 @@ function RoutedPage({ route }: { route: DashboardRoute }) {
   return <OverviewPage />
 }
 
+function navClass(route: DashboardRoute, page: DashboardRoute['page']): string {
+  return route.page === page ? 'nav-link nav-link--active' : 'nav-link'
+}
+
 function Shell() {
   const [hasToken, setHasToken] = useState(Boolean(getSavedToken()))
   const [route, setRoute] = useState<DashboardRoute>(() => currentRoute())
@@ -115,22 +125,22 @@ function Shell() {
 
   if (!hasToken) return <TokenGate onSave={() => setHasToken(Boolean(getSavedToken()))} />
   return (
-    <main className="min-h-screen bg-[#09090b] p-4 text-zinc-100 md:p-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <header className="flex flex-col gap-4 border-b border-zinc-800 pb-5 md:flex-row md:items-end md:justify-between">
+    <main className="app-frame">
+      <div className="app-shell">
+        <header className="app-header">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.32em] text-sky-300">Enoch Dashboard V2</p>
-            <h1 className="mt-2 text-2xl font-black tracking-tight text-white">Operator command center</h1>
+            <p className="eyebrow">Enoch Dashboard V2</p>
+            <h1>Operator command center</h1>
           </div>
-          <nav className="flex flex-wrap gap-3 text-sm" aria-label="Dashboard V2 navigation">
-            <a className="text-zinc-400 hover:text-white" href={dashboardV2Href('#overview')}>Overview</a>
-            <a className="text-zinc-400 hover:text-white" href={dashboardV2Href('#queue:queued')}>Queue</a>
-            <a className="text-zinc-400 hover:text-white" href={dashboardV2Href('#papers')}>Papers</a>
-            <a className="text-zinc-400 hover:text-white" href={dashboardV2Href('#events')}>Events</a>
-            <a className="text-zinc-400 hover:text-white" href={dashboardV2Href('#research')}>Research</a>
-            <a className="text-zinc-400 hover:text-white" href={dashboardV2Href('#automation')}>Automation</a>
-            <a className="text-zinc-400 hover:text-white" href="/control/dashboard">Legacy</a>
-            <button className="text-zinc-400 hover:text-white" type="button" onClick={() => { saveToken(''); setHasToken(false) }}>Clear token</button>
+          <nav className="app-nav" aria-label="Dashboard V2 navigation">
+            <a className={navClass(route, 'overview')} href={dashboardV2Href('#overview')}>Overview</a>
+            <a className={navClass(route, 'queue')} href={dashboardV2Href('#queue:queued')}>Queue</a>
+            <a className={navClass(route, 'papers')} href={dashboardV2Href('#papers')}>Papers</a>
+            <a className={navClass(route, 'events')} href={dashboardV2Href('#events')}>Events</a>
+            <a className={navClass(route, 'research')} href={dashboardV2Href('#research')}>Research</a>
+            <a className={navClass(route, 'automation')} href={dashboardV2Href('#automation')}>Automation</a>
+            <a className="nav-link" href="/control/dashboard">Legacy</a>
+            <button className="nav-link" type="button" onClick={() => { saveToken(''); setHasToken(false) }}>Clear token</button>
           </nav>
         </header>
         <RoutedPage route={route} />

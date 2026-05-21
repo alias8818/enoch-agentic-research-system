@@ -10,6 +10,19 @@ function laneLabel(lane: WorkerLane): string {
   return lane.label || lane.machine_target || 'Worker lane'
 }
 
+function sentence(value?: string | null): string {
+  return String(value || 'observe').replaceAll('_', ' ')
+}
+
+function laneDisabledReason(lane: WorkerLane, canFeed: boolean, canDispatch: boolean): string {
+  if (canDispatch) return 'Ready to dispatch queued work.'
+  if (lane.dispatch_blocker) return lane.dispatch_blocker
+  if (lane.status === 'active') return 'Lane is active.'
+  if ((lane.queued_count ?? 0) <= 0) return 'No queued candidate for lane.'
+  if (!canFeed) return `Next feed action is ${sentence(lane.feed_pressure?.next_autopilot_action)}.`
+  return 'Waiting for backend lane eligibility.'
+}
+
 export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefresh: () => void }) {
   const { confirm, notify, dialog } = useOperatorDialog()
   async function feedLane() {
@@ -64,11 +77,22 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
   }
   const visible = lanes.filter((lane) => ['CPU lane', 'GB10 lane'].includes(laneLabel(lane)))
   const rendered = visible.length ? visible : lanes
+  const canFeedAny = rendered.some((lane) => ['generate_candidate', 'promote_candidate'].includes(lane.feed_pressure?.next_autopilot_action || ''))
+  const canDispatchAny = rendered.some((lane) => lane.dispatch_available)
   return (
-    <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
-      <h2 className="text-lg font-bold text-white">Worker lanes</h2>
-      <p className="mt-1 text-sm text-zinc-400">CPU and GB10 lanes are the center of the operator view.</p>
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+    <section className="lane-console" aria-label="Worker lanes">
+      <div className="lane-console-head">
+        <div>
+          <p className="eyebrow">Worker lanes</p>
+          <h2>CPU / GB10 command surface</h2>
+          <p>Lane state is the source of truth. Aggregate queue counts do not decide dispatch.</p>
+        </div>
+        <div className="lane-console-actions">
+          <button className="secondary-button" disabled={!canFeedAny} onClick={feedLane}>Feed idle lanes</button>
+          <button className="primary-button" disabled={!canDispatchAny} onClick={dispatchLane}>Dispatch open lanes</button>
+        </div>
+      </div>
+      <div className="lane-grid">
         {rendered.map((lane) => {
           const feedAction = lane.feed_pressure?.next_autopilot_action || 'observe'
           const canFeed = feedAction === 'generate_candidate' || feedAction === 'promote_candidate'
@@ -76,22 +100,35 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
           const active = lane.active_item?.project_name || lane.active_item?.project_id
           const next = lane.next_candidate?.project_name || lane.next_candidate?.project_id
           return (
-            <article key={lane.lane_key || lane.machine_target || laneLabel(lane)} className="rounded-2xl border border-zinc-800 bg-black/20 p-5">
-              <div className="flex items-start justify-between gap-3">
+            <article key={lane.lane_key || lane.machine_target || laneLabel(lane)} className="lane-card">
+              <div className="lane-card-top">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">{laneLabel(lane)}</p>
-                  <h3 className="mt-2 text-2xl font-black text-white">{lane.status || 'unknown'}</h3>
+                  <p className="eyebrow">{laneLabel(lane)}</p>
+                  <h3>{lane.status || 'unknown'}</h3>
                 </div>
-                <div className="text-right">
-                  <div className="text-2xl font-black tabular-nums text-white">{lane.queued_count ?? 0}</div>
-                  <div className="text-xs uppercase tracking-wide text-zinc-500">queued</div>
+                <div className="lane-queue-count" aria-label={`${laneLabel(lane)} queued count`}>
+                  <strong>{lane.queued_count ?? 0}</strong>
+                  <span>queued</span>
                 </div>
               </div>
-              <p className="mt-4 text-sm text-zinc-300">{active ? `Current: ${active}` : next ? `Next: ${next}` : lane.dispatch_blocker || 'No queued candidate for lane'}</p>
-              <p className="mt-2 text-sm text-zinc-500">Autopilot next: {feedAction.replaceAll('_', ' ')}</p>
-              <div className="mt-5 flex gap-2">
-                <button className="rounded-lg border border-zinc-700 px-3 py-2 text-sm font-bold text-white disabled:opacity-40" disabled={!canFeed} onClick={feedLane}>Feed idle lane</button>
-                <button className="rounded-lg bg-sky-500 px-3 py-2 text-sm font-bold text-white disabled:opacity-40" disabled={!canDispatch} onClick={dispatchLane}>Dispatch this lane</button>
+              <dl className="lane-facts">
+                <div>
+                  <dt>Current</dt>
+                  <dd>{active || 'idle'}</dd>
+                </div>
+                <div>
+                  <dt>Next</dt>
+                  <dd>{next || 'none'}</dd>
+                </div>
+                <div>
+                  <dt>Feed action</dt>
+                  <dd>{sentence(feedAction)}</dd>
+                </div>
+              </dl>
+              <p className={canDispatch ? 'lane-reason lane-reason--ready' : 'lane-reason'}>{laneDisabledReason(lane, canFeed, canDispatch)}</p>
+              <div className="lane-actions">
+                <button className="secondary-button" disabled={!canFeed} onClick={feedLane}>Feed idle lane</button>
+                <button className="primary-button" disabled={!canDispatch} onClick={dispatchLane}>Dispatch this lane</button>
               </div>
             </article>
           )
