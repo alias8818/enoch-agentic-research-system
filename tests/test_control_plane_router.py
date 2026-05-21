@@ -428,6 +428,15 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 self.assertEqual(created.status_code, 200)
                 self.assertEqual(created.json()["page"]["filters"]["sort"], "created")
 
+                projects = client.get("/control/api/v1/projects?page_size=2&sort=name&search=Project", headers=headers)
+                self.assertEqual(projects.status_code, 200)
+                self.assertEqual(projects.json()["page"]["returned"], 2)
+                self.assertTrue(projects.json()["page"]["has_more"])
+                self.assertEqual(projects.json()["page"]["filters"]["sort"], "name")
+                self.assertEqual(projects.json()["page"]["filters"]["search"], "Project")
+                self.assertIn("project_name", projects.json()["rows"][0])
+                self.assertIn("links", projects.json()["rows"][0])
+
                 papers = client.get("/control/api/v1/papers?page_size=2&sort=created", headers=headers)
                 self.assertEqual(papers.status_code, 200)
                 self.assertEqual(papers.json()["page"]["returned"], 2)

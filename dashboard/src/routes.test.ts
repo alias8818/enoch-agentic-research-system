@@ -2,6 +2,7 @@ import { expect, it } from 'vitest'
 import { dashboardV2Href, parseDashboardRoute } from './routes'
 
 it('parses V2-owned command-center routes', () => {
+  expect(parseDashboardRoute('#projects?status=testing')).toEqual({ page: 'projects', status: 'testing', hash: '#projects?status=testing' })
   expect(parseDashboardRoute('#queue:queued')).toEqual({ page: 'queue', status: 'queued', hash: '#queue:queued' })
   expect(parseDashboardRoute('#runs:running')).toEqual({ page: 'runs', state: 'running', hash: '#runs:running' })
   expect(parseDashboardRoute('#runs?state=awaiting_wake')).toEqual({ page: 'runs', state: 'awaiting_wake', hash: '#runs?state=awaiting_wake' })
@@ -14,6 +15,7 @@ it('parses V2-owned command-center routes', () => {
 })
 
 it('keeps unimplemented hashes on the legacy dashboard', () => {
+  expect(dashboardV2Href('#projects')).toBe('/control/dashboard-v2#projects')
   expect(dashboardV2Href('#queue:queued')).toBe('/control/dashboard-v2#queue:queued')
   expect(dashboardV2Href('#runs')).toBe('/control/dashboard-v2#runs')
   expect(dashboardV2Href('#papers?status=publication_draft')).toBe('/control/dashboard-v2#papers?status=publication_draft')

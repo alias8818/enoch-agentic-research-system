@@ -1092,6 +1092,64 @@ class ControlPlaneStore:
         next_cursor = str(offset + safe_size) if has_more else None
         return page_rows, next_cursor, has_more
 
+    def project_page(
+        self,
+        *,
+        status: str = "",
+        search: str = "",
+        page_size: int = 50,
+        cursor: str = "",
+        sort: str = "recent",
+    ) -> tuple[list[dict[str, Any]], str | None, bool]:
+        safe_size = max(1, min(page_size, 200))
+        offset = max(0, _int(cursor, 0))
+        clauses: list[str] = []
+        params: list[Any] = []
+        if status:
+            clauses.append("(p.origin_idea_status = ? OR q.status = ?)")
+            params.extend([status, status])
+        if search.strip():
+            needle = f"%{search.strip()}%"
+            clauses.append(
+                """(p.project_id LIKE ? OR p.project_name LIKE ? OR p.origin_idea_status LIKE ?
+                OR q.status LIKE ? OR q.current_run_id LIKE ?)"""
+            )
+            params.extend([needle] * 5)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        order_by = {
+            "recent": "p.updated_at DESC, p.project_id DESC",
+            "oldest": "p.updated_at ASC, p.project_id ASC",
+            "created": "p.created_at DESC, p.updated_at DESC",
+            "name": "p.project_name COLLATE NOCASE ASC, p.updated_at DESC",
+            "status": "COALESCE(q.status, p.origin_idea_status) ASC, p.updated_at DESC",
+        }.get(sort, "p.updated_at DESC, p.project_id DESC")
+        sql = f"""SELECT p.project_id,
+                    p.project_name,
+                    p.notion_page_url,
+                    p.notion_page_id,
+                    p.origin_idea_status,
+                    p.created_at AS project_created_at,
+                    p.updated_at AS project_updated_at,
+                    q.status AS queue_status,
+                    q.current_run_id AS current_run_id,
+                    q.dispatch_priority AS dispatch_priority,
+                    q.next_action_hint AS next_action_hint,
+                    (SELECT r.run_id FROM runs r WHERE r.project_id = p.project_id ORDER BY r.updated_at DESC, r.run_id DESC LIMIT 1) AS latest_run_id,
+                    (SELECT r.state FROM runs r WHERE r.project_id = p.project_id ORDER BY r.updated_at DESC, r.run_id DESC LIMIT 1) AS latest_run_state,
+                    (SELECT pa.paper_id FROM papers pa WHERE pa.project_id = p.project_id ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_id,
+                    (SELECT pa.paper_status FROM papers pa WHERE pa.project_id = p.project_id ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status
+                FROM projects p
+                LEFT JOIN queue_items q USING(project_id)
+                {where}
+                ORDER BY {order_by}
+                LIMIT ? OFFSET ?"""
+        with self._connect() as conn:
+            rows = conn.execute(sql, (*params, safe_size + 1, offset)).fetchall()
+        page_rows = [dict(row) for row in rows[:safe_size]]
+        has_more = len(rows) > safe_size
+        next_cursor = str(offset + safe_size) if has_more else None
+        return page_rows, next_cursor, has_more
+
     def paper_rows(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(

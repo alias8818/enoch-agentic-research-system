@@ -1137,6 +1137,75 @@ class SupabaseReadOnlyControlPlaneStore:
         rows = self._queue_rows(f"{where} order by {order_by} limit %s offset %s", tuple(params))
         return self._sql_page(rows, page_size=safe_size, cursor=cursor)
 
+    def project_page(
+        self,
+        *,
+        status: str = "",
+        search: str = "",
+        page_size: int = 50,
+        cursor: str = "",
+        sort: str = "recent",
+    ) -> tuple[list[dict[str, Any]], str | None, bool]:
+        safe_size = max(1, min(page_size, 200))
+        offset = max(0, _int(cursor, 0))
+        clauses: list[str] = []
+        params: list[Any] = []
+        if status:
+            clauses.append("(p.origin_idea_status = %s or q.status = %s)")
+            params.extend([status, status])
+        if search:
+            needle = f"%{search.strip()}%"
+            clauses.append(
+                """
+                (
+                  p.project_id ilike %s
+                  or p.project_name ilike %s
+                  or p.origin_idea_status ilike %s
+                  or coalesce(q.status, '') ilike %s
+                  or coalesce(q.current_run_id, '') ilike %s
+                )
+                """
+            )
+            params.extend([needle, needle, needle, needle, needle])
+        where = f"where {' and '.join(clauses)}" if clauses else ""
+        if sort == "oldest":
+            order_by = "p.updated_at asc, p.project_id asc"
+        elif sort == "created":
+            order_by = "p.created_at desc, p.updated_at desc"
+        elif sort == "name":
+            order_by = "lower(p.project_name) asc, p.updated_at desc"
+        elif sort == "status":
+            order_by = "coalesce(q.status, p.origin_idea_status) asc, p.updated_at desc"
+        else:
+            order_by = "p.updated_at desc, p.project_id desc"
+        params.extend([safe_size + 1, offset])
+        rows = self._query(
+            f"""
+            select p.project_id,
+              p.project_name,
+              p.notion_page_url,
+              p.notion_page_id,
+              p.origin_idea_status,
+              p.created_at as project_created_at,
+              p.updated_at as project_updated_at,
+              q.status as queue_status,
+              q.current_run_id as current_run_id,
+              q.dispatch_priority as dispatch_priority,
+              q.next_action_hint as next_action_hint,
+              (select r.run_id from runs r where r.project_id = p.project_id order by r.updated_at desc, r.run_id desc limit 1) as latest_run_id,
+              (select r.state from runs r where r.project_id = p.project_id order by r.updated_at desc, r.run_id desc limit 1) as latest_run_state,
+              (select pa.paper_id from papers pa where pa.project_id = p.project_id order by pa.updated_at desc limit 1) as related_paper_id,
+              (select pa.paper_status from papers pa where pa.project_id = p.project_id order by pa.updated_at desc limit 1) as related_paper_status
+            from projects p
+            left join queue_items q using(project_id)
+            {where}
+            order by {order_by}
+            limit %s offset %s
+            """,
+            tuple(params),
+        )
+        return self._sql_page(rows, page_size=safe_size, cursor=cursor)
+
     def paper_page(
         self,
         *,

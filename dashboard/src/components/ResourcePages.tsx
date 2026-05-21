@@ -95,6 +95,22 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
   )
 }
 
+export function ProjectsPage({ route }: { route: Extract<DashboardRoute, { page: 'projects' }> }) {
+  const [selection, setSelection] = useState<DetailSelection | null>(null)
+  const [filters, setFilters] = useState<FilterState>({ search: '', status: route.status, pageSize: '50', cursor: '' })
+  const params = withCommonParams(filters, 'recent')
+  const query = useQuery({ queryKey: ['projects', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/projects?${params}`) })
+  if (query.isLoading) return <LoadingCard label="projects" />
+  if (query.isError) return <ErrorCard error={query.error} />
+  return (
+    <PageShell title="Projects" subtitle="Project discovery from /control/api/v1/projects. Bounded, searchable, and detail-backed.">
+      <FilterBar state={filters} statusOptions={[{ label: 'all project states', value: '' }, { label: 'testing', value: 'testing' }, { label: 'exploring', value: 'exploring' }, { label: 'queued', value: 'queued' }, { label: 'running', value: 'running' }, { label: 'completed', value: 'completed' }, { label: 'blocked', value: 'blocked' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.status, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
+      <DataTable rows={query.data?.rows || []} columns={['project_id', 'project_name', 'origin_idea_status', 'queue_status', 'latest_run_state', 'related_paper_status', 'updated_at']} empty="No projects match this filter." onSelectRow={(row) => setSelection({ kind: 'project', id: String(row.project_id || ''), row })} />
+      <DetailPanel selection={selection} onClose={() => setSelection(null)} />
+    </PageShell>
+  )
+}
+
 export function RunsPage({ route }: { route: Extract<DashboardRoute, { page: 'runs' }> }) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [filters, setFilters] = useState<FilterState>({ search: '', status: route.state, pageSize: '50', cursor: '' })

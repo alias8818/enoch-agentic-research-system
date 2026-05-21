@@ -8,7 +8,7 @@ import { PaperMiniStrip } from './components/PaperMiniStrip'
 import { PrimaryAction } from './components/PrimaryAction'
 import { SafetyBar } from './components/SafetyBar'
 import { AutomationPage } from './components/AutomationPage'
-import { CorpusPage, EventsPage, ObservabilityPage, PapersPage, QueuePage, RunsPage } from './components/ResourcePages'
+import { CorpusPage, EventsPage, ObservabilityPage, PapersPage, ProjectsPage, QueuePage, RunsPage } from './components/ResourcePages'
 import { ResearchPage } from './components/ResearchPage'
 import { WorkerLanes } from './components/WorkerLanes'
 import { dashboardV2Href, parseDashboardRoute } from './routes'
@@ -91,6 +91,7 @@ function currentRoute(): DashboardRoute {
 }
 
 function RoutedPage({ route }: { route: DashboardRoute }) {
+  if (route.page === 'projects') return <ProjectsPage route={route} />
   if (route.page === 'queue') return <QueuePage route={route} />
   if (route.page === 'runs') return <RunsPage route={route} />
   if (route.page === 'papers') return <PapersPage route={route} />
@@ -137,6 +138,7 @@ function Shell() {
           </div>
           <nav className="app-nav" aria-label="Dashboard V2 navigation">
             <a className={navClass(route, 'overview')} href={dashboardV2Href('#overview')}>Overview</a>
+            <a className={navClass(route, 'projects')} href={dashboardV2Href('#projects')}>Projects</a>
             <a className={navClass(route, 'queue')} href={dashboardV2Href('#queue:queued')}>Queue</a>
             <a className={navClass(route, 'runs')} href={dashboardV2Href('#runs')}>Runs</a>
             <a className={navClass(route, 'papers')} href={dashboardV2Href('#papers')}>Papers</a>

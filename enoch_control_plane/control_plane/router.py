@@ -2899,6 +2899,28 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "events_page": read_models.page_response(rows=events, next_cursor=next_cursor, has_more=has_more, page_size_value=read_models.page_size(event_limit, cap=100), cursor="", filters={"entity_id": run_id}),
         }
 
+    @router.get("/api/v1/projects")
+    def dashboard_v1_projects(
+        authorization: str | None = Header(default=None),
+        status: str = "",
+        search: str = "",
+        cursor: str = "",
+        page_size: int = Query(default=50, ge=1, le=200),
+        sort: str = "recent",
+    ) -> dict[str, Any]:
+        authorize(authorization)
+        safe_size = read_models.page_size(page_size)
+        rows, next_cursor, has_more = store.project_page(status=status, search=search, cursor=cursor, page_size=safe_size, sort=sort)
+        out = [read_models.summarize_project_row(row) for row in rows]
+        return {
+            "ok": True,
+            "source": "control_api_v1_projects",
+            "authority": "bounded SQL project read model",
+            "generated_at": utc_now(),
+            "page": read_models.page_response(rows=out, next_cursor=next_cursor, has_more=has_more, page_size_value=safe_size, cursor=cursor, filters={"status": status, "search": search, "sort": sort}),
+            "rows": out,
+        }
+
     @router.get("/api/v1/projects/{project_id}")
     def dashboard_v1_project_detail(project_id: str, authorization: str | None = Header(default=None), event_limit: int = Query(default=50, ge=0, le=100)) -> dict[str, Any]:
         authorize(authorization)

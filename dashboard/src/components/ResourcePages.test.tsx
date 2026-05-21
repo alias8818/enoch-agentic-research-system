@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
-import { CorpusPage, EventsPage, ObservabilityPage, PapersPage, QueuePage, RunsPage } from './ResourcePages'
+import { CorpusPage, EventsPage, ObservabilityPage, PapersPage, ProjectsPage, QueuePage, RunsPage } from './ResourcePages'
 
 function renderWithClient(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -39,6 +39,26 @@ it('loads queue rows from the V1 queue endpoint with the route status', async ()
   expectParam(url, 'page_size', '50')
   expectParam(url, 'sort', 'priority')
   expectParam(url, 'status', 'queued')
+})
+
+it('loads project discovery rows from the V1 projects endpoint', async () => {
+  saveToken('test-token')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'project-1', project_name: 'Trace Oracle', origin_idea_status: 'testing', queue_status: 'queued', latest_run_state: 'running' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ project_id: 'project-1', project: { project_name: 'Trace Oracle' } }), { status: 200 }))
+
+  renderWithClient(<ProjectsPage route={{ page: 'projects', status: 'testing', hash: '#projects?status=testing' }} />)
+
+  await screen.findByText('Trace Oracle')
+  const url = requestUrl(fetchMock.mock.calls[0])
+  expect(url.pathname).toBe('/control/api/v1/projects')
+  expectParam(url, 'status', 'testing')
+  expectParam(url, 'page_size', '50')
+  expectParam(url, 'sort', 'recent')
+
+  fireEvent.click(screen.getByText('Trace Oracle'))
+  await screen.findByLabelText('Dashboard detail panel')
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/projects/project-1', expect.any(Object))
 })
 
 it('loads runs from the V1 runs endpoint with state filters and detail fetches', async () => {
