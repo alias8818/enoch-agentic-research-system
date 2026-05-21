@@ -5684,6 +5684,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
             prepare_payload = next(call[3] for call in calls if call[1] == "/prepare-project")
             self.assertEqual(prepare_payload["metadata"]["workload_class"], "cpu_only")
             self.assertEqual(prepare_payload["metadata"]["machine_target"], "cpu-proxmox-1")
+            self.assertEqual(prepare_payload["metadata"]["dispatch_route"]["token_configured"], True)
+            self.assertNotIn("bearer_token", prepare_payload["metadata"]["dispatch_route"])
             self.assertEqual(response.json()["live"]["dispatch_route"]["worker_role"], "cpu_worker")
 
     def test_live_dispatch_blocks_worker_with_mismatched_callback_token_fingerprint(self) -> None:
