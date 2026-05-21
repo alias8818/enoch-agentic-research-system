@@ -299,6 +299,8 @@ http://<control-vm>:8787/control/dashboard
 
 The redesigned `/control/dashboard` shell uses bounded `/control/api/v1/*` read models by default; reserve heavyweight legacy status endpoints for debugging only.
 
+Dashboard V2 (`/control/dashboard-v2`) build, rsync, and post-deploy smoke checks are documented in [`docs/dashboard-v2-deploy.md`](dashboard-v2-deploy.md).
+
 ## 6. Enable Pushover queue alerts
 
 Pushover is optional but recommended for queue hang/stoppage alerting.

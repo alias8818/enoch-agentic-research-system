@@ -228,7 +228,31 @@ it('explains event read-model failures without dumping a generic 500 card', asyn
   renderWithClient(<EventsPage route={{ page: 'events', eventType: '', search: '', hash: '#events' }} />)
 
   expect(await screen.findByText('Events could not load')).toBeInTheDocument()
-  expect(screen.getByText(/The backend events read model returned an error/)).toBeInTheDocument()
+  expect(screen.getByText(/Dispatch impact:/)).toBeInTheDocument()
+  expect(screen.getByText('Retry events')).toBeInTheDocument()
+  expect(screen.getByText('Open legacy events')).toBeInTheDocument()
+  expect(screen.queryByText(/V2 data unavailable/)).not.toBeInTheDocument()
+})
+
+it('explains idle queue slices when no rows are returned', async () => {
+  saveToken('test-token')
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ rows: [], page: { returned: 0, has_more: false } }), { status: 200 }))
+
+  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
+
+  expect(await screen.findByText('No queued work right now')).toBeInTheDocument()
+  expect(screen.getByText(/empty by design/i)).toBeInTheDocument()
+})
+
+it('explains queue endpoint failures with retry guidance', async () => {
+  saveToken('test-token')
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ detail: 'server error' }), { status: 500 }))
+
+  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
+
+  expect(await screen.findByText('Queue could not load')).toBeInTheDocument()
+  expect(screen.getByText(/Dispatch impact:/)).toBeInTheDocument()
+  expect(screen.getByText('Retry queue')).toBeInTheDocument()
   expect(screen.queryByText(/V2 data unavailable/)).not.toBeInTheDocument()
 })
 
@@ -242,7 +266,6 @@ it('loads runs from the V1 runs endpoint with state filters and detail fetches',
 
   await screen.findByText('run-1')
   expect(screen.getByRole('link', { name: /run-1/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-1')
-  expect(screen.getByRole('link', { name: /project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
   const url = requestUrl(fetchMock.mock.calls[0])
   expect(url.pathname).toBe('/control/api/v1/runs')
   expectParam(url, 'state', 'running')
@@ -398,9 +421,8 @@ it('loads corpus import rows as a first-class V2 subview', async () => {
 
   renderWithClient(<CorpusPage />)
 
-  await screen.findByText('Corpus candidate')
+  expect(await screen.findByText('Corpus candidate')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /paper-corpus/ })).toHaveAttribute('href', '/control/dashboard-v2#paper:paper-corpus')
-  expect(screen.getByRole('link', { name: /project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
   const url = requestUrl(fetchMock.mock.calls[1])
   expect(url.pathname).toBe('/control/api/v1/papers')
   expectParam(url, 'status', 'publication_draft')
@@ -431,7 +453,6 @@ it('shows raw event detail without inventing a missing event endpoint', async ()
   renderWithClient(<EventsPage />)
   fireEvent.click(await screen.findByText('Alert summary'))
 
-  expect(screen.getByRole('link', { name: /9/ })).toHaveAttribute('href', '/control/dashboard-v2#event:9')
   expect(await screen.findByLabelText('Dashboard detail panel')).toHaveTextContent('Queue Alert')
   expect(globalThis.fetch).toHaveBeenCalledTimes(1)
 })
@@ -521,6 +542,6 @@ it('opens intake idea details from selected rows without a legacy fallback', asy
   expect(detail).toHaveTextContent('dispatch')
   expect(detail).toHaveTextContent('Current state')
   expect(detail).toHaveTextContent('Next safe action')
-  expect(detail).toHaveTextContent('Open the matching project or queue row and run a dispatch dry-run before starting work.')
+  expect(detail).toHaveTextContent('Open the matching project and run a dispatch dry-run before starting work.')
   expect(screen.queryByRole('link', { name: /legacy/i })).not.toBeInTheDocument()
 })

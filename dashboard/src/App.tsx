@@ -12,8 +12,9 @@ import { DetailPage } from './components/DetailPanel'
 import { CorpusPage, EventsPage, IntakePage, ObservabilityPage, PapersPage, ProjectsPage, QueuePage, RunsPage } from './components/ResourcePages'
 import { ResearchPage } from './components/ResearchPage'
 import { WorkerLanes } from './components/WorkerLanes'
-import { dashboardV2Href, parseDashboardRoute } from './routes'
+import { DASHBOARD_V2_PATH, canonicalDashboardHash, dashboardV2Href, dashboardRouteTitle, parseDashboardRoute } from './routes'
 import type { DashboardRoute } from './routes'
+import { detailParentPage, unsupportedRouteSuggestions } from './routePolicy'
 import type { AutomationReadiness, OverviewResponse, StatusResponse } from './types'
 
 function TokenGate({ onSave }: { onSave: () => void }) {
@@ -276,7 +277,12 @@ function AutomationReadinessSummary({ readiness, isLoading, error }: { readiness
 }
 
 function currentRoute(): DashboardRoute {
-  return parseDashboardRoute(window.location.hash || '#overview')
+  const rawHash = window.location.hash || '#overview'
+  const canonical = canonicalDashboardHash(rawHash)
+  if (canonical !== rawHash) {
+    window.history.replaceState(window.history.state, '', `${DASHBOARD_V2_PATH}${canonical}`)
+  }
+  return parseDashboardRoute(canonical)
 }
 
 function RoutedPage({ route }: { route: DashboardRoute }) {
@@ -292,12 +298,16 @@ function RoutedPage({ route }: { route: DashboardRoute }) {
   if (route.page === 'intake') return <IntakePage route={route} />
   if (route.page === 'automation') return <AutomationPage paperId={route.paperId} />
   if (route.page === 'unsupported') {
+    const suggestions = unsupportedRouteSuggestions(route.hash)
     return (
       <section className="legacy-card unsupported-route-card">
         <p className="eyebrow">V2 route guard</p>
         <h1>Unsupported V2 route</h1>
-        <p>This hash is not owned by a React subview yet. Stay in V2 for supported operations, or use the legacy escape hatch for this exact hash.</p>
+        <p>This hash is not owned by a React subview yet. Use a supported list or detail route below, or open the legacy escape hatch for this exact hash.</p>
         <div className="unsupported-route-actions">
+          {suggestions.map((item) => (
+            <a key={item.href} className="secondary-button secondary-button--link" href={item.href}>{item.label}</a>
+          ))}
           <a className="primary-button primary-button--link" href={dashboardV2Href('#overview')}>Back to command center</a>
           <a className="secondary-button secondary-button--link" href={`/control/dashboard${route.hash}`}>Open this hash in legacy dashboard</a>
         </div>
@@ -308,7 +318,8 @@ function RoutedPage({ route }: { route: DashboardRoute }) {
 }
 
 function navClass(route: DashboardRoute, page: DashboardRoute['page']): string {
-  return route.page === page ? 'nav-link nav-link--active' : 'nav-link'
+  const active = route.page === page || (route.page === 'detail' && detailParentPage(route.kind) === page)
+  return active ? 'nav-link nav-link--active' : 'nav-link'
 }
 
 function moreNavClass(route: DashboardRoute): string {
@@ -329,10 +340,12 @@ function Shell() {
   return (
     <main className="app-frame">
       <div className="app-shell">
-        <header className="app-header">
-          <div>
-            <p className="eyebrow">Enoch Dashboard V2</p>
-            <h1>Operator command center</h1>
+        <header className="app-header app-header--compact">
+          <div className="app-brand">
+            <a className="app-brand-link" href={dashboardV2Href('#overview')}>
+              <span className="eyebrow">Enoch Dashboard V2</span>
+            </a>
+            <p className="app-header-context">{dashboardRouteTitle(route)}</p>
           </div>
           <nav className="app-nav" aria-label="Dashboard V2 navigation">
             <a className={navClass(route, 'overview')} href={dashboardV2Href('#overview')}>Overview</a>

@@ -1,32 +1,46 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { DataTable } from './DataTable'
+import { projectsTableColumns } from '../tablePresentation'
 
 afterEach(() => {
+  cleanup()
   vi.restoreAllMocks()
 })
 
-it('renders copy buttons for truncated identifier cells without selecting the row', async () => {
+it('renders subtle copy buttons for id columns without selecting the row', async () => {
   const writeText = vi.fn().mockResolvedValue(undefined)
   Object.assign(navigator, { clipboard: { writeText } })
   const onSelectRow = vi.fn()
 
-  render(<DataTable rows={[{ project_id: '80324bc197896999', status: 'queued', title: 'Candidate' }]} columns={['project_id', 'status', 'title']} empty="empty" onSelectRow={onSelectRow} />)
+  render(<DataTable rows={[{ project_id: '80324bc197896999', status: 'queued', project_name: 'Candidate' }]} columns={projectsTableColumns} empty="empty" onSelectRow={onSelectRow} />)
 
-  fireEvent.click(screen.getByRole('button', { name: 'Copy project id 80324bc197896999' }))
+  expect(screen.getByText('Candidate')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Copy id 80324bc197896999' }))
 
   await waitFor(() => expect(writeText).toHaveBeenCalledWith('80324bc197896999'))
   expect(onSelectRow).not.toHaveBeenCalled()
-  expect(await screen.findByText('Copied')).toBeInTheDocument()
 })
 
-it('renders linked identifier cells without selecting the row', () => {
+it('renders linked id cells without selecting the row', () => {
   const onSelectRow = vi.fn()
 
-  render(<DataTable rows={[{ project_id: 'project-1', status: 'queued' }]} columns={['project_id', 'status']} empty="empty" onSelectRow={onSelectRow} cellHref={() => '/control/dashboard-v2#project:project-1'} />)
+  render(<DataTable rows={[{ project_id: 'project-1', project_name: 'Trace oracle', queue_status: 'queued' }]} columns={projectsTableColumns} empty="empty" onSelectRow={onSelectRow} cellHref={(row, column) => column === 'project_id' ? '/control/dashboard-v2#project:project-1' : undefined} />)
 
-  fireEvent.click(screen.getByRole('link', { name: /project-1/ }))
+  fireEvent.click(screen.getByRole('link', { name: 'project-1' }))
 
-  expect(screen.getByRole('link', { name: /project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
+  expect(screen.getByRole('link', { name: 'project-1' })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
   expect(onSelectRow).not.toHaveBeenCalled()
+})
+
+it('selects rows from keyboard Enter on focusable table rows', () => {
+  const onSelectRow = vi.fn()
+
+  render(<DataTable rows={[{ project_id: 'project-1', project_name: 'Trace oracle', queue_status: 'queued' }]} columns={projectsTableColumns} empty="empty" onSelectRow={onSelectRow} />)
+
+  const row = screen.getByText('Trace oracle').closest('tr')
+  expect(row).toHaveAttribute('tabindex', '0')
+  fireEvent.keyDown(row!, { key: 'Enter' })
+
+  expect(onSelectRow).toHaveBeenCalledTimes(1)
 })

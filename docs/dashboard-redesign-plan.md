@@ -83,8 +83,14 @@ The first shipped slice is the redesigned shell and overview experience:
 
 ## Follow-up slices
 
+- **Trust guards (2026-05-21):** post-deploy GET/API smoke via [`scripts/dashboard_v2_smoke.py`](../scripts/dashboard_v2_smoke.py), dashboard Vitest in CI, DOM regression guards for collapsed raw JSON and detail hero titles, and deploy notes in [`dashboard-v2-deploy.md`](dashboard-v2-deploy.md). Rendering invariants stay in Vitest; smoke proves shell/assets/API health only.
+- **Detail operator sections (2026-05-21):** entity-specific operator question grids, related entity link chips, and intake admission sections via [`detailOperatorSummary.ts`](../dashboard/src/detailOperatorSummary.ts) + Vitest acceptance tests in [`DetailPanel.test.tsx`](../dashboard/src/components/DetailPanel.test.tsx).
+- **Compact secondary headers (2026-05-21):** shared [`PageHeader.tsx`](../dashboard/src/components/PageHeader.tsx) for list/detail/research/automation pages; command center keeps the large [`CommandHero`](../dashboard/src/components/CommandHero.tsx) treatment only on overview.
+- **Operator-first tables (2026-05-21):** column specs and derived dispatch/evidence labels via [`tablePresentation.ts`](../dashboard/src/tablePresentation.ts); IDs render as compact chips with subtle copy controls in [`DataTable.tsx`](../dashboard/src/components/DataTable.tsx).
+- **Error and empty states (2026-05-21):** endpoint-specific failure cards and composed idle/filtered/blocked table empties via [`resourceStatePresentation.ts`](../dashboard/src/resourceStatePresentation.ts) + [`ResourceStateCards.tsx`](../dashboard/src/components/ResourceStateCards.tsx); Vitest guards in [`resourceStatePresentation.test.ts`](../dashboard/src/resourceStatePresentation.test.ts) and [`ResourcePages.test.tsx`](../dashboard/src/components/ResourcePages.test.tsx).
+- **Route policy (2026-05-21):** audited route catalog, alias canonicalization (`#reviews` → `#automation`, `#candidate:` → `#research:`, legacy `#status` → `#overview`), detail breadcrumbs, and parent-nav highlighting via [`routePolicy.ts`](../dashboard/src/routePolicy.ts) + [`routes.ts`](../dashboard/src/routes.ts).
+- **Styling cleanup (2026-05-21):** CSS-only filter select polish, tighter tables, detail-panel scroll containment, two-line primary title clamp, shared focus rings, and keyboard row selection in [`style.css`](../dashboard/src/style.css) + [`styleGuards.test.ts`](../dashboard/src/styleGuards.test.ts).
 - Extract the inline dashboard into static assets or a small frontend package if the UI keeps growing.
-- Add dedicated project/run/paper detail layouts instead of generic detail sections.
 - Expand the corpus import view with direct links to public corpus artifacts and release-validator evidence.
 - Add keyboard shortcut help and saved filters.
 - Add screenshot-based visual regression for the dashboard shell.

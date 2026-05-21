@@ -1,6 +1,9 @@
+import { deriveCommandPresentation, type CommandPresentationContext } from '../commandResultPresentation'
+
 type CommandResultLike = {
-  title: string
+  title?: string
   payload: Record<string, unknown>
+  context?: CommandPresentationContext
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -55,27 +58,6 @@ function laneTarget(payload: Record<string, unknown>): string {
   ))
 }
 
-function commandOutcome(payload: Record<string, unknown>): string {
-  const action = text(payload.action, '')
-  if (payload.ok === false) return 'Blocked or failed'
-  if (action.toLowerCase().includes('blocked')) return 'Blocked'
-  if (action.toLowerCase().includes('dry_run') || payload.dry_run === true) return 'Dry-run only'
-  if (action) return action.replaceAll('_', ' ')
-  return 'Completed'
-}
-
-function nextSafeAction(payload: Record<string, unknown>): string {
-  const action = text(payload.action, '').toLowerCase()
-  const reason = commandReason(payload).toLowerCase()
-  if (payload.ok === false || action.includes('blocked') || reason.includes('blocked') || reason.includes('failed')) {
-    return 'Do not run the live action yet. Fix the blocker or refresh current state first.'
-  }
-  if (action.includes('dry_run') || payload.dry_run === true) {
-    return 'Review this summary, then run the live action only if the selected work and lane still match.'
-  }
-  return 'Refresh the dashboard and verify the queue, run, or paper state moved as expected.'
-}
-
 function SummaryField({ label, value }: { label: string; value: string }) {
   return (
     <div className="command-result-field">
@@ -88,22 +70,23 @@ function SummaryField({ label, value }: { label: string; value: string }) {
 export function CommandResultSummary({ result, className = '' }: { result: CommandResultLike | null | undefined; className?: string }) {
   if (!result) return null
   const payload = result.payload || {}
+  const presentation = deriveCommandPresentation(payload, result.context)
+  const title = result.title || presentation.title
   const reason = commandReason(payload)
   return (
     <section className={`result-card command-result-summary ${className}`.trim()} aria-live="polite">
       <div className="command-result-head">
         <div>
           <p className="eyebrow">Command result</p>
-          <h3>{result.title}</h3>
+          <h3>{title}</h3>
         </div>
-        <span className="status-chip">{commandOutcome(payload)}</span>
+        <span className={`status-chip status-chip--${presentation.severity}`}>{presentation.severityLabel}</span>
       </div>
       <p className="command-result-reason">{reason}</p>
       <dl className="command-result-grid">
         <SummaryField label="Selected work" value={selectedWork(payload)} />
         <SummaryField label="Lane / target" value={laneTarget(payload)} />
-        <SummaryField label="Backend action" value={text(payload.action, '—')} />
-        <SummaryField label="Next safe action" value={nextSafeAction(payload)} />
+        <SummaryField label="Operator decision" value={presentation.decision} />
       </dl>
       <details className="raw-details command-result-raw">
         <summary>Raw JSON</summary>

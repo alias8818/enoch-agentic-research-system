@@ -4,7 +4,10 @@ import { apiGet, apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
 import { DataTable } from './DataTable'
 import { useOperatorDialog } from './OperatorDialog'
+import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
+import { automationTableColumns, simpleTableColumns } from '../tablePresentation'
+import { PageHeader } from './PageHeader'
 
 type AutomationResponse = {
   rows?: Record<string, unknown>[]
@@ -33,8 +36,9 @@ function firstPaperId(rows: Record<string, unknown>[], preferredPaperId = ''): s
   return String(rows.find((row) => row.paper_id)?.paper_id || '')
 }
 
-function ResultCard({ title = 'Automation command result', result }: { title?: string; result?: MutationResult }) {
-  return <CommandResultSummary result={result ? { title, payload: result } : null} />
+function ResultCard({ result, context }: { result?: MutationResult; context?: CommandPresentationContext }) {
+  if (!result) return null
+  return <CommandResultSummary result={{ payload: result, context }} />
 }
 
 function automationCellHref(row: Record<string, unknown>, column: string): string | undefined {
@@ -109,7 +113,7 @@ function AutomationDetailCard({
       {checklistItems.length ? (
         <>
           <h3>Checklist</h3>
-          <DataTable rows={checklistItems} columns={['item_id', 'label', 'status', 'note']} empty="No checklist rows returned." />
+          <DataTable rows={checklistItems} columns={simpleTableColumns(['item_id', 'label', 'status', 'note'], { label: { kind: 'primary' } })} empty="No checklist rows returned." />
           {onMarkChecklistPass && paperId ? (
             <div className="action-row" aria-label="Checklist actions">
               {checklistItems.map((checklistItem) => {
@@ -202,38 +206,42 @@ export function AutomationPage({ paperId = '' }: { paperId?: string }) {
 
   return (
     <section className="page-stack">
-      <div className="page-hero page-hero--with-action">
-        <div>
-          <p className="eyebrow">Dashboard V2</p>
-          <h1>Publication automation</h1>
-          <p>Paper workflow controls for draft rewrite planning and finalization package dry-runs. Live publish remains out of V2 for now.</p>
-          <div className="action-row">
-            <button className="secondary-button" type="button" onClick={() => rewriteDryRun.mutate()} disabled={rewriteDryRun.isPending}>Dry-run rewrite batch</button>
-            <button className="secondary-button" type="button" onClick={() => actionPaperId && finalizationDryRun.mutate(actionPaperId)} disabled={!actionPaperId || finalizationDryRun.isPending}>Dry-run finalization package</button>
-          </div>
-        </div>
-        <div className="page-hero-action">
-          <span>Last loaded {automation.data?.generated_at || 'unknown'}</span>
-          <button className="secondary-button" type="button" disabled={automation.isFetching || detail.isFetching} onClick={refreshAutomation}>
-            {automation.isFetching || detail.isFetching ? 'Refreshing…' : 'Refresh automation'}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Publication automation"
+        subtitle="Dry-run rewrite batches and finalization packages before any live publish work."
+        dataSource="/control/api/v1/automation and paper detail endpoints"
+        action={(
+          <>
+            <span>Last loaded {automation.data?.generated_at || 'unknown'}</span>
+            <button className="secondary-button" type="button" disabled={automation.isFetching || detail.isFetching} onClick={refreshAutomation}>
+              {automation.isFetching || detail.isFetching ? 'Refreshing…' : 'Refresh automation'}
+            </button>
+          </>
+        )}
+      />
 
-      <section className="count-grid">
-        {Object.entries(counts).slice(0, 8).map(([key, value]) => (
-          <div key={key} className="count-card">
-            <div>{String(value)}</div>
-            <div>{key.replaceAll('_', ' ')}</div>
-          </div>
-        ))}
-      </section>
+      {!automation.isLoading && !automation.isError ? (
+        <DataTable
+          rows={rows}
+          columns={automationTableColumns}
+          empty="No publication automation rows returned."
+          cellHref={automationCellHref}
+          onSelectRow={(row) => setSelectedPaperId(String(row.paper_id || ''))}
+        />
+      ) : null}
 
       {activePaperId ? (
-        <section className="result-card" aria-label="Targeted paper">
-          <h2>Targeted paper</h2>
-          <p>{activePaperId}</p>
-          <p>Finalization dry-run uses this selected paper id, not an implicit unrelated table row.</p>
+        <section className="queue-command-card queue-command-card--compact" aria-label="Selected paper actions">
+          <div>
+            <p className="eyebrow">Selected paper actions</p>
+            <h2>{String(rows.find((row) => String(row.paper_id || '') === activePaperId)?.project_name || activePaperId)}</h2>
+            <span className="detail-id-chip" title={activePaperId}>{activePaperId.length > 24 ? `${activePaperId.slice(0, 12)}…${activePaperId.slice(-8)}` : activePaperId}</span>
+            <p>Dry-run commands apply to this selected paper only.</p>
+          </div>
+          <div className="action-row">
+            <button className="secondary-button" type="button" onClick={() => rewriteDryRun.mutate()} disabled={rewriteDryRun.isPending}>Dry-run rewrite batch</button>
+            <button className="secondary-button" type="button" onClick={() => finalizationDryRun.mutate(activePaperId)} disabled={finalizationDryRun.isPending}>Dry-run finalization package</button>
+          </div>
         </section>
       ) : null}
 
@@ -246,9 +254,9 @@ export function AutomationPage({ paperId = '' }: { paperId?: string }) {
       />
       {detail.isError ? <div className="state-card state-card--error">Automation detail unavailable: {String(detail.error.message)}</div> : null}
 
-      {rewriteDryRun.data ? <ResultCard title="Rewrite dry-run result" result={rewriteDryRun.data} /> : null}
-      {finalizationDryRun.data ? <ResultCard title="Finalization dry-run result" result={finalizationDryRun.data} /> : null}
-      {checklistUpdate.data ? <ResultCard title="Checklist update result" result={checklistUpdate.data} /> : null}
+      {rewriteDryRun.data ? <ResultCard result={rewriteDryRun.data} context={{ commandFamily: 'finalize' }} /> : null}
+      {finalizationDryRun.data ? <ResultCard result={finalizationDryRun.data} context={{ commandFamily: 'finalize' }} /> : null}
+      {checklistUpdate.data ? <ResultCard result={checklistUpdate.data} context={{ commandFamily: 'automation' }} /> : null}
       {artifactPreviewQuery.isError ? <div className="state-card state-card--error">Artifact preview unavailable: {String(artifactPreviewQuery.error.message)}</div> : null}
       {artifactPreview ? (
         <section className="result-card artifact-preview" aria-label="Artifact preview">
@@ -262,15 +270,14 @@ export function AutomationPage({ paperId = '' }: { paperId?: string }) {
       {automation.isError ? <div className="state-card state-card--error">Publication automation unavailable: {String(automation.error.message)}</div> : null}
       {dialog}
 
-      {!automation.isLoading && !automation.isError ? (
-        <DataTable
-          rows={rows}
-          columns={['paper_id', 'review_status', 'paper_status', 'project_name', 'rank_score', 'updated_at']}
-          empty="No publication automation rows returned."
-          cellHref={automationCellHref}
-          onSelectRow={(row) => setSelectedPaperId(String(row.paper_id || ''))}
-        />
-      ) : null}
+      <section className="count-grid">
+        {Object.entries(counts).slice(0, 8).map(([key, value]) => (
+          <div key={key} className="count-card">
+            <div>{String(value)}</div>
+            <div>{key.replaceAll('_', ' ')}</div>
+          </div>
+        ))}
+      </section>
     </section>
   )
 }

@@ -97,6 +97,60 @@ it('surfaces the movement diagnosis before lane and action controls', async () =
   expect(within(diagnosis).getByText('No admitted candidates')).toBeInTheDocument()
 })
 
+it('keeps overview command result raw JSON inside collapsed details', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:00Z',
+      counts: { active: 0, queued: 1 },
+      paper_counts: {},
+      movement_diagnosis: { status: 'actionable', primary_reason: 'Dispatch ready.', blockers: [] },
+      flags: {},
+      top_actions: [{
+        kind: 'dispatch_next',
+        title: 'Dispatch GB10 lane',
+        summary: 'One queued candidate matches the idle lane.',
+        action_label: 'Dispatch',
+        action_hash: '#queue:queued',
+      }],
+      recent_events: [],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      action: 'dry_run_dispatch',
+      reason: 'dry-run dispatch selected candidate',
+      candidate: { project_id: 'project-1', machine_target: 'gb10' },
+    }), { status: 200 }))
+    .mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:10Z',
+      counts: { active: 0, queued: 1 },
+      paper_counts: {},
+      movement_diagnosis: { status: 'actionable', primary_reason: 'Dispatch ready.', blockers: [] },
+      flags: {},
+      top_actions: [{
+        kind: 'dispatch_next',
+        title: 'Dispatch GB10 lane',
+        summary: 'One queued candidate matches the idle lane.',
+        action_label: 'Dispatch',
+        action_hash: '#queue:queued',
+      }],
+      recent_events: [],
+    }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  await screen.findByText('Can I leave this running?')
+  fireEvent.click(screen.getByRole('button', { name: 'Check dispatch' }))
+  await screen.findByText('dry-run dispatch selected candidate')
+
+  const resultCard = screen.getByText('Selected work').closest('.command-result-summary') as HTMLElement
+  resultCard.querySelectorAll('.json-block').forEach((block) => {
+    expect(block.closest('details.raw-details')).not.toBeNull()
+  })
+})
+
 it('shows recent activity inside the collapsed overview secondary fold', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -337,7 +391,33 @@ it('keeps unsupported hashes inside the V2 shell with a legacy escape link', () 
 
   expect(screen.getByRole('heading', { name: 'Unsupported V2 route' })).toBeInTheDocument()
   expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
+  expect(screen.getAllByRole('link', { name: /command center/i })).toHaveLength(1)
   expect(screen.getByRole('link', { name: 'Open this hash in legacy dashboard' })).toHaveAttribute('href', '/control/dashboard#unknown-workflow')
+})
+
+it('canonicalizes alias hashes to supported routes on load', () => {
+  window.location.hash = '#reviews'
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(window.location.hash).toBe('#automation')
+  expect(screen.getByRole('heading', { name: 'Publication automation' })).toBeInTheDocument()
+})
+
+it('redirects legacy status hashes to the command center', () => {
+  window.location.hash = '#status'
+  saveToken('test-token')
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+    generated_at: '2026-05-21T12:00:00Z',
+    queue: { queued: 0, active: 0 },
+    paper_pipeline: { publish_ready: 0, published_imported: 0, publication_ready_total: 0 },
+    events: [],
+  }), { status: 200 }))
+
+  render(<App />)
+
+  expect(window.location.hash).toBe('#overview')
 })
 
 
@@ -516,4 +596,23 @@ it('opens intake idea hashes as first-class V2 details', async () => {
   expect(detail).toHaveTextContent('dispatch')
   expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledWith('/control/api/intake/ideas?page_size=100', expect.any(Object))
+})
+
+it('uses compact secondary page headers instead of repeating the command-center hero', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+    ok: true,
+    generated_at: '2026-05-21T10:00:00Z',
+    page: { returned: 0, has_more: false },
+    rows: [],
+  }), { status: 200 }))
+  saveToken('test-token')
+  window.location.hash = '#projects'
+
+  const { container } = render(<App />)
+
+  expect(await screen.findByRole('heading', { level: 1, name: 'Projects' })).toBeInTheDocument()
+  expect(document.querySelector('.app-header-context')).toHaveTextContent('Projects')
+  expect(screen.queryByRole('heading', { name: 'Operator command center' })).not.toBeInTheDocument()
+  expect(container.querySelector('.page-hero')).toBeNull()
+  expect(screen.getByText('Data source')).toBeInTheDocument()
 })

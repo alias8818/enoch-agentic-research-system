@@ -37,7 +37,7 @@ it('opens automation detail from selected table rows', async () => {
   fireEvent.click(await screen.findByText('Selectable paper'))
 
   await screen.findByLabelText('Automation detail')
-  expect(screen.getByLabelText('Targeted paper')).toHaveTextContent('paper-select')
+  expect(screen.getByLabelText('Selected paper actions')).toHaveTextContent('paper-select')
   expect(screen.getByText('row selected')).toBeInTheDocument()
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/publication-automation/paper-select', expect.any(Object))
 })
@@ -71,12 +71,12 @@ it('uses the paper id from automation detail hashes for finalization dry-runs', 
   await screen.findByLabelText('Automation detail')
   await screen.findByText('Evidence bundle present')
   await screen.findByText('positive evidence')
-  const targeted = screen.getByLabelText('Targeted paper')
-  expect(targeted).toHaveTextContent('Targeted paper')
+  const targeted = screen.getByLabelText('Selected paper actions')
+  expect(targeted).toHaveTextContent('Target paper')
   expect(targeted).toHaveTextContent('paper-target')
   fireEvent.click(screen.getByRole('button', { name: 'Dry-run finalization package' }))
 
-  await screen.findByText('Finalization dry-run result')
+  await screen.findByText('Paper finalize dry-run passed')
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/publication-automation/paper-target', expect.any(Object))
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/paper-reviews/paper-target/prepare-finalization-package', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
 })
@@ -127,7 +127,7 @@ it('updates automation checklist items through dialog-confirmed V2 mutation', as
 
   fireEvent.click(screen.getByRole('button', { name: 'Mark passed' }))
 
-  await screen.findByText('Checklist update result')
+  await screen.findByText('Command completed')
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/publication-automation/paper-target/checklist/evidence', expect.objectContaining({
     method: 'POST',
     body: expect.stringContaining('"status":"pass"'),
@@ -138,20 +138,23 @@ it('updates automation checklist items through dialog-confirmed V2 mutation', as
 })
 
 it('dry-runs rewrite batch and finalization package without live rewrite', async () => {
+  saveToken('test-token')
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-1', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Paper project' }] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ item: { paper_id: 'paper-1', project_name: 'Paper project', review_status: 'triage_ready', paper_status: 'publication_draft' }, checklist: { items: [] } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, matched: 1, rows: [{ paper_id: 'paper-1', action: 'would_rewrite' }] }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, package_path: '/tmp/package.json' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-1' }] }), { status: 200 }))
 
   renderWithClient(<AutomationPage />)
 
-  await screen.findByText('Paper project')
+  fireEvent.click(await screen.findByText('Paper project'))
+  await screen.findByLabelText('Selected paper actions')
   fireEvent.click(screen.getByRole('button', { name: 'Dry-run rewrite batch' }))
-  await screen.findByText('Rewrite dry-run result')
+  await screen.findByText('Paper finalize dry-run passed')
   fireEvent.click(screen.getByRole('button', { name: 'Dry-run finalization package' }))
-  await screen.findByText('Finalization dry-run result')
+  await screen.findByText('Paper finalize dry-run passed')
 
-  expect(globalThis.fetch).toHaveBeenNthCalledWith(2, '/control/api/paper-reviews/rewrite-batch', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
-  expect(globalThis.fetch).toHaveBeenNthCalledWith(3, '/control/api/paper-reviews/paper-1/prepare-finalization-package', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
+  expect(globalThis.fetch).toHaveBeenNthCalledWith(3, '/control/api/paper-reviews/rewrite-batch', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
+  expect(globalThis.fetch).toHaveBeenNthCalledWith(4, '/control/api/paper-reviews/paper-1/prepare-finalization-package', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
 })

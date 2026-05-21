@@ -5,8 +5,11 @@ import { dryRunCyclePayload, liveCyclePayload } from '../researchCyclePayloads'
 import { dashboardV2Href } from '../routes'
 import type { DashboardRoute } from '../routes'
 import { DataTable } from './DataTable'
+import { simpleTableColumns } from '../tablePresentation'
 import { useOperatorDialog } from './OperatorDialog'
+import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
+import { PageHeader } from './PageHeader'
 
 type ResearchFacilityResponse = {
   rows?: Record<string, unknown>[]
@@ -50,8 +53,9 @@ function shortId(value: string): string {
   return `${value.slice(0, 14)}…${value.slice(-10)}`
 }
 
-function ResultCard({ title, result }: { title: string; result?: Record<string, unknown> }) {
-  return <CommandResultSummary result={result ? { title, payload: result } : null} />
+function ResultCard({ result, context, stale }: { result?: Record<string, unknown>; context?: CommandPresentationContext; stale?: boolean }) {
+  if (!result) return null
+  return <CommandResultSummary result={{ payload: result, context: { ...context, stale } }} />
 }
 
 function facilitySignature(facility?: ResearchFacilityResponse): string {
@@ -154,7 +158,7 @@ function CandidateDetail({ row, candidateId }: { row: Record<string, unknown> | 
 function candidateCellHref(row: Record<string, unknown>, column: string): string | undefined {
   if (column !== 'candidate_id') return undefined
   const candidateId = String(row.candidate_id || '')
-  return candidateId ? dashboardV2Href(`#candidate:${encodeURIComponent(candidateId)}`) : undefined
+  return candidateId ? dashboardV2Href(`#research:${encodeURIComponent(candidateId)}`) : undefined
 }
 
 export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page: 'research' }> }) {
@@ -237,25 +241,27 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
 
   return (
     <section className="page-stack">
-      <div className="page-hero page-hero--with-action">
-        <div>
-          <p className="eyebrow">Dashboard V2</p>
-          <h1>Research Facility</h1>
-          <p>Bounded candidate workbench and autopilot controls. Backend APIs remain the source of truth.</p>
+      <PageHeader
+        title="Research Facility"
+        subtitle="Promote admitted candidates and run bounded research cycles safely."
+        dataSource="/control/api/v1/research-facility and autopilot endpoints"
+        action={(
+          <>
+            <span>Last loaded {facility.data?.generated_at || 'unknown'}</span>
+            <button className="secondary-button" type="button" disabled={facility.isFetching} onClick={refreshCandidates}>
+              {facility.isFetching ? 'Refreshing…' : 'Refresh candidates'}
+            </button>
+          </>
+        )}
+        toolbar={(
           <div className="action-row">
             <button className="secondary-button" type="button" onClick={() => budget.mutate()} disabled={budget.isPending}>Check provider budget</button>
             <button className="secondary-button" type="button" onClick={runDryCycle} disabled={cycle.isPending}>Dry-run bounded cycle</button>
             <button className="primary-button" type="button" onClick={runLiveCycle} disabled={cycle.isPending || !canLiveCycle}>Run one bounded cycle</button>
           </div>
-          {cycleDisabledReason ? <p className="primary-action-disabled-reason">{cycleDisabledReason}</p> : null}
-        </div>
-        <div className="page-hero-action">
-          <span>Last loaded {facility.data?.generated_at || 'unknown'}</span>
-          <button className="secondary-button" type="button" disabled={facility.isFetching} onClick={refreshCandidates}>
-            {facility.isFetching ? 'Refreshing…' : 'Refresh candidates'}
-          </button>
-        </div>
-      </div>
+        )}
+      />
+      {cycleDisabledReason ? <p className="primary-action-disabled-reason">{cycleDisabledReason}</p> : null}
 
       <section className="count-grid">
         {Object.entries(counts).slice(0, 8).map(([key, value]) => (
@@ -266,8 +272,8 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
         ))}
       </section>
 
-      <ResultCard title="Provider budget result" result={budget.data as Record<string, unknown> | undefined} />
-      <ResultCard title="Run-cycle result" result={cycle.data as Record<string, unknown> | undefined} />
+      <ResultCard result={budget.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} />
+      <ResultCard result={cycle.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} stale={staleCycleDryRun} />
 
       <section className="queue-command-card">
         <div>
@@ -285,8 +291,8 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
         </div>
       </section>
 
-      {promotion.data?.action === 'dry_run_promote_candidate' ? <ResultCard title="Candidate promotion dry-run" result={promotion.data as Record<string, unknown>} /> : null}
-      {promotion.data?.action === 'promote_candidate' ? <ResultCard title="Candidate promotion result" result={promotion.data as Record<string, unknown>} /> : null}
+      {promotion.data?.action === 'dry_run_promote_candidate' ? <ResultCard result={promotion.data as Record<string, unknown>} context={{ commandFamily: 'research' }} /> : null}
+      {promotion.data?.action === 'promote_candidate' ? <ResultCard result={promotion.data as Record<string, unknown>} context={{ commandFamily: 'research' }} /> : null}
 
       {dialog}
 
@@ -294,7 +300,7 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
       {facility.isError ? <div className="state-card state-card--error">Research data unavailable: {String(facility.error.message)}</div> : null}
       {!facility.isLoading && !facility.isError ? (
         <>
-          <DataTable rows={rows} columns={['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at']} empty="No research candidates returned." cellHref={candidateCellHref} onSelectRow={setSelectedCandidate} />
+          <DataTable rows={rows} columns={simpleTableColumns(['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at'], { title: { kind: 'primary' }, candidate_id: { kind: 'id' } })} empty="No research candidates returned." cellHref={candidateCellHref} onSelectRow={setSelectedCandidate} />
           <CandidateDetail row={activeCandidate} candidateId={routeCandidateId} />
         </>
       ) : null}

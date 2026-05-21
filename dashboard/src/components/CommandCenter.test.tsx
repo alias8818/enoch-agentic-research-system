@@ -40,13 +40,14 @@ it('runs dispatch primary actions as safe dry-runs instead of only linking away'
     method: 'POST',
     body: expect.stringContaining('"dry_run":true'),
   }))
-  expect(screen.getByText('Primary action dry-run')).toBeInTheDocument()
+  expect(screen.getByText('Dispatch dry-run passed')).toBeInTheDocument()
   expect(screen.getByText('dry-run dispatch selected candidate')).toBeInTheDocument()
   expect(screen.getByText('Selected work')).toBeInTheDocument()
   expect(screen.getByText('project-1')).toBeInTheDocument()
   expect(screen.getByText('Lane / target')).toBeInTheDocument()
   expect(screen.getByText('gb10')).toBeInTheDocument()
-  expect(screen.getByText('Next safe action')).toBeInTheDocument()
+  expect(screen.getByText('Operator decision')).toBeInTheDocument()
+  expect(screen.getByText('Safe to dispatch')).toBeInTheDocument()
   expect(screen.getByText('Raw JSON')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
@@ -121,8 +122,7 @@ it('runs follow-up primary actions as safe dry-runs instead of only linking away
     body: expect.stringContaining('"dry_run":true'),
   }))
   expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"max_followup_depth":4')
-  expect(screen.getByText('Primary action dry-run')).toBeInTheDocument()
-  expect(screen.getByText('would queue bounded follow-up')).toBeInTheDocument()
+  expect(screen.getByText('Follow-up dry-run passed')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
@@ -172,7 +172,7 @@ it('runs write-paper primary actions as safe dry-runs instead of only linking aw
     body: expect.stringContaining('"dry_run":true'),
   }))
   expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"force":true')
-  expect(screen.getByText('Primary action dry-run')).toBeInTheDocument()
+  expect(screen.getByText('Paper draft dry-run passed')).toBeInTheDocument()
   expect(screen.getByText('eligible paper-ready candidate found')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
@@ -224,7 +224,7 @@ it('runs finalize-paper primary actions as safe dry-runs instead of only linking
   }))
   expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"paper_status":"publication_draft"')
   expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"skip_rewritten":true')
-  expect(screen.getByText('Primary action dry-run')).toBeInTheDocument()
+  expect(screen.getByText('Paper finalize dry-run passed')).toBeInTheDocument()
   expect(screen.getByText('would finalize 2 publication drafts')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
@@ -315,7 +315,7 @@ it('dry-runs dispatch from lane buttons without starting live dispatch', async (
     body: expect.stringContaining('"dry_run":true'),
   }))
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  expect(screen.getByText('Dispatch dry-run result')).toBeInTheDocument()
+  expect(screen.getByText('Dispatch dry-run passed')).toBeInTheDocument()
   expect(screen.getByText('dry-run dispatch selected candidate')).toBeInTheDocument()
   expect(confirmSpy).not.toHaveBeenCalled()
   expect(alertSpy).not.toHaveBeenCalled()
@@ -372,7 +372,7 @@ it('uses a dialog before live dispatching open lanes', async () => {
     method: 'POST',
     body: expect.stringContaining('"dry_run":false'),
   }))
-  expect(screen.getByText('Live dispatch result')).toBeInTheDocument()
+  expect(screen.getByText('Dispatch completed')).toBeInTheDocument()
   expect(screen.getByText('live dispatch accepted queued work')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
@@ -392,7 +392,7 @@ it('dry-runs feed actions without spending provider requests or promoting work',
   }))
   expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"enabled":false')
   expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"max_dispatches_per_run":0')
-  expect(screen.getByText('Feed dry-run result')).toBeInTheDocument()
+  expect(screen.getByText('Research action blocked')).toBeInTheDocument()
   expect(screen.getByText('provider budget passed; no provider request spent')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
@@ -477,7 +477,7 @@ it('uses dispatch-one for lane-card dispatch checks so the selected lane candida
     body: expect.stringContaining('"project_id":"gb10-project"'),
   }))
   expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"dry_run":true')
-  expect(screen.getByText('Dispatch dry-run result')).toBeInTheDocument()
+  expect(screen.getByText('Dispatch dry-run passed')).toBeInTheDocument()
 })
 
 it('live-dispatches a lane candidate only after exact lane dry-run and dialog confirmation', async () => {
@@ -541,7 +541,7 @@ it('runs paper finalize strip actions as dry-runs without rewriting drafts live'
     body: expect.stringContaining('"dry_run":true'),
   }))
   expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"limit":10')
-  expect(screen.getByText('Paper dry-run result')).toBeInTheDocument()
+  expect(screen.getByText('Paper finalize dry-run passed')).toBeInTheDocument()
   expect(screen.getByText('would rewrite one publication draft')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
@@ -619,7 +619,7 @@ it('checks every open lane candidate with dispatch-one instead of aggregate disp
     method: 'POST',
     body: JSON.stringify({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
   }))
-  expect(screen.getByText('Dispatch dry-run result')).toBeInTheDocument()
+  expect(screen.getByText('Dispatch dry-run passed')).toBeInTheDocument()
   expect(screen.getByText('checked 2 lane candidates')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
@@ -680,7 +680,7 @@ it('live-dispatches every open lane candidate with dispatch-one after confirmati
     method: 'POST',
     body: JSON.stringify({ project_id: 'gb10-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
   }))
-  expect(screen.getByText('Live dispatch result')).toBeInTheDocument()
+  expect(screen.getByText('Dispatch completed')).toBeInTheDocument()
   expect(screen.getByText('dispatched 2 lane candidates')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })

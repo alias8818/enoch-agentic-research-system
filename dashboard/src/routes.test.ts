@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { dashboardV2Href, parseDashboardRoute } from './routes'
+import { dashboardRouteTitle, dashboardV2Href, parseDashboardRoute } from './routes'
 
 it('parses V2-owned command-center routes', () => {
   expect(parseDashboardRoute('#project:project-1')).toEqual({ page: 'detail', kind: 'project', id: 'project-1', hash: '#project:project-1' })
@@ -42,17 +42,48 @@ it('keeps dashboard hashes inside the V2 route surface', () => {
   expect(dashboardV2Href('#runs')).toBe('/control/dashboard-v2#runs')
   expect(dashboardV2Href('#papers?status=publication_draft')).toBe('/control/dashboard-v2#papers?status=publication_draft')
   expect(dashboardV2Href('#research')).toBe('/control/dashboard-v2#research')
-  expect(dashboardV2Href('#candidate:cand-1')).toBe('/control/dashboard-v2#candidate:cand-1')
+  expect(dashboardV2Href('#candidate:cand-1')).toBe('/control/dashboard-v2#research:cand-1')
   expect(dashboardV2Href('#research:cand-1')).toBe('/control/dashboard-v2#research:cand-1')
   expect(dashboardV2Href('#intake')).toBe('/control/dashboard-v2#intake')
-  expect(dashboardV2Href('#idea:idea-1')).toBe('/control/dashboard-v2#idea:idea-1')
+  expect(dashboardV2Href('#idea:idea-1')).toBe('/control/dashboard-v2#intake:idea-1')
+  expect(dashboardV2Href('#reviews')).toBe('/control/dashboard-v2#automation')
   expect(dashboardV2Href('#intake:idea-1')).toBe('/control/dashboard-v2#intake:idea-1')
   expect(dashboardV2Href('#automation')).toBe('/control/dashboard-v2#automation')
   expect(dashboardV2Href('#automation:paper-1')).toBe('/control/dashboard-v2#automation:paper-1')
-  expect(dashboardV2Href('#reviews')).toBe('/control/dashboard-v2#reviews')
-  expect(dashboardV2Href('#review:paper-1')).toBe('/control/dashboard-v2#review:paper-1')
+  expect(dashboardV2Href('#reviews')).toBe('/control/dashboard-v2#automation')
+  expect(dashboardV2Href('#review:paper-1')).toBe('/control/dashboard-v2#automation:paper-1')
   expect(dashboardV2Href('#observability')).toBe('/control/dashboard-v2#observability')
   expect(dashboardV2Href('#corpus')).toBe('/control/dashboard-v2#corpus')
   expect(parseDashboardRoute('#unknown-workflow')).toEqual({ page: 'unsupported', hash: '#unknown-workflow' })
   expect(dashboardV2Href('#unknown-workflow')).toBe('/control/dashboard-v2#unknown-workflow')
+})
+
+it('maps canonical operator hashes to implemented pages', () => {
+  const canonical = [
+    '#overview',
+    '#projects',
+    '#queue:ready',
+    '#runs',
+    '#papers',
+    '#events',
+    '#observability',
+    '#corpus',
+    '#research',
+    '#intake',
+    '#automation',
+    '#project:project-1',
+    '#run:run-1',
+    '#paper:paper-1',
+    '#event:7',
+  ]
+  for (const hash of canonical) {
+    const route = parseDashboardRoute(hash)
+    expect(route.page, hash).not.toBe('unsupported')
+  }
+})
+
+it('maps routes to compact shell titles', () => {
+  expect(dashboardRouteTitle(parseDashboardRoute('#overview'))).toBe('Command center')
+  expect(dashboardRouteTitle(parseDashboardRoute('#projects'))).toBe('Projects')
+  expect(dashboardRouteTitle(parseDashboardRoute('#project:project-1'))).toBe('Project detail')
 })
