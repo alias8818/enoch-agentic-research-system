@@ -3,6 +3,7 @@ import { apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
 import type { OverviewResponse } from '../types'
 import { useOperatorDialog } from './OperatorDialog'
+import { CommandResultSummary } from './CommandResultSummary'
 
 type CommandResult = {
   title: string
@@ -14,15 +15,7 @@ function idempotencyKey(prefix: string): string {
 }
 
 function ResultCard({ result }: { result: CommandResult | null }) {
-  if (!result) return null
-  const reason = String(result.payload.reason || result.payload.detail || result.payload.action || 'Dry-run completed.')
-  return (
-    <section className="result-card paper-strip-result" aria-live="polite">
-      <h3>{result.title}</h3>
-      <p>{reason}</p>
-      <pre>{JSON.stringify(result.payload, null, 2)}</pre>
-    </section>
-  )
+  return <CommandResultSummary result={result} />
 }
 
 function finalizationDisabledReason(finalizeNeeded: number, finalizeReady: boolean, canLiveFinalize: boolean, isPending: boolean): string {

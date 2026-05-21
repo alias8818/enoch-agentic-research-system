@@ -445,6 +445,10 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 self.assertNotIn("draft_markdown_path", papers.json()["rows"][0])
                 self.assertIn("artifact_paths_present", papers.json()["rows"][0])
 
+                events_index = client.get("/control/api/v1/events?page_size=50&sort=recent", headers=headers)
+                self.assertEqual(events_index.status_code, 200)
+                self.assertEqual(events_index.json()["page"]["filters"]["sort"], "recent")
+
                 events = client.get("/control/api/v1/events?page_size=2", headers=headers)
                 self.assertEqual(events.status_code, 200)
                 self.assertLessEqual(events.json()["page"]["returned"], 2)
@@ -452,7 +456,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     self.assertIn("payload_summary", events.json()["rows"][0])
                     self.assertNotIn("payload", events.json()["rows"][0])
                     event_id = events.json()["rows"][0]["event_id"]
-                    event_by_id = client.get(f"/control/api/v1/events?event_id={event_id}&include_payload=true&page_size=1", headers=headers)
+                    event_by_id = client.get(f"/control/api/v1/events?event_id={event_id}&include_payload=true&page_size=1&sort=recent", headers=headers)
                     self.assertEqual(event_by_id.status_code, 200)
                     self.assertEqual(event_by_id.json()["page"]["returned"], 1)
                     self.assertEqual(event_by_id.json()["page"]["filters"]["event_id"], str(event_id))

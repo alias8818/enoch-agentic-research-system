@@ -6,6 +6,7 @@ import { dashboardV2Href } from '../routes'
 import type { DashboardRoute } from '../routes'
 import { DataTable } from './DataTable'
 import { useOperatorDialog } from './OperatorDialog'
+import { CommandResultSummary } from './CommandResultSummary'
 
 type ResearchFacilityResponse = {
   rows?: Record<string, unknown>[]
@@ -44,14 +45,13 @@ type PromotionResponse = {
   dispatch_started?: boolean
 }
 
+function shortId(value: string): string {
+  if (value.length <= 30) return value
+  return `${value.slice(0, 14)}…${value.slice(-10)}`
+}
+
 function ResultCard({ title, result }: { title: string; result?: Record<string, unknown> }) {
-  if (!result) return null
-  return (
-    <section className="result-card">
-      <h3>{title}</h3>
-      <pre>{JSON.stringify(result, null, 2)}</pre>
-    </section>
-  )
+  return <CommandResultSummary result={result ? { title, payload: result } : null} />
 }
 
 function facilitySignature(facility?: ResearchFacilityResponse): string {
@@ -95,7 +95,8 @@ function CandidateDetail({ row, candidateId }: { row: Record<string, unknown> | 
         <div className="detail-panel-head">
           <div>
             <p className="eyebrow">Research candidate detail</p>
-            <h2>{candidateId}</h2>
+            <h2>Candidate detail</h2>
+            <span className="detail-id-chip" title={candidateId}>{shortId(candidateId)}</span>
           </div>
         </div>
         <section className="detail-summary">
@@ -105,6 +106,14 @@ function CandidateDetail({ row, candidateId }: { row: Record<string, unknown> | 
     )
   }
   if (!row) return null
+  const status = String(row.status || '—')
+  const admission = String(row.admission_decision || '—')
+  const target = String(row.machine_target || '—')
+  const nextAction = status === 'admitted'
+    ? 'Promote only after dry-run confirms this exact candidate still maps to a queue item.'
+    : status === 'rejected' || admission.includes('reject')
+      ? 'No launch action is needed; keep this as negative evidence unless a new follow-up is warranted.'
+      : 'Review admission, source lineage, and machine target before promoting or queuing work.'
   return (
     <section className="detail-panel" aria-label="Research candidate detail">
       <div className="detail-panel-head">
@@ -122,6 +131,17 @@ function CandidateDetail({ row, candidateId }: { row: Record<string, unknown> | 
           <div className="detail-field"><dt>machine target</dt><dd>{String(row.machine_target || '—')}</dd></div>
           <div className="detail-field"><dt>updated</dt><dd>{String(row.updated_at || '—')}</dd></div>
         </dl>
+        <section className="detail-operator-summary" aria-label="Research candidate operator summary">
+          <div>
+            <p className="eyebrow">Current state</p>
+            <strong>{status}</strong>
+            <span>Admission {admission}; target {target}.</span>
+          </div>
+          <div>
+            <p className="eyebrow">Next safe action</p>
+            <span>{nextAction}</span>
+          </div>
+        </section>
         <details className="raw-details">
           <summary>Raw candidate row</summary>
           <pre className="json-block">{JSON.stringify(row, null, 2)}</pre>

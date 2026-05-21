@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { DetailPanel } from './DetailPanel'
+import { DetailPage, DetailPanel } from './DetailPanel'
 
 function renderWithClient(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -39,7 +39,7 @@ it('renders event detail from the selected row without fetching an event endpoin
 
   renderWithClient(<DetailPanel selection={{ kind: 'event', id: '9', row: { id: 9, event_type: 'Queue Alert', summary: 'Lane blocked', payload: { reason: 'lane active' } } }} onClose={() => undefined} />)
 
-  expect(screen.getByText('Queue Alert')).toBeInTheDocument()
+  expect(screen.getAllByText('Queue Alert').length).toBeGreaterThan(0)
   expect(screen.getByRole('heading', { name: 'Lane blocked' })).toBeInTheDocument()
   expect(screen.getByText('Raw payload')).toBeInTheDocument()
   expect(fetchMock).not.toHaveBeenCalled()
@@ -111,4 +111,25 @@ it('loads paper artifacts directly from V2 paper detail', async () => {
   expect(await screen.findByText('Artifact preview')).toBeInTheDocument()
   expect(screen.getByText((content) => content.includes('# Artifact paper'))).toBeInTheDocument()
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/papers/paper-1/artifact/draft_markdown_path', expect.any(Object))
+})
+
+it('uses compact useful headers instead of raw monster ids on direct detail pages', async () => {
+  const longId = 'paper:llm-generated-ledger-trace-replay-with-a-very-long-project-slug:run-00001:arxiv_draft'
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    paper_id: longId,
+    paper: {
+      paper_id: longId,
+      title: 'Trace replay paper',
+      status: 'publication_draft',
+      evidence_bundle_path: 'papers/evidence.json',
+    },
+  }), { status: 200 }))
+
+  renderWithClient(<DetailPage selection={{ kind: 'paper', id: longId }} />)
+
+  expect(screen.queryByRole('heading', { name: `paper: ${longId}` })).not.toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Trace replay paper', level: 1 })).toBeInTheDocument()
+  expect(screen.getByText(/Paper detail · paper:llm-gene…rxiv_draft · publication_draft/)).toBeInTheDocument()
+  expect(screen.getAllByText('publication_draft').length).toBeGreaterThan(0)
+  expect(screen.getByText('Next safe action')).toBeInTheDocument()
 })

@@ -135,6 +135,10 @@ it('checks selected queued rows with dispatch-one dry-run only', async () => {
     headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
     body: JSON.stringify({ project_id: 'project-1', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
   }))
+  expect(screen.getByText('Selected work')).toBeInTheDocument()
+  expect(screen.getByText('Lane / target')).toBeInTheDocument()
+  expect(screen.getAllByText('Next safe action').length).toBeGreaterThan(0)
+  expect(screen.getByText('Raw JSON')).toBeInTheDocument()
 })
 
 it('live-dispatches a selected queued row only after dry-run and dialog confirmation', async () => {
@@ -215,6 +219,17 @@ it('loads project discovery rows from the V1 projects endpoint', async () => {
   fireEvent.click(screen.getByText('Trace Oracle'))
   await screen.findByLabelText('Dashboard detail panel')
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/projects/project-1', expect.any(Object))
+})
+
+it('explains event read-model failures without dumping a generic 500 card', async () => {
+  saveToken('test-token')
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ detail: 'server error' }), { status: 500 }))
+
+  renderWithClient(<EventsPage route={{ page: 'events', eventType: '', search: '', hash: '#events' }} />)
+
+  expect(await screen.findByText('Events could not load')).toBeInTheDocument()
+  expect(screen.getByText(/The backend events read model returned an error/)).toBeInTheDocument()
+  expect(screen.queryByText(/V2 data unavailable/)).not.toBeInTheDocument()
 })
 
 it('loads runs from the V1 runs endpoint with state filters and detail fetches', async () => {
@@ -504,5 +519,8 @@ it('opens intake idea details from selected rows without a legacy fallback', asy
   expect(detail).toHaveTextContent('admitted')
   expect(detail).toHaveTextContent('queued')
   expect(detail).toHaveTextContent('dispatch')
+  expect(detail).toHaveTextContent('Current state')
+  expect(detail).toHaveTextContent('Next safe action')
+  expect(detail).toHaveTextContent('Open the matching project or queue row and run a dispatch dry-run before starting work.')
   expect(screen.queryByRole('link', { name: /legacy/i })).not.toBeInTheDocument()
 })
