@@ -249,5 +249,5 @@ Follow [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.
 - [x] Detail route audit follow-up: run detail page (#100)
 - [x] Detail route audit follow-up: paper detail page (worker-4b-retry, #104)
 - [x] Detail route audit follow-up: event detail page (worker-4c)
-- [x] Detail route audit follow-up: idea detail page (worker-idea-detail-audit)
+- [ ] Detail route audit follow-up: idea detail page (worker-idea-detail-audit)
 

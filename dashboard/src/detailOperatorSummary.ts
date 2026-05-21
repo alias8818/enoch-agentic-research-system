@@ -521,85 +521,42 @@ export function deriveIntakeIdeaOperatorSummary(row: Record<string, unknown>): I
   const queueStatus = text(row.queue_status)
   const paperStatus = text(row.paper_status)
   const nextHint = text(row.next_action_hint)
-  const ideaId = text(row.idea_id)
   const projectId = text(firstValue(row.project_id, row.idea_id))
   const sourceKind = text(row.source_kind)
-  const sourceExternalId = text(row.source_external_id)
-  const sourceExternalUrl = text(row.source_external_url)
-  const machineTarget = text(row.machine_target)
-  const runId = text(row.current_run_id)
-  const runState = text(row.last_run_state)
-  const paperId = text(row.paper_id)
   const blocked = text(firstValue(row.blocked_reason, row.last_error))
-  const promoted = projectId !== '—' && projectId !== ideaId
-  const attention = row.manual_review_required === true || row.operator_attention === true || queueStatus.includes('blocked') || queueStatus.includes('review') || ideaStatus === 'rejected'
-  const whyNotQueued = blocked !== '—'
-    ? blocked
-    : queueStatus === 'queued'
-      ? 'currently queued'
-      : ideaStatus === 'rejected'
-        ? 'idea rejected at admission'
-        : ideaStatus === 'candidate'
-          ? 'not admitted yet — promote or admit before queuing'
-          : ideaStatus === 'stale'
-            ? 'idea marked stale — refresh or re-admit'
-            : !queueStatus || queueStatus === '—'
-              ? 'no queue row yet'
-              : `queue status is ${queueStatus}`
+  const attention = row.manual_review_required === true || queueStatus.includes('blocked') || queueStatus.includes('review')
   const entityLinks: EntityLink[] = []
   pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, row.title))
-  pushLink(entityLinks, entityLink('run', runId !== '—' ? runId : null))
-  pushLink(entityLinks, entityLink('paper', paperId !== '—' ? paperId : null))
 
   return {
-    state: operatorStageLabel(row, ideaStatus),
-    context: promoted
-      ? `Promoted to project ${shortId(projectId)}; source ${sourceKind}; queue ${queueStatus}; lane ${machineTarget}.`
-      : `Source ${sourceKind}; admission ${ideaStatus}; queue ${queueStatus}; paper ${paperStatus}.`,
-    next: operatorNextStep(row, attention && blocked !== '—'
+    state: ideaStatus,
+    context: `Source ${sourceKind}; queue ${queueStatus}; paper ${paperStatus}.`,
+    next: attention && blocked !== '—'
       ? `Resolve blocker first: ${blocked}.`
       : queueStatus === 'queued'
         ? 'Open the matching project and run a dispatch dry-run before starting work.'
         : queueStatus === 'active' || queueStatus === 'running'
           ? 'Open the current project/run detail and verify the lane is still moving.'
-          : ideaStatus === 'rejected'
-            ? 'Do not queue this idea; review admission rejection and source lineage.'
-            : ideaStatus === 'candidate'
-              ? 'Admit or promote this candidate before expecting queue work.'
-              : nextHint !== '—'
-                ? `Follow backend hint: ${nextHint}.`
-                : 'Review source lineage and admission state before creating more queue work.'),
+          : nextHint !== '—'
+            ? `Follow backend hint: ${nextHint}.`
+            : 'Review source lineage and admission state before creating more queue work.',
     entityLinks,
     sections: [
       {
         title: 'Source and lineage',
         answers: [
           { label: 'source kind', value: sourceKind },
-          { label: 'source external id', value: sourceExternalId },
-          { label: 'source url', value: sourceExternalUrl },
           { label: 'idea status', value: ideaStatus },
-          { label: 'updated', value: text(firstValue(row.queue_updated_at, row.updated_at)) },
+          { label: 'updated', value: text(row.updated_at) },
         ],
       },
       {
-        title: 'Admission and promote',
-        answers: [
-          { label: 'admission state', value: ideaStatus },
-          { label: 'promoted project', value: promoted ? projectId : 'not promoted yet' },
-          { label: 'manual review', value: text(row.manual_review_required) },
-          { label: 'selection rank', value: text(row.selection_rank) },
-        ],
-      },
-      {
-        title: 'Queue and lane',
+        title: 'Admission and queue',
         answers: [
           { label: 'queue status', value: queueStatus },
-          { label: 'lane / machine target', value: machineTarget },
-          { label: 'current run', value: runId },
-          { label: 'last run state', value: runState },
           { label: 'paper status', value: paperStatus },
           { label: 'next action hint', value: nextHint },
-          { label: 'why not queued', value: whyNotQueued },
+          { label: 'why not queued', value: blocked !== '—' ? blocked : queueStatus === 'queued' ? 'currently queued' : 'see queue status above' },
         ],
       },
       {
@@ -610,6 +567,6 @@ export function deriveIntakeIdeaOperatorSummary(row: Record<string, unknown>): I
         ],
       },
     ],
-    actionNeeded: attention ? (blocked !== '—' ? blocked : ideaStatus === 'rejected' ? 'Idea rejected at admission.' : 'Admission or queue state needs operator review.') : null,
+    actionNeeded: attention ? (blocked !== '—' ? blocked : 'Admission or queue state needs operator review.') : null,
   }
 }
