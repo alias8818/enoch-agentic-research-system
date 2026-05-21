@@ -14,9 +14,7 @@ import { ResearchPage } from './components/ResearchPage'
 import { WorkerLanes } from './components/WorkerLanes'
 import { dashboardV2Href, parseDashboardRoute } from './routes'
 import type { DashboardRoute } from './routes'
-import type { OverviewResponse, StatusResponse } from './types'
-
-const queryClient = new QueryClient()
+import type { AutomationReadiness, OverviewResponse, StatusResponse } from './types'
 
 function TokenGate({ onSave }: { onSave: () => void }) {
   const [token, setToken] = useState(getSavedToken())
@@ -45,6 +43,7 @@ function OverviewPage() {
   const queryClient = useQueryClient()
   const overview = useQuery({ queryKey: ['overview'], queryFn: () => apiGet<OverviewResponse>('/control/api/v1/overview?active_limit=8&event_limit=6'), refetchInterval: 30_000 })
   const status = useQuery({ queryKey: ['status'], queryFn: () => apiGet<StatusResponse>('/control/api/status'), refetchInterval: 30_000 })
+  const readiness = useQuery({ queryKey: ['automation-readiness'], queryFn: () => apiGet<AutomationReadiness>('/control/api/v1/automation-readiness'), refetchInterval: 60_000 })
   const refresh = () => {
     void overview.refetch()
     void status.refetch()
@@ -103,8 +102,46 @@ function OverviewPage() {
             <p>No recent activity returned in the bounded overview snapshot.</p>
           )}
         </section>
+        <AutomationReadinessSummary readiness={readiness.data} isLoading={readiness.isLoading} error={readiness.error} />
       </details>
     </div>
+  )
+}
+
+function AutomationReadinessSummary({ readiness, isLoading, error }: { readiness?: AutomationReadiness; isLoading: boolean; error: unknown }) {
+  const blockers = readiness?.blockers || []
+  const checks = readiness?.checks || []
+  const summary = readiness?.summary || {}
+  const label = readiness?.label || (isLoading ? 'Checking automation readiness…' : 'Automation readiness unavailable')
+  return (
+    <section className="readiness-snapshot" aria-label="Automation readiness">
+      <div>
+        <h3>Automation readiness</h3>
+        <span className={readiness?.ok ? 'readiness-pill readiness-pill--good' : 'readiness-pill readiness-pill--warn'}>{label}</span>
+      </div>
+      {error ? <p>Automation readiness unavailable: {String(error instanceof Error ? error.message : error)}</p> : null}
+      {!error && blockers.length > 0 ? (
+        <ul>
+          {blockers.slice(0, 6).map((blocker) => <li key={blocker}>{blocker}</li>)}
+        </ul>
+      ) : null}
+      {!error && !isLoading && blockers.length === 0 ? <p>All reported long-haul readiness checks passed.</p> : null}
+      <div className="readiness-facts">
+        <span>queued {String(summary.queued ?? 0)}</span>
+        <span>active {String(summary.active ?? 0)}</span>
+        <span>queue {summary.queue_paused ? 'paused' : 'unpaused'}</span>
+        <span>maintenance {summary.maintenance_mode ? 'on' : 'off'}</span>
+      </div>
+      {checks.length > 0 ? (
+        <div className="readiness-checks" aria-label="Automation readiness checks">
+          {checks.slice(0, 8).map((check) => (
+            <span key={String(check.name)} className={check.ok ? 'readiness-pill readiness-pill--good' : 'readiness-pill readiness-pill--warn'}>
+              {String(check.name || 'check')}: {check.ok ? 'ok' : 'blocked'}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </section>
   )
 }
 
@@ -192,5 +229,6 @@ function Shell() {
 }
 
 export function App() {
+  const [queryClient] = useState(() => new QueryClient())
   return <QueryClientProvider client={queryClient}><Shell /></QueryClientProvider>
 }

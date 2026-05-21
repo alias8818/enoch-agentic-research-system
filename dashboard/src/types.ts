@@ -40,6 +40,14 @@ export interface MovementDiagnosis {
   blockers: MovementBlocker[]
 }
 
+export interface AutomationReadiness {
+  ok?: boolean
+  label?: string
+  blockers?: string[]
+  checks?: { name?: string; ok?: boolean }[]
+  summary?: { queued?: number; active?: number; queue_paused?: boolean; maintenance_mode?: boolean; [key: string]: unknown }
+}
+
 export interface OverviewResponse {
   ok: boolean
   generated_at?: string

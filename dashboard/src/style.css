@@ -435,6 +435,17 @@ button:disabled { cursor: not-allowed; }
 .activity-snapshot li a { padding: 0.55rem 0.65rem; font-size: 0.78rem; }
 .activity-snapshot span,
 .activity-snapshot p { margin: 0; color: #b8afa2; font-size: 0.84rem; }
+.readiness-snapshot { margin-top: 0.9rem; border: 1px solid rgba(244,241,234,0.1); border-radius: 1rem; padding: 0.9rem; background: rgba(0,0,0,0.16); }
+.readiness-snapshot > div:first-child { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; }
+.readiness-snapshot h3 { margin: 0; color: #efe7da; font-size: 0.92rem; }
+.readiness-snapshot p { margin: 0.7rem 0 0; color: #b8afa2; font-size: 0.84rem; }
+.readiness-snapshot ul { display: grid; gap: 0.35rem; margin: 0.75rem 0 0; padding-left: 1.1rem; color: #e8c58a; font-size: 0.84rem; }
+.readiness-facts,
+.readiness-checks { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.75rem; }
+.readiness-facts span,
+.readiness-pill { border: 1px solid rgba(244,241,234,0.12); border-radius: 999px; padding: 0.34rem 0.55rem; color: #b8afa2; font-size: 0.72rem; font-weight: 850; }
+.readiness-pill--good { border-color: rgba(70,180,124,0.35); color: #aee4c4; }
+.readiness-pill--warn { border-color: rgba(226,177,91,0.35); color: #e8c58a; }
 
 @media (max-width: 1080px) {
   .command-topline,
