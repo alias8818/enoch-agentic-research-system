@@ -241,11 +241,11 @@ Merged per [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructi
 - [x] PR A — Hero semantics and copy ([`CommandHero.tsx`](../dashboard/src/components/CommandHero.tsx), #84)
 - [x] PR B — Movement panel dynamic title ([`movementPanelCopy.ts`](../dashboard/src/components/movementPanelCopy.ts), #85)
 - [x] PR C — Lane backlog depth clarity ([`WorkerLanes.tsx`](../dashboard/src/components/WorkerLanes.tsx), #86)
-- [x] PR D — Single primary operator action ([`PrimaryAction.tsx`](../dashboard/src/components/PrimaryAction.tsx), #88)
+- [x] PR D — Single primary operator action ([`PrimaryAction.tsx`](../dashboard/src/components/PrimaryAction.tsx), #88, #94)
 - [x] PR E — Project detail route audit (#87)
-- [x] PR F — Lane cards own dispatch/feed; collapse global bulk lane commands behind disclosure ([`WorkerLanes.tsx`](../dashboard/src/components/WorkerLanes.tsx))
-- [x] Remove static movement `reason-strip` chip row from [`MovementDiagnosis.tsx`](../dashboard/src/components/MovementDiagnosis.tsx) (decorative, not backend-driven)
-- [x] Filter hero state strip to active/queued only; keep paper counts in [`PaperMiniStrip`](../dashboard/src/components/PaperMiniStrip.tsx)
+- [x] PR F — Lane cards own dispatch/feed; collapse global bulk lane commands behind disclosure ([`WorkerLanes.tsx`](../dashboard/src/components/WorkerLanes.tsx), #96)
+- [x] Remove static movement `reason-strip` chip row from [`MovementDiagnosis.tsx`](../dashboard/src/components/MovementDiagnosis.tsx) (decorative, not backend-driven; #99)
+- [x] Filter hero state strip to active/queued only; keep paper counts in [`PaperMiniStrip`](../dashboard/src/components/PaperMiniStrip.tsx) (#101)
 - [x] Detail route audit follow-up: run detail page (#100)
 - [x] Detail route audit follow-up: paper detail page (worker-4b-retry, #104)
 - [x] Detail route audit follow-up: event detail page (worker-4c, #105)
@@ -262,5 +262,5 @@ No blocking gate. Pick one narrow PR at a time; keep [`dashboard-v2-cursor-instr
 4. **Cutover audit closure** — confirm B7 pause/`maintenance_mode` semantics on live VM; update [`dashboard-v2-cutover-audit.md`](dashboard-v2-cutover-audit.md) gate table if B8 link targets are fully on `/control/dashboard-v2` (read models in `router.py` / `read_models.py`).
 5. **Automation parity (soft)** — per-paper live rewrite/finalize/reject on automation detail if operators reject API-only workaround (B1–B3 in cutover audit).
 6. **Read-model hardening** — extend DTO boundary tests (#97) when adding new overview/lane fields; fix semantics in backend first per cursor instructions.
-- [ ] **Workbench KPI noise (narrow PR)** — Replace decorative `count-grid` / `count-card` rows on [`IntakePage`](../dashboard/src/components/ResourcePages.tsx), [`ResearchPage`](../dashboard/src/components/ResearchPage.tsx), and [`AutomationPage`](../dashboard/src/components/AutomationPage.tsx) with one backend-driven operator sentence or collapse counts below the table fold (anti-pattern: decorative KPI cards in [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md) § Visual design).
+7. **Workbench KPI noise (narrow PR)** — Replace decorative `count-grid` / `count-card` rows on [`IntakePage`](../dashboard/src/components/ResourcePages.tsx), [`ResearchPage`](../dashboard/src/components/ResearchPage.tsx), and [`AutomationPage`](../dashboard/src/components/AutomationPage.tsx) with one backend-driven operator sentence or collapse counts below the table fold (anti-pattern: decorative KPI cards in [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md) § Visual design).
 
