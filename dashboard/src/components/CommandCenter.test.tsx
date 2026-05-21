@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CommandHero } from './CommandHero'
 import { MovementDiagnosis } from './MovementDiagnosis'
 import { PaperMiniStrip } from './PaperMiniStrip'
-import { PrimaryAction } from './PrimaryAction'
+import { PrimaryAction, resolvePrimaryAction } from './PrimaryAction'
 import { SafetyBar } from './SafetyBar'
 import { WorkerLanes } from './WorkerLanes'
 
@@ -713,4 +713,49 @@ it('surfaces worker lane status errors instead of showing an empty lane list', (
   expect(screen.getByText('Worker lane status unavailable.')).toBeInTheDocument()
   expect(screen.getByText('/control/api/status -> 503')).toBeInTheDocument()
   expect(screen.queryByText('No worker lane capacity returned.')).not.toBeInTheDocument()
+})
+
+it('prefers readiness check before backend primary action', () => {
+  const action = resolvePrimaryAction({ ok: true, primary_operator_action: { kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'Ready.' } })
+  expect(action?.kind).toBe('check_readiness')
+})
+
+it('uses backend primary action after readiness is checked', () => {
+  const action = resolvePrimaryAction(
+    { ok: true, primary_operator_action: { kind: 'feed_lanes', title: 'Feed GB10 lane', summary: 'Needs backlog.' } },
+    { ok: true, label: 'Long-haul mode: READY', blockers: [] },
+  )
+  expect(action?.kind).toBe('feed_lanes')
+})
+
+it('renders blocked primary action as a single navigation CTA', () => {
+  render(<PrimaryAction action={{ kind: 'open_blocker', title: 'Queue is paused', summary: 'Paused.', action_label: 'Resume queue', action_hash: '#overview' }} />)
+  expect(screen.getByRole('link', { name: 'Resume queue' })).toHaveAttribute('href', '/control/dashboard-v2#overview')
+})
+
+it('runs feed primary actions as safe dry-runs before live feed cycle', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, action: 'dry_run_research_cycle', reason: 'would generate one candidate' }), { status: 200 }))
+  render(<PrimaryAction action={{ kind: 'feed_lanes', title: 'Feed GB10 lane', summary: 'Needs backlog.', action_label: 'Feed idle lanes', action_hash: '#research' }} onRefresh={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Feed idle lanes' }))
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  expect(screen.getByRole('button', { name: 'Run feed cycle' })).toBeEnabled()
+})
+
+it('invokes readiness check callback from primary action CTA', () => {
+  const onCheckReadiness = vi.fn()
+  render(<PrimaryAction action={{ kind: 'check_readiness', title: 'Check readiness first', summary: 'Run check.', action_label: 'Check readiness' }} onCheckReadiness={onCheckReadiness} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Check readiness' }))
+  expect(onCheckReadiness).toHaveBeenCalledTimes(1)
+})
+
+it('requires a fresh dry run when primary dispatch project_id changes', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'dry-run selected explicit queued candidate', candidate: { project_id: 'project-a' } }), { status: 200 }))
+  const { rerender } = render(<PrimaryAction action={{ kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'Ready.', action_label: 'Check dispatch', project_id: 'project-a', lane: 'gb10' }} onRefresh={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Check dispatch' }))
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  expect(screen.getByRole('button', { name: 'Dispatch lane' })).toBeEnabled()
+  rerender(<PrimaryAction action={{ kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'Ready.', action_label: 'Check dispatch', project_id: 'project-b', lane: 'gb10' }} onRefresh={vi.fn()} />)
+  expect(screen.getByRole('button', { name: 'Dispatch lane' })).toBeDisabled()
+  expect(screen.getByText('Dispatch work disabled: top action changed; run Check dispatch again.')).toBeInTheDocument()
 })

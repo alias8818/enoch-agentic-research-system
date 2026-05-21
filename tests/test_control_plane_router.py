@@ -4337,6 +4337,19 @@ class ControlPlaneRouterTests(unittest.TestCase):
             for index, action in enumerate(overview["top_actions"], start=1):
                 self.assertEqual(action["priority"], index)
 
+    def test_overview_primary_operator_action_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            empty = client.get("/control/api/v1/overview", headers=headers).json()
+            self.assertIn("primary_operator_action", empty)
+            if empty["primary_operator_action"] is not None:
+                self.assertIn(empty["primary_operator_action"]["kind"], {"feed_lanes", "open_blocker", "dispatch_next"})
+            client.post("/control/import/legacy-snapshot", headers=headers, json={"idempotency_key": "primary-action-queued-import", "queue_rows": [{"project_id": "queued-only", "project_name": "Queued Only", "project_dir": "queued-only", "status": "queued", "dispatch_priority": 1}]})
+            primary = client.get("/control/api/v1/overview", headers=headers).json()["primary_operator_action"]
+            self.assertIsInstance(primary, dict)
+            self.assertEqual(primary["kind"], "dispatch_next")
+
     def test_overview_exposes_movement_diagnosis(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp).model_copy(

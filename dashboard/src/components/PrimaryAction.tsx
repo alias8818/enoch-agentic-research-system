@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
-import type { TopAction } from '../types'
+import { feedDryRunAllowsLiveCycle } from '../feedDryRun'
+import { dryRunCyclePayload, liveCyclePayload } from '../researchCyclePayloads'
+import type { AutomationReadiness, OverviewResponse, TopAction } from '../types'
 import { useOperatorDialog } from './OperatorDialog'
 import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
@@ -16,6 +18,7 @@ function commandFamilyForAction(action: TopAction): CommandPresentationContext['
   if (action.kind === 'investigate_followup') return 'followup'
   if (action.kind === 'write_paper') return 'paper'
   if (action.kind === 'finalize_paper') return 'finalize'
+  if (action.kind === 'feed_lanes') return 'research'
   return 'command'
 }
 
@@ -25,13 +28,14 @@ function ResultCard({ result, stale }: { result: CommandResult | null; stale?: b
 }
 
 function isDryRunCommand(action: TopAction): boolean {
-  return action.kind === 'dispatch_next' || action.kind === 'investigate_followup' || action.kind === 'write_paper' || action.kind === 'finalize_paper'
+  return action.kind === 'dispatch_next' || action.kind === 'investigate_followup' || action.kind === 'write_paper' || action.kind === 'finalize_paper' || action.kind === 'feed_lanes'
 }
 
 function dryRunLabel(action: TopAction): string {
   if (action.kind === 'investigate_followup') return 'Check follow-up'
   if (action.kind === 'write_paper') return 'Check draft'
   if (action.kind === 'finalize_paper') return 'Check finalization'
+  if (action.kind === 'feed_lanes') return 'Feed idle lanes'
   return 'Check dispatch'
 }
 
@@ -39,9 +43,11 @@ function idempotencyKey(prefix: string): string {
   return `${prefix}:dashboard-v2:${Date.now()}`
 }
 
-function actionSignature(action: TopAction): string {
+export function actionSignature(action: TopAction): string {
   return [
     action.kind,
+    action.project_id || '',
+    action.lane || '',
     action.title,
     action.summary || '',
     action.action_label || '',
@@ -57,21 +63,48 @@ function liveActionDisabledReason(action: TopAction, ready: boolean, staleReady:
     if (action.kind === 'investigate_followup') return 'Launch follow-up disabled: top action changed; run Check follow-up again.'
     if (action.kind === 'write_paper') return 'Draft paper disabled: top action changed; run Check draft again.'
     if (action.kind === 'finalize_paper') return 'Finalize drafts disabled: top action changed; run Check finalization again.'
+    if (action.kind === 'feed_lanes') return 'Run feed cycle disabled: top action changed; run Feed idle lanes again.'
   }
   if (action.kind === 'dispatch_next') return 'Dispatch work disabled: run Check dispatch first.'
   if (action.kind === 'investigate_followup') return 'Launch follow-up disabled: run Check follow-up first.'
   if (action.kind === 'write_paper') return 'Draft paper disabled: run Check draft first.'
   if (action.kind === 'finalize_paper') return 'Finalize drafts disabled: run Check finalization first.'
+  if (action.kind === 'feed_lanes') return 'Run feed cycle disabled: run Feed idle lanes first.'
   return ''
 }
 
-export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRefresh?: () => void }) {
+export function resolvePrimaryAction(
+  overview: OverviewResponse,
+  readiness?: AutomationReadiness,
+): TopAction | undefined {
+  if (!readiness) {
+    return {
+      kind: 'check_readiness',
+      tone: 'warn',
+      title: 'Check readiness first',
+      summary: 'Run the long-haul readiness check before leaving automation unattended.',
+      action_label: 'Check readiness',
+    }
+  }
+  return overview.primary_operator_action || undefined
+}
+
+export function PrimaryAction({
+  action,
+  onRefresh,
+  onCheckReadiness,
+}: {
+  action?: TopAction
+  onRefresh?: () => void
+  onCheckReadiness?: () => void
+}) {
   const [result, setResult] = useState<CommandResult | null>(null)
   const [isPending, setIsPending] = useState(false)
   const [dispatchReady, setDispatchReady] = useState(false)
   const [followupReady, setFollowupReady] = useState(false)
   const [draftReady, setDraftReady] = useState(false)
   const [finalizeReady, setFinalizeReady] = useState(false)
+  const [feedReady, setFeedReady] = useState(false)
   const [readySignature, setReadySignature] = useState('')
   const { confirm, dialog } = useOperatorDialog()
   const currentActionSignature = action ? actionSignature(action) : ''
@@ -81,6 +114,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
     setFollowupReady(false)
     setDraftReady(false)
     setFinalizeReady(false)
+    setFeedReady(false)
     setReadySignature('')
   }
 
@@ -101,7 +135,16 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
                 limit: 10,
                 skip_rewritten: true,
               })
-            : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+            : action.kind === 'feed_lanes'
+              ? await apiPost<Record<string, unknown>>('/control/api/research/run-cycle', dryRunCyclePayload)
+              : action.project_id
+                ? await apiPost<Record<string, unknown>>('/control/dispatch-one', {
+                    project_id: action.project_id,
+                    dry_run: true,
+                    requested_by: 'dashboard-v2',
+                    force_preflight: true,
+                  })
+                : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
       setResult({ payload, context: { commandFamily: commandFamilyForAction(action) } })
       const ready = action.kind === 'dispatch_next'
         ? String(payload.action || '').includes('dry_run')
@@ -111,11 +154,14 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
             ? payload.action === 'dry_run_draft'
             : action.kind === 'finalize_paper'
               ? payload.dry_run === true && Number(payload.processed || 0) > 0
-              : false
+              : action.kind === 'feed_lanes'
+                ? feedDryRunAllowsLiveCycle(payload)
+                : false
       setDispatchReady(action.kind === 'dispatch_next' && ready)
       setFollowupReady(action.kind === 'investigate_followup' && ready)
       setDraftReady(action.kind === 'write_paper' && ready)
       setFinalizeReady(action.kind === 'finalize_paper' && ready)
+      setFeedReady(action.kind === 'feed_lanes' && ready)
       setReadySignature(ready ? currentActionSignature : '')
       onRefresh?.()
     } catch (error) {
@@ -129,15 +175,24 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
   async function runLiveDispatch() {
     if (!action || action.kind !== 'dispatch_next' || !dispatchReady || readySignature !== currentActionSignature) return
     const confirmed = await confirm({
-      title: 'Dispatch top action?',
-      message: 'This starts live dispatch for the current backend-selected queued work. Use Check dispatch again if lane or queue state may have changed.',
-      confirmLabel: 'Dispatch work',
+      title: action.project_id ? `Dispatch ${action.lane || 'lane'}?` : 'Dispatch top action?',
+      message: action.project_id
+        ? `This starts live dispatch for exactly ${action.project_id}. Use Check dispatch again if the lane candidate changed.`
+        : 'This starts live dispatch for the current backend-selected queued work. Use Check dispatch again if lane or queue state may have changed.',
+      confirmLabel: action.project_id ? 'Dispatch lane' : 'Dispatch work',
       tone: 'warn',
     })
     if (!confirmed) return
     setIsPending(true)
     try {
-      const payload = await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
+      const payload = action.project_id
+        ? await apiPost<Record<string, unknown>>('/control/dispatch-one', {
+            project_id: action.project_id,
+            dry_run: false,
+            requested_by: 'dashboard-v2',
+            force_preflight: true,
+          })
+        : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
       setResult({ payload, context: { commandFamily: commandFamilyForAction(action) } })
       clearReadiness()
       onRefresh?.()
@@ -222,13 +277,35 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
     }
   }
 
+  async function runLiveFeed() {
+    if (!action || action.kind !== 'feed_lanes' || !feedReady || readySignature !== currentActionSignature) return
+    const confirmed = await confirm({
+      title: 'Run one bounded feed cycle?',
+      message: 'This can spend one provider request and promote candidates. It will not dispatch, wait for completion, write papers, or finalize publications.',
+      confirmLabel: 'Run feed cycle',
+      tone: 'warn',
+    })
+    if (!confirmed) return
+    setIsPending(true)
+    try {
+      const payload = await apiPost<Record<string, unknown>>('/control/api/research/run-cycle', liveCyclePayload)
+      setResult({ payload, context: { commandFamily: 'research' } })
+      clearReadiness()
+      onRefresh?.()
+    } catch (error) {
+      setResult({ payload: { ok: false, reason: error instanceof Error ? error.message : String(error) }, context: { commandFamily: 'research' } })
+    } finally {
+      setIsPending(false)
+    }
+  }
+
   if (!action) {
     return (
       <section className="primary-action primary-action--idle" aria-label="Primary action">
         <div>
           <p className="eyebrow">Primary action</p>
           <h2>Nothing to click right now</h2>
-          <p>The backend action model did not rank an operator action.</p>
+          <p>No decisive operator action is available right now.</p>
         </div>
       </section>
     )
@@ -241,7 +318,9 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
         ? draftReady && readySignature === currentActionSignature
         : action.kind === 'finalize_paper'
           ? finalizeReady && readySignature === currentActionSignature
-          : true
+          : action.kind === 'feed_lanes'
+            ? feedReady && readySignature === currentActionSignature
+            : true
   const staleReady = Boolean(readySignature) && readySignature !== currentActionSignature
   const liveDisabledReason = isDryRunCommand(action) ? liveActionDisabledReason(action, liveReady, staleReady, isPending) : ''
   return (
@@ -251,11 +330,18 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
         <h2>{action.title}</h2>
         <p>{action.summary}</p>
       </div>
-      {isDryRunCommand(action) ? (
+      {action.kind === 'check_readiness' ? (
+        <button className="primary-button primary-action-cta" type="button" disabled={isPending} onClick={() => onCheckReadiness?.()}>
+          {action.action_label || 'Check readiness'}
+        </button>
+      ) : isDryRunCommand(action) ? (
         <div className="primary-action-buttons">
           <button className="secondary-button primary-action-cta" type="button" disabled={isPending} onClick={runDryRun}>{dryRunLabel(action)}</button>
           {action.kind === 'dispatch_next' ? (
-            <button className="primary-button primary-action-cta" type="button" disabled={isPending || !liveReady} onClick={runLiveDispatch}>Dispatch work</button>
+            <button className="primary-button primary-action-cta" type="button" disabled={isPending || !liveReady} onClick={runLiveDispatch}>{action.project_id ? 'Dispatch lane' : 'Dispatch work'}</button>
+          ) : null}
+          {action.kind === 'feed_lanes' ? (
+            <button className="primary-button primary-action-cta" type="button" disabled={isPending || !liveReady} onClick={runLiveFeed}>Run feed cycle</button>
           ) : null}
           {action.kind === 'investigate_followup' ? (
             <button className="primary-button primary-action-cta" type="button" disabled={isPending || !liveReady} onClick={runLiveFollowup}>Launch follow-up</button>

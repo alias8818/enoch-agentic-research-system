@@ -1726,6 +1726,84 @@ def top_operator_actions(
     return ranked
 
 
+_FEED_ACTIONS = frozenset({"generate_candidate", "promote_candidate"})
+
+
+def primary_operator_action(
+    *,
+    worker_lanes: Sequence[Mapping[str, Any]] | None,
+    movement: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Single decisive operator CTA for the command center.
+
+    Priority (after frontend readiness gating):
+    1. dispatch the first lane that can dispatch;
+    2. open the primary movement blocker when status is blocked;
+    3. feed the first lane that needs backlog.
+    """
+
+    lanes = [lane for lane in (worker_lanes or []) if isinstance(lane, Mapping)]
+
+    for lane in lanes:
+        if not bool(lane.get("dispatch_available")):
+            continue
+        label = _lane_label(lane)
+        next_candidate = lane.get("next_candidate") or {}
+        next_label = _candidate_label(next_candidate) or "queued work"
+        project_id = str(next_candidate.get("project_id") or "").strip()
+        payload: dict[str, Any] = {
+            "kind": "dispatch_next",
+            "tone": "info",
+            "title": f"Dispatch {label}",
+            "summary": f"{label} is idle with queued work ready to dispatch. Next: {next_label}.",
+            "action_label": "Check dispatch",
+            "action_hash": "#queue:queued",
+            "lane": label,
+            "machine_target": lane.get("machine_target"),
+        }
+        if project_id:
+            payload["project_id"] = project_id
+            payload["target"] = _candidate_target(next_candidate) or {"project_id": project_id}
+        return payload
+
+    status = str(movement.get("status") or "")
+    blockers = movement.get("blockers") or []
+    if status == "blocked" and blockers:
+        primary = blockers[0] if isinstance(blockers[0], Mapping) else {}
+        return {
+            "kind": "open_blocker",
+            "tone": primary.get("tone", "warn"),
+            "title": str(primary.get("title") or "Resolve blocker"),
+            "summary": str(primary.get("summary") or movement.get("primary_reason") or ""),
+            "action_label": str(primary.get("action_label") or "Open details"),
+            "action_hash": str(primary.get("action_hash") or "#overview"),
+            "blocker_kind": primary.get("kind"),
+            "lane": primary.get("lane"),
+        }
+
+    for lane in lanes:
+        feed = lane.get("feed_pressure") or {}
+        feed_action = str(feed.get("next_autopilot_action") or "")
+        if feed_action not in _FEED_ACTIONS:
+            continue
+        label = _lane_label(lane)
+        return {
+            "kind": "feed_lanes",
+            "tone": "warn",
+            "title": f"Feed {label}",
+            "summary": str(
+                feed.get("operator_summary")
+                or f"{label} needs backlog before dispatch can happen."
+            ),
+            "action_label": "Feed idle lanes",
+            "action_hash": "#research",
+            "lane": label,
+            "machine_target": lane.get("machine_target"),
+            "feed_action": feed_action,
+        }
+
+    return None
+
 
 def overview(
     store: ControlPlaneStore,
@@ -1874,6 +1952,7 @@ def overview(
         paper_pipeline=paper_pipeline,
         investigation_pipeline=investigation_pipeline,
     )
+    primary_action = primary_operator_action(worker_lanes=worker_lanes, movement=movement)
     return {
         "counts": {
             **counts,
@@ -1890,6 +1969,7 @@ def overview(
             "raw_state_note": "wake_ready/session_finished_ready are worker-delivery callbacks; paper polarity comes from decision artifacts and publication automation/finalization state.",
         },
         "top_actions": top_actions,
+        "primary_operator_action": primary_action,
         "movement_diagnosis": movement,
         "active_items": active,
         "next_candidate": summarize_queue_row(next_candidate) if next_candidate else None,

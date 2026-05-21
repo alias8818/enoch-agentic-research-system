@@ -8,6 +8,12 @@ export interface TopAction {
   summary?: string
   action_label?: string
   action_hash?: string
+  lane?: string
+  machine_target?: string
+  project_id?: string
+  feed_action?: string
+  blocker_kind?: string
+  target?: { project_id?: string; name?: string; [key: string]: unknown }
 }
 
 export interface WorkerLane {
@@ -54,6 +60,7 @@ export interface OverviewResponse {
   counts?: { active?: number; queued?: number; [key: string]: unknown }
   paper_counts?: { publication_draft?: number; draft_review?: number; [key: string]: unknown }
   top_actions?: TopAction[]
+  primary_operator_action?: TopAction | null
   active_items?: Record<string, unknown>[]
   recent_events?: Record<string, unknown>[]
   operator_counts?: Record<string, unknown>

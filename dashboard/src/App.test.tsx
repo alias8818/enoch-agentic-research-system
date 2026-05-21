@@ -113,9 +113,23 @@ it('keeps overview command result raw JSON inside collapsed details', async () =
         action_label: 'Dispatch',
         action_hash: '#queue:queued',
       }],
+      primary_operator_action: {
+        kind: 'dispatch_next',
+        title: 'Dispatch GB10 lane',
+        summary: 'One queued candidate matches the idle lane.',
+        action_label: 'Check dispatch',
+        action_hash: '#queue:queued',
+      },
       recent_events: [],
     }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      label: 'Long-haul mode: READY',
+      blockers: [],
+      checks: [{ name: 'queue_unpaused', ok: true }],
+      summary: { queued: 1, active: 0, queue_paused: false, maintenance_mode: false },
+    }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({
       action: 'dry_run_dispatch',
       reason: 'dry-run dispatch selected candidate',
@@ -135,6 +149,13 @@ it('keeps overview command result raw JSON inside collapsed details', async () =
         action_label: 'Dispatch',
         action_hash: '#queue:queued',
       }],
+      primary_operator_action: {
+        kind: 'dispatch_next',
+        title: 'Dispatch GB10 lane',
+        summary: 'One queued candidate matches the idle lane.',
+        action_label: 'Check dispatch',
+        action_hash: '#queue:queued',
+      },
       recent_events: [],
     }), { status: 200 }))
   saveToken('test-token')
@@ -142,6 +163,8 @@ it('keeps overview command result raw JSON inside collapsed details', async () =
   render(<App />)
 
   await screen.findByText('Can I leave this running?')
+  fireEvent.click(within(screen.getByLabelText('Primary action')).getByRole('button', { name: 'Check readiness' }))
+  await within(screen.getByLabelText('Readiness check')).findByText('Long-haul mode: READY')
   fireEvent.click(screen.getByRole('button', { name: 'Check dispatch' }))
   await screen.findByText('dry-run dispatch selected candidate')
 
@@ -221,12 +244,11 @@ it('does not answer leave-running as ready before readiness is checked', async (
 
   render(<App />)
 
-  const initialHeroAnswer = await screen.findByText('Check readiness first')
-  const leaveRunningHero = initialHeroAnswer.closest('section') as HTMLElement
-  expect(within(leaveRunningHero).getByText('Check readiness first')).toBeInTheDocument()
+  const leaveRunningHero = (await screen.findByText('Can I leave this running?')).closest('section') as HTMLElement
+  expect(within(leaveRunningHero).getByRole('heading', { level: 1, name: 'Check readiness first' })).toBeInTheDocument()
   expect(within(leaveRunningHero).getByText('Run the readiness check before leaving automation unattended.')).toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Check readiness' }))
+  fireEvent.click(within(screen.getByLabelText('Readiness check')).getByRole('button', { name: 'Check readiness' }))
 
   expect(await within(leaveRunningHero).findByText('Not yet')).toBeInTheDocument()
   expect(screen.getAllByText('queue_counts_consistent: blocked').length).toBeGreaterThan(0)
@@ -261,7 +283,7 @@ it('checks automation readiness above the fold on demand', async () => {
   expect(readinessCard).toHaveTextContent('Not checked')
   expect(globalThis.fetch).not.toHaveBeenCalledWith('/control/api/v1/automation-readiness', expect.any(Object))
 
-  fireEvent.click(screen.getByRole('button', { name: 'Check readiness' }))
+  fireEvent.click(within(readinessCard).getByRole('button', { name: 'Check readiness' }))
 
   expect(await within(readinessCard).findByText('Long-haul mode: READY')).toBeInTheDocument()
   expect(globalThis.fetch).toHaveBeenNthCalledWith(3, '/control/api/v1/automation-readiness', expect.any(Object))
