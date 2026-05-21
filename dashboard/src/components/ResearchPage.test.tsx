@@ -47,6 +47,21 @@ it('refreshes research facility rows explicitly from V2', async () => {
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
 
+it('opens routed candidate details and candidate links inside V2', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    counts: { admitted: 1 },
+    rows: [{ candidate_id: 'cand-route', status: 'admitted', admission_decision: 'admitted', machine_target: 'gb10', title: 'Routed candidate', updated_at: '2026-05-21T08:20:00Z' }],
+  }), { status: 200 }))
+
+  renderWithClient(<ResearchPage route={{ page: 'research', candidateId: 'cand-route', hash: '#candidate:cand-route' }} />)
+
+  const detail = await screen.findByLabelText('Research candidate detail')
+  expect(detail).toHaveTextContent('Routed candidate')
+  expect(detail).toHaveTextContent('cand-route')
+  expect(detail).toHaveTextContent('gb10')
+  expect(screen.getByRole('link', { name: /cand-route/ })).toHaveAttribute('href', '/control/dashboard-v2#candidate:cand-route')
+})
+
 it('dry-runs the bounded research cycle without live enablement', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [] }), { status: 200 }))
@@ -101,7 +116,7 @@ it('dry-runs and confirms admitted candidate promotion without dispatching', asy
   renderWithClient(<ResearchPage />)
 
   fireEvent.click(await screen.findByText('Candidate one'))
-  expect(screen.getByText('cand-1')).toBeInTheDocument()
+  expect(screen.getAllByText('cand-1').length).toBeGreaterThan(0)
   fireEvent.click(screen.getByRole('button', { name: 'Dry-run promote selected' }))
 
   await screen.findByText('Candidate promotion dry-run')

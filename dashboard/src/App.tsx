@@ -240,7 +240,7 @@ function RoutedPage({ route }: { route: DashboardRoute }) {
   if (route.page === 'events') return <EventsPage />
   if (route.page === 'observability') return <ObservabilityPage />
   if (route.page === 'corpus') return <CorpusPage />
-  if (route.page === 'research') return <ResearchPage />
+  if (route.page === 'research') return <ResearchPage route={route} />
   if (route.page === 'intake') return <IntakePage route={route} />
   if (route.page === 'automation') return <AutomationPage paperId={route.paperId} />
   if (route.page === 'unsupported') {

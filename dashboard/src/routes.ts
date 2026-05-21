@@ -8,7 +8,7 @@ export type DashboardRoute =
   | { page: 'events'; hash: string }
   | { page: 'observability'; hash: string }
   | { page: 'corpus'; hash: string }
-  | { page: 'research'; hash: string }
+  | { page: 'research'; candidateId: string; hash: string }
   | { page: 'intake'; ideaId: string; hash: string }
   | { page: 'automation'; paperId: string; hash: string }
   | { page: 'unsupported'; hash: string }
@@ -62,7 +62,9 @@ export function parseDashboardRoute(hashOrPath: string | undefined): DashboardRo
   if (hash.startsWith('#events')) return { page: 'events', hash }
   if (hash.startsWith('#observability')) return { page: 'observability', hash }
   if (hash.startsWith('#corpus')) return { page: 'corpus', hash }
-  if (hash.startsWith('#research')) return { page: 'research', hash }
+  if (hash.startsWith('#candidate:')) return { page: 'research', candidateId: detailId(hash, '#candidate:'), hash }
+  if (hash.startsWith('#research:')) return { page: 'research', candidateId: detailId(hash, '#research:'), hash }
+  if (hash.startsWith('#research')) return { page: 'research', candidateId: '', hash }
   if (hash.startsWith('#idea:')) return { page: 'intake', ideaId: detailId(hash, '#idea:'), hash }
   if (hash.startsWith('#intake:')) return { page: 'intake', ideaId: detailId(hash, '#intake:'), hash }
   if (hash.startsWith('#intake')) return { page: 'intake', ideaId: '', hash }

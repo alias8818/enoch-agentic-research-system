@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { apiGet, apiPost } from '../api/client'
+import { dashboardV2Href } from '../routes'
+import type { DashboardRoute } from '../routes'
 import { DataTable } from './DataTable'
 import { useOperatorDialog } from './OperatorDialog'
 
@@ -72,7 +74,56 @@ function ResultCard({ title, result }: { title: string; result?: Record<string, 
   )
 }
 
-export function ResearchPage() {
+function CandidateDetail({ row, candidateId }: { row: Record<string, unknown> | null; candidateId: string }) {
+  if (!row && candidateId) {
+    return (
+      <section className="detail-panel" aria-label="Research candidate detail">
+        <div className="detail-panel-head">
+          <div>
+            <p className="eyebrow">Research candidate detail</p>
+            <h2>{candidateId}</h2>
+          </div>
+        </div>
+        <section className="detail-summary">
+          <p>Candidate {candidateId} is not present in the bounded research facility rows returned by /control/api/research/facility.</p>
+        </section>
+      </section>
+    )
+  }
+  if (!row) return null
+  return (
+    <section className="detail-panel" aria-label="Research candidate detail">
+      <div className="detail-panel-head">
+        <div>
+          <p className="eyebrow">Research candidate detail</p>
+          <h2>{String(row.title || row.candidate_id || 'Selected candidate')}</h2>
+        </div>
+      </div>
+      <section className="detail-summary">
+        <p className="eyebrow">Deterministic facility row</p>
+        <dl className="detail-field-grid">
+          <div className="detail-field"><dt>candidate id</dt><dd>{String(row.candidate_id || '—')}</dd></div>
+          <div className="detail-field"><dt>status</dt><dd>{String(row.status || '—')}</dd></div>
+          <div className="detail-field"><dt>admission</dt><dd>{String(row.admission_decision || '—')}</dd></div>
+          <div className="detail-field"><dt>machine target</dt><dd>{String(row.machine_target || '—')}</dd></div>
+          <div className="detail-field"><dt>updated</dt><dd>{String(row.updated_at || '—')}</dd></div>
+        </dl>
+        <details className="raw-details">
+          <summary>Raw candidate row</summary>
+          <pre className="json-block">{JSON.stringify(row, null, 2)}</pre>
+        </details>
+      </section>
+    </section>
+  )
+}
+
+function candidateCellHref(row: Record<string, unknown>, column: string): string | undefined {
+  if (column !== 'candidate_id') return undefined
+  const candidateId = String(row.candidate_id || '')
+  return candidateId ? dashboardV2Href(`#candidate:${encodeURIComponent(candidateId)}`) : undefined
+}
+
+export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page: 'research' }> }) {
   const queryClient = useQueryClient()
   const { confirm, dialog } = useOperatorDialog()
   const [selectedCandidate, setSelectedCandidate] = useState<Record<string, unknown> | null>(null)
@@ -107,8 +158,11 @@ export function ResearchPage() {
     await cycle.mutateAsync(liveCyclePayload)
   }
 
-  const selectedCandidateId = String(selectedCandidate?.candidate_id || '')
-  const selectedCandidateTitle = String(selectedCandidate?.title || selectedCandidateId || 'No candidate selected')
+  const rows = facility.data?.rows || []
+  const routeCandidateId = route?.candidateId || ''
+  const activeCandidate = selectedCandidate || rows.find((row) => String(row.candidate_id || '') === routeCandidateId) || null
+  const selectedCandidateId = String(activeCandidate?.candidate_id || routeCandidateId || '')
+  const selectedCandidateTitle = String(activeCandidate?.title || selectedCandidateId || 'No candidate selected')
   const candidateDryRunPassed = promotion.data?.action === 'dry_run_promote_candidate' && promotion.data?.candidate_id === selectedCandidateId
 
   async function dryRunPromotion() {
@@ -128,7 +182,6 @@ export function ResearchPage() {
     await promotion.mutateAsync({ candidate_id: selectedCandidateId, dry_run: false, requested_by: 'dashboard-v2' })
   }
 
-  const rows = facility.data?.rows || []
   const counts = facility.data?.counts || {}
   function refreshCandidates() {
     setSelectedCandidate(null)
@@ -193,7 +246,10 @@ export function ResearchPage() {
       {facility.isLoading ? <div className="state-card">Loading research facility…</div> : null}
       {facility.isError ? <div className="state-card state-card--error">Research data unavailable: {String(facility.error.message)}</div> : null}
       {!facility.isLoading && !facility.isError ? (
-        <DataTable rows={rows} columns={['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at']} empty="No research candidates returned." onSelectRow={setSelectedCandidate} />
+        <>
+          <DataTable rows={rows} columns={['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at']} empty="No research candidates returned." cellHref={candidateCellHref} onSelectRow={setSelectedCandidate} />
+          <CandidateDetail row={activeCandidate} candidateId={routeCandidateId} />
+        </>
       ) : null}
     </section>
   )
