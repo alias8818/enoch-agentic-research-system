@@ -1491,8 +1491,9 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         return (target.wake_gate_url or str(candidate.get("machine_target") or "")).strip().rstrip("/")
 
     def _callback_acceptance_token_fingerprint() -> str:
-        token = config.control_api_bearer_token or config.omx_inbound_bearer_token
-        return hashlib.sha256(token.encode("utf-8")).hexdigest() if token else ""
+        # Do not expose or propagate token-derived verifiers in preflight payloads.
+        # Token compatibility should be validated by direct callback behavior.
+        return ""
 
     def _dispatch_sort_key(row: dict[str, Any]) -> tuple[int, int, str]:
         priority = _int_or_none(row.get("dispatch_priority"))

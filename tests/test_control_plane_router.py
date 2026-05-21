@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import sqlite3
@@ -5794,11 +5793,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     WorkerPreflightCheck(
                         name="worker_callback_token_compatible",
                         ok=False,
-                        detail="worker callback token fingerprint does not match control-plane acceptance token",
-                        data={
-                            "expected_callback_token_fingerprint": hashlib.sha256(TOKEN.encode("utf-8")).hexdigest(),
-                            "worker_callback_token_fingerprint": hashlib.sha256(b"wrong-token").hexdigest(),
-                        },
+                        detail="worker callback token compatibility check failed",
+                        data={},
                     ),
                 ],
             )
@@ -5813,7 +5809,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("worker_callback_token_compatible", body_text)
             self.assertNotIn(TOKEN, body_text)
             called_payload = mocked_preflight.call_args.args[0]
-            self.assertEqual(called_payload.expected_callback_token_fingerprint, hashlib.sha256(TOKEN.encode("utf-8")).hexdigest())
+            self.assertEqual(called_payload.expected_callback_token_fingerprint, "")
             rows = {row["project_id"]: row for row in client.get("/control/queue", headers=headers).json()["rows"]}
             self.assertEqual(rows["dispatch-callback-mismatch"]["status"], "queued")
             self.assertIn("worker preflight failed", rows["dispatch-callback-mismatch"]["last_error"])
