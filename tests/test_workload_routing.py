@@ -154,3 +154,14 @@ def test_training_free_without_no_gpu_routes_to_cpu_only() -> None:
     assert routing["workload_class"] == "cpu_only"
     assert routing["machine_target"] == "cpu-proxmox-1"
 
+
+
+def test_training_free_gpu_inference_stays_gpu_required() -> None:
+    row = {"title": "training-free GPU inference benchmark", "machine_target": "gb10"}
+    routing = route_machine_target(
+        row,
+        default_machine_target="gb10",
+        workload_machine_targets={"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10", "training": "gb10"},
+    )
+    assert routing["workload_class"] == "gpu_required"
+    assert routing["machine_target"] == "gb10"

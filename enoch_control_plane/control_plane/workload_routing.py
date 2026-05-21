@@ -140,22 +140,29 @@ def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
     return any(term in text for term in terms)
 
 
+def _remove_terms(text: str, terms: tuple[str, ...]) -> str:
+    normalized = text
+    for term in terms:
+        normalized = normalized.replace(term, " ")
+    return " ".join(normalized.split())
+
+
 def infer_workload_class_from_text(row: dict[str, Any]) -> str:
     text = _field_text(row)
     if not text:
         return "unknown"
+    text_without_negated_strong_gpu = _remove_terms(text, NEGATED_STRONG_GPU_TERMS)
+    text_without_negated_training = _remove_terms(text, NEGATED_TRAINING_TERMS)
+
     has_negated_gpu = _contains_any(text, NEGATED_GPU_TERMS)
     has_gpu_required = _contains_any(text, GPU_REQUIRED_TERMS)
-    has_strong_gpu_positive = _contains_any(text, GPU_STRONG_POSITIVE_TERMS)
-    has_training = _contains_any(text, TRAINING_TERMS)
-    has_negated_strong_gpu = _contains_any(text, NEGATED_STRONG_GPU_TERMS)
+    has_strong_gpu_positive = _contains_any(text_without_negated_strong_gpu, GPU_STRONG_POSITIVE_TERMS)
+    has_training = _contains_any(text_without_negated_training, TRAINING_TERMS)
     has_negated_training = _contains_any(text, NEGATED_TRAINING_TERMS)
 
-    if has_negated_strong_gpu and has_strong_gpu_positive:
-        return "cpu_only"
     if has_strong_gpu_positive:
         return "gpu_required"
-    if has_training and has_negated_training:
+    if has_negated_training and not has_gpu_required:
         return "cpu_only"
     if has_training:
         return "training"
