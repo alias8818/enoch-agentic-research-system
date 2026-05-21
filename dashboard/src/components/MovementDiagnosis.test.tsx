@@ -115,4 +115,23 @@ describe('MovementDiagnosis', () => {
     expect(screen.getByLabelText(copy.title)).toBeInTheDocument()
     expect(screen.getByText('Queue is paused')).toBeInTheDocument()
   })
+
+  it('does not render a static decorative reason-strip chip row', () => {
+    renderDiagnosis({
+      status: 'ready',
+      primary_reason: 'CPU lane is occupied by active work.',
+      blockers: [
+        {
+          kind: 'lane_active',
+          title: 'CPU lane is running',
+          summary: 'CPU lane is occupied by active work.',
+        },
+      ],
+    })
+
+    expect(screen.queryByLabelText('Movement reasons covered')).not.toBeInTheDocument()
+    expect(screen.queryByText('no admitted candidates')).not.toBeInTheDocument()
+    expect(screen.queryByText('paper gate blocked')).not.toBeInTheDocument()
+    expect(document.querySelector('.reason-strip')).toBeNull()
+  })
 })
