@@ -392,7 +392,7 @@ it('dry-runs feed actions without spending provider requests or promoting work',
   }))
   expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"enabled":false')
   expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"max_dispatches_per_run":0')
-  expect(screen.getByText('Command blocked')).toBeInTheDocument()
+  expect(screen.getByText('Research action blocked')).toBeInTheDocument()
   expect(screen.getByText('provider budget passed; no provider request spent')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })

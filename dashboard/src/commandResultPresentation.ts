@@ -65,8 +65,10 @@ function deriveTitle(payload: Record<string, unknown>, context: CommandPresentat
 
   if (severity === 'blocked' || severity === 'failed') {
     if (family === 'dispatch') return 'Dispatch blocked'
-    if (family === 'paper') return 'Paper action blocked'
-    if (family === 'finalize') return 'Paper action blocked'
+    if (family === 'paper' || family === 'finalize') return 'Paper action blocked'
+    if (family === 'research') return 'Research action blocked'
+    if (family === 'followup') return 'Follow-up blocked'
+    if (family === 'automation') return 'Automation action blocked'
     return 'Command blocked'
   }
 

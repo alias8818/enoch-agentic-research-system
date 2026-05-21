@@ -67,3 +67,14 @@ it('maps live dispatch success', () => {
   expect(presentation.title).toBe('Dispatch completed')
   expect(presentation.severity).toBe('passed')
 })
+
+it('maps blocked research cycle to family-specific title', () => {
+  const presentation = deriveCommandPresentation({
+    ok: false,
+    action: 'research_cycle_blocked',
+    reason: 'no eligible candidate',
+  }, { commandFamily: 'research' })
+
+  expect(presentation.title).toBe('Research action blocked')
+  expect(presentation.severity).toBe('failed')
+})

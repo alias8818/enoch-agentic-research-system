@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { apiGet } from '../api/client'
-import { deriveDetailOperatorSummary, type DetailKind, type EntityLink } from '../detailOperatorSummary'
+import { deriveDetailOperatorSummary, type DetailKind, type DetailOperatorSummary, type EntityLink } from '../detailOperatorSummary'
 import { dashboardV2Href } from '../routes'
 import { useQuery } from '@tanstack/react-query'
 import { PageHeader } from './PageHeader'
@@ -296,27 +296,26 @@ function OperatorQuestionSections({ sections, recentActivity, actionNeeded }: { 
   )
 }
 
-function OperatorDetailSummary({ kind, payload }: { kind: DetailKind; payload: Record<string, unknown> }) {
-  const summary = deriveDetailOperatorSummary(kind, payload)
+function OperatorDetailSummary({ state, context, next }: { state: string; context: string; next: string }) {
   return (
     <section className="detail-operator-summary" aria-label="Operator detail summary">
       <div>
         <p className="eyebrow">Current state</p>
-        <strong>{summary.state}</strong>
-        <span>{summary.context}</span>
+        <strong>{state}</strong>
+        <span>{context}</span>
       </div>
       <div>
         <p className="eyebrow">Next safe action</p>
-        <span>{summary.next}</span>
+        <span>{next}</span>
       </div>
     </section>
   )
 }
 
-function StructuredDetail({ kind, id, payload, presentation = 'panel' }: { kind: DetailKind; id: string; payload: Record<string, unknown>; presentation?: 'panel' | 'page' }) {
+function StructuredDetail({ kind, id, payload, presentation = 'panel', operatorSummary: operatorSummaryProp }: { kind: DetailKind; id: string; payload: Record<string, unknown>; presentation?: 'panel' | 'page'; operatorSummary?: DetailOperatorSummary }) {
   const title = detailTitle(kind, payload, id)
   const summary = stringifyValue(firstValue(payload.summary, record(payload.project).abstract, record(payload.paper).summary, record(payload.paper).abstract))
-  const operatorSummary = deriveDetailOperatorSummary(kind, payload)
+  const operatorSummary = operatorSummaryProp ?? deriveDetailOperatorSummary(kind, payload)
   return (
     <div className={`detail-body${presentation === 'page' ? ' detail-body--page' : ''}`}>
       <section className={`detail-summary${presentation === 'page' ? ' detail-summary--flat' : ''}`}>
@@ -330,7 +329,7 @@ function StructuredDetail({ kind, id, payload, presentation = 'panel' }: { kind:
         <EntityLinkChips links={operatorSummary.entityLinks} />
         <FieldGrid fields={detailFields(kind, payload, id)} />
       </section>
-      <OperatorDetailSummary kind={kind} payload={payload} />
+      <OperatorDetailSummary state={operatorSummary.state} context={operatorSummary.context} next={operatorSummary.next} />
       <OperatorQuestionSections sections={operatorSummary.sections} recentActivity={operatorSummary.recentActivity} actionNeeded={operatorSummary.actionNeeded} />
       {kind === 'paper' ? <PaperArtifacts id={id} payload={payload} /> : null}
       <RelatedDetails payload={payload} />
@@ -373,9 +372,8 @@ function payloadFromDetailData(kind: DetailKind, data?: Record<string, unknown>)
   return data || {}
 }
 
-function statusSubtitle(kind: DetailKind, id: string, payload: Record<string, unknown>): string {
-  const status = deriveDetailOperatorSummary(kind, payload).state
-  return `${kindLabel(kind)} · ${shortId(id)} · ${status}`
+function statusSubtitle(kind: DetailKind, id: string, state: string): string {
+  return `${kindLabel(kind)} · ${shortId(id)} · ${state}`
 }
 
 export function DetailPanel({ selection, onClose }: { selection: DetailSelection | null; onClose: () => void }) {
@@ -414,9 +412,10 @@ export function DetailPage({ selection }: { selection: DetailSelection }) {
   })
   const payload = hasInlineEvent ? inlineRow : payloadFromDetailData(selection.kind, query.data)
   const hasResolvedPayload = hasInlineEvent || query.isSuccess
+  const operatorSummary = hasResolvedPayload ? deriveDetailOperatorSummary(selection.kind, payload) : null
   const title = hasResolvedPayload ? detailTitle(selection.kind, payload, selection.id) : kindLabel(selection.kind)
-  const subtitle = hasResolvedPayload
-    ? statusSubtitle(selection.kind, selection.id, payload)
+  const subtitle = hasResolvedPayload && operatorSummary
+    ? statusSubtitle(selection.kind, selection.id, operatorSummary.state)
     : `${kindLabel(selection.kind)} · ${shortId(selection.id)} · loading`
   return (
     <section className="page-stack">
@@ -429,7 +428,15 @@ export function DetailPage({ selection }: { selection: DetailSelection }) {
       <div className="detail-page-body" aria-label="Dashboard detail page">
         {query.isLoading && !hasInlineEvent ? <div className="state-card state-card--compact">Loading detail…</div> : null}
         {query.isError && !hasInlineEvent ? <div className="state-card state-card--error state-card--compact">Detail unavailable: {String(query.error.message)}</div> : null}
-        {(hasInlineEvent || query.isSuccess || !url) && !query.isError ? <StructuredDetail kind={selection.kind} id={selection.id} payload={payload} presentation="page" /> : null}
+        {(hasInlineEvent || query.isSuccess || !url) && !query.isError ? (
+          <StructuredDetail
+            kind={selection.kind}
+            id={selection.id}
+            payload={payload}
+            presentation="page"
+            operatorSummary={operatorSummary ?? undefined}
+          />
+        ) : null}
       </div>
     </section>
   )
