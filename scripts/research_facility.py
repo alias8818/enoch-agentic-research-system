@@ -456,7 +456,11 @@ def normalize_candidate(raw: dict[str, Any], *, default_machine: str, default_mo
     row["estimated_runtime_class"] = _runtime_class(row.get("estimated_runtime_class"))
     row["expected_token_budget"] = _token_budget(row.get("expected_token_budget"))
     row["machine_target"] = _as_text(row.get("machine_target") or default_machine)
-    row["model"] = _as_text(row.get("model") or default_model)
+    candidate_model = _as_text(row.get("model"))
+    # Provider model IDs describe the candidate generator. They are not valid
+    # Codex execution models, and dispatching them would fail the worker run
+    # before any experiment starts.
+    row["model"] = default_model if (not candidate_model or candidate_model.startswith("hf:")) else candidate_model
     row["sandbox"] = _as_text(row.get("sandbox") or default_sandbox)
     row["novelty_score"] = _bounded_score(row.get("novelty_score"))
     row["feasibility_score"] = _bounded_score(row.get("feasibility_score") or row.get("feasibility"))

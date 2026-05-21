@@ -97,6 +97,18 @@ def test_research_facility_normalizes_provider_runtime_and_token_budget_labels()
     assert row["expected_token_budget"] == "small"
 
 
+def test_research_facility_does_not_use_provider_model_as_codex_dispatch_model() -> None:
+    row = research_facility.normalize_candidate(
+        _strong_candidate(model="hf:zai-org/GLM-5.1", provider_model="hf:zai-org/GLM-5.1"),
+        default_machine="cpu-proxmox-1",
+        default_model="gpt-5.5",
+        default_sandbox="danger-full-access",
+    )
+
+    assert row["provider_model"] == "hf:zai-org/GLM-5.1"
+    assert row["model"] == "gpt-5.5"
+
+
 def test_research_facility_normalizes_fractional_provider_scores() -> None:
     row = research_facility.normalize_candidate(
         _strong_candidate(
