@@ -12,11 +12,11 @@ type FilterState = { search: string; status: string; pageSize: string; cursor: s
 
 function PageShell({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
-    <section className="space-y-5">
-      <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
-        <p className="text-xs font-bold uppercase tracking-[0.28em] text-sky-300">Dashboard V2</p>
-        <h1 className="mt-2 text-3xl font-black text-white">{title}</h1>
-        <p className="mt-2 text-sm text-zinc-400">{subtitle}</p>
+    <section className="page-stack">
+      <div className="page-hero">
+        <p className="eyebrow">Dashboard V2</p>
+        <h1>{title}</h1>
+        <p>{subtitle}</p>
       </div>
       {children}
     </section>
@@ -24,11 +24,11 @@ function PageShell({ title, subtitle, children }: { title: string; subtitle: str
 }
 
 function LoadingCard({ label }: { label: string }) {
-  return <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-400">Loading {label}…</div>
+  return <div className="state-card">Loading {label}…</div>
 }
 
 function ErrorCard({ error }: { error: unknown }) {
-  return <div className="rounded-2xl border border-red-900 bg-red-950/40 p-8 text-red-100">V2 data unavailable: {String(error instanceof Error ? error.message : error)}</div>
+  return <div className="state-card state-card--error">V2 data unavailable: {String(error instanceof Error ? error.message : error)}</div>
 }
 
 function FilterBar({ state, statusOptions, onApply, onNext, onReset, page }: { state: FilterState; statusOptions: { label: string; value: string }[]; onApply: (next: FilterState) => void; onNext: () => void; onReset: () => void; page?: PageMeta }) {
@@ -38,24 +38,24 @@ function FilterBar({ state, statusOptions, onApply, onNext, onReset, page }: { s
     onApply({ ...draft, cursor: '' })
   }
   return (
-    <form className="flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-4 md:flex-row md:items-end" onSubmit={submit}>
-      <label className="flex-1 text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Search
-        <input className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-3 py-2 text-sm text-white" value={draft.search} onChange={(event) => setDraft({ ...draft, search: event.target.value })} placeholder="Search" />
+    <form className="filter-bar" onSubmit={submit}>
+      <label>Search
+        <input value={draft.search} onChange={(event) => setDraft({ ...draft, search: event.target.value })} placeholder="Search" />
       </label>
-      <label className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Status
-        <select className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-3 py-2 text-sm text-white" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}>
+      <label>Status
+        <select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}>
           {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       </label>
-      <label className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Size
-        <select className="mt-2 w-full rounded-xl border border-zinc-700 bg-black px-3 py-2 text-sm text-white" value={draft.pageSize} onChange={(event) => setDraft({ ...draft, pageSize: event.target.value })}>
+      <label>Size
+        <select value={draft.pageSize} onChange={(event) => setDraft({ ...draft, pageSize: event.target.value })}>
           {['25', '50', '100', '200'].map((value) => <option key={value} value={value}>{value}</option>)}
         </select>
       </label>
-      <button className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-bold text-white" type="submit">Apply filters</button>
-      <button className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-bold text-white" type="button" onClick={() => { setDraft({ search: '', status: '', pageSize: '50', cursor: '' }); onReset() }}>Reset</button>
-      <button className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-40" type="button" disabled={!page?.has_more} onClick={onNext}>Next page</button>
-      <span className="text-sm text-zinc-500">Showing {page?.returned ?? 0}</span>
+      <button className="primary-button" type="submit">Apply filters</button>
+      <button className="secondary-button" type="button" onClick={() => { setDraft({ search: '', status: '', pageSize: '50', cursor: '' }); onReset() }}>Reset</button>
+      <button className="secondary-button" type="button" disabled={!page?.has_more} onClick={onNext}>Next page</button>
+      <span>Showing {page?.returned ?? 0}</span>
     </form>
   )
 }
