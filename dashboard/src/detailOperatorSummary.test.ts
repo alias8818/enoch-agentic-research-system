@@ -26,6 +26,7 @@ describe('deriveDetailOperatorSummary', () => {
       expect.objectContaining({ kind: 'paper', id: 'paper-1' }),
     ]))
     expect(summary.sections.some((section) => section.title === 'What is this project?')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'Paper and publication path')).toBe(true)
     expect(summary.recentActivity).toContain('Queue item created')
   })
 

@@ -125,6 +125,9 @@ function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary
   const runState = text(firstValue(queue.last_run_state, payload.latest_run_state, runs[0]?.state))
   const paperStatus = text(firstValue(queue.related_paper_status, papers[0]?.paper_status, papers[0]?.status, payload.related_paper_status))
   const paperId = text(firstValue(queue.related_paper_id, papers[0]?.paper_id))
+  const paperReview = text(firstValue(queue.related_review_status, papers[0]?.review_status))
+  const paperStage = text(firstValue(queue.operator_stage_label, papers[0]?.operator_stage_label, queue.operator_stage, papers[0]?.operator_stage))
+  const corpusImported = firstValue(queue.related_corpus_imported, papers[0]?.corpus_imported) === true
   const blocked = text(firstValue(queue.blocked_reason, queue.last_error, queue.decision_summary))
   const attention = queue.operator_attention === true || state.includes('blocked') || state.includes('review')
   const entityLinks: EntityLink[] = []
@@ -161,12 +164,20 @@ function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary
         ],
       },
       {
-        title: 'Latest run and paper',
+        title: 'Latest run',
         answers: [
           { label: 'current run', value: runId },
           { label: 'run state', value: runState },
-          { label: 'paper status', value: paperStatus },
+        ],
+      },
+      {
+        title: 'Paper and publication path',
+        answers: [
           { label: 'related paper', value: paperId },
+          { label: 'paper status', value: paperStatus },
+          { label: 'review status', value: paperReview },
+          { label: 'operator stage', value: paperStage },
+          { label: 'corpus imported', value: text(corpusImported) },
         ],
       },
     ],

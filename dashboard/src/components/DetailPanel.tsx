@@ -309,10 +309,24 @@ function OperatorDetailSummary({ state, context, next }: { state: string; contex
   )
 }
 
+function RecordFields({ kind, id, payload, presentation }: { kind: DetailKind; id: string; payload: Record<string, unknown>; presentation: 'panel' | 'page' }) {
+  const fields = detailFields(kind, payload, id)
+  if (presentation === 'page') {
+    return (
+      <details className="detail-record-fields">
+        <summary>Record fields</summary>
+        <FieldGrid fields={fields} />
+      </details>
+    )
+  }
+  return <FieldGrid fields={fields} />
+}
+
 function StructuredDetail({ kind, id, payload, presentation = 'panel', operatorSummary: operatorSummaryProp }: { kind: DetailKind; id: string; payload: Record<string, unknown>; presentation?: 'panel' | 'page'; operatorSummary?: DetailOperatorSummary }) {
   const title = detailTitle(kind, payload, id)
   const summary = stringifyValue(firstValue(payload.summary, record(payload.project).abstract, record(payload.paper).summary, record(payload.paper).abstract))
   const operatorSummary = operatorSummaryProp ?? deriveDetailOperatorSummary(kind, payload)
+  const fields = detailFields(kind, payload, id)
   return (
     <div className={`detail-body${presentation === 'page' ? ' detail-body--page' : ''}`}>
       <section className={`detail-summary${presentation === 'page' ? ' detail-summary--flat' : ''}`}>
@@ -324,12 +338,13 @@ function StructuredDetail({ kind, id, payload, presentation = 'panel', operatorS
           </>
         ) : summary !== '—' && summary !== title ? <p className="detail-page-lead">{summary}</p> : null}
         <EntityLinkChips links={operatorSummary.entityLinks} />
-        <FieldGrid fields={detailFields(kind, payload, id)} />
+        {presentation === 'panel' ? <FieldGrid fields={fields} /> : null}
       </section>
       <OperatorDetailSummary state={operatorSummary.state} context={operatorSummary.context} next={operatorSummary.next} />
       <OperatorQuestionSections sections={operatorSummary.sections} recentActivity={operatorSummary.recentActivity} actionNeeded={operatorSummary.actionNeeded} />
       {kind === 'paper' ? <PaperArtifacts id={id} payload={payload} /> : null}
       <RelatedDetails payload={payload} />
+      {presentation === 'page' ? <RecordFields kind={kind} id={id} payload={payload} presentation={presentation} /> : null}
       <details className="raw-details">
         <summary>Raw payload</summary>
         <pre className="json-block">{JSON.stringify(payload, null, 2)}</pre>
