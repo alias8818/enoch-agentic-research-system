@@ -1,6 +1,6 @@
 # Dashboard V2 TODO checklist
 
-Status: **P0 + P1 landing** — branch `feat/dashboard-v2-trust-guards` (2026-05-21). Trust guards and command-result UX in one PR stack; P2+ deferred.
+Status: **P0 + P1 + P2 landing** — branch `feat/dashboard-v2-trust-guards` (2026-05-21). Trust guards, command-result UX, and detail-page operator sections in one PR stack; P3+ deferred.
 
 Screenshot evidence reviewed from:
 
@@ -87,43 +87,43 @@ and the raw candidate JSON is visible only after expanding Raw JSON.
 
 Problem seen in screenshots: direct routes showed huge raw IDs/slugs as hero text and minimal useful detail.
 
-- [ ] Project detail page should answer:
-  - [ ] What is this project?
-  - [ ] Is it queued, running, completed, blocked, or paper-ready?
-  - [ ] Which lane/machine target owns it?
-  - [ ] What is the current/latest run?
-  - [ ] What happened most recently?
-  - [ ] Is action needed now?
-  - [ ] Is there a paper row or publication status?
-- [ ] Run detail page should answer:
-  - [ ] What project did this run execute?
-  - [ ] Current state and gate state;
-  - [ ] worker/lane/machine target;
-  - [ ] start/update/finish timestamps;
-  - [ ] current activity;
-  - [ ] final reason/error if stopped;
-  - [ ] artifacts/evidence available;
-  - [ ] recent events for this run.
-- [ ] Paper detail page should answer:
-  - [ ] paper status;
-  - [ ] evidence/claim-ledger availability;
-  - [ ] draft/finalization/import status;
-  - [ ] artifact preview buttons;
-  - [ ] blocking checklist items;
-  - [ ] next safe paper action.
-- [ ] Event detail page should answer:
-  - [ ] event type;
-  - [ ] entity type and entity ID;
-  - [ ] timestamp;
-  - [ ] concise summary;
-  - [ ] related project/run/paper links;
-  - [ ] payload collapsed.
-- [ ] Intake idea detail page should answer:
-  - [ ] source and lineage;
-  - [ ] admission/promote/queue state;
-  - [ ] why it was or was not queued;
-  - [ ] related project if promoted;
-  - [ ] next operator action.
+- [x] Project detail page should answer:
+  - [x] What is this project?
+  - [x] Is it queued, running, completed, blocked, or paper-ready?
+  - [x] Which lane/machine target owns it?
+  - [x] What is the current/latest run?
+  - [x] What happened most recently?
+  - [x] Is action needed now?
+  - [x] Is there a paper row or publication status?
+- [x] Run detail page should answer:
+  - [x] What project did this run execute?
+  - [x] Current state and gate state;
+  - [x] worker/lane/machine target;
+  - [x] start/update/finish timestamps;
+  - [x] current activity;
+  - [x] final reason/error if stopped;
+  - [x] artifacts/evidence available;
+  - [x] recent events for this run.
+- [x] Paper detail page should answer:
+  - [x] paper status;
+  - [x] evidence/claim-ledger availability;
+  - [x] draft/finalization/import status;
+  - [x] artifact preview buttons;
+  - [x] blocking checklist items;
+  - [x] next safe paper action.
+- [x] Event detail page should answer:
+  - [x] event type;
+  - [x] entity type and entity ID;
+  - [x] timestamp;
+  - [x] concise summary;
+  - [x] related project/run/paper links;
+  - [x] payload collapsed.
+- [x] Intake idea detail page should answer:
+  - [x] source and lineage;
+  - [x] admission/promote/queue state;
+  - [x] why it was or was not queued;
+  - [x] related project if promoted;
+  - [x] next operator action.
 
 Acceptance test idea:
 
@@ -222,9 +222,9 @@ Lower priority than operator usefulness.
 
 When work resumes, do this sequence:
 
-1. Add/verify dashboard smoke script and route policy tests.
-2. Make command results decisive and less generic.
-3. Make project/run/paper/event/idea detail pages answer the entity-specific operator questions.
+1. ~~Add/verify dashboard smoke script and route policy tests.~~ (P0)
+2. ~~Make command results decisive and less generic.~~ (P1)
+3. ~~Make project/run/paper/event/idea detail pages answer the entity-specific operator questions.~~ (P2 — [`detailOperatorSummary.ts`](../dashboard/src/detailOperatorSummary.ts))
 4. Reduce secondary page hero/header footprint.
 5. Improve tables and empty/error states.
 6. Only then do visual polish.

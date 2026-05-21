@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { apiGet } from '../api/client'
+import { deriveDetailOperatorSummary, type DetailKind, type EntityLink } from '../detailOperatorSummary'
 import { dashboardV2Href } from '../routes'
 import { useQuery } from '@tanstack/react-query'
 
-export type DetailKind = 'project' | 'run' | 'paper' | 'event'
+export type { DetailKind }
 
 export type DetailSelection = {
   kind: DetailKind
@@ -105,9 +106,18 @@ const artifactFields = [
   ['manifest_path', 'manifest'],
 ] as const
 
+const artifactFlagKeys: Record<(typeof artifactFields)[number][0], string> = {
+  draft_markdown_path: 'draft_markdown',
+  draft_latex_path: 'draft_latex',
+  evidence_bundle_path: 'evidence_bundle',
+  claim_ledger_path: 'claim_ledger',
+  manifest_path: 'manifest',
+}
+
 function PaperArtifacts({ id, payload }: { id: string; payload: Record<string, unknown> }) {
   const paper = record(payload.paper)
-  const available = artifactFields.filter(([field]) => paper[field])
+  const flags = record(paper.artifact_paths_present)
+  const available = artifactFields.filter(([field]) => Boolean(flags[artifactFlagKeys[field]] || paper[field]))
   const [preview, setPreview] = useState<ArtifactPreview | null>(null)
   const [pendingField, setPendingField] = useState<string>('')
   if (!available.length) return null
@@ -174,18 +184,22 @@ function sanitizeHeroTitle(title: string, kind: DetailKind): string {
   return rest ? shortId(rest) : kindLabel(kind)
 }
 
+function queueRecord(payload: Record<string, unknown>): Record<string, unknown> {
+  return record(payload.queue_item || payload.queue)
+}
+
 function detailFields(kind: DetailKind, payload: Record<string, unknown>, fallbackId: string): Field[] {
   const project = record(payload.project)
   const run = record(payload.run)
   const paper = record(payload.paper)
-  const queue = record(payload.queue)
+  const queue = queueRecord(payload)
   if (kind === 'project') {
     return [
       { label: 'project id', value: firstValue(payload.project_id, project.project_id, fallbackId) },
-      { label: 'status', value: firstValue(payload.status, queue.status, project.status) },
-      { label: 'machine target', value: firstValue(payload.machine_target, queue.machine_target, project.machine_target) },
-      { label: 'lane', value: firstValue(payload.lane, queue.lane, queue.machine_target) },
-      { label: 'run id', value: firstValue(payload.run_id, queue.run_id, project.current_run_id) },
+      { label: 'status', value: firstValue(queue.status, queue.queue_status, payload.status, project.origin_idea_status) },
+      { label: 'machine target', value: firstValue(queue.machine_target, payload.machine_target, project.machine_target) },
+      { label: 'lane', value: firstValue(queue.machine_target, queue.operator_lane, payload.lane, payload.machine_target) },
+      { label: 'run id', value: firstValue(queue.current_run_id, payload.run_id, project.current_run_id) },
       { label: 'updated', value: firstValue(payload.updated_at, project.updated_at, queue.updated_at) },
     ]
   }
@@ -197,22 +211,24 @@ function detailFields(kind: DetailKind, payload: Record<string, unknown>, fallba
       { label: 'gate', value: firstValue(payload.gate_state, run.gate_state) },
       { label: 'dispatch', value: firstValue(payload.dispatch_mode, run.dispatch_mode) },
       { label: 'activity', value: firstValue(payload.current_activity, run.current_activity) },
+      { label: 'started', value: firstValue(payload.started_at, run.started_at) },
       { label: 'updated', value: firstValue(payload.updated_at, run.updated_at) },
+      { label: 'ended', value: firstValue(payload.ended_at, run.ended_at) },
     ]
   }
   if (kind === 'paper') {
     return [
       { label: 'paper id', value: firstValue(payload.paper_id, paper.paper_id, fallbackId) },
       { label: 'project id', value: firstValue(payload.project_id, paper.project_id) },
-      { label: 'status', value: firstValue(payload.status, paper.status) },
-      { label: 'artifact dir', value: firstValue(payload.artifact_dir, paper.artifact_dir) },
+      { label: 'status', value: firstValue(paper.paper_status, paper.status, payload.status, payload.paper_status) },
+      { label: 'review status', value: firstValue(paper.review_status, payload.review_status) },
       { label: 'updated', value: firstValue(payload.updated_at, paper.updated_at) },
     ]
   }
   return [
     { label: 'event id', value: firstValue(payload.id, payload.event_id, fallbackId) },
     { label: 'event type', value: payload.event_type },
-    { label: 'entity', value: firstValue(payload.entity_id, payload.project_id, payload.paper_id) },
+    { label: 'entity', value: firstValue(payload.entity_id, payload.project_id, payload.paper_id, payload.run_id) },
     { label: 'created', value: payload.created_at },
     { label: 'summary', value: payload.summary },
   ]
@@ -233,61 +249,54 @@ function FieldGrid({ fields }: { fields: Field[] }) {
   )
 }
 
-function detailStatus(kind: DetailKind, payload: Record<string, unknown>): { state: string; context: string; next: string } {
-  const project = record(payload.project)
-  const run = record(payload.run)
-  const paper = record(payload.paper)
-  const queue = record(payload.queue)
-  if (kind === 'project') {
-    const state = stringifyValue(firstValue(payload.status, queue.status, project.status, payload.queue_status, payload.origin_idea_status))
-    const lane = stringifyValue(firstValue(payload.lane, queue.lane, payload.machine_target, queue.machine_target, project.machine_target))
-    const runState = stringifyValue(firstValue(payload.latest_run_state, payload.run_state, run.state, queue.last_run_state))
-    return {
-      state,
-      context: `Lane ${lane}; run ${runState}.`,
-      next: state === 'queued'
-        ? 'Check the lane card or selected dispatch dry-run before starting work.'
-        : state === 'active' || runState === 'running'
-          ? 'Open the current run and verify activity, gate state, and errors.'
-          : 'Review recent events and paper status before taking a write or dispatch action.',
-    }
-  }
-  if (kind === 'run') {
-    const state = stringifyValue(firstValue(payload.state, run.state))
-    const gate = stringifyValue(firstValue(payload.gate_state, run.gate_state))
-    const activity = stringifyValue(firstValue(payload.current_activity, run.current_activity))
-    return {
-      state,
-      context: `Gate ${gate}; activity ${activity}.`,
-      next: state === 'running' || state === 'dispatching'
-        ? 'Watch current activity and recent events; investigate if the gate stops moving.'
-        : state.includes('error') || gate.includes('error')
-          ? 'Open recent events and logs before retrying dispatch.'
-          : 'Review artifacts and paper eligibility before queuing another action.',
-    }
-  }
-  if (kind === 'paper') {
-    const state = stringifyValue(firstValue(payload.status, paper.status, paper.paper_status, payload.paper_status))
-    const evidence = stringifyValue(firstValue(paper.evidence_bundle_path, payload.evidence_bundle_path, paper.claim_ledger_path, payload.claim_ledger_path))
-    return {
-      state,
-      context: evidence === '—' ? 'No evidence artifact path is visible in this read model.' : `Evidence/artifact path present: ${shortId(evidence)}.`,
-      next: state.includes('draft')
-        ? 'Preview artifacts, then finalize only after evidence and checklist state look correct.'
-        : 'Use the paper pipeline only after deterministic paper gates mark this writable.',
-    }
-  }
-  const eventType = stringifyValue(payload.event_type)
-  const entity = stringifyValue(firstValue(payload.entity_id, payload.project_id, payload.paper_id))
-  return {
-    state: eventType,
-    context: `Entity ${entity}; created ${stringifyValue(payload.created_at)}.`,
-    next: entity !== '—' ? 'Open the related project, run, or paper if this event requires action.' : 'Use the payload only as supporting detail; do not treat it as a command.',
-  }
+function EntityLinkChips({ links }: { links: EntityLink[] }) {
+  if (!links.length) return null
+  return (
+    <div className="detail-entity-links" aria-label="Related entity links">
+      {links.map((link) => (
+        <a key={`${link.kind}-${link.id}`} className="detail-id-chip detail-id-chip--link" href={dashboardV2Href(`#${link.kind}:${encodeURIComponent(link.id)}`)} title={link.id}>
+          {link.kind}: {link.label}
+        </a>
+      ))}
+    </div>
+  )
+}
+
+function OperatorQuestionSections({ sections, recentActivity, actionNeeded }: { sections: ReturnType<typeof deriveDetailOperatorSummary>['sections']; recentActivity: string | null; actionNeeded: string | null }) {
+  if (!sections.length && !recentActivity && !actionNeeded) return null
+  return (
+    <section className="detail-operator-questions" aria-label="Operator questions">
+      {sections.map((section) => (
+        <article key={section.title} className="detail-operator-question">
+          <h4>{section.title}</h4>
+          <dl className="detail-field-grid">
+            {section.answers.map((answer) => (
+              <div key={`${section.title}-${answer.label}`} className="detail-field">
+                <dt>{answer.label}</dt>
+                <dd>{answer.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </article>
+      ))}
+      {recentActivity ? (
+        <article className="detail-operator-question">
+          <h4>What happened most recently?</h4>
+          <p>{recentActivity}</p>
+        </article>
+      ) : null}
+      {actionNeeded ? (
+        <article className="detail-operator-question detail-operator-question--attention">
+          <h4>Action needed now</h4>
+          <p>{actionNeeded}</p>
+        </article>
+      ) : null}
+    </section>
+  )
 }
 
 function OperatorDetailSummary({ kind, payload }: { kind: DetailKind; payload: Record<string, unknown> }) {
-  const summary = detailStatus(kind, payload)
+  const summary = deriveDetailOperatorSummary(kind, payload)
   return (
     <section className="detail-operator-summary" aria-label="Operator detail summary">
       <div>
@@ -306,15 +315,18 @@ function OperatorDetailSummary({ kind, payload }: { kind: DetailKind; payload: R
 function StructuredDetail({ kind, id, payload }: { kind: DetailKind; id: string; payload: Record<string, unknown> }) {
   const title = detailTitle(kind, payload, id)
   const summary = stringifyValue(firstValue(payload.summary, record(payload.project).abstract, record(payload.paper).summary, record(payload.paper).abstract))
+  const operatorSummary = deriveDetailOperatorSummary(kind, payload)
   return (
     <div className="detail-body">
       <section className="detail-summary">
         <p className="eyebrow">{kindLabel(kind)}</p>
         <h3>{title}</h3>
         {summary !== '—' && summary !== title ? <p>{summary}</p> : null}
+        <EntityLinkChips links={operatorSummary.entityLinks} />
         <FieldGrid fields={detailFields(kind, payload, id)} />
       </section>
       <OperatorDetailSummary kind={kind} payload={payload} />
+      <OperatorQuestionSections sections={operatorSummary.sections} recentActivity={operatorSummary.recentActivity} actionNeeded={operatorSummary.actionNeeded} />
       {kind === 'paper' ? <PaperArtifacts id={id} payload={payload} /> : null}
       <RelatedDetails payload={payload} />
       <details className="raw-details">
@@ -357,7 +369,7 @@ function payloadFromDetailData(kind: DetailKind, data?: Record<string, unknown>)
 }
 
 function statusSubtitle(kind: DetailKind, id: string, payload: Record<string, unknown>): string {
-  const status = detailStatus(kind, payload).state
+  const status = deriveDetailOperatorSummary(kind, payload).state
   return `${kindLabel(kind)} · ${shortId(id)} · ${status}`
 }
 

@@ -40,8 +40,8 @@ it('renders run detail from the backed run endpoint', async () => {
   renderWithClient(<DetailPanel selection={{ kind: 'run', id: 'run-1' }} onClose={() => undefined} />)
 
   expect(await screen.findByRole('heading', { name: 'run-1' })).toBeInTheDocument()
-  expect(await screen.findByText('gate')).toBeInTheDocument()
-  expect(screen.getByText('awaiting_wake')).toBeInTheDocument()
+  expect((await screen.findAllByText('gate')).length).toBeGreaterThan(0)
+  expect(screen.getAllByText('awaiting_wake').length).toBeGreaterThan(0)
   assertJsonBlocksInRawDetails(document.body)
 })
 
@@ -91,9 +91,9 @@ it('renders related project runs and papers as V2 links instead of raw-only JSON
 
   expect(await screen.findByRole('heading', { name: 'Structured project' })).toBeInTheDocument()
   expect(screen.getByText('Related runs')).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: /run-1/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-1')
+  expect(screen.getAllByRole('link', { name: /run-1/ }).some((link) => link.getAttribute('href') === '/control/dashboard-v2#run:run-1')).toBe(true)
   expect(screen.getByText('Related papers')).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: /Draft paper/ })).toHaveAttribute('href', '/control/dashboard-v2#paper:paper-1')
+  expect(screen.getAllByRole('link', { name: /Draft paper/ }).some((link) => link.getAttribute('href') === '/control/dashboard-v2#paper:paper-1')).toBe(true)
   expect(screen.getByText('Recent events')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /Lane blocked/ })).toHaveAttribute('href', '/control/dashboard-v2#event:9')
 })
@@ -185,4 +185,76 @@ it.each([
 
   const heading = await screen.findByRole('heading', { level: 1, name: expectedTitle })
   expect(heading.textContent).not.toMatch(PREFIXED_ID_PATTERN)
+})
+
+it('renders P2 operator question sections with entity links for project detail', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    project_id: 'project-1',
+    project: { project_name: 'Structured project', origin_idea_status: 'admitted' },
+    queue_item: {
+      status: 'queued',
+      machine_target: 'gb10',
+      current_run_id: 'run-1',
+      last_run_state: 'queued',
+      related_paper_id: 'paper-1',
+      related_paper_status: 'publication_draft',
+    },
+    events: [{ summary: 'Queue item created', created_at: '2026-05-21T10:00:00Z' }],
+  }), { status: 200 }))
+
+  renderWithClient(<DetailPage selection={{ kind: 'project', id: 'project-1' }} />)
+
+  expect(await screen.findByText('Current state')).toBeInTheDocument()
+  expect(screen.getByText('Next safe action')).toBeInTheDocument()
+  expect(screen.getByText('What is this project?')).toBeInTheDocument()
+  expect(screen.getByText('What happened most recently?')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /run: run-1/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-1')
+  expect(screen.getByRole('link', { name: /paper: paper-1/ })).toHaveAttribute('href', '/control/dashboard-v2#paper:paper-1')
+  expect(screen.queryByRole('heading', { name: /^project:/i })).not.toBeInTheDocument()
+})
+
+it('renders P2 operator question sections for run detail with project link', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    run_id: 'run-1',
+    run: {
+      run_id: 'run-1',
+      project_id: 'project-1',
+      project_name: 'Structured project',
+      state: 'running',
+      gate_state: 'awaiting_wake',
+      current_activity: 'testing',
+      started_at: '2026-05-21T09:00:00Z',
+    },
+    events: [{ summary: 'Wake callback pending', created_at: '2026-05-21T10:01:00Z' }],
+  }), { status: 200 }))
+
+  renderWithClient(<DetailPage selection={{ kind: 'run', id: 'run-1' }} />)
+
+  expect(await screen.findByText('Run progress')).toBeInTheDocument()
+  expect(screen.getByText('What happened most recently?')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /project: Structured project/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
+})
+
+it('renders P2 publication checklist for paper detail', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    paper_id: 'paper-1',
+    paper: {
+      paper_id: 'paper-1',
+      title: 'Artifact paper',
+      paper_status: 'publication_draft',
+      artifact_paths_present: {
+        draft_markdown: true,
+        evidence_bundle: true,
+        claim_ledger: true,
+        manifest: false,
+        finalization_package: false,
+      },
+    },
+  }), { status: 200 }))
+
+  renderWithClient(<DetailPage selection={{ kind: 'paper', id: 'paper-1' }} />)
+
+  expect(await screen.findByText('Publication checklist')).toBeInTheDocument()
+  expect(screen.getByText('Paper pipeline status')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Preview draft markdown' })).toBeInTheDocument()
 })

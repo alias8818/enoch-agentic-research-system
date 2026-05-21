@@ -8,6 +8,7 @@ import { DetailPanel } from './DetailPanel'
 import { useOperatorDialog } from './OperatorDialog'
 import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
+import { deriveIntakeIdeaOperatorSummary } from '../detailOperatorSummary'
 
 type PageMeta = { next_cursor?: string; has_more?: boolean; returned?: number; page_size?: number }
 type PageResponse = { rows?: Record<string, unknown>[]; counts?: Record<string, unknown>; generated_at?: string; page?: PageMeta }
@@ -456,46 +457,56 @@ function IntakeIdeaDetail({ row, ideaId, onClose }: { row: Record<string, unknow
     )
   }
   if (!row) return null
-  const ideaStatus = String(row.idea_status || '—')
-  const queueStatus = String(row.queue_status || '—')
-  const nextHint = String(row.next_action_hint || '—')
-  const paperStatus = String(row.paper_status || '—')
-  const nextAction = queueStatus === 'queued'
-    ? 'Open the matching project or queue row and run a dispatch dry-run before starting work.'
-    : queueStatus === 'active' || queueStatus === 'running'
-      ? 'Open the current project/run detail and verify the lane is still moving.'
-      : nextHint !== '—'
-        ? `Follow backend hint: ${nextHint}.`
-        : 'Review source lineage and admission state before creating more queue work.'
+  const operatorSummary = deriveIntakeIdeaOperatorSummary(row)
   return (
     <section className="detail-panel" aria-label="Intake idea detail">
       <div className="detail-panel-head">
         <div>
           <p className="eyebrow">Intake idea detail</p>
           <h2>{String(row.title || row.idea_id || 'Selected idea')}</h2>
+          <span className="detail-id-chip" title={String(row.idea_id || '')}>{shortId(String(row.idea_id || ''))}</span>
         </div>
         <button className="secondary-button" type="button" onClick={onClose}>Close</button>
       </div>
       <section className="detail-summary">
-        <p className="eyebrow">Deterministic projection row</p>
-        <dl className="detail-field-grid">
-          <div className="detail-field"><dt>idea id</dt><dd>{String(row.idea_id || '—')}</dd></div>
-          <div className="detail-field"><dt>idea status</dt><dd>{String(row.idea_status || '—')}</dd></div>
-          <div className="detail-field"><dt>queue status</dt><dd>{String(row.queue_status || '—')}</dd></div>
-          <div className="detail-field"><dt>next action</dt><dd>{String(row.next_action_hint || '—')}</dd></div>
-          <div className="detail-field"><dt>paper status</dt><dd>{String(row.paper_status || '—')}</dd></div>
-          <div className="detail-field"><dt>source kind</dt><dd>{String(row.source_kind || '—')}</dd></div>
-        </dl>
+        <div className="detail-entity-links" aria-label="Related entity links">
+          {operatorSummary.entityLinks.map((link) => (
+            <a key={`${link.kind}-${link.id}`} className="detail-id-chip detail-id-chip--link" href={dashboardV2Href(`#${link.kind}:${encodeURIComponent(link.id)}`)} title={link.id}>
+              {link.kind}: {link.label}
+            </a>
+          ))}
+        </div>
         <section className="detail-operator-summary" aria-label="Idea operator summary">
           <div>
             <p className="eyebrow">Current state</p>
-            <strong>{ideaStatus}</strong>
-            <span>Queue {queueStatus}; paper {paperStatus}.</span>
+            <strong>{operatorSummary.state}</strong>
+            <span>{operatorSummary.context}</span>
           </div>
           <div>
             <p className="eyebrow">Next safe action</p>
-            <span>{nextAction}</span>
+            <span>{operatorSummary.next}</span>
           </div>
+        </section>
+        <section className="detail-operator-questions" aria-label="Operator questions">
+          {operatorSummary.sections.map((section) => (
+            <article key={section.title} className="detail-operator-question">
+              <h4>{section.title}</h4>
+              <dl className="detail-field-grid">
+                {section.answers.map((answer) => (
+                  <div key={`${section.title}-${answer.label}`} className="detail-field">
+                    <dt>{answer.label}</dt>
+                    <dd>{answer.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </article>
+          ))}
+          {operatorSummary.actionNeeded ? (
+            <article className="detail-operator-question detail-operator-question--attention">
+              <h4>Action needed now</h4>
+              <p>{operatorSummary.actionNeeded}</p>
+            </article>
+          ) : null}
         </section>
         <details className="raw-details">
           <summary>Raw intake row</summary>

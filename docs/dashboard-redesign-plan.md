@@ -84,8 +84,8 @@ The first shipped slice is the redesigned shell and overview experience:
 ## Follow-up slices
 
 - **Trust guards (2026-05-21):** post-deploy GET/API smoke via [`scripts/dashboard_v2_smoke.py`](../scripts/dashboard_v2_smoke.py), dashboard Vitest in CI, DOM regression guards for collapsed raw JSON and detail hero titles, and deploy notes in [`dashboard-v2-deploy.md`](dashboard-v2-deploy.md). Rendering invariants stay in Vitest; smoke proves shell/assets/API health only.
+- **Detail operator sections (2026-05-21):** entity-specific operator question grids, related entity link chips, and intake admission sections via [`detailOperatorSummary.ts`](../dashboard/src/detailOperatorSummary.ts) + Vitest acceptance tests in [`DetailPanel.test.tsx`](../dashboard/src/components/DetailPanel.test.tsx).
 - Extract the inline dashboard into static assets or a small frontend package if the UI keeps growing.
-- Add dedicated project/run/paper detail layouts instead of generic detail sections.
 - Expand the corpus import view with direct links to public corpus artifacts and release-validator evidence.
 - Add keyboard shortcut help and saved filters.
 - Add screenshot-based visual regression for the dashboard shell.

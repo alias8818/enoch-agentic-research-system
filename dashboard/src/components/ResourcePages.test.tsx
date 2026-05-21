@@ -521,6 +521,6 @@ it('opens intake idea details from selected rows without a legacy fallback', asy
   expect(detail).toHaveTextContent('dispatch')
   expect(detail).toHaveTextContent('Current state')
   expect(detail).toHaveTextContent('Next safe action')
-  expect(detail).toHaveTextContent('Open the matching project or queue row and run a dispatch dry-run before starting work.')
+  expect(detail).toHaveTextContent('Open the matching project and run a dispatch dry-run before starting work.')
   expect(screen.queryByRole('link', { name: /legacy/i })).not.toBeInTheDocument()
 })

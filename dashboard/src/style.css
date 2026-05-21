@@ -949,6 +949,50 @@ button:disabled { cursor: not-allowed; }
 .status-chip--failed { color: #fca5a5; border-color: rgba(252, 165, 165, .35); }
 .status-chip--stale { color: #fdba74; border-color: rgba(253, 186, 116, .35); }
 
+.detail-entity-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+  margin: .75rem 0 1rem;
+}
+
+.detail-id-chip--link {
+  text-decoration: none;
+}
+
+.detail-id-chip--link:hover,
+.detail-id-chip--link:focus-visible {
+  color: var(--text-primary, #e2e8f0);
+  border-color: rgba(148, 163, 184, .55);
+}
+
+.detail-operator-questions {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.detail-operator-question {
+  border: 1px solid var(--border-muted, rgba(148, 163, 184, .25));
+  border-radius: 14px;
+  padding: .85rem;
+  background: var(--surface-subtle, rgba(148, 163, 184, .08));
+}
+
+.detail-operator-question h4 {
+  margin: 0 0 .65rem;
+  font-size: .92rem;
+}
+
+.detail-operator-question p {
+  margin: 0;
+  color: var(--text-muted, #64748b);
+}
+
+.detail-operator-question--attention {
+  border-color: rgba(252, 211, 77, .35);
+}
+
 .v2-error-card h2 {
   margin: .15rem 0 .4rem;
 }
