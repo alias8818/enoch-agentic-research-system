@@ -61,6 +61,8 @@ function OverviewPage() {
   const diagnosis = data.movement_diagnosis || { status: 'unknown', primary_reason: 'No movement diagnosis returned.', blockers: [] }
   const recentEvents = data.recent_events || []
   const activeItems = data.active_items || []
+  const operatorCounts = data.operator_counts || {}
+  const operatorDetailCounts = data.operator_detail_counts || {}
   return (
     <div className="command-stack">
       <div className="command-topline">
@@ -103,10 +105,55 @@ function OverviewPage() {
             <p>No recent activity returned in the bounded overview snapshot.</p>
           )}
         </section>
+        <OperatorQueueSnapshot operatorCounts={operatorCounts} operatorDetailCounts={operatorDetailCounts} />
         <ActiveWorkSummary activeItems={activeItems} />
         <AutomationReadinessSummary readiness={readiness.data} isLoading={readiness.isLoading} error={readiness.error} />
       </details>
     </div>
+  )
+}
+
+
+function displayOperatorCount(value: unknown): string {
+  if (typeof value === 'boolean' || value === null || value === undefined) return '0'
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? String(Math.floor(value)) : '0'
+  if (typeof value === 'string') {
+    const parsed = Number(value.trim())
+    return Number.isFinite(parsed) && parsed > 0 ? String(Math.floor(parsed)) : '0'
+  }
+  return '0'
+}
+
+function labelOperatorKey(key: string): string {
+  return key.replaceAll('_', ' ')
+}
+
+function OperatorQueueSnapshot({ operatorCounts, operatorDetailCounts }: { operatorCounts: Record<string, unknown>; operatorDetailCounts: Record<string, unknown> }) {
+  const rows = [
+    ['needs_attention', operatorCounts.needs_attention],
+    ['running', operatorCounts.running],
+    ['write_paper', operatorCounts.write_paper],
+    ['ready_to_publish', operatorCounts.ready_to_publish],
+    ['finalization_needed', operatorDetailCounts.finalization_needed],
+    ['followup_candidate', operatorDetailCounts.followup_candidate],
+  ].filter(([, value]) => displayOperatorCount(value) !== '0')
+
+  return (
+    <section className="operator-snapshot" aria-label="Operator queue snapshot">
+      <h3>Operator queue snapshot</h3>
+      {rows.length > 0 ? (
+        <dl>
+          {rows.slice(0, 6).map(([key, value]) => (
+            <div key={String(key)}>
+              <dt>{labelOperatorKey(String(key))}</dt>
+              <dd>{displayOperatorCount(value)}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p>No operator queue counts reported in the bounded overview snapshot.</p>
+      )}
+    </section>
   )
 }
 

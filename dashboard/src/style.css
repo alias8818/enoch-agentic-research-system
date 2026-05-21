@@ -435,6 +435,15 @@ button:disabled { cursor: not-allowed; }
 .activity-snapshot li a { padding: 0.55rem 0.65rem; font-size: 0.78rem; }
 .activity-snapshot span,
 .activity-snapshot p { margin: 0; color: #b8afa2; font-size: 0.84rem; }
+
+.operator-snapshot { margin-top: 0.9rem; border: 1px solid rgba(244,241,234,0.1); border-radius: 1rem; padding: 0.9rem; background: rgba(0,0,0,0.16); }
+.operator-snapshot h3 { margin: 0 0 0.7rem; color: #efe7da; font-size: 0.92rem; }
+.operator-snapshot dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.55rem; margin: 0; }
+.operator-snapshot div { border: 1px solid rgba(244,241,234,0.1); border-radius: 0.85rem; padding: 0.7rem; background: rgba(244,241,234,0.035); }
+.operator-snapshot dt { color: #9e978e; font-size: 0.72rem; font-weight: 850; text-transform: uppercase; letter-spacing: 0.08em; }
+.operator-snapshot dd { margin: 0.2rem 0 0; color: #efe7da; font-size: 1.2rem; font-weight: 900; }
+.operator-snapshot p { margin: 0; color: #b8afa2; font-size: 0.84rem; }
+
 .active-work-snapshot { margin-top: 0.9rem; border: 1px solid rgba(244,241,234,0.1); border-radius: 1rem; padding: 0.9rem; background: rgba(0,0,0,0.16); }
 .active-work-snapshot h3 { margin: 0 0 0.7rem; color: #efe7da; font-size: 0.92rem; }
 .active-work-snapshot ol { display: grid; gap: 0.48rem; margin: 0; padding: 0; list-style: none; }
@@ -476,7 +485,8 @@ button:disabled { cursor: not-allowed; }
   .paper-steps,
   .secondary-links,
   .active-work-snapshot li,
-  .activity-snapshot li { grid-template-columns: 1fr; }
+  .activity-snapshot li,
+  .operator-snapshot dl { grid-template-columns: 1fr; }
   .lane-facts div { grid-template-columns: 1fr; gap: 0.15rem; }
   .auth-form { grid-template-columns: 1fr; }
   .nav-menu { left: 0; right: auto; }

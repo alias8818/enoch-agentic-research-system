@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from './api/client'
 import { App } from './App'
@@ -116,6 +116,38 @@ it('shows active work inside the collapsed overview secondary fold', async () =>
   expect(screen.getByText('Prompt-to-Test Oracle')).toBeInTheDocument()
   expect(screen.getByText('cpu-proxmox-1 · run-cpu')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /Open run/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-cpu')
+})
+
+it('shows operator queue counts inside the collapsed overview secondary fold', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:00Z',
+      counts: { active: 1, queued: 4 },
+      paper_counts: {},
+      operator_counts: { needs_attention: 2, running: 1, write_paper: 3, ready_to_publish: 1 },
+      operator_detail_counts: { finalization_needed: 2, followup_candidate: 5 },
+      movement_diagnosis: { status: 'actionable', primary_reason: 'Operator work exists.', blockers: [] },
+      flags: {},
+      active_items: [],
+      recent_events: [],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, label: 'Long-haul mode: READY', blockers: [], checks: [], summary: { queued: 4, active: 1 } }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
+  fireEvent.click(screen.getByText('Show secondary details'))
+  const snapshot = screen.getByLabelText('Operator queue snapshot')
+  expect(within(snapshot).getByRole('heading', { name: 'Operator queue snapshot' })).toBeInTheDocument()
+  expect(within(snapshot).getByText('needs attention')).toBeInTheDocument()
+  expect(within(snapshot).getAllByText('2')).toHaveLength(2)
+  expect(within(snapshot).getByText('write paper')).toBeInTheDocument()
+  expect(within(snapshot).getByText('3')).toBeInTheDocument()
+  expect(within(snapshot).getByText('followup candidate')).toBeInTheDocument()
+  expect(within(snapshot).getByText('5')).toBeInTheDocument()
 })
 
 it('uses V2-authored token and fallback surfaces', () => {
