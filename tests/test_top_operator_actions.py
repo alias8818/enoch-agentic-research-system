@@ -395,6 +395,22 @@ class MovementDiagnosisTests(unittest.TestCase):
         self.assertIn("paper_gate_blocked", kinds)
         self.assertIn("evidence_missing", kinds)
 
+    def test_duplicate_active_on_single_lane_is_hard_blocker(self) -> None:
+        diagnosis = movement_diagnosis(
+            flags={"queue_paused": False, "maintenance_mode": False},
+            worker_lanes=[
+                {"machine_target": "cpu-proxmox-1", "worker_role": "cpu_worker", "status": "active", "active_count": 2, "queued_count": 0, "dispatch_available": False},
+                {"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "active_count": 0, "queued_count": 0, "dispatch_available": False},
+            ],
+            paper_pipeline={},
+            investigation_pipeline={},
+        )
+
+        self.assertEqual(diagnosis["status"], "blocked")
+        self.assertIn("violates the single-active-run lane invariant", diagnosis["primary_reason"])
+        kinds = [item["kind"] for item in diagnosis["blockers"]]
+        self.assertIn("lane_conflict_active", kinds)
+
 
 class PrimaryOperatorActionTests(unittest.TestCase):
     def test_dispatch_lane_beats_feed(self) -> None:
