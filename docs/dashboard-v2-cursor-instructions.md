@@ -1,6 +1,6 @@
 # Dashboard V2 Cursor instructions
 
-Status: living implementation guidance for continuing Dashboard V2 work. Use this with [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md) and the live topology snapshot in [`current-runtime-snapshot.md`](current-runtime-snapshot.md), but treat this file as the product/design intent.
+Status: living implementation guidance for Dashboard V2. **Phase 2 (command center semantics + detail route audits) is complete on `main` (2026-05-21).** Use with [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md) (Phase 3 optional items) and [`current-runtime-snapshot.md`](current-runtime-snapshot.md); treat this file as the product/design intent for any new PR.
 
 ## North star
 
@@ -436,40 +436,25 @@ npm run build
 
 Then deploy per [`dashboard-v2-deploy.md`](dashboard-v2-deploy.md), and run smoke checks.
 
-## Current known design problems to keep attacking
+## Phase 2 outcomes (merged — do not re-open without new symptom)
 
-1. **Hero/readiness wording still needs refinement**
-   - It should distinguish `healthy active work` from `blocked` and from `action available`.
+These were the pre-Phase-2 gaps; each has a merged PR on `main`:
 
-2. **Movement panel copy**
-   - “Why no work is moving?” is useful when blocked, but awkward when work is moving. Consider dynamic title:
-     - `What is moving now?`
-     - `Why no work is moving?`
-     - `What can I do next?`
+| Area | Merged PRs | Key files |
+|------|------------|-----------|
+| Hero / readiness matrix | #84 | `CommandHero.tsx` |
+| Movement panel title | #85 | `movementPanelCopy.ts`, `MovementDiagnosis.tsx` |
+| Lane backlog depth | #86 | `WorkerLanes.tsx` |
+| Single primary CTA | #88, #94 | `PrimaryAction.tsx` |
+| Lane-owned dispatch/feed | #96, #99 | `WorkerLanes.tsx`, `MovementDiagnosis.tsx` |
+| Hero state strip filter | #101 | command center hero |
+| Detail route audits | #87, #100, #104–#106 | `detailOperatorSummary.ts`, detail routes |
 
-3. **Lane cards should own dispatch actions**
-   - Dispatch buttons belong inside lane cards.
-   - Global dispatch is secondary.
+Resume with **Phase 3** items in [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md), not by redoing PR A–F.
 
-4. **Backlog visibility**
-   - Each lane should show desired vs actual queued depth.
-   - Example: `14 / 25 queued`.
-   - If below target, say whether feed is scheduled, needed, or blocked.
+## Archived — Phase 2 Cursor PR sequence (complete)
 
-5. **Top action should be single and decisive**
-   - Avoid ranked top-action lists above the fold.
-   - Prefer one CTA chosen from backend read model.
-
-6. **Secondary pages still need ruthless pruning**
-   - If a page shows raw-ish identifiers as the main content, fix the page or remove the route.
-
-7. **Paper metrics need semantic filtering**
-   - Do not scare the operator with large “no-paper” historical counts.
-   - Show only actionable paper work on the main screen.
-
-## Suggested next Cursor PRs
-
-Keep PRs narrow. Do not let Cursor do a “big dashboard cleanup” all at once.
+Keep PRs narrow. Do not let Cursor do a “big dashboard cleanup” all at once. The sequence below is **done**; retained for audit trail.
 
 ### PR A — Hero semantics and copy
 

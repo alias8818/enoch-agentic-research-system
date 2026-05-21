@@ -11,7 +11,8 @@ import { useOperatorDialog } from './OperatorDialog'
 import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
 import { PageHeader } from './PageHeader'
-import { Eyebrow, InlineErrorStateCard, LoadingStateCard, OperatorDetailSummary, RawJsonDetails } from './ui'
+import { deriveResearchCandidateOperatorSummary } from '../detailOperatorSummary'
+import { EntityLinkChips, InlineErrorStateCard, LoadingStateCard, OperatorDetailSummary, OperatorQuestionSections, RawJsonDetails } from './ui'
 
 type ResearchFacilityResponse = {
   rows?: Record<string, unknown>[]
@@ -138,37 +139,25 @@ function CandidateDetail({ row, candidateId }: { row: Record<string, unknown> | 
     )
   }
   if (!row) return null
-  const status = String(row.status || '—')
-  const admission = String(row.admission_decision || '—')
-  const target = String(row.machine_target || '—')
-  const nextAction = status === 'admitted'
-    ? 'Promote only after dry-run confirms this exact candidate still maps to a queue item.'
-    : status === 'rejected' || admission.includes('reject')
-      ? 'No launch action is needed; keep this as negative evidence unless a new follow-up is warranted.'
-      : 'Review admission, source lineage, and machine target before promoting or queuing work.'
+  const operatorSummary = deriveResearchCandidateOperatorSummary(row)
   return (
     <section className="detail-panel" aria-label="Research candidate detail">
       <div className="detail-panel-head">
         <div>
           <p className="eyebrow">Research candidate detail</p>
           <h2>{String(row.title || row.candidate_id || 'Selected candidate')}</h2>
+          <span className="detail-id-chip" title={String(row.candidate_id || '')}>{shortId(String(row.candidate_id || ''))}</span>
         </div>
       </div>
       <section className="detail-summary">
-        <Eyebrow>Deterministic facility row</Eyebrow>
-        <dl className="detail-field-grid">
-          <div className="detail-field"><dt>candidate id</dt><dd>{String(row.candidate_id || '—')}</dd></div>
-          <div className="detail-field"><dt>status</dt><dd>{String(row.status || '—')}</dd></div>
-          <div className="detail-field"><dt>admission</dt><dd>{String(row.admission_decision || '—')}</dd></div>
-          <div className="detail-field"><dt>machine target</dt><dd>{String(row.machine_target || '—')}</dd></div>
-          <div className="detail-field"><dt>updated</dt><dd>{String(row.updated_at || '—')}</dd></div>
-        </dl>
+        <EntityLinkChips links={operatorSummary.entityLinks} />
         <OperatorDetailSummary
-          state={status}
-          context={`Admission ${admission}; target ${target}.`}
-          next={nextAction}
+          state={operatorSummary.state}
+          context={operatorSummary.context}
+          next={operatorSummary.next}
           ariaLabel="Research candidate operator summary"
         />
+        <OperatorQuestionSections sections={operatorSummary.sections} recentActivity={null} actionNeeded={operatorSummary.actionNeeded} />
         <RawJsonDetails summary="Raw candidate row" payload={row} />
       </section>
     </section>
