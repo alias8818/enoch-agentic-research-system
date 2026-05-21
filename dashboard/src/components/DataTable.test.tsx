@@ -19,3 +19,14 @@ it('renders copy buttons for truncated identifier cells without selecting the ro
   expect(onSelectRow).not.toHaveBeenCalled()
   expect(await screen.findByText('Copied')).toBeInTheDocument()
 })
+
+it('renders linked identifier cells without selecting the row', () => {
+  const onSelectRow = vi.fn()
+
+  render(<DataTable rows={[{ project_id: 'project-1', status: 'queued' }]} columns={['project_id', 'status']} empty="empty" onSelectRow={onSelectRow} cellHref={() => '/control/dashboard-v2#project:project-1'} />)
+
+  fireEvent.click(screen.getByRole('link', { name: /project-1/ }))
+
+  expect(screen.getByRole('link', { name: /project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
+  expect(onSelectRow).not.toHaveBeenCalled()
+})

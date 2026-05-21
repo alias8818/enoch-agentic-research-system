@@ -32,6 +32,7 @@ it('loads queue rows from the V1 queue endpoint with the route status', async ()
   renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', hash: '#queue:queued' }} />)
 
   await screen.findByText('Queue item')
+  expect(screen.getByRole('link', { name: /p1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:p1')
   expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/control/api/v1/queue?'), expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }))
   const url = requestUrl(fetchMock.mock.calls[0])
   expect(url.pathname).toBe('/control/api/v1/queue')
@@ -72,6 +73,7 @@ it('loads project discovery rows from the V1 projects endpoint', async () => {
   renderWithClient(<ProjectsPage route={{ page: 'projects', status: 'testing', hash: '#projects?status=testing' }} />)
 
   await screen.findByText('Trace Oracle')
+  expect(screen.getByRole('link', { name: /project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
   const url = requestUrl(fetchMock.mock.calls[0])
   expect(url.pathname).toBe('/control/api/v1/projects')
   expectParam(url, 'status', 'testing')
@@ -92,6 +94,8 @@ it('loads runs from the V1 runs endpoint with state filters and detail fetches',
   renderWithClient(<RunsPage route={{ page: 'runs', state: 'running', hash: '#runs:running' }} />)
 
   await screen.findByText('run-1')
+  expect(screen.getByRole('link', { name: /run-1/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-1')
+  expect(screen.getByRole('link', { name: /project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
   const url = requestUrl(fetchMock.mock.calls[0])
   expect(url.pathname).toBe('/control/api/v1/runs')
   expectParam(url, 'state', 'running')
@@ -99,7 +103,7 @@ it('loads runs from the V1 runs endpoint with state filters and detail fetches',
   expectParam(url, 'sort', 'recent')
   expect(url.searchParams.get('status')).toBeNull()
 
-  fireEvent.click(screen.getByText('run-1'))
+  fireEvent.click(screen.getByText('testing'))
   await screen.findByText('testing')
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/runs/run-1', expect.any(Object))
 })
@@ -111,6 +115,7 @@ it('loads papers and events as first-class V2 subviews', async () => {
 
   renderWithClient(<PapersPage route={{ page: 'papers', status: 'publication_draft', hash: '#papers?status=publication_draft' }} />)
   await screen.findByText('Draft paper')
+  expect(screen.getByRole('link', { name: /paper-1/ })).toHaveAttribute('href', '/control/dashboard-v2#paper:paper-1')
 
   renderWithClient(<EventsPage />)
   await screen.findByText('Alert summary')
@@ -207,6 +212,8 @@ it('loads corpus import rows as a first-class V2 subview', async () => {
   renderWithClient(<CorpusPage />)
 
   await screen.findByText('Corpus candidate')
+  expect(screen.getByRole('link', { name: /paper-corpus/ })).toHaveAttribute('href', '/control/dashboard-v2#paper:paper-corpus')
+  expect(screen.getByRole('link', { name: /project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
   const url = requestUrl(fetchMock.mock.calls[0])
   expect(url.pathname).toBe('/control/api/v1/papers')
   expectParam(url, 'status', 'publication_draft')

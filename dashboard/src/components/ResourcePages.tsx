@@ -110,6 +110,22 @@ function eventCellHref(row: Record<string, unknown>, column: string): string | u
   return id ? dashboardV2Href(`#event:${encodeURIComponent(String(id))}`) : undefined
 }
 
+function detailCellHref(row: Record<string, unknown>, column: string): string | undefined {
+  if (column === 'project_id') {
+    const id = firstValue(row.project_id)
+    return id ? dashboardV2Href(`#project:${encodeURIComponent(String(id))}`) : undefined
+  }
+  if (column === 'run_id') {
+    const id = firstValue(row.run_id)
+    return id ? dashboardV2Href(`#run:${encodeURIComponent(String(id))}`) : undefined
+  }
+  if (column === 'paper_id') {
+    const id = firstValue(row.paper_id)
+    return id ? dashboardV2Href(`#paper:${encodeURIComponent(String(id))}`) : undefined
+  }
+  return eventCellHref(row, column)
+}
+
 export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'queue' }> }) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [dispatchResult, setDispatchResult] = useState<CommandResult | null>(null)
@@ -154,7 +170,7 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
         </button>
       </section>
       <CommandResultCard result={dispatchResult} />
-      <DataTable rows={query.data?.rows || []} columns={['project_id', 'status', 'lane', 'machine_target', 'title', 'updated_at']} empty="No queue rows match this filter." onSelectRow={(row) => { setDispatchResult(null); setSelection({ kind: 'project', id: String(row.project_id || ''), row }) }} />
+      <DataTable rows={query.data?.rows || []} columns={['project_id', 'status', 'lane', 'machine_target', 'title', 'updated_at']} empty="No queue rows match this filter." cellHref={detailCellHref} onSelectRow={(row) => { setDispatchResult(null); setSelection({ kind: 'project', id: String(row.project_id || ''), row }) }} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )
@@ -170,7 +186,7 @@ export function ProjectsPage({ route }: { route: Extract<DashboardRoute, { page:
   return (
     <PageShell title="Projects" subtitle="Project discovery from /control/api/v1/projects. Bounded, searchable, and detail-backed.">
       <FilterBar state={filters} statusOptions={[{ label: 'all project states', value: '' }, { label: 'testing', value: 'testing' }, { label: 'exploring', value: 'exploring' }, { label: 'queued', value: 'queued' }, { label: 'running', value: 'running' }, { label: 'completed', value: 'completed' }, { label: 'blocked', value: 'blocked' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.status, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <DataTable rows={query.data?.rows || []} columns={['project_id', 'project_name', 'origin_idea_status', 'queue_status', 'latest_run_state', 'related_paper_status', 'updated_at']} empty="No projects match this filter." onSelectRow={(row) => setSelection({ kind: 'project', id: String(row.project_id || ''), row })} />
+      <DataTable rows={query.data?.rows || []} columns={['project_id', 'project_name', 'origin_idea_status', 'queue_status', 'latest_run_state', 'related_paper_status', 'updated_at']} empty="No projects match this filter." cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'project', id: String(row.project_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )
@@ -186,7 +202,7 @@ export function RunsPage({ route }: { route: Extract<DashboardRoute, { page: 'ru
   return (
     <PageShell title="Runs" subtitle="Active and historical run rows from /control/api/v1/runs. This is the V2 owner for active-work inspection.">
       <FilterBar state={filters} statusOptions={[{ label: 'all run states', value: '' }, { label: 'running', value: 'running' }, { label: 'dispatching', value: 'dispatching' }, { label: 'awaiting wake', value: 'awaiting_wake' }, { label: 'dispatch error', value: 'dispatch_error' }, { label: 'completed', value: 'completed' }, { label: 'wake ready', value: 'wake_ready' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.state, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <DataTable rows={query.data?.rows || []} columns={['run_id', 'project_id', 'state', 'gate_state', 'dispatch_mode', 'current_activity', 'updated_at']} empty="No run rows match this filter." onSelectRow={(row) => setSelection({ kind: 'run', id: String(row.run_id || ''), row })} />
+      <DataTable rows={query.data?.rows || []} columns={['run_id', 'project_id', 'state', 'gate_state', 'dispatch_mode', 'current_activity', 'updated_at']} empty="No run rows match this filter." cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'run', id: String(row.run_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )
@@ -202,7 +218,7 @@ export function PapersPage({ route }: { route: Extract<DashboardRoute, { page: '
   return (
     <PageShell title="Papers" subtitle="Paper pipeline rows from /control/api/v1/papers.">
       <FilterBar state={filters} statusOptions={[{ label: 'all paper statuses', value: '' }, { label: 'publication draft', value: 'publication_draft' }, { label: 'draft review', value: 'draft_review' }, { label: 'archived', value: 'archived' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.status, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <DataTable rows={query.data?.rows || []} columns={['paper_id', 'project_id', 'status', 'title', 'artifact_dir', 'updated_at']} empty="No paper rows match this filter." onSelectRow={(row) => setSelection({ kind: 'paper', id: String(row.paper_id || ''), row })} />
+      <DataTable rows={query.data?.rows || []} columns={['paper_id', 'project_id', 'status', 'title', 'artifact_dir', 'updated_at']} empty="No paper rows match this filter." cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'paper', id: String(row.paper_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )
@@ -218,7 +234,7 @@ export function CorpusPage() {
   return (
     <PageShell title="Corpus import" subtitle="Publication-ready paper rows and corpus-import ledger status. Publish/import work stays scoped to finalized drafts missing corpus import.">
       <FilterBar state={filters} statusOptions={[{ label: 'publication draft', value: 'publication_draft' }, { label: 'draft review', value: 'draft_review' }, { label: 'archived', value: 'archived' }, { label: 'all paper statuses', value: '' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: 'publication_draft', pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <DataTable rows={query.data?.rows || []} columns={['paper_id', 'project_id', 'status', 'corpus_imported', 'corpus_import_id', 'title', 'updated_at']} empty="No corpus import rows match this filter." onSelectRow={(row) => setSelection({ kind: 'paper', id: String(row.paper_id || ''), row })} />
+      <DataTable rows={query.data?.rows || []} columns={['paper_id', 'project_id', 'status', 'corpus_imported', 'corpus_import_id', 'title', 'updated_at']} empty="No corpus import rows match this filter." cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'paper', id: String(row.paper_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )
@@ -237,7 +253,7 @@ export function EventsPage() {
   return (
     <PageShell title="Events" subtitle="Recent formatted control-plane events from /control/api/v1/events.">
       <FilterBar state={filters} statusOptions={[{ label: 'all event types', value: '' }, { label: 'Queue Alert', value: 'Queue Alert' }, { label: 'worker.callback', value: 'worker.callback' }, { label: 'paper.drafted', value: 'paper.drafted' }, { label: 'research.run_cycle.live', value: 'research.run_cycle.live' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: '', pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <DataTable rows={query.data?.rows || []} columns={['id', 'entity_type', 'entity_id', 'event_type', 'created_at', 'summary']} empty="No recent events returned." cellHref={eventCellHref} onSelectRow={(row) => setSelection({ kind: 'event', id: String(row.id || row.event_id || ''), row })} />
+      <DataTable rows={query.data?.rows || []} columns={['id', 'entity_type', 'entity_id', 'event_type', 'created_at', 'summary']} empty="No recent events returned." cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'event', id: String(row.id || row.event_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )
