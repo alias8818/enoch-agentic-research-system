@@ -11,7 +11,7 @@
     "test": "vitest run",
     "preview": "vite preview",
     "test:e2e": "playwright test",
-    "test:e2e:update-snapshots": "playwright test --update-snapshots"
+    "test:e2e:update-snapshots": "echo 'Run in Docker/CI (Linux chromium) for correct snapshot names' && playwright test --update-snapshots"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.12",

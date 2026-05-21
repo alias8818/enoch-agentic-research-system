@@ -30,3 +30,10 @@ def test_test_only_dashboard_changes_do_not_require_assets() -> None:
     report = pairing.evaluate_pairing(["dashboard/src/App.test.tsx"])
     assert report["ok"] is True
     assert report["source_changed"] == []
+
+
+def test_package_json_scripts_only_do_not_require_assets(monkeypatch) -> None:
+    monkeypatch.setattr(pairing, "package_json_change_affects_build", lambda _base: False)
+    report = pairing.evaluate_pairing(["dashboard/package.json"], base_ref="origin/main")
+    assert report["ok"] is True
+    assert report["source_changed"] == []

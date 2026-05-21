@@ -16,8 +16,6 @@ export default defineConfig({
     trace: 'on-first-retry',
     locale: 'en-US',
     timezoneId: 'UTC',
-    viewport: { width: 1280, height: 900 },
-    deviceScaleFactor: 1,
   },
   webServer: {
     command: 'npm run preview -- --host 127.0.0.1 --port 4173',
@@ -25,5 +23,14 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1280, height: 900 },
+        deviceScaleFactor: 1,
+      },
+    },
+  ],
 })
