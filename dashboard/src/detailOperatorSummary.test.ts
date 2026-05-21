@@ -30,6 +30,32 @@ describe('deriveDetailOperatorSummary', () => {
     expect(summary.recentActivity).toContain('Queue item created')
   })
 
+  it('preserves unknown corpus import state instead of reporting no', () => {
+    const summary = deriveDetailOperatorSummary('project', {
+      project_id: 'project-1',
+      project: { project_name: 'Trace oracle' },
+      queue_item: { status: 'queued', related_paper_id: 'paper-1' },
+    })
+    const paperSection = summary.sections.find((section) => section.title === 'Paper and publication path')
+    expect(paperSection?.answers.find((answer) => answer.label === 'corpus imported')?.value).toBe('unknown')
+  })
+
+  it('does not duplicate operator stage in the paper publication section', () => {
+    const summary = deriveDetailOperatorSummary('project', {
+      project_id: 'project-1',
+      project: { project_name: 'Trace oracle' },
+      queue_item: {
+        status: 'queued',
+        operator_stage_label: 'Write papers',
+        related_paper_id: 'paper-1',
+        related_paper_status: 'publication_draft',
+      },
+    })
+    const paperSection = summary.sections.find((section) => section.title === 'Paper and publication path')
+    expect(paperSection?.answers.some((answer) => answer.label === 'operator stage')).toBe(false)
+    expect(summary.state).toBe('Write papers')
+  })
+
   it('answers run operator questions with project link and timestamps', () => {
     const summary = deriveDetailOperatorSummary('run', {
       run_id: 'run-1',

@@ -112,6 +112,12 @@ function artifactChecklist(flags: Record<string, unknown>): OperatorAnswer[] {
   }))
 }
 
+function triStateFlag(value: unknown): string {
+  if (value === true) return 'yes'
+  if (value === false) return 'no'
+  return 'unknown'
+}
+
 function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const project = record(payload.project)
   const queue = queueRecord(payload)
@@ -126,8 +132,8 @@ function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary
   const paperStatus = text(firstValue(queue.related_paper_status, papers[0]?.paper_status, papers[0]?.status, payload.related_paper_status))
   const paperId = text(firstValue(queue.related_paper_id, papers[0]?.paper_id))
   const paperReview = text(firstValue(queue.related_review_status, papers[0]?.review_status))
-  const paperStage = text(firstValue(queue.operator_stage_label, papers[0]?.operator_stage_label, queue.operator_stage, papers[0]?.operator_stage))
-  const corpusImported = firstValue(queue.related_corpus_imported, papers[0]?.corpus_imported) === true
+  const paperFinalization = text(firstValue(papers[0]?.finalization_status, papers[0]?.package_status, queue.related_finalization_status))
+  const corpusImported = triStateFlag(firstValue(queue.related_corpus_imported, papers[0]?.corpus_imported))
   const blocked = text(firstValue(queue.blocked_reason, queue.last_error, queue.decision_summary))
   const attention = queue.operator_attention === true || state.includes('blocked') || state.includes('review')
   const entityLinks: EntityLink[] = []
@@ -176,8 +182,8 @@ function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary
           { label: 'related paper', value: paperId },
           { label: 'paper status', value: paperStatus },
           { label: 'review status', value: paperReview },
-          { label: 'operator stage', value: paperStage },
-          { label: 'corpus imported', value: text(corpusImported) },
+          { label: 'finalization status', value: paperFinalization },
+          { label: 'corpus imported', value: corpusImported },
         ],
       },
     ],

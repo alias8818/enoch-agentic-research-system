@@ -326,7 +326,6 @@ function StructuredDetail({ kind, id, payload, presentation = 'panel', operatorS
   const title = detailTitle(kind, payload, id)
   const summary = stringifyValue(firstValue(payload.summary, record(payload.project).abstract, record(payload.paper).summary, record(payload.paper).abstract))
   const operatorSummary = operatorSummaryProp ?? deriveDetailOperatorSummary(kind, payload)
-  const fields = detailFields(kind, payload, id)
   return (
     <div className={`detail-body${presentation === 'page' ? ' detail-body--page' : ''}`}>
       <section className={`detail-summary${presentation === 'page' ? ' detail-summary--flat' : ''}`}>
@@ -338,7 +337,7 @@ function StructuredDetail({ kind, id, payload, presentation = 'panel', operatorS
           </>
         ) : summary !== '—' && summary !== title ? <p className="detail-page-lead">{summary}</p> : null}
         <EntityLinkChips links={operatorSummary.entityLinks} />
-        {presentation === 'panel' ? <FieldGrid fields={fields} /> : null}
+        {presentation === 'panel' ? <FieldGrid fields={detailFields(kind, payload, id)} /> : null}
       </section>
       <OperatorDetailSummary state={operatorSummary.state} context={operatorSummary.context} next={operatorSummary.next} />
       <OperatorQuestionSections sections={operatorSummary.sections} recentActivity={operatorSummary.recentActivity} actionNeeded={operatorSummary.actionNeeded} />
