@@ -152,11 +152,11 @@ def sync_corpus_import_ledger(system: Repo, corpus: Repo, *, database_url: str, 
             ],
             cwd=system.path,
             env={
-            "ENOCH_SUPABASE_DATABASE_URL": database_url,
-            "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF": os.environ.get(
-                "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF", DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF
-            ),
-        },
+                "ENOCH_SUPABASE_DATABASE_URL": database_url,
+                "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF": os.environ.get(
+                    "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF", DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF
+                ),
+            },
         )
         run(
             [
@@ -167,11 +167,11 @@ def sync_corpus_import_ledger(system: Repo, corpus: Repo, *, database_url: str, 
             ],
             cwd=system.path,
             env={
-            "ENOCH_SUPABASE_DATABASE_URL": database_url,
-            "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF": os.environ.get(
-                "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF", DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF
-            ),
-        },
+                "ENOCH_SUPABASE_DATABASE_URL": database_url,
+                "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF": os.environ.get(
+                    "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF", DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF
+                ),
+            },
         )
         return
     if not use_linked:
