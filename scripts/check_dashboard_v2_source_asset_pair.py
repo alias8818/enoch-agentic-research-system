@@ -12,6 +12,7 @@ See docs/dashboard-v2-asset-clca.md.
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import PurePosixPath
@@ -39,13 +40,6 @@ NON_BUILD_PATH_PARTS = (
     "dashboard/playwright-report/",
     "dashboard/e2e/",
 )
-BUILD_AFFECTING_PACKAGE_JSON_KEYS = (
-    '"dependencies"',
-    '"devDependencies"',
-    '"version"',
-)
-
-
 def _git_changed_files(base_ref: str) -> list[str]:
     for spec in (f"{base_ref}...HEAD", f"{base_ref}..HEAD"):
         result = subprocess.run(
@@ -77,26 +71,47 @@ def affects_build_output(path: str) -> bool:
     return any(normalized.startswith(prefix) for prefix in BUILD_AFFECTING_PREFIXES)
 
 
+def _load_package_json_from_ref(ref: str) -> dict[str, object] | None:
+    result = subprocess.run(
+        ["git", "show", f"{ref}:dashboard/package.json"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _merge_base_ref(base_ref: str) -> str | None:
+    result = subprocess.run(
+        ["git", "merge-base", base_ref, "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.strip()
+
+
 def package_json_change_affects_build(base_ref: str) -> bool:
     """Return True when package.json diff touches deps/version, not scripts-only."""
-    for spec in (f"{base_ref}...HEAD", f"{base_ref}..HEAD"):
-        result = subprocess.run(
-            ["git", "diff", spec, "-U0", "--", "dashboard/package.json"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            continue
-        diff = result.stdout
-        if not diff.strip():
-            return False
-        for line in diff.splitlines():
-            if not line.startswith(("+", "-")) or line.startswith(("+++", "---")):
-                continue
-            if any(key in line[1:] for key in BUILD_AFFECTING_PACKAGE_JSON_KEYS):
-                return True
-        return False
-    return True
+    compare_ref = _merge_base_ref(base_ref) or base_ref
+    base_data = _load_package_json_from_ref(compare_ref)
+    head_data = _load_package_json_from_ref("HEAD")
+
+    if base_data is None or head_data is None:
+        return True
+
+    if base_data.get("version") != head_data.get("version"):
+        return True
+    for key in ("dependencies", "devDependencies"):
+        if (base_data.get(key) or {}) != (head_data.get(key) or {}):
+            return True
+    return False
 
 
 def affects_committed_assets(path: str) -> bool:
