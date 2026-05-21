@@ -1,8 +1,8 @@
 # Dashboard V2 cutover audit (legacy vs V2)
 
-**Date:** 2026-05-21  
-**Scope:** Phase 1 parity audit (Agent 1). Compared inline legacy shell (formerly `CONTROL_DASHBOARD_HTML` in `router.py`, removed after Phase 2 cutover) against V2 (`dashboard/src/routes.ts`, `routePolicy.ts`, components).  
-**Out of scope:** Backend redirect/cutover (Phase 2), deploy.
+**Date:** 2026-05-21 (Phase 1 parity audit); **Phase 3 doc sync:** 2026-05-21  
+**Scope:** Phase 1 parity audit (Agent 1). Compared inline legacy shell (formerly `CONTROL_DASHBOARD_HTML` in `router.py`, removed after Phase 2 cutover) against V2 (`dashboard/src/routes.ts`, `routePolicy.ts`, components). Phase 3 update re-verifies gate table B1–B8 against landed V2 on `main`.  
+**Out of scope:** Backend redirect/cutover (Phase 2, merged), deploy.
 
 ## Method
 
@@ -22,10 +22,10 @@
 | `#papers`, `#papers?…` | `PapersPage` | Covered |
 | `#corpus` | `CorpusPage` | Covered |
 | `#events`, `#events?…` | `EventsPage` | Covered |
-| `#automation`, `#automation?…`, `#automation:{paperId}` | `AutomationPage` | Covered (commands partial — see automation section) |
+| `#automation`, `#automation?…`, `#automation:{paperId}` | `AutomationPage` | Covered |
 | `#reviews`, `#reviews?…`, `#review:{paperId}` | Aliased → `#automation…` | Covered (alias; `#reviews?…` fixed 2026-05-21) |
 | `#intake`, `#idea:{id}`, `#intake:{id}` | `IntakePage` | Covered |
-| `#research`, `#candidate:{id}`, `#research:{id}` | `ResearchPage` | Covered (commands partial) |
+| `#research`, `#candidate:{id}`, `#research:{id}` | `ResearchPage` | Covered |
 | `#observability` | `ObservabilityPage` | Covered |
 | `#project:{id}`, `#run:{id}`, `#paper:{id}` | `DetailPage` (structured) | Covered — V2 **superset** (legacy detail was raw field dump) |
 | `#event:{id}` | `DetailPage` (event) | **V2-only** — legacy had no `#event:` route (fell through to overview) |
@@ -52,7 +52,7 @@ Implemented in `dashboard/src/routes.ts` → `canonicalDashboardHash`:
 
 | Legacy command | Endpoint | V2 surface | Status |
 |----------------|----------|------------|--------|
-| Pause / resume queue | `POST /control/pause`, `/control/resume` | `SafetyBar.tsx` | Covered — V2 pause omits explicit `maintenance_mode:true` (backend may still set; verify if pause semantics diverge) |
+| Pause / resume queue | `POST /control/pause`, `/control/resume` | `SafetyBar.tsx` | Covered — pause sends `maintenance_mode: true`; resume sends `maintenance_mode: false` (see B7 VM verification) |
 | Dry-run / live dispatch next | `POST /control/dispatch-next` | `PrimaryAction.tsx`, `WorkerLanes.tsx` | Covered |
 | Dry-run / live dispatch one | `POST /control/dispatch-one` | `QueuePage.tsx`, `WorkerLanes.tsx` | Covered |
 | Launch follow-up | `POST /control/api/v1/followups/launch-next` | `PrimaryAction.tsx` | Covered |
@@ -61,9 +61,9 @@ Implemented in `dashboard/src/routes.ts` → `canonicalDashboardHash`:
 | Live rewrite batch (finalize lane) | `POST /control/api/paper-reviews/rewrite-batch` | `PrimaryAction.tsx`, `PaperMiniStrip.tsx` | Covered on overview — not on automation detail page |
 | Provider budget check | `GET /control/api/research/provider-budget` | `ResearchPage.tsx` | Covered |
 | Promote candidate | `POST /control/api/research/promote-candidate` | `ResearchPage.tsx` | Covered |
-| Generate smoke / provider batches | `POST …/generate-batch`, `…/generate-provider-batch` | — | **Legacy-only** — accepted drop for cutover (use API/CLI; not daily operator path) |
-| Theme cycle light/dark/auto | localStorage | — | **Legacy-only** — accepted drop (cosmetic) |
-| Global header search → `#projects?search=` | inline JS | Projects page filter bar | **Legacy-only** UI — equivalent capability on list pages |
+| Generate smoke / provider batches | `POST …/generate-batch`, `…/generate-provider-batch` | `ResearchPage.tsx` | Covered — dry-run → confirm → live on research workbench |
+| Theme cycle light/dark | localStorage | `App.tsx` + `theme.ts` | Covered — light/dark toggle in app header |
+| Global header search → `#projects?search=` | inline JS | `GlobalSearchForm` in `App.tsx` | Covered |
 
 ## Publication automation parity (explicit)
 
@@ -72,14 +72,14 @@ V2: `AutomationPage.tsx`.
 
 | Capability | Legacy | V2 | Verdict |
 |------------|--------|-----|---------|
-| List rows | `GET /control/api/publication-automation` with search, review_status, paper_status, sort, page_size, pagination | Fixed query: `page_size=50`, `paper_status=publication_draft`, `sort=-rank_score` | **Legacy-only** — accepted drop if operators rarely filter; otherwise post-cutover UX |
-| Open next publication-ready | `GET …/publication-automation/next` → `#automation:{id}` | — | **Legacy-only** — accepted drop (manual row select) |
-| Live GLM rewrite batch (10 papers) | `POST …/publication-automation/rewrite-batch` (`dry_run:false`, `force:true`) | Dry-run only on page; **live** batch on overview via `PrimaryAction` / `PaperMiniStrip` (`paper-reviews/rewrite-batch`) | **Partial** — live path moved to command center, not automation page |
-| Per-paper live rewrite draft | `POST …/publication-automation/{id}/rewrite-draft` | — | **Legacy-only blocker** — no V2 equivalent |
-| Per-paper live finalization package | `POST …/publication-automation/{id}/prepare-finalization-package` (`dry_run:false`) | Dry-run only via `paper-reviews/{id}/prepare-finalization-package` | **Legacy-only blocker** — live package prep missing |
+| List rows | `GET /control/api/publication-automation` with search, review_status, paper_status, sort, page_size, pagination | `ListFilterBar` + bounded query (`page_size`, `search`, `review_status`, cursor pagination) | Covered |
+| Open next publication-ready | `GET …/publication-automation/next` → `#automation:{id}` | `openNextReady()` on `AutomationPage` | Covered |
+| Live GLM rewrite batch (10 papers) | `POST …/publication-automation/rewrite-batch` (`dry_run:false`, `force:true`) | Dry-run batch on automation page; live batch also on overview via `PrimaryAction` / `PaperMiniStrip` | Covered — per-paper live rewrite on automation detail |
+| Per-paper live rewrite draft | `POST …/publication-automation/{id}/rewrite-draft` | `rewriteDraft` mutation on `AutomationPage` (confirm → live) | Covered |
+| Per-paper live finalization package | `POST …/publication-automation/{id}/prepare-finalization-package` (`dry_run:false`) | Dry-run via `paper-reviews/{id}/…`; live via `publication-automation/{id}/prepare-finalization-package` after dry-run gate | Covered |
 | Per-paper dry-run finalization | — (legacy live default) | Dry-run on `AutomationPage` | V2-only improvement |
-| Checklist: pass / fail / accepted_risk | `POST …/checklist/{itemId}` all three | Pass only | **Legacy-only** — fail/risk accepted drop unless policy requires |
-| Reject automation | `POST …/status` (`rejected`) | — | **Legacy-only blocker** |
+| Checklist: pass / fail / accepted_risk | `POST …/checklist/{itemId}` all three | Pass, fail, and accepted_risk on `AutomationDetailCard` | Covered |
+| Reject automation | `POST …/status` (`rejected`) | `rejectPaper` mutation on `AutomationPage` | Covered |
 | Claim review | `POST …/claim` | — | **Legacy-only** — accepted drop (AI pipeline actor; rarely manual) |
 | Artifact preview | `GET /control/api/papers/{id}/artifact/{field}` | Same | Covered |
 | Detail checklist + rank reasons | Inline tables | `AutomationDetailCard` | Covered |
@@ -101,22 +101,25 @@ V2: `AutomationPage.tsx`.
 - Compact page headers, empty/error cards, breadcrumbs.
 - Readiness check card on overview (legacy loaded full card only in secondary fold).
 - Dry-run-first automation commands on `AutomationPage` (safer default).
-- Escape hatch link to legacy on unsupported routes (`App.tsx`) — **remove in Phase 2 (Agent 7)**.
+- Per-paper live rewrite, finalization, reject, and full checklist statuses on `AutomationPage`.
+- Research generate-batch and generate-provider-batch with dry-run gates on `ResearchPage`.
+- Global search and light/dark theme toggle in `App.tsx`.
+- Unsupported routes show V2 suggestions only — **no legacy escape hatch** (removed Phase 2).
 
-## Legacy-only blockers
+## Cutover gate table (B1–B8)
 
-Each item needs **implement**, **alias/workaround**, or **explicit accept** before cutover gate.
+Phase 3 re-verification against landed V2 on `main` (2026-05-21). Source files: `SafetyBar.tsx`, `AutomationPage.tsx`, `ResearchPage.tsx`, `App.tsx`, `router.py`.
 
-| ID | Blocker | Resolution | Gate |
-|----|---------|------------|------|
-| B1 | Per-paper **live** rewrite draft on automation detail | **Accept for cutover** — use overview live finalize batch or direct API; document in runbook | Soft |
-| B2 | Per-paper **live** finalization package on automation detail | **Accept for cutover** — dry-run on automation page; live via API if needed | Soft |
-| B3 | Automation **reject** + checklist **fail/risk** | **Accept for cutover** — pass-only checklist covers happy path; edge policy via API | Soft |
-| B4 | Automation list **filters/pagination** | **Accept for cutover** — fixed sort sufficient for ≤50 rows; revisit if queue grows | Soft |
-| B5 | Research **generate-batch** / **generate-provider-batch** | **Accept for cutover** — research page keeps promote + bounded cycle; generation via API | Soft |
-| B6 | Legacy **theme toggle** + **global search** chrome | **Accept for cutover** — cosmetic / duplicated on list filters | Soft |
-| B7 | V2 pause payload omits `maintenance_mode:true` | **Verify backend** — if pause semantics differ, fix `SafetyBar` before cutover | Hard if confirmed |
-| B8 | Read-model links still emit `/control/dashboard#…` | **Phase 2 (Agent 6)** — not a V2 frontend gap | Tracked |
+| ID | Original blocker | Phase 3 status | Evidence | Gate |
+|----|------------------|----------------|----------|------|
+| B1 | Per-paper **live** rewrite draft on automation detail | **Resolved** | `AutomationPage.tsx` → `POST …/publication-automation/{id}/rewrite-draft` (`rewriteDraft`, confirm dialog) | Pass |
+| B2 | Per-paper **live** finalization package on automation detail | **Resolved** | `AutomationPage.tsx` → dry-run then `POST …/publication-automation/{id}/prepare-finalization-package` (`dry_run: false`) | Pass |
+| B3 | Automation **reject** + checklist **fail/risk** | **Resolved** | `rejectPaper` + checklist pass/fail/accepted_risk on `AutomationDetailCard` | Pass |
+| B4 | Automation list **filters/pagination** | **Resolved** | `ListFilterBar` (search, review_status, page cursor) on `AutomationPage` | Pass |
+| B5 | Research **generate-batch** / **generate-provider-batch** | **Resolved** | `ResearchPage.tsx` dry-run → confirm → live for both endpoints | Pass |
+| B6 | Legacy **theme toggle** + **global search** chrome | **Resolved** | `GlobalSearchForm` + `theme.ts` in `App.tsx`; no `Open legacy dashboard` link | Pass |
+| B7 | V2 pause payload omits `maintenance_mode:true` | **Resolved (code)** — **operator VM check pending** | `SafetyBar.tsx` sends `maintenance_mode: true` on pause; Vitest guard in `CommandCenter.test.tsx`. Operators should confirm pause/resume on reference VM (`enoch-core.exe.xyz`) during deploy smoke. | Pass pending VM |
+| B8 | Read-model links still emit `/control/dashboard#…` | **Resolved** | `router.py` `_enrich_queue_row` emits `/control/dashboard-v2#…`; legacy `/control/dashboard` 307-redirects to V2 | Pass |
 
 ### Cutover gate recommendation
 
@@ -124,11 +127,13 @@ Each item needs **implement**, **alias/workaround**, or **explicit accept** befo
 |----------------|--------|
 | Hash/route parity | **Pass** (with `#reviews?…` alias) |
 | Daily dispatch / queue / papers | **Pass** |
-| Automation page full legacy parity | **Fail soft** — B1–B4 accepted with operator note |
-| Research generation UI | **Fail soft** — B5 accepted |
-| Backend link targets | **Pass** — B8 resolved; read-model links use `/control/dashboard-v2#…` |
+| Automation page full legacy parity | **Pass** — B1–B4 resolved on `AutomationPage` |
+| Research generation UI | **Pass** — B5 resolved on `ResearchPage` |
+| Operator chrome (search, theme, no legacy escape) | **Pass** — B6 resolved |
+| Pause / maintenance semantics | **Pass (code)** — B7 patched; confirm on live VM before declaring ops-ready |
+| Backend link targets | **Pass** — B8 resolved |
 
-**Proceed to Phase 2 redirect** when product owner accepts B1–B6 as documented drops and B7 is verified (or patched). Hard blocker remains only if operators require per-paper live rewrite/finalize/reject exclusively from the automation detail page without API fallback.
+**Cutover complete on `main`.** Remaining operator step: run B7 VM verification (pause queue → confirm `maintenance_mode` in overview flags → resume) on the reference control VM during the next deploy smoke. Only residual legacy-only gap: manual **claim review** on automation rows (AI pipeline actor; accepted drop).
 
 ## Files changed (Agent 1)
 
@@ -143,7 +148,11 @@ Each item needs **implement**, **alias/workaround**, or **explicit accept** befo
 
 ```bash
 cd dashboard && npm test -- --run src/routePolicy.test.ts src/routes.test.ts
+cd dashboard && npm test -- --run src/components/AutomationPage.test.tsx src/components/CommandCenter.test.tsx src/App.test.tsx
+uv run pytest tests/test_dashboard_v2_phase2_complete.py tests/test_control_plane_router.py::TestControlPlaneRouter::test_control_dashboard_legacy_path_redirects_to_v2 -q
 ```
+
+**B7 operator VM step (not automated in CI):** on reference VM after deploy, pause queue from V2 command center, confirm overview shows `maintenance on`, then resume and confirm dispatch eligibility returns.
 
 ## References
 

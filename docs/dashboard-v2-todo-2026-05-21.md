@@ -259,7 +259,7 @@ No blocking gate. Pick one narrow PR at a time; keep [`dashboard-v2-cursor-instr
 ### Visual regression
 
 - [x] Narrow foundation: fixture-driven Playwright `toHaveScreenshot` for token gate + command center overview (#109, [`visual.spec.ts`](../dashboard/e2e/visual.spec.ts)).
-- [ ] One list-page baseline — add `#projects` or `#queue:queued` screenshot only; defer full route matrix until hero/movement copy settles.
+- [x] One list-page baseline — `#queue:queued` fixture-driven screenshot in [`visual.spec.ts`](../dashboard/e2e/visual.spec.ts); defer full route matrix until hero/movement copy settles.
 
 ### Workbench and corpus UX
 
@@ -273,7 +273,7 @@ No blocking gate. Pick one narrow PR at a time; keep [`dashboard-v2-cursor-instr
 - [x] Automation parity (soft, B1–B3) — per-paper live rewrite, finalization package, and reject on [`AutomationPage.tsx`](../dashboard/src/components/AutomationPage.tsx) (dry-run first).
 - [x] Research generate-batch UI (B5) — dry-run + live generate/provider batch on [`ResearchPage.tsx`](../dashboard/src/components/ResearchPage.tsx).
 - [x] Global search + theme toggle (B6) — [`GlobalSearchForm`](../dashboard/src/App.tsx), light/dark theme in [`theme.ts`](../dashboard/src/theme.ts); no legacy escape hatch.
-- [ ] **Cutover audit doc sync** — update [`dashboard-v2-cutover-audit.md`](dashboard-v2-cutover-audit.md) gate table (B1–B8) to reflect landed V2 behavior; note VM verification for B7.
+- [x] **Cutover audit doc sync** — update [`dashboard-v2-cutover-audit.md`](dashboard-v2-cutover-audit.md) gate table (B1–B8) to reflect landed V2 behavior; note VM verification for B7.
 
 ### Operator chrome and discipline
 

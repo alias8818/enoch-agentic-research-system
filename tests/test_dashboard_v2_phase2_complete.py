@@ -26,6 +26,29 @@ PHASE3_DONE_MARKERS = (
     "corpusLinks.ts",
     "SafetyBar.tsx",
     "AutomationPage.tsx",
+    "dashboard-v2-cutover-audit.md",
+)
+
+CUTOVER = Path("docs/dashboard-v2-cutover-audit.md")
+
+CUTOVER_GATE_RESOLVED = (
+    "B1",
+    "B2",
+    "B3",
+    "B4",
+    "B5",
+    "B6",
+    "B7",
+    "B8",
+)
+
+CUTOVER_LANDED_MARKERS = (
+    "maintenance_mode: true",
+    "AutomationPage.tsx",
+    "ResearchPage.tsx",
+    "GlobalSearchForm",
+    "no legacy escape hatch",
+    "/control/dashboard-v2#",
 )
 
 
@@ -72,3 +95,20 @@ def test_todo_phase3_records_landed_work_and_open_items() -> None:
     assert "Workbench KPI noise" in phase3_block
     assert "Cutover audit doc sync" in phase3_block
     assert "One list-page baseline" in phase3_block
+    cutover_line = next(line for line in phase3_block.splitlines() if "Cutover audit doc sync" in line)
+    assert cutover_line.strip().startswith("- [x]")
+
+
+def test_cutover_audit_gate_table_reflects_landed_v2() -> None:
+    text = CUTOVER.read_text(encoding="utf-8")
+    assert "## Cutover gate table (B1–B8)" in text
+    assert "Phase 3 re-verification" in text
+    for gate_id in CUTOVER_GATE_RESOLVED:
+        assert f"| {gate_id} |" in text
+    for marker in CUTOVER_LANDED_MARKERS:
+        assert marker in text
+    assert "**Resolved**" in text
+    assert "operator VM check pending" in text or "operator VM step" in text.lower()
+    assert "Legacy-only blocker" not in text or "claim review" in text.lower()
+    assert "V2 pause omits explicit `maintenance_mode:true`" not in text
+    assert "**Legacy-only** — accepted drop for cutover (use API/CLI" not in text
