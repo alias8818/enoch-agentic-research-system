@@ -34,6 +34,31 @@ it('keeps overview secondary links in V2 and exposes data freshness', async () =
   await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(4))
 })
 
+it('shows recent activity inside the collapsed overview secondary fold', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:00Z',
+      counts: { active: 0, queued: 0 },
+      paper_counts: {},
+      movement_diagnosis: { status: 'ready', primary_reason: 'No blockers.', blockers: [] },
+      flags: {},
+      recent_events: [
+        { id: 42, event_type: 'Queue Alert', summary: 'GB10 lane became idle', created_at: '2026-05-20T12:00:01Z' },
+      ],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
+  fireEvent.click(screen.getByText('Show secondary details'))
+  expect(screen.getByText('Recent activity')).toBeInTheDocument()
+  expect(screen.getByText('GB10 lane became idle')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /Queue Alert/ })).toHaveAttribute('href', '/control/dashboard-v2#event:42')
+})
+
 it('uses V2-authored token and fallback surfaces', () => {
   render(<App />)
   expect(screen.getByRole('heading', { name: 'Bearer token required' })).toBeInTheDocument()

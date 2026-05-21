@@ -46,6 +46,7 @@ export interface OverviewResponse {
   counts?: { active?: number; queued?: number; [key: string]: unknown }
   paper_counts?: { publication_draft?: number; draft_review?: number; [key: string]: unknown }
   top_actions?: TopAction[]
+  recent_events?: Record<string, unknown>[]
   paper_pipeline?: { write_needed?: number; finalize_needed?: number; publish_ready?: number }
   movement_diagnosis?: MovementDiagnosis
   flags?: { queue_paused?: boolean; maintenance_mode?: boolean; [key: string]: unknown }

@@ -60,6 +60,7 @@ function OverviewPage() {
 
   const data = overview.data
   const diagnosis = data.movement_diagnosis || { status: 'unknown', primary_reason: 'No movement diagnosis returned.', blockers: [] }
+  const recentEvents = data.recent_events || []
   return (
     <div className="command-stack">
       <div className="command-topline">
@@ -77,11 +78,31 @@ function OverviewPage() {
       <MovementDiagnosis diagnosis={diagnosis} />
       <details className="secondary-fold">
         <summary>Show secondary details</summary>
-        <div>
+        <div className="secondary-links">
           <a href={dashboardV2Href('#runs')}>Runs</a>
           <a href={dashboardV2Href('#papers')}>Papers</a>
           <a href={dashboardV2Href('#events')}>Recent activity</a>
         </div>
+        <section className="activity-snapshot" aria-label="Recent activity stream">
+          <h3>Recent activity stream</h3>
+          {recentEvents.length > 0 ? (
+            <ol>
+              {recentEvents.slice(0, 6).map((event, index) => {
+                const id = String(event.event_id || event.id || '')
+                const type = String(event.event_type || 'event')
+                const summary = String(event.summary || event.entity_id || 'No event summary returned.')
+                return (
+                  <li key={id || `${type}-${index}`}>
+                    <a href={id ? dashboardV2Href(`#event:${encodeURIComponent(id)}`) : dashboardV2Href('#events')}>{type}</a>
+                    <span>{summary}</span>
+                  </li>
+                )
+              })}
+            </ol>
+          ) : (
+            <p>No recent activity returned in the bounded overview snapshot.</p>
+          )}
+        </section>
       </details>
     </div>
   )
