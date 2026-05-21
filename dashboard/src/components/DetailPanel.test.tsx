@@ -259,13 +259,16 @@ it('renders P2 operator question sections for run detail with project link', asy
   expect(screen.getAllByRole('link', { name: /Draft paper/ }).some((link) => link.getAttribute('href') === '/control/dashboard-v2#paper:paper-1')).toBe(true)
 })
 
-it('renders P2 publication checklist for paper detail', async () => {
+it('renders P2 operator question sections for paper detail with entity links', async () => {
   vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
     paper_id: 'paper-1',
     paper: {
       paper_id: 'paper-1',
       title: 'Artifact paper',
+      project_id: 'project-1',
+      run_id: 'run-1',
       paper_status: 'publication_draft',
+      review_status: 'ready',
       artifact_paths_present: {
         draft_markdown: true,
         evidence_bundle: true,
@@ -274,11 +277,27 @@ it('renders P2 publication checklist for paper detail', async () => {
         finalization_package: false,
       },
     },
+    project: { project_id: 'project-1', project_name: 'Structured project' },
+    run: { run_id: 'run-1', state: 'completed' },
+    queue_item: { machine_target: 'gb10', project_id: 'project-1' },
+    events: [{ summary: 'Paper draft updated', created_at: '2026-05-21T10:01:00Z' }],
   }), { status: 200 }))
 
   renderWithClient(<DetailPage selection={{ kind: 'paper', id: 'paper-1' }} />)
 
-  expect(await screen.findByText('Publication checklist')).toBeInTheDocument()
-  expect(screen.getByText('Paper pipeline status')).toBeInTheDocument()
+  expect(await screen.findByText('Current state')).toBeInTheDocument()
+  expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toHaveTextContent('Papers')
+  expect(screen.getByRole('link', { name: 'Papers' })).toHaveAttribute('href', '/control/dashboard-v2#papers')
+  expect(screen.getByText('What is this paper?')).toBeInTheDocument()
+  expect(screen.getByText('What blocks publication?')).toBeInTheDocument()
+  expect(screen.getByText('Related project and run')).toBeInTheDocument()
+  expect(screen.getByText('Publication checklist')).toBeInTheDocument()
+  expect(screen.getByText('What happened most recently?')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Preview draft markdown' })).toBeInTheDocument()
+  expect(screen.getByText('Record fields')).toBeInTheDocument()
+  const currentState = screen.getByText('Current state')
+  const recordFields = screen.getByText('Record fields')
+  expect(currentState.compareDocumentPosition(recordFields) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.getByRole('link', { name: /project: Structured project/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
+  expect(screen.getByRole('link', { name: /run: run-1/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-1')
 })

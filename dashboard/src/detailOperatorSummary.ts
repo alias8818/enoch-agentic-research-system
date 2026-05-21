@@ -97,6 +97,18 @@ function recentActivityFrom(events: Record<string, unknown>[], ...fallbacks: unk
   return latestEventSummary(events) ?? nullableText(firstValue(...fallbacks))
 }
 
+function artifactFlagPresent(flags: Record<string, unknown>, key: string): boolean {
+  const aliases: Record<string, string[]> = {
+    draft_markdown: ['draft_markdown', 'draft_markdown_path'],
+    draft_latex: ['draft_latex', 'draft_latex_path'],
+    evidence_bundle: ['evidence_bundle', 'evidence_bundle_path'],
+    claim_ledger: ['claim_ledger', 'claim_ledger_path'],
+    manifest: ['manifest', 'manifest_path'],
+    finalization_package: ['finalization_package', 'finalization_package_path'],
+  }
+  return (aliases[key] || [key]).some((alias) => Boolean(flags[alias]))
+}
+
 function artifactChecklist(flags: Record<string, unknown>): OperatorAnswer[] {
   const labels: Record<string, string> = {
     draft_markdown: 'draft markdown',
@@ -108,8 +120,19 @@ function artifactChecklist(flags: Record<string, unknown>): OperatorAnswer[] {
   }
   return Object.entries(labels).map(([key, label]) => ({
     label,
-    value: flags[key] ? 'present' : 'missing',
+    value: artifactFlagPresent(flags, key) ? 'present' : 'missing',
   }))
+}
+
+function missingPublicationArtifacts(flags: Record<string, unknown>): string[] {
+  const labels: Record<string, string> = {
+    draft_markdown: 'draft markdown',
+    evidence_bundle: 'evidence bundle',
+    claim_ledger: 'claim ledger',
+    manifest: 'manifest',
+    finalization_package: 'finalization package',
+  }
+  return Object.keys(labels).filter((key) => !artifactFlagPresent(flags, key)).map((key) => labels[key])
 }
 
 function triStateFlag(value: unknown): string {
@@ -306,56 +329,98 @@ function paperSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const paper = record(payload.paper)
   const project = record(payload.project)
   const run = record(payload.run)
+  const queue = queueRecord(payload)
   const events = recordArray(payload.events)
   const stageSource = { ...paper, ...payload }
+  const title = text(firstValue(paper.paper_title, paper.title, payload.title))
   const status = text(firstValue(paper.paper_status, paper.status, payload.status, payload.paper_status))
   const review = text(firstValue(paper.review_status, payload.review_status))
   const imported = paper.corpus_imported === true
   const flags = record(paper.artifact_paths_present)
   const projectId = text(firstValue(paper.project_id, project.project_id, payload.project_id))
+  const projectName = text(firstValue(project.project_name, paper.project_name))
   const runId = text(firstValue(paper.run_id, run.run_id, payload.run_id))
+  const runState = text(firstValue(run.state, payload.run_state))
+  const machineTarget = text(firstValue(queue.machine_target, payload.machine_target))
+  const operatorExplanation = text(firstValue(paper.operator_explanation, payload.operator_explanation))
+  const missingArtifacts = missingPublicationArtifacts(flags)
+  const publicationBlocker = review === 'rejected'
+    ? 'Review rejected this paper.'
+    : operatorExplanation !== '—'
+      ? operatorExplanation
+      : missingArtifacts.length
+        ? `Missing: ${missingArtifacts.join(', ')}.`
+        : imported
+          ? 'Corpus import complete; no publication blockers.'
+          : 'Publication artifacts ready for corpus import.'
   const entityLinks: EntityLink[] = []
-  pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, project.project_name))
+  pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, projectName))
   pushLink(entityLinks, entityLink('run', runId !== '—' ? runId : null))
+  const reviewRejected = review === 'rejected'
+  const needsFinalization = missingArtifacts.includes('finalization package')
+  const context = imported
+    ? 'Corpus import ledger shows this paper as imported.'
+    : missingArtifacts.length
+      ? `Publication blocked: missing ${missingArtifacts.join(', ')}.`
+      : review !== '—'
+        ? `Review ${review}; all publication artifacts present.`
+        : `Evidence paths ${artifactFlagPresent(flags, 'evidence_bundle') ? 'present' : 'missing'}; claim ledger ${artifactFlagPresent(flags, 'claim_ledger') ? 'present' : 'missing'}.`
 
   return {
     state: operatorStageLabel(stageSource, status),
-    context: imported
-      ? 'Corpus import ledger shows this paper as imported.'
-      : review !== '—'
-        ? `Review ${review}; evidence paths ${flags.evidence_bundle ? 'present' : 'missing'}.`
-        : `Evidence paths ${flags.evidence_bundle ? 'present' : 'missing'}; claim ledger ${flags.claim_ledger ? 'present' : 'missing'}.`,
+    context,
     next: operatorNextStep(stageSource, imported
       ? 'No corpus import action is needed for this paper.'
-      : status.includes('draft')
-        ? 'Preview artifacts, then finalize only after checklist items look correct.'
-        : 'Use paper commands only after deterministic gates mark this writable.'),
+      : reviewRejected
+        ? 'Do not publish; start a new run or resolve review rejection first.'
+        : needsFinalization || missingArtifacts.length
+          ? 'Preview artifacts, then finalize only after checklist items look correct.'
+          : 'Run corpus import when the publication checklist is complete.'),
     entityLinks,
     sections: [
       {
-        title: 'Paper pipeline status',
+        title: 'What is this paper?',
         answers: [
+          { label: 'title', value: title },
           { label: 'paper status', value: status },
+          { label: 'paper type', value: text(paper.paper_type) },
           { label: 'review status', value: review },
-          { label: 'corpus imported', value: text(imported) },
-          { label: 'corpus import id', value: text(paper.corpus_import_id) },
         ],
       },
       {
-        title: 'Draft and finalization',
+        title: 'Related project and run',
         answers: [
-          { label: 'paper type', value: text(paper.paper_type) },
-          { label: 'finalization package', value: flags.finalization_package ? 'present' : 'missing' },
-          { label: 'HF dataset synced', value: text(paper.hf_dataset_synced) },
+          { label: 'project', value: projectName !== '—' ? projectName : projectId },
+          { label: 'run state', value: runState },
+          { label: 'machine target', value: machineTarget },
         ],
       },
       {
         title: 'Publication checklist',
         answers: artifactChecklist(flags),
       },
+      {
+        title: 'Draft and import status',
+        answers: [
+          { label: 'corpus imported', value: text(imported) },
+          { label: 'corpus import id', value: text(paper.corpus_import_id) },
+          { label: 'HF dataset synced', value: text(paper.hf_dataset_synced) },
+        ],
+      },
+      {
+        title: 'What blocks publication?',
+        answers: [
+          { label: 'missing artifacts', value: publicationBlocker },
+          { label: 'operator explanation', value: operatorExplanation },
+        ],
+      },
     ],
     recentActivity: latestEventSummary(events),
-    actionNeeded: review === 'rejected' ? 'Review rejected this paper; do not publish without a new run.' : null,
+    actionNeeded: reviewRejected
+      ? 'Review rejected this paper; do not publish without a new run.'
+      : missingArtifacts.length
+        ? `Complete missing artifacts before publication: ${missingArtifacts.join(', ')}.`
+        : null,
   }
 }
 

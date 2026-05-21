@@ -532,6 +532,48 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(run_detail.status_code, 200)
             self.assertIsNone(run_detail.json()["queue_item"])
 
+    def test_dashboard_v1_paper_detail_includes_queue_item_and_summarized_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "v1-paper-detail-queue-item",
+                "queue_rows": [{
+                    "project_id": "idea-0",
+                    "project_name": "Project 0",
+                    "project_dir": "idea-0",
+                    "status": "completed",
+                    "current_run_id": "run-0",
+                    "machine_target": "gb10",
+                }],
+                "paper_rows": [{
+                    "paper_id": "paper-0",
+                    "project_id": "idea-0",
+                    "run_id": "run-0",
+                    "paper_status": "publication_draft",
+                    "review_status": "ready",
+                }],
+            })
+            self.assertEqual(imported.status_code, 200)
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            with store._connect() as conn:
+                conn.execute(
+                    """INSERT INTO runs(run_id,project_id,session_id,state,dispatch_mode,started_at,ended_at,last_callback_at,gate_state,current_activity,idempotency_key,updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    ("run-0", "idea-0", "", "completed", "dispatch", "2026-05-21T09:00:00Z", "2026-05-21T10:00:00Z", None, "completed", "", "", "2026-05-21T10:00:00Z"),
+                )
+            paper_detail = client.get("/control/api/v1/papers/paper-0", headers=headers)
+            self.assertEqual(paper_detail.status_code, 200)
+            body = paper_detail.json()
+            self.assertEqual(body["paper_id"], "paper-0")
+            self.assertIn("queue_item", body)
+            self.assertEqual(body["queue_item"]["project_id"], "idea-0")
+            self.assertEqual(body["queue_item"]["machine_target"], "gb10")
+            self.assertIn("run", body)
+            self.assertEqual(body["run"]["run_id"], "run-0")
+            self.assertEqual(body["run"]["state"], "completed")
+            self.assertNotIn("related_draft_markdown_path", body["run"])
+
     def test_dashboard_queue_filter_normalizes_status_and_manual_review_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
