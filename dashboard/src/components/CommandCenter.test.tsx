@@ -25,10 +25,29 @@ it('renders the leave-running hero from backend diagnosis', () => {
   expect(screen.getByText('GB10 lane can dispatch queued work.')).toBeInTheDocument()
 })
 
-it('renders only the first primary action', () => {
-  render(<PrimaryAction action={{ kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'One queued candidate matches the idle lane.', action_label: 'Dispatch', action_hash: '#queue:queued' }} />)
+it('runs dispatch primary actions as safe dry-runs instead of only linking away', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch', reason: 'dry-run dispatch selected candidate' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<PrimaryAction action={{ kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'One queued candidate matches the idle lane.', action_label: 'Dispatch', action_hash: '#queue:queued' }} onRefresh={onRefresh} />)
+
   expect(screen.getByText('Primary action')).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: 'Dispatch' })).toHaveAttribute('href', '/control/dashboard-v2#queue:queued')
+  fireEvent.click(screen.getByRole('button', { name: 'Check dispatch' }))
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  expect(fetchMock).toHaveBeenCalledWith('/control/dispatch-next', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"dry_run":true'),
+  }))
+  expect(screen.getByText('Primary action dry-run')).toBeInTheDocument()
+  expect(screen.getByText('dry-run dispatch selected candidate')).toBeInTheDocument()
+  expect(onRefresh).toHaveBeenCalledTimes(1)
+})
+
+it('keeps non-command primary actions as V2 links', () => {
+  render(<PrimaryAction action={{ kind: 'write_paper', title: 'Draft next paper', summary: 'Paper-ready run exists.', action_label: 'Open draft lane', action_hash: '#papers?status=publication_draft' }} />)
+  expect(screen.getByRole('link', { name: 'Open draft lane' })).toHaveAttribute('href', '/control/dashboard-v2#papers?status=publication_draft')
 })
 
 it('renders worker lane commands without deriving queue truth from aggregate counts', () => {

@@ -70,7 +70,7 @@ function OverviewPage() {
       <div className="command-grid">
         <WorkerLanes lanes={status.data?.worker_lanes || []} onRefresh={refresh} />
         <div className="side-rail">
-          <PrimaryAction action={data.top_actions?.[0]} />
+          <PrimaryAction action={data.top_actions?.[0]} onRefresh={refresh} />
           <PaperMiniStrip pipeline={data.paper_pipeline} />
         </div>
       </div>
