@@ -150,9 +150,9 @@ it('uses compact useful headers instead of raw monster ids on direct detail page
 it.each([
   {
     kind: 'project' as const,
-    id: 'project:trace-oracle-slug',
-    payload: { project_id: 'project:trace-oracle-slug', status: 'queued', queue: { lane: 'gb10' } },
-    expectedTitle: 'trace-oracle-slug',
+    id: 'project:llm-generated-trace-replay-with-a-very-long-project-slug',
+    payload: { project_id: 'project:llm-generated-trace-replay-with-a-very-long-project-slug', status: 'queued', queue: { lane: 'gb10' } },
+    expectedTitle: 'llm-generated-…oject-slug',
   },
   {
     kind: 'run' as const,
@@ -198,6 +198,8 @@ it('renders P2 operator question sections with entity links for project detail',
       last_run_state: 'queued',
       related_paper_id: 'paper-1',
       related_paper_status: 'publication_draft',
+      related_review_status: 'ready',
+      operator_stage_label: 'Write papers',
     },
     events: [{ summary: 'Queue item created', created_at: '2026-05-21T10:00:00Z' }],
   }), { status: 200 }))
@@ -209,10 +211,15 @@ it('renders P2 operator question sections with entity links for project detail',
   expect(screen.getByRole('link', { name: 'Projects' })).toHaveAttribute('href', '/control/dashboard-v2#projects')
   expect(screen.getByText('Next safe action')).toBeInTheDocument()
   expect(screen.getByText('What is this project?')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Paper and publication path' })).toBeInTheDocument()
   expect(screen.getByText('What happened most recently?')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /run: run-1/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-1')
   expect(screen.getByRole('link', { name: /paper: paper-1/ })).toHaveAttribute('href', '/control/dashboard-v2#paper:paper-1')
   expect(screen.queryByRole('heading', { name: /^project:/i })).not.toBeInTheDocument()
+  expect(screen.getByText('Record fields')).toBeInTheDocument()
+  const currentState = screen.getByText('Current state')
+  const recordFields = screen.getByText('Record fields')
+  expect(currentState.compareDocumentPosition(recordFields) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
 
 it('renders P2 operator question sections for run detail with project link', async () => {
