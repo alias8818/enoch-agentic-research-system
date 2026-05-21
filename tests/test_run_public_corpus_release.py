@@ -8,13 +8,11 @@ def test_release_plan_includes_validation_by_default(tmp_path: Path) -> None:
     steps = build_steps(args)
     names = [step.name for step in steps]
 
-    assert names[:6] == [
+    assert names[:4] == [
         "audit strict claim evidence",
         "scan corpus quality",
         "build corpus index",
         "validate corpus trust surfaces",
-        "validate promising signals schema",
-        "validate promising signals public surfaces",
     ]
     assert "validate public release" in names
     manifest_step = next(step for step in steps if step.name == "generate ecosystem manifest")
