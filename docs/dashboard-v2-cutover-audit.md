@@ -126,7 +126,7 @@ Each item needs **implement**, **alias/workaround**, or **explicit accept** befo
 | Daily dispatch / queue / papers | **Pass** |
 | Automation page full legacy parity | **Fail soft** — B1–B4 accepted with operator note |
 | Research generation UI | **Fail soft** — B5 accepted |
-| Backend link targets | **Pending Phase 2** — B8 |
+| Backend link targets | **Pass** — B8 resolved; read-model links use `/control/dashboard-v2#…` |
 
 **Proceed to Phase 2 redirect** when product owner accepts B1–B6 as documented drops and B7 is verified (or patched). Hard blocker remains only if operators require per-paper live rewrite/finalize/reject exclusively from the automation detail page without API fallback.
 
