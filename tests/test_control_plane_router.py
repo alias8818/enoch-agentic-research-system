@@ -5227,11 +5227,10 @@ class ControlPlaneRouterTests(unittest.TestCase):
             called_payload = mocked_preflight.call_args.args[0]
             self.assertEqual(called_payload.bearer_token, config.worker_wake_gate_bearer_token)
 
-    def test_dashboard_preflight_endpoint_honors_explicit_operator_target(self) -> None:
+    def test_dashboard_preflight_endpoint_rejects_unconfigured_explicit_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _config(tmp).model_copy(update={"worker_wake_gate_url": "http://configured-worker:8787"})
-            expected = WorkerPreflightResponse(ok=True, target="http://cpu-worker:8787", summary="ok", checks=[])
-            with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=expected) as mocked_preflight:
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight") as mocked_preflight:
                 client = _client_with_config(config)
                 response = client.post(
                     "/control/api/preflight",
@@ -5239,12 +5238,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     json={"wake_gate_url": "http://cpu-worker:8787", "bearer_token": "cpu-token", "min_memory_available_mib": 24576},
                 )
 
-            self.assertEqual(response.status_code, 200)
-            called_payload = mocked_preflight.call_args.args[0]
-            self.assertEqual(called_payload.wake_gate_url, "http://cpu-worker:8787")
-            self.assertEqual(called_payload.bearer_token, "cpu-token")
-            self.assertEqual(called_payload.min_memory_available_mib, 24576)
-            self.assertEqual(response.json()["target"], "http://cpu-worker:8787")
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("must match configured worker_wake_gate_url", response.text)
+            mocked_preflight.assert_not_called()
 
     def test_dashboard_preflight_endpoint_resolves_named_worker_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -5283,6 +5279,12 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 update={
                     "worker_wake_gate_url": "http://gb10-worker:8787",
                     "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-worker:8787",
+                            "bearer_token": "cpu-token",
+                        },
+                    },
                 }
             )
             expected = WorkerPreflightResponse(ok=True, target="http://cpu-worker:8787", summary="ok", checks=[])
@@ -5291,7 +5293,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 response = client.post(
                     "/control/api/preflight",
                     headers={"Authorization": f"Bearer {TOKEN}"},
-                    json={"wake_gate_url": "http://cpu-worker:8787", "bearer_token": "cpu-token"},
+                    json={"machine_target": "cpu-proxmox-1"},
                 )
 
             self.assertEqual(response.status_code, 200)
