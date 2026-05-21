@@ -8,7 +8,7 @@ import { PaperMiniStrip } from './components/PaperMiniStrip'
 import { PrimaryAction } from './components/PrimaryAction'
 import { SafetyBar } from './components/SafetyBar'
 import { AutomationPage } from './components/AutomationPage'
-import { CorpusPage, EventsPage, PapersPage, QueuePage } from './components/ResourcePages'
+import { CorpusPage, EventsPage, PapersPage, QueuePage, RunsPage } from './components/ResourcePages'
 import { ResearchPage } from './components/ResearchPage'
 import { WorkerLanes } from './components/WorkerLanes'
 import { dashboardV2Href, parseDashboardRoute } from './routes'
@@ -77,7 +77,7 @@ function OverviewPage() {
       <details className="secondary-fold">
         <summary>Show secondary details</summary>
         <div>
-          <a href={dashboardV2Href('#queue:active')}>Active work</a>
+          <a href={dashboardV2Href('#runs')}>Runs</a>
           <a href={dashboardV2Href('#papers')}>Papers</a>
           <a href={dashboardV2Href('#events')}>Recent activity</a>
         </div>
@@ -92,6 +92,7 @@ function currentRoute(): DashboardRoute {
 
 function RoutedPage({ route }: { route: DashboardRoute }) {
   if (route.page === 'queue') return <QueuePage route={route} />
+  if (route.page === 'runs') return <RunsPage route={route} />
   if (route.page === 'papers') return <PapersPage route={route} />
   if (route.page === 'events') return <EventsPage />
   if (route.page === 'corpus') return <CorpusPage />
@@ -136,6 +137,7 @@ function Shell() {
           <nav className="app-nav" aria-label="Dashboard V2 navigation">
             <a className={navClass(route, 'overview')} href={dashboardV2Href('#overview')}>Overview</a>
             <a className={navClass(route, 'queue')} href={dashboardV2Href('#queue:queued')}>Queue</a>
+            <a className={navClass(route, 'runs')} href={dashboardV2Href('#runs')}>Runs</a>
             <a className={navClass(route, 'papers')} href={dashboardV2Href('#papers')}>Papers</a>
             <a className={navClass(route, 'events')} href={dashboardV2Href('#events')}>Events</a>
             <a className={navClass(route, 'corpus')} href={dashboardV2Href('#corpus')}>Corpus</a>

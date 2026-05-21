@@ -7,7 +7,7 @@ import { DetailPanel } from './DetailPanel'
 
 type PageMeta = { next_cursor?: string; has_more?: boolean; returned?: number; page_size?: number }
 type PageResponse = { rows?: Record<string, unknown>[]; counts?: Record<string, unknown>; generated_at?: string; page?: PageMeta }
-type DetailSelection = { kind: 'project' | 'paper' | 'event'; id: string; row?: Record<string, unknown> }
+type DetailSelection = { kind: 'project' | 'run' | 'paper' | 'event'; id: string; row?: Record<string, unknown> }
 type FilterState = { search: string; status: string; pageSize: string; cursor: string }
 
 function PageShell({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
@@ -68,6 +68,14 @@ function withCommonParams(state: FilterState, sort: string): URLSearchParams {
   return params
 }
 
+function withRunParams(state: FilterState): URLSearchParams {
+  const params = new URLSearchParams({ page_size: state.pageSize, sort: 'recent' })
+  if (state.status) params.set('state', state.status)
+  if (state.search) params.set('search', state.search)
+  if (state.cursor) params.set('cursor', state.cursor)
+  return params
+}
+
 export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'queue' }> }) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [filters, setFilters] = useState<FilterState>({ search: '', status: route.status, pageSize: '50', cursor: '' })
@@ -80,6 +88,22 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
     <PageShell title="Queue" subtitle="Bounded queue rows from /control/api/v1/queue. No frontend lifecycle inference.">
       <FilterBar state={filters} statusOptions={[{ label: 'all statuses', value: '' }, { label: 'queued', value: 'queued' }, { label: 'active', value: 'active' }, { label: 'blocked', value: 'blocked' }, { label: 'completed', value: 'completed' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.status, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={['project_id', 'status', 'lane', 'machine_target', 'title', 'updated_at']} empty="No queue rows match this filter." onSelectRow={(row) => setSelection({ kind: 'project', id: String(row.project_id || ''), row })} />
+      <DetailPanel selection={selection} onClose={() => setSelection(null)} />
+    </PageShell>
+  )
+}
+
+export function RunsPage({ route }: { route: Extract<DashboardRoute, { page: 'runs' }> }) {
+  const [selection, setSelection] = useState<DetailSelection | null>(null)
+  const [filters, setFilters] = useState<FilterState>({ search: '', status: route.state, pageSize: '50', cursor: '' })
+  const params = withRunParams(filters)
+  const query = useQuery({ queryKey: ['runs', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/runs?${params}`) })
+  if (query.isLoading) return <LoadingCard label="runs" />
+  if (query.isError) return <ErrorCard error={query.error} />
+  return (
+    <PageShell title="Runs" subtitle="Active and historical run rows from /control/api/v1/runs. This is the V2 owner for active-work inspection.">
+      <FilterBar state={filters} statusOptions={[{ label: 'all run states', value: '' }, { label: 'running', value: 'running' }, { label: 'dispatching', value: 'dispatching' }, { label: 'awaiting wake', value: 'awaiting_wake' }, { label: 'dispatch error', value: 'dispatch_error' }, { label: 'completed', value: 'completed' }, { label: 'wake ready', value: 'wake_ready' }]} onApply={setFilters} onReset={() => setFilters({ search: '', status: route.state, pageSize: '50', cursor: '' })} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
+      <DataTable rows={query.data?.rows || []} columns={['run_id', 'project_id', 'state', 'gate_state', 'dispatch_mode', 'current_activity', 'updated_at']} empty="No run rows match this filter." onSelectRow={(row) => setSelection({ kind: 'run', id: String(row.run_id || ''), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )

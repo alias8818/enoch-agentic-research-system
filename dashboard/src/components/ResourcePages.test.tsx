@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
-import { CorpusPage, EventsPage, PapersPage, QueuePage } from './ResourcePages'
+import { CorpusPage, EventsPage, PapersPage, QueuePage, RunsPage } from './ResourcePages'
 
 function renderWithClient(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -39,6 +39,27 @@ it('loads queue rows from the V1 queue endpoint with the route status', async ()
   expectParam(url, 'page_size', '50')
   expectParam(url, 'sort', 'priority')
   expectParam(url, 'status', 'queued')
+})
+
+it('loads runs from the V1 runs endpoint with state filters and detail fetches', async () => {
+  saveToken('test-token')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ run_id: 'run-1', project_id: 'project-1', state: 'running', gate_state: 'awaiting_wake', current_activity: 'testing' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ run_id: 'run-1', run: { run_id: 'run-1', project_id: 'project-1', state: 'running', current_activity: 'testing' } }), { status: 200 }))
+
+  renderWithClient(<RunsPage route={{ page: 'runs', state: 'running', hash: '#runs:running' }} />)
+
+  await screen.findByText('run-1')
+  const url = requestUrl(fetchMock.mock.calls[0])
+  expect(url.pathname).toBe('/control/api/v1/runs')
+  expectParam(url, 'state', 'running')
+  expectParam(url, 'page_size', '50')
+  expectParam(url, 'sort', 'recent')
+  expect(url.searchParams.get('status')).toBeNull()
+
+  fireEvent.click(screen.getByText('run-1'))
+  await screen.findByText('testing')
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/runs/run-1', expect.any(Object))
 })
 
 it('loads papers and events as first-class V2 subviews', async () => {

@@ -1,7 +1,7 @@
 import { apiGet } from '../api/client'
 import { useQuery } from '@tanstack/react-query'
 
-export type DetailKind = 'project' | 'paper' | 'event'
+export type DetailKind = 'project' | 'run' | 'paper' | 'event'
 
 export type DetailSelection = {
   kind: DetailKind
@@ -13,6 +13,7 @@ type Field = { label: string; value: unknown }
 
 function endpoint(selection: DetailSelection): string | null {
   if (selection.kind === 'project') return `/control/api/v1/projects/${encodeURIComponent(selection.id)}`
+  if (selection.kind === 'run') return `/control/api/v1/runs/${encodeURIComponent(selection.id)}`
   if (selection.kind === 'paper') return `/control/api/v1/papers/${encodeURIComponent(selection.id)}`
   return null
 }
@@ -34,10 +35,13 @@ function stringifyValue(value: unknown): string {
 
 function detailTitle(kind: DetailKind, payload: Record<string, unknown>, fallbackId: string): string {
   const project = record(payload.project)
+  const run = record(payload.run)
   const paper = record(payload.paper)
   return stringifyValue(firstValue(
     project.project_name,
     project.title,
+    run.project_name,
+    run.run_id,
     paper.paper_title,
     paper.title,
     payload.title,
@@ -49,6 +53,7 @@ function detailTitle(kind: DetailKind, payload: Record<string, unknown>, fallbac
 
 function detailFields(kind: DetailKind, payload: Record<string, unknown>, fallbackId: string): Field[] {
   const project = record(payload.project)
+  const run = record(payload.run)
   const paper = record(payload.paper)
   const queue = record(payload.queue)
   if (kind === 'project') {
@@ -59,6 +64,17 @@ function detailFields(kind: DetailKind, payload: Record<string, unknown>, fallba
       { label: 'lane', value: firstValue(payload.lane, queue.lane, queue.machine_target) },
       { label: 'run id', value: firstValue(payload.run_id, queue.run_id, project.current_run_id) },
       { label: 'updated', value: firstValue(payload.updated_at, project.updated_at, queue.updated_at) },
+    ]
+  }
+  if (kind === 'run') {
+    return [
+      { label: 'run id', value: firstValue(payload.run_id, run.run_id, fallbackId) },
+      { label: 'project id', value: firstValue(payload.project_id, run.project_id, project.project_id) },
+      { label: 'state', value: firstValue(payload.state, run.state) },
+      { label: 'gate', value: firstValue(payload.gate_state, run.gate_state) },
+      { label: 'dispatch', value: firstValue(payload.dispatch_mode, run.dispatch_mode) },
+      { label: 'activity', value: firstValue(payload.current_activity, run.current_activity) },
+      { label: 'updated', value: firstValue(payload.updated_at, run.updated_at) },
     ]
   }
   if (kind === 'paper') {

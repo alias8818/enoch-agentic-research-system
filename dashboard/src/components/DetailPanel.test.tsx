@@ -24,6 +24,16 @@ it('renders project detail as structured fields with raw payload collapsed', asy
   expect(screen.getByText('Raw payload')).toBeInTheDocument()
 })
 
+it('renders run detail from the backed run endpoint', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ run_id: 'run-1', run: { run_id: 'run-1', project_id: 'project-1', state: 'running', gate_state: 'awaiting_wake', current_activity: 'testing' } }), { status: 200 }))
+
+  renderWithClient(<DetailPanel selection={{ kind: 'run', id: 'run-1' }} onClose={() => undefined} />)
+
+  expect(await screen.findByRole('heading', { name: 'run-1' })).toBeInTheDocument()
+  expect(await screen.findByText('gate')).toBeInTheDocument()
+  expect(screen.getByText('awaiting_wake')).toBeInTheDocument()
+})
+
 it('renders event detail from the selected row without fetching an event endpoint', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
 

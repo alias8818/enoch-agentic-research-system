@@ -22,7 +22,7 @@ it('keeps overview secondary links in V2 and exposes data freshness', async () =
   expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
   expect(screen.getByLabelText('Dashboard data freshness')).toBeInTheDocument()
   fireEvent.click(screen.getByText('Show secondary details'))
-  expect(screen.getByRole('link', { name: 'Active work' })).toHaveAttribute('href', '/control/dashboard-v2#queue:active')
+  expect(screen.getAllByRole('link', { name: 'Runs' }).some((link) => link.getAttribute('href') === '/control/dashboard-v2#runs')).toBe(true)
   expect(screen.getAllByRole('link', { name: 'Papers' }).some((link) => link.getAttribute('href') === '/control/dashboard-v2#papers')).toBe(true)
   expect(screen.getByRole('link', { name: 'Recent activity' })).toHaveAttribute('href', '/control/dashboard-v2#events')
 

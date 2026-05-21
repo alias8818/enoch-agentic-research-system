@@ -1,6 +1,7 @@
 export type DashboardRoute =
   | { page: 'overview'; hash: '#overview' }
   | { page: 'queue'; status: string; hash: string }
+  | { page: 'runs'; state: string; hash: string }
   | { page: 'papers'; status: string; hash: string }
   | { page: 'events'; hash: string }
   | { page: 'corpus'; hash: string }
@@ -30,6 +31,10 @@ export function parseDashboardRoute(hashOrPath: string | undefined): DashboardRo
   if (hash.startsWith('#queue')) {
     const status = hash.includes(':') ? hash.split(':', 2)[1].split('?', 1)[0] : queryParam(hash, 'status')
     return { page: 'queue', status, hash }
+  }
+  if (hash.startsWith('#runs')) {
+    const state = hash.includes(':') ? hash.split(':', 2)[1].split('?', 1)[0] : queryParam(hash, 'state')
+    return { page: 'runs', state, hash }
   }
   if (hash.startsWith('#papers')) {
     return { page: 'papers', status: queryParam(hash, 'status'), hash }
