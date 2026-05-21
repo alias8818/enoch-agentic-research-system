@@ -164,3 +164,36 @@ it('dry-runs rewrite batch and finalization package without live rewrite', async
   expect(globalThis.fetch).toHaveBeenNthCalledWith(3, '/control/api/paper-reviews/rewrite-batch', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
   expect(globalThis.fetch).toHaveBeenNthCalledWith(4, '/control/api/paper-reviews/paper-1/prepare-finalization-package', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
 })
+
+it('only enables live finalization for the paper that completed dry-run', async () => {
+  let resolveDryRun: ((value: Response) => void) | null = null
+  const dryRunPromise = new Promise<Response>((resolve) => {
+    resolveDryRun = resolve
+  })
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [
+      { paper_id: 'paper-a', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Paper A' },
+      { paper_id: 'paper-b', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Paper B' },
+    ] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ item: { paper_id: 'paper-a', project_name: 'Paper A', review_status: 'triage_ready', paper_status: 'publication_draft' }, checklist: { items: [] } }), { status: 200 }))
+    .mockImplementationOnce(() => dryRunPromise)
+    .mockResolvedValueOnce(new Response(JSON.stringify({ item: { paper_id: 'paper-b', project_name: 'Paper B', review_status: 'triage_ready', paper_status: 'publication_draft' }, checklist: { items: [] } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-a' }, { paper_id: 'paper-b' }] }), { status: 200 }))
+
+  renderWithClient(<AutomationPage paperId="paper-a" />)
+
+  await screen.findByLabelText('Automation detail')
+  fireEvent.click(screen.getByRole('button', { name: 'Dry-run finalization package' }))
+  fireEvent.click(screen.getByText('Paper B'))
+  await screen.findByText('paper-b')
+
+  resolveDryRun?.(new Response(JSON.stringify({ dry_run: true, paper_id: 'paper-a' }), { status: 200 }))
+  await screen.findByText('Paper finalize dry-run passed')
+
+  const liveButton = screen.getByRole('button', { name: 'Prepare live finalization package' })
+  expect(liveButton).toBeDisabled()
+  expect(fetchMock).not.toHaveBeenCalledWith(
+    '/control/api/publication-automation/paper-b/prepare-finalization-package',
+    expect.objectContaining({ method: 'POST' }),
+  )
+})
