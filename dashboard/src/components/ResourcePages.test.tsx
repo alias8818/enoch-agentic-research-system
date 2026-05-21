@@ -29,7 +29,7 @@ it('loads queue rows from the V1 queue endpoint with the route status', async ()
   saveToken('test-token')
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ rows: [{ project_id: 'p1', status: 'queued', title: 'Queue item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
-  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', hash: '#queue:queued' }} />)
+  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
 
   await screen.findByText('Queue item')
   expect(screen.getByRole('link', { name: /p1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:p1')
@@ -51,7 +51,7 @@ it('refreshes queue rows explicitly from the V2 page', async () => {
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T05:00:00Z', rows: [{ project_id: 'queued-project', status: 'queued', title: 'Queued item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T05:01:00Z', rows: [{ project_id: 'fresh-project', status: 'queued', title: 'Fresh item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
-  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', hash: '#queue:queued' }} />)
+  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
   await screen.findByText('Queued item')
 
   fireEvent.click(screen.getByRole('button', { name: 'Refresh rows' }))
@@ -99,12 +99,12 @@ it('syncs route-derived status changes into resource page backend filters', asyn
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'queued-project', status: 'queued', title: 'Queued item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'active-project', status: 'active', title: 'Active item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
-  const { rerender } = renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', hash: '#queue:queued' }} />)
+  const { rerender } = renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
   await screen.findByText('Queued item')
 
   rerender(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <QueuePage route={{ page: 'queue', status: 'active', hash: '#queue:active' }} />
+      <QueuePage route={{ page: 'queue', status: 'active', search: '', hash: '#queue:active' }} />
     </QueryClientProvider>,
   )
 
@@ -123,7 +123,7 @@ it('checks selected queued rows with dispatch-one dry-run only', async () => {
     .mockResolvedValueOnce(new Response(JSON.stringify({ project_id: 'project-1', project: { project_name: 'Queue item' } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'dry_run_dispatch_one', reason: 'dry-run selected explicit queued candidate; no state mutated', candidate: { project_id: 'project-1' } }), { status: 200 }))
 
-  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', hash: '#queue:queued' }} />)
+  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
 
   fireEvent.click(await screen.findByText('Queue item'))
   await screen.findByLabelText('Dashboard detail panel')
@@ -147,7 +147,7 @@ it('live-dispatches a selected queued row only after dry-run and dialog confirma
     .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'live_dispatch_one', reason: 'live dispatch started selected queued candidate', candidate: { project_id: 'project-live' } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T11:00:00Z', rows: [{ project_id: 'project-other', status: 'queued', machine_target: 'gb10', title: 'Fresh queue item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
-  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', hash: '#queue:queued' }} />)
+  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
 
   fireEvent.click(await screen.findByText('Live queue item'))
   await screen.findByLabelText('Dashboard detail panel')
@@ -236,7 +236,7 @@ it('applies queue filters and follows the backend cursor without inventing pagin
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'p2', status: 'active', title: 'Filtered item' }], page: { returned: 1, has_more: true, next_cursor: 'cursor-3' } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'p3', status: 'active', title: 'Next page item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
-  renderWithClient(<QueuePage route={{ page: 'queue', status: '', hash: '#queue' }} />)
+  renderWithClient(<QueuePage route={{ page: 'queue', status: '', search: '', hash: '#queue' }} />)
   await screen.findByText('First item')
 
   fireEvent.change(screen.getByLabelText(/Search/i), { target: { value: 'oracle' } })
@@ -301,7 +301,7 @@ it('opens queue and paper detail panels from selected rows', async () => {
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-1', status: 'publication_draft', title: 'Draft paper' }], page: { returned: 1, has_more: false } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ paper_id: 'paper-1', paper: { paper_title: 'Detailed paper' } }), { status: 200 }))
 
-  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', hash: '#queue:queued' }} />)
+  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
   fireEvent.click(await screen.findByText('Queue item'))
   await screen.findByRole('heading', { name: /Detailed project/ })
 

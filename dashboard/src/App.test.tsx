@@ -220,6 +220,20 @@ it('opens direct V2 event detail hashes from the events read model', async () =>
 })
 
 
+
+it('keeps queue hash search filters in the V2 queue read model', async () => {
+  window.location.hash = '#queue:queued?search=gb10'
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'queued-gb10', status: 'queued', title: 'GB10 queued work' }], page: { returned: 1 } }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByRole('heading', { name: 'Queue' })).toBeInTheDocument()
+  expect(await screen.findByText('GB10 queued work')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith('/control/api/v1/queue?page_size=50&sort=priority&status=queued&search=gb10&queue=all', expect.any(Object))
+})
+
 it('keeps paper hash filters in the V2 papers read model', async () => {
   window.location.hash = '#papers?status=publication_draft&search=trace-oracle'
   const fetchMock = vi.spyOn(globalThis, 'fetch')
