@@ -73,10 +73,13 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
     }
   }
 
-  async function dispatchLane() {
+  async function dispatchLane(lane?: WorkerLane) {
     setBusyAction('dispatch')
     try {
-      const result = await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+      const projectId = lane?.next_candidate?.project_id || ''
+      const result = projectId
+        ? await apiPost<Record<string, unknown>>('/control/dispatch-one', { project_id: projectId, dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+        : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
       setCommandResult({ title: 'Dispatch dry-run result', payload: result })
       onRefresh()
     } catch (error) {
@@ -100,7 +103,7 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
         </div>
         <div className="lane-console-actions">
           <button className="secondary-button" disabled={!canFeedAny || busyAction !== null} onClick={feedLane}>Feed idle lanes</button>
-          <button className="primary-button" disabled={!canDispatchAny || busyAction !== null} onClick={dispatchLane}>Check open lanes</button>
+          <button className="primary-button" disabled={!canDispatchAny || busyAction !== null} onClick={() => { void dispatchLane() }}>Check open lanes</button>
         </div>
       </div>
       <ResultCard result={commandResult} />
@@ -140,7 +143,7 @@ export function WorkerLanes({ lanes, onRefresh }: { lanes: WorkerLane[]; onRefre
               <p className={canDispatch ? 'lane-reason lane-reason--ready' : 'lane-reason'}>{laneDisabledReason(lane, canFeed, canDispatch)}</p>
               <div className="lane-actions">
                 <button className="secondary-button" disabled={!canFeed || busyAction !== null} onClick={feedLane}>Feed idle lane</button>
-                <button className="primary-button" disabled={!canDispatch || busyAction !== null} onClick={dispatchLane}>Check dispatch</button>
+                <button className="primary-button" disabled={!canDispatch || busyAction !== null} onClick={() => { void dispatchLane(lane) }}>Check dispatch</button>
               </div>
             </article>
           )

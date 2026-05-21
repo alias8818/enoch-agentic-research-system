@@ -121,6 +121,23 @@ it('dry-runs feed actions without spending provider requests or promoting work',
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
+it('uses dispatch-one for lane-card dispatch checks so the selected lane candidate is tested', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'dry-run selected explicit queued candidate', candidate: { project_id: 'gb10-project' } }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_id: 'gb10-project', project_name: 'GB10 job' } }]} onRefresh={onRefresh} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Check dispatch' }))
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  expect(fetchMock).toHaveBeenCalledWith('/control/dispatch-one', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"project_id":"gb10-project"'),
+  }))
+  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"dry_run":true')
+  expect(screen.getByText('Dispatch dry-run result')).toBeInTheDocument()
+})
+
 it('renders the paper mini strip and movement diagnosis', () => {
   render(<><PaperMiniStrip pipeline={{ write_needed: 2, finalize_needed: 1, publish_ready: 0 }} /><MovementDiagnosis diagnosis={diagnosis} /></>)
   expect(screen.getByText('Paper pipeline')).toBeInTheDocument()
