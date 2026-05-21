@@ -1757,6 +1757,22 @@ def primary_operator_action(
 
     lanes = [lane for lane in (worker_lanes or []) if isinstance(lane, Mapping)]
 
+    status = str(movement.get("status") or "")
+    blockers = movement.get("blockers") or []
+    if status == "blocked" and blockers:
+        queue_paused_blocker = next((item for item in blockers if isinstance(item, Mapping) and str(item.get("kind") or "") == "queue_paused"), None)
+        if queue_paused_blocker is not None:
+            return {
+                "kind": "open_blocker",
+                "tone": queue_paused_blocker.get("tone", "warn"),
+                "title": str(queue_paused_blocker.get("title") or "Resolve blocker"),
+                "summary": str(queue_paused_blocker.get("summary") or movement.get("primary_reason") or ""),
+                "action_label": str(queue_paused_blocker.get("action_label") or "Open details"),
+                "action_hash": str(queue_paused_blocker.get("action_hash") or "#overview"),
+                "blocker_kind": queue_paused_blocker.get("kind"),
+                "lane": queue_paused_blocker.get("lane"),
+            }
+
     for lane in lanes:
         if not bool(lane.get("dispatch_available")):
             continue
