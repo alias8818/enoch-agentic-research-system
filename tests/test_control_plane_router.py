@@ -4346,6 +4346,11 @@ class ControlPlaneRouterTests(unittest.TestCase):
             if empty["primary_operator_action"] is not None:
                 self.assertIn(empty["primary_operator_action"]["kind"], {"feed_lanes", "open_blocker", "dispatch_next"})
             client.post("/control/import/legacy-snapshot", headers=headers, json={"idempotency_key": "primary-action-queued-import", "queue_rows": [{"project_id": "queued-only", "project_name": "Queued Only", "project_dir": "queued-only", "status": "queued", "dispatch_priority": 1}]})
+            paused_primary = client.get("/control/api/v1/overview", headers=headers).json()["primary_operator_action"]
+            self.assertIsInstance(paused_primary, dict)
+            self.assertEqual(paused_primary["kind"], "open_blocker")
+            self.assertIn(paused_primary["blocker_kind"], {"queue_paused", "maintenance_mode"})
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
             primary = client.get("/control/api/v1/overview", headers=headers).json()["primary_operator_action"]
             self.assertIsInstance(primary, dict)
             self.assertEqual(primary["kind"], "dispatch_next")

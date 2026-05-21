@@ -422,6 +422,24 @@ class PrimaryOperatorActionTests(unittest.TestCase):
         self.assertEqual(action["kind"], "dispatch_next")
         self.assertEqual(action["project_id"], "gb10-job")
 
+    def test_queue_paused_blocker_beats_dispatch_lane(self) -> None:
+        lanes = [{"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "queued_count": 2, "dispatch_available": True, "next_candidate": {"project_id": "gb10-job", "project_name": "GB10 job"}}]
+        movement = movement_diagnosis(flags={"queue_paused": True, "maintenance_mode": False}, worker_lanes=lanes, paper_pipeline={}, investigation_pipeline={})
+        action = primary_operator_action(worker_lanes=lanes, movement=movement)
+        self.assertIsNotNone(action)
+        assert action is not None
+        self.assertEqual(action["kind"], "open_blocker")
+        self.assertEqual(action["blocker_kind"], "queue_paused")
+
+    def test_maintenance_mode_blocker_beats_dispatch_lane(self) -> None:
+        lanes = [{"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "queued_count": 2, "dispatch_available": True, "next_candidate": {"project_id": "gb10-job", "project_name": "GB10 job"}}]
+        movement = movement_diagnosis(flags={"queue_paused": False, "maintenance_mode": True}, worker_lanes=lanes, paper_pipeline={}, investigation_pipeline={})
+        action = primary_operator_action(worker_lanes=lanes, movement=movement)
+        self.assertIsNotNone(action)
+        assert action is not None
+        self.assertEqual(action["kind"], "open_blocker")
+        self.assertEqual(action["blocker_kind"], "maintenance_mode")
+
     def test_feed_lane_when_no_dispatch(self) -> None:
         lanes = [{"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "queued_count": 0, "dispatch_available": False, "feed_pressure": {"next_autopilot_action": "generate_candidate"}}]
         movement = {"status": "ready", "primary_reason": "No dispatch blocker.", "blockers": []}
