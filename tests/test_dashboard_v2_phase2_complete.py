@@ -46,7 +46,11 @@ CUTOVER_LANDED_MARKERS = (
     "maintenance_mode: true",
     "AutomationPage.tsx",
     "ResearchPage.tsx",
+    "rejectPaper",
+    "ListFilterBar",
     "GlobalSearchForm",
+    "theme.ts",
+    "router.py",
     "no legacy escape hatch",
     "/control/dashboard-v2#",
 )

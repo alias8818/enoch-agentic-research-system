@@ -118,7 +118,7 @@ Phase 3 re-verification against landed V2 on `main` (2026-05-21). Source files: 
 | B4 | Automation list **filters/pagination** | **Resolved** | `ListFilterBar` (search, review_status, page cursor) on `AutomationPage` | Pass |
 | B5 | Research **generate-batch** / **generate-provider-batch** | **Resolved** | `ResearchPage.tsx` dry-run → confirm → live for both endpoints | Pass |
 | B6 | Legacy **theme toggle** + **global search** chrome | **Resolved** | `GlobalSearchForm` + `theme.ts` in `App.tsx`; no `Open legacy dashboard` link | Pass |
-| B7 | V2 pause payload omits `maintenance_mode:true` | **Resolved (code)** — **operator VM check pending** | `SafetyBar.tsx` sends `maintenance_mode: true` on pause; Vitest guard in `CommandCenter.test.tsx`. Operators should confirm pause/resume on reference VM (`enoch-core.exe.xyz`) during deploy smoke. | Pass pending VM |
+| B7 | V2 pause payload omits `maintenance_mode:true` | **Resolved (code)** — **operator VM check pending** | `SafetyBar.tsx` sends `maintenance_mode: true` on pause; Vitest guard in `CommandCenter.test.tsx`. Operators should confirm pause/resume on reference VM ([`current-runtime-snapshot.md`](current-runtime-snapshot.md), SSH `enoch-core.exe.xyz`) during deploy smoke. | Pass pending VM |
 | B8 | Read-model links still emit `/control/dashboard#…` | **Resolved** | `router.py` `_enrich_queue_row` emits `/control/dashboard-v2#…`; legacy `/control/dashboard` 307-redirects to V2 | Pass |
 
 ### Cutover gate recommendation
@@ -152,10 +152,11 @@ cd dashboard && npm test -- --run src/components/AutomationPage.test.tsx src/com
 uv run pytest tests/test_dashboard_v2_phase2_complete.py tests/test_control_plane_router.py::TestControlPlaneRouter::test_control_dashboard_legacy_path_redirects_to_v2 -q
 ```
 
-**B7 operator VM step (not automated in CI):** on reference VM after deploy, pause queue from V2 command center, confirm overview shows `maintenance on`, then resume and confirm dispatch eligibility returns.
+**B7 operator VM step (not automated in CI):** on reference VM after deploy ([`current-runtime-snapshot.md`](current-runtime-snapshot.md)), pause queue from V2 command center, confirm overview shows `maintenance on`, then resume and confirm dispatch eligibility returns.
 
 ## References
 
+- Reference control VM: [`current-runtime-snapshot.md`](current-runtime-snapshot.md) (SSH `enoch-core.exe.xyz`).
 - Legacy shell: removed from `enoch_control_plane/control_plane/router.py` after Phase 2 redirect cutover; parity captured in this audit.
 - V2 routes: `dashboard/src/routes.ts`, `dashboard/src/routePolicy.ts`
 - Automation: `dashboard/src/components/AutomationPage.tsx`
