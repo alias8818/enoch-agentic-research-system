@@ -25,6 +25,13 @@ function ResultCard({ result }: { result: CommandResult | null }) {
   )
 }
 
+function finalizationDisabledReason(finalizeNeeded: number, finalizeReady: boolean, isPending: boolean): string {
+  if (isPending) return 'Finalize drafts disabled: paper command is running.'
+  if (finalizeNeeded <= 0) return 'Finalize drafts disabled: no publication drafts need finalization.'
+  if (!finalizeReady) return 'Finalize drafts disabled: run Dry-run finalize first.'
+  return ''
+}
+
 export function PaperMiniStrip({ pipeline, onRefresh }: { pipeline: OverviewResponse['paper_pipeline']; onRefresh?: () => void }) {
   const [result, setResult] = useState<CommandResult | null>(null)
   const [isPending, setIsPending] = useState(false)
@@ -33,6 +40,7 @@ export function PaperMiniStrip({ pipeline, onRefresh }: { pipeline: OverviewResp
   const writeNeeded = pipeline?.write_needed ?? 0
   const finalizeNeeded = pipeline?.finalize_needed ?? 0
   const publishReady = pipeline?.publish_ready ?? 0
+  const finalizeDisabledReason = finalizationDisabledReason(finalizeNeeded, finalizeReady, isPending)
 
   async function dryRunFinalize() {
     setIsPending(true)
@@ -109,6 +117,7 @@ export function PaperMiniStrip({ pipeline, onRefresh }: { pipeline: OverviewResp
       </div>
       <div className="paper-strip-actions">
         <button className="primary-button" type="button" disabled={isPending || !finalizeReady} onClick={liveFinalize}>Finalize drafts</button>
+        {finalizeDisabledReason ? <p className="paper-strip-disabled-reason">{finalizeDisabledReason}</p> : null}
       </div>
       <ResultCard result={result} />
       {dialog}

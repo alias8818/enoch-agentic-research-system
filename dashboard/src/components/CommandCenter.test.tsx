@@ -480,6 +480,13 @@ it('renders the paper mini strip and movement diagnosis', () => {
   expect(screen.getByRole('link', { name: /Write/ })).toHaveAttribute('href', '/control/dashboard-v2#papers?status=publication_draft')
 })
 
+it('explains why paper strip live finalization is disabled before dry-run', () => {
+  render(<PaperMiniStrip pipeline={{ write_needed: 0, finalize_needed: 1, publish_ready: 0 }} />)
+
+  expect(screen.getByRole('button', { name: 'Finalize drafts' })).toBeDisabled()
+  expect(screen.getByText('Finalize drafts disabled: run Dry-run finalize first.')).toBeInTheDocument()
+})
+
 it('runs paper finalize strip actions as dry-runs without rewriting drafts live', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, matched: 1, processed: 1, reason: 'would rewrite one publication draft' }), { status: 200 }))
