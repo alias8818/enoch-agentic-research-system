@@ -59,6 +59,62 @@ it('shows recent activity inside the collapsed overview secondary fold', async (
   expect(screen.getByRole('link', { name: /Queue Alert/ })).toHaveAttribute('href', '/control/dashboard-v2#event:42')
 })
 
+it('does not claim secondary readiness passed before readiness data loads', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:00Z',
+      counts: { active: 0, queued: 0 },
+      paper_counts: {},
+      movement_diagnosis: { status: 'ready', primary_reason: 'No blockers.', blockers: [] },
+      flags: {},
+      recent_events: [],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
+  const secondaryReadiness = screen.getByLabelText('Automation readiness')
+  expect(within(secondaryReadiness).getByText('Automation readiness unavailable')).toBeInTheDocument()
+  expect(within(secondaryReadiness).queryByText('All reported long-haul readiness checks passed.')).not.toBeInTheDocument()
+})
+
+it('does not answer leave-running as ready before readiness is checked', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:00Z',
+      counts: { active: 0, queued: 0 },
+      paper_counts: {},
+      movement_diagnosis: { status: 'ready', primary_reason: 'No movement blockers.', blockers: [] },
+      flags: {},
+      recent_events: [],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: false,
+      label: 'Long-haul mode: BLOCKED — queued/active state inconsistent',
+      blockers: ['queue_counts_consistent: blocked'],
+      checks: [{ name: 'queue_counts_consistent', ok: false }],
+      summary: { queued: 3, active: 2, queue_paused: false, maintenance_mode: false },
+    }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  const initialHeroAnswer = await screen.findByText('Check readiness first')
+  const leaveRunningHero = initialHeroAnswer.closest('section') as HTMLElement
+  expect(within(leaveRunningHero).getByText('Check readiness first')).toBeInTheDocument()
+  expect(within(leaveRunningHero).getByText('Run the readiness check before leaving automation unattended.')).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Check readiness' }))
+
+  expect(await within(leaveRunningHero).findByText('Not yet')).toBeInTheDocument()
+  expect(screen.getAllByText('queue_counts_consistent: blocked').length).toBeGreaterThan(0)
+})
+
 it('checks automation readiness above the fold on demand', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({

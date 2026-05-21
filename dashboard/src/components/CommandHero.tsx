@@ -1,18 +1,61 @@
-import type { MovementDiagnosis, OverviewResponse } from '../types'
+import type { AutomationReadiness, MovementDiagnosis, OverviewResponse } from '../types'
 
-function tone(status: string | undefined): string {
+type HeroReadinessState = {
+  readiness?: AutomationReadiness
+  readinessRequested?: boolean
+  readinessLoading?: boolean
+  requiresReadinessCheck?: boolean
+}
+
+function movementTone(status: string | undefined): string {
   if (status === 'ready') return 'command-hero command-hero--ready'
   if (status === 'actionable') return 'command-hero command-hero--actionable'
   return 'command-hero command-hero--blocked'
 }
 
-function answerFor(status: string | undefined): string {
+function movementAnswer(status: string | undefined): string {
   if (status === 'ready') return 'Yes — leave it running'
   if (status === 'actionable') return 'Yes, but there is work you can start'
   return 'Not yet'
 }
 
-export function CommandHero({ overview, diagnosis }: { overview: OverviewResponse; diagnosis: MovementDiagnosis }) {
+function heroState(status: string | undefined, readinessState: HeroReadinessState): { className: string; answer: string; reason?: string } {
+  if (!readinessState.requiresReadinessCheck) return { className: movementTone(status), answer: movementAnswer(status) }
+  if (readinessState.readinessLoading) {
+    return {
+      className: 'command-hero command-hero--actionable',
+      answer: 'Checking readiness',
+      reason: 'Waiting for the long-haul readiness check before answering unattended operation.',
+    }
+  }
+  if (!readinessState.readiness && !readinessState.readinessRequested) {
+    return {
+      className: 'command-hero command-hero--actionable',
+      answer: 'Check readiness first',
+      reason: 'Run the readiness check before leaving automation unattended.',
+    }
+  }
+  if (readinessState.readiness && readinessState.readiness.ok === false) {
+    return {
+      className: 'command-hero command-hero--blocked',
+      answer: 'Not yet',
+      reason: readinessState.readiness.blockers?.[0] || readinessState.readiness.label || 'Automation readiness is blocked.',
+    }
+  }
+  return { className: movementTone(status), answer: movementAnswer(status) }
+}
+
+export function CommandHero({
+  overview,
+  diagnosis,
+  readiness,
+  readinessRequested = false,
+  readinessLoading = false,
+  requiresReadinessCheck = false,
+}: {
+  overview: OverviewResponse
+  diagnosis: MovementDiagnosis
+} & HeroReadinessState) {
   const status = diagnosis.status || 'unknown'
   const active = overview.counts?.active ?? 0
   const queued = overview.counts?.queued ?? 0
@@ -22,13 +65,15 @@ export function CommandHero({ overview, diagnosis }: { overview: OverviewRespons
     ['queued', queued],
     ['drafts', drafts],
   ] as const
+  const state = heroState(status, { readiness, readinessRequested, readinessLoading, requiresReadinessCheck })
+  const reason = state.reason || diagnosis.primary_reason || 'No deterministic movement diagnosis returned.'
 
   return (
-    <section className={tone(status)} aria-label="Can I leave this running?">
+    <section className={state.className} aria-label="Can I leave this running?">
       <div>
         <p className="eyebrow">Can I leave this running?</p>
-        <h1>{answerFor(status)}</h1>
-        <p className="hero-reason">{diagnosis.primary_reason || 'No deterministic movement diagnosis returned.'}</p>
+        <h1>{state.answer}</h1>
+        <p className="hero-reason">{reason}</p>
       </div>
       <dl className="hero-state-strip" aria-label="Current command state">
         {chips.map(([label, value]) => (

@@ -75,7 +75,7 @@ function OverviewPage() {
         <OverviewFreshness generatedAt={data.generated_at} laneGeneratedAt={status.data?.generated_at} isFetching={overview.isFetching || status.isFetching} onRefresh={refresh} />
         <SafetyBar flags={data.flags} onRefresh={refresh} />
       </div>
-      <CommandHero overview={data} diagnosis={diagnosis} />
+      <CommandHero overview={data} diagnosis={diagnosis} readiness={readiness.data} readinessRequested={readinessRequested} readinessLoading={readiness.isLoading || readiness.isFetching} requiresReadinessCheck />
       <ReadinessCheckCard
         readiness={readiness.data}
         isLoading={readiness.isLoading || readiness.isFetching}
@@ -255,7 +255,7 @@ function AutomationReadinessSummary({ readiness, isLoading, error }: { readiness
           {blockers.slice(0, 6).map((blocker) => <li key={blocker}>{blocker}</li>)}
         </ul>
       ) : null}
-      {!error && !isLoading && blockers.length === 0 ? <p>All reported long-haul readiness checks passed.</p> : null}
+      {readiness && !error && !isLoading && blockers.length === 0 ? <p>All reported long-haul readiness checks passed.</p> : null}
       <div className="readiness-facts">
         <span>queued {String(summary.queued ?? 0)}</span>
         <span>active {String(summary.active ?? 0)}</span>
