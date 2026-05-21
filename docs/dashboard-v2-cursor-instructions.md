@@ -405,6 +405,17 @@ npm run typecheck
 npm run lint
 ```
 
+If you changed **build-affecting** dashboard source (`dashboard/src/`, `package.json`, `vite.config.ts`, etc.), also rebuild and commit committed assets:
+
+```bash
+./scripts/rebuild_dashboard_v2_assets.sh
+git add enoch_control_plane/control_plane/dashboard_v2/
+python3 scripts/check_dashboard_v2_source_asset_pair.py --base origin/main
+python3 scripts/validate_dashboard_v2_assets.py --skip-npm-ci
+```
+
+See [`dashboard-v2-asset-clca.md`](dashboard-v2-asset-clca.md). Test-only files (`*.test.ts(x)`) do not require asset commits, but hash validation is the final guard.
+
 If changing route behavior, include route tests.
 
 If changing rendering of command results or details, ensure:

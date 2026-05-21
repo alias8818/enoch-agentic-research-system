@@ -16,6 +16,8 @@ npm run build
 
 CI runs `npm test`, `npm run typecheck`, and `npm run lint` only. It does **not** run `npm run build`, because the build mutates committed assets and would create CI-only drift. Phase 1 adds an asset-drift validator (`scripts/validate_dashboard_v2_assets.py`) to fail merges when source and committed bundles diverge.
 
+**Agent/human checklist:** any PR that changes build-affecting dashboard source must also commit rebuilt assets. Use `./scripts/rebuild_dashboard_v2_assets.sh`. See [`dashboard-v2-asset-clca.md`](dashboard-v2-asset-clca.md) for the corrective/preventive workflow and CI pairing check.
+
 ## Safe rsync to the control VM
 
 Do not copy local dev artifacts into production. The exclude list below matches [`scripts/install-control-plane.sh`](../scripts/install-control-plane.sh) (`sync_to_prefix`) plus deploy-only paths that must never land on the runtime tree.
