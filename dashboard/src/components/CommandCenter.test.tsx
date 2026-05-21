@@ -335,6 +335,21 @@ it('dry-runs feed actions without spending provider requests or promoting work',
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
+it('keeps live feed disabled after a blocked feed dry-run', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'research_cycle_blocked', dry_run: true, reason: 'provider budget blocked; no provider request should run' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 0, dispatch_available: false, feed_pressure: { next_autopilot_action: 'generate_candidate' } }]} onRefresh={onRefresh} />)
+
+  expect(screen.getByRole('button', { name: 'Run feed cycle' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Feed idle lanes' }))
+
+  await screen.findByText('provider budget blocked; no provider request should run')
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('button', { name: 'Run feed cycle' })).toBeDisabled()
+})
+
 it('runs a confirmed live feed cycle only after a feed dry-run', async () => {
   const confirmSpy = vi.spyOn(window, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')

@@ -74,6 +74,14 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function feedDryRunAllowsLiveCycle(result: Record<string, unknown>): boolean {
+  if (result.dry_run !== true) return false
+  const action = String(result.action || '').toLowerCase()
+  const reason = String(result.reason || result.detail || '').toLowerCase()
+  if (action.includes('blocked') || action.includes('skipped') || reason.includes('blocked')) return false
+  return action.includes('dry_run') || action.includes('would') || reason.includes('would ')
+}
+
 export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: WorkerLanesProps) {
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null)
   const [busyAction, setBusyAction] = useState<'feed' | 'feed-live' | 'dispatch' | 'dispatch-live' | null>(null)
@@ -115,7 +123,7 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Work
     try {
       const result = await apiPost<Record<string, unknown>>('/control/api/research/run-cycle', dryRunCyclePayload)
       setCommandResult({ title: 'Feed dry-run result', payload: result })
-      setLiveFeedReady(result.dry_run === true || String(result.action || '').includes('dry_run'))
+      setLiveFeedReady(feedDryRunAllowsLiveCycle(result))
       onRefresh()
     } catch (error) {
       setCommandResult({ title: 'Feed dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
