@@ -238,16 +238,18 @@ function StructuredDetail({ kind, id, payload }: { kind: DetailKind; id: string;
 }
 
 function DetailBody({ selection }: { selection: DetailSelection }) {
-  if (selection.kind === 'event' && selection.row) {
-    return <StructuredDetail kind={selection.kind} id={selection.id} payload={selection.row} />
-  }
+  const inlineRow = selection.row
+  const hasInlineEvent = selection.kind === 'event' && inlineRow
   const url = endpoint(selection)
   const query = useQuery({
     queryKey: ['detail', selection.kind, selection.id],
     queryFn: () => apiGet<Record<string, unknown>>(url || ''),
-    enabled: Boolean(url),
+    enabled: Boolean(url) && !hasInlineEvent,
     retry: false,
   })
+  if (hasInlineEvent) {
+    return <StructuredDetail kind={selection.kind} id={selection.id} payload={inlineRow} />
+  }
   if (!url) return <StructuredDetail kind={selection.kind} id={selection.id} payload={selection.row || {}} />
   if (query.isLoading) return <div className="state-card">Loading detail…</div>
   if (query.isError) return <div className="state-card state-card--error">Detail unavailable: {String(query.error.message)}</div>

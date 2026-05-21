@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { apiGet, apiPost } from '../api/client'
+import { dryRunCyclePayload, liveCyclePayload } from '../researchCyclePayloads'
 import { dashboardV2Href } from '../routes'
 import type { DashboardRoute } from '../routes'
 import { DataTable } from './DataTable'
@@ -41,28 +42,6 @@ type PromotionResponse = {
   idea_id?: string
   queued_count?: number
   dispatch_started?: boolean
-}
-
-const dryRunCyclePayload = {
-  enabled: false,
-  dry_run: true,
-  requested_by: 'dashboard-v2',
-  max_provider_requests_per_run: 1,
-  max_promotions_per_run: 2,
-  max_dispatches_per_run: 0,
-  wait_for_completion: false,
-  max_wait_seconds: 0,
-  max_paper_drafts_per_run: 0,
-  max_publication_rewrites_per_run: 0,
-  generation_max_tokens: 8000,
-  generation_attempts: 2,
-  temperature: 0.6,
-}
-
-const liveCyclePayload = {
-  ...dryRunCyclePayload,
-  enabled: true,
-  dry_run: false,
 }
 
 function ResultCard({ title, result }: { title: string; result?: Record<string, unknown> }) {

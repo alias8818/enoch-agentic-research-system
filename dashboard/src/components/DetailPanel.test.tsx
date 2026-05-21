@@ -45,6 +45,26 @@ it('renders event detail from the selected row without fetching an event endpoin
   expect(fetchMock).not.toHaveBeenCalled()
 })
 
+it('keeps hook order stable when switching from inline event detail to fetched detail', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    project_id: 'project-1',
+    project: { project_name: 'Structured project', machine_target: 'gb10' },
+  }), { status: 200 }))
+  const panel = (selection: React.ComponentProps<typeof DetailPanel>['selection']) => (
+    <QueryClientProvider client={client}>
+      <DetailPanel selection={selection} onClose={() => undefined} />
+    </QueryClientProvider>
+  )
+
+  const { rerender } = render(panel({ kind: 'event', id: '9', row: { id: 9, event_type: 'Queue Alert', summary: 'Lane blocked' } }))
+  expect(screen.getByRole('heading', { name: 'Lane blocked' })).toBeInTheDocument()
+
+  rerender(panel({ kind: 'project', id: 'project-1' }))
+
+  expect(await screen.findByRole('heading', { name: 'Structured project' })).toBeInTheDocument()
+})
+
 
 it('renders related project runs and papers as V2 links instead of raw-only JSON', async () => {
   vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
