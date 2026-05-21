@@ -2,17 +2,6 @@ import { dashboardV2Href } from '../routes'
 import type { MovementDiagnosis as MovementDiagnosisType } from '../types'
 import { resolveMovementPanelCopy } from './movementPanelCopy'
 
-const commonReasons = [
-  'no admitted candidates',
-  'lane queue full',
-  'lane active',
-  'queue paused',
-  'readiness blocked',
-  'no matching machine target',
-  'paper gate blocked',
-  'evidence missing',
-]
-
 export function MovementDiagnosis({ diagnosis }: { diagnosis: MovementDiagnosisType }) {
   const blockers = diagnosis.blockers || []
   const { title, subtitle } = resolveMovementPanelCopy(diagnosis)
@@ -41,9 +30,6 @@ export function MovementDiagnosis({ diagnosis }: { diagnosis: MovementDiagnosisT
       ) : (
         <p className="movement-empty">No movement blockers reported.</p>
       )}
-      <div className="reason-strip" aria-label="Movement reasons covered">
-        {commonReasons.map((reason) => <span key={reason}>{reason}</span>)}
-      </div>
     </section>
   )
 }

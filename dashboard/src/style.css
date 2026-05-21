@@ -556,9 +556,6 @@ button:disabled { cursor: not-allowed; }
 .movement-row p,
 .movement-empty { margin: 0.25rem 0 0; color: #9d978f; font-size: 0.84rem; }
 .text-link { color: #e2b15b; font-weight: 850; text-decoration: none; }
-.reason-strip { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 1rem; }
-.reason-strip span { border: 1px solid rgba(244,241,234,0.1); border-radius: 999px; padding: 0.32rem 0.52rem; color: #837d75; font-size: 0.68rem; }
-
 .secondary-fold { color: #9e978e; }
 .secondary-fold summary { cursor: pointer; color: #efe7da; font-weight: 850; }
 .secondary-links { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.55rem; margin-top: 0.85rem; }
