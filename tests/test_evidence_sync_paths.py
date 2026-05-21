@@ -239,7 +239,7 @@ def test_sync_remote_evidence_skips_ssh_after_http_sync_has_required_local_evide
     config = _config(tmp_path)
     artifact_root = tmp_path / "artifact"
 
-    def fake_http_sync(config, *, project_id: str, artifact_root, source_run_id: str = ""):
+    def fake_http_sync(config, *, project_id: str, artifact_root, source_run_id: str = "", **_kwargs):
         del config, project_id, source_run_id
         (artifact_root / ".enoch").mkdir(parents=True)
         (artifact_root / "run_notes.md").write_text("measured evidence\n", encoding="utf-8")
@@ -424,6 +424,48 @@ def test_draft_next_dry_run_does_not_sync_evidence() -> None:
         body = response.json()
         assert body["action"] == "dry_run_draft"
         assert body["candidate"]["evidence_sync"] == {"enabled": True, "skipped": True, "reason": "dry_run"}
+
+
+def test_sync_worker_http_evidence_can_use_routed_worker_credentials(tmp_path, monkeypatch) -> None:
+    from enoch_control_plane.control_plane import router
+
+    calls = []
+
+    def fake_worker_json(base_url, path, token, payload, *, timeout_seconds):  # noqa: ANN001 - patched request boundary
+        calls.append({
+            "base_url": base_url,
+            "path": path,
+            "token": token,
+            "payload": payload,
+            "timeout_seconds": timeout_seconds,
+        })
+        requested_path = payload["paths"][0]
+        return router.HttpResult(ok=True, status=200, body={"files": [{"path": requested_path, "content": "content"}]}, error=None)
+
+    monkeypatch.setattr(router, "_worker_json_request", fake_worker_json)
+    config = GateConfig(
+        state_dir=str(tmp_path / "state"),
+        project_root=str(tmp_path / "projects"),
+        dispatch_script_path=str(tmp_path / "dispatch.sh"),
+        control_api_bearer_token="token",
+        completion_callback_url="http://example.invalid/callback",
+        completion_callback_token="unused",
+        worker_wake_gate_url="http://gb10.example:8787",
+        worker_wake_gate_bearer_token="gb10-token",
+    )
+
+    result = router._sync_worker_http_evidence(
+        config,
+        project_id="cpu-project",
+        artifact_root=tmp_path / "artifact",
+        worker_wake_gate_url="http://cpu.example:8787",
+        worker_bearer_token="cpu-token",
+    )
+
+    assert result["ok"] is True
+    assert calls
+    assert {call["base_url"] for call in calls} == {"http://cpu.example:8787"}
+    assert {call["token"] for call in calls} == {"cpu-token"}
 
 
 def test_sync_worker_http_evidence_rejects_worker_returned_escape_paths(tmp_path) -> None:

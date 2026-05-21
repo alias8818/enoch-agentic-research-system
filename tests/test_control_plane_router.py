@@ -5606,6 +5606,67 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIsNone(replay.json()["decision_sync"])
             self.assertEqual(sync.call_count, 1)
 
+    def test_worker_callback_missing_local_decision_syncs_worker_decision_before_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            config.paper_evidence_sync_enabled = True
+            config.paper_evidence_sync_remote_root = "/remote/projects"
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "worker-callback-missing-local-decision-import",
+                "queue_rows": [{
+                    "project_id": "idea-callback-missing-local-decision",
+                    "project_name": "Callback Missing Local Decision",
+                    "project_dir": "idea-callback-missing-local-decision",
+                    "status": "awaiting_wake",
+                    "current_run_id": "run-callback-missing-local-decision",
+                }],
+            })
+
+            def fake_sync(_config, *, project_id: str, artifact_root: Path, **kwargs):  # noqa: ANN001 - patched sync boundary
+                del _config, project_id, kwargs
+                (artifact_root / ".enoch").mkdir(parents=True, exist_ok=True)
+                (artifact_root / "run_notes.md").write_text("Measured useful signal but no bounded paper.\n", encoding="utf-8")
+                (artifact_root / ".enoch" / "project_decision.json").write_text(
+                    '{"project_decision":"finalize_negative","research_outcome":"useful_signal","bounded_paper_ready":false}\n',
+                    encoding="utf-8",
+                )
+                return {"enabled": True, "synced": True, "reason": "worker_http_synced", "local_evidence_present": True}
+
+            def fake_record_decision(self, **kwargs):  # noqa: ANN001 - monkeypatched method
+                self._seen_decision_kwargs = kwargs
+                return {"ok": True, "persisted": True, "project_id": kwargs.get("project_id")}
+
+            with (
+                patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", side_effect=fake_sync) as sync,
+                patch.object(ControlPlaneStore, "record_project_decision_gate", fake_record_decision, create=True),
+            ):
+                response = client.post("/control/api/worker-callback", headers=headers, json={
+                    "event_type": "wake_ready",
+                    "run_id": "run-callback-missing-local-decision",
+                    "session_id": "session-callback-missing-local-decision",
+                    "project_id": "idea-callback-missing-local-decision",
+                    "project_name": "Callback Missing Local Decision",
+                    "source_event": "session-idle",
+                    "gate_state": "wake_ready",
+                    "process_tracking": {"root_pid": None, "process_group_id": None, "processes": [], "live_process_count": 0},
+                    "telemetry": {},
+                    "reason": "idle_sustain_met",
+                    "idempotency_key": "run-callback-missing-local-decision:wake_ready:test",
+                })
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(sync.call_count, 1)
+            body = response.json()
+            self.assertIsNotNone(body["decision_sync"])
+            self.assertEqual(body["decision_sync"]["evidence_sync"]["reason"], "worker_http_synced")
+            self.assertEqual(body["decision_sync"]["decision_gate"]["reason"], "project decision is not positive")
+            self.assertTrue(body["decision_sync"]["decision_record"]["persisted"])
+            overview = client.get("/control/api/v1/overview", headers=headers).json()
+            rejected_reasons = [item.get("reason") for item in overview["paper_pipeline"].get("gate_rejected_sample", [])]
+            self.assertNotIn("missing project decision artifact", rejected_reasons)
+
     def test_worker_callback_evidence_sync_rejects_project_dir_escape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp)

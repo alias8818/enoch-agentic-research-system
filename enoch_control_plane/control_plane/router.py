@@ -330,11 +330,17 @@ def _sync_worker_http_evidence(
     project_id: str,
     artifact_root: Path,
     source_run_id: str = "",
+    worker_wake_gate_url: str | None = None,
+    worker_bearer_token: str | None = None,
     per_request_timeout_seconds: float = 5.0,
     overall_timeout_seconds: float = 45.0,
 ) -> dict[str, Any]:
-    if not config.worker_wake_gate_bearer_token:
+    wake_gate_url = (worker_wake_gate_url or config.worker_wake_gate_url or "").strip()
+    bearer_token = (worker_bearer_token or config.worker_wake_gate_bearer_token or "").strip()
+    if not bearer_token:
         return {"ok": False, "reason": "worker_token_missing"}
+    if not wake_gate_url:
+        return {"ok": False, "reason": "worker_url_missing"}
     base_run = source_run_id.removesuffix("-publication") if source_run_id else ""
     paths = [
         "run_notes.md",
@@ -385,9 +391,9 @@ def _sync_worker_http_evidence(
             break
         request_timeout = min(per_request_timeout_seconds, remaining)
         result = _worker_json_request(
-            config.worker_wake_gate_url,
+            wake_gate_url,
             f"/project-paper/{project_id}/read",
-            config.worker_wake_gate_bearer_token,
+            bearer_token,
             {"paths": [path], "max_bytes_per_file": 2_000_000},
             timeout_seconds=request_timeout,
         )
@@ -600,12 +606,38 @@ def _read_process_stdout_bounded(
     return b"".join(chunks), False
 
 
-def _sync_remote_project_evidence(config: GateConfig, *, project_id: str, artifact_root: Path, source_project_dir: str = "", source_run_id: str = "") -> dict[str, Any]:
+def _sync_remote_project_evidence(
+    config: GateConfig,
+    *,
+    project_id: str,
+    artifact_root: Path,
+    source_project_dir: str = "",
+    source_run_id: str = "",
+    worker_wake_gate_url: str | None = None,
+    worker_bearer_token: str | None = None,
+    allow_ssh_fallback: bool = True,
+) -> dict[str, Any]:
     if not config.paper_evidence_sync_enabled:
         return {"enabled": False, "synced": False, "reason": "disabled"}
-    http_sync = _sync_worker_http_evidence(config, project_id=project_id, artifact_root=artifact_root, source_run_id=source_run_id)
+    http_sync = _sync_worker_http_evidence(
+        config,
+        project_id=project_id,
+        artifact_root=artifact_root,
+        source_run_id=source_run_id,
+        worker_wake_gate_url=worker_wake_gate_url,
+        worker_bearer_token=worker_bearer_token,
+    )
     if http_sync.get("ok") and _local_paper_evidence_present(artifact_root):
         return {"enabled": True, "synced": True, "reason": str(http_sync.get("reason") or "worker_http_synced"), "method": "worker_http", "local_evidence_present": True, "http_sync": http_sync}
+    if not allow_ssh_fallback:
+        return {
+            "enabled": True,
+            "synced": _local_paper_evidence_present(artifact_root),
+            "local_evidence_present": _local_paper_evidence_present(artifact_root),
+            "reason": "worker_http_no_required_evidence",
+            "method": "worker_http",
+            "http_sync": http_sync,
+        }
     remote_dir = _remote_evidence_dir(config, project_id=project_id, source_project_dir=source_project_dir)
     # The VM talks to the GB10 over SSH and streams a bounded evidence tarball.
     # This intentionally excludes external source trees and large trace/log files,
@@ -2394,6 +2426,23 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "decision_gate_reason": str(gate.get("reason") or ""),
         }
 
+    def _worker_evidence_sync_kwargs_for_row(row: dict[str, Any]) -> dict[str, Any]:
+        machine_target = str(row.get("machine_target") or "")
+        worker_target = config.resolved_worker_target(machine_target)
+        default_target = config.resolved_worker_target("")
+        target_url = (worker_target.wake_gate_url or "").strip().rstrip("/")
+        default_url = (default_target.wake_gate_url or "").strip().rstrip("/")
+        return {
+            "worker_wake_gate_url": worker_target.wake_gate_url,
+            "worker_bearer_token": worker_target.bearer_token,
+            # The SSH evidence fallback is configured for the default/GB10 worker
+            # root.  For routed CPU workers, falling back to that SSH host would
+            # inspect the wrong machine and can mark a valid CPU run as missing
+            # evidence.  Routed non-default workers must succeed through their
+            # own HTTP read endpoint or fail closed.
+            "allow_ssh_fallback": not target_url or target_url == default_url,
+        }
+
     def _auto_reconcile_stale_callback_ready(status: DashboardStatusResponse, *, requested_by: str) -> list[dict[str, Any]]:
         if not status.active_items:
             return []
@@ -2412,13 +2461,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             artifact_root, project_dir_text = _artifact_root_for_queue_row(row)
             gate = paper_draft_decision_gate(artifact_root)
             evidence_sync = _evidence_sync_skipped_by_gate(gate)
-            if gate.get("eligible"):
+            if gate.get("eligible") or not gate.get("values"):
                 evidence_sync = _sync_remote_project_evidence(
                     config,
                     project_id=project_id,
                     artifact_root=artifact_root,
                     source_project_dir=project_dir_text,
                     source_run_id=run_id,
+                    **_worker_evidence_sync_kwargs_for_row(row),
                 )
                 gate = paper_draft_decision_gate(artifact_root)
             local_evidence_present = _local_paper_evidence_present(artifact_root)
@@ -2592,13 +2642,14 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             artifact_root, project_dir_text = _artifact_root_for_queue_row(row)
             decision_gate = paper_draft_decision_gate(artifact_root)
             evidence_sync = _evidence_sync_skipped_by_gate(decision_gate)
-            if decision_gate.get("eligible"):
+            if decision_gate.get("eligible") or not decision_gate.get("values"):
                 evidence_sync = _sync_remote_project_evidence(
                     config,
                     project_id=project_id,
                     artifact_root=artifact_root,
                     source_project_dir=project_dir_text,
                     source_run_id=str(callback.run_id or ""),
+                    **_worker_evidence_sync_kwargs_for_row(row),
                 )
                 decision_gate = paper_draft_decision_gate(artifact_root)
             decision_sync = {"artifact_root": str(artifact_root), "evidence_sync": evidence_sync, "decision_gate": decision_gate}
