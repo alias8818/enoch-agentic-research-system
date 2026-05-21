@@ -21,7 +21,12 @@ function ResultCard({ result }: { result: CommandResult | null }) {
 }
 
 function isDryRunCommand(action: TopAction): boolean {
-  return action.kind === 'dispatch_next'
+  return action.kind === 'dispatch_next' || action.kind === 'investigate_followup'
+}
+
+function dryRunLabel(action: TopAction): string {
+  if (action.kind === 'investigate_followup') return 'Check follow-up'
+  return 'Check dispatch'
 }
 
 export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRefresh?: () => void }) {
@@ -29,10 +34,12 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
   const [isPending, setIsPending] = useState(false)
 
   async function runDryRun() {
-    if (!action || action.kind !== 'dispatch_next') return
+    if (!action || !isDryRunCommand(action)) return
     setIsPending(true)
     try {
-      const payload = await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+      const payload = action.kind === 'investigate_followup'
+        ? await apiPost<Record<string, unknown>>('/control/api/v1/followups/launch-next', { dry_run: true, requested_by: 'dashboard-v2', max_followup_depth: 4 })
+        : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
       setResult({ title: 'Primary action dry-run', payload })
       onRefresh?.()
     } catch (error) {
@@ -61,7 +68,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
         <p>{action.summary}</p>
       </div>
       {isDryRunCommand(action) ? (
-        <button className="primary-button primary-action-cta" type="button" disabled={isPending} onClick={runDryRun}>Check dispatch</button>
+        <button className="primary-button primary-action-cta" type="button" disabled={isPending} onClick={runDryRun}>{dryRunLabel(action)}</button>
       ) : (
         <a className="primary-button primary-action-cta" href={dashboardV2Href(action.action_hash || '#overview')}>
           {action.action_label || 'Open'}
