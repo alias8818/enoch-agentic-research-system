@@ -58,6 +58,8 @@ jobs:
           python3 scripts/generate_ecosystem_manifest.py --corpus ../enoch-ai-research-corpus --docs ../enoch-docs --promising ../enoch-promising-signals --output /tmp/enoch-ecosystem.generated.json
       - name: Validate committed public release accounting and wording
         working-directory: enoch-agentic-research-system
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/validate_public_release.py --system . --corpus ../enoch-ai-research-corpus --docs ../enoch-docs --promising ../enoch-promising-signals --profile ../alias8818.github.io --owner-profile ../alias8818 --personal-site ../jeremyblankenship.dev --generated-manifest /tmp/enoch-ecosystem.generated.json
       - name: Render Supabase corpus import ledger validation SQL

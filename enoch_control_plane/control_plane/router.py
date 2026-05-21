@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import io
 import hashlib
+import mimetypes
 from pathlib import Path, PurePosixPath
 import os
 import re
@@ -149,6 +150,7 @@ def _active_lane_signature(active_items: list[dict[str, Any]]) -> str:
 
 
 DASHBOARD_CSS_PATH = Path(__file__).with_name("dashboard.css")
+DASHBOARD_V2_DIST_PATH = Path(__file__).with_name("dashboard_v2")
 
 
 CONTROL_DASHBOARD_HTML = """
@@ -2412,6 +2414,26 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     def dashboard_css() -> Response:
         return Response(DASHBOARD_CSS_PATH.read_text(encoding="utf-8"), media_type="text/css", headers={"Cache-Control": "no-store"})
 
+    @router.get("/dashboard-v2", response_class=HTMLResponse)
+    def dashboard_v2() -> HTMLResponse:
+        index_path = DASHBOARD_V2_DIST_PATH / "index.html"
+        if not index_path.is_file():
+            raise HTTPException(status_code=503, detail="Dashboard V2 assets are missing; run npm --prefix dashboard run build.")
+        return HTMLResponse(index_path.read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
+
+    @router.get("/dashboard-v2/assets/{asset_path:path}")
+    def dashboard_v2_asset(asset_path: str) -> Response:
+        asset_root = (DASHBOARD_V2_DIST_PATH / "assets").resolve()
+        candidate = (asset_root / asset_path).resolve()
+        try:
+            candidate.relative_to(asset_root)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="asset not found") from None
+        if not candidate.is_file():
+            raise HTTPException(status_code=404, detail="asset not found")
+        media_type = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
+        return Response(candidate.read_bytes(), media_type=media_type, headers={"Cache-Control": "no-store"})
+
     @router.get("/health")
     def health(authorization: str | None = Header(default=None)) -> dict:
         authorize(authorization)
@@ -2877,6 +2899,28 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "events_page": read_models.page_response(rows=events, next_cursor=next_cursor, has_more=has_more, page_size_value=read_models.page_size(event_limit, cap=100), cursor="", filters={"entity_id": run_id}),
         }
 
+    @router.get("/api/v1/projects")
+    def dashboard_v1_projects(
+        authorization: str | None = Header(default=None),
+        status: str = "",
+        search: str = "",
+        cursor: str = "",
+        page_size: int = Query(default=50, ge=1, le=200),
+        sort: str = "recent",
+    ) -> dict[str, Any]:
+        authorize(authorization)
+        safe_size = read_models.page_size(page_size)
+        rows, next_cursor, has_more = store.project_page(status=status, search=search, cursor=cursor, page_size=safe_size, sort=sort)
+        out = [read_models.summarize_project_row(row) for row in rows]
+        return {
+            "ok": True,
+            "source": "control_api_v1_projects",
+            "authority": "bounded SQL project read model",
+            "generated_at": utc_now(),
+            "page": read_models.page_response(rows=out, next_cursor=next_cursor, has_more=has_more, page_size_value=safe_size, cursor=cursor, filters={"status": status, "search": search, "sort": sort}),
+            "rows": out,
+        }
+
     @router.get("/api/v1/projects/{project_id}")
     def dashboard_v1_project_detail(project_id: str, authorization: str | None = Header(default=None), event_limit: int = Query(default=50, ge=0, le=100)) -> dict[str, Any]:
         authorize(authorization)
@@ -2951,6 +2995,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     @router.get("/api/v1/events")
     def dashboard_v1_events(
         authorization: str | None = Header(default=None),
+        event_id: str = "",
         entity_type: str = "",
         entity_id: str = "",
         event_type: str = "",
@@ -2962,13 +3007,13 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
     ) -> dict[str, Any]:
         authorize(authorization)
         safe_size = read_models.page_size(page_size)
-        rows, next_cursor, has_more = store.event_page(entity_type=entity_type, entity_id=entity_id, event_type=event_type, search=search, cursor=cursor, page_size=safe_size, include_payload=include_payload, sort=sort)
+        rows, next_cursor, has_more = store.event_page(event_id=event_id, entity_type=entity_type, entity_id=entity_id, event_type=event_type, search=search, cursor=cursor, page_size=safe_size, include_payload=include_payload, sort=sort)
         return {
             "ok": True,
             "source": "control_api_v1_events",
             "authority": "bounded SQL event read model",
             "generated_at": utc_now(),
-            "page": read_models.page_response(rows=rows, next_cursor=next_cursor, has_more=has_more, page_size_value=safe_size, cursor=cursor, filters={"entity_type": entity_type, "entity_id": entity_id, "event_type": event_type, "search": search, "include_payload": include_payload, "sort": sort}),
+            "page": read_models.page_response(rows=rows, next_cursor=next_cursor, has_more=has_more, page_size_value=safe_size, cursor=cursor, filters={"event_id": event_id, "entity_type": entity_type, "entity_id": entity_id, "event_type": event_type, "search": search, "include_payload": include_payload, "sort": sort}),
             "rows": rows,
         }
 

@@ -766,6 +766,18 @@ def queue_links(row: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def project_links(row: dict[str, Any]) -> dict[str, str]:
+    project_id = _url_path_segment(row.get("project_id"))
+    run_id = _url_path_segment(row.get("current_run_id") or row.get("latest_run_id"))
+    paper_id = _url_path_segment(row.get("related_paper_id") or row.get("latest_paper_id"))
+    return {
+        "project": f"/control/api/v1/projects/{project_id}" if project_id else "",
+        "run": f"/control/api/v1/runs/{run_id}" if run_id else "",
+        "paper": f"/control/api/v1/papers/{paper_id}" if paper_id else "",
+        "legacy_project": f"/control/api/projects/{project_id}" if project_id else "",
+    }
+
+
 def paper_links(row: dict[str, Any]) -> dict[str, str]:
     paper_id = _url_path_segment(row.get("paper_id"))
     project_id = _url_path_segment(row.get("project_id"))
@@ -776,6 +788,35 @@ def paper_links(row: dict[str, Any]) -> dict[str, str]:
         "run": f"/control/api/v1/runs/{run_id}" if run_id else "",
         "legacy_paper": f"/control/api/papers/{paper_id}" if paper_id else "",
     }
+
+
+def summarize_project_row(row: dict[str, Any]) -> dict[str, Any]:
+    project_id = str(row.get("project_id") or "")
+    queue_status = row.get("queue_status") or row.get("status") or ""
+    stage_source = {
+        **row,
+        "status": queue_status,
+        "current_run_id": row.get("current_run_id") or row.get("latest_run_id") or "",
+        "related_paper_id": row.get("related_paper_id") or row.get("latest_paper_id") or "",
+        "related_paper_status": row.get("related_paper_status") or row.get("latest_paper_status") or "",
+        "project_updated_at": row.get("project_updated_at") or row.get("updated_at") or "",
+    }
+    return _drop_related_artifact_paths(with_operator_stage({
+        "project_id": project_id,
+        "project_name": row.get("project_name", ""),
+        "origin_idea_status": row.get("origin_idea_status", ""),
+        "queue_status": queue_status,
+        "current_run_id": stage_source["current_run_id"],
+        "latest_run_id": row.get("latest_run_id", ""),
+        "latest_run_state": row.get("latest_run_state", ""),
+        "related_paper_id": stage_source["related_paper_id"],
+        "related_paper_status": stage_source["related_paper_status"],
+        "created_at": row.get("project_created_at") or row.get("created_at", ""),
+        "updated_at": row.get("project_updated_at") or row.get("updated_at", ""),
+        "age_seconds": row_age_seconds({"updated_at": row.get("project_updated_at") or row.get("updated_at", ""), "created_at": row.get("project_created_at") or row.get("created_at", "")}),
+        "links": project_links(stage_source),
+        **{key: value for key, value in with_operator_stage(stage_source).items() if key.startswith("operator_")},
+    }))
 
 
 def summarize_queue_row(row: dict[str, Any]) -> dict[str, Any]:
