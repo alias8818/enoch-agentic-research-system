@@ -36,9 +36,25 @@ function idempotencyKey(prefix: string): string {
   return `${prefix}:dashboard-v2:${Date.now()}`
 }
 
-function liveActionDisabledReason(action: TopAction, ready: boolean, isPending: boolean): string {
+function actionSignature(action: TopAction): string {
+  return [
+    action.kind,
+    action.title,
+    action.summary || '',
+    action.action_label || '',
+    action.action_hash || '',
+  ].join('|')
+}
+
+function liveActionDisabledReason(action: TopAction, ready: boolean, staleReady: boolean, isPending: boolean): string {
   if (isPending) return `${action.action_label || 'Action'} disabled: command is running.`
   if (ready) return ''
+  if (staleReady) {
+    if (action.kind === 'dispatch_next') return 'Dispatch work disabled: top action changed; run Check dispatch again.'
+    if (action.kind === 'investigate_followup') return 'Launch follow-up disabled: top action changed; run Check follow-up again.'
+    if (action.kind === 'write_paper') return 'Draft paper disabled: top action changed; run Check draft again.'
+    if (action.kind === 'finalize_paper') return 'Finalize drafts disabled: top action changed; run Check finalization again.'
+  }
   if (action.kind === 'dispatch_next') return 'Dispatch work disabled: run Check dispatch first.'
   if (action.kind === 'investigate_followup') return 'Launch follow-up disabled: run Check follow-up first.'
   if (action.kind === 'write_paper') return 'Draft paper disabled: run Check draft first.'
@@ -53,7 +69,17 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
   const [followupReady, setFollowupReady] = useState(false)
   const [draftReady, setDraftReady] = useState(false)
   const [finalizeReady, setFinalizeReady] = useState(false)
+  const [readySignature, setReadySignature] = useState('')
   const { confirm, dialog } = useOperatorDialog()
+  const currentActionSignature = action ? actionSignature(action) : ''
+
+  function clearReadiness() {
+    setDispatchReady(false)
+    setFollowupReady(false)
+    setDraftReady(false)
+    setFinalizeReady(false)
+    setReadySignature('')
+  }
 
   async function runDryRun() {
     if (!action || !isDryRunCommand(action)) return
@@ -74,24 +100,31 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
               })
             : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
       setResult({ title: 'Primary action dry-run', payload })
-      setDispatchReady(action.kind === 'dispatch_next' && String(payload.action || '').includes('dry_run'))
-      setFollowupReady(action.kind === 'investigate_followup' && payload.action === 'dry_run_followup')
-      setDraftReady(action.kind === 'write_paper' && payload.action === 'dry_run_draft')
-      setFinalizeReady(action.kind === 'finalize_paper' && payload.dry_run === true && Number(payload.processed || 0) > 0)
+      const ready = action.kind === 'dispatch_next'
+        ? String(payload.action || '').includes('dry_run')
+        : action.kind === 'investigate_followup'
+          ? payload.action === 'dry_run_followup'
+          : action.kind === 'write_paper'
+            ? payload.action === 'dry_run_draft'
+            : action.kind === 'finalize_paper'
+              ? payload.dry_run === true && Number(payload.processed || 0) > 0
+              : false
+      setDispatchReady(action.kind === 'dispatch_next' && ready)
+      setFollowupReady(action.kind === 'investigate_followup' && ready)
+      setDraftReady(action.kind === 'write_paper' && ready)
+      setFinalizeReady(action.kind === 'finalize_paper' && ready)
+      setReadySignature(ready ? currentActionSignature : '')
       onRefresh?.()
     } catch (error) {
       setResult({ title: 'Primary action dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
-      setDispatchReady(false)
-      setFollowupReady(false)
-      setDraftReady(false)
-      setFinalizeReady(false)
+      clearReadiness()
     } finally {
       setIsPending(false)
     }
   }
 
   async function runLiveDispatch() {
-    if (!action || action.kind !== 'dispatch_next' || !dispatchReady) return
+    if (!action || action.kind !== 'dispatch_next' || !dispatchReady || readySignature !== currentActionSignature) return
     const confirmed = await confirm({
       title: 'Dispatch top action?',
       message: 'This starts live dispatch for the current backend-selected queued work. Use Check dispatch again if lane or queue state may have changed.',
@@ -103,10 +136,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
     try {
       const payload = await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
       setResult({ title: 'Primary action live dispatch', payload })
-      setDispatchReady(false)
-      setFollowupReady(false)
-      setDraftReady(false)
-      setFinalizeReady(false)
+      clearReadiness()
       onRefresh?.()
     } catch (error) {
       setResult({ title: 'Primary action live dispatch failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
@@ -116,7 +146,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
   }
 
   async function runLiveFollowup() {
-    if (!action || action.kind !== 'investigate_followup' || !followupReady) return
+    if (!action || action.kind !== 'investigate_followup' || !followupReady || readySignature !== currentActionSignature) return
     const confirmed = await confirm({
       title: 'Launch follow-up investigation?',
       message: 'This queues investigation work for the backend-selected follow-up. It does not dispatch work, write papers, or finalize publications. Use Check follow-up again if candidate state may have changed.',
@@ -128,10 +158,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
     try {
       const payload = await apiPost<Record<string, unknown>>('/control/api/v1/followups/launch-next', { dry_run: false, requested_by: 'dashboard-v2', max_followup_depth: 4 })
       setResult({ title: 'Primary action live follow-up', payload })
-      setDispatchReady(false)
-      setFollowupReady(false)
-      setDraftReady(false)
-      setFinalizeReady(false)
+      clearReadiness()
       onRefresh?.()
     } catch (error) {
       setResult({ title: 'Primary action live follow-up failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
@@ -141,7 +168,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
   }
 
   async function runLiveDraft() {
-    if (!action || action.kind !== 'write_paper' || !draftReady) return
+    if (!action || action.kind !== 'write_paper' || !draftReady || readySignature !== currentActionSignature) return
     const confirmed = await confirm({
       title: 'Draft next paper?',
       message: 'This writes draft artifacts for the backend-selected paper-ready candidate. Use Check draft again if the candidate may have changed.',
@@ -153,10 +180,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
     try {
       const payload = await apiPost<Record<string, unknown>>('/control/papers/draft-next', { dry_run: false, requested_by: 'dashboard-v2', force: true })
       setResult({ title: 'Primary action live draft', payload })
-      setDispatchReady(false)
-      setFollowupReady(false)
-      setDraftReady(false)
-      setFinalizeReady(false)
+      clearReadiness()
       onRefresh?.()
     } catch (error) {
       setResult({ title: 'Primary action live draft failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
@@ -166,7 +190,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
   }
 
   async function runLiveFinalization() {
-    if (!action || action.kind !== 'finalize_paper' || !finalizeReady) return
+    if (!action || action.kind !== 'finalize_paper' || !finalizeReady || readySignature !== currentActionSignature) return
     const confirmed = await confirm({
       title: 'Finalize publication drafts?',
       message: 'This rewrites publication draft packages for the backend-selected batch. Use Check finalization again if the queue may have changed.',
@@ -186,10 +210,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
         skip_rewritten: true,
       })
       setResult({ title: 'Primary action live finalization', payload })
-      setDispatchReady(false)
-      setFollowupReady(false)
-      setFinalizeReady(false)
-      setDraftReady(false)
+      clearReadiness()
       onRefresh?.()
     } catch (error) {
       setResult({ title: 'Primary action live finalization failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
@@ -210,15 +231,16 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
     )
   }
   const liveReady = action.kind === 'dispatch_next'
-    ? dispatchReady
+    ? dispatchReady && readySignature === currentActionSignature
     : action.kind === 'investigate_followup'
-      ? followupReady
+      ? followupReady && readySignature === currentActionSignature
       : action.kind === 'write_paper'
-        ? draftReady
+        ? draftReady && readySignature === currentActionSignature
         : action.kind === 'finalize_paper'
-          ? finalizeReady
+          ? finalizeReady && readySignature === currentActionSignature
           : true
-  const liveDisabledReason = isDryRunCommand(action) ? liveActionDisabledReason(action, liveReady, isPending) : ''
+  const staleReady = Boolean(readySignature) && readySignature !== currentActionSignature
+  const liveDisabledReason = isDryRunCommand(action) ? liveActionDisabledReason(action, liveReady, staleReady, isPending) : ''
   return (
     <section className="primary-action" aria-label="Primary action">
       <div>
@@ -230,16 +252,16 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
         <div className="primary-action-buttons">
           <button className="secondary-button primary-action-cta" type="button" disabled={isPending} onClick={runDryRun}>{dryRunLabel(action)}</button>
           {action.kind === 'dispatch_next' ? (
-            <button className="primary-button primary-action-cta" type="button" disabled={isPending || !dispatchReady} onClick={runLiveDispatch}>Dispatch work</button>
+            <button className="primary-button primary-action-cta" type="button" disabled={isPending || !liveReady} onClick={runLiveDispatch}>Dispatch work</button>
           ) : null}
           {action.kind === 'investigate_followup' ? (
-            <button className="primary-button primary-action-cta" type="button" disabled={isPending || !followupReady} onClick={runLiveFollowup}>Launch follow-up</button>
+            <button className="primary-button primary-action-cta" type="button" disabled={isPending || !liveReady} onClick={runLiveFollowup}>Launch follow-up</button>
           ) : null}
           {action.kind === 'write_paper' ? (
-            <button className="primary-button primary-action-cta" type="button" disabled={isPending || !draftReady} onClick={runLiveDraft}>Draft paper</button>
+            <button className="primary-button primary-action-cta" type="button" disabled={isPending || !liveReady} onClick={runLiveDraft}>Draft paper</button>
           ) : null}
           {action.kind === 'finalize_paper' ? (
-            <button className="primary-button primary-action-cta" type="button" disabled={isPending || !finalizeReady} onClick={runLiveFinalization}>Finalize drafts</button>
+            <button className="primary-button primary-action-cta" type="button" disabled={isPending || !liveReady} onClick={runLiveFinalization}>Finalize drafts</button>
           ) : null}
           {liveDisabledReason ? <p className="primary-action-disabled-reason">{liveDisabledReason}</p> : null}
         </div>

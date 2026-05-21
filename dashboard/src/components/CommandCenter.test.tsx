@@ -83,6 +83,23 @@ it('dispatches the top dispatch action only after dry-run and dialog confirmatio
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
+it('invalidates primary action live dispatch when the top action changes', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch', reason: 'dry-run dispatch selected candidate' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  const { rerender } = render(<PrimaryAction action={{ kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'One queued candidate matches the idle lane.', action_label: 'Dispatch', action_hash: '#queue:queued' }} onRefresh={onRefresh} />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Check dispatch' }))
+  await screen.findByText('dry-run dispatch selected candidate')
+  expect(screen.getByRole('button', { name: 'Dispatch work' })).toBeEnabled()
+
+  rerender(<PrimaryAction action={{ kind: 'dispatch_next', title: 'Dispatch CPU lane', summary: 'A different queued candidate now matches the idle lane.', action_label: 'Dispatch', action_hash: '#queue:queued&lane=cpu' }} onRefresh={onRefresh} />)
+
+  expect(screen.getByRole('button', { name: 'Dispatch work' })).toBeDisabled()
+  expect(screen.getByText('Dispatch work disabled: top action changed; run Check dispatch again.')).toBeInTheDocument()
+})
+
 it('runs follow-up primary actions as safe dry-runs instead of only linking away', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_followup', reason: 'would queue bounded follow-up', followup: { idea_id: 'follow-1' } }), { status: 200 }))
