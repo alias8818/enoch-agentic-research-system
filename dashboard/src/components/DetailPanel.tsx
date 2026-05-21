@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { apiGet } from '../api/client'
 import { dashboardV2Href } from '../routes'
 import { useQuery } from '@tanstack/react-query'
@@ -82,6 +83,65 @@ function RelatedDetails({ payload }: { payload: Record<string, unknown> }) {
       <RelatedSection title="Related runs" rows={runs} kind="run" />
       <RelatedSection title="Related papers" rows={papers} kind="paper" />
       <RelatedSection title="Recent events" rows={events} kind="event" />
+    </section>
+  )
+}
+
+type ArtifactPreview = {
+  field: string
+  content?: string
+  size_bytes?: number
+  truncated?: boolean
+  reason?: string
+}
+
+const artifactFields = [
+  ['draft_markdown_path', 'draft markdown'],
+  ['draft_latex_path', 'draft latex'],
+  ['evidence_bundle_path', 'evidence bundle'],
+  ['claim_ledger_path', 'claim ledger'],
+  ['manifest_path', 'manifest'],
+] as const
+
+function PaperArtifacts({ id, payload }: { id: string; payload: Record<string, unknown> }) {
+  const paper = record(payload.paper)
+  const available = artifactFields.filter(([field]) => paper[field])
+  const [preview, setPreview] = useState<ArtifactPreview | null>(null)
+  const [pendingField, setPendingField] = useState<string>('')
+  if (!available.length) return null
+
+  async function loadArtifact(field: string) {
+    setPendingField(field)
+    try {
+      const artifact = await apiGet<ArtifactPreview>(`/control/api/papers/${encodeURIComponent(id)}/artifact/${encodeURIComponent(field)}`)
+      setPreview(artifact)
+    } catch (error) {
+      setPreview({ field, reason: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setPendingField('')
+    }
+  }
+
+  return (
+    <section className="detail-artifacts" aria-label="Paper artifacts">
+      <div>
+        <p className="eyebrow">Paper artifacts</p>
+        <h4>Preview generated files</h4>
+      </div>
+      <div className="artifact-button-row">
+        {available.map(([field, label]) => (
+          <button key={field} className="secondary-button" type="button" disabled={pendingField === field} onClick={() => { void loadArtifact(field) }}>
+            Preview {label}
+          </button>
+        ))}
+      </div>
+      {preview ? (
+        <section className="artifact-preview">
+          <h5>Artifact preview</h5>
+          <p>{preview.field}{preview.size_bytes ? ` · ${preview.size_bytes} bytes` : ''}{preview.truncated ? ' · truncated' : ''}</p>
+          <pre className="json-block">{preview.reason || preview.content || ''}</pre>
+        </section>
+      ) : null}
     </section>
   )
 }
@@ -174,6 +234,7 @@ function StructuredDetail({ kind, id, payload }: { kind: DetailKind; id: string;
         {summary !== '—' && summary !== title ? <p>{summary}</p> : null}
         <FieldGrid fields={detailFields(kind, payload, id)} />
       </section>
+      {kind === 'paper' ? <PaperArtifacts id={id} payload={payload} /> : null}
       <RelatedDetails payload={payload} />
       <details className="raw-details">
         <summary>Raw payload</summary>

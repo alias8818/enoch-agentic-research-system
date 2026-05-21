@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { DetailPanel } from './DetailPanel'
 
@@ -64,4 +64,31 @@ it('renders related project runs and papers as V2 links instead of raw-only JSON
   expect(screen.getByRole('link', { name: /Draft paper/ })).toHaveAttribute('href', '/control/dashboard-v2#paper:paper-1')
   expect(screen.getByText('Recent events')).toBeInTheDocument()
   expect(screen.getByText('Lane blocked')).toBeInTheDocument()
+})
+
+
+it('loads paper artifacts directly from V2 paper detail', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      paper_id: 'paper-1',
+      paper: {
+        paper_id: 'paper-1',
+        title: 'Artifact paper',
+        draft_markdown_path: 'papers/run-1/final.md',
+        evidence_bundle_path: 'papers/run-1/evidence.json',
+        claim_ledger_path: 'papers/run-1/claims.json',
+        manifest_path: 'papers/run-1/manifest.json',
+      },
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ field: 'draft_markdown_path', content: '# Artifact paper\nBody', truncated: false, size_bytes: 21 }), { status: 200 }))
+
+  renderWithClient(<DetailPanel selection={{ kind: 'paper', id: 'paper-1' }} onClose={() => undefined} />)
+
+  expect(await screen.findByRole('heading', { name: 'Artifact paper' })).toBeInTheDocument()
+  expect(screen.getByText('Paper artifacts')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Preview draft markdown' }))
+
+  expect(await screen.findByText('Artifact preview')).toBeInTheDocument()
+  expect(screen.getByText((content) => content.includes('# Artifact paper'))).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/papers/paper-1/artifact/draft_markdown_path', expect.any(Object))
 })

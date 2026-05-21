@@ -706,3 +706,32 @@ button:disabled { cursor: not-allowed; }
 .paper-strip-result {
   margin-top: 1rem;
 }
+
+.detail-artifacts {
+  border: 1px solid rgba(14, 165, 233, 0.25);
+  border-radius: 1.35rem;
+  background: rgba(8, 47, 73, 0.18);
+  padding: 1rem;
+}
+
+.detail-artifacts h4,
+.artifact-preview h5 {
+  margin: 0;
+  color: #f4f4f5;
+}
+
+.artifact-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.85rem;
+}
+
+.artifact-preview {
+  margin-top: 1rem;
+}
+
+.artifact-preview p {
+  color: #a1a1aa;
+  font-size: 0.78rem;
+}
