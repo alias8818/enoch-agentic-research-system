@@ -12,7 +12,7 @@ permissions:
 jobs:
   public-release-integrity:
     name: public-release-integrity
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout system repo
         uses: actions/checkout@v6
