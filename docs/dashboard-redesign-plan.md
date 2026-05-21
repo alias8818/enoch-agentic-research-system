@@ -90,7 +90,8 @@ The first shipped slice is the redesigned shell and overview experience:
 - **Error and empty states (2026-05-21):** endpoint-specific failure cards and composed idle/filtered/blocked table empties via [`resourceStatePresentation.ts`](../dashboard/src/resourceStatePresentation.ts) + [`ResourceStateCards.tsx`](../dashboard/src/components/ResourceStateCards.tsx); Vitest guards in [`resourceStatePresentation.test.ts`](../dashboard/src/resourceStatePresentation.test.ts) and [`ResourcePages.test.tsx`](../dashboard/src/components/ResourcePages.test.tsx).
 - **Route policy (2026-05-21):** audited route catalog, alias canonicalization (`#reviews` → `#automation`, `#candidate:` → `#research:`, legacy `#status` → `#overview`), detail breadcrumbs, and parent-nav highlighting via [`routePolicy.ts`](../dashboard/src/routePolicy.ts) + [`routes.ts`](../dashboard/src/routes.ts).
 - **Styling cleanup (2026-05-21):** CSS-only filter select polish, tighter tables, detail-panel scroll containment, two-line primary title clamp, shared focus rings, and keyboard row selection in [`style.css`](../dashboard/src/style.css) + [`styleGuards.test.ts`](../dashboard/src/styleGuards.test.ts).
-- Extract the inline dashboard into static assets or a small frontend package if the UI keeps growing.
+- **Framework (2026-05-21):** stay on Vite SPA; Next.js is not justified for the operator console — see [`dashboard-v2-framework-decision.md`](dashboard-v2-framework-decision.md).
+- Extract the inline dashboard into static assets or a small frontend package if the UI keeps growing (already done via `dashboard/` → committed `dashboard_v2/`).
 - Expand the corpus import view with direct links to public corpus artifacts and release-validator evidence.
 - Add keyboard shortcut help and saved filters.
 - Add screenshot-based visual regression for the dashboard shell.
