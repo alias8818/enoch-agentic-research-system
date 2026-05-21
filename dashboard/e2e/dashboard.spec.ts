@@ -9,7 +9,7 @@ test('token gate blocks API calls until token is saved', async ({ page }) => {
 
 test('overview hero renders after token is present', async ({ page }) => {
   await openDashboardWithToken(page, '#overview')
-  await expect(page.getByRole('heading', { name: /Can I leave this running/i })).toBeVisible()
+  await expect(page.getByText('Can I leave this running?')).toBeVisible()
 })
 
 test('hash navigation opens queue list', async ({ page }) => {
@@ -18,17 +18,20 @@ test('hash navigation opens queue list', async ({ page }) => {
 })
 
 test('detail hash opens structured run detail', async ({ page }) => {
-  await page.route('**/control/api/v1/runs/run-e2e', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        run_id: 'run-e2e',
-        run: { run_id: 'run-e2e', project_id: 'project-alpha', state: 'running', project_name: 'Alpha project' },
-      }),
-    })
+  await openDashboardWithToken(page, '#run:run-e2e', {
+    afterMocks: async (mockPage) => {
+      await mockPage.route('**/control/api/v1/runs/run-e2e', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            run_id: 'run-e2e',
+            run: { run_id: 'run-e2e', project_id: 'project-alpha', state: 'running', project_name: 'Alpha project' },
+          }),
+        })
+      })
+    },
   })
-  await openDashboardWithToken(page, '#run:run-e2e')
   await expect(page.getByRole('heading', { name: 'Alpha project' })).toBeVisible()
 })
 

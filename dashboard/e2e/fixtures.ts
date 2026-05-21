@@ -1,15 +1,26 @@
 import type { Page } from '@playwright/test'
+import { TOKEN_STORAGE_KEY } from '../src/api/client'
 
 const overviewPayload = {
   generated_at: '2026-05-21T12:00:00Z',
+  counts: { queued: 1, active: 0 },
   queue: { queued: 1, active: 0 },
+  paper_counts: {},
   paper_pipeline: {
     publish_ready: 0,
     published_imported: 0,
     publication_ready_total: 0,
     missing_from_corpus: 0,
   },
+  movement_diagnosis: {
+    status: 'actionable',
+    primary_reason: 'Dry-run dispatch before live dispatch.',
+    blockers: [],
+  },
+  flags: { queue_paused: false, maintenance_mode: false },
   events: [],
+  recent_events: [],
+  active_items: [],
   top_actions: [{
     kind: 'dispatch_next',
     priority: 1,
@@ -17,6 +28,12 @@ const overviewPayload = {
     summary: 'Dry-run dispatch before live dispatch.',
     action_label: 'Check dispatch',
   }],
+}
+
+const statusPayload = {
+  generated_at: '2026-05-21T12:00:00Z',
+  worker_lanes: [],
+  flags: { queue_paused: false, maintenance_mode: false },
 }
 
 const dispatchDryRunPayload = {
@@ -60,6 +77,10 @@ export async function installDashboardApiMocks(page: Page): Promise<void> {
     await route.fallback()
   })
 
+  await page.route('**/control/api/status', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(statusPayload) })
+  })
+
   await page.route('**/control/dispatch-next', async (route) => {
     if (route.request().method() !== 'POST') {
       await route.fallback()
@@ -69,10 +90,15 @@ export async function installDashboardApiMocks(page: Page): Promise<void> {
   })
 }
 
-export async function openDashboardWithToken(page: Page, hash = '#overview'): Promise<void> {
+export async function openDashboardWithToken(
+  page: Page,
+  hash = '#overview',
+  options?: { afterMocks?: (page: Page) => Promise<void> },
+): Promise<void> {
   await installDashboardApiMocks(page)
-  await page.addInitScript(() => {
-    window.localStorage.setItem('enoch-dashboard-v2-token', 'playwright-token')
-  })
+  if (options?.afterMocks) await options.afterMocks(page)
+  await page.addInitScript((storageKey) => {
+    window.localStorage.setItem(storageKey, 'playwright-token')
+  }, TOKEN_STORAGE_KEY)
   await page.goto(`/control/dashboard-v2/${hash}`)
 }
