@@ -13,7 +13,7 @@ permissions:
 jobs:
   tests:
     name: tests
-    runs-on: self-hosted
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'self-hosted' }}
     steps:
       - uses: actions/checkout@v6
       - name: Validate runtime snapshot links
@@ -52,7 +52,7 @@ jobs:
         run: uv run pytest -q
   secret-scan:
     name: secret-scan
-    runs-on: self-hosted
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'self-hosted' }}
     steps:
       - uses: actions/checkout@v6
         with:
