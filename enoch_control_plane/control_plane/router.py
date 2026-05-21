@@ -1493,9 +1493,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         return (target.wake_gate_url or str(candidate.get("machine_target") or "")).strip().rstrip("/")
 
     def _callback_acceptance_token_fingerprint() -> str:
-        # Do not expose or propagate token-derived verifiers in preflight payloads.
-        # Token compatibility should be validated by direct callback behavior.
-        return ""
+        token = (config.completion_callback_token or "").strip()
+        if not token:
+            return ""
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
     def _dispatch_sort_key(row: dict[str, Any]) -> tuple[int, int, str]:
         priority = _int_or_none(row.get("dispatch_priority"))
@@ -1729,8 +1730,18 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         return pressure
 
     def _candidate_machine_target_conflict_set(candidate: dict[str, Any]) -> set[str]:
-        machine_target = _normal_status(candidate.get("machine_target"))
-        return {machine_target} if machine_target else {""}
+        candidate_lane_key = _worker_lane_key(candidate)
+        if not candidate_lane_key:
+            machine_target = _normal_status(candidate.get("machine_target"))
+            return {machine_target} if machine_target else {""}
+        conflict_targets: set[str] = set()
+        configured_targets = {"", *[str(target) for target in config.worker_targets.keys()]}
+        for machine_target in configured_targets:
+            normalized_target = _normal_status(machine_target)
+            lane_key = _worker_lane_key({"machine_target": machine_target})
+            if lane_key == candidate_lane_key:
+                conflict_targets.add(normalized_target)
+        return conflict_targets or {_normal_status(candidate.get("machine_target")) or ""}
 
     def _has_conflicting_active_lane(candidate: dict[str, Any]) -> bool:
         candidate_lane_key = _worker_lane_key(candidate)

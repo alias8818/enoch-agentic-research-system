@@ -20,6 +20,7 @@ class FakeWorkerTransport:
             return HttpResult(ok=self.health_ok, status=200 if self.health_ok else 503, body={"ok": self.health_ok}, error="down" if not self.health_ok else "")
         if "/dashboard/api" in url:
             return HttpResult(ok=True, status=200, body={
+                "service": {"completion_callback_token_fingerprint": "expected-fingerprint"},
                 "telemetry": {
                     "gpu_pct": self.gpu_pct,
                     "gpu_compute_pids": [],
@@ -134,12 +135,12 @@ class WorkerPreflightTests(unittest.TestCase):
         self.assertFalse(checks["worker_no_live_runs"].ok)
         self.assertFalse(checks["worker_queue_snapshot_no_active"].ok)
 
-    def test_preflight_skips_callback_token_fingerprint_when_unavailable(self) -> None:
+    def test_preflight_requires_callback_token_fingerprint_match_when_expected(self) -> None:
         response = run_worker_preflight(
             WorkerPreflightRequest(
                 wake_gate_url="http://worker:8787",
                 bearer_token="secret",
-                expected_callback_token_fingerprint="any-token-derived-value",
+                expected_callback_token_fingerprint="expected-fingerprint",
             ),
             ControlFlags(queue_paused=True, maintenance_mode=True),
             transport=FakeWorkerTransport(),
@@ -147,7 +148,22 @@ class WorkerPreflightTests(unittest.TestCase):
 
         self.assertTrue(response.ok)
         checks = {check.name: check for check in response.checks}
-        self.assertNotIn("worker_callback_token_compatible", checks)
+        self.assertTrue(checks["worker_callback_token_compatible"].ok)
+
+    def test_preflight_fails_when_callback_token_fingerprint_mismatch(self) -> None:
+        response = run_worker_preflight(
+            WorkerPreflightRequest(
+                wake_gate_url="http://worker:8787",
+                bearer_token="secret",
+                expected_callback_token_fingerprint="different-fingerprint",
+            ),
+            ControlFlags(queue_paused=True, maintenance_mode=True),
+            transport=FakeWorkerTransport(),
+        )
+
+        self.assertFalse(response.ok)
+        checks = {check.name: check for check in response.checks}
+        self.assertFalse(checks["worker_callback_token_compatible"].ok)
 
     def test_preflight_without_bearer_only_requires_health_and_pause(self) -> None:
         response = run_worker_preflight(
