@@ -557,6 +557,23 @@ it('finalizes paper strip drafts only after dry-run and dialog confirmation', as
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
+it('invalidates paper strip live finalization when pipeline state changes', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, matched: 1, processed: 1, reason: 'would rewrite one publication draft' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  const { rerender } = render(<PaperMiniStrip pipeline={{ write_needed: 0, finalize_needed: 1, publish_ready: 0 }} onRefresh={onRefresh} />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Dry-run finalize' }))
+  await screen.findByText('would rewrite one publication draft')
+  expect(screen.getByRole('button', { name: 'Finalize drafts' })).toBeEnabled()
+
+  rerender(<PaperMiniStrip pipeline={{ write_needed: 0, finalize_needed: 0, publish_ready: 1 }} onRefresh={onRefresh} />)
+
+  expect(screen.getByRole('button', { name: 'Finalize drafts' })).toBeDisabled()
+  expect(screen.getByText('Finalize drafts disabled: paper pipeline changed; run Dry-run finalize again.')).toBeInTheDocument()
+})
+
 it('checks every open lane candidate with dispatch-one instead of aggregate dispatch-next', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'cpu candidate can dispatch' }), { status: 200 }))
