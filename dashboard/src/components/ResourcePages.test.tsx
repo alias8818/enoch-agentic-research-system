@@ -171,6 +171,31 @@ it('live-dispatches a selected queued row only after dry-run and dialog confirma
   expect(fetchMock).toHaveBeenNthCalledWith(5, expect.stringContaining('/control/api/v1/queue?'), expect.any(Object))
 })
 
+it('invalidates selected queue dispatch when refreshed row state changes', async () => {
+  saveToken('test-token')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T11:00:00Z', rows: [{ project_id: 'project-stale', status: 'queued', machine_target: 'gb10', title: 'Stale queue item', updated_at: '2026-05-21T11:00:00Z' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ project_id: 'project-stale', project: { project_name: 'Stale queue item' } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'dry_run_dispatch_one', reason: 'dry-run selected explicit queued candidate', candidate: { project_id: 'project-stale' } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T11:01:00Z', rows: [{ project_id: 'project-stale', status: 'active', machine_target: 'gb10', title: 'Stale queue item', updated_at: '2026-05-21T11:01:00Z' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+
+  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
+
+  fireEvent.click(await screen.findByText('Stale queue item'))
+  await screen.findByLabelText('Dashboard detail panel')
+  fireEvent.click(screen.getByRole('button', { name: /Check selected dispatch/i }))
+
+  await screen.findByText('dry-run selected explicit queued candidate')
+  expect(screen.getByRole('button', { name: 'Dispatch selected project' })).toBeEnabled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh rows' }))
+  await screen.findByText('Last loaded 2026-05-21T11:01:00Z')
+
+  expect(fetchMock).toHaveBeenCalledTimes(4)
+  expect(screen.getByRole('button', { name: 'Dispatch selected project' })).toBeDisabled()
+  expect(screen.getByText('Dispatch selected project disabled: selected row changed; run Check selected dispatch again.')).toBeInTheDocument()
+})
+
 it('loads project discovery rows from the V1 projects endpoint', async () => {
   saveToken('test-token')
   const fetchMock = vi.spyOn(globalThis, 'fetch')

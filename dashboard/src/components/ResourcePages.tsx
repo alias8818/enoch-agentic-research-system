@@ -141,6 +141,27 @@ function selectedDispatchReason(selection: DetailSelection | null): string {
   return 'Dry-run checks /control/dispatch-one for the selected project only.'
 }
 
+function queueDispatchSignature(row?: Record<string, unknown>): string {
+  if (!row) return ''
+  return [
+    String(row.project_id || ''),
+    String(row.status || '').toLowerCase(),
+    String(row.machine_target || ''),
+    String(row.current_run_id || ''),
+    String(row.dispatch_priority || ''),
+    String(row.selection_rank || ''),
+    String(row.updated_at || ''),
+  ].join('|')
+}
+
+function selectedDispatchDisabledReason(canDryRunSelected: boolean, liveReady: boolean, staleReady: boolean, dispatchBusy: boolean): string {
+  if (dispatchBusy) return 'Dispatch selected project disabled: dispatch command is running.'
+  if (staleReady) return 'Dispatch selected project disabled: selected row changed; run Check selected dispatch again.'
+  if (!canDryRunSelected) return 'Dispatch selected project disabled: select a queued row first.'
+  if (!liveReady) return 'Dispatch selected project disabled: run Check selected dispatch first.'
+  return ''
+}
+
 function CommandResultCard({ result }: { result: CommandResult | null }) {
   if (!result) return null
   const reason = String(result.payload.reason || result.payload.detail || result.payload.action || 'Command completed.')
@@ -190,6 +211,7 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
   const [dispatchResult, setDispatchResult] = useState<CommandResult | null>(null)
   const [dispatchBusy, setDispatchBusy] = useState(false)
   const [liveDispatchProjectId, setLiveDispatchProjectId] = useState('')
+  const [liveDispatchSignature, setLiveDispatchSignature] = useState('')
   const [filters, setFilters] = useState<FilterState>({ search: route.search || '', status: route.status, pageSize: '50', cursor: '' })
   const { confirm, dialog } = useOperatorDialog()
   useEffect(() => {
@@ -197,6 +219,7 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
     setSelection(null)
     setDispatchResult(null)
     setLiveDispatchProjectId('')
+    setLiveDispatchSignature('')
   }, [route.search, route.status])
   const params = withCommonParams(filters, 'priority')
   params.set('queue', 'all')
@@ -206,6 +229,14 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
   const selectedProjectId = selection?.id || ''
   const selectedStatus = String(selection?.row?.status || '').toLowerCase()
   const canDryRunSelected = Boolean(selectedProjectId) && selectedStatus === 'queued'
+  const selectedCurrentRow = (query.data?.rows || []).find((row) => String(row.project_id || '') === selectedProjectId)
+  const selectedCurrentSignature = queueDispatchSignature(selectedCurrentRow || selection?.row)
+  const canLiveDispatchSelected = canDryRunSelected
+    && liveDispatchProjectId === selectedProjectId
+    && Boolean(liveDispatchSignature)
+    && liveDispatchSignature === selectedCurrentSignature
+  const staleDispatchReady = Boolean(liveDispatchSignature) && liveDispatchSignature !== selectedCurrentSignature
+  const dispatchDisabledReason = selectedDispatchDisabledReason(canDryRunSelected, canLiveDispatchSelected, staleDispatchReady, dispatchBusy)
   async function dryRunSelectedDispatch() {
     if (!canDryRunSelected) return
     setDispatchBusy(true)
@@ -218,15 +249,17 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
       })
       setDispatchResult({ title: 'Selected dispatch dry-run', payload })
       setLiveDispatchProjectId(payload.action === 'dry_run_dispatch_one' ? selectedProjectId : '')
+      setLiveDispatchSignature(payload.action === 'dry_run_dispatch_one' ? selectedCurrentSignature : '')
     } catch (error) {
       setDispatchResult({ title: 'Selected dispatch dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
       setLiveDispatchProjectId('')
+      setLiveDispatchSignature('')
     } finally {
       setDispatchBusy(false)
     }
   }
   async function liveDispatchSelected() {
-    if (!selectedProjectId || liveDispatchProjectId !== selectedProjectId) return
+    if (!selectedProjectId || !canLiveDispatchSelected) return
     const confirmed = await confirm({
       title: 'Dispatch selected project?',
       message: `This starts live dispatch for exactly ${selectedProjectId}. Use Check selected dispatch again if the row changed or went stale.`,
@@ -244,6 +277,7 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
       })
       setDispatchResult({ title: 'Selected live dispatch', payload })
       setLiveDispatchProjectId('')
+      setLiveDispatchSignature('')
       setSelection(null)
       void query.refetch()
     } catch (error) {
@@ -266,13 +300,14 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
             <button className="secondary-button" type="button" disabled={!canDryRunSelected || dispatchBusy} onClick={dryRunSelectedDispatch}>
               {dispatchBusy ? 'Checking…' : 'Check selected dispatch'}
             </button>
-            <button className="primary-button" type="button" disabled={!canDryRunSelected || liveDispatchProjectId !== selectedProjectId || dispatchBusy} onClick={liveDispatchSelected}>
+            <button className="primary-button" type="button" disabled={!canLiveDispatchSelected || dispatchBusy} onClick={liveDispatchSelected}>
               Dispatch selected project
             </button>
           </div>
+          {dispatchDisabledReason ? <p className="primary-action-disabled-reason">{dispatchDisabledReason}</p> : null}
         </section>
         <CommandResultCard result={dispatchResult} />
-        <DataTable rows={query.data?.rows || []} columns={['project_id', 'status', 'lane', 'machine_target', 'title', 'updated_at']} empty="No queue rows match this filter." cellHref={detailCellHref} onSelectRow={(row) => { setDispatchResult(null); setLiveDispatchProjectId(''); setSelection({ kind: 'project', id: String(row.project_id || ''), row }) }} />
+        <DataTable rows={query.data?.rows || []} columns={['project_id', 'status', 'lane', 'machine_target', 'title', 'updated_at']} empty="No queue rows match this filter." cellHref={detailCellHref} onSelectRow={(row) => { setDispatchResult(null); setLiveDispatchProjectId(''); setLiveDispatchSignature(''); setSelection({ kind: 'project', id: String(row.project_id || ''), row }) }} />
         <DetailPanel selection={selection} onClose={() => setSelection(null)} />
       </PageShell>
       {dialog}
