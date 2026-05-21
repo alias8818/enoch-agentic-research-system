@@ -31,6 +31,22 @@ it('loads research facility rows and checks provider budget through bounded APIs
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/research/provider-budget?estimated_requests=1&reserve_requests=2', expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }))
 })
 
+it('refreshes research facility rows explicitly from V2', async () => {
+  saveToken('test-token')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T08:10:00Z', counts: { admitted: 1 }, rows: [{ candidate_id: 'cand-old', status: 'admitted', title: 'Old candidate' }] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T08:12:00Z', counts: { admitted: 1 }, rows: [{ candidate_id: 'cand-fresh', status: 'admitted', title: 'Fresh candidate' }] }), { status: 200 }))
+
+  renderWithClient(<ResearchPage />)
+  await screen.findByText('Old candidate')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh candidates' }))
+
+  await screen.findByText('Fresh candidate')
+  expect(screen.getByText('Last loaded 2026-05-21T08:12:00Z')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+})
+
 it('dry-runs the bounded research cycle without live enablement', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [] }), { status: 200 }))

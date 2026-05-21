@@ -8,6 +8,7 @@ type ResearchFacilityResponse = {
   rows?: Record<string, unknown>[]
   counts?: Record<string, unknown>
   authority?: string
+  generated_at?: string
 }
 
 type BudgetResponse = {
@@ -128,17 +129,30 @@ export function ResearchPage() {
 
   const rows = facility.data?.rows || []
   const counts = facility.data?.counts || {}
+  function refreshCandidates() {
+    setSelectedCandidate(null)
+    promotion.reset()
+    void facility.refetch()
+  }
 
   return (
     <section className="page-stack">
-      <div className="page-hero">
-        <p className="eyebrow">Dashboard V2</p>
-        <h1>Research Facility</h1>
-        <p>Bounded candidate workbench and autopilot controls. Backend APIs remain the source of truth.</p>
-        <div className="action-row">
-          <button className="secondary-button" type="button" onClick={() => budget.mutate()} disabled={budget.isPending}>Check provider budget</button>
-          <button className="secondary-button" type="button" onClick={runDryCycle} disabled={cycle.isPending}>Dry-run bounded cycle</button>
-          <button className="primary-button" type="button" onClick={runLiveCycle} disabled={cycle.isPending}>Run one bounded cycle</button>
+      <div className="page-hero page-hero--with-action">
+        <div>
+          <p className="eyebrow">Dashboard V2</p>
+          <h1>Research Facility</h1>
+          <p>Bounded candidate workbench and autopilot controls. Backend APIs remain the source of truth.</p>
+          <div className="action-row">
+            <button className="secondary-button" type="button" onClick={() => budget.mutate()} disabled={budget.isPending}>Check provider budget</button>
+            <button className="secondary-button" type="button" onClick={runDryCycle} disabled={cycle.isPending}>Dry-run bounded cycle</button>
+            <button className="primary-button" type="button" onClick={runLiveCycle} disabled={cycle.isPending}>Run one bounded cycle</button>
+          </div>
+        </div>
+        <div className="page-hero-action">
+          <span>Last loaded {facility.data?.generated_at || 'unknown'}</span>
+          <button className="secondary-button" type="button" disabled={facility.isFetching} onClick={refreshCandidates}>
+            {facility.isFetching ? 'Refreshing…' : 'Refresh candidates'}
+          </button>
         </div>
       </div>
 

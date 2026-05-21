@@ -7,6 +7,7 @@ import { useOperatorDialog } from './OperatorDialog'
 type AutomationResponse = {
   rows?: Record<string, unknown>[]
   counts?: Record<string, unknown>
+  generated_at?: string
 }
 type AutomationDetailResponse = {
   item?: Record<string, unknown>
@@ -137,16 +138,28 @@ export function AutomationPage({ paperId = '' }: { paperId?: string }) {
   const rows = automation.data?.rows || []
   const counts = automation.data?.counts || {}
   const selectedPaperId = firstPaperId(rows, paperId)
+  function refreshAutomation() {
+    void automation.refetch()
+    if (paperId) void detail.refetch()
+  }
 
   return (
     <section className="page-stack">
-      <div className="page-hero">
-        <p className="eyebrow">Dashboard V2</p>
-        <h1>Publication automation</h1>
-        <p>Paper workflow controls for draft rewrite planning and finalization package dry-runs. Live publish remains out of V2 for now.</p>
-        <div className="action-row">
-          <button className="secondary-button" type="button" onClick={() => rewriteDryRun.mutate()} disabled={rewriteDryRun.isPending}>Dry-run rewrite batch</button>
-          <button className="secondary-button" type="button" onClick={() => selectedPaperId && finalizationDryRun.mutate(selectedPaperId)} disabled={!selectedPaperId || finalizationDryRun.isPending}>Dry-run finalization package</button>
+      <div className="page-hero page-hero--with-action">
+        <div>
+          <p className="eyebrow">Dashboard V2</p>
+          <h1>Publication automation</h1>
+          <p>Paper workflow controls for draft rewrite planning and finalization package dry-runs. Live publish remains out of V2 for now.</p>
+          <div className="action-row">
+            <button className="secondary-button" type="button" onClick={() => rewriteDryRun.mutate()} disabled={rewriteDryRun.isPending}>Dry-run rewrite batch</button>
+            <button className="secondary-button" type="button" onClick={() => selectedPaperId && finalizationDryRun.mutate(selectedPaperId)} disabled={!selectedPaperId || finalizationDryRun.isPending}>Dry-run finalization package</button>
+          </div>
+        </div>
+        <div className="page-hero-action">
+          <span>Last loaded {automation.data?.generated_at || 'unknown'}</span>
+          <button className="secondary-button" type="button" disabled={automation.isFetching || detail.isFetching} onClick={refreshAutomation}>
+            {automation.isFetching || detail.isFetching ? 'Refreshing…' : 'Refresh automation'}
+          </button>
         </div>
       </div>
 

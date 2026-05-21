@@ -26,6 +26,22 @@ it('loads publication automation rows from the bounded API', async () => {
   expect(fetchMock).toHaveBeenCalledWith('/control/api/publication-automation?page_size=50&paper_status=publication_draft&sort=-rank_score', expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }))
 })
 
+it('refreshes publication automation rows explicitly from V2', async () => {
+  saveToken('test-token')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T08:00:00Z', counts: {}, rows: [{ paper_id: 'paper-old', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Old paper' }] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T08:04:00Z', counts: {}, rows: [{ paper_id: 'paper-fresh', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Fresh paper' }] }), { status: 200 }))
+
+  renderWithClient(<AutomationPage />)
+  await screen.findByText('Old paper')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh automation' }))
+
+  await screen.findByText('Fresh paper')
+  expect(screen.getByText('Last loaded 2026-05-21T08:04:00Z')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+})
+
 
 it('uses the paper id from automation detail hashes for finalization dry-runs', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
