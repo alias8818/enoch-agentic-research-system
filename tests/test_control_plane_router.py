@@ -5814,7 +5814,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertNotIn("bearer_token", prepare_payload["metadata"]["dispatch_route"])
             self.assertEqual(response.json()["live"]["dispatch_route"]["worker_role"], "cpu_worker")
 
-    def test_live_dispatch_blocks_worker_with_mismatched_callback_token_fingerprint(self) -> None:
+    def test_live_dispatch_preflight_expects_control_api_token_for_worker_callback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp).model_copy(
                 update={
@@ -5879,7 +5879,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             called_payload = mocked_preflight.call_args.args[0]
             self.assertEqual(
                 called_payload.expected_callback_token_fingerprint,
-                hashlib.sha256(config.completion_callback_token.encode("utf-8")).hexdigest(),
+                hashlib.sha256(config.control_api_bearer_token.encode("utf-8")).hexdigest(),
             )
             rows = {row["project_id"]: row for row in client.get("/control/queue", headers=headers).json()["rows"]}
             self.assertEqual(rows["dispatch-callback-mismatch"]["status"], "queued")

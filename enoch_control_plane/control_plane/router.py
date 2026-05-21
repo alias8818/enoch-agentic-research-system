@@ -1493,7 +1493,13 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         return (target.wake_gate_url or str(candidate.get("machine_target") or "")).strip().rstrip("/")
 
     def _callback_acceptance_token_fingerprint() -> str:
-        token = (config.completion_callback_token or "").strip()
+        # /control/api/worker-callback is mounted on the control-plane router
+        # and is protected by the same bearer dependency as other control APIs.
+        # Worker preflight therefore has to compare the worker's configured
+        # callback-delivery token against the token this endpoint will actually
+        # accept, not the local completion_callback_token used by worker-mode
+        # callback senders.
+        token = (config.control_api_bearer_token or "").strip()
         if not token:
             return ""
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
