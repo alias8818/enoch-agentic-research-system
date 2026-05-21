@@ -244,13 +244,16 @@ function RoutedPage({ route }: { route: DashboardRoute }) {
   if (route.page === 'research') return <ResearchPage />
   if (route.page === 'intake') return <IntakePage />
   if (route.page === 'automation') return <AutomationPage paperId={route.paperId} />
-  if (route.page === 'legacy') {
+  if (route.page === 'unsupported') {
     return (
-      <section className="legacy-card">
-        <p className="eyebrow">Legacy fallback</p>
-        <h1>This V2 page is not implemented yet</h1>
-        <p>Use the legacy dashboard for this workflow until the React subview owns it.</p>
-        <a className="primary-button primary-button--link" href={`/control/dashboard${route.hash}`}>Open legacy view</a>
+      <section className="legacy-card unsupported-route-card">
+        <p className="eyebrow">V2 route guard</p>
+        <h1>Unsupported V2 route</h1>
+        <p>This hash is not owned by a React subview yet. Stay in V2 for supported operations, or use the legacy escape hatch for this exact hash.</p>
+        <div className="unsupported-route-actions">
+          <a className="primary-button primary-button--link" href={dashboardV2Href('#overview')}>Back to command center</a>
+          <a className="secondary-button secondary-button--link" href={`/control/dashboard${route.hash}`}>Open this hash in legacy dashboard</a>
+        </div>
       </section>
     )
   }
@@ -262,7 +265,7 @@ function navClass(route: DashboardRoute, page: DashboardRoute['page']): string {
 }
 
 function moreNavClass(route: DashboardRoute): string {
-  return ['events', 'observability', 'corpus', 'research', 'intake', 'automation', 'legacy'].includes(route.page) ? 'nav-more nav-more--active' : 'nav-more'
+  return ['events', 'observability', 'corpus', 'research', 'intake', 'automation', 'unsupported'].includes(route.page) ? 'nav-more nav-more--active' : 'nav-more'
 }
 
 function Shell() {

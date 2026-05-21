@@ -22,7 +22,7 @@ it('parses V2-owned command-center routes', () => {
   expect(parseDashboardRoute('#review:paper%2F1')).toEqual({ page: 'automation', paperId: 'paper/1', hash: '#review:paper%2F1' })
 })
 
-it('keeps unimplemented hashes on the legacy dashboard', () => {
+it('keeps dashboard hashes inside the V2 route surface', () => {
   expect(dashboardV2Href('#project:project-1')).toBe('/control/dashboard-v2#project:project-1')
   expect(dashboardV2Href('#run:run-1')).toBe('/control/dashboard-v2#run:run-1')
   expect(dashboardV2Href('#paper:paper-1')).toBe('/control/dashboard-v2#paper:paper-1')
@@ -39,4 +39,6 @@ it('keeps unimplemented hashes on the legacy dashboard', () => {
   expect(dashboardV2Href('#review:paper-1')).toBe('/control/dashboard-v2#review:paper-1')
   expect(dashboardV2Href('#observability')).toBe('/control/dashboard-v2#observability')
   expect(dashboardV2Href('#corpus')).toBe('/control/dashboard-v2#corpus')
+  expect(parseDashboardRoute('#unknown-workflow')).toEqual({ page: 'unsupported', hash: '#unknown-workflow' })
+  expect(dashboardV2Href('#unknown-workflow')).toBe('/control/dashboard-v2#unknown-workflow')
 })

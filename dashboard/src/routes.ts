@@ -11,7 +11,7 @@ export type DashboardRoute =
   | { page: 'research'; hash: string }
   | { page: 'intake'; hash: string }
   | { page: 'automation'; paperId: string; hash: string }
-  | { page: 'legacy'; hash: string }
+  | { page: 'unsupported'; hash: string }
 
 export const DASHBOARD_V2_PATH = '/control/dashboard-v2'
 export const LEGACY_DASHBOARD_PATH = '/control/dashboard'
@@ -68,11 +68,10 @@ export function parseDashboardRoute(hashOrPath: string | undefined): DashboardRo
   if (hash.startsWith('#review:')) return { page: 'automation', paperId: detailId(hash, '#review:'), hash }
   if (hash.startsWith('#automation') || hash.startsWith('#reviews')) return { page: 'automation', paperId: '', hash }
   if (hash === '#overview' || hash === '#') return { page: 'overview', hash: '#overview' }
-  return { page: 'legacy', hash }
+  return { page: 'unsupported', hash }
 }
 
 export function dashboardV2Href(hashOrPath: string | undefined, fallbackHash = '#overview'): string {
   const route = parseDashboardRoute(hashOrPath || fallbackHash)
-  if (route.page === 'legacy') return `${LEGACY_DASHBOARD_PATH}${route.hash}`
   return `${DASHBOARD_V2_PATH}${route.hash}`
 }

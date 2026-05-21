@@ -150,6 +150,18 @@ it('shows operator queue counts inside the collapsed overview secondary fold', a
   expect(within(snapshot).getByText('5')).toBeInTheDocument()
 })
 
+it('keeps unsupported hashes inside the V2 shell with a legacy escape link', () => {
+  window.location.hash = '#unknown-workflow'
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(screen.getByRole('heading', { name: 'Unsupported V2 route' })).toBeInTheDocument()
+  expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Open this hash in legacy dashboard' })).toHaveAttribute('href', '/control/dashboard#unknown-workflow')
+})
+
+
 it('uses V2-authored token and fallback surfaces', () => {
   render(<App />)
   expect(screen.getByRole('heading', { name: 'Bearer token required' })).toBeInTheDocument()
