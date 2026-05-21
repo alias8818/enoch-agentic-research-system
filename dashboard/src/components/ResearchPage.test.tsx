@@ -117,7 +117,7 @@ it('uses a dialog before running a bounded live research cycle after dry-run', a
   expect(confirmSpy).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Run bounded cycle' }))
 
-  await screen.findByText('Research dry-run passed')
+  await screen.findByText('Research action completed')
   await waitFor(() => expect(fetchMock).toHaveBeenNthCalledWith(4, '/control/api/research/run-cycle', expect.objectContaining({
     method: 'POST',
     body: expect.stringContaining('"dry_run":false'),

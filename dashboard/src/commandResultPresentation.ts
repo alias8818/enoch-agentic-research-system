@@ -18,10 +18,6 @@ export type CommandPresentation = {
   severityLabel: string
 }
 
-function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-}
-
 function text(value: unknown): string {
   if (value === null || value === undefined || value === '') return ''
   return String(value)

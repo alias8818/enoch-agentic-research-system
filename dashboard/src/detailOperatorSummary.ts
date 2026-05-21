@@ -232,7 +232,7 @@ function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
       },
       {
         title: 'Artifacts available',
-        answers: artifactChecklist(artifactFlags).length ? artifactChecklist(artifactFlags) : [{ label: 'artifacts', value: 'none visible in read model' }],
+        answers: artifactChecklist(artifactFlags),
       },
     ],
     recentActivity: latestEventSummary(events),
