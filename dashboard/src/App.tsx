@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import { apiGet, getSavedToken, saveToken } from './api/client'
 import { CommandHero } from './components/CommandHero'
 import { MovementDiagnosis } from './components/MovementDiagnosis'
+import { OverviewFreshness } from './components/OverviewFreshness'
 import { PaperMiniStrip } from './components/PaperMiniStrip'
 import { PrimaryAction } from './components/PrimaryAction'
 import { SafetyBar } from './components/SafetyBar'
@@ -41,9 +42,13 @@ function TokenGate({ onSave }: { onSave: () => void }) {
 
 function OverviewPage() {
   const queryClient = useQueryClient()
-  const overview = useQuery({ queryKey: ['overview'], queryFn: () => apiGet<OverviewResponse>('/control/api/v1/overview?active_limit=8&event_limit=6') })
-  const status = useQuery({ queryKey: ['status'], queryFn: () => apiGet<StatusResponse>('/control/api/status') })
-  const refresh = () => void queryClient.invalidateQueries()
+  const overview = useQuery({ queryKey: ['overview'], queryFn: () => apiGet<OverviewResponse>('/control/api/v1/overview?active_limit=8&event_limit=6'), refetchInterval: 30_000 })
+  const status = useQuery({ queryKey: ['status'], queryFn: () => apiGet<StatusResponse>('/control/api/status'), refetchInterval: 30_000 })
+  const refresh = () => {
+    void overview.refetch()
+    void status.refetch()
+    void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] !== 'overview' && query.queryKey[0] !== 'status' })
+  }
 
   if (overview.isLoading) {
     return <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-300">Loading command center…</div>
@@ -56,6 +61,7 @@ function OverviewPage() {
   const diagnosis = data.movement_diagnosis || { status: 'unknown', primary_reason: 'No movement diagnosis returned.', blockers: [] }
   return (
     <div className="space-y-5">
+      <OverviewFreshness generatedAt={data.generated_at} laneGeneratedAt={status.data?.generated_at} isFetching={overview.isFetching || status.isFetching} onRefresh={refresh} />
       <CommandHero overview={data} diagnosis={diagnosis} />
       <SafetyBar flags={data.flags} onRefresh={refresh} />
       <PrimaryAction action={data.top_actions?.[0]} />
@@ -65,9 +71,9 @@ function OverviewPage() {
       <details className="rounded-2xl border border-dashed border-zinc-800 bg-zinc-950/50 p-5 text-zinc-400">
         <summary className="cursor-pointer font-bold text-zinc-200">Show secondary details</summary>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <a className="rounded-xl border border-zinc-800 p-4 hover:border-zinc-600" href="/control/dashboard#queue:active">Active work</a>
-          <a className="rounded-xl border border-zinc-800 p-4 hover:border-zinc-600" href="/control/dashboard#papers">Papers</a>
-          <a className="rounded-xl border border-zinc-800 p-4 hover:border-zinc-600" href="/control/dashboard#events">Recent activity</a>
+          <a className="rounded-xl border border-zinc-800 p-4 hover:border-zinc-600" href={dashboardV2Href('#queue:active')}>Active work</a>
+          <a className="rounded-xl border border-zinc-800 p-4 hover:border-zinc-600" href={dashboardV2Href('#papers')}>Papers</a>
+          <a className="rounded-xl border border-zinc-800 p-4 hover:border-zinc-600" href={dashboardV2Href('#events')}>Recent activity</a>
         </div>
       </details>
     </div>
