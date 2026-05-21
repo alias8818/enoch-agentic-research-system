@@ -1,6 +1,6 @@
 # Dashboard V2 TODO checklist
 
-Status: **P0–P7, Phase 2, and Phase 3 complete on `main`** (2026-05-21). Command-center semantics (#84–#96, #99–#101), detail-route audits (#87, #100, #104–#106, #108), Phase 3 polish (#110–#113, #109 visual baselines), and infra fixes (#114–#116) are merged. Dashboard V2 at `/control/dashboard-v2` is the canonical operator console on the reference control VM ([`current-runtime-snapshot.md`](current-runtime-snapshot.md), SSH `enoch-core.exe.xyz`). Only ongoing read-model DTO discipline remains below (not a blocking checklist item).
+Status: **P0–P7, Phase 2, and Phase 3 complete on `main`** (2026-05-21). Command-center semantics (#84–#96, #99–#101), detail-route audits (#87, #100, #104–#106, #108), Phase 3 polish (#110–#113, #109 visual baselines), infra/docs fixes (#114–#117), and the post-deploy `top_actions.target` schema hotfix (`cd676fa0`) are merged/deployed. Dashboard V2 at `/control/dashboard-v2` is the canonical operator console on the reference control VM ([`current-runtime-snapshot.md`](current-runtime-snapshot.md), SSH `enoch-core.exe.xyz`). Only ongoing read-model DTO discipline remains below (not a blocking checklist item).
 
 Screenshot evidence reviewed from:
 
@@ -19,9 +19,9 @@ What is already live as of 2026-05-21:
   - detail page headers use cleaner title/subtitle/short ID structure;
   - project/run/paper/event detail views include current-state and next-safe-action summaries;
   - `/control/api/v1/events?page_size=50&sort=recent` and event detail queries return 200 in live smoke tests.
-- Live smoke after deploy (current bundle on `main`):
+- Live smoke after deploy (current bundle on `main`, commit `cd676fa0`):
   - `/healthz` returned OK;
-  - V2 static asset `index-BX2lBAxQ.js` was present (see `enoch_control_plane/control_plane/dashboard_v2/index.html`);
+  - V2 static assets `index-BOXkLIfJ.js` and `index-EpwtfwsL.css` were present (see `enoch_control_plane/control_plane/dashboard_v2/index.html`);
   - events index returned 200;
   - event detail by `event_id` returned 200.
 
@@ -279,4 +279,4 @@ No blocking gate. Pick one narrow PR at a time; keep [`dashboard-v2-cursor-instr
 
 - [x] Keyboard shortcut help and saved table filters — `?` / header **Shortcuts** panel ([`KeyboardShortcutHelp.tsx`](../dashboard/src/components/KeyboardShortcutHelp.tsx), [`keyboardShortcuts.ts`](../dashboard/src/keyboardShortcuts.ts)); queue saved filter presets in localStorage ([`savedTableFilters.ts`](../dashboard/src/savedTableFilters.ts), [`ListFilterBar.tsx`](../dashboard/src/components/ListFilterBar.tsx)).
 - [ ] Read-model hardening (ongoing) — extend DTO boundary tests ([#97](../dashboard/src/api/readModelSchemas.ts)) when adding overview/lane/intake fields; fix semantics in backend first per cursor instructions.
-
+  - [x] `top_actions.target` schema hotfix (`cd676fa0`) — backend now omits `target` when no object target exists; `test_overview_top_actions_contract` asserts any present target is an object.
