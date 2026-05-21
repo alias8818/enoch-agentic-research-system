@@ -45,6 +45,13 @@ it('runs dispatch primary actions as safe dry-runs instead of only linking away'
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
+it('explains why the primary live action is disabled before preflight', () => {
+  render(<PrimaryAction action={{ kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'One queued candidate matches the idle lane.', action_label: 'Dispatch', action_hash: '#queue:queued' }} />)
+
+  expect(screen.getByRole('button', { name: 'Dispatch work' })).toBeDisabled()
+  expect(screen.getByText('Dispatch work disabled: run Check dispatch first.')).toBeInTheDocument()
+})
+
 it('dispatches the top dispatch action only after dry-run and dialog confirmation', async () => {
   const confirmSpy = vi.spyOn(window, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')

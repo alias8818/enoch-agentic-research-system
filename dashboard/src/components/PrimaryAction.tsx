@@ -36,6 +36,16 @@ function idempotencyKey(prefix: string): string {
   return `${prefix}:dashboard-v2:${Date.now()}`
 }
 
+function liveActionDisabledReason(action: TopAction, ready: boolean, isPending: boolean): string {
+  if (isPending) return `${action.action_label || 'Action'} disabled: command is running.`
+  if (ready) return ''
+  if (action.kind === 'dispatch_next') return 'Dispatch work disabled: run Check dispatch first.'
+  if (action.kind === 'investigate_followup') return 'Launch follow-up disabled: run Check follow-up first.'
+  if (action.kind === 'write_paper') return 'Draft paper disabled: run Check draft first.'
+  if (action.kind === 'finalize_paper') return 'Finalize drafts disabled: run Check finalization first.'
+  return ''
+}
+
 export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRefresh?: () => void }) {
   const [result, setResult] = useState<CommandResult | null>(null)
   const [isPending, setIsPending] = useState(false)
@@ -199,6 +209,16 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
       </section>
     )
   }
+  const liveReady = action.kind === 'dispatch_next'
+    ? dispatchReady
+    : action.kind === 'investigate_followup'
+      ? followupReady
+      : action.kind === 'write_paper'
+        ? draftReady
+        : action.kind === 'finalize_paper'
+          ? finalizeReady
+          : true
+  const liveDisabledReason = isDryRunCommand(action) ? liveActionDisabledReason(action, liveReady, isPending) : ''
   return (
     <section className="primary-action" aria-label="Primary action">
       <div>
@@ -221,6 +241,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
           {action.kind === 'finalize_paper' ? (
             <button className="primary-button primary-action-cta" type="button" disabled={isPending || !finalizeReady} onClick={runLiveFinalization}>Finalize drafts</button>
           ) : null}
+          {liveDisabledReason ? <p className="primary-action-disabled-reason">{liveDisabledReason}</p> : null}
         </div>
       ) : (
         <a className="primary-button primary-action-cta" href={dashboardV2Href(action.action_hash || '#overview')}>
