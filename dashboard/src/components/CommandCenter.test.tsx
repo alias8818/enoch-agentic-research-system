@@ -85,9 +85,30 @@ it('runs write-paper primary actions as safe dry-runs instead of only linking aw
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
+it('runs finalize-paper primary actions as safe dry-runs instead of only linking away', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_rewrite_batch', reason: 'would finalize 2 publication drafts', candidates: [{ paper_id: 'paper-1' }] }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<PrimaryAction action={{ kind: 'finalize_paper', title: 'Finalize publication drafts', summary: 'Publication drafts need packages.', action_label: 'Open automation queue', action_hash: '#automation' }} onRefresh={onRefresh} />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Check finalization' }))
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  expect(fetchMock).toHaveBeenCalledWith('/control/api/paper-reviews/rewrite-batch', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"dry_run":true'),
+  }))
+  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"paper_status":"publication_draft"')
+  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"skip_rewritten":true')
+  expect(screen.getByText('Primary action dry-run')).toBeInTheDocument()
+  expect(screen.getByText('would finalize 2 publication drafts')).toBeInTheDocument()
+  expect(onRefresh).toHaveBeenCalledTimes(1)
+})
+
 it('keeps non-command primary actions as V2 links', () => {
-  render(<PrimaryAction action={{ kind: 'finalize_paper', title: 'Finalize publication drafts', summary: 'Publication drafts need packages.', action_label: 'Open automation queue', action_hash: '#automation' }} />)
-  expect(screen.getByRole('link', { name: 'Open automation queue' })).toHaveAttribute('href', '/control/dashboard-v2#automation')
+  render(<PrimaryAction action={{ kind: 'publish_paper', title: 'Import finalized drafts', summary: 'Finalized drafts need corpus import.', action_label: 'Open corpus import', action_hash: '#corpus' }} />)
+  expect(screen.getByRole('link', { name: 'Open corpus import' })).toHaveAttribute('href', '/control/dashboard-v2#corpus')
 })
 
 it('renders worker lane commands without deriving queue truth from aggregate counts', () => {
