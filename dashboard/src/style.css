@@ -675,3 +675,34 @@ button:disabled { cursor: not-allowed; }
   grid-column: 1 / -1;
   margin-top: 1rem;
 }
+
+.paper-steps button {
+  appearance: none;
+  border: 1px solid rgba(113, 113, 122, 0.35);
+  border-radius: 1.2rem;
+  background: rgba(24, 24, 27, 0.78);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.paper-steps button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.paper-steps button:not(:disabled):hover,
+.paper-steps button:not(:disabled):focus-visible {
+  border-color: rgba(14, 165, 233, 0.65);
+  background: rgba(14, 165, 233, 0.14);
+}
+
+.paper-steps em {
+  color: #a1a1aa;
+  font-size: 0.68rem;
+  font-style: normal;
+}
+
+.paper-strip-result {
+  margin-top: 1rem;
+}

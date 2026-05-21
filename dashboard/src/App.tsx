@@ -71,7 +71,7 @@ function OverviewPage() {
         <WorkerLanes lanes={status.data?.worker_lanes || []} onRefresh={refresh} />
         <div className="side-rail">
           <PrimaryAction action={data.top_actions?.[0]} onRefresh={refresh} />
-          <PaperMiniStrip pipeline={data.paper_pipeline} />
+          <PaperMiniStrip pipeline={data.paper_pipeline} onRefresh={refresh} />
         </div>
       </div>
       <MovementDiagnosis diagnosis={diagnosis} />

@@ -129,3 +129,22 @@ it('renders the paper mini strip and movement diagnosis', () => {
   expect(screen.getByRole('link', { name: 'Open' })).toHaveAttribute('href', '/control/dashboard-v2#queue:queued')
   expect(screen.getByRole('link', { name: /Write/ })).toHaveAttribute('href', '/control/dashboard-v2#papers?status=publication_draft')
 })
+
+it('runs paper finalize strip actions as dry-runs without rewriting drafts live', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, matched: 1, processed: 1, reason: 'would rewrite one publication draft' }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<PaperMiniStrip pipeline={{ write_needed: 0, finalize_needed: 1, publish_ready: 0 }} onRefresh={onRefresh} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Dry-run finalize' }))
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  expect(fetchMock).toHaveBeenCalledWith('/control/api/paper-reviews/rewrite-batch', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"dry_run":true'),
+  }))
+  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"limit":10')
+  expect(screen.getByText('Paper dry-run result')).toBeInTheDocument()
+  expect(screen.getByText('would rewrite one publication draft')).toBeInTheDocument()
+  expect(onRefresh).toHaveBeenCalledTimes(1)
+})
