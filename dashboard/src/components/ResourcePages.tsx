@@ -40,9 +40,17 @@ import {
   runsTableColumns,
   simpleTableColumns,
 } from '../tablePresentation'
-import { PageHeader } from './PageHeader'
 import { hashQuery, ListFilterBar } from './ListFilterBar'
 import { PageResourceErrorCard } from './ResourceStateCards'
+import {
+  ActionRow,
+  EntityLinkChips,
+  LoadingStateCard,
+  OperatorDetailSummary,
+  OperatorQuestionSections,
+  PageShell,
+  RawJsonDetails,
+} from './ui'
 
 type PageMeta = { next_cursor?: string; has_more?: boolean; returned?: number; page_size?: number }
 type ObservabilityHealth = { generated_at?: string; route_observability_enabled?: boolean; route_observability_log_configured?: boolean; latest_route_observation?: string | null }
@@ -51,31 +59,18 @@ type DetailSelection = { kind: 'project' | 'run' | 'paper' | 'event'; id: string
 type FilterState = { search: string; status: string; pageSize: string; cursor: string }
 type CommandResult = { payload: Record<string, unknown>; context?: CommandPresentationContext }
 
-function PageShell({ title, subtitle, dataSource, children, action, toolbar }: { title: string; subtitle: string; dataSource?: string; children: React.ReactNode; action?: React.ReactNode; toolbar?: React.ReactNode }) {
-  return (
-    <section className="page-stack">
-      <PageHeader title={title} subtitle={subtitle} dataSource={dataSource} action={action} toolbar={toolbar} />
-      {children}
-    </section>
-  )
-}
-
-function LoadingCard({ label }: { label: string }) {
-  return <div className="state-card">Loading {label}…</div>
-}
-
 function ResourceErrorCard({ endpoint, error, onRetry, retryLabel }: { endpoint: Parameters<typeof deriveResourceErrorCopy>[0]; error: unknown; onRetry: () => void; retryLabel?: string }) {
   return <PageResourceErrorCard copy={deriveResourceErrorCopy(endpoint, error)} error={error} onRetry={onRetry} retryLabel={retryLabel} />
 }
 
 function PageRefreshAction({ generatedAt, isFetching, onRefresh, label = 'Last loaded', refreshLabel = 'Refresh rows' }: { generatedAt?: string; isFetching: boolean; onRefresh: () => void; label?: string; refreshLabel?: string }) {
   return (
-    <>
+    <ActionRow ariaLabel={label}>
       <span>{label} {generatedAt || 'unknown'}</span>
       <button className="secondary-button" type="button" disabled={isFetching} onClick={onRefresh}>
         {isFetching ? 'Refreshing…' : refreshLabel}
       </button>
-    </>
+    </ActionRow>
   )
 }
 
@@ -198,7 +193,7 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
   const params = withCommonParams(filters, 'priority')
   params.set('queue', 'all')
   const query = useQuery({ queryKey: ['queue', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/queue?${params}`).then(parseQueueListResponse) })
-  if (query.isLoading) return <LoadingCard label="queue" />
+  if (query.isLoading) return <LoadingStateCard label="queue" />
   if (query.isError) return <ResourceErrorCard endpoint="queue" error={query.error} onRetry={() => { void query.refetch() }} retryLabel="Retry queue" />
   const selectedProjectId = selection?.id || ''
   const selectedStatus = String(selection?.row?.status || '').toLowerCase()
@@ -299,7 +294,7 @@ export function ProjectsPage({ route }: { route: Extract<DashboardRoute, { page:
   }, [route.search, route.status])
   const params = withCommonParams(filters, 'recent')
   const query = useQuery({ queryKey: ['projects', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/projects?${params}`).then(parseProjectListResponse) })
-  if (query.isLoading) return <LoadingCard label="projects" />
+  if (query.isLoading) return <LoadingStateCard label="projects" />
   if (query.isError) return <ResourceErrorCard endpoint="projects" error={query.error} onRetry={() => { void query.refetch() }} retryLabel="Retry projects" />
   return (
     <PageShell title="Projects" subtitle="Search projects and open structured detail before dispatch or paper actions." dataSource="/control/api/v1/projects" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
@@ -319,7 +314,7 @@ export function RunsPage({ route }: { route: Extract<DashboardRoute, { page: 'ru
   }, [route.search, route.state])
   const params = withRunParams(filters)
   const query = useQuery({ queryKey: ['runs', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/runs?${params}`).then(parseRunListResponse) })
-  if (query.isLoading) return <LoadingCard label="runs" />
+  if (query.isLoading) return <LoadingStateCard label="runs" />
   if (query.isError) return <ResourceErrorCard endpoint="runs" error={query.error} onRetry={() => { void query.refetch() }} retryLabel="Retry runs" />
   return (
     <PageShell title="Runs" subtitle="Inspect run state, gates, activity, and related artifacts." dataSource="/control/api/v1/runs" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
@@ -339,7 +334,7 @@ export function PapersPage({ route }: { route: Extract<DashboardRoute, { page: '
   }, [route.search, route.status])
   const params = withCommonParams(filters, 'recent')
   const query = useQuery({ queryKey: ['papers', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/papers?${params}`).then(parsePaperListResponse) })
-  if (query.isLoading) return <LoadingCard label="papers" />
+  if (query.isLoading) return <LoadingStateCard label="papers" />
   if (query.isError) return <ResourceErrorCard endpoint="papers" error={query.error} onRetry={() => { void query.refetch() }} retryLabel="Retry papers" />
   return (
     <PageShell title="Papers" subtitle="Track draft, finalization, and publication readiness." dataSource="/control/api/v1/papers" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
@@ -362,7 +357,7 @@ export function CorpusPage({ route }: { route?: Extract<DashboardRoute, { page: 
   const params = withCommonParams(filters, 'recent')
   const overview = useQuery({ queryKey: ['corpus', 'overview'], queryFn: () => apiGet<unknown>('/control/api/v1/overview?active_limit=1&event_limit=1').then(parseOverviewResponse) })
   const query = useQuery({ queryKey: ['corpus', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/papers?${params}`).then(parsePaperListResponse) })
-  if (query.isLoading) return <LoadingCard label="corpus import" />
+  if (query.isLoading) return <LoadingStateCard label="corpus import" />
   if (query.isError) return <ResourceErrorCard endpoint="corpus" error={query.error} onRetry={() => { void query.refetch() }} retryLabel="Retry corpus rows" />
   const pipeline = overview.data?.paper_pipeline || {}
   const publishReady = pipeline.publish_ready ?? pipeline.missing_from_corpus ?? 0
@@ -447,49 +442,10 @@ function IntakeIdeaDetail({ row, ideaId, onClose }: { row: Record<string, unknow
         <button className="secondary-button" type="button" onClick={onClose}>Close</button>
       </div>
       <section className="detail-summary">
-        <div className="detail-entity-links" aria-label="Related entity links">
-          {operatorSummary.entityLinks.map((link) => (
-            <a key={`${link.kind}-${link.id}`} className="detail-id-chip detail-id-chip--link" href={dashboardV2Href(`#${link.kind}:${encodeURIComponent(link.id)}`)} title={link.id}>
-              {link.kind}: {link.label}
-            </a>
-          ))}
-        </div>
-        <section className="detail-operator-summary" aria-label="Idea operator summary">
-          <div>
-            <p className="eyebrow">Current state</p>
-            <strong>{operatorSummary.state}</strong>
-            <span>{operatorSummary.context}</span>
-          </div>
-          <div>
-            <p className="eyebrow">Next safe action</p>
-            <span>{operatorSummary.next}</span>
-          </div>
-        </section>
-        <section className="detail-operator-questions" aria-label="Operator questions">
-          {operatorSummary.sections.map((section) => (
-            <article key={section.title} className="detail-operator-question">
-              <h4>{section.title}</h4>
-              <dl className="detail-field-grid">
-                {section.answers.map((answer) => (
-                  <div key={`${section.title}-${answer.label}`} className="detail-field">
-                    <dt>{answer.label}</dt>
-                    <dd>{answer.value}</dd>
-                  </div>
-                ))}
-              </dl>
-            </article>
-          ))}
-          {operatorSummary.actionNeeded ? (
-            <article className="detail-operator-question detail-operator-question--attention">
-              <h4>Action needed now</h4>
-              <p>{operatorSummary.actionNeeded}</p>
-            </article>
-          ) : null}
-        </section>
-        <details className="raw-details">
-          <summary>Raw intake row</summary>
-          <pre className="json-block">{JSON.stringify(row, null, 2)}</pre>
-        </details>
+        <EntityLinkChips links={operatorSummary.entityLinks} />
+        <OperatorDetailSummary state={operatorSummary.state} context={operatorSummary.context} next={operatorSummary.next} ariaLabel="Idea operator summary" />
+        <OperatorQuestionSections sections={operatorSummary.sections} recentActivity={operatorSummary.recentActivity} actionNeeded={operatorSummary.actionNeeded} />
+        <RawJsonDetails summary="Raw intake row" payload={row} />
       </section>
     </section>
   )
@@ -504,7 +460,7 @@ function intakeCellHref(row: Record<string, unknown>, column: string): string | 
 export function IntakePage({ route }: { route?: Extract<DashboardRoute, { page: 'intake' }> }) {
   const [selection, setSelection] = useState<Record<string, unknown> | null>(null)
   const query = useQuery({ queryKey: ['intake'], queryFn: () => apiGet<IntakeResponse>('/control/api/intake/ideas?page_size=100') })
-  if (query.isLoading) return <LoadingCard label="ideas intake" />
+  if (query.isLoading) return <LoadingStateCard label="ideas intake" />
   if (query.isError) return <ResourceErrorCard endpoint="intake" error={query.error} onRetry={() => { void query.refetch() }} retryLabel="Retry intake" />
   const data = query.data || {}
   const counts = data.projection_counts || {}
@@ -551,7 +507,7 @@ export function EventsPage({ route }: { route?: Extract<DashboardRoute, { page: 
   if (filters.search) params.set('search', filters.search)
   if (filters.cursor) params.set('cursor', filters.cursor)
   const query = useQuery({ queryKey: ['events', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/events?${params}`).then(parseEventListResponse) })
-  if (query.isLoading) return <LoadingCard label="events" />
+  if (query.isLoading) return <LoadingStateCard label="events" />
   if (query.isError) return <ResourceErrorCard endpoint="events" error={query.error} onRetry={() => { void query.refetch() }} retryLabel="Retry events" />
   return (
     <PageShell title="Events" subtitle="Scan recent control-plane events and open related entities." dataSource="/control/api/v1/events" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
@@ -585,7 +541,7 @@ function latestObservationText(value: string | null | undefined): string {
 export function ObservabilityPage() {
   const health = useQuery({ queryKey: ['observability', 'health'], queryFn: () => apiGet<ObservabilityHealth>('/control/api/v1/observability/health') })
   const memory = useQuery({ queryKey: ['observability', 'memory'], queryFn: () => apiGet<ObservabilityMemory>('/control/api/v1/observability/memory') })
-  if (health.isLoading || memory.isLoading) return <LoadingCard label="observability" />
+  if (health.isLoading || memory.isLoading) return <LoadingStateCard label="observability" />
   if (health.isError) return <ResourceErrorCard endpoint="observability-health" error={health.error} onRetry={() => { void health.refetch() }} retryLabel="Retry health sample" />
   if (memory.isError) return <ResourceErrorCard endpoint="observability-memory" error={memory.error} onRetry={() => { void memory.refetch() }} retryLabel="Retry memory sample" />
   const healthData = health.data || {}

@@ -217,7 +217,7 @@ Lower priority than operator usefulness.
 ## Parking lot — larger redesign questions
 
 - [x] Decide whether Vite remains sufficient or whether a future Next.js app is justified. — [`dashboard-v2-framework-decision.md`](dashboard-v2-framework-decision.md); guarded by [`test_dashboard_v2_framework_decision.py`](../tests/test_dashboard_v2_framework_decision.py).
-- [ ] If staying with Vite, define a small component system instead of one-off page components.
+- [x] If staying with Vite, define a small component system instead of one-off page components. See [`dashboard-v2-component-system.md`](dashboard-v2-component-system.md) and [`components/ui/`](../dashboard/src/components/ui/).
 - [x] Consider a dedicated `/dashboard-smoke` Playwright suite using captured fixtures (wired in CI via `npm run test:e2e`).
 - [ ] Consider screenshot/visual regression only after the information architecture stabilizes.
 - [x] Consider extracting API DTO schemas so frontend rendering cannot drift from backend read models.
