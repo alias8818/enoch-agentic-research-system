@@ -77,11 +77,9 @@ export function CommandHero({
 } & HeroReadinessState) {
   const active = overview.counts?.active ?? 0
   const queued = overview.counts?.queued ?? 0
-  const drafts = Number(overview.paper_counts?.publication_draft ?? 0) + Number(overview.paper_counts?.draft_review ?? 0)
   const chips = [
     ['active', active],
     ['queued', queued],
-    ['drafts', drafts],
   ] as const
   const state = resolveCommandHeroState(diagnosis, { readiness, readinessRequested, readinessLoading, requiresReadinessCheck })
   const reason = state.reason || diagnosis.primary_reason || 'No deterministic movement diagnosis returned.'

@@ -2,6 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AutomationReadiness, MovementDiagnosis, OverviewResponse } from '../types'
 import { CommandHero } from './CommandHero'
+import { PaperMiniStrip } from './PaperMiniStrip'
 
 const overview: OverviewResponse = {
   ok: true,
@@ -43,6 +44,35 @@ function renderHero(
 
 afterEach(() => {
   cleanup()
+})
+
+describe('CommandHero state strip', () => {
+  it('shows only active and queued counts; paper counts belong in PaperMiniStrip', () => {
+    render(
+      <>
+        <CommandHero
+          overview={{
+            ok: true,
+            counts: { active: 3, queued: 14 },
+            paper_counts: { publication_draft: 9, draft_review: 2 },
+          }}
+          diagnosis={{ status: 'ready', primary_reason: 'No movement blockers.', blockers: [] }}
+        />
+        <PaperMiniStrip pipeline={{ write_needed: 9, finalize_needed: 4, publish_ready: 1 }} />
+      </>,
+    )
+
+    const strip = screen.getByLabelText('Current command state')
+    expect(strip).toHaveTextContent('active')
+    expect(strip).toHaveTextContent('3')
+    expect(strip).toHaveTextContent('queued')
+    expect(strip).toHaveTextContent('14')
+    expect(strip).not.toHaveTextContent('drafts')
+    expect(screen.getByRole('heading', { level: 2, name: 'Write → Finalize → Publish' })).toBeInTheDocument()
+    expect(screen.getByText('Write').closest('a')).toHaveTextContent('9')
+    expect(screen.getByText('Finalize').closest('button')).toHaveTextContent('4')
+    expect(screen.getByText('Publish').closest('a')).toHaveTextContent('1')
+  })
 })
 
 describe('CommandHero readiness × movement matrix', () => {
