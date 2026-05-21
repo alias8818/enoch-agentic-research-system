@@ -96,6 +96,37 @@ it('runs follow-up primary actions as safe dry-runs instead of only linking away
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
+it('launches the top follow-up action only after dry-run and dialog confirmation', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_followup', reason: 'would queue bounded follow-up', followup: { idea_id: 'follow-1', title: 'Follow-up test' } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'followup_queued', reason: 'follow-up queued without dispatch', followup: { idea_id: 'follow-1' } }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<PrimaryAction action={{ kind: 'investigate_followup', title: 'Launch follow-up', summary: 'A bounded adjacent test is ready.', action_label: 'Launch follow-up', action_hash: '#research' }} onRefresh={onRefresh} />)
+  expect(screen.getByRole('button', { name: 'Launch follow-up' })).toBeDisabled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Check follow-up' }))
+  await screen.findByText('would queue bounded follow-up')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Launch follow-up' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Launch follow-up investigation?' })
+  expect(dialog).toHaveTextContent('queues investigation work')
+  expect(confirmSpy).not.toHaveBeenCalled()
+  fireEvent.click(dialog.querySelectorAll('button')[1])
+
+  await screen.findByText('follow-up queued without dispatch')
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/followups/launch-next', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ dry_run: true, requested_by: 'dashboard-v2', max_followup_depth: 4 }),
+  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/followups/launch-next', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ dry_run: false, requested_by: 'dashboard-v2', max_followup_depth: 4 }),
+  }))
+  expect(onRefresh).toHaveBeenCalledTimes(2)
+})
+
 it('runs write-paper primary actions as safe dry-runs instead of only linking away', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_draft', reason: 'eligible paper-ready candidate found', paper: { paper_id: 'paper-1' } }), { status: 200 }))

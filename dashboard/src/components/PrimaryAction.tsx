@@ -40,6 +40,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
   const [result, setResult] = useState<CommandResult | null>(null)
   const [isPending, setIsPending] = useState(false)
   const [dispatchReady, setDispatchReady] = useState(false)
+  const [followupReady, setFollowupReady] = useState(false)
   const [draftReady, setDraftReady] = useState(false)
   const [finalizeReady, setFinalizeReady] = useState(false)
   const { confirm, dialog } = useOperatorDialog()
@@ -64,12 +65,14 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
             : await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
       setResult({ title: 'Primary action dry-run', payload })
       setDispatchReady(action.kind === 'dispatch_next' && String(payload.action || '').includes('dry_run'))
+      setFollowupReady(action.kind === 'investigate_followup' && payload.action === 'dry_run_followup')
       setDraftReady(action.kind === 'write_paper' && payload.action === 'dry_run_draft')
       setFinalizeReady(action.kind === 'finalize_paper' && payload.dry_run === true && Number(payload.processed || 0) > 0)
       onRefresh?.()
     } catch (error) {
       setResult({ title: 'Primary action dry-run failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
       setDispatchReady(false)
+      setFollowupReady(false)
       setDraftReady(false)
       setFinalizeReady(false)
     } finally {
@@ -91,11 +94,37 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
       const payload = await apiPost<Record<string, unknown>>('/control/dispatch-next', { dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
       setResult({ title: 'Primary action live dispatch', payload })
       setDispatchReady(false)
+      setFollowupReady(false)
       setDraftReady(false)
       setFinalizeReady(false)
       onRefresh?.()
     } catch (error) {
       setResult({ title: 'Primary action live dispatch failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
+    } finally {
+      setIsPending(false)
+    }
+  }
+
+  async function runLiveFollowup() {
+    if (!action || action.kind !== 'investigate_followup' || !followupReady) return
+    const confirmed = await confirm({
+      title: 'Launch follow-up investigation?',
+      message: 'This queues investigation work for the backend-selected follow-up. It does not dispatch work, write papers, or finalize publications. Use Check follow-up again if candidate state may have changed.',
+      confirmLabel: 'Launch follow-up',
+      tone: 'warn',
+    })
+    if (!confirmed) return
+    setIsPending(true)
+    try {
+      const payload = await apiPost<Record<string, unknown>>('/control/api/v1/followups/launch-next', { dry_run: false, requested_by: 'dashboard-v2', max_followup_depth: 4 })
+      setResult({ title: 'Primary action live follow-up', payload })
+      setDispatchReady(false)
+      setFollowupReady(false)
+      setDraftReady(false)
+      setFinalizeReady(false)
+      onRefresh?.()
+    } catch (error) {
+      setResult({ title: 'Primary action live follow-up failed', payload: { ok: false, reason: error instanceof Error ? error.message : String(error) } })
     } finally {
       setIsPending(false)
     }
@@ -115,6 +144,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
       const payload = await apiPost<Record<string, unknown>>('/control/papers/draft-next', { dry_run: false, requested_by: 'dashboard-v2', force: true })
       setResult({ title: 'Primary action live draft', payload })
       setDispatchReady(false)
+      setFollowupReady(false)
       setDraftReady(false)
       setFinalizeReady(false)
       onRefresh?.()
@@ -147,6 +177,7 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
       })
       setResult({ title: 'Primary action live finalization', payload })
       setDispatchReady(false)
+      setFollowupReady(false)
       setFinalizeReady(false)
       setDraftReady(false)
       onRefresh?.()
@@ -177,9 +208,12 @@ export function PrimaryAction({ action, onRefresh }: { action?: TopAction; onRef
       </div>
       {isDryRunCommand(action) ? (
         <div className="primary-action-buttons">
-          <button className={action.kind === 'dispatch_next' || action.kind === 'write_paper' || action.kind === 'finalize_paper' ? 'secondary-button primary-action-cta' : 'primary-button primary-action-cta'} type="button" disabled={isPending} onClick={runDryRun}>{dryRunLabel(action)}</button>
+          <button className="secondary-button primary-action-cta" type="button" disabled={isPending} onClick={runDryRun}>{dryRunLabel(action)}</button>
           {action.kind === 'dispatch_next' ? (
             <button className="primary-button primary-action-cta" type="button" disabled={isPending || !dispatchReady} onClick={runLiveDispatch}>Dispatch work</button>
+          ) : null}
+          {action.kind === 'investigate_followup' ? (
+            <button className="primary-button primary-action-cta" type="button" disabled={isPending || !followupReady} onClick={runLiveFollowup}>Launch follow-up</button>
           ) : null}
           {action.kind === 'write_paper' ? (
             <button className="primary-button primary-action-cta" type="button" disabled={isPending || !draftReady} onClick={runLiveDraft}>Draft paper</button>
