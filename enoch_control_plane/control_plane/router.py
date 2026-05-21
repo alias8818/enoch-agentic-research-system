@@ -803,6 +803,50 @@ def _int_or_none(value: Any) -> int | None:
         return None
 
 
+WORKER_SETTLING_RECENT_GRACE_SEC = 180
+
+
+def _worker_run_is_settling_without_process(run: dict[str, Any]) -> bool:
+    active_process_count = _int_or_none(run.get("active_process_count"))
+    if active_process_count != 0:
+        return False
+    gate_state = _normal_status(run.get("gate_state"))
+    lifecycle_state = _normal_status(run.get("lifecycle_state"))
+    return gate_state == "waiting_for_quiet_window" or lifecycle_state == "settling"
+
+
+def _worker_run_updated_recently(run: dict[str, Any], *, grace_seconds: int = WORKER_SETTLING_RECENT_GRACE_SEC) -> bool:
+    observed = _parse_ts(str(run.get("updated_at") or run.get("last_seen_at") or run.get("created_at") or "") or None)
+    if observed is None:
+        return False
+    return datetime.now(timezone.utc) <= observed + timedelta(seconds=max(1, grace_seconds))
+
+
+def _recent_worker_settling_without_vm_match(*, preflight: DashboardObservationRecord | None) -> dict[str, Any] | None:
+    no_live = _preflight_check(preflight, "worker_no_live_runs")
+    if not no_live or no_live.get("ok") is not False:
+        return None
+
+    body = _worker_dashboard_body_from_preflight(preflight)
+    runs = body.get("runs")
+    if not isinstance(runs, list):
+        return None
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        if not _worker_run_is_settling_without_process(run):
+            continue
+        if not _worker_run_updated_recently(run):
+            continue
+        return {
+            "worker_run": run,
+            "worker_check": no_live,
+            "matched_run_id": str(run.get("run_id") or "").strip(),
+            "match_type": "recent_worker_settling_without_vm_active_row",
+        }
+    return None
+
+
 def _worker_settling_after_vm_completion(
     *,
     preflight: DashboardObservationRecord | None,
@@ -847,12 +891,7 @@ def _worker_settling_after_vm_completion(
         run_id = str(run.get("run_id") or "").strip()
         if run_id not in completed_run_ids:
             continue
-        active_process_count = _int_or_none(run.get("active_process_count"))
-        if active_process_count != 0:
-            continue
-        gate_state = _normal_status(run.get("gate_state"))
-        lifecycle_state = _normal_status(run.get("lifecycle_state"))
-        if gate_state != "waiting_for_quiet_window" and lifecycle_state != "settling":
+        if not _worker_run_is_settling_without_process(run):
             continue
         return {
             "worker_run": run,
@@ -2055,6 +2094,8 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 queue_rows=_recently_completed_items_fast(),
                 run_rows=store.run_rows(),
             )
+            if not worker_settling_after_vm_completion:
+                worker_settling_after_vm_completion = _recent_worker_settling_without_vm_match(preflight=preflight)
         for name, freshness in source_freshness.items():
             if freshness.stale and name in {"worker_preflight", "worker_dashboard_api"}:
                 warnings.append(DashboardFinding(severity="warn", source=name, authority=freshness.authority, message=f"{name} is stale or missing", observed_at=freshness.observed_at, suggested_action="run /control/api/preflight or wait for the next refresh observation"))
@@ -2097,17 +2138,20 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             ))
         if preflight_targets_default_worker and not active_on_default_worker and no_live and no_live.get("ok") is False:
             if worker_settling_after_vm_completion:
+                settling_without_match = worker_settling_after_vm_completion.get("match_type") == "recent_worker_settling_without_vm_active_row"
+                settling_message = "GB10 worker is settling a recent worker run with no active process" if settling_without_match else "GB10 worker is settling a completed VM run with no active process"
+                settling_blocker = "GB10 worker settling recent run" if settling_without_match else "GB10 worker settling completed run"
                 warnings.append(DashboardFinding(
                     severity="warn",
                     source="worker_settling",
                     authority="cross-source active-lane reconciliation",
-                    message="GB10 worker is settling a completed VM run with no active process",
+                    message=settling_message,
                     observed_at=preflight.observed_at if preflight else None,
                     suggested_action="wait for the worker quiet-window to clear before dispatch",
                     data=worker_settling_after_vm_completion,
                 ))
                 if config.live_dispatch_enabled and not flags.queue_paused and not flags.maintenance_mode and preflight_applies_to_open_candidate:
-                    blockers.append("GB10 worker settling completed run")
+                    blockers.append(settling_blocker)
             else:
                 conflicts.append(DashboardFinding(
                     severity="critical" if preflight_applies_to_open_candidate else "warn",

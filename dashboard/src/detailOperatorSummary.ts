@@ -469,6 +469,25 @@ function payloadProofAnswers(payload: Record<string, unknown>): OperatorAnswer[]
     seen.add(label)
     answers.push({ label, value: normalized })
   }
+  const findings = recordArray(nested.findings)
+  if (findings.length) {
+    answers.push({ label: 'findings', value: `${findings.length} recorded` })
+    const topFinding = findings[0]
+    const topFindingMessage = text(firstValue(topFinding.message, topFinding.source))
+    if (topFindingMessage !== '—') {
+      answers.push({ label: 'top finding', value: topFindingMessage })
+    }
+  }
+  if (Array.isArray(nested.dispatch_blockers)) {
+    const blockers = nested.dispatch_blockers.map((item) => text(item)).filter((item) => item !== '—')
+    answers.push({ label: 'dispatch blockers', value: blockers.length ? blockers.join('; ') : 'none' })
+  }
+  if (Array.isArray(nested.transient_suppressed_findings)) {
+    answers.push({ label: 'suppressed transient findings', value: String(nested.transient_suppressed_findings.length) })
+  }
+  if (nested.dispatch_safe !== null && nested.dispatch_safe !== undefined) {
+    answers.push({ label: 'dispatch safe at event time', value: text(nested.dispatch_safe) })
+  }
   if (!answers.length) {
     answers.push({ label: 'payload', value: nested && Object.keys(nested).length ? 'present — expand Raw payload for full evidence' : 'empty' })
   }
@@ -478,7 +497,12 @@ function payloadProofAnswers(payload: Record<string, unknown>): OperatorAnswer[]
 function eventActionNeeded(payload: Record<string, unknown>): string | null {
   const nested = eventPayloadRecord(payload)
   const reason = text(firstValue(nested.reason, nested.blocked_reason, nested.error, payload.blocked_reason))
-  if (reason === '—') return null
+  if (reason === '—') {
+    const findings = recordArray(nested.findings)
+    const topFinding = findings[0]
+    const findingReason = text(firstValue(topFinding?.message, topFinding?.source))
+    return findingReason === '—' ? null : findingReason
+  }
   const eventType = text(payload.event_type).toLowerCase()
   if (eventType.includes('blocked') || eventType.includes('alert') || eventType.includes('error') || eventType.includes('conflict') || reason.toLowerCase().includes('block') || reason.toLowerCase().includes('fail')) return reason
   return null

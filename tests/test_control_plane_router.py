@@ -6,7 +6,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -4792,6 +4792,57 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(alert["should_alert"])
             self.assertEqual(alert["findings"], [])
 
+    def test_dashboard_status_suppresses_recent_worker_settling_without_vm_match(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client_with_config(_config(tmp).model_copy(update={"live_dispatch_enabled": True}))
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            now = datetime.now(timezone.utc).isoformat()
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="warn",
+                payload={
+                    "ok": False,
+                    "checks": [
+                        {"name": "wake_gate_healthz", "ok": True, "detail": "ok", "data": {}},
+                        {
+                            "name": "wake_gate_dashboard_api",
+                            "ok": True,
+                            "detail": "dashboard API reachable",
+                            "data": {
+                                "body": {
+                                    "totals": {"active_or_waiting": 1, "live": 1},
+                                    "runs": [{
+                                        "run_id": "run-recent-settling-orphan",
+                                        "project_id": "idea-recent-settling-orphan",
+                                        "gate_state": "waiting_for_quiet_window",
+                                        "lifecycle_state": "settling",
+                                        "callback_delivered": False,
+                                        "is_live": True,
+                                        "active_process_count": 0,
+                                        "updated_at": now,
+                                    }],
+                                }
+                            },
+                        },
+                        {"name": "worker_no_live_runs", "ok": False, "detail": "active_or_waiting=1, live=1", "data": {"active_or_waiting": 1, "live": 1}},
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+
+            status = client.get("/control/api/status", headers=headers).json()
+
+            self.assertNotIn("GB10/VM active-lane conflict", status["dispatch_blockers"])
+            self.assertIn("GB10 worker settling recent run", status["dispatch_blockers"])
+            self.assertFalse(any(item["severity"] == "critical" for item in status["conflicts"]))
+            self.assertTrue(any(item["source"] == "worker_settling" and "recent worker run" in item["message"] for item in status["warnings"]))
+
+            alert = client.post("/control/api/alerts/queue-check", headers=headers, json={"dry_run": True}).json()
+            self.assertFalse(alert["should_alert"])
+            self.assertEqual(alert["findings"], [])
+
     def test_dashboard_status_does_not_treat_project_only_worker_settling_match_as_backpressure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client_with_config(_config(tmp).model_copy(update={"live_dispatch_enabled": True}))
@@ -4799,6 +4850,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             project_id = "idea-worker-settling"
             completed_run_id = "run-worker-settled-completed"
             stale_worker_run_id = "run-worker-stale-orphan"
+            stale_updated_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
             client.post("/control/import/legacy-snapshot", headers=headers, json={
                 "idempotency_key": "worker-settling-project-only-import",
                 "queue_rows": [{
@@ -4834,6 +4886,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                                         "callback_delivered": False,
                                         "is_live": True,
                                         "active_process_count": 0,
+                                        "updated_at": stale_updated_at,
                                     }],
                                 }
                             },
