@@ -219,6 +219,20 @@ it('opens direct V2 event detail hashes from the events read model', async () =>
   expect(fetchMock).toHaveBeenCalledWith('/control/api/v1/events?event_id=7&include_payload=true&page_size=1&sort=recent', expect.any(Object))
 })
 
+
+it('keeps paper hash filters in the V2 papers read model', async () => {
+  window.location.hash = '#papers?status=publication_draft&search=trace-oracle'
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-filtered', status: 'publication_draft', title: 'Trace oracle paper' }], page: { returned: 1 } }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByRole('heading', { name: 'Papers' })).toBeInTheDocument()
+  expect(await screen.findByText('Trace oracle paper')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith('/control/api/v1/papers?page_size=50&sort=recent&status=publication_draft&search=trace-oracle', expect.any(Object))
+})
+
 it('keeps event hash filters in the V2 events read model', async () => {
   window.location.hash = '#events?event_type=Queue%20Alert&search=active-lane'
   const fetchMock = vi.spyOn(globalThis, 'fetch')

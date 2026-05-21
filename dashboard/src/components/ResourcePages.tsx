@@ -295,11 +295,11 @@ export function RunsPage({ route }: { route: Extract<DashboardRoute, { page: 'ru
 
 export function PapersPage({ route }: { route: Extract<DashboardRoute, { page: 'papers' }> }) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
-  const [filters, setFilters] = useState<FilterState>({ search: '', status: route.status, pageSize: '50', cursor: '' })
+  const [filters, setFilters] = useState<FilterState>({ search: route.search || '', status: route.status, pageSize: '50', cursor: '' })
   useEffect(() => {
-    setFilters((current) => current.status === route.status ? current : { ...current, status: route.status, cursor: '' })
+    setFilters((current) => current.status === route.status && current.search === route.search ? current : { ...current, status: route.status, search: route.search || '', cursor: '' })
     setSelection(null)
-  }, [route.status])
+  }, [route.search, route.status])
   const params = withCommonParams(filters, 'recent')
   const query = useQuery({ queryKey: ['papers', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/papers?${params}`) })
   if (query.isLoading) return <LoadingCard label="papers" />

@@ -220,7 +220,7 @@ it('loads papers and events as first-class V2 subviews', async () => {
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-1', status: 'publication_draft', title: 'Draft paper' }], page: { returned: 1, has_more: false } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ id: 7, event_type: 'Queue Alert', summary: 'Alert summary' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
-  renderWithClient(<PapersPage route={{ page: 'papers', status: 'publication_draft', hash: '#papers?status=publication_draft' }} />)
+  renderWithClient(<PapersPage route={{ page: 'papers', status: 'publication_draft', search: '', hash: '#papers?status=publication_draft' }} />)
   await screen.findByText('Draft paper')
   expect(screen.getByRole('link', { name: /paper-1/ })).toHaveAttribute('href', '/control/dashboard-v2#paper:paper-1')
 
@@ -267,7 +267,7 @@ it('applies paper and event filters to the backed endpoints', async () => {
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ id: 7, event_type: 'Queue Alert', summary: 'Alert summary' }], page: { returned: 1, has_more: false } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ id: 8, event_type: 'worker.callback', summary: 'Callback summary' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
-  renderWithClient(<PapersPage route={{ page: 'papers', status: '', hash: '#papers' }} />)
+  renderWithClient(<PapersPage route={{ page: 'papers', status: '', search: '', hash: '#papers' }} />)
   await screen.findByText('Draft paper')
   fireEvent.change(screen.getByLabelText(/Search/i), { target: { value: 'trace' } })
   fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: 'draft_review' } })
@@ -305,7 +305,7 @@ it('opens queue and paper detail panels from selected rows', async () => {
   fireEvent.click(await screen.findByText('Queue item'))
   await screen.findByRole('heading', { name: /Detailed project/ })
 
-  renderWithClient(<PapersPage route={{ page: 'papers', status: '', hash: '#papers' }} />)
+  renderWithClient(<PapersPage route={{ page: 'papers', status: '', search: '', hash: '#papers' }} />)
   fireEvent.click(await screen.findByText('Draft paper'))
   await screen.findByRole('heading', { name: /Detailed paper/ })
 
