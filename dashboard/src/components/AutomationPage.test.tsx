@@ -22,6 +22,7 @@ it('loads publication automation rows from the bounded API', async () => {
   renderWithClient(<AutomationPage />)
 
   await screen.findByText('Paper project')
+  expect(screen.getByRole('link', { name: /paper-1/ })).toHaveAttribute('href', '/control/dashboard-v2#automation:paper-1')
   expect(fetchMock).toHaveBeenCalledWith('/control/api/publication-automation?page_size=50&paper_status=publication_draft&sort=-rank_score', expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }))
 })
 
@@ -29,19 +30,23 @@ it('loads publication automation rows from the bounded API', async () => {
 it('uses the paper id from automation detail hashes for finalization dry-runs', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-first', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'First paper' }, { paper_id: 'paper-target', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Target paper' }] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ item: { paper_id: 'paper-target', project_name: 'Target paper', review_status: 'triage_ready', paper_status: 'publication_draft', rank_score: 91, rank_reasons: ['positive evidence'] }, checklist: { items: [{ item_id: 'evidence', label: 'Evidence bundle present', status: 'passed' }] } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, package_path: '/tmp/package.json', paper_id: 'paper-target' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-target' }] }), { status: 200 }))
 
   renderWithClient(<AutomationPage paperId="paper-target" />)
 
-  await screen.findByText('Target paper')
+  await screen.findByLabelText('Automation detail')
+  await screen.findByText('Evidence bundle present')
+  await screen.findByText('positive evidence')
   const targeted = screen.getByLabelText('Targeted paper')
   expect(targeted).toHaveTextContent('Targeted paper')
   expect(targeted).toHaveTextContent('paper-target')
   fireEvent.click(screen.getByRole('button', { name: 'Dry-run finalization package' }))
 
   await screen.findByText('Finalization dry-run result')
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/paper-reviews/paper-target/prepare-finalization-package', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/publication-automation/paper-target', expect.any(Object))
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/paper-reviews/paper-target/prepare-finalization-package', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
 })
 
 it('dry-runs rewrite batch and finalization package without live rewrite', async () => {

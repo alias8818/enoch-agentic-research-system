@@ -1,10 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost } from '../api/client'
+import { dashboardV2Href } from '../routes'
 import { DataTable } from './DataTable'
 
 type AutomationResponse = {
   rows?: Record<string, unknown>[]
   counts?: Record<string, unknown>
+}
+type AutomationDetailResponse = {
+  item?: Record<string, unknown>
+  checklist?: { items?: Record<string, unknown>[] }
 }
 
 type MutationResult = Record<string, unknown>
@@ -23,16 +28,65 @@ function ResultCard({ result }: { result?: MutationResult }) {
   return <pre className="json-block">{JSON.stringify(result, null, 2)}</pre>
 }
 
+function automationCellHref(row: Record<string, unknown>, column: string): string | undefined {
+  if (column !== 'paper_id') return undefined
+  const paperId = String(row.paper_id || '')
+  return paperId ? dashboardV2Href(`#automation:${encodeURIComponent(paperId)}`) : undefined
+}
+
+function textList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => String(item || '').trim()).filter(Boolean)
+}
+
+function AutomationDetailCard({ detail }: { detail?: AutomationDetailResponse }) {
+  if (!detail?.item) return null
+  const item = detail.item
+  const checklistItems = detail.checklist?.items || []
+  const reasons = textList(item.rank_reasons)
+  return (
+    <section className="result-card" aria-label="Automation detail">
+      <h2>{String(item.project_name || item.paper_title || item.paper_id || 'Automation detail')}</h2>
+      <dl className="detail-field-grid">
+        <div className="detail-field"><dt>paper id</dt><dd>{String(item.paper_id || '—')}</dd></div>
+        <div className="detail-field"><dt>automation</dt><dd>{String(item.review_status || '—')}</dd></div>
+        <div className="detail-field"><dt>paper status</dt><dd>{String(item.paper_status || '—')}</dd></div>
+        <div className="detail-field"><dt>rank score</dt><dd>{String(item.rank_score ?? '—')}</dd></div>
+      </dl>
+      {reasons.length ? (
+        <>
+          <h3>Rank reasons</h3>
+          <ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+        </>
+      ) : null}
+      {checklistItems.length ? (
+        <>
+          <h3>Checklist</h3>
+          <DataTable rows={checklistItems} columns={['item_id', 'label', 'status', 'note']} empty="No checklist rows returned." />
+        </>
+      ) : null}
+    </section>
+  )
+}
+
 export function AutomationPage({ paperId = '' }: { paperId?: string }) {
   const queryClient = useQueryClient()
   const automation = useQuery({
     queryKey: ['publication-automation'],
     queryFn: () => apiGet<AutomationResponse>('/control/api/publication-automation?page_size=50&paper_status=publication_draft&sort=-rank_score'),
   })
+  const detail = useQuery({
+    queryKey: ['publication-automation-detail', paperId],
+    queryFn: () => apiGet<AutomationDetailResponse>(`/control/api/publication-automation/${encodeURIComponent(paperId)}`),
+    enabled: Boolean(paperId),
+  })
   const rewriteDryRun = useMutation({ mutationFn: () => apiPost<MutationResult>('/control/api/paper-reviews/rewrite-batch', { idempotency_key: idempotencyKey('paper-review-bulk-rewrite'), requested_by: 'dashboard-v2', paper_status: 'publication_draft', dry_run: true, limit: 10, skip_rewritten: true }) })
   const finalizationDryRun = useMutation({
     mutationFn: (paperId: string) => apiPost<MutationResult>(`/control/api/paper-reviews/${encodeURIComponent(paperId)}/prepare-finalization-package`, { idempotency_key: idempotencyKey(`paper-review-package:${paperId}`), requested_by: 'dashboard-v2', target_label: 'dashboard-v2-dry-run', dry_run: true }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['publication-automation'] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['publication-automation'] })
+      void queryClient.invalidateQueries({ queryKey: ['publication-automation-detail', paperId] })
+    },
   })
   const rows = automation.data?.rows || []
   const counts = automation.data?.counts || {}
@@ -67,13 +121,16 @@ export function AutomationPage({ paperId = '' }: { paperId?: string }) {
         </section>
       ) : null}
 
+      <AutomationDetailCard detail={detail.data} />
+      {detail.isError ? <div className="state-card state-card--error">Automation detail unavailable: {String(detail.error.message)}</div> : null}
+
       {rewriteDryRun.data ? <section className="result-card"><h2>Rewrite dry-run result</h2><ResultCard result={rewriteDryRun.data} /></section> : null}
       {finalizationDryRun.data ? <section className="result-card"><h2>Finalization dry-run result</h2><ResultCard result={finalizationDryRun.data} /></section> : null}
 
       {automation.isLoading ? <div className="state-card">Loading publication automation…</div> : null}
       {automation.isError ? <div className="state-card state-card--error">Publication automation unavailable: {String(automation.error.message)}</div> : null}
       {!automation.isLoading && !automation.isError ? (
-        <DataTable rows={rows} columns={['paper_id', 'review_status', 'paper_status', 'project_name', 'rank_score', 'updated_at']} empty="No publication automation rows returned." />
+        <DataTable rows={rows} columns={['paper_id', 'review_status', 'paper_status', 'project_name', 'rank_score', 'updated_at']} empty="No publication automation rows returned." cellHref={automationCellHref} />
       ) : null}
     </section>
   )
