@@ -244,7 +244,7 @@ Follow [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.
 - [x] PR D — Single primary operator action ([`PrimaryAction.tsx`](../dashboard/src/components/PrimaryAction.tsx), #88)
 - [x] PR E — Project detail route audit (#87)
 - [x] PR F — Lane cards own dispatch/feed; collapse global bulk lane commands behind disclosure ([`WorkerLanes.tsx`](../dashboard/src/components/WorkerLanes.tsx))
-- [ ] Remove static movement `reason-strip` chip row from [`MovementDiagnosis.tsx`](../dashboard/src/components/MovementDiagnosis.tsx) (decorative, not backend-driven)
+- [x] Remove static movement `reason-strip` chip row from [`MovementDiagnosis.tsx`](../dashboard/src/components/MovementDiagnosis.tsx) (decorative, not backend-driven)
 - [ ] Filter hero state strip to active/queued only; keep paper counts in [`PaperMiniStrip`](../dashboard/src/components/PaperMiniStrip.tsx)
 - [x] Detail route audit follow-up: run detail page (worker-3; paper/event/idea remain)
 
