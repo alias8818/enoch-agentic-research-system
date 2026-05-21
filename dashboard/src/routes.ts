@@ -63,7 +63,8 @@ export function parseDashboardRoute(hashOrPath: string | undefined): DashboardRo
   if (hash.startsWith('#corpus')) return { page: 'corpus', hash }
   if (hash.startsWith('#research')) return { page: 'research', hash }
   if (hash.startsWith('#automation:')) return { page: 'automation', paperId: detailId(hash, '#automation:'), hash }
-  if (hash.startsWith('#automation')) return { page: 'automation', paperId: '', hash }
+  if (hash.startsWith('#review:')) return { page: 'automation', paperId: detailId(hash, '#review:'), hash }
+  if (hash.startsWith('#automation') || hash.startsWith('#reviews')) return { page: 'automation', paperId: '', hash }
   if (hash === '#overview' || hash === '#') return { page: 'overview', hash: '#overview' }
   return { page: 'legacy', hash }
 }

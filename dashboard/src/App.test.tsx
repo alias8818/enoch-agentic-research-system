@@ -69,3 +69,19 @@ it('opens direct V2 event detail hashes from the events read model', async () =>
   expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledWith('/control/api/v1/events?event_id=7&include_payload=true&page_size=1&sort=recent', expect.any(Object))
 })
+
+
+it('opens legacy review hashes in the V2 automation page instead of legacy fallback', async () => {
+  window.location.hash = '#review:paper-legacy'
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ item: { paper_id: 'paper-legacy', project_name: 'Legacy review paper', review_status: 'triage_ready', paper_status: 'publication_draft' }, checklist: { items: [] } }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByRole('heading', { name: 'Publication automation' })).toBeInTheDocument()
+  expect(await screen.findByText('Legacy review paper')).toBeInTheDocument()
+  expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/publication-automation/paper-legacy', expect.any(Object))
+})

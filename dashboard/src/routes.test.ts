@@ -17,6 +17,8 @@ it('parses V2-owned command-center routes', () => {
   expect(parseDashboardRoute('#research')).toEqual({ page: 'research', hash: '#research' })
   expect(parseDashboardRoute('#automation')).toEqual({ page: 'automation', paperId: '', hash: '#automation' })
   expect(parseDashboardRoute('#automation:paper%2F1')).toEqual({ page: 'automation', paperId: 'paper/1', hash: '#automation:paper%2F1' })
+  expect(parseDashboardRoute('#reviews')).toEqual({ page: 'automation', paperId: '', hash: '#reviews' })
+  expect(parseDashboardRoute('#review:paper%2F1')).toEqual({ page: 'automation', paperId: 'paper/1', hash: '#review:paper%2F1' })
 })
 
 it('keeps unimplemented hashes on the legacy dashboard', () => {
@@ -31,6 +33,8 @@ it('keeps unimplemented hashes on the legacy dashboard', () => {
   expect(dashboardV2Href('#research')).toBe('/control/dashboard-v2#research')
   expect(dashboardV2Href('#automation')).toBe('/control/dashboard-v2#automation')
   expect(dashboardV2Href('#automation:paper-1')).toBe('/control/dashboard-v2#automation:paper-1')
+  expect(dashboardV2Href('#reviews')).toBe('/control/dashboard-v2#reviews')
+  expect(dashboardV2Href('#review:paper-1')).toBe('/control/dashboard-v2#review:paper-1')
   expect(dashboardV2Href('#observability')).toBe('/control/dashboard-v2#observability')
   expect(dashboardV2Href('#corpus')).toBe('/control/dashboard-v2#corpus')
 })
