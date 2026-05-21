@@ -1738,8 +1738,8 @@ def primary_operator_action(
 
     Priority (after frontend readiness gating):
     1. dispatch the first lane that can dispatch;
-    2. feed the first lane that needs backlog;
-    3. open the primary movement blocker when status is blocked.
+    2. open the primary movement blocker when status is blocked;
+    3. feed the first lane that needs backlog.
     """
 
     lanes = [lane for lane in (worker_lanes or []) if isinstance(lane, Mapping)]

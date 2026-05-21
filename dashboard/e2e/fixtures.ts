@@ -28,6 +28,13 @@ const overviewPayload = {
     summary: 'Dry-run dispatch before live dispatch.',
     action_label: 'Check dispatch',
   }],
+  primary_operator_action: {
+    kind: 'dispatch_next',
+    title: 'Start next queued item',
+    summary: 'Dry-run dispatch before live dispatch.',
+    action_label: 'Check dispatch',
+    action_hash: '#queue:queued',
+  },
 }
 
 const statusPayload = {
@@ -36,9 +43,18 @@ const statusPayload = {
   flags: { queue_paused: false, maintenance_mode: false },
 }
 
+const readinessPayload = {
+  ok: true,
+  label: 'Long-haul mode: READY',
+  blockers: [],
+  checks: [{ name: 'queue_unpaused', ok: true }],
+  summary: { queued: 1, active: 0, queue_paused: false, maintenance_mode: false },
+}
+
 const dispatchDryRunPayload = {
   ok: true,
   dry_run: true,
+  action: 'dry_run_dispatch',
   reason: 'lane open',
   project_id: 'project-alpha',
   candidate: { project_id: 'project-alpha', lane: 'cpu', machine_target: 'cpu-proxmox-1' },
@@ -71,6 +87,10 @@ export async function installDashboardApiMocks(page: Page): Promise<void> {
     }
     if (path.endsWith('/observability/health')) {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) })
+      return
+    }
+    if (path.endsWith('/automation-readiness')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(readinessPayload) })
       return
     }
 

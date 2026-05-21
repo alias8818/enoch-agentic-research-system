@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
+import { feedDryRunAllowsLiveCycle } from '../feedDryRun'
 import { dryRunCyclePayload, liveCyclePayload } from '../researchCyclePayloads'
 import type { AutomationReadiness, OverviewResponse, TopAction } from '../types'
 import { useOperatorDialog } from './OperatorDialog'
@@ -42,22 +43,16 @@ function idempotencyKey(prefix: string): string {
   return `${prefix}:dashboard-v2:${Date.now()}`
 }
 
-function actionSignature(action: TopAction): string {
+export function actionSignature(action: TopAction): string {
   return [
     action.kind,
+    action.project_id || '',
+    action.lane || '',
     action.title,
     action.summary || '',
     action.action_label || '',
     action.action_hash || '',
   ].join('|')
-}
-
-function feedDryRunAllowsLiveCycle(result: Record<string, unknown>): boolean {
-  if (result.dry_run !== true) return false
-  const action = String(result.action || '').toLowerCase()
-  const reason = String(result.reason || result.detail || '').toLowerCase()
-  if (action.includes('blocked') || action.includes('skipped') || reason.includes('blocked')) return false
-  return action.includes('dry_run') || action.includes('would') || reason.includes('would ')
 }
 
 function liveActionDisabledReason(action: TopAction, ready: boolean, staleReady: boolean, isPending: boolean): string {

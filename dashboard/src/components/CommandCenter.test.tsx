@@ -747,3 +747,15 @@ it('invokes readiness check callback from primary action CTA', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Check readiness' }))
   expect(onCheckReadiness).toHaveBeenCalledTimes(1)
 })
+
+it('requires a fresh dry run when primary dispatch project_id changes', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'dry-run selected explicit queued candidate', candidate: { project_id: 'project-a' } }), { status: 200 }))
+  const { rerender } = render(<PrimaryAction action={{ kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'Ready.', action_label: 'Check dispatch', project_id: 'project-a', lane: 'gb10' }} onRefresh={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Check dispatch' }))
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  expect(screen.getByRole('button', { name: 'Dispatch lane' })).toBeEnabled()
+  rerender(<PrimaryAction action={{ kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'Ready.', action_label: 'Check dispatch', project_id: 'project-b', lane: 'gb10' }} onRefresh={vi.fn()} />)
+  expect(screen.getByRole('button', { name: 'Dispatch lane' })).toBeDisabled()
+  expect(screen.getByText('Dispatch work disabled: top action changed; run Check dispatch again.')).toBeInTheDocument()
+})
