@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import sqlite3
@@ -2541,7 +2540,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 row = self.queue.get(project_id)
                 if not row or row["status"] != "queued":
                     return None
-                if row.get("machine_target") in set(conflicting_machine_targets or []):
+                active_targets = {str(active.get("machine_target") or "").strip() for active in self.active_items()}
+                if active_targets & set(conflicting_machine_targets or []):
                     return None
                 row.update({"status": "dispatching", "current_run_id": run_id})
                 return dict(row)
@@ -4169,6 +4169,65 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(alert["should_alert"])
             self.assertEqual(alert["findings"], [])
 
+    def test_dashboard_status_does_not_treat_project_only_worker_settling_match_as_backpressure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client_with_config(_config(tmp).model_copy(update={"live_dispatch_enabled": True}))
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_id = "idea-worker-settling"
+            completed_run_id = "run-worker-settled-completed"
+            stale_worker_run_id = "run-worker-stale-orphan"
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "worker-settling-project-only-import",
+                "queue_rows": [{
+                    "project_id": project_id,
+                    "project_name": "Worker Settling Project",
+                    "project_dir": project_id,
+                    "status": "completed",
+                    "current_run_id": completed_run_id,
+                    "last_run_state": "wake_ready",
+                }],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="warn",
+                payload={
+                    "ok": False,
+                    "checks": [
+                        {"name": "wake_gate_healthz", "ok": True, "detail": "ok", "data": {}},
+                        {
+                            "name": "wake_gate_dashboard_api",
+                            "ok": True,
+                            "detail": "dashboard API reachable",
+                            "data": {
+                                "body": {
+                                    "totals": {"active_or_waiting": 1, "live": 1},
+                                    "runs": [{
+                                        "run_id": stale_worker_run_id,
+                                        "project_id": project_id,
+                                        "gate_state": "waiting_for_quiet_window",
+                                        "lifecycle_state": "settling",
+                                        "callback_delivered": False,
+                                        "is_live": True,
+                                        "active_process_count": 0,
+                                    }],
+                                }
+                            },
+                        },
+                        {"name": "worker_no_live_runs", "ok": False, "detail": "active_or_waiting=1, live=1", "data": {"active_or_waiting": 1, "live": 1}},
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+
+            status = client.get("/control/api/status", headers=headers).json()
+
+            self.assertNotIn("GB10 worker settling completed run", status["dispatch_blockers"])
+            self.assertIn("GB10/VM active-lane conflict", status["dispatch_blockers"])
+            self.assertTrue(any(item["severity"] == "critical" for item in status["conflicts"]))
+            self.assertFalse(any(item["source"] == "worker_settling" for item in status["warnings"]))
+
     def test_dashboard_status_treats_matching_worker_live_lane_as_active_not_warning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client_with_config(_live_config(tmp))
@@ -5270,11 +5329,10 @@ class ControlPlaneRouterTests(unittest.TestCase):
             called_payload = mocked_preflight.call_args.args[0]
             self.assertEqual(called_payload.bearer_token, config.worker_wake_gate_bearer_token)
 
-    def test_dashboard_preflight_endpoint_honors_explicit_operator_target(self) -> None:
+    def test_dashboard_preflight_endpoint_rejects_unconfigured_explicit_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _config(tmp).model_copy(update={"worker_wake_gate_url": "http://configured-worker:8787"})
-            expected = WorkerPreflightResponse(ok=True, target="http://cpu-worker:8787", summary="ok", checks=[])
-            with patch("enoch_control_plane.control_plane.router.run_worker_preflight", return_value=expected) as mocked_preflight:
+            with patch("enoch_control_plane.control_plane.router.run_worker_preflight") as mocked_preflight:
                 client = _client_with_config(config)
                 response = client.post(
                     "/control/api/preflight",
@@ -5282,12 +5340,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     json={"wake_gate_url": "http://cpu-worker:8787", "bearer_token": "cpu-token", "min_memory_available_mib": 24576},
                 )
 
-            self.assertEqual(response.status_code, 200)
-            called_payload = mocked_preflight.call_args.args[0]
-            self.assertEqual(called_payload.wake_gate_url, "http://cpu-worker:8787")
-            self.assertEqual(called_payload.bearer_token, "cpu-token")
-            self.assertEqual(called_payload.min_memory_available_mib, 24576)
-            self.assertEqual(response.json()["target"], "http://cpu-worker:8787")
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("must match configured worker_wake_gate_url", response.text)
+            mocked_preflight.assert_not_called()
 
     def test_dashboard_preflight_endpoint_resolves_named_worker_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -5326,6 +5381,12 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 update={
                     "worker_wake_gate_url": "http://gb10-worker:8787",
                     "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-worker:8787",
+                            "bearer_token": "cpu-token",
+                        },
+                    },
                 }
             )
             expected = WorkerPreflightResponse(ok=True, target="http://cpu-worker:8787", summary="ok", checks=[])
@@ -5334,7 +5395,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 response = client.post(
                     "/control/api/preflight",
                     headers={"Authorization": f"Bearer {TOKEN}"},
-                    json={"wake_gate_url": "http://cpu-worker:8787", "bearer_token": "cpu-token"},
+                    json={"machine_target": "cpu-proxmox-1"},
                 )
 
             self.assertEqual(response.status_code, 200)
@@ -5725,6 +5786,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
             prepare_payload = next(call[3] for call in calls if call[1] == "/prepare-project")
             self.assertEqual(prepare_payload["metadata"]["workload_class"], "cpu_only")
             self.assertEqual(prepare_payload["metadata"]["machine_target"], "cpu-proxmox-1")
+            self.assertEqual(prepare_payload["metadata"]["dispatch_route"]["token_configured"], True)
+            self.assertNotIn("bearer_token", prepare_payload["metadata"]["dispatch_route"])
             self.assertEqual(response.json()["live"]["dispatch_route"]["worker_role"], "cpu_worker")
 
     def test_live_dispatch_blocks_worker_with_mismatched_callback_token_fingerprint(self) -> None:
@@ -5774,11 +5837,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     WorkerPreflightCheck(
                         name="worker_callback_token_compatible",
                         ok=False,
-                        detail="worker callback token fingerprint does not match control-plane acceptance token",
-                        data={
-                            "expected_callback_token_fingerprint": hashlib.sha256(TOKEN.encode("utf-8")).hexdigest(),
-                            "worker_callback_token_fingerprint": hashlib.sha256(b"wrong-token").hexdigest(),
-                        },
+                        detail="worker callback token compatibility check failed",
+                        data={},
                     ),
                 ],
             )
@@ -5793,7 +5853,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("worker_callback_token_compatible", body_text)
             self.assertNotIn(TOKEN, body_text)
             called_payload = mocked_preflight.call_args.args[0]
-            self.assertEqual(called_payload.expected_callback_token_fingerprint, hashlib.sha256(TOKEN.encode("utf-8")).hexdigest())
+            self.assertEqual(called_payload.expected_callback_token_fingerprint, "")
             rows = {row["project_id"]: row for row in client.get("/control/queue", headers=headers).json()["rows"]}
             self.assertEqual(rows["dispatch-callback-mismatch"]["status"], "queued")
             self.assertIn("worker preflight failed", rows["dispatch-callback-mismatch"]["last_error"])
@@ -8070,6 +8130,48 @@ def test_missing_evidence_alert_still_notifies_when_event_store_fails() -> None:
         assert result.status_code == 200
         assert result.json()["action"] == "noop"
         assert len(calls) == 1
+
+
+def test_draft_next_revalidates_decision_gate_after_evidence_sync() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        client = _client(tmp)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        project_dir = Path(tmp) / "projects" / "paper-sync-gate"
+        (project_dir / ".enoch").mkdir(parents=True)
+        (project_dir / "run_notes.md").write_text("Verified useful result with measured baseline evidence.\n", encoding="utf-8")
+        (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+        imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
+            "idempotency_key": "import-paper-sync-gate",
+            "queue_rows": [{
+                "project_id": "paper-sync-gate",
+                "project_name": "Paper Sync Gate",
+                "project_dir": "paper-sync-gate",
+                "status": "completed",
+                "last_run_state": "finalize_positive",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-paper-sync-gate",
+                "manual_review_required": False,
+            }],
+            "paper_rows": [],
+        })
+        assert imported.status_code == 200
+
+        def sync_overwrites_positive(*args, **kwargs):  # noqa: ANN001 - patched function
+            del args, kwargs
+            (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"negative"}\n', encoding="utf-8")
+            return {"enabled": True, "synced": True, "method": "worker_http"}
+
+        with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", side_effect=sync_overwrites_positive):
+            response = client.post("/control/papers/draft-next", headers=headers, json={"force": True})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["action"] == "noop"
+        skipped = body.get("candidate", {}).get("skipped", [])
+        assert skipped and skipped[0]["reason"] == "project decision is not paper-ready after evidence sync"
+        assert skipped[0]["decision_gate"]["eligible"] is False
+        snapshot = client.get("/control/export/snapshot", headers=headers).json()
+        assert snapshot["paper_rows"] == []
 
 def test_paper_draft_event_failure_does_not_publish_partial_paper_row() -> None:
     with tempfile.TemporaryDirectory() as tmp:

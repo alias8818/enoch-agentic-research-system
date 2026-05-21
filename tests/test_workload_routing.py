@@ -49,3 +49,22 @@ def test_explicit_workload_class_still_wins_over_title_heuristics() -> None:
 
     assert workload_class_from_row(row) == "gpu_required"
 
+
+
+def test_negated_gpu_phrase_routes_to_cpu_only() -> None:
+    row = {
+        "title": "CPU-only no GPU regex validator",
+        "machine_target": "gb10",
+    }
+
+    routing = route_machine_target(
+        row,
+        default_machine_target="gb10",
+        workload_machine_targets={"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10"},
+    )
+
+    assert routing == {
+        "machine_target": "cpu-proxmox-1",
+        "workload_class": "cpu_only",
+        "routing_reason": "workload_class:cpu_only",
+    }

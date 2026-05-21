@@ -56,7 +56,16 @@ def test_ranked_followup_readiness_requires_bounded_evidence_and_excludes_stale(
         followup_stop_condition="stop after the hyperscaler run",
     ))
     assert scale_only["ready"] is False
-    assert scale_only["reason"] == "followup_exceeds_local_compute"
+    assert scale_only["reason"] == "compute_scale_blocked"
+
+    scale_blocked_without_markers = ranked_followup_readiness(_row(
+        compute_scale_blocked=True,
+        followup_required_evidence=["validate with the prepared setup", "compare against prior run"],
+        followup_success_threshold="confirm improvement against the prior baseline",
+        followup_stop_condition="stop after one failed bounded attempt",
+    ))
+    assert scale_blocked_without_markers["ready"] is False
+    assert scale_blocked_without_markers["reason"] == "compute_scale_blocked"
 
     stale = ranked_followup_readiness(_row(hypothesis_status="unsupported", evidence_strength="weak"))
     assert stale["ready"] is False

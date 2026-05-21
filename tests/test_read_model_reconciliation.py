@@ -848,8 +848,9 @@ def test_investigation_pipeline_exposes_ranked_followup_readiness_counts() -> No
     overview = read_models.overview(_OverviewStore(rows, []))  # type: ignore[arg-type]
     pipeline = overview["investigation_pipeline"]
 
-    assert pipeline["ranked_followup_ready"] == 3
+    assert pipeline["ranked_followup_ready"] == 2
     assert pipeline["ranked_top_external_researcher_candidates"] == 1
-    assert pipeline["ranked_compute_scale_blocked_ready"] == 1
+    assert pipeline["ranked_compute_scale_blocked_ready"] == 0
+    assert pipeline["compute_scale_blocked"] == 1
     assert pipeline["ranked_likely_stale_low_value_archive"] == 1
     assert pipeline["next_ranked_followup_candidate"]["project_id"] == "top"

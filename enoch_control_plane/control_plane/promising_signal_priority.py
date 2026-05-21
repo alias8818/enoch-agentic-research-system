@@ -237,6 +237,8 @@ def ranked_followup_readiness(row: dict[str, Any], *, max_followup_depth: int = 
         return {"ready": False, "reason": "manual_review_required", "bucket": bucket, "score": promising_signal_score(row)}
     if _truthy(row.get("followup_launched")):
         return {"ready": False, "reason": "followup_already_launched", "bucket": bucket, "score": promising_signal_score(row)}
+    if _truthy(row.get("compute_scale_blocked")):
+        return {"ready": False, "reason": "compute_scale_blocked", "bucket": bucket, "score": promising_signal_score(row)}
     if _followup_depth(row) >= max_followup_depth:
         return {"ready": False, "reason": "max_followup_depth", "bucket": bucket, "score": promising_signal_score(row)}
     if _normal(row.get("followup_type")) not in {"deepen", "branch", "retry"}:

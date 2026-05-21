@@ -118,7 +118,7 @@ def _followup_parent_source_record(candidate: dict[str, Any], followup_payload: 
     source_id = f"followup-parent-run-{hashlib.sha256(source_seed.encode('utf-8')).hexdigest()[:16]}"
     return {
         "source_id": source_id,
-        "source_kind": "followup_parent_run",
+        "source_kind": "prior_followup_evidence",
         "title": f"Parent run decision: {parent_title}",
         "url": source_url,
         "external_id": parent_run_id or parent_project_id,
@@ -3937,7 +3937,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     select source_type, source_id, target_type, target_id, relation_type, evidence_json::jsonb
                     from (values
                       ('source', %s, 'candidate', %s, 'generated_from', %s),
-                      ('project', %s, 'project', %s, 'followup_parent', %s)
+                      ('project', %s, 'project', %s, 'branched_from', %s)
                     ) as v(source_type, source_id, target_type, target_id, relation_type, evidence_json)
                     where not exists (
                       select 1 from research_lineage rl

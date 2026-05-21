@@ -978,20 +978,16 @@ def _worker_settling_after_vm_completion(
         return None
 
     completed_run_ids: set[str] = set()
-    completed_project_ids: set[str] = set()
     terminal_run_states = set(TERMINAL_SUCCESS_CALLBACK_STATES) | {"completed", "complete", "finished"}
     for row in queue_rows:
         status = _normal_status(row.get("status"))
         last_run_state = _normal_status(row.get("last_run_state"))
         run_id = str(row.get("current_run_id") or "").strip()
-        project_id = str(row.get("project_id") or "").strip()
         if status in ACTIVE_STATUSES:
             continue
         if status == "completed" or last_run_state in terminal_run_states:
             if run_id:
                 completed_run_ids.add(run_id)
-            if project_id:
-                completed_project_ids.add(project_id)
 
     for row in run_rows:
         state = _normal_status(row.get("state"))
@@ -999,13 +995,10 @@ def _worker_settling_after_vm_completion(
         if state not in terminal_run_states and gate_state not in terminal_run_states:
             continue
         run_id = str(row.get("run_id") or "").strip()
-        project_id = str(row.get("project_id") or "").strip()
         if run_id:
             completed_run_ids.add(run_id)
-        if project_id:
-            completed_project_ids.add(project_id)
 
-    if not completed_run_ids and not completed_project_ids:
+    if not completed_run_ids:
         return None
 
     body = _worker_dashboard_body_from_preflight(preflight)
@@ -1016,8 +1009,7 @@ def _worker_settling_after_vm_completion(
         if not isinstance(run, dict):
             continue
         run_id = str(run.get("run_id") or "").strip()
-        project_id = str(run.get("project_id") or "").strip()
-        if run_id not in completed_run_ids and project_id not in completed_project_ids:
+        if run_id not in completed_run_ids:
             continue
         active_process_count = _int_or_none(run.get("active_process_count"))
         if active_process_count != 0:
@@ -1030,7 +1022,6 @@ def _worker_settling_after_vm_completion(
             "worker_run": run,
             "worker_check": no_live,
             "matched_run_id": run_id,
-            "matched_project_id": project_id,
         }
     return None
 
@@ -1476,17 +1467,23 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         notification = _alert_paper_evidence_blocked(project_id=project_id, run_id=run_id, paper_id=paper_id, reason=reason)
         return {**notification, "event_id": event_id}
 
+    def _dispatch_route_metadata(machine_target: str, target: Any) -> dict[str, Any]:
+        return {
+            "machine_target": machine_target,
+            "wake_gate_url": target.wake_gate_url,
+            "worker_role": target.role,
+            "token_configured": bool(target.bearer_token),
+        }
+
+
     def _annotate_dispatch_route(candidate: dict[str, Any] | None) -> dict[str, Any] | None:
         if not candidate:
             return candidate
-        target = config.resolved_worker_target(str(candidate.get("machine_target") or ""))
+        machine_target = str(candidate.get("machine_target") or "")
+        target = config.resolved_worker_target(machine_target)
         return {
             **candidate,
-            "dispatch_route": {
-                "machine_target": str(candidate.get("machine_target") or ""),
-                "wake_gate_url": target.wake_gate_url,
-                "worker_role": target.role,
-            },
+            "dispatch_route": _dispatch_route_metadata(machine_target, target),
         }
 
     def _worker_lane_key(candidate: dict[str, Any] | None) -> str:
@@ -1496,8 +1493,9 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         return (target.wake_gate_url or str(candidate.get("machine_target") or "")).strip().rstrip("/")
 
     def _callback_acceptance_token_fingerprint() -> str:
-        token = config.control_api_bearer_token or config.omx_inbound_bearer_token
-        return hashlib.sha256(token.encode("utf-8")).hexdigest() if token else ""
+        # Do not expose or propagate token-derived verifiers in preflight payloads.
+        # Token compatibility should be validated by direct callback behavior.
+        return ""
 
     def _dispatch_sort_key(row: dict[str, Any]) -> tuple[int, int, str]:
         priority = _int_or_none(row.get("dispatch_priority"))
@@ -1542,7 +1540,9 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if store.flags().queue_paused:
             return None
         active_lane_keys = {_worker_lane_key(row) for row in (active if active is not None else _active_items_fast())}
-        for candidate in _queued_dispatch_candidates(queued) if queued is not None else _queued_items_fast():
+        # Keep dashboard/status reads bounded when a queued window is provided, but for
+        # authoritative dispatch selection always evaluate the full queued candidate set.
+        for candidate in _queued_dispatch_candidates(queued):
             if _worker_lane_key(candidate) not in active_lane_keys:
                 return candidate
         return None
@@ -1728,16 +1728,13 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             }
         return pressure
 
-    def _conflicting_active_machine_targets(candidate: dict[str, Any]) -> set[str]:
-        candidate_lane_key = _worker_lane_key(candidate)
-        return {
-            _normal_status(row.get("machine_target"))
-            for row in store.active_items()
-            if _worker_lane_key(row) == candidate_lane_key
-        }
+    def _candidate_machine_target_conflict_set(candidate: dict[str, Any]) -> set[str]:
+        machine_target = _normal_status(candidate.get("machine_target"))
+        return {machine_target} if machine_target else {""}
 
     def _has_conflicting_active_lane(candidate: dict[str, Any]) -> bool:
-        return bool(_conflicting_active_machine_targets(candidate))
+        candidate_lane_key = _worker_lane_key(candidate)
+        return any(_worker_lane_key(row) == candidate_lane_key for row in store.active_items())
 
 
     def _live_dispatch(candidate: dict, requested_by: str, force_preflight: bool, *, allow_paused: bool = False) -> tuple[dict, int | None, dict]:
@@ -1761,7 +1758,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "project_id": project_id,
             "run_id": run_id,
             "requested_by": requested_by,
-            "conflicting_machine_targets": _conflicting_active_machine_targets(candidate),
+            "conflicting_machine_targets": _candidate_machine_target_conflict_set(candidate),
         }
         try:
             claim = store.claim_dispatch_candidate(**claim_kwargs)
@@ -1821,7 +1818,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "metadata": {
                 "workload_class": workload_class,
                 "machine_target": str(candidate.get("machine_target") or ""),
-                "dispatch_route": worker_target.model_dump(mode="json"),
+                "dispatch_route": _dispatch_route_metadata(str(candidate.get("machine_target") or ""), worker_target),
                 "source": "langgraph_control_plane",
                 "requested_by": requested_by,
             },
@@ -1864,11 +1861,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             "prepare": prepare_body,
             "dispatch": body,
             "preflight": preflight.model_dump(mode="json") if preflight else None,
-            "dispatch_route": {
-                "machine_target": str(candidate.get("machine_target") or ""),
-                "wake_gate_url": worker_target.wake_gate_url,
-                "worker_role": worker_target.role,
-            },
+            "dispatch_route": _dispatch_route_metadata(str(candidate.get("machine_target") or ""), worker_target),
         }, event_id, updated_candidate
 
     def state_response() -> ControlStateResponse:
@@ -4957,6 +4950,20 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                     "min_memory_available_mib": target.min_memory_available_mib or payload.min_memory_available_mib,
                 }
             )
+        requested_url = (payload.wake_gate_url or "").strip().rstrip("/")
+        allowed_urls = {
+            _configured_worker_preflight_url().rstrip("/"),
+            *{
+                (target.wake_gate_url or "").strip().rstrip("/")
+                for target in config.worker_targets.values()
+                if (target.wake_gate_url or "").strip()
+            },
+        }
+        if requested_url and requested_url not in allowed_urls:
+            raise HTTPException(
+                status_code=400,
+                detail="wake_gate_url must match configured worker_wake_gate_url or a configured worker target; use machine_target for named routes",
+            )
         worker_host = urlparse((payload.wake_gate_url or "").strip()).hostname or ""
         if worker_host == "worker.example":
             return payload.model_copy(
@@ -5201,10 +5208,21 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
                 )
                 skipped.append({"project_id": candidate.get("project_id"), "run_id": candidate.get("current_run_id"), "reason": "missing paper evidence", "evidence_sync": evidence.get("evidence_sync")})
                 continue
+            post_sync_decision_gate = paper_draft_decision_gate(str(evidence.get("artifact_root") or ""))
+            if not post_sync_decision_gate.get("eligible"):
+                skipped.append({
+                    "project_id": candidate.get("project_id"),
+                    "run_id": candidate.get("current_run_id"),
+                    "reason": "project decision is not paper-ready after evidence sync",
+                    "decision_gate": post_sync_decision_gate,
+                    "artifact_root": evidence.get("artifact_root"),
+                    "evidence_sync": evidence.get("evidence_sync"),
+                })
+                continue
             paper = _paper_record_from_candidate(candidate, force=payload.force)
             candidate_for_write = {**candidate, "project_dir": evidence.get("artifact_root") or candidate.get("project_dir"), "evidence_sync": evidence.get("evidence_sync")}
             writer = write_paper_artifacts(config, candidate_for_write, paper, force=payload.force)
-            writer = {**writer, "evidence_sync": evidence.get("evidence_sync"), "artifact_root": evidence.get("artifact_root"), "decision_gate": decision_gate}
+            writer = {**writer, "evidence_sync": evidence.get("evidence_sync"), "artifact_root": evidence.get("artifact_root"), "decision_gate": post_sync_decision_gate}
             paper_event_payload = {"requested_by": payload.requested_by, "paper": paper.model_dump(mode="json"), "writer": writer}
             record_paper_draft = getattr(store, "record_paper_draft", None)
             if callable(record_paper_draft):
