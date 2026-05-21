@@ -114,6 +114,11 @@ The runtime follows semantic versioning. Keep `VERSION`, `pyproject.toml`, and [
 - [`docs/deployment-guide.md`](docs/deployment-guide.md) — full deployment guide
 - [`docs/configuration-reference.md`](docs/configuration-reference.md) — config field reference
 - [`docs/operator-runbook.md`](docs/operator-runbook.md) — long-haul readiness, pause/resume, callbacks, and paper-gate checks
+
+**Operator dashboard (V2):**
+- [`docs/dashboard-v2-deploy.md`](docs/dashboard-v2-deploy.md) — build, rsync to `enoch-core.exe.xyz`, restart, and post-deploy smoke
+- [`docs/dashboard-v2-todo-2026-05-21.md`](docs/dashboard-v2-todo-2026-05-21.md) — P0–P7 checklist and parking lot
+- [`docs/dashboard-redesign-plan.md`](docs/dashboard-redesign-plan.md) — IA contract and operator-question-first rules
 - [`docs/system-workflow.md`](docs/system-workflow.md) — architecture and control-plane boundaries
 - [`docs/state-model.md`](docs/state-model.md) — operator lane vocabulary and raw-state/detail-stage boundaries
 - [`docs/state-transition-map.md`](docs/state-transition-map.md) — Idea -> Queue -> Run -> Decision -> Paper -> Publication -> Corpus lifecycle map

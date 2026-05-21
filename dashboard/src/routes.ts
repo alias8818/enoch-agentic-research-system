@@ -43,7 +43,7 @@ export function canonicalDashboardHash(hashOrPath: string | undefined, fallback 
   let hash = normalizeHash(hashOrPath, fallback)
 
   if (hash.startsWith('#review:')) hash = `#automation:${hash.slice('#review:'.length)}`
-  else if (hash === '#reviews') hash = '#automation'
+  else if (hash === '#reviews' || hash.startsWith('#reviews?')) hash = `#automation${hash.slice('#reviews'.length)}`
   else if (hash.startsWith('#candidate:')) hash = `#research:${hash.slice('#candidate:'.length)}`
   else if (hash.startsWith('#idea:')) hash = `#intake:${hash.slice('#idea:'.length)}`
   else if (hash === '#status' || hash.startsWith('#status?')) hash = '#overview'

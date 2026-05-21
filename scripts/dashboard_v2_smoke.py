@@ -22,7 +22,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any
-from urllib import error, request
+from urllib import error, parse, request
 
 SHELL_PATH = "/control/dashboard-v2"
 ROOT_MARKER = 'id="enoch-dashboard-v2-root"'
@@ -30,6 +30,27 @@ ASSET_PATTERN = re.compile(r"/control/dashboard-v2/assets/[^\"'>\s]+")
 
 API_OVERVIEW = "/control/api/v1/overview"
 API_EVENTS_INDEX = "/control/api/v1/events?page_size=50&sort=recent"
+API_QUEUE = "/control/api/v1/queue?page_size=25"
+API_RUNS = "/control/api/v1/runs?page_size=25"
+API_PAPERS = "/control/api/v1/papers?page_size=25"
+API_OBSERVABILITY_HEALTH = "/control/api/v1/observability/health"
+
+LEGACY_DASHBOARD_PATH = "/control/dashboard"
+V2_DASHBOARD_PATH = "/control/dashboard-v2"
+
+API_READ_CHECKS: tuple[tuple[str, str], ...] = (
+    ("api_queue", API_QUEUE),
+    ("api_runs", API_RUNS),
+    ("api_papers", API_PAPERS),
+    ("api_observability_health", API_OBSERVABILITY_HEALTH),
+)
+
+SKIPPED_API_CHECK_NAMES: tuple[str, ...] = (
+    "api_overview",
+    "api_events_index",
+    "api_event_detail",
+    *(name for name, _ in API_READ_CHECKS),
+)
 
 
 @dataclass
@@ -78,6 +99,11 @@ def extract_asset_paths(index_html: str) -> list[str]:
     return paths
 
 
+class _NoRedirectHandler(request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        return None
+
+
 def _http_get(
     base_url: str,
     path: str,
@@ -104,6 +130,45 @@ def _http_get(
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         return None, b"", elapsed_ms, f"{type(exc).__name__}: {exc}"
+
+
+def _http_get_no_redirect(
+    base_url: str,
+    path: str,
+    *,
+    timeout: float,
+    accept: str = "*/*",
+) -> tuple[int | None, dict[str, str], bytes, float, str]:
+    url = base_url.rstrip("/") + path
+    headers = {"Accept": accept}
+    req = request.Request(url, headers=headers, method="GET")
+    opener = request.build_opener(_NoRedirectHandler())
+    started = time.perf_counter()
+    try:
+        with opener.open(req, timeout=timeout) as resp:
+            body = resp.read()
+            elapsed_ms = (time.perf_counter() - started) * 1000.0
+            return resp.status, dict(resp.headers), body, elapsed_ms, ""
+    except error.HTTPError as exc:
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        body = exc.read()
+        return exc.code, dict(exc.headers), body, elapsed_ms, f"HTTP {exc.code}"
+    except Exception as exc:
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        return None, {}, b"", elapsed_ms, f"{type(exc).__name__}: {exc}"
+
+
+def normalize_redirect_location(location: str, base_url: str) -> str:
+    """Return an absolute URL for a redirect Location header."""
+    return parse.urljoin(base_url.rstrip("/") + "/", location)
+
+
+def redirect_target_is_dashboard_v2(location: str, base_url: str) -> bool:
+    """True when Location resolves to the V2 dashboard shell path."""
+    absolute = normalize_redirect_location(location, base_url)
+    parsed = parse.urlparse(absolute)
+    path = parsed.path.rstrip("/") or "/"
+    return path == V2_DASHBOARD_PATH
 
 
 def resolve_token(cli_token: str, token_env: str) -> str:
@@ -217,6 +282,61 @@ def check_api_endpoint(
     return CheckResult(name, True, "pass", "ok", elapsed_ms)
 
 
+def check_legacy_dashboard_redirect(
+    base_url: str,
+    timeout: float,
+    *,
+    query: str = "",
+) -> CheckResult:
+    """Verify legacy /control/dashboard redirects to /control/dashboard-v2 (post-cutover).
+
+    Hash fragments are not sent to the server; browsers preserve them after redirect.
+    """
+    path = LEGACY_DASHBOARD_PATH
+    if query:
+        path += query if query.startswith("?") else f"?{query}"
+    status, headers, _, elapsed_ms, err = _http_get_no_redirect(
+        base_url,
+        path,
+        timeout=timeout,
+        accept="text/html",
+    )
+    if status is None:
+        return CheckResult("legacy_dashboard_redirect", False, "fail", err, elapsed_ms)
+    if status not in {301, 302, 303, 307, 308}:
+        return CheckResult(
+            "legacy_dashboard_redirect",
+            False,
+            "fail",
+            f"expected redirect, got HTTP {status}",
+            elapsed_ms,
+        )
+    location = headers.get("Location") or headers.get("location") or ""
+    if not location:
+        return CheckResult(
+            "legacy_dashboard_redirect",
+            False,
+            "fail",
+            "redirect response missing Location header",
+            elapsed_ms,
+        )
+    if not redirect_target_is_dashboard_v2(location, base_url):
+        return CheckResult(
+            "legacy_dashboard_redirect",
+            False,
+            "fail",
+            f"Location {location!r} does not target {V2_DASHBOARD_PATH}",
+            elapsed_ms,
+        )
+    return CheckResult(
+        "legacy_dashboard_redirect",
+        True,
+        "pass",
+        f"redirects to {normalize_redirect_location(location, base_url)}",
+        elapsed_ms,
+    )
+
+
 def first_event_id(events_body: bytes) -> str | None:
     try:
         payload = json.loads(events_body.decode("utf-8"))
@@ -241,6 +361,7 @@ def run_smoke(
     token: str,
     timeout: float,
     shell_only: bool,
+    check_legacy_redirect: bool = False,
 ) -> SmokeReport:
     report = SmokeReport(ok=True, base_url=base_url)
     run_api, api_skip_detail = api_auth_status(token, shell_only)
@@ -261,10 +382,15 @@ def run_smoke(
                 report.ok = False
 
     if not run_api:
-        for name in ("api_overview", "api_events_index", "api_event_detail"):
+        for name in SKIPPED_API_CHECK_NAMES:
             report.checks.append(CheckResult(name, True, "skipped", api_skip_detail))
         if not shell_only:
             report.ok = False
+        if check_legacy_redirect:
+            redirect = check_legacy_dashboard_redirect(base_url, timeout)
+            report.checks.append(redirect)
+            if not redirect.ok:
+                report.ok = False
         return report
 
     overview = check_api_endpoint(base_url, "api_overview", API_OVERVIEW, token, timeout)
@@ -315,6 +441,18 @@ def run_smoke(
             if not detail.ok:
                 report.ok = False
 
+    for api_name, api_path in API_READ_CHECKS:
+        result = check_api_endpoint(base_url, api_name, api_path, token, timeout)
+        report.checks.append(result)
+        if not result.ok:
+            report.ok = False
+
+    if check_legacy_redirect:
+        redirect = check_legacy_dashboard_redirect(base_url, timeout)
+        report.checks.append(redirect)
+        if not redirect.ok:
+            report.ok = False
+
     return report
 
 
@@ -332,6 +470,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Run shell/asset/health checks only; skip API checks when no token is set",
     )
+    parser.add_argument(
+        "--check-legacy-dashboard-redirect",
+        action="store_true",
+        help=(
+            "After V1→V2 cutover: require GET /control/dashboard to redirect to "
+            "/control/dashboard-v2"
+        ),
+    )
     parser.add_argument("--json", action="store_true", help="Emit compact JSON report")
     args = parser.parse_args(argv)
 
@@ -341,6 +487,7 @@ def main(argv: list[str] | None = None) -> int:
         token=token,
         timeout=args.timeout_sec,
         shell_only=args.allow_unauthenticated_shell_only,
+        check_legacy_redirect=args.check_legacy_dashboard_redirect,
     )
 
     if args.json:

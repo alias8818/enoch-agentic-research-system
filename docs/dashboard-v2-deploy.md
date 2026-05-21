@@ -1,6 +1,6 @@
 # Dashboard V2 deploy and smoke
 
-This document covers building, deploying, and verifying the React Dashboard V2 shell at `/control/dashboard-v2`.
+This document covers building, deploying, and verifying the React Dashboard V2 shell at `/control/dashboard-v2` — the **canonical** operator console. Legacy `/control/dashboard` will redirect here after Phase 2 cutover.
 
 ## Build before deploy
 
@@ -14,29 +14,68 @@ npm ci
 npm run build
 ```
 
-CI runs `npm test`, `npm run typecheck`, and `npm run lint` only. It does **not** run `npm run build`, because the build mutates committed assets and would create CI-only drift.
+CI runs `npm test`, `npm run typecheck`, and `npm run lint` only. It does **not** run `npm run build`, because the build mutates committed assets and would create CI-only drift. Phase 1 adds an asset-drift validator (`scripts/validate_dashboard_v2_assets.py`) to fail merges when source and committed bundles diverge.
 
 ## Safe rsync to the control VM
 
-Do not copy local dev artifacts into production. Exclude test caches, virtualenvs, and frontend `node_modules`.
+Do not copy local dev artifacts into production. The exclude list below matches [`scripts/install-control-plane.sh`](../scripts/install-control-plane.sh) (`sync_to_prefix`) plus deploy-only paths that must never land on the runtime tree.
 
-Use the live host and runtime path from [`current-runtime-snapshot.md`](current-runtime-snapshot.md) (reference deployment: `enoch-core` at `/opt/enoch-control-plane`):
+Reference host: **`enoch-core.exe.xyz`** at `/opt/enoch-control-plane` (see [`current-runtime-snapshot.md`](current-runtime-snapshot.md)).
+
+From your source checkout on a machine that can reach the control VM:
 
 ```bash
+cd /path/to/enoch-agentic-research-system
 rsync -a --delete \
   --exclude '.git' \
   --exclude '.venv' \
+  --exclude '.pytest_cache' \
+  --exclude '__pycache__' \
   --exclude 'node_modules' \
   --exclude '.hypothesis' \
   --exclude '.coverage' \
   --exclude '*.egg-info' \
   --exclude 'targeted_paper_intakes' \
-  ./ user@enoch-core:/opt/enoch-control-plane/
+  ./ enoch-core.exe.xyz:/opt/enoch-control-plane/
 ```
 
-After rsync, reinstall/restart using your normal control-plane deploy path (see [`deployment-guide.md`](deployment-guide.md)).
+`install-control-plane.sh` uses the same core excludes (`.git`, `.venv`, `.pytest_cache`, `__pycache__`, `*.egg-info`) when syncing to `--prefix`; manual rsync adds `node_modules`, `.hypothesis`, `.coverage`, and `targeted_paper_intakes` because those are never installed by the script but often exist in developer trees.
 
-## Post-deploy verification
+## Post-deploy checklist
+
+Run on **`enoch-core.exe.xyz`** after rsync (order matters):
+
+1. **Restart** the control plane so Python serves the new tree and assets:
+
+```bash
+ssh enoch-core.exe.xyz 'sudo systemctl restart enoch-control-plane.service'
+```
+
+2. **Validate** runtime files match the source checkout you intended to deploy:
+
+```bash
+ssh enoch-core.exe.xyz 'cd /opt/enoch-release/enoch-agentic-research-system && \
+  python3 scripts/validate_runtime_deploy.py \
+    --source /opt/enoch-release/enoch-agentic-research-system \
+    --runtime /opt/enoch-control-plane \
+    --expected-commit origin/main \
+    --summary-only'
+```
+
+Expect `"ok": true`. Hash drift or commit mismatch means the service is not proven to match `main`.
+
+3. **Smoke** Dashboard V2 shell, assets, and bounded v1 APIs:
+
+```bash
+ssh enoch-core.exe.xyz 'TOKEN=$(jq -r .control_api_bearer_token /etc/enoch-control-plane/config.json) && \
+  python3 /opt/enoch-control-plane/scripts/dashboard_v2_smoke.py \
+    --base-url http://127.0.0.1:8787 \
+    --token "$TOKEN"'
+```
+
+4. **Browser spot-check** (optional): open `/control/dashboard-v2#overview` with your control-plane token; confirm overview loads without a first-screen raw JSON block.
+
+## Post-deploy verification (detail)
 
 ### GET/API smoke (deploy health)
 
@@ -51,11 +90,11 @@ After rsync, reinstall/restart using your normal control-plane deploy path (see 
 | `/control/api/v1/events?page_size=50&sort=recent` | Bearer |
 | Event detail for first index row | Bearer |
 
-Full check with API token:
+Full check with API token (local or remote base URL):
 
 ```bash
 python3 scripts/dashboard_v2_smoke.py \
-  --base-url "https://<control-host>" \
+  --base-url "http://127.0.0.1:8787" \
   --token "$ENOCH_CONTROL_TOKEN"
 ```
 
@@ -63,7 +102,7 @@ Shell/assets only (no token):
 
 ```bash
 python3 scripts/dashboard_v2_smoke.py \
-  --base-url "https://<control-host>" \
+  --base-url "http://127.0.0.1:8787" \
   --allow-unauthenticated-shell-only
 ```
 
@@ -75,17 +114,21 @@ The smoke script cannot prove operator UX rules such as “raw JSON only in coll
 
 ### Runtime hash validation
 
-Confirm the deployed tree matches your source checkout:
+Confirm the deployed tree matches your source checkout (paths as on `enoch-core.exe.xyz`):
 
 ```bash
 python3 scripts/validate_runtime_deploy.py \
-  --source . \
-  --runtime /opt/enoch-control-plane
+  --source /opt/enoch-release/enoch-agentic-research-system \
+  --runtime /opt/enoch-control-plane \
+  --expected-commit origin/main \
+  --summary-only
 ```
 
 Local pytest also covers shell/asset serving in `tests/test_control_plane_router.py` (`test_control_dashboard_v2_shell_and_assets_are_served_without_token`).
 
 ## Related docs
 
+- Canonical runtime facts: [`current-runtime-snapshot.md`](current-runtime-snapshot.md)
+- Operator runbook (readiness, callbacks): [`operator-runbook.md`](operator-runbook.md)
 - Operator checklist: [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md)
 - Redesign contract: [`dashboard-redesign-plan.md`](dashboard-redesign-plan.md)

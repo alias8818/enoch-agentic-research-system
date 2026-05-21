@@ -39,7 +39,7 @@ function selectedWork(payload: Record<string, unknown>): string {
     candidate.idea_id,
     candidate.title,
     candidate.project_name,
-    payload.action,
+    candidate.paper_title,
   ))
 }
 

@@ -303,13 +303,12 @@ function RoutedPage({ route }: { route: DashboardRoute }) {
       <section className="legacy-card unsupported-route-card">
         <p className="eyebrow">V2 route guard</p>
         <h1>Unsupported V2 route</h1>
-        <p>This hash is not owned by a React subview yet. Use a supported list or detail route below, or open the legacy escape hatch for this exact hash.</p>
+        <p>This hash is not owned by a React subview yet. Use a supported list or detail route below, or return to the command center.</p>
         <div className="unsupported-route-actions">
           {suggestions.map((item) => (
             <a key={item.href} className="secondary-button secondary-button--link" href={item.href}>{item.label}</a>
           ))}
           <a className="primary-button primary-button--link" href={dashboardV2Href('#overview')}>Back to command center</a>
-          <a className="secondary-button secondary-button--link" href={`/control/dashboard${route.hash}`}>Open this hash in legacy dashboard</a>
         </div>
       </section>
     )

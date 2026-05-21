@@ -46,18 +46,26 @@ sync_to_prefix() {
     rsync -a --delete \
       --exclude .git \
       --exclude .venv \
+      --exclude node_modules \
       --exclude .pytest_cache \
       --exclude __pycache__ \
+      --exclude .hypothesis \
+      --exclude .coverage \
       --exclude "*.egg-info" \
+      --exclude targeted_paper_intakes \
       "$ROOT/" "$PREFIX/"
   else
     find "$PREFIX" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
     tar -C "$ROOT" \
       --exclude .git \
       --exclude .venv \
+      --exclude node_modules \
       --exclude .pytest_cache \
       --exclude __pycache__ \
+      --exclude .hypothesis \
+      --exclude .coverage \
       --exclude "*.egg-info" \
+      --exclude targeted_paper_intakes \
       -cf - . | tar -C "$PREFIX" -xf -
   fi
 }

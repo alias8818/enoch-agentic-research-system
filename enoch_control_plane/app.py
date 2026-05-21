@@ -1688,7 +1688,7 @@ def _run_dashboard_item(
 
 @app.get("/dashboard", include_in_schema=False)
 def dashboard() -> RedirectResponse:
-    return RedirectResponse(url="/control/dashboard", status_code=307)
+    return RedirectResponse(url="/control/dashboard-v2", status_code=307)
 
 
 @app.get("/favicon.ico", include_in_schema=False)

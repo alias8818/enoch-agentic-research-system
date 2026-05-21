@@ -5,11 +5,21 @@ import json
 import pytest
 
 from scripts.dashboard_v2_smoke import (
+    API_OBSERVABILITY_HEALTH,
+    API_PAPERS,
+    API_QUEUE,
+    API_READ_CHECKS,
+    API_RUNS,
     CheckResult,
+    SKIPPED_API_CHECK_NAMES,
     SmokeReport,
+    V2_DASHBOARD_PATH,
     api_auth_status,
+    check_legacy_dashboard_redirect,
     extract_asset_paths,
     first_event_id,
+    normalize_redirect_location,
+    redirect_target_is_dashboard_v2,
     run_smoke,
 )
 
@@ -70,6 +80,144 @@ def test_first_event_id_returns_none_for_empty_rows() -> None:
     assert first_event_id(b"not-json") is None
 
 
+def test_api_read_checks_include_queue_runs_papers_health() -> None:
+    paths = {path for _, path in API_READ_CHECKS}
+    assert API_QUEUE in paths
+    assert API_RUNS in paths
+    assert API_PAPERS in paths
+    assert API_OBSERVABILITY_HEALTH in paths
+    assert len(API_READ_CHECKS) == 4
+
+
+def test_skipped_api_check_names_cover_expanded_endpoints() -> None:
+    assert "api_queue" in SKIPPED_API_CHECK_NAMES
+    assert "api_observability_health" in SKIPPED_API_CHECK_NAMES
+
+
+def test_redirect_target_is_dashboard_v2_accepts_absolute_and_relative() -> None:
+    base = "http://127.0.0.1:8787"
+    assert redirect_target_is_dashboard_v2(V2_DASHBOARD_PATH, base)
+    assert redirect_target_is_dashboard_v2(f"{V2_DASHBOARD_PATH}/", base)
+    assert redirect_target_is_dashboard_v2(f"{base}{V2_DASHBOARD_PATH}", base)
+    assert redirect_target_is_dashboard_v2(f"{base}{V2_DASHBOARD_PATH}#overview", base)
+    assert not redirect_target_is_dashboard_v2("/control/dashboard", base)
+
+
+def test_normalize_redirect_location_resolves_relative() -> None:
+    base = "http://127.0.0.1:8787"
+    assert normalize_redirect_location(V2_DASHBOARD_PATH, base) == f"{base}{V2_DASHBOARD_PATH}"
+
+
+def test_check_legacy_dashboard_redirect_passes_on_v2_location(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_get_no_redirect(*_args, **_kwargs):
+        return (
+            307,
+            {"Location": V2_DASHBOARD_PATH},
+            b"",
+            2.0,
+            "",
+        )
+
+    monkeypatch.setattr(
+        "scripts.dashboard_v2_smoke._http_get_no_redirect",
+        fake_get_no_redirect,
+    )
+    result = check_legacy_dashboard_redirect("http://127.0.0.1:8787", 1.0)
+    assert result.ok is True
+    assert result.status == "pass"
+
+
+def test_check_legacy_dashboard_redirect_fails_without_location(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "scripts.dashboard_v2_smoke._http_get_no_redirect",
+        lambda *_a, **_k: (302, {}, b"", 1.0, ""),
+    )
+    result = check_legacy_dashboard_redirect("http://example.test", 1.0)
+    assert result.ok is False
+    assert "Location" in result.detail
+
+
+def test_check_legacy_dashboard_redirect_fails_when_not_redirect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "scripts.dashboard_v2_smoke._http_get_no_redirect",
+        lambda *_a, **_k: (200, {}, b"<html></html>", 1.0, ""),
+    )
+    result = check_legacy_dashboard_redirect("http://example.test", 1.0)
+    assert result.ok is False
+    assert "expected redirect" in result.detail
+
+
+def test_run_smoke_hits_expanded_api_endpoints_with_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    called: list[str] = []
+
+    def fake_health(*_args, **_kwargs):
+        return CheckResult("healthz", True, "pass", "ok", 1.0)
+
+    def fake_shell(*_args, **_kwargs):
+        return CheckResult("dashboard_v2_shell", True, "pass", "ok", 1.0), ""
+
+    def fake_api(base_url, name, path, token, timeout):
+        called.append(path)
+        return CheckResult(name, True, "pass", "ok", 1.0)
+
+    def fake_http_get(base_url, path, *, token="", timeout, accept="*/*"):
+        if "events" in path and "event_id=" not in path:
+            body = json.dumps({"rows": [{"event_id": "evt-1"}]}).encode()
+            return 200, body, 1.0, ""
+        return 200, b"{}", 1.0, ""
+
+    monkeypatch.setattr("scripts.dashboard_v2_smoke.check_health", fake_health)
+    monkeypatch.setattr("scripts.dashboard_v2_smoke.check_shell", fake_shell)
+    monkeypatch.setattr("scripts.dashboard_v2_smoke.check_api_endpoint", fake_api)
+    monkeypatch.setattr("scripts.dashboard_v2_smoke._http_get", fake_http_get)
+
+    report = run_smoke("http://example.test", token="secret", timeout=1.0, shell_only=False)
+    assert report.ok is True
+    for _, path in API_READ_CHECKS:
+        assert path in called
+
+
+def test_run_smoke_optional_legacy_redirect_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_health(*_args, **_kwargs):
+        return CheckResult("healthz", True, "pass", "ok", 1.0)
+
+    def fake_shell(*_args, **_kwargs):
+        return CheckResult("dashboard_v2_shell", True, "pass", "ok", 1.0), ""
+
+    def fake_redirect(*_args, **_kwargs):
+        return CheckResult("legacy_dashboard_redirect", True, "pass", "ok", 1.0)
+
+    monkeypatch.setattr("scripts.dashboard_v2_smoke.check_health", fake_health)
+    monkeypatch.setattr("scripts.dashboard_v2_smoke.check_shell", fake_shell)
+    monkeypatch.setattr(
+        "scripts.dashboard_v2_smoke.check_legacy_dashboard_redirect",
+        fake_redirect,
+    )
+    monkeypatch.setattr(
+        "scripts.dashboard_v2_smoke.check_api_endpoint",
+        lambda *_a, **_k: CheckResult("api", True, "pass", "ok", 1.0),
+    )
+    monkeypatch.setattr(
+        "scripts.dashboard_v2_smoke._http_get",
+        lambda *_a, **_k: (200, json.dumps({"rows": []}).encode(), 1.0, ""),
+    )
+
+    report = run_smoke(
+        "http://example.test",
+        token="secret",
+        timeout=1.0,
+        shell_only=False,
+        check_legacy_redirect=True,
+    )
+    assert any(check.name == "legacy_dashboard_redirect" for check in report.checks)
+
+
 def test_run_smoke_fails_without_token_unless_shell_only(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_health(*_args, **_kwargs):
         return CheckResult("healthz", True, "pass", "ok", 1.0)
@@ -86,7 +234,8 @@ def test_run_smoke_fails_without_token_unless_shell_only(monkeypatch: pytest.Mon
 
     report = run_smoke("http://example.test", token="", timeout=1.0, shell_only=False)
     assert report.ok is False
-    api_checks = [check for check in report.checks if check.name.startswith("api_")]
+    api_checks = [check for check in report.checks if check.name in SKIPPED_API_CHECK_NAMES]
+    assert len(api_checks) == len(SKIPPED_API_CHECK_NAMES)
     assert all(check.status == "skipped" for check in api_checks)
     assert any("missing bearer token" in check.detail for check in api_checks)
 

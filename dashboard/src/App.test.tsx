@@ -383,7 +383,7 @@ it('keeps visible resource filters aligned with hash navigation', async () => {
   expect(new URL(String(fetchMock.mock.calls[1][0]), 'https://enoch.local').searchParams.get('status')).toBe('active')
 })
 
-it('keeps unsupported hashes inside the V2 shell with a legacy escape link', () => {
+it('keeps unsupported hashes inside the V2 shell with route suggestions only', () => {
   window.location.hash = '#unknown-workflow'
   saveToken('test-token')
 
@@ -392,7 +392,7 @@ it('keeps unsupported hashes inside the V2 shell with a legacy escape link', () 
   expect(screen.getByRole('heading', { name: 'Unsupported V2 route' })).toBeInTheDocument()
   expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
   expect(screen.getAllByRole('link', { name: /command center/i })).toHaveLength(1)
-  expect(screen.getByRole('link', { name: 'Open this hash in legacy dashboard' })).toHaveAttribute('href', '/control/dashboard#unknown-workflow')
+  expect(screen.queryByRole('link', { name: 'Open this hash in legacy dashboard' })).not.toBeInTheDocument()
 })
 
 it('canonicalizes alias hashes to supported routes on load', () => {

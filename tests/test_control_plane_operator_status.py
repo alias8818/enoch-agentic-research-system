@@ -798,53 +798,19 @@ class OperatorStatusTests(unittest.TestCase):
                 "missing project decision artifact",
             )
 
-    def test_dashboard_prefers_operator_columns(self) -> None:
+    def test_dashboard_legacy_route_redirects_to_v2_shell(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
-            html = client.get("/control/dashboard").text
-            self.assertIn("operator_stage_label", html)
-            self.assertIn("What do I need to know?", html)
-            self.assertIn("What needs me?", html)
-            self.assertIn("What is running?", html)
-            self.assertIn("Preserved bounded local signals; not an actionable queue by itself.", html)
-            self.assertIn("What can be written?", html)
-            self.assertIn("Needs another investigation?", html)
-            self.assertIn("What can be published?", html)
-            self.assertIn("Done / no paper", html)
-            self.assertIn("raw states stay in drill-down views", html)
-            self.assertIn("section-panel", html)
-            self.assertIn("metric-grid", html)
-            self.assertIn("action-grid", html)
-            self.assertIn("button-danger", html)
-            self.assertIn("button-primary", html)
-            self.assertIn("table-wrap", html)
-            self.assertIn("skeleton", html)
-            self.assertIn("nav-group", html)
-            self.assertIn("href=\"#${k}\"", html)
+            legacy = client.get("/control/dashboard", follow_redirects=False)
+            self.assertEqual(legacy.status_code, 307)
+            self.assertEqual(legacy.headers.get("location"), "/control/dashboard-v2")
+
+            html = client.get("/control/dashboard-v2").text
+            self.assertIn('id="enoch-dashboard-v2-root"', html)
+            self.assertIn("Enoch Dashboard V2", html)
+            self.assertIn("/control/dashboard-v2/assets/", html)
+            self.assertNotIn("operator_stage_label", html)
             self.assertNotIn("file:///", html)
-            self.assertIn("Paper pipeline", html)
-            self.assertIn("Debug paper counts", html)
-            self.assertIn("1. Write papers", html)
-            self.assertIn("2. Finalize drafts", html)
-            self.assertIn("3. Publish/import", html)
-            self.assertIn("Last import result", html)
-            self.assertIn("Import validation", html)
-            self.assertIn("Investigation follow-ups", html)
-            self.assertIn("Launch follow-up", html)
-            self.assertIn("operatorQuestionCards(counts={},operators={},pipeline={},investigation={})", html)
-            self.assertIn("workState(counts,operators={},pipeline={},investigation={})", html)
-            self.assertIn("Can I leave this running?", html)
-            self.assertIn("movementDiagnosisPanel", html)
-            self.assertIn("Queue safety", html)
-            self.assertIn("project_decision_summary", html)
-            self.assertIn("['operator_stage_label','project_id','run_id','related_paper_id','operator_next_step','updated_at']", html)
-            self.assertIn("operators.ready_queue", html)
-            self.assertLess(html.index("if(active)return"), html.index("if(useful)return"))
-            self.assertIn("Publication drafts", html)
-            self.assertNotIn("Publication-ready drafts", html)
-            self.assertIn("publication_draft:'Publication draft'", html)
-            self.assertIn("['publication_draft','archived']", html)
-            self.assertIn("['queued','claimed','blocked','finalized','deferred','rejected']", html)
 
 
 if __name__ == "__main__":

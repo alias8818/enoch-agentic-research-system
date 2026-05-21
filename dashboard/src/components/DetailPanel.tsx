@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { apiGet } from '../api/client'
 import { deriveDetailOperatorSummary, type DetailKind, type DetailOperatorSummary, type EntityLink } from '../detailOperatorSummary'
+import { shortId } from '../format'
 import { detailBreadcrumb } from '../routePolicy'
 import { dashboardV2Href } from '../routes'
 import { useQuery } from '@tanstack/react-query'
@@ -41,11 +42,6 @@ function stringifyValue(value: unknown): string {
 
 function kindLabel(kind: DetailKind): string {
   return `${kind[0].toUpperCase()}${kind.slice(1)} detail`
-}
-
-function shortId(value: string): string {
-  if (value.length <= 30) return value
-  return `${value.slice(0, 14)}…${value.slice(-10)}`
 }
 
 function recordArray(value: unknown): Record<string, unknown>[] {
@@ -384,7 +380,6 @@ export function DetailPanel({ selection, onClose }: { selection: DetailSelection
       <div className="detail-panel-head">
         <div>
           <p className="eyebrow">{kindLabel(selection.kind)}</p>
-          <h2>{kindLabel(selection.kind)}</h2>
           <span className="detail-id-chip" title={selection.id}>{shortId(selection.id)}</span>
         </div>
         <button className="secondary-button" type="button" onClick={onClose}>Close</button>
