@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiGet, apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
@@ -148,6 +148,11 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
   const [dispatchResult, setDispatchResult] = useState<CommandResult | null>(null)
   const [dispatchBusy, setDispatchBusy] = useState(false)
   const [filters, setFilters] = useState<FilterState>({ search: '', status: route.status, pageSize: '50', cursor: '' })
+  useEffect(() => {
+    setFilters((current) => current.status === route.status ? current : { ...current, status: route.status, cursor: '' })
+    setSelection(null)
+    setDispatchResult(null)
+  }, [route.status])
   const params = withCommonParams(filters, 'priority')
   params.set('queue', 'all')
   const query = useQuery({ queryKey: ['queue', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/queue?${params}`) })
@@ -196,6 +201,10 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
 export function ProjectsPage({ route }: { route: Extract<DashboardRoute, { page: 'projects' }> }) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [filters, setFilters] = useState<FilterState>({ search: '', status: route.status, pageSize: '50', cursor: '' })
+  useEffect(() => {
+    setFilters((current) => current.status === route.status ? current : { ...current, status: route.status, cursor: '' })
+    setSelection(null)
+  }, [route.status])
   const params = withCommonParams(filters, 'recent')
   const query = useQuery({ queryKey: ['projects', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/projects?${params}`) })
   if (query.isLoading) return <LoadingCard label="projects" />
@@ -212,6 +221,10 @@ export function ProjectsPage({ route }: { route: Extract<DashboardRoute, { page:
 export function RunsPage({ route }: { route: Extract<DashboardRoute, { page: 'runs' }> }) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [filters, setFilters] = useState<FilterState>({ search: '', status: route.state, pageSize: '50', cursor: '' })
+  useEffect(() => {
+    setFilters((current) => current.status === route.state ? current : { ...current, status: route.state, cursor: '' })
+    setSelection(null)
+  }, [route.state])
   const params = withRunParams(filters)
   const query = useQuery({ queryKey: ['runs', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/runs?${params}`) })
   if (query.isLoading) return <LoadingCard label="runs" />
@@ -228,6 +241,10 @@ export function RunsPage({ route }: { route: Extract<DashboardRoute, { page: 'ru
 export function PapersPage({ route }: { route: Extract<DashboardRoute, { page: 'papers' }> }) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [filters, setFilters] = useState<FilterState>({ search: '', status: route.status, pageSize: '50', cursor: '' })
+  useEffect(() => {
+    setFilters((current) => current.status === route.status ? current : { ...current, status: route.status, cursor: '' })
+    setSelection(null)
+  }, [route.status])
   const params = withCommonParams(filters, 'recent')
   const query = useQuery({ queryKey: ['papers', filters], queryFn: () => apiGet<PageResponse>(`/control/api/v1/papers?${params}`) })
   if (query.isLoading) return <LoadingCard label="papers" />

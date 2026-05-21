@@ -43,6 +43,29 @@ it('loads queue rows from the V1 queue endpoint with the route status', async ()
 })
 
 
+
+it('syncs route-derived status changes into resource page backend filters', async () => {
+  saveToken('test-token')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'queued-project', status: 'queued', title: 'Queued item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'active-project', status: 'active', title: 'Active item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+
+  const { rerender } = renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', hash: '#queue:queued' }} />)
+  await screen.findByText('Queued item')
+
+  rerender(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <QueuePage route={{ page: 'queue', status: 'active', hash: '#queue:active' }} />
+    </QueryClientProvider>,
+  )
+
+  await screen.findByText('Active item')
+  const first = requestUrl(fetchMock.mock.calls[0])
+  const second = requestUrl(fetchMock.mock.calls[1])
+  expectParam(first, 'status', 'queued')
+  expectParam(second, 'status', 'active')
+})
+
 it('checks selected queued rows with dispatch-one dry-run only', async () => {
   saveToken('test-token')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
