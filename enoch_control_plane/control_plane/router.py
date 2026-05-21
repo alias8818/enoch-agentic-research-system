@@ -976,20 +976,16 @@ def _worker_settling_after_vm_completion(
         return None
 
     completed_run_ids: set[str] = set()
-    completed_project_ids: set[str] = set()
     terminal_run_states = set(TERMINAL_SUCCESS_CALLBACK_STATES) | {"completed", "complete", "finished"}
     for row in queue_rows:
         status = _normal_status(row.get("status"))
         last_run_state = _normal_status(row.get("last_run_state"))
         run_id = str(row.get("current_run_id") or "").strip()
-        project_id = str(row.get("project_id") or "").strip()
         if status in ACTIVE_STATUSES:
             continue
         if status == "completed" or last_run_state in terminal_run_states:
             if run_id:
                 completed_run_ids.add(run_id)
-            if project_id:
-                completed_project_ids.add(project_id)
 
     for row in run_rows:
         state = _normal_status(row.get("state"))
@@ -997,13 +993,10 @@ def _worker_settling_after_vm_completion(
         if state not in terminal_run_states and gate_state not in terminal_run_states:
             continue
         run_id = str(row.get("run_id") or "").strip()
-        project_id = str(row.get("project_id") or "").strip()
         if run_id:
             completed_run_ids.add(run_id)
-        if project_id:
-            completed_project_ids.add(project_id)
 
-    if not completed_run_ids and not completed_project_ids:
+    if not completed_run_ids:
         return None
 
     body = _worker_dashboard_body_from_preflight(preflight)
@@ -1014,8 +1007,7 @@ def _worker_settling_after_vm_completion(
         if not isinstance(run, dict):
             continue
         run_id = str(run.get("run_id") or "").strip()
-        project_id = str(run.get("project_id") or "").strip()
-        if run_id not in completed_run_ids and project_id not in completed_project_ids:
+        if run_id not in completed_run_ids:
             continue
         active_process_count = _int_or_none(run.get("active_process_count"))
         if active_process_count != 0:
@@ -1028,7 +1020,6 @@ def _worker_settling_after_vm_completion(
             "worker_run": run,
             "worker_check": no_live,
             "matched_run_id": run_id,
-            "matched_project_id": project_id,
         }
     return None
 
@@ -2437,7 +2428,6 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         return dashboard_status_response(refresh_worker=refresh_worker)
 
     def _artifact_root_for_queue_row(row: dict[str, Any]) -> tuple[Path, str]:
-        project_id = str(row.get("project_id") or "").strip()
         project_dir_text = str(row.get("project_dir") or project_id).strip()
         return _local_artifact_root(config, project_id=project_id, project_dir_text=project_dir_text), project_dir_text
 
@@ -2461,8 +2451,7 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             return []
         reconciled: list[dict[str, Any]] = []
         for row in status.active_items:
-            project_id = str(row.get("project_id") or "").strip()
-            run_id = str(row.get("current_run_id") or "").strip()
+                run_id = str(row.get("current_run_id") or "").strip()
             if not project_id or not run_id:
                 continue
             artifact_root, project_dir_text = _artifact_root_for_queue_row(row)

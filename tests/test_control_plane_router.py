@@ -4126,6 +4126,65 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(alert["should_alert"])
             self.assertEqual(alert["findings"], [])
 
+    def test_dashboard_status_does_not_treat_project_only_worker_settling_match_as_backpressure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client_with_config(_config(tmp).model_copy(update={"live_dispatch_enabled": True}))
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_id = "idea-worker-settling"
+            completed_run_id = "run-worker-settled-completed"
+            stale_worker_run_id = "run-worker-stale-orphan"
+            client.post("/control/import/legacy-snapshot", headers=headers, json={
+                "idempotency_key": "worker-settling-project-only-import",
+                "queue_rows": [{
+                    "project_id": project_id,
+                    "project_name": "Worker Settling Project",
+                    "project_dir": project_id,
+                    "status": "completed",
+                    "current_run_id": completed_run_id,
+                    "last_run_state": "wake_ready",
+                }],
+            })
+            client.post("/control/resume", headers=headers, json={"resumed_by": "test", "maintenance_mode": False})
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="warn",
+                payload={
+                    "ok": False,
+                    "checks": [
+                        {"name": "wake_gate_healthz", "ok": True, "detail": "ok", "data": {}},
+                        {
+                            "name": "wake_gate_dashboard_api",
+                            "ok": True,
+                            "detail": "dashboard API reachable",
+                            "data": {
+                                "body": {
+                                    "totals": {"active_or_waiting": 1, "live": 1},
+                                    "runs": [{
+                                        "run_id": stale_worker_run_id,
+                                        "project_id": project_id,
+                                        "gate_state": "waiting_for_quiet_window",
+                                        "lifecycle_state": "settling",
+                                        "callback_delivered": False,
+                                        "is_live": True,
+                                        "active_process_count": 0,
+                                    }],
+                                }
+                            },
+                        },
+                        {"name": "worker_no_live_runs", "ok": False, "detail": "active_or_waiting=1, live=1", "data": {"active_or_waiting": 1, "live": 1}},
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(source="worker_dashboard_api", status="ok", payload={"ok": True})
+
+            status = client.get("/control/api/status", headers=headers).json()
+
+            self.assertNotIn("GB10 worker settling completed run", status["dispatch_blockers"])
+            self.assertIn("GB10/VM active-lane conflict", status["dispatch_blockers"])
+            self.assertTrue(any(item["severity"] == "critical" for item in status["conflicts"]))
+            self.assertFalse(any(item["source"] == "worker_settling" for item in status["warnings"]))
+
     def test_dashboard_status_treats_matching_worker_live_lane_as_active_not_warning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client_with_config(_live_config(tmp))
