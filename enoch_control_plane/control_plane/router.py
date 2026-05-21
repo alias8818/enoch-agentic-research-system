@@ -819,7 +819,11 @@ def _worker_run_updated_recently(run: dict[str, Any], *, grace_seconds: int = WO
     observed = _parse_ts(str(run.get("updated_at") or run.get("last_seen_at") or run.get("created_at") or "") or None)
     if observed is None:
         return False
-    return datetime.now(timezone.utc) <= observed + timedelta(seconds=max(1, grace_seconds))
+    now = datetime.now(timezone.utc)
+    grace = timedelta(seconds=max(1, grace_seconds))
+    if observed > now + grace:
+        return False
+    return now <= observed + grace
 
 
 def _recent_worker_settling_without_vm_match(*, preflight: DashboardObservationRecord | None) -> dict[str, Any] | None:

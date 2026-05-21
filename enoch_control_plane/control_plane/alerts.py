@@ -167,7 +167,7 @@ def queue_alert_findings(status: DashboardStatusResponse, *, hang_after_sec: int
             if item.source == "worker_resource_policy":
                 findings.append(item)
                 continue
-            if item.source in {"worker_preflight", "worker_dashboard_api", "control_plane_db+worker_preflight"}:
+            if item.source in {"worker_preflight", "worker_dashboard_api", "control_plane_db+worker_preflight", "worker_settling"}:
                 if (
                     active_lane_present
                     and not active_lane_unhealthy
