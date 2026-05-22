@@ -1650,7 +1650,10 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
             else:
                 next_action = "generate_candidate"
                 target_label = "GB10" if "gb10" in machine_target.lower() else "CPU" if "cpu" in machine_target.lower() else machine_target or "default"
-                summary = f"{label} {'idle ' if not active_count else ''}with no queued candidate; autopilot should generate {target_label}-targeted work."
+                if queued_count:
+                    summary = f"{label} active with queued depth {queued_count}/{min_queue_depth}; autopilot should generate {target_label}-targeted work to fill the remaining deficit."
+                else:
+                    summary = f"{label} {'idle ' if not active_count else ''}with no queued candidate; autopilot should generate {target_label}-targeted work."
             pressure[machine_target or lane_key] = {
                 "lane_key": lane_key,
                 "machine_target": machine_target,

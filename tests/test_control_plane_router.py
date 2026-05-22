@@ -2985,6 +2985,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
         body = response.json()
         self.assertTrue(body["ok"])
         self.assertEqual(body["generation_target_lane"]["machine_target"], "cpu-proxmox-1")
+        self.assertIn("GB10 lane active with queued depth 6/25", body["lane_feed_pressure"]["gb10"]["operator_summary"])
         self.assertEqual(body["followup_launch"]["action"], "skipped")
         self.assertIn("different lane", body["followup_launch"]["reason"])
         self.assertFalse(body["fresh_generation_skipped"])
