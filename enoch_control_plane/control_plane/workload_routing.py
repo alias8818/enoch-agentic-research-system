@@ -152,15 +152,16 @@ def infer_workload_class_from_text(row: dict[str, Any]) -> str:
     if not text:
         return "unknown"
     text_without_negated_strong_gpu = _remove_terms(text, NEGATED_STRONG_GPU_TERMS)
+    text_without_negated_gpu = _remove_terms(text_without_negated_strong_gpu, NEGATED_GPU_TERMS)
     text_without_negated_training = _remove_terms(text, NEGATED_TRAINING_TERMS)
 
     has_negated_gpu = _contains_any(text, NEGATED_GPU_TERMS)
     has_negated_strong_gpu = _contains_any(text, NEGATED_STRONG_GPU_TERMS)
     has_gpu_required = _contains_any(
-        text_without_negated_strong_gpu, GPU_REQUIRED_TERMS
+        text_without_negated_gpu, GPU_REQUIRED_TERMS
     )
     has_strong_gpu_positive = _contains_any(
-        text_without_negated_strong_gpu, GPU_STRONG_POSITIVE_TERMS
+        text_without_negated_gpu, GPU_STRONG_POSITIVE_TERMS
     )
     has_training = _contains_any(text_without_negated_training, TRAINING_TERMS)
     has_negated_training = _contains_any(text, NEGATED_TRAINING_TERMS)
@@ -171,10 +172,10 @@ def infer_workload_class_from_text(row: dict[str, Any]) -> str:
         return "cpu_only"
     if has_negated_training and not has_gpu_required:
         return "cpu_only"
+    if has_negated_gpu and not has_strong_gpu_positive:
+        return "cpu_only"
     if has_training:
         return "training"
-    if has_negated_gpu:
-        return "cpu_only"
     if has_gpu_required:
         return "gpu_required"
     if _contains_any(text, CONTROL_PLANE_TERMS):

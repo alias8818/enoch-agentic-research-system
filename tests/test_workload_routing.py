@@ -237,3 +237,33 @@ def test_without_cuda_without_gpu_signal_routes_to_cpu_only() -> None:
     )
     assert routing["workload_class"] == "cpu_only"
     assert routing["machine_target"] == "cpu-proxmox-1"
+
+
+def test_negated_cuda_and_negated_gpu_training_routes_to_cpu_only() -> None:
+    row = {"title": "no CUDA no GPU training benchmark", "machine_target": "gb10"}
+    routing = route_machine_target(
+        row,
+        default_machine_target="gb10",
+        workload_machine_targets={
+            "cpu_only": "cpu-proxmox-1",
+            "gpu_required": "gb10",
+            "training": "gb10",
+        },
+    )
+    assert routing["workload_class"] == "cpu_only"
+    assert routing["machine_target"] == "cpu-proxmox-1"
+
+
+def test_negated_gpu_training_routes_to_cpu_only() -> None:
+    row = {"title": "no GPU training benchmark", "machine_target": "gb10"}
+    routing = route_machine_target(
+        row,
+        default_machine_target="gb10",
+        workload_machine_targets={
+            "cpu_only": "cpu-proxmox-1",
+            "gpu_required": "gb10",
+            "training": "gb10",
+        },
+    )
+    assert routing["workload_class"] == "cpu_only"
+    assert routing["machine_target"] == "cpu-proxmox-1"
