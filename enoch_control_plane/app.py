@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from collections import Counter
 from collections import deque
 from datetime import datetime, timezone
@@ -63,7 +64,26 @@ store = StateStore(config.expanded_state_dir)
 telemetry = TelemetryCollector()
 gate = WakeGate(config, ProcessTracker(config.expanded_project_root), telemetry)
 sender = CallbackSender(config)
-app = FastAPI(title="enoch_worker_gate", version="0.1.0")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global reconcile_task
+    # startup logic (replaces deprecated @app.on_event("startup"))
+    if reconcile_task is None or reconcile_task.done():
+        reconcile_task = asyncio.create_task(_reconcile_missing_idle_loop())
+    yield
+    # shutdown logic (replaces deprecated @app.on_event("shutdown"))
+    if reconcile_task is not None:
+        reconcile_task.cancel()
+        try:
+            await reconcile_task
+        except asyncio.CancelledError:
+            raise
+        reconcile_task = None
+
+
+app = FastAPI(title="enoch_worker_gate", version="0.1.0", lifespan=lifespan)
 if config.route_observability_enabled:
     route_observation_path = (
         Path(config.route_observability_log_path).expanduser()
@@ -2922,20 +2942,5 @@ async def _reconcile_missing_idle_loop() -> None:
         raise
 
 
-@app.on_event("startup")
-async def _startup_tasks() -> None:
-    global reconcile_task
-    if reconcile_task is None or reconcile_task.done():
-        reconcile_task = asyncio.create_task(_reconcile_missing_idle_loop())
-
-
-@app.on_event("shutdown")
-async def _shutdown_tasks() -> None:
-    global reconcile_task
-    if reconcile_task is not None:
-        reconcile_task.cancel()
-        try:
-            await reconcile_task
-        except asyncio.CancelledError:
-            raise
-        reconcile_task = None
+# NOTE: startup/shutdown logic moved to the lifespan context manager above
+# (modern FastAPI pattern, removes on_event deprecation warnings).
