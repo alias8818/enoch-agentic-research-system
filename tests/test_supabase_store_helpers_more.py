@@ -4071,3 +4071,46 @@ def test_validate_supabase_readonly_adapter_assert_and_comparable_helpers() -> N
     v._assert_ok(False, "expected-failure-recorded", failures)
     v._assert_ok(2 + 2 == 4, "math-failed", failures)
     assert failures == ["expected-failure-recorded"]
+
+
+def test_supabase_store_validate_checklist_item_update_rules() -> None:
+    """Unit test for the validator extracted from the long update_paper_review_checklist
+    method to reduce C901. Covers all business rule error paths.
+    """
+    from enoch_control_plane.control_plane.supabase_store import (
+        SupabaseControlPlaneStore,
+    )
+
+    item = {"id": "foo", "required": True}
+    # happy path
+    SupabaseControlPlaneStore._validate_checklist_item_update(item, "pass", "", "foo")
+
+    # unknown item
+    with pytest.raises(ValueError, match="unknown checklist item"):
+        SupabaseControlPlaneStore._validate_checklist_item_update(
+            None, "pass", "", "bar"
+        )
+
+    # fail requires note
+    with pytest.raises(ValueError, match="requires a note"):
+        SupabaseControlPlaneStore._validate_checklist_item_update(
+            item, "fail", "", "foo"
+        )
+
+    # accepted_risk requires note
+    with pytest.raises(ValueError, match="requires a note"):
+        SupabaseControlPlaneStore._validate_checklist_item_update(
+            item, "accepted_risk", "", "foo"
+        )
+
+    # final_human_approval cannot be accepted_risk / not_applicable
+    with pytest.raises(ValueError, match="must be pass or fail"):
+        SupabaseControlPlaneStore._validate_checklist_item_update(
+            item, "accepted_risk", "note", "final_human_approval"
+        )
+
+    # not_applicable on required requires note
+    with pytest.raises(ValueError, match="requires a note"):
+        SupabaseControlPlaneStore._validate_checklist_item_update(
+            item, "not_applicable", "", "foo"
+        )

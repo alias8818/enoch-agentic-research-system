@@ -2908,18 +2908,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     )
         return event_id, inserted, self.paper_review_row(paper_id) or {}
 
-    def update_paper_review_checklist(
-        self, paper_id: str, item_id: str, request: PaperReviewChecklistUpdateRequest
-    ) -> tuple[int, bool, dict[str, Any]]:
-        row = self._require_paper_review(paper_id)
-        checklist = _normalize_review_checklist(_json_dict(row.get("checklist_json")))
-        item = next(
-            (entry for entry in checklist["items"] if entry["id"] == item_id), None
-        )
+    def _validate_checklist_item_update(
+        item: dict[str, Any] | None, status: str, note: str, item_id: str
+    ) -> None:
+        """Pure validation extracted from update_paper_review_checklist to reduce C901.
+        All business rules for checklist status transitions live here.
+        """
         if item is None:
             raise ValueError(f"unknown checklist item {item_id}")
-        status = _text(request.status)
-        note = _text(request.note)
         if status == "fail" and not note:
             raise ValueError("fail checklist status requires a note")
         if status == "accepted_risk" and not note:
@@ -2933,6 +2929,20 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             )
         if status == "not_applicable" and item.get("required") and not note:
             raise ValueError("not_applicable on a required item requires a note")
+
+    def update_paper_review_checklist(
+        self, paper_id: str, item_id: str, request: PaperReviewChecklistUpdateRequest
+    ) -> tuple[int, bool, dict[str, Any]]:
+        row = self._require_paper_review(paper_id)
+        checklist = _normalize_review_checklist(_json_dict(row.get("checklist_json")))
+        item = next(
+            (entry for entry in checklist["items"] if entry["id"] == item_id), None
+        )
+        status = _text(request.status)
+        note = _text(request.note)
+        SupabaseControlPlaneStore._validate_checklist_item_update(
+            item, status, note, item_id
+        )
         payload = self._mutation_payload(request, action="checklist_update")
         payload["item_id"] = item_id
         now = utc_now()
