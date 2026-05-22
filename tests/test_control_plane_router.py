@@ -13903,3 +13903,35 @@ def test_draft_next_live_rejects_supabase_readonly_before_artifact_writes() -> N
         assert response.status_code == 501
         assert "writable control-plane store" in response.text
         assert not (project_dir / "papers").exists()
+
+
+def test_resolve_research_provider_model_validation() -> None:
+    """Deterministic unit test for the extracted helper.
+
+    This test would have caught any regression in the allow-list logic
+    that was previously duplicated inside the 900+ line run-cycle function.
+    """
+    from enoch_control_plane.control_plane.router import (
+        _resolve_research_provider_model,
+    )
+
+    # Happy path with explicit model
+    result = _resolve_research_provider_model({"model": "hf:zai-org/GLM-5.1"})
+    assert isinstance(result, tuple)
+    model, allowed = result
+    assert model == "hf:zai-org/GLM-5.1"
+    assert "hf:zai-org/GLM-5.1" in allowed
+
+    # Default fallback works and is in the list
+    result = _resolve_research_provider_model({})
+    assert isinstance(result, tuple)
+    model, allowed = result
+    assert model == "hf:zai-org/GLM-5.1"
+    assert model in allowed
+
+    # Blocked model returns error dict (the behavior the giant function used to have inline)
+    error = _resolve_research_provider_model({"model": "gpt-4o"})
+    assert isinstance(error, dict)
+    assert error["action"] == "research_cycle_blocked"
+    assert "not in the allowed model list" in error["reason"]
+    assert "allowed_models" in error
