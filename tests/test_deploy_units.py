@@ -744,3 +744,20 @@ def test_source_lineage_check_runs_as_direct_deploy_script(tmp_path: Path) -> No
 
     assert result.returncode == 0
     assert "source-lineage" in result.stdout
+
+
+def test_research_default_machine_is_consistent_and_no_longer_hardcoded_ip() -> None:
+    """Regression guard for the inconsistent ENOCH_RESEARCH_DEFAULT_MACHINE fix.
+
+    The old hardcoded 192.168.1.77 must no longer appear as a fallback default
+    for research machine target in the router (all paths must use the
+    placeholder "research-facility-node" or an explicit env var).
+    """
+    router_source = (
+        ROOT / "enoch_control_plane" / "control_plane" / "router.py"
+    ).read_text(encoding="utf-8")
+    # Must not contain the old IP as a default value for the research machine
+    assert 'ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"' not in router_source
+    assert "ENOCH_RESEARCH_DEFAULT_MACHINE', '192.168.1.77'" not in router_source
+    # The new canonical placeholder must be present in the research paths
+    assert router_source.count("research-facility-node") >= 6

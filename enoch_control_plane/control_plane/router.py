@@ -6773,7 +6773,9 @@ def create_control_plane_router(
             try:
                 generation_machine_target = str(
                     (generation_target_lane or {}).get("machine_target")
-                    or os.environ.get("ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77")
+                    or os.environ.get(
+                        "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
+                    )
                 )
                 generation_topic = topic
                 if generation_target_lane:
@@ -6808,7 +6810,7 @@ def create_control_plane_router(
                     (generated.get("candidates") or [])[:max_candidates],
                     Namespace(
                         default_machine=os.environ.get(
-                            "ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"
+                            "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
                         ),
                         default_model=os.environ.get(
                             "ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"
