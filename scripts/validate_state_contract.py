@@ -64,7 +64,9 @@ def _migration_state_like_surfaces() -> set[str]:
         table = match.group(1)
         body = match.group(2)
         for line in body.splitlines():
-            column_match = re.match(r"\s*([a-z_][a-z0-9_]*)\s+([a-z][a-z0-9_ ]*)", line, re.IGNORECASE)
+            column_match = re.match(
+                r"\s*([a-z_][a-z0-9_]*)\s+([a-z][a-z0-9_ ]*)", line, re.IGNORECASE
+            )
             if not column_match:
                 continue
             column = column_match.group(1)
@@ -102,7 +104,9 @@ def _validate_migrations() -> list[str]:
         values = _extract_in_values(sql, column)
         missing = expected - values
         if missing:
-            failures.append(f"migration contract for {surface} missing values: {sorted(missing)}")
+            failures.append(
+                f"migration contract for {surface} missing values: {sorted(missing)}"
+            )
     return failures
 
 
@@ -116,19 +120,29 @@ def _validate_reduction_plan() -> list[str]:
         missing = values - set(planned)
         extra = set(planned) - values
         if missing:
-            failures.append(f"state reduction plan for {surface} missing values: {sorted(missing)}")
+            failures.append(
+                f"state reduction plan for {surface} missing values: {sorted(missing)}"
+            )
         if extra:
-            failures.append(f"state reduction plan for {surface} has values outside contract: {sorted(extra)}")
+            failures.append(
+                f"state reduction plan for {surface} has values outside contract: {sorted(extra)}"
+            )
         for value, decision in planned.items():
             disposition = str(decision.get("disposition") or "")
             lane = str(decision.get("operator_lane") or "")
             replacement = str(decision.get("replacement") or "")
             if disposition not in STATE_DISPOSITIONS:
-                failures.append(f"state reduction plan for {surface}.{value} has invalid disposition: {disposition!r}")
+                failures.append(
+                    f"state reduction plan for {surface}.{value} has invalid disposition: {disposition!r}"
+                )
             if not lane:
-                failures.append(f"state reduction plan for {surface}.{value} missing operator_lane")
+                failures.append(
+                    f"state reduction plan for {surface}.{value} missing operator_lane"
+                )
             if disposition in {"alias", "migrate_after_freeze"} and not replacement:
-                failures.append(f"state reduction plan for {surface}.{value} disposition={disposition} needs replacement")
+                failures.append(
+                    f"state reduction plan for {surface}.{value} disposition={disposition} needs replacement"
+                )
     return failures
 
 
@@ -139,7 +153,8 @@ def _validate_surface_inventory() -> list[str]:
     extra_canonical = {
         surface
         for surface, decision in STATE_SURFACE_INVENTORY.items()
-        if decision.get("class") == "canonical_lifecycle" and surface not in STATE_CONTRACT
+        if decision.get("class") == "canonical_lifecycle"
+        and surface not in STATE_CONTRACT
     }
     noncanonical_contract = {
         surface
@@ -147,11 +162,17 @@ def _validate_surface_inventory() -> list[str]:
         if surface in STATE_CONTRACT and decision.get("class") != "canonical_lifecycle"
     }
     if missing:
-        failures.append(f"state surface inventory missing schema surfaces: {sorted(missing)}")
+        failures.append(
+            f"state surface inventory missing schema surfaces: {sorted(missing)}"
+        )
     if extra_canonical:
-        failures.append(f"state surface inventory marks non-contract surfaces as canonical_lifecycle: {sorted(extra_canonical)}")
+        failures.append(
+            f"state surface inventory marks non-contract surfaces as canonical_lifecycle: {sorted(extra_canonical)}"
+        )
     if noncanonical_contract:
-        failures.append(f"state surface inventory marks contract surfaces as non-canonical: {sorted(noncanonical_contract)}")
+        failures.append(
+            f"state surface inventory marks contract surfaces as non-canonical: {sorted(noncanonical_contract)}"
+        )
     for surface, decision in sorted(STATE_SURFACE_INVENTORY.items()):
         surface_class = str(decision.get("class") or "")
         if surface_class not in {
@@ -166,7 +187,9 @@ def _validate_surface_inventory() -> list[str]:
             "event_taxonomy",
             "projection_metadata",
         }:
-            failures.append(f"state surface inventory for {surface} has invalid class: {surface_class!r}")
+            failures.append(
+                f"state surface inventory for {surface} has invalid class: {surface_class!r}"
+            )
         if not str(decision.get("reason") or ""):
             failures.append(f"state surface inventory for {surface} missing reason")
     return failures
@@ -181,8 +204,14 @@ def _live_distincts(database_url: str) -> dict[str, list[tuple[str, int]]]:
         "runs.state": ("runs", "state"),
         "runs.gate_state": ("runs", "gate_state"),
         "papers.paper_status": ("papers", "paper_status"),
-        "publication_automation_items.automation_status": ("publication_automation_items", "automation_status"),
-        "project_decisions.decision_gate_state": ("project_decisions", "decision_gate_state"),
+        "publication_automation_items.automation_status": (
+            "publication_automation_items",
+            "automation_status",
+        ),
+        "project_decisions.decision_gate_state": (
+            "project_decisions",
+            "decision_gate_state",
+        ),
         "ideas.idea_status": ("ideas", "idea_status"),
         "projects.origin_idea_status": ("projects", "origin_idea_status"),
     }
@@ -191,13 +220,21 @@ def _live_distincts(database_url: str) -> dict[str, list[tuple[str, int]]]:
         with conn.cursor() as cur:
             cur.execute("set search_path to enoch, public")
             for surface, (table, column) in table_column.items():
-                cur.execute(f"select {column}, count(*)::int from {table} group by {column} order by {column}")
-                result[surface] = [(str(value or ""), int(count)) for value, count in cur.fetchall()]
+                cur.execute(
+                    f"select {column}, count(*)::int from {table} group by {column} order by {column}"
+                )
+                result[surface] = [
+                    (str(value or ""), int(count)) for value, count in cur.fetchall()
+                ]
     return result
 
 
 def validate(*, database_url: str = "") -> dict[str, Any]:
-    failures = _validate_migrations() + _validate_reduction_plan() + _validate_surface_inventory()
+    failures = (
+        _validate_migrations()
+        + _validate_reduction_plan()
+        + _validate_surface_inventory()
+    )
     live: dict[str, Any] = {}
     if database_url:
         live = _live_distincts(database_url)
@@ -205,11 +242,16 @@ def validate(*, database_url: str = "") -> dict[str, Any]:
             allowed = STATE_CONTRACT[surface]
             unknown = sorted(value for value, _count in rows if value not in allowed)
             if unknown:
-                failures.append(f"live {surface} has values outside contract: {unknown}")
+                failures.append(
+                    f"live {surface} has values outside contract: {unknown}"
+                )
     return {
         "ok": not failures,
         "failures": failures,
-        "contract": {surface: sorted(values) for surface, values in sorted(STATE_CONTRACT.items())},
+        "contract": {
+            surface: sorted(values)
+            for surface, values in sorted(STATE_CONTRACT.items())
+        },
         "state_surface_inventory": STATE_SURFACE_INVENTORY,
         "reduction_plan": STATE_REDUCTION_PLAN,
         "live_distincts": live,
@@ -217,8 +259,14 @@ def validate(*, database_url: str = "") -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate Enoch raw state vocabulary against the canonical state contract.")
-    parser.add_argument("--database-url", default=os.environ.get("ENOCH_SUPABASE_DATABASE_URL", ""), help="Optional live Supabase/Postgres URL for distinct-value validation.")
+    parser = argparse.ArgumentParser(
+        description="Validate Enoch raw state vocabulary against the canonical state contract."
+    )
+    parser.add_argument(
+        "--database-url",
+        default=os.environ.get("ENOCH_SUPABASE_DATABASE_URL", ""),
+        help="Optional live Supabase/Postgres URL for distinct-value validation.",
+    )
     parser.add_argument("--output", default="", help="Optional JSON report path.")
     args = parser.parse_args()
     result = validate(database_url=args.database_url)

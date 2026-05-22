@@ -23,7 +23,6 @@ def test_state_store_roundtrip_and_skips_invalid_json(tmp_path: Path) -> None:
     assert store.events_log.read_text().strip() == '{"a": 1, "b": 2}'
 
 
-
 def test_state_store_load_run_treats_corrupt_file_as_missing(tmp_path: Path) -> None:
     store = StateStore(tmp_path)
     store.run_path("corrupt-run").write_text("not-json", encoding="utf-8")
@@ -81,16 +80,25 @@ def test_callback_sender_posts_expected_headers(monkeypatch) -> None:
         idempotency_key="idem",
     )
     captured = {}
+
     class Resp:
         status = 202
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
-        def read(self): return b"accepted"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return b"accepted"
+
     def fake_urlopen(req, timeout):
         captured["url"] = req.full_url
         captured["headers"] = dict(req.header_items())
         captured["timeout"] = timeout
         return Resp()
+
     monkeypatch.setattr("enoch_control_plane.callbacks.request.urlopen", fake_urlopen)
     status, text = CallbackSender(config).send(callback)
     assert status == 202
@@ -135,9 +143,13 @@ def test_callback_sender_rejects_file_scheme_before_urlopen(monkeypatch) -> None
 
 
 def test_dspy_program_signatures_with_fake_module(monkeypatch) -> None:
-    class Signature: pass
+    class Signature:
+        pass
+
     class Field:
-        def __init__(self, *args, **kwargs): pass
+        def __init__(self, *args, **kwargs):
+            pass
+
     fake = SimpleNamespace(Signature=Signature, InputField=Field, OutputField=Field)
     monkeypatch.setitem(sys.modules, "dspy", fake)
     assert dspy_programs.dspy_available() is True

@@ -174,7 +174,11 @@ def redirect_target_is_dashboard_v2(location: str, base_url: str) -> bool:
 def resolve_token(cli_token: str, token_env: str) -> str:
     if cli_token:
         return cli_token
-    for env_name in (token_env, "ENOCH_CONTROL_PLANE_TOKEN", "OMX_INBOUND_BEARER_TOKEN"):
+    for env_name in (
+        token_env,
+        "ENOCH_CONTROL_PLANE_TOKEN",
+        "OMX_INBOUND_BEARER_TOKEN",
+    ):
         value = os.environ.get(env_name, "")
         if value:
             return value
@@ -198,7 +202,9 @@ def check_health(base_url: str, timeout: float) -> CheckResult:
         return CheckResult("healthz", False, "fail", f"HTTP {status}", elapsed_ms)
     text = body.decode("utf-8", errors="replace").lower()
     if "ok" not in text and "healthy" not in text and text.strip() not in {"true", "1"}:
-        return CheckResult("healthz", False, "fail", "response body did not look healthy", elapsed_ms)
+        return CheckResult(
+            "healthz", False, "fail", "response body did not look healthy", elapsed_ms
+        )
     return CheckResult("healthz", True, "pass", "ok", elapsed_ms)
 
 
@@ -212,7 +218,9 @@ def check_shell(base_url: str, timeout: float) -> tuple[CheckResult, str]:
     if status is None:
         return CheckResult("dashboard_v2_shell", False, "fail", err, elapsed_ms), ""
     if not (200 <= status < 300):
-        return CheckResult("dashboard_v2_shell", False, "fail", f"HTTP {status}", elapsed_ms), ""
+        return CheckResult(
+            "dashboard_v2_shell", False, "fail", f"HTTP {status}", elapsed_ms
+        ), ""
     html = body.decode("utf-8", errors="replace")
     if ROOT_MARKER not in html:
         return CheckResult(
@@ -222,7 +230,9 @@ def check_shell(base_url: str, timeout: float) -> tuple[CheckResult, str]:
             f"missing root marker {ROOT_MARKER}",
             elapsed_ms,
         ), html
-    return CheckResult("dashboard_v2_shell", True, "pass", "root marker present", elapsed_ms), html
+    return CheckResult(
+        "dashboard_v2_shell", True, "pass", "root marker present", elapsed_ms
+    ), html
 
 
 def check_assets(base_url: str, index_html: str, timeout: float) -> list[CheckResult]:
@@ -254,7 +264,9 @@ def check_assets(base_url: str, index_html: str, timeout: float) -> list[CheckRe
         if status is None:
             results.append(CheckResult(name, False, "fail", err, elapsed_ms))
         elif not (200 <= status < 300):
-            results.append(CheckResult(name, False, "fail", f"HTTP {status}", elapsed_ms))
+            results.append(
+                CheckResult(name, False, "fail", f"HTTP {status}", elapsed_ms)
+            )
         else:
             results.append(CheckResult(name, True, "pass", "ok", elapsed_ms))
     return results
@@ -393,7 +405,9 @@ def run_smoke(
                 report.ok = False
         return report
 
-    overview = check_api_endpoint(base_url, "api_overview", API_OVERVIEW, token, timeout)
+    overview = check_api_endpoint(
+        base_url, "api_overview", API_OVERVIEW, token, timeout
+    )
     report.checks.append(overview)
     if not overview.ok:
         report.ok = False
@@ -407,16 +421,22 @@ def run_smoke(
     )
     if events_status is None or not (200 <= events_status < 300):
         detail = events_err or f"HTTP {events_status}"
-        report.checks.append(CheckResult("api_events_index", False, "fail", detail, events_elapsed))
+        report.checks.append(
+            CheckResult("api_events_index", False, "fail", detail, events_elapsed)
+        )
         report.ok = False
         report.checks.append(
             CheckResult("api_event_detail", True, "skipped", "events index failed")
         )
     else:
-        report.checks.append(CheckResult("api_events_index", True, "pass", "ok", events_elapsed))
+        report.checks.append(
+            CheckResult("api_events_index", True, "pass", "ok", events_elapsed)
+        )
         event_id = first_event_id(events_body)
         if not event_id:
-            report.warnings.append("events index returned no rows; event detail check skipped")
+            report.warnings.append(
+                "events index returned no rows; event detail check skipped"
+            )
             report.checks.append(
                 CheckResult(
                     "api_event_detail",
@@ -462,7 +482,9 @@ def main(argv: list[str] | None = None) -> int:
         "--base-url",
         default=os.environ.get("ENOCH_CONTROL_URL", "http://127.0.0.1:8787"),
     )
-    parser.add_argument("--token", default="", help="Bearer token for /control/api/v1/* checks")
+    parser.add_argument(
+        "--token", default="", help="Bearer token for /control/api/v1/* checks"
+    )
     parser.add_argument("--token-env", default="ENOCH_CONTROL_TOKEN")
     parser.add_argument("--timeout-sec", type=float, default=15.0)
     parser.add_argument(

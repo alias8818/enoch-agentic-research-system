@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from enoch_control_plane.control_plane.longhaul_readiness import evaluate_longhaul_readiness
+from enoch_control_plane.control_plane.longhaul_readiness import (
+    evaluate_longhaul_readiness,
+)
 
 NOW = datetime(2026, 5, 10, 5, 0, 0, tzinfo=timezone.utc)
 
@@ -25,14 +27,31 @@ def _ready_payload() -> dict:
             },
         },
         "timers": {
-            "enoch-research-autopilot.timer": {"ActiveState": "active", "LastTriggerUSec": "Sun 2026-05-10 04:45:00 UTC"},
-            "enoch-corpus-import-autopilot.timer": {"ActiveState": "active", "LastTriggerUSec": "Sun 2026-05-10 04:40:00 UTC"},
+            "enoch-research-autopilot.timer": {
+                "ActiveState": "active",
+                "LastTriggerUSec": "Sun 2026-05-10 04:45:00 UTC",
+            },
+            "enoch-corpus-import-autopilot.timer": {
+                "ActiveState": "active",
+                "LastTriggerUSec": "Sun 2026-05-10 04:40:00 UTC",
+            },
         },
         "services": {
-            "enoch-research-autopilot.service": {"Result": "success", "InactiveEnterTimestamp": "Sun 2026-05-10 04:50:00 UTC"},
-            "enoch-corpus-import-autopilot.service": {"Result": "success", "InactiveEnterTimestamp": "Sun 2026-05-10 04:55:00 UTC"},
+            "enoch-research-autopilot.service": {
+                "Result": "success",
+                "InactiveEnterTimestamp": "Sun 2026-05-10 04:50:00 UTC",
+            },
+            "enoch-corpus-import-autopilot.service": {
+                "Result": "success",
+                "InactiveEnterTimestamp": "Sun 2026-05-10 04:55:00 UTC",
+            },
         },
-        "provider_budget": {"ok": True, "provider": "synthetic", "remaining_credits": 100.0, "rolling_remaining": 2500},
+        "provider_budget": {
+            "ok": True,
+            "provider": "synthetic",
+            "remaining_credits": 100.0,
+            "rolling_remaining": 2500,
+        },
         "research_quality": {
             "ok": True,
             "status": "warnings",
@@ -80,17 +99,27 @@ def test_queue_pause_is_first_class_blocker() -> None:
 def test_publish_ready_requires_recent_corpus_tick() -> None:
     payload = _ready_payload()
     payload["overview"]["paper_pipeline"]["publish_ready"] = 2
-    payload["services"]["enoch-corpus-import-autopilot.service"]["InactiveEnterTimestamp"] = "Sun 2026-05-10 02:00:00 UTC"
-    payload["timers"]["enoch-corpus-import-autopilot.timer"]["LastTriggerUSec"] = "Sun 2026-05-10 02:00:00 UTC"
+    payload["services"]["enoch-corpus-import-autopilot.service"][
+        "InactiveEnterTimestamp"
+    ] = "Sun 2026-05-10 02:00:00 UTC"
+    payload["timers"]["enoch-corpus-import-autopilot.timer"]["LastTriggerUSec"] = (
+        "Sun 2026-05-10 02:00:00 UTC"
+    )
     result = evaluate_longhaul_readiness(now=NOW, **payload)
     assert result["ok"] is False
-    assert "publish_ready=2 but latest corpus tick is stale or missing" in result["blockers"]
-
+    assert (
+        "publish_ready=2 but latest corpus tick is stale or missing"
+        in result["blockers"]
+    )
 
 
 def test_research_quality_blocker_fails_longhaul_readiness() -> None:
     payload = _ready_payload()
-    payload["research_quality"] = {"ok": False, "status": "blocked", "problem_counts": {"unknown_decision": 1}}
+    payload["research_quality"] = {
+        "ok": False,
+        "status": "blocked",
+        "problem_counts": {"unknown_decision": 1},
+    }
     result = evaluate_longhaul_readiness(now=NOW, **payload)
     assert result["ok"] is False
     assert "research quality status=blocked" in result["blockers"]
@@ -107,7 +136,9 @@ def test_research_quality_warning_does_not_block_longhaul_readiness() -> None:
     result = evaluate_longhaul_readiness(now=NOW, **payload)
     assert result["ok"] is True
     assert result["summary"]["research_quality_status"] == "warnings"
-    assert result["summary"]["research_quality_problem_counts"] == {"weak_or_missing_evidence_strength": 1}
+    assert result["summary"]["research_quality_problem_counts"] == {
+        "weak_or_missing_evidence_strength": 1
+    }
 
 
 def test_research_quality_post_prompt_monitor_is_exposed_in_summary() -> None:
@@ -122,21 +153,35 @@ def test_research_quality_post_prompt_monitor_is_exposed_in_summary() -> None:
     result = evaluate_longhaul_readiness(now=NOW, **payload)
 
     assert result["ok"] is True
-    assert result["summary"]["research_quality_post_prompt_monitor"]["candidate_count"] == 20
-    assert result["summary"]["research_quality_post_prompt_monitor"]["malformed_provider_response_count"] == 1
-
+    assert (
+        result["summary"]["research_quality_post_prompt_monitor"]["candidate_count"]
+        == 20
+    )
+    assert (
+        result["summary"]["research_quality_post_prompt_monitor"][
+            "malformed_provider_response_count"
+        ]
+        == 1
+    )
 
 
 def test_tick_freshness_treats_naive_iso_timestamps_as_utc() -> None:
     payload = _ready_payload()
-    payload["services"]["enoch-research-autopilot.service"]["InactiveEnterTimestamp"] = "2026-05-10T04:45:00"
-    payload["services"]["enoch-research-autopilot.service"].pop("ActiveEnterTimestamp", None)
-    payload["timers"]["enoch-research-autopilot.timer"]["LastTriggerUSec"] = "2026-05-10T04:45:00"
+    payload["services"]["enoch-research-autopilot.service"][
+        "InactiveEnterTimestamp"
+    ] = "2026-05-10T04:45:00"
+    payload["services"]["enoch-research-autopilot.service"].pop(
+        "ActiveEnterTimestamp", None
+    )
+    payload["timers"]["enoch-research-autopilot.timer"]["LastTriggerUSec"] = (
+        "2026-05-10T04:45:00"
+    )
 
     result = evaluate_longhaul_readiness(now=NOW, **payload)
 
     assert result["ok"] is True
     assert result["summary"]["research_tick_age_seconds"] == 900
+
 
 def test_source_lineage_blocker_fails_longhaul_readiness() -> None:
     payload = _ready_payload()
@@ -168,7 +213,9 @@ def test_source_lineage_warning_does_not_block_longhaul_readiness() -> None:
 
     assert result["ok"] is True
     assert result["summary"]["source_lineage_status"] == "warnings"
-    assert result["summary"]["source_lineage_problem_counts"] == {"historical_source_lineage_gap": 70}
+    assert result["summary"]["source_lineage_problem_counts"] == {
+        "historical_source_lineage_gap": 70
+    }
 
 
 def test_provider_budget_must_be_checked_and_ok() -> None:
@@ -179,10 +226,16 @@ def test_provider_budget_must_be_checked_and_ok() -> None:
     assert "provider budget below threshold or unavailable" in result["blockers"]
 
 
-def test_tick_freshness_uses_latest_timer_trigger_not_stale_inactive_timestamp() -> None:
+def test_tick_freshness_uses_latest_timer_trigger_not_stale_inactive_timestamp() -> (
+    None
+):
     payload = _ready_payload()
-    payload["services"]["enoch-research-autopilot.service"]["InactiveEnterTimestamp"] = "Sun 2026-05-10 04:30:00 UTC"
-    payload["timers"]["enoch-research-autopilot.timer"]["LastTriggerUSec"] = "Sun 2026-05-10 04:59:00 UTC"
+    payload["services"]["enoch-research-autopilot.service"][
+        "InactiveEnterTimestamp"
+    ] = "Sun 2026-05-10 04:30:00 UTC"
+    payload["timers"]["enoch-research-autopilot.timer"]["LastTriggerUSec"] = (
+        "Sun 2026-05-10 04:59:00 UTC"
+    )
     result = evaluate_longhaul_readiness(now=NOW, **payload)
     assert result["ok"] is True
     assert result["summary"]["research_tick_age_seconds"] == 60
@@ -190,12 +243,16 @@ def test_tick_freshness_uses_latest_timer_trigger_not_stale_inactive_timestamp()
 
 def test_tick_freshness_uses_active_enter_for_running_service() -> None:
     payload = _ready_payload()
-    payload["services"]["enoch-research-autopilot.service"].update({
-        "ActiveState": "activating",
-        "ActiveEnterTimestamp": "Sun 2026-05-10 04:58:00 UTC",
-        "InactiveEnterTimestamp": "Sun 2026-05-10 04:10:00 UTC",
-    })
-    payload["timers"]["enoch-research-autopilot.timer"]["LastTriggerUSec"] = "Sun 2026-05-10 04:58:00 UTC"
+    payload["services"]["enoch-research-autopilot.service"].update(
+        {
+            "ActiveState": "activating",
+            "ActiveEnterTimestamp": "Sun 2026-05-10 04:58:00 UTC",
+            "InactiveEnterTimestamp": "Sun 2026-05-10 04:10:00 UTC",
+        }
+    )
+    payload["timers"]["enoch-research-autopilot.timer"]["LastTriggerUSec"] = (
+        "Sun 2026-05-10 04:58:00 UTC"
+    )
     result = evaluate_longhaul_readiness(now=NOW, **payload)
     assert result["ok"] is True
     assert result["summary"]["research_tick_age_seconds"] == 120
@@ -206,14 +263,28 @@ def test_multi_lane_active_queue_counts_are_consistent_when_all_lanes_busy() -> 
     payload["state"]["counts"].update({"queued": 3, "active": 2})
     payload["state"]["next_candidate"] = None
     payload["state"]["worker_lanes"] = [
-        {"configured": True, "machine_target": "cpu-proxmox-1", "status": "active", "active_count": 1, "queued_count": 0},
-        {"configured": True, "machine_target": "gb10", "status": "active", "active_count": 1, "queued_count": 3},
+        {
+            "configured": True,
+            "machine_target": "cpu-proxmox-1",
+            "status": "active",
+            "active_count": 1,
+            "queued_count": 0,
+        },
+        {
+            "configured": True,
+            "machine_target": "gb10",
+            "status": "active",
+            "active_count": 1,
+            "queued_count": 3,
+        },
     ]
 
     result = evaluate_longhaul_readiness(now=NOW, **payload)
 
     assert result["ok"] is True
-    check = next(item for item in result["checks"] if item["name"] == "queue_counts_consistent")
+    check = next(
+        item for item in result["checks"] if item["name"] == "queue_counts_consistent"
+    )
     assert check["ok"] is True
     assert check["data"]["worker_lane_capacity"] == 2
 
@@ -223,15 +294,29 @@ def test_duplicate_active_on_same_lane_blocks_queue_count_consistency() -> None:
     payload["state"]["counts"].update({"queued": 0, "active": 2})
     payload["state"]["next_candidate"] = None
     payload["state"]["worker_lanes"] = [
-        {"configured": True, "machine_target": "cpu-proxmox-1", "status": "active", "active_count": 2, "queued_count": 0},
-        {"configured": True, "machine_target": "gb10", "status": "idle", "active_count": 0, "queued_count": 0},
+        {
+            "configured": True,
+            "machine_target": "cpu-proxmox-1",
+            "status": "active",
+            "active_count": 2,
+            "queued_count": 0,
+        },
+        {
+            "configured": True,
+            "machine_target": "gb10",
+            "status": "idle",
+            "active_count": 0,
+            "queued_count": 0,
+        },
     ]
 
     result = evaluate_longhaul_readiness(now=NOW, **payload)
 
     assert result["ok"] is False
     assert "queued/active state inconsistent" in result["blockers"]
-    check = next(item for item in result["checks"] if item["name"] == "queue_counts_consistent")
+    check = next(
+        item for item in result["checks"] if item["name"] == "queue_counts_consistent"
+    )
     assert check["ok"] is False
     assert check["data"]["lane_conflict"] is True
 
@@ -241,15 +326,31 @@ def test_open_lane_queued_work_requires_top_level_next_candidate() -> None:
     payload["state"]["counts"].update({"queued": 1, "active": 1})
     payload["state"]["next_candidate"] = None
     payload["state"]["worker_lanes"] = [
-        {"configured": True, "machine_target": "cpu-proxmox-1", "status": "active", "active_count": 1, "queued_count": 0, "dispatch_available": False},
-        {"configured": True, "machine_target": "gb10", "status": "idle", "active_count": 0, "queued_count": 1, "dispatch_available": True},
+        {
+            "configured": True,
+            "machine_target": "cpu-proxmox-1",
+            "status": "active",
+            "active_count": 1,
+            "queued_count": 0,
+            "dispatch_available": False,
+        },
+        {
+            "configured": True,
+            "machine_target": "gb10",
+            "status": "idle",
+            "active_count": 0,
+            "queued_count": 1,
+            "dispatch_available": True,
+        },
     ]
 
     result = evaluate_longhaul_readiness(now=NOW, **payload)
 
     assert result["ok"] is False
     assert "queued/active state inconsistent" in result["blockers"]
-    check = next(item for item in result["checks"] if item["name"] == "queue_counts_consistent")
+    check = next(
+        item for item in result["checks"] if item["name"] == "queue_counts_consistent"
+    )
     assert check["ok"] is False
 
 

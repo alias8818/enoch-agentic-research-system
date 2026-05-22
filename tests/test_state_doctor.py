@@ -1,10 +1,18 @@
-from scripts.state_doctor import _dashboard_audit, _live_reduction_drift, evaluate_report
+from scripts.state_doctor import (
+    _dashboard_audit,
+    _live_reduction_drift,
+    evaluate_report,
+)
 
 
 def test_dashboard_audit_rejects_detail_keys_in_operator_counts() -> None:
     audit = _dashboard_audit(
         {
-            "operator_counts": {"write_paper": 0, "run_complete_draft_needed": 1, "needs_attention": 0},
+            "operator_counts": {
+                "write_paper": 0,
+                "run_complete_draft_needed": 1,
+                "needs_attention": 0,
+            },
             "operator_detail_counts": {"run_complete_draft_needed": 1},
             "paper_pipeline": {
                 "write_needed": 0,
@@ -64,12 +72,18 @@ def test_dashboard_audit_requires_investigation_pipeline_boundary() -> None:
 def test_reduction_drift_hard_fails_alias_and_migrate_after_freeze_rows() -> None:
     drift = _live_reduction_drift(
         {
-            "queue_items.last_run_state": [("session_finished_ready", 2), ("wake_ready", 3)],
+            "queue_items.last_run_state": [
+                ("session_finished_ready", 2),
+                ("wake_ready", 3),
+            ],
             "runs.state": [("needs_review", 1)],
         }
     )
 
-    assert {row["value"] for row in drift["hard_rows"]} == {"session_finished_ready", "needs_review"}
+    assert {row["value"] for row in drift["hard_rows"]} == {
+        "session_finished_ready",
+        "needs_review",
+    }
 
 
 def test_evaluate_report_treats_legacy_internal_rows_as_warning_only() -> None:
@@ -94,7 +108,10 @@ def test_evaluate_report_treats_legacy_internal_rows_as_warning_only() -> None:
     evaluation = evaluate_report(report)
 
     assert evaluation["failures"] == []
-    assert "legacy internal rows remain: runs.state.unknown has 2 row(s)" in evaluation["warnings"]
+    assert (
+        "legacy internal rows remain: runs.state.unknown has 2 row(s)"
+        in evaluation["warnings"]
+    )
 
 
 def test_evaluate_report_fails_legacy_internal_rows_on_active_runtime_lane() -> None:
@@ -175,7 +192,9 @@ def test_evaluate_report_suppresses_classified_historical_residue_noise() -> Non
     evaluation = evaluate_report(report)
 
     assert evaluation["failures"] == []
-    assert not any("legacy internal rows remain" in item for item in evaluation["warnings"])
+    assert not any(
+        "legacy internal rows remain" in item for item in evaluation["warnings"]
+    )
 
 
 def test_state_doctor_allows_queued_item_without_last_run_state() -> None:
@@ -211,4 +230,6 @@ def test_state_doctor_allows_queued_item_without_last_run_state() -> None:
     evaluation = evaluate_report(report)
 
     assert evaluation["failures"] == []
-    assert not any("legacy internal rows remain" in item for item in evaluation["warnings"])
+    assert not any(
+        "legacy internal rows remain" in item for item in evaluation["warnings"]
+    )

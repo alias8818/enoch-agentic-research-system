@@ -42,12 +42,24 @@ def _timestamp() -> str:
 
 
 def _run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=check)
+    return subprocess.run(
+        cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=check
+    )
 
 
 def _redact_url(url: str) -> str:
     parsed = urlsplit(url)
-    sensitive_query_keys = {"password", "pass", "pwd", "token", "apikey", "api_key", "sslpassword", "sslcert", "sslkey"}
+    sensitive_query_keys = {
+        "password",
+        "pass",
+        "pwd",
+        "token",
+        "apikey",
+        "api_key",
+        "sslpassword",
+        "sslcert",
+        "sslkey",
+    }
     redacted_query = ""
     if parsed.query:
         parts = []
@@ -59,14 +71,18 @@ def _redact_url(url: str) -> str:
                 parts.append(item)
         redacted_query = "&".join(parts)
     if not parsed.hostname or "@" not in parsed.netloc:
-        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, redacted_query, ""))
+        return urlunsplit(
+            (parsed.scheme, parsed.netloc, parsed.path, redacted_query, "")
+        )
     auth = "***"
     if parsed.username:
         auth = f"{parsed.username}:***"
     host = parsed.hostname
     if parsed.port:
         host = f"{host}:{parsed.port}"
-    return urlunsplit((parsed.scheme, f"{auth}@{host}", parsed.path, redacted_query, ""))
+    return urlunsplit(
+        (parsed.scheme, f"{auth}@{host}", parsed.path, redacted_query, "")
+    )
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -75,7 +91,9 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     shutil.copymode(path, tmp)
     os.replace(tmp, path)
 
@@ -124,7 +142,10 @@ def _systemctl(args: list[str]) -> None:
 
 
 def _service_active(service: str) -> bool:
-    return _run(["systemctl", "is-active", service], check=False).stdout.strip() == "active"
+    return (
+        _run(["systemctl", "is-active", service], check=False).stdout.strip()
+        == "active"
+    )
 
 
 def _load_token(path: str) -> str:
@@ -137,7 +158,9 @@ def _load_token(path: str) -> str:
     return ""
 
 
-def _wait_control_plane_ready(control_url: str, token_file: str, *, timeout_seconds: float = 45.0) -> None:
+def _wait_control_plane_ready(
+    control_url: str, token_file: str, *, timeout_seconds: float = 45.0
+) -> None:
     token = _load_token(token_file)
     deadline = time.monotonic() + timeout_seconds
     last_error: Exception | None = None
@@ -153,26 +176,41 @@ def _wait_control_plane_ready(control_url: str, token_file: str, *, timeout_seco
             last_error = exc
         time.sleep(1)
     detail = f": {type(last_error).__name__}: {last_error}" if last_error else ""
-    raise RuntimeError(f"control plane did not become HTTP-ready within {timeout_seconds:.0f}s{detail}")
+    raise RuntimeError(
+        f"control plane did not become HTTP-ready within {timeout_seconds:.0f}s{detail}"
+    )
 
 
 def cutover(args: argparse.Namespace) -> dict[str, Any]:
     config_path = Path(args.config)
     env_path = Path(args.env_file)
     token_file = str(args.token_file)
-    database_url = args.database_url or os.environ.get("ENOCH_SUPABASE_DATABASE_URL", "")
+    database_url = args.database_url or os.environ.get(
+        "ENOCH_SUPABASE_DATABASE_URL", ""
+    )
     if not database_url.strip():
-        raise RuntimeError("missing Supabase Postgres URL; pass --database-url or set ENOCH_SUPABASE_DATABASE_URL")
+        raise RuntimeError(
+            "missing Supabase Postgres URL; pass --database-url or set ENOCH_SUPABASE_DATABASE_URL"
+        )
     if not config_path.exists():
         raise RuntimeError(f"config file not found: {config_path}")
     if not args.no_systemd and hasattr(os, "geteuid") and os.geteuid() != 0:
-        raise RuntimeError("must run as root for systemd cutover; use --no-systemd only for local tests")
+        raise RuntimeError(
+            "must run as root for systemd cutover; use --no-systemd only for local tests"
+        )
 
     preflight_rc = _run_preflight(args.control_url, token_file, database_url)
     if preflight_rc != 0:
-        raise RuntimeError(f"preflight failed before cutover with exit code {preflight_rc}")
+        raise RuntimeError(
+            f"preflight failed before cutover with exit code {preflight_rc}"
+        )
     if args.dry_run:
-        return {"ok": True, "dry_run": True, "database_url": _redact_url(database_url), "would_set_backend": "supabase"}
+        return {
+            "ok": True,
+            "dry_run": True,
+            "database_url": _redact_url(database_url),
+            "would_set_backend": "supabase",
+        }
 
     stamp = _timestamp()
     config_backup = config_path.with_name(f"{config_path.name}.backup.{stamp}")
@@ -197,7 +235,9 @@ def cutover(args: argparse.Namespace) -> dict[str, Any]:
             _wait_control_plane_ready(args.control_url, token_file)
         post_rc = _run_preflight(args.control_url, token_file, database_url)
         if post_rc != 0:
-            raise RuntimeError(f"preflight failed after cutover with exit code {post_rc}")
+            raise RuntimeError(
+                f"preflight failed after cutover with exit code {post_rc}"
+            )
     except Exception:
         shutil.copy2(config_backup, config_path)
         if env_backup:
@@ -226,16 +266,34 @@ def main() -> int:
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     parser.add_argument("--env-file", default=str(DEFAULT_ENV))
     parser.add_argument("--service", default=DEFAULT_SERVICE)
-    parser.add_argument("--control-url", default=os.environ.get("ENOCH_CONTROL_PLANE_URL", DEFAULT_CONTROL_URL))
-    parser.add_argument("--token-file", default=os.environ.get("ENOCH_CONTROL_PLANE_TOKEN_FILE", "/root/enoch-control-plane-token.txt"))
+    parser.add_argument(
+        "--control-url",
+        default=os.environ.get("ENOCH_CONTROL_PLANE_URL", DEFAULT_CONTROL_URL),
+    )
+    parser.add_argument(
+        "--token-file",
+        default=os.environ.get(
+            "ENOCH_CONTROL_PLANE_TOKEN_FILE", "/root/enoch-control-plane-token.txt"
+        ),
+    )
     parser.add_argument("--database-url", default="")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--no-systemd", action="store_true", help="skip systemd changes; intended only for tests")
+    parser.add_argument(
+        "--no-systemd",
+        action="store_true",
+        help="skip systemd changes; intended only for tests",
+    )
     args = parser.parse_args()
     try:
         result = cutover(args)
     except Exception as exc:
-        print(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {"ok": False, "error": f"{type(exc).__name__}: {exc}"},
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 1
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

@@ -38,7 +38,9 @@ class StateStore:
     def save_run(self, record: RunRecord) -> None:
         path = self.run_path(record.run_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=path.parent, delete=False
+        ) as handle:
             handle.write(record.model_dump_json(indent=2, exclude_none=False))
             handle.write("\n")
             tmp = Path(handle.name)

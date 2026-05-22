@@ -10,7 +10,11 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
-from ..enoch_core.logic import followup_candidate_from_decision_payload, paper_draft_decision_gate, project_decision_payload
+from ..enoch_core.logic import (
+    followup_candidate_from_decision_payload,
+    paper_draft_decision_gate,
+    project_decision_payload,
+)
 from ..enoch_core.store import IdempotencyConflict
 from ..models import utc_now
 from .models import (
@@ -32,7 +36,10 @@ from .models import (
     ReviewStatus,
     RunState,
 )
-from .promising_signal_priority import promising_followup_priority_key, ranked_followup_readiness
+from .promising_signal_priority import (
+    promising_followup_priority_key,
+    ranked_followup_readiness,
+)
 from .store import (
     ACTIVE_STATUSES,
     ALLOWED_STATUS_TRANSITIONS,
@@ -88,15 +95,31 @@ def _decision_gate_state(gate: dict[str, Any]) -> str:
         return "positive"
     reason = _text(gate.get("reason")).lower()
     decision = _text(gate.get("decision")).lower()
-    values = " ".join(_text(item[-1]).lower() for item in gate.get("values") or [] if isinstance(item, (list, tuple)) and item)
+    values = " ".join(
+        _text(item[-1]).lower()
+        for item in gate.get("values") or []
+        if isinstance(item, (list, tuple)) and item
+    )
     haystack = " ".join([reason, decision, values])
     if "missing" in reason:
         return "missing"
     if "could not" in reason or "malformed" in reason:
         return "malformed"
-    if any(token in haystack for token in ("negative", "reject", "not positive", "nonpositive", "non_positive")):
+    if any(
+        token in haystack
+        for token in (
+            "negative",
+            "reject",
+            "not positive",
+            "nonpositive",
+            "non_positive",
+        )
+    ):
         return "negative"
-    if any(token in haystack for token in ("needs_review", "inconclusive", "caveat", "conditional", "mixed")):
+    if any(
+        token in haystack
+        for token in ("needs_review", "inconclusive", "caveat", "conditional", "mixed")
+    ):
         return "unknown"
     return "unknown"
 
@@ -104,15 +127,27 @@ def _decision_gate_state(gate: dict[str, Any]) -> str:
 def _stable_followup_id(parent_project_id: str, title: str, hypothesis: str) -> str:
     seed = f"{parent_project_id}:{title}:{hypothesis}"
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:10]
-    slug = _slug_id(title or f"followup-{parent_project_id}")[:58].strip("-") or "followup"
+    slug = (
+        _slug_id(title or f"followup-{parent_project_id}")[:58].strip("-") or "followup"
+    )
     return f"{slug}-{digest}"[:80]
 
 
-def _followup_parent_source_record(candidate: dict[str, Any], followup_payload: dict[str, Any]) -> dict[str, Any]:
-    parent_project_id = _text(followup_payload.get("parent_project_id") or candidate.get("project_id"))
-    parent_run_id = _text(followup_payload.get("parent_run_id") or candidate.get("current_run_id"))
+def _followup_parent_source_record(
+    candidate: dict[str, Any], followup_payload: dict[str, Any]
+) -> dict[str, Any]:
+    parent_project_id = _text(
+        followup_payload.get("parent_project_id") or candidate.get("project_id")
+    )
+    parent_run_id = _text(
+        followup_payload.get("parent_run_id") or candidate.get("current_run_id")
+    )
     parent_title = _text(candidate.get("project_name")) or parent_project_id
-    locator = f"projects/{parent_project_id}/runs/{parent_run_id}" if parent_run_id else f"projects/{parent_project_id}/decisions/latest"
+    locator = (
+        f"projects/{parent_project_id}/runs/{parent_run_id}"
+        if parent_run_id
+        else f"projects/{parent_project_id}/decisions/latest"
+    )
     source_url = f"enoch://control-plane/{locator}"
     source_seed = f"followup-parent-run:{parent_project_id}:{parent_run_id or 'latest'}"
     source_id = f"followup-parent-run-{hashlib.sha256(source_seed.encode('utf-8')).hexdigest()[:16]}"
@@ -130,7 +165,9 @@ def _followup_parent_source_record(candidate: dict[str, Any], followup_payload: 
             "followup_project_id": _text(followup_payload.get("idea_id")),
             "followup_title": _text(followup_payload.get("title")),
             "followup_type": _text(followup_payload.get("followup_type")),
-            "decision_payload_json": candidate.get("decision_payload_json") if isinstance(candidate.get("decision_payload_json"), dict) else {},
+            "decision_payload_json": candidate.get("decision_payload_json")
+            if isinstance(candidate.get("decision_payload_json"), dict)
+            else {},
         },
     }
 
@@ -147,18 +184,24 @@ def _candidate_source_records(candidate: dict[str, Any]) -> list[dict[str, Any]]
         if not isinstance(source, dict):
             continue
         url = _text(source.get("url"))
-        source_id = _text(source.get("source_id")) or (_source_id_for_url(url) if url else "")
+        source_id = _text(source.get("source_id")) or (
+            _source_id_for_url(url) if url else ""
+        )
         if not source_id or source_id in seen_ids:
             continue
         record = {
             "source_id": source_id,
-            "source_kind": _text(source.get("source_kind") or candidate.get("source_kind") or "other"),
+            "source_kind": _text(
+                source.get("source_kind") or candidate.get("source_kind") or "other"
+            ),
             "title": _text(source.get("title") or candidate.get("title")),
             "url": url,
             "external_id": _text(source.get("external_id")),
             "retrieved_at": _text(source.get("retrieved_at")),
             "summary": _text(source.get("summary")),
-            "payload_json": source.get("payload_json") if isinstance(source.get("payload_json"), dict) else {},
+            "payload_json": source.get("payload_json")
+            if isinstance(source.get("payload_json"), dict)
+            else {},
             "content_hash": _text(source.get("content_hash")),
         }
         records.append(record)
@@ -189,7 +232,13 @@ def _candidate_source_records(candidate: dict[str, Any]) -> list[dict[str, Any]]
     return records
 
 
-def _internal_project_source_record(project_id: str, title: str, *, source_kind: str = "", payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def _internal_project_source_record(
+    project_id: str,
+    title: str,
+    *,
+    source_kind: str = "",
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     clean_project_id = _text(project_id)
     clean_title = _text(title) or clean_project_id
     source_id = f"internal_generated:{clean_project_id}"
@@ -210,8 +259,17 @@ def _internal_project_source_record(project_id: str, title: str, *, source_kind:
     }
 
 
-def _record_internal_project_source_lineage(cur: Any, *, project_id: str, title: str, source_kind: str = "", payload: dict[str, Any] | None = None) -> int:
-    source = _internal_project_source_record(project_id, title, source_kind=source_kind, payload=payload)
+def _record_internal_project_source_lineage(
+    cur: Any,
+    *,
+    project_id: str,
+    title: str,
+    source_kind: str = "",
+    payload: dict[str, Any] | None = None,
+) -> int:
+    source = _internal_project_source_record(
+        project_id, title, source_kind=source_kind, payload=payload
+    )
     cur.execute(
         """
         insert into research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash)
@@ -267,25 +325,40 @@ def _record_internal_project_source_lineage(cur: Any, *, project_id: str, title:
 def _followup_depth_from_payload(payload: dict[str, Any] | None) -> int:
     if not isinstance(payload, dict):
         return 0
-    source = payload.get("source_payload_json") if isinstance(payload.get("source_payload_json"), dict) else payload
+    source = (
+        payload.get("source_payload_json")
+        if isinstance(payload.get("source_payload_json"), dict)
+        else payload
+    )
     try:
-        return int(source.get("followup_depth") or source.get("parent_followup_depth") or 0)
+        return int(
+            source.get("followup_depth") or source.get("parent_followup_depth") or 0
+        )
     except (TypeError, ValueError):
         return 0
 
 
-def _enforced_followup_depth(decision_payload: dict[str, Any], *lineage_payloads: dict[str, Any] | None) -> int:
+def _enforced_followup_depth(
+    decision_payload: dict[str, Any], *lineage_payloads: dict[str, Any] | None
+) -> int:
     """Never let worker output reset controller-owned follow-up lineage depth."""
 
-    return max([_followup_depth_from_payload(decision_payload), *[_followup_depth_from_payload(payload) for payload in lineage_payloads]])
-
-
+    return max(
+        [
+            _followup_depth_from_payload(decision_payload),
+            *[_followup_depth_from_payload(payload) for payload in lineage_payloads],
+        ]
+    )
 
 
 _RESEARCH_LADDER_TIERS: dict[int, tuple[str, str, str]] = {
     0: ("Tier 0", "smoke/proxy falsification", "small"),
     1: ("Tier 1", "controlled small direct test", "medium"),
-    2: ("Tier 2", "medium confirmation with fixed seeds, ablations, and a real baseline", "large"),
+    2: (
+        "Tier 2",
+        "medium confirmation with fixed seeds, ablations, and a real baseline",
+        "large",
+    ),
     3: ("Tier 3", "bounded full validation up to roughly 24 hours", "large"),
     4: ("Tier 4", "paper-readiness replication and robustness", "large"),
 }
@@ -315,7 +388,9 @@ def _jsonish_list(value: Any) -> list[Any]:
     return []
 
 
-def _project_decision_payload_from_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+def _project_decision_payload_from_candidate(
+    candidate: dict[str, Any],
+) -> dict[str, Any]:
     payload = _jsonish_dict(candidate.get("decision_payload_json"))
     nested = payload.get("project_decision")
     if isinstance(nested, dict):
@@ -324,7 +399,11 @@ def _project_decision_payload_from_candidate(candidate: dict[str, Any]) -> dict[
 
 
 def _followup_required_evidence_items(candidate: dict[str, Any]) -> list[Any]:
-    return [_text(item) for item in _jsonish_list(candidate.get("followup_required_evidence")) if _text(item)]
+    return [
+        _text(item)
+        for item in _jsonish_list(candidate.get("followup_required_evidence"))
+        if _text(item)
+    ]
 
 
 def _has_concrete_followup(candidate: dict[str, Any]) -> bool:
@@ -337,11 +416,15 @@ def _has_concrete_followup(candidate: dict[str, Any]) -> bool:
     )
 
 
-def _followup_escalation_payload(candidate: dict[str, Any], next_depth: int) -> dict[str, Any]:
+def _followup_escalation_payload(
+    candidate: dict[str, Any], next_depth: int
+) -> dict[str, Any]:
     decision = _project_decision_payload_from_candidate(candidate)
     hypothesis_status = _text(decision.get("hypothesis_status")).lower()
     evidence_strength = _text(decision.get("evidence_strength")).lower()
-    project_decision = _text(decision.get("project_decision") or decision.get("decision")).lower()
+    project_decision = _text(
+        decision.get("project_decision") or decision.get("decision")
+    ).lower()
     concrete = _has_concrete_followup(candidate)
     promising = (
         project_decision == "finalize_negative"
@@ -361,9 +444,13 @@ def _followup_escalation_payload(candidate: dict[str, Any], next_depth: int) -> 
         "Keep the paper gate strict: mechanism support is not publication readiness.",
     ]
     if tier >= 2:
-        guidance.append("Use direct target metrics, fixed seeds where relevant, an ablation/control, and a real baseline.")
+        guidance.append(
+            "Use direct target metrics, fixed seeds where relevant, an ablation/control, and a real baseline."
+        )
     if tier >= 3:
-        guidance.append("A bounded full validation may spend up to roughly 24 hours if the medium signal still holds.")
+        guidance.append(
+            "A bounded full validation may spend up to roughly 24 hours if the medium signal still holds."
+        )
     return {
         "research_ladder_tier": tier,
         "research_ladder_label": f"{tier_name}: {tier_label}",
@@ -376,6 +463,7 @@ def _followup_escalation_payload(candidate: dict[str, Any], next_depth: int) -> 
         ),
         "worker_prompt_guidance": guidance,
     }
+
 
 def _decision_summary(gate: dict[str, Any]) -> str:
     reason = _text(gate.get("reason"))
@@ -392,7 +480,11 @@ def _decision_summary(gate: dict[str, Any]) -> str:
             "recommendation",
         ):
             for item in values:
-                if isinstance(item, (list, tuple)) and len(item) >= 3 and _text(item[1]) == preferred_field:
+                if (
+                    isinstance(item, (list, tuple))
+                    and len(item) >= 3
+                    and _text(item[1]) == preferred_field
+                ):
                     decision = _text(item[2])
                     break
             if decision:
@@ -414,7 +506,9 @@ class SupabaseReadOnlyControlPlaneStore:
     config flag cannot silently cut production writes over to Supabase.
     """
 
-    def __init__(self, database_url: str, *, connect: ConnectionFactory | None = None) -> None:
+    def __init__(
+        self, database_url: str, *, connect: ConnectionFactory | None = None
+    ) -> None:
         self.database_url = database_url.strip()
         if not self.database_url:
             raise ValueError("supabase_database_url is required for supabase backends")
@@ -427,8 +521,12 @@ class SupabaseReadOnlyControlPlaneStore:
         try:
             import psycopg
             from psycopg.rows import dict_row
-        except ImportError as exc:  # pragma: no cover - dependency is declared in pyproject.
-            raise RuntimeError("psycopg is required for the Supabase control-plane adapter") from exc
+        except (
+            ImportError
+        ) as exc:  # pragma: no cover - dependency is declared in pyproject.
+            raise RuntimeError(
+                "psycopg is required for the Supabase control-plane adapter"
+            ) from exc
         return psycopg.connect(self.database_url, row_factory=dict_row)
 
     @contextmanager
@@ -470,7 +568,9 @@ class SupabaseReadOnlyControlPlaneStore:
                     rollback = getattr(conn, "rollback", None)
                     if callable(rollback):
                         rollback()
-                    if bool(getattr(conn, "closed", False)) or self._is_transient_connection_error(exc):
+                    if bool(
+                        getattr(conn, "closed", False)
+                    ) or self._is_transient_connection_error(exc):
                         close = getattr(conn, "close", None)
                         if callable(close):
                             close()
@@ -483,7 +583,9 @@ class SupabaseReadOnlyControlPlaneStore:
                 rollback = getattr(conn, "rollback", None)
                 if callable(rollback):
                     rollback()
-                if bool(getattr(conn, "closed", False)) or self._is_transient_connection_error(exc):
+                if bool(
+                    getattr(conn, "closed", False)
+                ) or self._is_transient_connection_error(exc):
                     close = getattr(conn, "close", None)
                     if callable(close):
                         close()
@@ -495,7 +597,15 @@ class SupabaseReadOnlyControlPlaneStore:
     @staticmethod
     def _is_transient_connection_error(exc: Exception) -> bool:
         text = f"{type(exc).__name__}: {exc}".lower()
-        return any(token in text for token in ("connection is lost", "connection to database closed", "edbhandlerexited", "server closed the connection"))
+        return any(
+            token in text
+            for token in (
+                "connection is lost",
+                "connection to database closed",
+                "edbhandlerexited",
+                "server closed the connection",
+            )
+        )
 
     def _query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
         last_exc: Exception | None = None
@@ -516,7 +626,9 @@ class SupabaseReadOnlyControlPlaneStore:
         raise last_exc
 
     @staticmethod
-    def _cursor_rows(cur: Any, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+    def _cursor_rows(
+        cur: Any, sql: str, params: Sequence[Any] = ()
+    ) -> list[dict[str, Any]]:
         cur.execute(sql, tuple(params))
         return [dict(row) for row in cur.fetchall()]
 
@@ -534,7 +646,9 @@ class SupabaseReadOnlyControlPlaneStore:
     def _json_text(value: Any) -> str:
         if isinstance(value, str):
             return value
-        return json.dumps(value if value is not None else {}, sort_keys=True, separators=(",", ":"))
+        return json.dumps(
+            value if value is not None else {}, sort_keys=True, separators=(",", ":")
+        )
 
     @staticmethod
     def _row_value(row: Any, key: str, index: int) -> Any:
@@ -569,8 +683,10 @@ class SupabaseReadOnlyControlPlaneStore:
             self._row_value(existing, "candidate_id", 1) != candidate_id
             or self._row_value(existing, "admission_decision", 2) != admission_decision
             or self._row_value(existing, "admission_reason", 3) != admission_reason
-            or self._json_text(self._row_value(existing, "score_breakdown", 4)) != score_json
-            or (self._row_value(existing, "admitted_idea_id", 5) or None) != expected_idea_id
+            or self._json_text(self._row_value(existing, "score_breakdown", 4))
+            != score_json
+            or (self._row_value(existing, "admitted_idea_id", 5) or None)
+            != expected_idea_id
             or self._row_value(existing, "operator", 6) != operator
         ):
             raise IdempotencyConflict(
@@ -584,12 +700,22 @@ class SupabaseReadOnlyControlPlaneStore:
             values (%s,%s,%s,%s::jsonb,%s,%s,%s)
             on conflict (idempotency_key) do nothing
             """,
-            (candidate_id, admission_decision, admission_reason, score_json, admitted_idea_id, operator, idempotency_key),
+            (
+                candidate_id,
+                admission_decision,
+                admission_reason,
+                score_json,
+                admitted_idea_id,
+                operator,
+                idempotency_key,
+            ),
         )
         return int(cur.rowcount or 0)
 
     def _read_only(self, *_args: Any, **_kwargs: Any) -> None:
-        raise ReadOnlyStoreError("Supabase control-plane adapter is read-only in this migration phase")
+        raise ReadOnlyStoreError(
+            "Supabase control-plane adapter is read-only in this migration phase"
+        )
 
     append_event = _read_only
     import_snapshot = _read_only
@@ -605,14 +731,18 @@ class SupabaseReadOnlyControlPlaneStore:
             queue_paused=bool(row["queue_paused"]),
             maintenance_mode=bool(row["maintenance_mode"]),
             pause_reason=_text(row["pause_reason"]),
-            paused_at=str(row["paused_at"]) if row.get("paused_at") is not None else None,
+            paused_at=str(row["paused_at"])
+            if row.get("paused_at") is not None
+            else None,
             paused_by=_text(row["paused_by"]),
             updated_at=str(row["updated_at"]),
         )
 
     def queue_counts_sql(self) -> dict[str, int]:
         counts: dict[str, int] = {}
-        for row in self._query("select status, count(*) as count from queue_items group by status"):
+        for row in self._query(
+            "select status, count(*) as count from queue_items group by status"
+        ):
             status = _text(row["status"]) or "unknown"
             count = int(row["count"] or 0)
             counts[status] = count
@@ -629,7 +759,11 @@ class SupabaseReadOnlyControlPlaneStore:
             from queue_items
             where manual_review_required = true or status in (%s, %s, %s)
             """,
-            (QueueStatus.BLOCKED.value, QueueStatus.NEEDS_REVIEW.value, QueueStatus.DISPATCH_ERROR.value),
+            (
+                QueueStatus.BLOCKED.value,
+                QueueStatus.NEEDS_REVIEW.value,
+                QueueStatus.DISPATCH_ERROR.value,
+            ),
         )
         counts["blocked"] = int((blocked or {}).get("count") or 0)
         for key in ("all", "active", "queued", "blocked", "paused", "completed"):
@@ -638,7 +772,9 @@ class SupabaseReadOnlyControlPlaneStore:
 
     def paper_counts_sql(self) -> dict[str, int]:
         counts: dict[str, int] = {}
-        for row in self._query("select paper_status, count(*) as count from papers group by paper_status"):
+        for row in self._query(
+            "select paper_status, count(*) as count from papers group by paper_status"
+        ):
             status = _text(row["paper_status"]) or "unknown"
             count = int(row["count"] or 0)
             counts[status] = count
@@ -689,7 +825,14 @@ class SupabaseReadOnlyControlPlaneStore:
             order by q.updated_at desc
             limit %s
             """,
-            (QueueStatus.COMPLETED.value, "wake_ready", "completed", "complete", "finished", safe_limit),
+            (
+                QueueStatus.COMPLETED.value,
+                "wake_ready",
+                "completed",
+                "complete",
+                "finished",
+                safe_limit,
+            ),
         )
 
     def active_machine_targets(self) -> set[str]:
@@ -702,10 +845,16 @@ class SupabaseReadOnlyControlPlaneStore:
         )
         return rows[0] if rows else None
 
-    def next_dispatch_candidate(self, *, blocked_machine_targets: set[str] | None = None) -> dict[str, Any] | None:
+    def next_dispatch_candidate(
+        self, *, blocked_machine_targets: set[str] | None = None
+    ) -> dict[str, Any] | None:
         if self.flags().queue_paused:
             return None
-        blocked = self.active_machine_targets() if blocked_machine_targets is None else {_normal(item) for item in blocked_machine_targets}
+        blocked = (
+            self.active_machine_targets()
+            if blocked_machine_targets is None
+            else {_normal(item) for item in blocked_machine_targets}
+        )
         target_filter = ""
         params: tuple[Any, ...] = (QueueStatus.QUEUED.value,)
         if blocked:
@@ -1001,10 +1150,14 @@ class SupabaseReadOnlyControlPlaneStore:
             {suffix}
             """
 
-    def _queue_rows_from_cursor(self, cur: Any, suffix: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+    def _queue_rows_from_cursor(
+        self, cur: Any, suffix: str, params: Sequence[Any] = ()
+    ) -> list[dict[str, Any]]:
         return self._cursor_rows(cur, self._queue_rows_query(suffix), params)
 
-    def _queue_rows(self, suffix: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+    def _queue_rows(
+        self, suffix: str, params: Sequence[Any] = ()
+    ) -> list[dict[str, Any]]:
         return self._query(self._queue_rows_query(suffix), params)
 
     def paper_rows(self) -> list[dict[str, Any]]:
@@ -1039,15 +1192,20 @@ class SupabaseReadOnlyControlPlaneStore:
             {suffix}
             """
 
-    def _paper_rows_from_cursor(self, cur: Any, suffix: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+    def _paper_rows_from_cursor(
+        self, cur: Any, suffix: str, params: Sequence[Any] = ()
+    ) -> list[dict[str, Any]]:
         return self._cursor_rows(cur, self._paper_rows_query(suffix), params)
 
-    def _paper_rows(self, suffix: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+    def _paper_rows(
+        self, suffix: str, params: Sequence[Any] = ()
+    ) -> list[dict[str, Any]]:
         return self._query(self._paper_rows_query(suffix), params)
 
-
     @staticmethod
-    def _page(rows: list[dict[str, Any]], page_size: int, cursor: str) -> tuple[list[dict[str, Any]], str | None, bool]:
+    def _page(
+        rows: list[dict[str, Any]], page_size: int, cursor: str
+    ) -> tuple[list[dict[str, Any]], str | None, bool]:
         safe_size = max(1, min(page_size, 200))
         offset = max(0, _int(cursor, 0))
         page_rows = rows[offset : offset + safe_size]
@@ -1063,7 +1221,9 @@ class SupabaseReadOnlyControlPlaneStore:
         return any(needle in _text(row.get(key)).lower() for key in keys)
 
     @staticmethod
-    def _sql_page(rows: list[dict[str, Any]], *, page_size: int, cursor: str) -> tuple[list[dict[str, Any]], str | None, bool]:
+    def _sql_page(
+        rows: list[dict[str, Any]], *, page_size: int, cursor: str
+    ) -> tuple[list[dict[str, Any]], str | None, bool]:
         safe_size = max(1, min(page_size, 200))
         offset = max(0, _int(cursor, 0))
         page_rows = rows[:safe_size]
@@ -1093,8 +1253,16 @@ class SupabaseReadOnlyControlPlaneStore:
             clauses.append("q.status = %s")
             params.append(QueueStatus.QUEUED.value)
         elif queue == "blocked":
-            clauses.append("(q.manual_review_required = true or q.status in (%s, %s, %s))")
-            params.extend([QueueStatus.BLOCKED.value, QueueStatus.NEEDS_REVIEW.value, QueueStatus.DISPATCH_ERROR.value])
+            clauses.append(
+                "(q.manual_review_required = true or q.status in (%s, %s, %s))"
+            )
+            params.extend(
+                [
+                    QueueStatus.BLOCKED.value,
+                    QueueStatus.NEEDS_REVIEW.value,
+                    QueueStatus.DISPATCH_ERROR.value,
+                ]
+            )
         elif queue == "paused":
             clauses.append("q.status = %s")
             params.append(QueueStatus.PAUSED.value)
@@ -1132,9 +1300,13 @@ class SupabaseReadOnlyControlPlaneStore:
         elif sort == "status":
             order_by = "q.status asc, q.updated_at desc"
         else:
-            order_by = "q.dispatch_priority asc, q.selection_rank asc, q.updated_at desc"
+            order_by = (
+                "q.dispatch_priority asc, q.selection_rank asc, q.updated_at desc"
+            )
         params.extend([safe_size + 1, offset])
-        rows = self._queue_rows(f"{where} order by {order_by} limit %s offset %s", tuple(params))
+        rows = self._queue_rows(
+            f"{where} order by {order_by} limit %s offset %s", tuple(params)
+        )
         return self._sql_page(rows, page_size=safe_size, cursor=cursor)
 
     def project_page(
@@ -1254,7 +1426,9 @@ class SupabaseReadOnlyControlPlaneStore:
         else:
             order_by = "pa.updated_at desc, pa.paper_id desc"
         params.extend([safe_size + 1, offset])
-        rows = self._paper_rows(f"{where} order by {order_by} limit %s offset %s", tuple(params))
+        rows = self._paper_rows(
+            f"{where} order by {order_by} limit %s offset %s", tuple(params)
+        )
         return self._sql_page(rows, page_size=safe_size, cursor=cursor)
 
     def run_page(
@@ -1298,7 +1472,10 @@ class SupabaseReadOnlyControlPlaneStore:
         else:
             order_by = "r.updated_at desc, r.run_id desc"
         params.extend([safe_size + 1, offset])
-        rows = self._query(f"select r.* from runs r {where} order by {order_by} limit %s offset %s", tuple(params))
+        rows = self._query(
+            f"select r.* from runs r {where} order by {order_by} limit %s offset %s",
+            tuple(params),
+        )
         return self._sql_page(rows, page_size=safe_size, cursor=cursor)
 
     def event_page(
@@ -1397,7 +1574,10 @@ class SupabaseReadOnlyControlPlaneStore:
             if include_payload:
                 item["payload"] = self._payload(item.pop("payload_json"))
             else:
-                item["payload_summary"] = {"keys": [], "bytes": int(item.pop("payload_bytes") or 0)}
+                item["payload_summary"] = {
+                    "keys": [],
+                    "bytes": int(item.pop("payload_bytes") or 0),
+                }
             item["created_at"] = str(item.get("created_at") or "")
             out.append(item)
         has_more = len(rows) > safe_size
@@ -1407,7 +1587,9 @@ class SupabaseReadOnlyControlPlaneStore:
             next_cursor = str(max(0, cursor_id) + safe_size) if has_more else None
         return out, next_cursor, has_more
 
-    def overview_read_model_parts(self, *, active_limit: int = 5, event_limit: int = 10) -> dict[str, Any]:
+    def overview_read_model_parts(
+        self, *, active_limit: int = 5, event_limit: int = 10
+    ) -> dict[str, Any]:
         """Return the overview read-model inputs using one database connection.
 
         The overview endpoint combines several bounded read models. Running each
@@ -1438,21 +1620,37 @@ class SupabaseReadOnlyControlPlaneStore:
                             from queue_items
                             group by status
                             """,
-                            (QueueStatus.BLOCKED.value, QueueStatus.NEEDS_REVIEW.value, QueueStatus.DISPATCH_ERROR.value),
+                            (
+                                QueueStatus.BLOCKED.value,
+                                QueueStatus.NEEDS_REVIEW.value,
+                                QueueStatus.DISPATCH_ERROR.value,
+                            ),
                         ):
                             status = _text(row["status"]) or "unknown"
                             count = int(row["count"] or 0)
                             counts[status] = count
                             counts["all"] = counts.get("all", 0) + count
                             blocked_count = int(row.get("blocked_count") or 0)
-                        counts["active"] = sum(counts.get(status, 0) for status in ACTIVE_STATUSES)
+                        counts["active"] = sum(
+                            counts.get(status, 0) for status in ACTIVE_STATUSES
+                        )
                         counts["queued"] = counts.get(QueueStatus.QUEUED.value, 0)
                         counts["blocked"] = blocked_count
-                        for key in ("all", "active", "queued", "blocked", "paused", "completed"):
+                        for key in (
+                            "all",
+                            "active",
+                            "queued",
+                            "blocked",
+                            "paused",
+                            "completed",
+                        ):
                             counts.setdefault(key, 0)
 
                         paper_counts: dict[str, int] = {}
-                        for row in self._cursor_rows(cur, "select paper_status, count(*) as count from papers group by paper_status"):
+                        for row in self._cursor_rows(
+                            cur,
+                            "select paper_status, count(*) as count from papers group by paper_status",
+                        ):
                             status = _text(row["paper_status"]) or "unknown"
                             count = int(row["count"] or 0)
                             paper_counts[status] = count
@@ -1552,7 +1750,11 @@ class SupabaseReadOnlyControlPlaneStore:
                                or q.status in (%s, %s, %s)
                             order by q.updated_at desc
                             """,
-                            (QueueStatus.BLOCKED.value, QueueStatus.NEEDS_REVIEW.value, QueueStatus.DISPATCH_ERROR.value),
+                            (
+                                QueueStatus.BLOCKED.value,
+                                QueueStatus.NEEDS_REVIEW.value,
+                                QueueStatus.DISPATCH_ERROR.value,
+                            ),
                         )
                         raw_paper_rows = self._paper_rows_from_cursor(
                             cur,
@@ -1594,11 +1796,18 @@ class SupabaseReadOnlyControlPlaneStore:
                             events = []
                             for row in event_rows[:safe_event_limit]:
                                 item = dict(row)
-                                item["payload_summary"] = {"keys": [], "bytes": int(item.pop("payload_bytes") or 0)}
+                                item["payload_summary"] = {
+                                    "keys": [],
+                                    "bytes": int(item.pop("payload_bytes") or 0),
+                                }
                                 item["created_at"] = str(item.get("created_at") or "")
                                 events.append(item)
                             event_has_more = len(event_rows) > safe_event_limit
-                            event_next_cursor = str(events[-1]["event_id"]) if event_has_more and events else None
+                            event_next_cursor = (
+                                str(events[-1]["event_id"])
+                                if event_has_more and events
+                                else None
+                            )
                         else:
                             events = []
                             event_next_cursor = None
@@ -1626,7 +1835,9 @@ class SupabaseReadOnlyControlPlaneStore:
 
     def status_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}
-        for row in self._query("select status, count(*) as count from queue_items group by status"):
+        for row in self._query(
+            "select status, count(*) as count from queue_items group by status"
+        ):
             counts[_text(row["status"]) or "unknown"] = int(row["count"] or 0)
         return counts
 
@@ -1659,7 +1870,15 @@ class SupabaseReadOnlyControlPlaneStore:
             out.append(item)
         return out
 
-    def event_rows(self, limit: int = 100, *, entity_type: str = "", entity_id: str = "", event_type: str = "", search: str = "") -> list[dict[str, Any]]:
+    def event_rows(
+        self,
+        limit: int = 100,
+        *,
+        entity_type: str = "",
+        entity_id: str = "",
+        event_type: str = "",
+        search: str = "",
+    ) -> list[dict[str, Any]]:
         clauses: list[str] = []
         params: list[Any] = []
         if entity_type:
@@ -1672,12 +1891,17 @@ class SupabaseReadOnlyControlPlaneStore:
             clauses.append("event_type = %s")
             params.append(event_type)
         if search:
-            clauses.append("(event_type ilike %s or entity_id ilike %s or payload_json::text ilike %s)")
+            clauses.append(
+                "(event_type ilike %s or entity_id ilike %s or payload_json::text ilike %s)"
+            )
             needle = f"%{search}%"
             params.extend([needle, needle, needle])
         where = f"where {' and '.join(clauses)}" if clauses else ""
         params.append(max(1, min(limit, 1000)))
-        rows = self._query(f"select * from control_events {where} order by event_id desc limit %s", tuple(params))
+        rows = self._query(
+            f"select * from control_events {where} order by event_id desc limit %s",
+            tuple(params),
+        )
         out: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)
@@ -1687,7 +1911,9 @@ class SupabaseReadOnlyControlPlaneStore:
             out.append(item)
         return out
 
-    def dashboard_ideas_intake_parts(self, *, page_size: int = 50, include_latest_payload: bool = False) -> dict[str, Any]:
+    def dashboard_ideas_intake_parts(
+        self, *, page_size: int = 50, include_latest_payload: bool = False
+    ) -> dict[str, Any]:
         safe_limit = max(1, min(page_size, 500))
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -1703,7 +1929,11 @@ class SupabaseReadOnlyControlPlaneStore:
                         """,
                         ("idea_intake", "global"),
                     )
-                    latest = self._observation_from_row(latest_rows[0]) if latest_rows else None
+                    latest = (
+                        self._observation_from_row(latest_rows[0])
+                        if latest_rows
+                        else None
+                    )
                 else:
                     latest_rows = self._cursor_rows(
                         cur,
@@ -1753,8 +1983,12 @@ class SupabaseReadOnlyControlPlaneStore:
                             payload={
                                 "payload_omitted": True,
                                 "payload_bytes": int(row.get("payload_bytes") or 0),
-                                "skipped_row_count": int(row.get("skipped_row_count") or 0),
-                                "skipped_reasons": self._payload(row.get("skipped_reasons") or {}),
+                                "skipped_row_count": int(
+                                    row.get("skipped_row_count") or 0
+                                ),
+                                "skipped_reasons": self._payload(
+                                    row.get("skipped_reasons") or {}
+                                ),
                             },
                             payload_hash=row["payload_hash"],
                             created_at=str(row["created_at"]),
@@ -1801,13 +2035,19 @@ class SupabaseReadOnlyControlPlaneStore:
                 recent = []
                 for row in recent_rows:
                     item = dict(row)
-                    item["payload_summary"] = {"keys": [], "bytes": int(item.pop("payload_bytes") or 0)}
+                    item["payload_summary"] = {
+                        "keys": [],
+                        "bytes": int(item.pop("payload_bytes") or 0),
+                    }
                     item["created_at"] = str(item.get("created_at") or "")
                     item.pop("payload_hash", None)
                     recent.append(item)
                 status_counts = {
                     _text(row["status"]) or "unknown": int(row["count"] or 0)
-                    for row in self._cursor_rows(cur, "select status, count(*) as count from queue_items group by status")
+                    for row in self._cursor_rows(
+                        cur,
+                        "select status, count(*) as count from queue_items group by status",
+                    )
                 }
         return {
             "latest_sync": latest,
@@ -1907,7 +2147,9 @@ class SupabaseReadOnlyControlPlaneStore:
             created_at=str(row["created_at"]),
         )
 
-    def latest_dashboard_observations(self, *, scope: str = "global") -> dict[str, DashboardObservationRecord]:
+    def latest_dashboard_observations(
+        self, *, scope: str = "global"
+    ) -> dict[str, DashboardObservationRecord]:
         rows = self._query(
             """
             select distinct on (source) *
@@ -1975,7 +2217,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 or row["entity_id"] != entity_id
                 or row["payload_hash"] != payload_hash
             ):
-                raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different payload")
+                raise IdempotencyConflict(
+                    f"idempotency key {idempotency_key!r} was reused with different payload"
+                )
             return int(row["event_id"]), False
         inserted = cur.execute(
             """
@@ -1983,11 +2227,27 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             values (%s,%s,%s,%s,%s::jsonb,%s,%s)
             returning event_id
             """,
-            (idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash, utc_now()),
+            (
+                idempotency_key,
+                event_type,
+                entity_type,
+                entity_id,
+                payload_json,
+                payload_hash,
+                utc_now(),
+            ),
         ).fetchone()
         return int(inserted["event_id"]), True
 
-    def append_event(self, *, idempotency_key: str, event_type: str, entity_type: str, entity_id: str, payload: dict[str, Any]) -> tuple[int, bool]:
+    def append_event(
+        self,
+        *,
+        idempotency_key: str,
+        event_type: str,
+        entity_type: str,
+        entity_id: str,
+        payload: dict[str, Any],
+    ) -> tuple[int, bool]:
         with self._connect() as conn:
             with conn.cursor() as cur:
                 return self._append_event_in_cursor(
@@ -2019,17 +2279,22 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         conflicting_machine_targets: set[str] | None = None,
     ) -> dict[str, Any] | None:
         payload = {"requested_by": requested_by, "run_id": run_id}
-        if self._replayed_event_id(
-            f"dispatch-claim:{run_id}",
-            payload,
-            event_type="controller.dispatch_claimed",
-            entity_type="project",
-            entity_id=project_id,
-        ) is not None:
+        if (
+            self._replayed_event_id(
+                f"dispatch-claim:{run_id}",
+                payload,
+                event_type="controller.dispatch_claimed",
+                entity_type="project",
+                entity_id=project_id,
+            )
+            is not None
+        ):
             return None
         now = utc_now()
         active_placeholders = ",".join(["%s"] * len(ACTIVE_STATUSES))
-        conflict_targets = sorted({_normal(item) for item in conflicting_machine_targets or []})
+        conflict_targets = sorted(
+            {_normal(item) for item in conflicting_machine_targets or []}
+        )
         conflict_clause = "" if conflicting_machine_targets is None else "and false"
         conflict_params: tuple[str, ...] = ()
         if conflict_targets:
@@ -2084,7 +2349,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             return None
         return self.queue_row(project_id)
 
-    def release_dispatch_claim(self, *, project_id: str, run_id: str, reason: str) -> dict[str, Any]:
+    def release_dispatch_claim(
+        self, *, project_id: str, run_id: str, reason: str
+    ) -> dict[str, Any]:
         now = utc_now()
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -2106,7 +2373,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         QueueStatus.DISPATCHING.value,
                     ),
                 )
-                rowcount = int(getattr(result, "rowcount", getattr(cur, "rowcount", 1)) or 0)
+                rowcount = int(
+                    getattr(result, "rowcount", getattr(cur, "rowcount", 1)) or 0
+                )
                 if rowcount == 1:
                     self._append_event_in_cursor(
                         cur,
@@ -2118,7 +2387,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     )
         return self.queue_row(project_id) or {}
 
-    def pause(self, *, reason: str, paused_by: str, maintenance_mode: bool) -> tuple[ControlFlags, int]:
+    def pause(
+        self, *, reason: str, paused_by: str, maintenance_mode: bool
+    ) -> tuple[ControlFlags, int]:
         now = utc_now()
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -2130,7 +2401,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     """,
                     (maintenance_mode, reason, now, paused_by, now),
                 )
-                flags = ControlFlags(queue_paused=True, maintenance_mode=maintenance_mode, pause_reason=reason, paused_at=now, paused_by=paused_by, updated_at=now)
+                flags = ControlFlags(
+                    queue_paused=True,
+                    maintenance_mode=maintenance_mode,
+                    pause_reason=reason,
+                    paused_at=now,
+                    paused_by=paused_by,
+                    updated_at=now,
+                )
                 event_id, _ = self._append_event_in_cursor(
                     cur,
                     idempotency_key=f"pause:{now}",
@@ -2141,7 +2419,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 )
         return flags, event_id
 
-    def resume(self, *, resumed_by: str, maintenance_mode: bool) -> tuple[ControlFlags, int]:
+    def resume(
+        self, *, resumed_by: str, maintenance_mode: bool
+    ) -> tuple[ControlFlags, int]:
         now = utc_now()
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -2153,7 +2433,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     """,
                     (maintenance_mode, resumed_by, now),
                 )
-                flags = ControlFlags(queue_paused=False, maintenance_mode=maintenance_mode, pause_reason="", paused_at=None, paused_by=resumed_by, updated_at=now)
+                flags = ControlFlags(
+                    queue_paused=False,
+                    maintenance_mode=maintenance_mode,
+                    pause_reason="",
+                    paused_at=None,
+                    paused_by=resumed_by,
+                    updated_at=now,
+                )
                 event_id, _ = self._append_event_in_cursor(
                     cur,
                     idempotency_key=f"resume:{now}",
@@ -2187,7 +2474,16 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     values (%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
                     returning observation_id
                     """,
-                    (source, scope, observed, ttl_seconds, status, payload_json, payload_hash, now),
+                    (
+                        source,
+                        scope,
+                        observed,
+                        ttl_seconds,
+                        status,
+                        payload_json,
+                        payload_hash,
+                        now,
+                    ),
                 ).fetchone()
         return DashboardObservationRecord(
             observation_id=int(row["observation_id"]),
@@ -2201,15 +2497,29 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             created_at=now,
         )
 
-    def dispatch_next_dry_run(self, *, requested_by: str) -> tuple[str, dict[str, Any] | None, int | None, str]:
+    def dispatch_next_dry_run(
+        self, *, requested_by: str
+    ) -> tuple[str, dict[str, Any] | None, int | None, str]:
         flags = self.flags()
         if flags.queue_paused:
             return "paused", None, None, flags.pause_reason or "queue paused"
         active = self.active_items()
         candidate = self.next_dispatch_candidate()
         if not candidate:
-            return "noop", None, None, "no queued candidate on an open worker lane" if active else "no queued candidate"
-        return "dry_run_dispatch", candidate, None, "dry-run dispatch selected candidate"
+            return (
+                "noop",
+                None,
+                None,
+                "no queued candidate on an open worker lane"
+                if active
+                else "no queued candidate",
+            )
+        return (
+            "dry_run_dispatch",
+            candidate,
+            None,
+            "dry-run dispatch selected candidate",
+        )
 
     def _paper_review_join_rows(self) -> list[dict[str, Any]]:
         return self._query(
@@ -2247,9 +2557,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             """
         )
 
-    def _review_queue_item_from_row(self, row: dict[str, Any], *, include_rank_reasons: bool = True) -> dict[str, Any]:
+    def _review_queue_item_from_row(
+        self, row: dict[str, Any], *, include_rank_reasons: bool = True
+    ) -> dict[str, Any]:
         checklist = _json_dict(row.get("checklist_json")) or _default_review_checklist()
-        rank_reasons = _json_list(row.get("rank_reasons_json")) if include_rank_reasons else []
+        rank_reasons = (
+            _json_list(row.get("rank_reasons_json")) if include_rank_reasons else []
+        )
         missing_signals = _json_list(row.get("missing_signals_json"))
         score = _int(row.get("rank_score"), 0)
         updated_at = _text(row.get("review_updated_at")) or _text(row.get("updated_at"))
@@ -2266,7 +2580,11 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             claimed_at=_text(row.get("claimed_at")),
             updated_at=updated_at,
             rank_score=score,
-            rank_bucket="blocked" if score < 0 else "ready" if score >= 100 else "review",
+            rank_bucket="blocked"
+            if score < 0
+            else "ready"
+            if score >= 100
+            else "review",
             rank_reasons=rank_reasons,
             missing_signals=missing_signals,
             rank_tiebreaker=_text(row.get("rank_tiebreaker")),
@@ -2282,22 +2600,38 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 "review": f"/control/api/paper-reviews/{_text(row.get('paper_id'))}",
                 "paper": f"/control/api/papers/{_text(row.get('paper_id'))}",
                 "project": f"/control/api/projects/{_text(row.get('project_id'))}",
-                "run": f"/control/api/runs/{_text(row.get('run_id'))}" if _text(row.get("run_id")) else "",
+                "run": f"/control/api/runs/{_text(row.get('run_id'))}"
+                if _text(row.get("run_id"))
+                else "",
             },
         )
         return item.model_dump(mode="json")
 
-    def paper_review_rows(self, *, include_rank_reasons: bool = True) -> list[dict[str, Any]]:
-        return [self._review_queue_item_from_row(row, include_rank_reasons=include_rank_reasons) for row in self._paper_review_join_rows()]
+    def paper_review_rows(
+        self, *, include_rank_reasons: bool = True
+    ) -> list[dict[str, Any]]:
+        return [
+            self._review_queue_item_from_row(
+                row, include_rank_reasons=include_rank_reasons
+            )
+            for row in self._paper_review_join_rows()
+        ]
 
-    def paper_review_row(self, paper_id: str, *, include_rank_reasons: bool = True) -> dict[str, Any] | None:
+    def paper_review_row(
+        self, paper_id: str, *, include_rank_reasons: bool = True
+    ) -> dict[str, Any] | None:
         for row in self._paper_review_join_rows():
             if row.get("paper_id") == paper_id:
-                return self._review_queue_item_from_row(row, include_rank_reasons=include_rank_reasons)
+                return self._review_queue_item_from_row(
+                    row, include_rank_reasons=include_rank_reasons
+                )
         return None
 
     def _raw_paper_review_row(self, paper_id: str) -> dict[str, Any] | None:
-        return self._one("select * from publication_automation_items where paper_id = %s", (paper_id,))
+        return self._one(
+            "select * from publication_automation_items where paper_id = %s",
+            (paper_id,),
+        )
 
     def _require_paper_review(self, paper_id: str) -> dict[str, Any]:
         row = self._raw_paper_review_row(paper_id)
@@ -2307,48 +2641,74 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
 
     def paper_review_checklist(self, paper_id: str) -> dict[str, Any]:
         row = self._raw_paper_review_row(paper_id)
-        return _normalize_review_checklist(_json_dict(row.get("checklist_json")) if row else {})
+        return _normalize_review_checklist(
+            _json_dict(row.get("checklist_json")) if row else {}
+        )
 
     def _mutation_payload(self, request: Any, *, action: str) -> dict[str, Any]:
         payload = request.model_dump(mode="json")
         payload["action"] = action
         return payload
 
-    def backfill_paper_reviews(self, request: PaperReviewBackfillRequest) -> tuple[bool, int, int, int, list[dict[str, Any]]]:
+    def backfill_paper_reviews(
+        self, request: PaperReviewBackfillRequest
+    ) -> tuple[bool, int, int, int, list[dict[str, Any]]]:
         audit_by_paper = _audit_rows(request.source_audit_path)
-        requested_paper_ids = sorted({_text(paper_id) for paper_id in request.paper_ids if _text(paper_id)})
+        requested_paper_ids = sorted(
+            {_text(paper_id) for paper_id in request.paper_ids if _text(paper_id)}
+        )
         if requested_paper_ids:
             placeholders = ",".join(["%s"] * len(requested_paper_ids))
-            papers = self._paper_rows(f"where pa.paper_id in ({placeholders})", tuple(requested_paper_ids))
+            papers = self._paper_rows(
+                f"where pa.paper_id in ({placeholders})", tuple(requested_paper_ids)
+            )
         else:
             papers = self.paper_rows()
         errors: list[dict[str, Any]] = []
         candidates: list[PaperReviewRecord] = []
         for paper in papers:
             paper_id = _text(paper.get("paper_id"))
-            mandatory = ["draft_markdown_path", "draft_latex_path", "evidence_bundle_path", "claim_ledger_path", "manifest_path"]
+            mandatory = [
+                "draft_markdown_path",
+                "draft_latex_path",
+                "evidence_bundle_path",
+                "claim_ledger_path",
+                "manifest_path",
+            ]
             missing_paths = [name for name in mandatory if not _text(paper.get(name))]
             if missing_paths:
-                errors.append({"paper_id": paper_id, "reason": "missing mandatory artifact path", "missing_paths": missing_paths})
+                errors.append(
+                    {
+                        "paper_id": paper_id,
+                        "reason": "missing mandatory artifact path",
+                        "missing_paths": missing_paths,
+                    }
+                )
             audit = audit_by_paper.get(paper_id, {})
             initial_missing = ([] if audit else ["readiness_audit"]) + missing_paths
             queue_item = self.queue_row(_text(paper.get("project_id")))
-            rank_score, rank_reasons, missing_signals, tiebreaker, _bucket = _review_rank(paper, queue_item, audit, initial_missing)
+            rank_score, rank_reasons, missing_signals, tiebreaker, _bucket = (
+                _review_rank(paper, queue_item, audit, initial_missing)
+            )
             status = ReviewStatus.QUEUED if not missing_paths else ReviewStatus.BLOCKED
-            candidates.append(PaperReviewRecord(
-                paper_id=paper_id,
-                review_status=status,
-                checklist_json=_default_review_checklist(),
-                rank_score=rank_score,
-                rank_reasons=rank_reasons,
-                missing_signals=missing_signals,
-                rank_tiebreaker=tiebreaker,
-                source_audit_path=request.source_audit_path,
-            ))
+            candidates.append(
+                PaperReviewRecord(
+                    paper_id=paper_id,
+                    review_status=status,
+                    checklist_json=_default_review_checklist(),
+                    rank_score=rank_score,
+                    rank_reasons=rank_reasons,
+                    missing_signals=missing_signals,
+                    rank_tiebreaker=tiebreaker,
+                    source_audit_path=request.source_audit_path,
+                )
+            )
         if request.dry_run:
             return False, len(candidates), 0, 0, errors
         event_payload = request.model_dump(mode="json")
-        event_payload.update({"candidate_count": len(candidates), "error_count": len(errors)})
+        event_payload.update(
+            {"candidate_count": len(candidates), "error_count": len(errors)}
+        )
         created = updated = skipped = 0
         now = utc_now()
         with self._connect() as conn:
@@ -2364,12 +2724,19 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 if not inserted:
                     return False, 0, 0, 0, errors
                 for record in candidates:
-                    existing = cur.execute("select * from publication_automation_items where paper_id = %s", (record.paper_id,)).fetchone()
+                    existing = cur.execute(
+                        "select * from publication_automation_items where paper_id = %s",
+                        (record.paper_id,),
+                    ).fetchone()
                     rank_reasons_json = _json(record.rank_reasons)
                     missing_signals_json = _json(record.missing_signals)
                     if existing:
                         existing_status = _text(existing["automation_status"])
-                        next_status = record.review_status.value if existing_status in SYSTEM_REVIEW_STATUSES else existing_status
+                        next_status = (
+                            record.review_status.value
+                            if existing_status in SYSTEM_REVIEW_STATUSES
+                            else existing_status
+                        )
                         changes = {
                             "automation_status": next_status,
                             "rank_score": record.rank_score,
@@ -2378,7 +2745,10 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             "rank_tiebreaker": record.rank_tiebreaker,
                             "source_audit_path": record.source_audit_path,
                         }
-                        if all(str(existing[key]) == str(value) for key, value in changes.items()):
+                        if all(
+                            str(existing[key]) == str(value)
+                            for key, value in changes.items()
+                        ):
                             skipped += 1
                             continue
                         cur.execute(
@@ -2388,7 +2758,16 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                                 rank_tiebreaker=%s, source_audit_path=%s, updated_at=%s
                             where paper_id=%s
                             """,
-                            (next_status, record.rank_score, rank_reasons_json, missing_signals_json, record.rank_tiebreaker, record.source_audit_path, now, record.paper_id),
+                            (
+                                next_status,
+                                record.rank_score,
+                                rank_reasons_json,
+                                missing_signals_json,
+                                record.rank_tiebreaker,
+                                record.source_audit_path,
+                                now,
+                                record.paper_id,
+                            ),
                         )
                         updated += 1
                         continue
@@ -2397,21 +2776,56 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         insert into publication_automation_items(paper_id,automation_status,automation_actor,blocker,claimed_at,checklist_json,rank_score,rank_reasons_json,missing_signals_json,rank_tiebreaker,source_audit_path,finalization_package_path,finalized_at,decision_summary,created_at,updated_at)
                         values (%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s)
                         """,
-                        (record.paper_id, record.review_status.value, record.reviewer, record.blocker, None, _json(_normalize_review_checklist(record.checklist_json)), record.rank_score, rank_reasons_json, missing_signals_json, record.rank_tiebreaker, record.source_audit_path, record.finalization_package_path, None, record.decision_summary, now, now),
+                        (
+                            record.paper_id,
+                            record.review_status.value,
+                            record.reviewer,
+                            record.blocker,
+                            None,
+                            _json(_normalize_review_checklist(record.checklist_json)),
+                            record.rank_score,
+                            rank_reasons_json,
+                            missing_signals_json,
+                            record.rank_tiebreaker,
+                            record.source_audit_path,
+                            record.finalization_package_path,
+                            None,
+                            record.decision_summary,
+                            now,
+                            now,
+                        ),
                     )
                     created += 1
         return inserted, created, updated, skipped, errors
 
-    def claim_paper_review(self, paper_id: str, request: PaperReviewClaimRequest) -> tuple[int, bool, dict[str, Any]]:
+    def claim_paper_review(
+        self, paper_id: str, request: PaperReviewClaimRequest
+    ) -> tuple[int, bool, dict[str, Any]]:
         if not _text(request.reviewer):
             raise ValueError("reviewer is required")
         row = self._require_paper_review(paper_id)
         current = _text(row.get("automation_status"))
-        if current in {ReviewStatus.FINALIZED.value, ReviewStatus.REJECTED.value, ReviewStatus.APPROVED_FOR_FINALIZATION.value}:
+        if current in {
+            ReviewStatus.FINALIZED.value,
+            ReviewStatus.REJECTED.value,
+            ReviewStatus.APPROVED_FOR_FINALIZATION.value,
+        }:
             raise ValueError(f"cannot claim paper review from {current}")
-        if current == ReviewStatus.BLOCKED.value and _text(row.get("blocker")) and not request.clear_blocker:
+        if (
+            current == ReviewStatus.BLOCKED.value
+            and _text(row.get("blocker"))
+            and not request.clear_blocker
+        ):
             raise ValueError("blocked review requires clear_blocker=true to claim")
-        if current not in {ReviewStatus.QUEUED.value, ReviewStatus.CLAIMED.value, ReviewStatus.TRIAGE_READY.value, ReviewStatus.UNREVIEWED.value, ReviewStatus.CHANGES_REQUESTED.value, ReviewStatus.BLOCKED.value, ReviewStatus.IN_REVIEW.value}:
+        if current not in {
+            ReviewStatus.QUEUED.value,
+            ReviewStatus.CLAIMED.value,
+            ReviewStatus.TRIAGE_READY.value,
+            ReviewStatus.UNREVIEWED.value,
+            ReviewStatus.CHANGES_REQUESTED.value,
+            ReviewStatus.BLOCKED.value,
+            ReviewStatus.IN_REVIEW.value,
+        }:
             raise ValueError(f"cannot claim paper review from {current}")
         payload = self._mutation_payload(request, action="claim")
         payload.update({"to_status": ReviewStatus.CLAIMED.value})
@@ -2419,44 +2833,89 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         checklist = _normalize_review_checklist(_json_dict(row.get("checklist_json")))
         with self._connect() as conn:
             with conn.cursor() as cur:
-                event_id, inserted = self._append_event_in_cursor(cur, idempotency_key=request.idempotency_key, event_type="paper_review.claimed", entity_type="paper_review", entity_id=paper_id, payload=payload)
+                event_id, inserted = self._append_event_in_cursor(
+                    cur,
+                    idempotency_key=request.idempotency_key,
+                    event_type="paper_review.claimed",
+                    entity_type="paper_review",
+                    entity_id=paper_id,
+                    payload=payload,
+                )
                 if inserted:
                     cur.execute(
                         "update publication_automation_items set automation_status=%s, automation_actor=%s, blocker=%s, claimed_at=%s, checklist_json=%s::jsonb, updated_at=%s where paper_id=%s",
-                        (ReviewStatus.CLAIMED.value, _text(request.reviewer), "" if request.clear_blocker else _text(row.get("blocker")), now, _json(checklist), now, paper_id),
+                        (
+                            ReviewStatus.CLAIMED.value,
+                            _text(request.reviewer),
+                            "" if request.clear_blocker else _text(row.get("blocker")),
+                            now,
+                            _json(checklist),
+                            now,
+                            paper_id,
+                        ),
                     )
         return event_id, inserted, self.paper_review_row(paper_id) or {}
 
-    def update_paper_review_status(self, paper_id: str, request: PaperReviewStatusUpdateRequest) -> tuple[int, bool, dict[str, Any]]:
+    def update_paper_review_status(
+        self, paper_id: str, request: PaperReviewStatusUpdateRequest
+    ) -> tuple[int, bool, dict[str, Any]]:
         row = self._require_paper_review(paper_id)
         current = _text(row.get("automation_status"))
         target = request.review_status.value
         if target == ReviewStatus.APPROVED_FOR_FINALIZATION.value:
             raise ValueError("use approve-finalization endpoint for approval")
         if target in {ReviewStatus.FINALIZED.value}:
-            raise ValueError("finalized status is reserved for finalization package workflow")
-        if target not in ALLOWED_STATUS_TRANSITIONS.get(current, set()) and target != current:
+            raise ValueError(
+                "finalized status is reserved for finalization package workflow"
+            )
+        if (
+            target not in ALLOWED_STATUS_TRANSITIONS.get(current, set())
+            and target != current
+        ):
             raise ValueError(f"invalid review status transition {current} -> {target}")
         blocker = _text(request.blocker)
         note = _text(request.note)
-        if target in {ReviewStatus.BLOCKED.value, ReviewStatus.CHANGES_REQUESTED.value, ReviewStatus.REJECTED.value} and not (blocker or note):
+        if target in {
+            ReviewStatus.BLOCKED.value,
+            ReviewStatus.CHANGES_REQUESTED.value,
+            ReviewStatus.REJECTED.value,
+        } and not (blocker or note):
             raise ValueError(f"{target} requires blocker or note")
         payload = self._mutation_payload(request, action="status_update")
         payload.update({"to_status": target})
         now = utc_now()
         next_blocker = blocker if target == ReviewStatus.BLOCKED.value else ""
-        decision_summary = note if target in {ReviewStatus.REJECTED.value, ReviewStatus.CHANGES_REQUESTED.value} else _text(row.get("decision_summary"))
+        decision_summary = (
+            note
+            if target
+            in {ReviewStatus.REJECTED.value, ReviewStatus.CHANGES_REQUESTED.value}
+            else _text(row.get("decision_summary"))
+        )
         with self._connect() as conn:
             with conn.cursor() as cur:
-                event_id, inserted = self._append_event_in_cursor(cur, idempotency_key=request.idempotency_key, event_type="paper_review.status_changed", entity_type="paper_review", entity_id=paper_id, payload=payload)
+                event_id, inserted = self._append_event_in_cursor(
+                    cur,
+                    idempotency_key=request.idempotency_key,
+                    event_type="paper_review.status_changed",
+                    entity_type="paper_review",
+                    entity_id=paper_id,
+                    payload=payload,
+                )
                 if inserted:
-                    cur.execute("update publication_automation_items set automation_status=%s, blocker=%s, decision_summary=%s, updated_at=%s where paper_id=%s", (target, next_blocker, decision_summary, now, paper_id))
+                    cur.execute(
+                        "update publication_automation_items set automation_status=%s, blocker=%s, decision_summary=%s, updated_at=%s where paper_id=%s",
+                        (target, next_blocker, decision_summary, now, paper_id),
+                    )
         return event_id, inserted, self.paper_review_row(paper_id) or {}
 
-    def update_paper_review_checklist(self, paper_id: str, item_id: str, request: PaperReviewChecklistUpdateRequest) -> tuple[int, bool, dict[str, Any]]:
+    def update_paper_review_checklist(
+        self, paper_id: str, item_id: str, request: PaperReviewChecklistUpdateRequest
+    ) -> tuple[int, bool, dict[str, Any]]:
         row = self._require_paper_review(paper_id)
         checklist = _normalize_review_checklist(_json_dict(row.get("checklist_json")))
-        item = next((entry for entry in checklist["items"] if entry["id"] == item_id), None)
+        item = next(
+            (entry for entry in checklist["items"] if entry["id"] == item_id), None
+        )
         if item is None:
             raise ValueError(f"unknown checklist item {item_id}")
         status = _text(request.status)
@@ -2465,43 +2924,110 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             raise ValueError("fail checklist status requires a note")
         if status == "accepted_risk" and not note:
             raise ValueError("accepted_risk checklist status requires a note")
-        if item_id == "final_human_approval" and status in {"accepted_risk", "not_applicable"}:
-            raise ValueError("automated finalization approval must be pass or fail/pending")
+        if item_id == "final_human_approval" and status in {
+            "accepted_risk",
+            "not_applicable",
+        }:
+            raise ValueError(
+                "automated finalization approval must be pass or fail/pending"
+            )
         if status == "not_applicable" and item.get("required") and not note:
             raise ValueError("not_applicable on a required item requires a note")
         payload = self._mutation_payload(request, action="checklist_update")
         payload["item_id"] = item_id
         now = utc_now()
-        item.update({"status": status, "note": note, "updated_at": now, "updated_by": _text(request.requested_by)})
-        risks = [risk for risk in checklist.get("accepted_risks", []) if isinstance(risk, dict) and risk.get("item_id") != item_id]
+        item.update(
+            {
+                "status": status,
+                "note": note,
+                "updated_at": now,
+                "updated_by": _text(request.requested_by),
+            }
+        )
+        risks = [
+            risk
+            for risk in checklist.get("accepted_risks", [])
+            if isinstance(risk, dict) and risk.get("item_id") != item_id
+        ]
         if status == "accepted_risk":
-            risks.append({"item_id": item_id, "risk": note, "accepted_by": _text(request.requested_by), "accepted_at": now})
+            risks.append(
+                {
+                    "item_id": item_id,
+                    "risk": note,
+                    "accepted_by": _text(request.requested_by),
+                    "accepted_at": now,
+                }
+            )
         checklist["accepted_risks"] = risks
         checklist["progress"] = _progress_for_items(checklist["items"])
         with self._connect() as conn:
             with conn.cursor() as cur:
-                event_id, inserted = self._append_event_in_cursor(cur, idempotency_key=request.idempotency_key, event_type="paper_review.checklist_updated", entity_type="paper_review", entity_id=paper_id, payload=payload)
+                event_id, inserted = self._append_event_in_cursor(
+                    cur,
+                    idempotency_key=request.idempotency_key,
+                    event_type="paper_review.checklist_updated",
+                    entity_type="paper_review",
+                    entity_id=paper_id,
+                    payload=payload,
+                )
                 if inserted:
-                    cur.execute("update publication_automation_items set checklist_json=%s::jsonb, updated_at=%s where paper_id=%s", (_json(checklist), now, paper_id))
+                    cur.execute(
+                        "update publication_automation_items set checklist_json=%s::jsonb, updated_at=%s where paper_id=%s",
+                        (_json(checklist), now, paper_id),
+                    )
         return event_id, inserted, self.paper_review_row(paper_id) or {}
 
-    def approve_paper_review_finalization(self, paper_id: str, request: PaperReviewApproveFinalizationRequest) -> tuple[int, bool, dict[str, Any]]:
-        raise ValueError("manual paper approval has been removed; use automated prepare-finalization-package or rewrite-draft")
+    def approve_paper_review_finalization(
+        self, paper_id: str, request: PaperReviewApproveFinalizationRequest
+    ) -> tuple[int, bool, dict[str, Any]]:
+        raise ValueError(
+            "manual paper approval has been removed; use automated prepare-finalization-package or rewrite-draft"
+        )
 
     def _resolved_artifact(self, paper: dict[str, Any], field: str) -> dict[str, Any]:
         raw_path = _text(paper.get(field))
         project_dir_text = _text(paper.get("project_dir"))
-        project_dir = _expanduser_or_none(project_dir_text) if project_dir_text else None
+        project_dir = (
+            _expanduser_or_none(project_dir_text) if project_dir_text else None
+        )
         path = _expanduser_or_none(raw_path) if raw_path else Path()
         if project_dir_text and project_dir is None:
-            return {"field": field, "path": raw_path, "absolute_path": "", "exists": False, "readable": False, "safe": False, "size_bytes": 0}
+            return {
+                "field": field,
+                "path": raw_path,
+                "absolute_path": "",
+                "exists": False,
+                "readable": False,
+                "safe": False,
+                "size_bytes": 0,
+            }
         if raw_path and path is None:
-            return {"field": field, "path": raw_path, "absolute_path": "", "exists": False, "readable": False, "safe": False, "size_bytes": 0}
+            return {
+                "field": field,
+                "path": raw_path,
+                "absolute_path": "",
+                "exists": False,
+                "readable": False,
+                "safe": False,
+                "size_bytes": 0,
+            }
         path = path or Path()
         try:
-            resolved = (path if path.is_absolute() else (project_dir / path if project_dir else path)).resolve()
+            resolved = (
+                path
+                if path.is_absolute()
+                else (project_dir / path if project_dir else path)
+            ).resolve()
         except (OSError, RuntimeError, ValueError):
-            return {"field": field, "path": raw_path, "absolute_path": "", "exists": False, "readable": False, "safe": False, "size_bytes": 0}
+            return {
+                "field": field,
+                "path": raw_path,
+                "absolute_path": "",
+                "exists": False,
+                "readable": False,
+                "safe": False,
+                "size_bytes": 0,
+            }
         safe = True
         if project_dir is not None:
             try:
@@ -2516,11 +3042,29 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             exists = bool(raw_path)
             readable = False
             size_bytes = 0
-        return {"field": field, "path": raw_path, "absolute_path": str(resolved), "exists": exists, "readable": readable, "safe": safe, "size_bytes": size_bytes}
+        return {
+            "field": field,
+            "path": raw_path,
+            "absolute_path": str(resolved),
+            "exists": exists,
+            "readable": readable,
+            "safe": safe,
+            "size_bytes": size_bytes,
+        }
 
     def _finalization_manifest_path(self, paper_id: str, idempotency_key: str) -> Path:
-        root = Path(os.environ.get("ENOCH_SUPABASE_FINALIZATION_ROOT", "/tmp/enoch-supabase-finalization-packages")).expanduser()
-        return root / _slug_id(paper_id) / _slug_id(idempotency_key) / "finalization_manifest.json"
+        root = Path(
+            os.environ.get(
+                "ENOCH_SUPABASE_FINALIZATION_ROOT",
+                "/tmp/enoch-supabase-finalization-packages",
+            )
+        ).expanduser()
+        return (
+            root
+            / _slug_id(paper_id)
+            / _slug_id(idempotency_key)
+            / "finalization_manifest.json"
+        )
 
     def _load_manifest(self, package_path: str) -> dict[str, Any]:
         if not package_path:
@@ -2531,10 +3075,21 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         except OSError:
             return {}
 
-    def prepare_paper_review_finalization_package(self, paper_id: str, request: PaperReviewPrepareFinalizationRequest, *, require_approval: bool = True) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
+    def prepare_paper_review_finalization_package(
+        self,
+        paper_id: str,
+        request: PaperReviewPrepareFinalizationRequest,
+        *,
+        require_approval: bool = True,
+    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
         row = self._require_paper_review(paper_id)
         payload = self._mutation_payload(request, action="prepare_finalization_package")
-        payload.update({"to_status": ReviewStatus.FINALIZED.value, "require_approval": require_approval})
+        payload.update(
+            {
+                "to_status": ReviewStatus.FINALIZED.value,
+                "require_approval": require_approval,
+            }
+        )
         if not request.dry_run:
             replayed_event_id = self._replayed_event_id(
                 request.idempotency_key,
@@ -2545,25 +3100,65 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             )
             if replayed_event_id is not None:
                 item = self.paper_review_row(paper_id) or {}
-                return replayed_event_id, False, item, _text(item.get("finalization_package_path")), self._load_manifest(_text(item.get("finalization_package_path")))
+                return (
+                    replayed_event_id,
+                    False,
+                    item,
+                    _text(item.get("finalization_package_path")),
+                    self._load_manifest(_text(item.get("finalization_package_path"))),
+                )
         current = _text(row.get("automation_status"))
         if not request.dry_run and current == ReviewStatus.FINALIZED.value:
             item = self.paper_review_row(paper_id) or {}
             path = _text(item.get("finalization_package_path"))
             return None, False, item, path, self._load_manifest(path)
-        if not request.dry_run and require_approval and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value:
-            raise ValueError("legacy approval-gated finalization requires internal approved_for_finalization state")
-        if not request.dry_run and not require_approval and current in {ReviewStatus.BLOCKED.value, ReviewStatus.CHANGES_REQUESTED.value, ReviewStatus.IN_REVIEW.value, ReviewStatus.REJECTED.value, ReviewStatus.UNREVIEWED.value}:
-            raise ValueError(f"automated finalization cannot publish paper reviews with review_status={current}")
+        if (
+            not request.dry_run
+            and require_approval
+            and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value
+        ):
+            raise ValueError(
+                "legacy approval-gated finalization requires internal approved_for_finalization state"
+            )
+        if (
+            not request.dry_run
+            and not require_approval
+            and current
+            in {
+                ReviewStatus.BLOCKED.value,
+                ReviewStatus.CHANGES_REQUESTED.value,
+                ReviewStatus.IN_REVIEW.value,
+                ReviewStatus.REJECTED.value,
+                ReviewStatus.UNREVIEWED.value,
+            }
+        ):
+            raise ValueError(
+                f"automated finalization cannot publish paper reviews with review_status={current}"
+            )
         paper = self.paper_row(paper_id)
         if paper is None:
             raise ValueError("paper row not found")
         checklist = self.paper_review_checklist(paper_id)
-        artifacts = [self._resolved_artifact(paper, field) for field in ("draft_markdown_path", "draft_latex_path", "evidence_bundle_path", "claim_ledger_path", "manifest_path")]
-        unreadable = [artifact["field"] for artifact in artifacts if not artifact["readable"]]
+        artifacts = [
+            self._resolved_artifact(paper, field)
+            for field in (
+                "draft_markdown_path",
+                "draft_latex_path",
+                "evidence_bundle_path",
+                "claim_ledger_path",
+                "manifest_path",
+            )
+        ]
+        unreadable = [
+            artifact["field"] for artifact in artifacts if not artifact["readable"]
+        ]
         if unreadable and not request.dry_run:
-            raise ValueError(f"finalization package requires readable artifacts: {', '.join(unreadable)}")
-        package_path = self._finalization_manifest_path(paper_id, request.idempotency_key)
+            raise ValueError(
+                f"finalization package requires readable artifacts: {', '.join(unreadable)}"
+            )
+        package_path = self._finalization_manifest_path(
+            paper_id, request.idempotency_key
+        )
         now = utc_now()
         manifest = {
             "schema": "paper_finalization_package_v1",
@@ -2586,7 +3181,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "no_submission_side_effects": True,
         }
         if request.dry_run:
-            return None, False, self.paper_review_row(paper_id) or {}, str(package_path), manifest
+            return (
+                None,
+                False,
+                self.paper_review_row(paper_id) or {},
+                str(package_path),
+                manifest,
+            )
         previous_manifest_exists, previous_manifest_content = _existing_file_snapshot(
             package_path,
             label="finalization package manifest",
@@ -2606,16 +3207,30 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     if inserted:
                         cur.execute(
                             "update publication_automation_items set automation_status=%s, finalization_package_path=%s, finalized_at=%s, updated_at=%s where paper_id=%s",
-                            (ReviewStatus.FINALIZED.value, str(package_path), now, now, paper_id),
+                            (
+                                ReviewStatus.FINALIZED.value,
+                                str(package_path),
+                                now,
+                                now,
+                                paper_id,
+                            ),
                         )
         except Exception:
-            _restore_or_remove_path(package_path, existed=previous_manifest_exists, content=previous_manifest_content)
+            _restore_or_remove_path(
+                package_path,
+                existed=previous_manifest_exists,
+                content=previous_manifest_content,
+            )
             raise
         item = self.paper_review_row(paper_id) or {}
         return event_id, inserted, item, str(package_path), manifest
 
-    def ingest_notion_ideas(self, request: NotionIntakeRequest) -> tuple[bool, int, int, int, list[dict[str, Any]], list[dict[str, Any]]]:
-        include_statuses = {item.strip().lower() for item in request.include_statuses if item.strip()}
+    def ingest_notion_ideas(
+        self, request: NotionIntakeRequest
+    ) -> tuple[bool, int, int, int, list[dict[str, Any]], list[dict[str, Any]]]:
+        include_statuses = {
+            item.strip().lower() for item in request.include_statuses if item.strip()
+        }
         candidates: list[dict[str, Any]] = []
         skipped_rows: list[dict[str, Any]] = []
         for raw in request.notion_rows:
@@ -2627,14 +3242,34 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 skipped_rows.append({"reason": "missing title", "row": raw})
                 continue
             if include_statuses and not status:
-                skipped_rows.append({"reason": "missing status", "title": title, "status": status, "page_id": page_id})
+                skipped_rows.append(
+                    {
+                        "reason": "missing status",
+                        "title": title,
+                        "status": status,
+                        "page_id": page_id,
+                    }
+                )
                 continue
             if include_statuses and status not in include_statuses:
-                skipped_rows.append({"reason": f"status {status!r} not included", "title": title, "status": status, "page_id": page_id})
+                skipped_rows.append(
+                    {
+                        "reason": f"status {status!r} not included",
+                        "title": title,
+                        "status": status,
+                        "page_id": page_id,
+                    }
+                )
                 continue
-            project_id = _slug_id(page_id.replace("-", "")) if page_id else f"notion-{_slug_id(title)}"
+            project_id = (
+                _slug_id(page_id.replace("-", ""))
+                if page_id
+                else f"notion-{_slug_id(title)}"
+            )
             if not project_id:
-                skipped_rows.append({"reason": "missing project id", "title": title, "page_id": page_id})
+                skipped_rows.append(
+                    {"reason": "missing project id", "title": title, "page_id": page_id}
+                )
                 continue
             rank = _priority_rank(raw)
             routing = route_machine_target(
@@ -2642,25 +3277,27 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 default_machine_target=request.default_machine_target,
                 workload_machine_targets=request.workload_machine_targets,
             )
-            candidates.append({
-                "project_id": project_id,
-                "project_name": title,
-                "project_dir": project_id,
-                "notion_page_url": page_url,
-                "notion_page_id": page_id,
-                "origin_idea_status": status,
-                "status": QueueStatus.QUEUED.value,
-                "selection_rank": rank,
-                "dispatch_priority": rank,
-                "next_action_hint": "controller_review",
-                "machine_target": routing["machine_target"],
-                "workload_class": routing["workload_class"],
-                "routing_reason": routing["routing_reason"],
-                "model": request.default_model,
-                "sandbox": request.default_sandbox,
-                "source_kind": request.source or "notion",
-                "source_row": raw,
-            })
+            candidates.append(
+                {
+                    "project_id": project_id,
+                    "project_name": title,
+                    "project_dir": project_id,
+                    "notion_page_url": page_url,
+                    "notion_page_id": page_id,
+                    "origin_idea_status": status,
+                    "status": QueueStatus.QUEUED.value,
+                    "selection_rank": rank,
+                    "dispatch_priority": rank,
+                    "next_action_hint": "controller_review",
+                    "machine_target": routing["machine_target"],
+                    "workload_class": routing["workload_class"],
+                    "routing_reason": routing["routing_reason"],
+                    "model": request.default_model,
+                    "sandbox": request.default_sandbox,
+                    "source_kind": request.source or "notion",
+                    "source_row": raw,
+                }
+            )
         if request.dry_run:
             return False, 0, 0, len(skipped_rows), candidates, skipped_rows
         event_payload = request.model_dump(mode="json")
@@ -2679,10 +3316,23 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     payload=event_payload,
                 )
                 if not inserted:
-                    return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
+                    return (
+                        inserted,
+                        created,
+                        updated,
+                        len(skipped_rows),
+                        candidates,
+                        skipped_rows,
+                    )
                 for candidate in candidates:
                     raw = candidate["source_row"]
-                    existed = cur.execute("select 1 from queue_items where project_id = %s", (candidate["project_id"],)).fetchone() is not None
+                    existed = (
+                        cur.execute(
+                            "select 1 from queue_items where project_id = %s",
+                            (candidate["project_id"],),
+                        ).fetchone()
+                        is not None
+                    )
                     cur.execute(
                         """
                         insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
@@ -2695,7 +3345,16 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                           origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
                           updated_at=excluded.updated_at
                         """,
-                        (candidate["project_id"], candidate["project_name"], candidate["project_dir"], candidate["notion_page_url"], candidate["notion_page_id"], candidate["origin_idea_status"], now, now),
+                        (
+                            candidate["project_id"],
+                            candidate["project_name"],
+                            candidate["project_dir"],
+                            candidate["notion_page_url"],
+                            candidate["notion_page_id"],
+                            candidate["origin_idea_status"],
+                            now,
+                            now,
+                        ),
                     )
                     if existed:
                         if request.override_existing_dispatch_metadata:
@@ -2705,7 +3364,15 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                                 set selection_rank=%s, dispatch_priority=%s, machine_target=%s, model=%s, sandbox=%s, updated_at=%s
                                 where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
                                 """,
-                                (candidate["selection_rank"], candidate["dispatch_priority"], candidate["machine_target"], candidate["model"], candidate["sandbox"], now, candidate["project_id"]),
+                                (
+                                    candidate["selection_rank"],
+                                    candidate["dispatch_priority"],
+                                    candidate["machine_target"],
+                                    candidate["model"],
+                                    candidate["sandbox"],
+                                    now,
+                                    candidate["project_id"],
+                                ),
                             )
                         else:
                             cur.execute(
@@ -2714,7 +3381,12 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                                 set selection_rank=%s, dispatch_priority=%s, updated_at=%s
                                 where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
                                 """,
-                                (candidate["selection_rank"], candidate["dispatch_priority"], now, candidate["project_id"]),
+                                (
+                                    candidate["selection_rank"],
+                                    candidate["dispatch_priority"],
+                                    now,
+                                    candidate["project_id"],
+                                ),
                             )
                         updated += 1
                     else:
@@ -2724,9 +3396,31 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                             """,
                             (
-                                candidate["project_id"], QueueStatus.QUEUED.value, candidate["selection_rank"], candidate["dispatch_priority"],
-                                True, 0, 0, 0, 2, "", "", "", "", candidate["next_action_hint"], False, "", "", "",
-                                candidate["machine_target"], candidate["model"], candidate["sandbox"], None, None, None, now,
+                                candidate["project_id"],
+                                QueueStatus.QUEUED.value,
+                                candidate["selection_rank"],
+                                candidate["dispatch_priority"],
+                                True,
+                                0,
+                                0,
+                                0,
+                                2,
+                                "",
+                                "",
+                                "",
+                                "",
+                                candidate["next_action_hint"],
+                                False,
+                                "",
+                                "",
+                                "",
+                                candidate["machine_target"],
+                                candidate["model"],
+                                candidate["sandbox"],
+                                None,
+                                None,
+                                None,
+                                now,
                             ),
                         )
                         created += 1
@@ -2735,12 +3429,18 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         project_id=candidate["project_id"],
                         title=candidate["project_name"],
                         source_kind=candidate["source_kind"],
-                        payload={"source_payload_json": raw if isinstance(raw, dict) else {}},
+                        payload={
+                            "source_payload_json": raw if isinstance(raw, dict) else {}
+                        },
                     )
         return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
 
-    def ingest_ideas(self, request: IdeaIntakeRequest) -> tuple[bool, int, int, int, list[dict[str, Any]], list[dict[str, Any]]]:
-        include_statuses = {item.strip().lower() for item in request.include_statuses if item.strip()}
+    def ingest_ideas(
+        self, request: IdeaIntakeRequest
+    ) -> tuple[bool, int, int, int, list[dict[str, Any]], list[dict[str, Any]]]:
+        include_statuses = {
+            item.strip().lower() for item in request.include_statuses if item.strip()
+        }
         candidates: list[dict[str, Any]] = []
         skipped_rows: list[dict[str, Any]] = []
         for raw in request.ideas:
@@ -2751,37 +3451,57 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 skipped_rows.append({"reason": "missing title", "row": raw})
                 continue
             if include_statuses and status and status not in include_statuses:
-                skipped_rows.append({"reason": f"status {status!r} not included", "title": title, "status": status, "idea_id": _text(_first_present(raw, "idea_id", "project_id", "id"))})
+                skipped_rows.append(
+                    {
+                        "reason": f"status {status!r} not included",
+                        "title": title,
+                        "status": status,
+                        "idea_id": _text(
+                            _first_present(raw, "idea_id", "project_id", "id")
+                        ),
+                    }
+                )
                 continue
             project_id = _idea_id(raw, title)
             if not project_id:
                 skipped_rows.append({"reason": "missing idea id", "title": title})
                 continue
-            rank = _int(_first_present(raw, "selection_rank", "dispatch_priority"), _priority_rank(raw))
-            dispatch_priority = _int(_first_present(raw, "dispatch_priority", "selection_rank"), rank)
+            rank = _int(
+                _first_present(raw, "selection_rank", "dispatch_priority"),
+                _priority_rank(raw),
+            )
+            dispatch_priority = _int(
+                _first_present(raw, "dispatch_priority", "selection_rank"), rank
+            )
             routing = route_machine_target(
                 raw,
                 default_machine_target=request.default_machine_target,
                 workload_machine_targets=request.workload_machine_targets,
             )
-            candidates.append({
-                "project_id": project_id,
-                "idea_id": project_id,
-                "project_name": title,
-                "project_dir": project_id,
-                "origin_idea_status": origin_status,
-                "status": QueueStatus.QUEUED.value,
-                "selection_rank": rank,
-                "dispatch_priority": dispatch_priority,
-                "next_action_hint": "controller_review",
-                "machine_target": routing["machine_target"],
-                "workload_class": routing["workload_class"],
-                "routing_reason": routing["routing_reason"],
-                "model": _text(_first_present(raw, "model", "default_model")) or request.default_model,
-                "sandbox": _text(_first_present(raw, "sandbox", "default_sandbox")) or request.default_sandbox,
-                "source_kind": _text(raw.get("source_kind")) or request.source or "supabase_native",
-                "source_row": raw,
-            })
+            candidates.append(
+                {
+                    "project_id": project_id,
+                    "idea_id": project_id,
+                    "project_name": title,
+                    "project_dir": project_id,
+                    "origin_idea_status": origin_status,
+                    "status": QueueStatus.QUEUED.value,
+                    "selection_rank": rank,
+                    "dispatch_priority": dispatch_priority,
+                    "next_action_hint": "controller_review",
+                    "machine_target": routing["machine_target"],
+                    "workload_class": routing["workload_class"],
+                    "routing_reason": routing["routing_reason"],
+                    "model": _text(_first_present(raw, "model", "default_model"))
+                    or request.default_model,
+                    "sandbox": _text(_first_present(raw, "sandbox", "default_sandbox"))
+                    or request.default_sandbox,
+                    "source_kind": _text(raw.get("source_kind"))
+                    or request.source
+                    or "supabase_native",
+                    "source_row": raw,
+                }
+            )
         if request.dry_run:
             return False, 0, 0, len(skipped_rows), candidates, skipped_rows
         event_payload = request.model_dump(mode="json")
@@ -2800,9 +3520,22 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     payload=event_payload,
                 )
                 if not inserted:
-                    return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
+                    return (
+                        inserted,
+                        created,
+                        updated,
+                        len(skipped_rows),
+                        candidates,
+                        skipped_rows,
+                    )
                 for candidate in candidates:
-                    existed = cur.execute("select 1 from queue_items where project_id = %s", (candidate["project_id"],)).fetchone() is not None
+                    existed = (
+                        cur.execute(
+                            "select 1 from queue_items where project_id = %s",
+                            (candidate["project_id"],),
+                        ).fetchone()
+                        is not None
+                    )
                     raw = candidate["source_row"]
                     cur.execute(
                         """
@@ -2832,27 +3565,95 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                           updated_at=excluded.updated_at
                         """,
                         (
-                            candidate["project_id"], candidate["project_name"], candidate["origin_idea_status"],
+                            candidate["project_id"],
+                            candidate["project_name"],
+                            candidate["origin_idea_status"],
                             _text(_first_present(raw, "category", "property_category")),
                             _text(_first_present(raw, "priority", "property_priority")),
                             candidate["source_kind"],
-                            _text(_first_present(raw, "source_external_id", "external_id")),
-                            _text(_first_present(raw, "source_external_url", "external_url", "url")),
-                            _text(_first_present(raw, "description", "property_description")),
-                            _text(_first_present(raw, "implementation", "property_implementation")),
-                            _text(_first_present(raw, "baseline_to_beat", "property_baseline_to_beat")),
-                            _text(_first_present(raw, "kill_condition", "property_kill_condition")),
-                            _text(_first_present(raw, "accessibility_delta", "property_accessibility_delta")),
-                            _text(_first_present(raw, "experiment_results", "property_experiment_results")),
-                            _text(_first_present(raw, "expected_token_budget", "property_expected_token_budget")),
-                            _text(_first_present(raw, "confidence", "property_confidence")),
-                            _text(_first_present(raw, "feasibility", "property_feasibility")),
+                            _text(
+                                _first_present(raw, "source_external_id", "external_id")
+                            ),
+                            _text(
+                                _first_present(
+                                    raw, "source_external_url", "external_url", "url"
+                                )
+                            ),
+                            _text(
+                                _first_present(
+                                    raw, "description", "property_description"
+                                )
+                            ),
+                            _text(
+                                _first_present(
+                                    raw, "implementation", "property_implementation"
+                                )
+                            ),
+                            _text(
+                                _first_present(
+                                    raw, "baseline_to_beat", "property_baseline_to_beat"
+                                )
+                            ),
+                            _text(
+                                _first_present(
+                                    raw, "kill_condition", "property_kill_condition"
+                                )
+                            ),
+                            _text(
+                                _first_present(
+                                    raw,
+                                    "accessibility_delta",
+                                    "property_accessibility_delta",
+                                )
+                            ),
+                            _text(
+                                _first_present(
+                                    raw,
+                                    "experiment_results",
+                                    "property_experiment_results",
+                                )
+                            ),
+                            _text(
+                                _first_present(
+                                    raw,
+                                    "expected_token_budget",
+                                    "property_expected_token_budget",
+                                )
+                            ),
+                            _text(
+                                _first_present(raw, "confidence", "property_confidence")
+                            ),
+                            _text(
+                                _first_present(
+                                    raw, "feasibility", "property_feasibility"
+                                )
+                            ),
                             _text(_first_present(raw, "leverage", "property_leverage")),
-                            _text(_first_present(raw, "novelty_score", "property_novelty_score")),
-                            _text(_first_present(raw, "signal_speed", "property_signal_speed")),
-                            _text(_first_present(raw, "teacher_dependence", "property_teacher_dependence")),
-                            candidate["machine_target"], candidate["model"], candidate["sandbox"],
-                            candidate["selection_rank"], candidate["dispatch_priority"], _json(raw), now, now,
+                            _text(
+                                _first_present(
+                                    raw, "novelty_score", "property_novelty_score"
+                                )
+                            ),
+                            _text(
+                                _first_present(
+                                    raw, "signal_speed", "property_signal_speed"
+                                )
+                            ),
+                            _text(
+                                _first_present(
+                                    raw,
+                                    "teacher_dependence",
+                                    "property_teacher_dependence",
+                                )
+                            ),
+                            candidate["machine_target"],
+                            candidate["model"],
+                            candidate["sandbox"],
+                            candidate["selection_rank"],
+                            candidate["dispatch_priority"],
+                            _json(raw),
+                            now,
+                            now,
                         ),
                     )
                     cur.execute(
@@ -2864,7 +3665,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                           origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
                           updated_at=excluded.updated_at
                         """,
-                        (candidate["project_id"], candidate["project_name"], candidate["project_dir"], candidate["origin_idea_status"], now, now),
+                        (
+                            candidate["project_id"],
+                            candidate["project_name"],
+                            candidate["project_dir"],
+                            candidate["origin_idea_status"],
+                            now,
+                            now,
+                        ),
                     )
                     if existed:
                         if request.override_existing_dispatch_metadata:
@@ -2874,7 +3682,15 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                                 set selection_rank=%s, dispatch_priority=%s, machine_target=%s, model=%s, sandbox=%s, updated_at=%s
                                 where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
                                 """,
-                                (candidate["selection_rank"], candidate["dispatch_priority"], candidate["machine_target"], candidate["model"], candidate["sandbox"], now, candidate["project_id"]),
+                                (
+                                    candidate["selection_rank"],
+                                    candidate["dispatch_priority"],
+                                    candidate["machine_target"],
+                                    candidate["model"],
+                                    candidate["sandbox"],
+                                    now,
+                                    candidate["project_id"],
+                                ),
                             )
                         else:
                             cur.execute(
@@ -2883,7 +3699,12 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                                 set selection_rank=%s, dispatch_priority=%s, updated_at=%s
                                 where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
                                 """,
-                                (candidate["selection_rank"], candidate["dispatch_priority"], now, candidate["project_id"]),
+                                (
+                                    candidate["selection_rank"],
+                                    candidate["dispatch_priority"],
+                                    now,
+                                    candidate["project_id"],
+                                ),
                             )
                         updated += 1
                     else:
@@ -2893,9 +3714,31 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                             """,
                             (
-                                candidate["project_id"], QueueStatus.QUEUED.value, candidate["selection_rank"], candidate["dispatch_priority"],
-                                True, 0, 0, 0, 2, "", "", "", "", candidate["next_action_hint"], False, "", "", "",
-                                candidate["machine_target"], candidate["model"], candidate["sandbox"], None, None, None, now,
+                                candidate["project_id"],
+                                QueueStatus.QUEUED.value,
+                                candidate["selection_rank"],
+                                candidate["dispatch_priority"],
+                                True,
+                                0,
+                                0,
+                                0,
+                                2,
+                                "",
+                                "",
+                                "",
+                                "",
+                                candidate["next_action_hint"],
+                                False,
+                                "",
+                                "",
+                                "",
+                                candidate["machine_target"],
+                                candidate["model"],
+                                candidate["sandbox"],
+                                None,
+                                None,
+                                None,
+                                now,
                             ),
                         )
                         created += 1
@@ -2904,7 +3747,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         project_id=candidate["project_id"],
                         title=candidate["project_name"],
                         source_kind=candidate["source_kind"],
-                        payload={"source_payload_json": raw if isinstance(raw, dict) else {}},
+                        payload={
+                            "source_payload_json": raw if isinstance(raw, dict) else {}
+                        },
                     )
         return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
 
@@ -2923,67 +3768,96 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             QueueStatus.BLOCKED.value: "blocked",
             QueueStatus.NEEDS_REVIEW.value: "blocked",
         }
-        paper_by_project = {paper.get("project_id"): paper for paper in self.paper_rows()}
+        paper_by_project = {
+            paper.get("project_id"): paper for paper in self.paper_rows()
+        }
         rows = []
         for row in self.queue_rows():
             paper = paper_by_project.get(row.get("project_id")) or {}
-            merged = {**row, "paper_id": paper.get("paper_id") or "", "paper_status": paper.get("paper_status") or "", "paper_type": paper.get("paper_type") or "", "draft_markdown_path": paper.get("draft_markdown_path") or "", "paper_updated_at": paper.get("updated_at") or ""}
+            merged = {
+                **row,
+                "paper_id": paper.get("paper_id") or "",
+                "paper_status": paper.get("paper_status") or "",
+                "paper_type": paper.get("paper_type") or "",
+                "draft_markdown_path": paper.get("draft_markdown_path") or "",
+                "paper_updated_at": paper.get("updated_at") or "",
+            }
             page_url = merged.get("notion_page_url") or ""
             if not page_url:
                 continue
             execution_state = state_map.get(merged.get("status") or "", "blocked")
-            blocked_reason = merged.get("blocked_reason") or (merged.get("last_result_summary") if execution_state in {"blocked", "failed"} else "") or ""
-            rows.append({
-                "project_id": merged.get("project_id") or "",
-                "page_id": merged.get("notion_page_id") or _notion_page_id_from_url(page_url),
-                "notion_page_url": page_url,
-                "properties": {
-                    "Execution State": execution_state,
-                    "Current Run ID": merged.get("current_run_id") or "",
-                    "Next Action": merged.get("next_action_hint") or "",
-                    "Blocked Reason": blocked_reason,
-                    "Last Execution Update": merged.get("updated_at") or utc_now(),
-                    "Execution Summary": merged.get("last_result_summary") or "",
-                    "Enoch Project ID": merged.get("project_id") or "",
-                    "Enoch Queue Status": merged.get("status") or "",
-                    "Enoch Last Run State": merged.get("last_run_state") or "",
-                    "Enoch Last Event Type": merged.get("last_event_type") or "",
-                    "Enoch Next Action Hint": merged.get("next_action_hint") or "",
-                    "Enoch Project Dir": merged.get("project_dir") or "",
-                    "Enoch Current Session ID": merged.get("current_session_id") or "",
-                    "Enoch Last Result Summary": merged.get("last_result_summary") or "",
-                    "Enoch Last Error": merged.get("last_error") or "",
-                    "Enoch Manual Review Required": "__YES__" if merged.get("manual_review_required") else "__NO__",
-                    "Enoch Dispatch Priority": merged.get("dispatch_priority") or 0,
-                    "Enoch Selection Rank": merged.get("selection_rank") or 0,
-                    "Enoch Paper ID": merged.get("paper_id") or "",
-                    "Enoch Paper Status": merged.get("paper_status") or "",
-                    "Enoch Paper Type": merged.get("paper_type") or "",
-                    "Enoch Paper Markdown Path": merged.get("draft_markdown_path") or "",
-                    "Enoch Paper Updated At": merged.get("paper_updated_at") or "",
-                    "Enoch Paper Updated At ISO": merged.get("paper_updated_at") or "",
-                },
-            })
+            blocked_reason = (
+                merged.get("blocked_reason")
+                or (
+                    merged.get("last_result_summary")
+                    if execution_state in {"blocked", "failed"}
+                    else ""
+                )
+                or ""
+            )
+            rows.append(
+                {
+                    "project_id": merged.get("project_id") or "",
+                    "page_id": merged.get("notion_page_id")
+                    or _notion_page_id_from_url(page_url),
+                    "notion_page_url": page_url,
+                    "properties": {
+                        "Execution State": execution_state,
+                        "Current Run ID": merged.get("current_run_id") or "",
+                        "Next Action": merged.get("next_action_hint") or "",
+                        "Blocked Reason": blocked_reason,
+                        "Last Execution Update": merged.get("updated_at") or utc_now(),
+                        "Execution Summary": merged.get("last_result_summary") or "",
+                        "Enoch Project ID": merged.get("project_id") or "",
+                        "Enoch Queue Status": merged.get("status") or "",
+                        "Enoch Last Run State": merged.get("last_run_state") or "",
+                        "Enoch Last Event Type": merged.get("last_event_type") or "",
+                        "Enoch Next Action Hint": merged.get("next_action_hint") or "",
+                        "Enoch Project Dir": merged.get("project_dir") or "",
+                        "Enoch Current Session ID": merged.get("current_session_id")
+                        or "",
+                        "Enoch Last Result Summary": merged.get("last_result_summary")
+                        or "",
+                        "Enoch Last Error": merged.get("last_error") or "",
+                        "Enoch Manual Review Required": "__YES__"
+                        if merged.get("manual_review_required")
+                        else "__NO__",
+                        "Enoch Dispatch Priority": merged.get("dispatch_priority") or 0,
+                        "Enoch Selection Rank": merged.get("selection_rank") or 0,
+                        "Enoch Paper ID": merged.get("paper_id") or "",
+                        "Enoch Paper Status": merged.get("paper_status") or "",
+                        "Enoch Paper Type": merged.get("paper_type") or "",
+                        "Enoch Paper Markdown Path": merged.get("draft_markdown_path")
+                        or "",
+                        "Enoch Paper Updated At": merged.get("paper_updated_at") or "",
+                        "Enoch Paper Updated At ISO": merged.get("paper_updated_at")
+                        or "",
+                    },
+                }
+            )
         return rows
 
     def queue_notion_projection(self) -> list[dict[str, Any]]:
-        return [{
-            "project_id": row.get("project_id") or "",
-            "project_name": row.get("project_name") or "",
-            "origin_idea_status": row.get("origin_idea_status") or "",
-            "queue_status": row.get("status") or "",
-            "next_action_hint": row.get("next_action_hint") or "",
-            "last_run_state": row.get("last_run_state") or "",
-            "last_event_type": row.get("last_event_type") or "",
-            "current_run_id": row.get("current_run_id") or "",
-            "current_session_id": row.get("current_session_id") or "",
-            "machine_target": row.get("machine_target") or "",
-            "manual_review_required": _bool(row.get("manual_review_required")),
-            "blocked_reason": row.get("blocked_reason") or "",
-            "last_result_summary": row.get("last_result_summary") or "",
-            "notion_page_url": row.get("notion_page_url") or "",
-            "updated_at": row.get("updated_at") or "",
-        } for row in self.queue_rows()]
+        return [
+            {
+                "project_id": row.get("project_id") or "",
+                "project_name": row.get("project_name") or "",
+                "origin_idea_status": row.get("origin_idea_status") or "",
+                "queue_status": row.get("status") or "",
+                "next_action_hint": row.get("next_action_hint") or "",
+                "last_run_state": row.get("last_run_state") or "",
+                "last_event_type": row.get("last_event_type") or "",
+                "current_run_id": row.get("current_run_id") or "",
+                "current_session_id": row.get("current_session_id") or "",
+                "machine_target": row.get("machine_target") or "",
+                "manual_review_required": _bool(row.get("manual_review_required")),
+                "blocked_reason": row.get("blocked_reason") or "",
+                "last_result_summary": row.get("last_result_summary") or "",
+                "notion_page_url": row.get("notion_page_url") or "",
+                "updated_at": row.get("updated_at") or "",
+            }
+            for row in self.queue_rows()
+        ]
 
     def idea_workbench_projection(self, *, limit: int = 200) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 500))
@@ -3004,7 +3878,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 ).fetchall()
         return [dict(row) for row in rows]
 
-    def research_facility_workbench_projection(self, *, limit: int = 200) -> list[dict[str, Any]]:
+    def research_facility_workbench_projection(
+        self, *, limit: int = 200
+    ) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 500))
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -3037,9 +3913,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     group by status
                     """
                 ).fetchall()
-        return {_text(row.get("status") or "unknown"): int(row.get("count") or 0) for row in rows}
+        return {
+            _text(row.get("status") or "unknown"): int(row.get("count") or 0)
+            for row in rows
+        }
 
-    def promote_research_candidate(self, candidate_id: str, *, requested_by: str, dry_run: bool = True) -> dict[str, Any]:
+    def promote_research_candidate(
+        self, candidate_id: str, *, requested_by: str, dry_run: bool = True
+    ) -> dict[str, Any]:
         """Promote one admitted Research Facility candidate into the queued idea lane.
 
         Promotion is intentionally narrower than generation:
@@ -3052,7 +3933,11 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         candidate_id = _text(candidate_id).strip()
         requested_by = (_text(requested_by) or "dashboard")[:80]
         if not candidate_id:
-            return {"ok": False, "action": "promote_candidate_blocked", "reason": "candidate_id is required"}
+            return {
+                "ok": False,
+                "action": "promote_candidate_blocked",
+                "reason": "candidate_id is required",
+            }
 
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -3079,7 +3964,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 if admitted_idea_id:
                     return {
                         "ok": True,
-                        "action": "dry_run_promote_candidate" if dry_run else "promote_candidate",
+                        "action": "dry_run_promote_candidate"
+                        if dry_run
+                        else "promote_candidate",
                         "dry_run": dry_run,
                         "candidate_id": candidate_id,
                         "idea_id": admitted_idea_id,
@@ -3121,9 +4008,17 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 candidate = dict(row)
                 idea_id = candidate_id
                 title = _text(candidate.get("title")) or idea_id
-                source_urls = candidate.get("source_urls") if isinstance(candidate.get("source_urls"), list) else []
+                source_urls = (
+                    candidate.get("source_urls")
+                    if isinstance(candidate.get("source_urls"), list)
+                    else []
+                )
                 source_external_url = _text(source_urls[0]) if source_urls else ""
-                raw_candidate = candidate.get("raw_candidate_json") if isinstance(candidate.get("raw_candidate_json"), dict) else {}
+                raw_candidate = (
+                    candidate.get("raw_candidate_json")
+                    if isinstance(candidate.get("raw_candidate_json"), dict)
+                    else {}
+                )
                 source_payload_json = {
                     **raw_candidate,
                     "research_candidate_id": candidate_id,
@@ -3132,7 +4027,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 }
                 response = {
                     "ok": True,
-                    "action": "dry_run_promote_candidate" if dry_run else "promote_candidate",
+                    "action": "dry_run_promote_candidate"
+                    if dry_run
+                    else "promote_candidate",
                     "dry_run": dry_run,
                     "candidate_id": candidate_id,
                     "idea_id": idea_id,
@@ -3178,7 +4075,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         _text(candidate.get("category")),
                         _text(candidate.get("priority")),
                         source_external_url,
-                        _text(candidate.get("description")) or _text(candidate.get("hypothesis")),
+                        _text(candidate.get("description"))
+                        or _text(candidate.get("hypothesis")),
                         _text(candidate.get("implementation")),
                         _text(candidate.get("baseline_to_beat")),
                         _text(candidate.get("kill_condition")),
@@ -3221,7 +4119,12 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                       updated_at=now()
                     where queue_items.status not in ('dispatching', 'running', 'awaiting_wake', 'wake_received', 'reconciling')
                     """,
-                    (idea_id, _text(candidate.get("machine_target")), _text(candidate.get("model")), _text(candidate.get("sandbox"))),
+                    (
+                        idea_id,
+                        _text(candidate.get("machine_target")),
+                        _text(candidate.get("model")),
+                        _text(candidate.get("sandbox")),
+                    ),
                 )
                 queue_rowcount = int(cur.rowcount or 0)
                 promotion_key = f"research-promotion:{candidate_id}:{idea_id}"
@@ -3253,10 +4156,17 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     (
                         candidate_id,
                         idea_id,
-                        self._json_text({"admission_reason": _text(wb.get("admission_reason")), "promoted_by": requested_by}),
+                        self._json_text(
+                            {
+                                "admission_reason": _text(wb.get("admission_reason")),
+                                "promoted_by": requested_by,
+                            }
+                        ),
                         idea_id,
                         idea_id,
-                        self._json_text({"queued_by": requested_by, "dispatch_started": False}),
+                        self._json_text(
+                            {"queued_by": requested_by, "dispatch_started": False}
+                        ),
                     ),
                 )
                 response["queue_upserted"] = queue_rowcount
@@ -3264,7 +4174,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 response["lineage_inserted"] = int(cur.rowcount or 0)
                 return response
 
-    def record_research_facility_plans(self, plans: Sequence[Any], *, requested_by: str, queue_admitted: bool = False) -> dict[str, Any]:
+    def record_research_facility_plans(
+        self, plans: Sequence[Any], *, requested_by: str, queue_admitted: bool = False
+    ) -> dict[str, Any]:
         """Persist Research Facility candidate/admission ledgers.
 
         This method intentionally does not queue admitted ideas unless
@@ -3274,7 +4186,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         """
 
         if queue_admitted:
-            raise ValueError("queue_admitted promotion is not supported by this ledger-only writer")
+            raise ValueError(
+                "queue_admitted promotion is not supported by this ledger-only writer"
+            )
         counters = {
             "sources_upserted": 0,
             "candidates_upserted": 0,
@@ -3284,18 +4198,27 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         with self._connect() as conn:
             with conn.cursor() as cur:
                 for plan in plans:
-                    plan_json = plan.to_json() if hasattr(plan, "to_json") else dict(plan)
+                    plan_json = (
+                        plan.to_json() if hasattr(plan, "to_json") else dict(plan)
+                    )
                     candidate = dict(plan_json.get("candidate") or {})
                     candidate_id = str(candidate.get("candidate_id") or "").strip()
                     if not candidate_id:
                         continue
                     source_records = _candidate_source_records(candidate)
                     source_ids = []
-                    for source_id in [*list(candidate.get("source_ids") or []), *[_text(source.get("source_id")) for source in source_records]]:
+                    for source_id in [
+                        *list(candidate.get("source_ids") or []),
+                        *[_text(source.get("source_id")) for source in source_records],
+                    ]:
                         source_id_text = _text(source_id)
                         if source_id_text and source_id_text not in source_ids:
                             source_ids.append(source_id_text)
-                    source_urls = [_text(url) for url in (candidate.get("source_urls") or []) if _text(url)]
+                    source_urls = [
+                        _text(url)
+                        for url in (candidate.get("source_urls") or [])
+                        if _text(url)
+                    ]
                     for source in source_records:
                         source_id = _text(source.get("source_id"))
                         if not source_id:
@@ -3316,14 +4239,21 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             """,
                             (
                                 source_id,
-                                _text(source.get("source_kind") or candidate.get("source_kind") or "other"),
+                                _text(
+                                    source.get("source_kind")
+                                    or candidate.get("source_kind")
+                                    or "other"
+                                ),
                                 _text(source.get("title") or candidate.get("title")),
                                 _text(source.get("url")),
                                 _text(source.get("external_id")),
                                 _text(source.get("retrieved_at")),
                                 _text(source.get("summary")),
                                 self._json_text(source.get("payload_json") or {}),
-                                _text(source.get("content_hash")) or hashlib.sha256(self._json_text(source).encode("utf-8")).hexdigest(),
+                                _text(source.get("content_hash"))
+                                or hashlib.sha256(
+                                    self._json_text(source).encode("utf-8")
+                                ).hexdigest(),
                             ),
                         )
                         counters["sources_upserted"] += 1
@@ -3369,7 +4299,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             str(candidate.get("accessibility_delta") or ""),
                             self._json_text(candidate.get("expected_artifacts") or []),
                             self._json_text(candidate.get("required_evidence") or []),
-                            self._json_text(candidate.get("likely_failure_modes") or []),
+                            self._json_text(
+                                candidate.get("likely_failure_modes") or []
+                            ),
                             str(candidate.get("estimated_runtime_class") or ""),
                             str(candidate.get("expected_token_budget") or ""),
                             str(candidate.get("machine_target") or ""),
@@ -3382,15 +4314,23 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             float(candidate.get("total_score") or 0),
                             self._json_text(candidate.get("score_breakdown") or {}),
                             str(candidate.get("dedupe_key") or candidate_id),
-                            self._json_text(candidate.get("similar_prior_projects") or []),
+                            self._json_text(
+                                candidate.get("similar_prior_projects") or []
+                            ),
                             str(candidate.get("novelty_comparison") or ""),
                             str(candidate.get("risk_notes") or ""),
-                            str(plan_json.get("admission_reason") if plan_json.get("admission_decision") == "rejected" else ""),
+                            str(
+                                plan_json.get("admission_reason")
+                                if plan_json.get("admission_decision") == "rejected"
+                                else ""
+                            ),
                             str(candidate.get("provider") or ""),
                             str(candidate.get("provider_model") or ""),
                             str(candidate.get("prompt_version") or ""),
                             str(candidate.get("generated_by") or ""),
-                            self._json_text(candidate.get("raw_candidate_json") or candidate),
+                            self._json_text(
+                                candidate.get("raw_candidate_json") or candidate
+                            ),
                         ),
                     )
                     counters["candidates_upserted"] += 1
@@ -3404,14 +4344,22 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                               where source_type='source' and source_id=%s and target_type='candidate' and target_id=%s and relation_type='generated_from'
                             )
                             """,
-                            (str(source_id), candidate_id, self._json_text({"source_ids": source_ids}), str(source_id), candidate_id),
+                            (
+                                str(source_id),
+                                candidate_id,
+                                self._json_text({"source_ids": source_ids}),
+                                str(source_id),
+                                candidate_id,
+                            ),
                         )
                         counters["lineage_inserted"] += int(cur.rowcount or 0)
                     idempotency_key = f"research-admission:{candidate_id}:{plan_json.get('admission_decision')}"
                     counters["admissions_inserted"] += self._insert_research_admission(
                         cur,
                         candidate_id=candidate_id,
-                        admission_decision=str(plan_json.get("admission_decision") or "needs_review"),
+                        admission_decision=str(
+                            plan_json.get("admission_decision") or "needs_review"
+                        ),
                         admission_reason=str(plan_json.get("admission_reason") or ""),
                         score_breakdown=plan_json.get("score_breakdown") or {},
                         admitted_idea_id=None,
@@ -3421,21 +4369,26 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         return counters
 
     def paper_notion_projection(self) -> list[dict[str, Any]]:
-        return [{
-            "paper_id": paper.get("paper_id") or "",
-            "project_id": paper.get("project_id") or "",
-            "project_name": paper.get("project_name") or paper.get("project_id") or "",
-            "paper_status": paper.get("paper_status") or "",
-            "paper_type": paper.get("paper_type") or "",
-            "run_id": paper.get("run_id") or "",
-            "draft_markdown_path": paper.get("draft_markdown_path") or "",
-            "draft_latex_path": paper.get("draft_latex_path") or "",
-            "evidence_bundle_path": paper.get("evidence_bundle_path") or "",
-            "claim_ledger_path": paper.get("claim_ledger_path") or "",
-            "manifest_path": paper.get("manifest_path") or "",
-            "notion_page_url": paper.get("notion_page_url") or "",
-            "updated_at": paper.get("updated_at") or "",
-        } for paper in self.paper_rows()]
+        return [
+            {
+                "paper_id": paper.get("paper_id") or "",
+                "project_id": paper.get("project_id") or "",
+                "project_name": paper.get("project_name")
+                or paper.get("project_id")
+                or "",
+                "paper_status": paper.get("paper_status") or "",
+                "paper_type": paper.get("paper_type") or "",
+                "run_id": paper.get("run_id") or "",
+                "draft_markdown_path": paper.get("draft_markdown_path") or "",
+                "draft_latex_path": paper.get("draft_latex_path") or "",
+                "evidence_bundle_path": paper.get("evidence_bundle_path") or "",
+                "claim_ledger_path": paper.get("claim_ledger_path") or "",
+                "manifest_path": paper.get("manifest_path") or "",
+                "notion_page_url": paper.get("notion_page_url") or "",
+                "updated_at": paper.get("updated_at") or "",
+            }
+            for paper in self.paper_rows()
+        ]
 
     def _replayed_event_id(
         self,
@@ -3459,7 +4412,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             or row["entity_id"] != entity_id
             or row["payload_hash"] != payload_hash
         ):
-            raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different event identity")
+            raise IdempotencyConflict(
+                f"idempotency key {idempotency_key!r} was reused with different event identity"
+            )
         return int(row["event_id"])
 
     def mark_dispatch_started(
@@ -3472,7 +4427,12 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         requested_by: str,
     ) -> tuple[int, dict[str, Any]]:
         now = utc_now()
-        event_payload = {"requested_by": requested_by, "run_id": run_id, "session_id": session_id, "dispatch": dispatch_payload}
+        event_payload = {
+            "requested_by": requested_by,
+            "run_id": run_id,
+            "session_id": session_id,
+            "dispatch": dispatch_payload,
+        }
         with self._connect() as conn:
             with conn.cursor() as cur:
                 event_id, inserted = self._append_event_in_cursor(
@@ -3484,7 +4444,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     payload=event_payload,
                 )
                 if not inserted:
-                    rows = self._queue_rows_from_cursor(cur, "where q.project_id = %s", (project_id,))
+                    rows = self._queue_rows_from_cursor(
+                        cur, "where q.project_id = %s", (project_id,)
+                    )
                     return event_id, rows[0] if rows else {}
                 cur.execute(
                     """
@@ -3495,8 +4457,17 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     where project_id=%s
                     """,
                     (
-                        QueueStatus.AWAITING_WAKE.value, run_id, session_id, QueueStatus.AWAITING_WAKE.value,
-                        "live_dispatch", "await_callback", "", "", now, now, project_id,
+                        QueueStatus.AWAITING_WAKE.value,
+                        run_id,
+                        session_id,
+                        QueueStatus.AWAITING_WAKE.value,
+                        "live_dispatch",
+                        "await_callback",
+                        "",
+                        "",
+                        now,
+                        now,
+                        project_id,
                     ),
                 )
                 cur.execute(
@@ -3509,14 +4480,32 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                       last_callback_at=excluded.last_callback_at, gate_state=excluded.gate_state,
                       current_activity=excluded.current_activity, idempotency_key=excluded.idempotency_key, updated_at=excluded.updated_at
                     """,
-                    (run_id, project_id, session_id, "running", "exec", now, None, None, "running", "dispatched", f"live-dispatch:{run_id}", now),
+                    (
+                        run_id,
+                        project_id,
+                        session_id,
+                        "running",
+                        "exec",
+                        now,
+                        None,
+                        None,
+                        "running",
+                        "dispatched",
+                        f"live-dispatch:{run_id}",
+                        now,
+                    ),
                 )
         return event_id, self.queue_row(project_id) or {}
 
-    def _replayed_worker_callback_event_id(self, idempotency_key: str, incoming_payload: dict[str, Any]) -> int | None:
+    def _replayed_worker_callback_event_id(
+        self, idempotency_key: str, incoming_payload: dict[str, Any]
+    ) -> int | None:
         """Return existing worker callback event id for an exact incoming retry."""
 
-        row = self._one("select event_id, payload_json from control_events where idempotency_key = %s", (idempotency_key,))
+        row = self._one(
+            "select event_id, payload_json from control_events where idempotency_key = %s",
+            (idempotency_key,),
+        )
         if row is None or "payload_json" not in row:
             return None
         raw_payload = row.get("payload_json")
@@ -3526,9 +4515,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             try:
                 existing_payload = json.loads(raw_payload or "{}")
             except (TypeError, json.JSONDecodeError) as exc:
-                raise IdempotencyConflict(f"idempotency key {idempotency_key!r} has unreadable payload") from exc
+                raise IdempotencyConflict(
+                    f"idempotency key {idempotency_key!r} has unreadable payload"
+                ) from exc
         if not isinstance(existing_payload, dict):
-            raise IdempotencyConflict(f"idempotency key {idempotency_key!r} has non-object payload")
+            raise IdempotencyConflict(
+                f"idempotency key {idempotency_key!r} has non-object payload"
+            )
         existing_callback_payload = {
             key: value
             for key, value in existing_payload.items()
@@ -3540,12 +4533,20 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             if key not in WORKER_CALLBACK_AUDIT_KEYS
         }
         if existing_callback_payload != incoming_callback_payload:
-            raise IdempotencyConflict(f"idempotency key {idempotency_key!r} was reused with different callback payload")
+            raise IdempotencyConflict(
+                f"idempotency key {idempotency_key!r} was reused with different callback payload"
+            )
         return int(row["event_id"])
 
-    def record_worker_callback(self, callback: Any, *, received_by: str = "worker-callback") -> tuple[int, bool, dict[str, Any]]:
+    def record_worker_callback(
+        self, callback: Any, *, received_by: str = "worker-callback"
+    ) -> tuple[int, bool, dict[str, Any]]:
         now = utc_now()
-        payload = callback.model_dump(mode="json") if hasattr(callback, "model_dump") else dict(callback)
+        payload = (
+            callback.model_dump(mode="json")
+            if hasattr(callback, "model_dump")
+            else dict(callback)
+        )
         run_id = _text(payload.get("run_id"))
         project_id = _text(payload.get("project_id"))
         event_type = _text(payload.get("event_type"))
@@ -3557,7 +4558,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         if not project_id and run_id:
             row = self._one("select project_id from runs where run_id = %s", (run_id,))
             project_id = _text(row.get("project_id") if row else "")
-        replayed_callback_event_id = self._replayed_worker_callback_event_id(idempotency_key, payload)
+        replayed_callback_event_id = self._replayed_worker_callback_event_id(
+            idempotency_key, payload
+        )
         if replayed_callback_event_id is not None:
             return replayed_callback_event_id, False, self.queue_row(project_id) or {}
         current_queue_row: dict[str, Any] | None = None
@@ -3569,7 +4572,10 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             )
             current_run_id = _text((current_queue_row or {}).get("current_run_id"))
             current_status = _text((current_queue_row or {}).get("status"))
-            stale_callback = bool(current_queue_row is not None and (not run_id or current_run_id != run_id))
+            stale_callback = bool(
+                current_queue_row is not None
+                and (not run_id or current_run_id != run_id)
+            )
         if (
             _completed_success_queue_row(current_queue_row, run_id)
             and event_type not in TERMINAL_SUCCESS_CALLBACK_STATES
@@ -3577,12 +4583,22 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             event_payload = {
                 **payload,
                 "received_by": received_by,
-                "applied_status": _text(current_queue_row.get("status") if current_queue_row else ""),
-                "applied_next_action_hint": _text(current_queue_row.get("next_action_hint") if current_queue_row else ""),
+                "applied_status": _text(
+                    current_queue_row.get("status") if current_queue_row else ""
+                ),
+                "applied_next_action_hint": _text(
+                    current_queue_row.get("next_action_hint")
+                    if current_queue_row
+                    else ""
+                ),
                 "late_callback_ignored": True,
                 "ignore_reason": "terminal_success_precedence",
-                "current_run_id": _text(current_queue_row.get("current_run_id") if current_queue_row else ""),
-                "current_last_run_state": _text(current_queue_row.get("last_run_state") if current_queue_row else ""),
+                "current_run_id": _text(
+                    current_queue_row.get("current_run_id") if current_queue_row else ""
+                ),
+                "current_last_run_state": _text(
+                    current_queue_row.get("last_run_state") if current_queue_row else ""
+                ),
             }
             replayed_event_id = self._replayed_event_id(
                 idempotency_key,
@@ -3624,10 +4640,16 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             status = QueueStatus.NEEDS_REVIEW.value
             next_action_hint = "inspect_unknown_worker_callback"
             manual_review_required = True
-            last_error = _text(payload.get("reason")) or f"unknown worker callback: {event_type}"
+            last_error = (
+                _text(payload.get("reason")) or f"unknown worker callback: {event_type}"
+            )
         if stale_callback and current_queue_row:
-            status = _text(current_queue_row.get("status")) or QueueStatus.NEEDS_REVIEW.value
-            next_action_hint = _text(current_queue_row.get("next_action_hint")) or "await_callback"
+            status = (
+                _text(current_queue_row.get("status")) or QueueStatus.NEEDS_REVIEW.value
+            )
+            next_action_hint = (
+                _text(current_queue_row.get("next_action_hint")) or "await_callback"
+            )
             event_payload = {
                 **payload,
                 "received_by": received_by,
@@ -3677,7 +4699,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         if replayed_event_id is not None:
             return replayed_event_id, False, self.queue_row(project_id) or {}
         summary = f"worker callback {event_type}: {_text(payload.get('reason')) or 'worker reported ready'}"
-        last_run_state, run_state, gate_state = _contract_worker_callback_states(event_type, _text(payload.get("gate_state")))
+        last_run_state, run_state, gate_state = _contract_worker_callback_states(
+            event_type, _text(payload.get("gate_state"))
+        )
         run_ended_at = None if event_type == "session_started" else now
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -3690,7 +4714,19 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             last_result_summary=%s, last_callback_at=%s, updated_at=%s
                         where project_id=%s
                         """,
-                        (status, _text(payload.get("session_id")), last_run_state, "worker_callback", next_action_hint, manual_review_required, last_error, summary, now, now, project_id),
+                        (
+                            status,
+                            _text(payload.get("session_id")),
+                            last_run_state,
+                            "worker_callback",
+                            next_action_hint,
+                            manual_review_required,
+                            last_error,
+                            summary,
+                            now,
+                            now,
+                            project_id,
+                        ),
                     )
                 if run_id and project_id:
                     cur.execute(
@@ -3706,7 +4742,20 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                             current_activity=excluded.current_activity,
                             updated_at=excluded.updated_at
                         """,
-                        (run_id, project_id, _text(payload.get("session_id")), run_state, "callback", now, run_ended_at, now, gate_state, "worker_callback", idempotency_key, now),
+                        (
+                            run_id,
+                            project_id,
+                            _text(payload.get("session_id")),
+                            run_state,
+                            "callback",
+                            now,
+                            run_ended_at,
+                            now,
+                            gate_state,
+                            "worker_callback",
+                            idempotency_key,
+                            now,
+                        ),
                     )
                 event_id, inserted = self._append_event_in_cursor(
                     cur,
@@ -3718,7 +4767,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 )
         return event_id, inserted, self.queue_row(project_id) or {}
 
-    def record_project_decision_gate(self, *, project_id: str, run_id: str = "", artifact_root: str | Path, decided_at: str | None = None) -> dict[str, Any]:
+    def record_project_decision_gate(
+        self,
+        *,
+        project_id: str,
+        run_id: str = "",
+        artifact_root: str | Path,
+        decided_at: str | None = None,
+    ) -> dict[str, Any]:
         """Persist the local project decision artifact into Supabase.
 
         Filesystem artifacts remain the worker's durable evidence bundle, but
@@ -3731,10 +4787,22 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             return {"ok": False, "persisted": False, "reason": "missing project_id"}
         artifact_root_path = _expanduser_or_none(str(artifact_root))
         if artifact_root_path is None:
-            return {"ok": False, "persisted": False, "reason": "artifact root contains an unexpandable user home"}
+            return {
+                "ok": False,
+                "persisted": False,
+                "reason": "artifact root contains an unexpandable user home",
+            }
         gate = paper_draft_decision_gate(artifact_root_path)
-        if not gate.get("values") and gate.get("reason") == "missing project decision artifact":
-            return {"ok": True, "persisted": False, "reason": "missing project decision artifact", "gate": gate}
+        if (
+            not gate.get("values")
+            and gate.get("reason") == "missing project decision artifact"
+        ):
+            return {
+                "ok": True,
+                "persisted": False,
+                "reason": "missing project decision artifact",
+                "gate": gate,
+            }
         artifact_path = artifact_root_path / ".enoch" / "project_decision.json"
         if not artifact_path.exists():
             artifact_path = artifact_root_path / ".omx" / "project_decision.json"
@@ -3746,14 +4814,23 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         idea_source_payload: dict[str, Any] = {}
         with self._connect() as conn:
             with conn.cursor() as cur:
-                source_row = cur.execute("select source_payload_json from ideas where idea_id = %s", (project_id,)).fetchone()
+                source_row = cur.execute(
+                    "select source_payload_json from ideas where idea_id = %s",
+                    (project_id,),
+                ).fetchone()
                 if source_row:
-                    raw_source = source_row[0] if not isinstance(source_row, dict) else source_row.get("source_payload_json")
+                    raw_source = (
+                        source_row[0]
+                        if not isinstance(source_row, dict)
+                        else source_row.get("source_payload_json")
+                    )
                     if isinstance(raw_source, dict):
                         idea_source_payload = raw_source
                     elif isinstance(raw_source, str):
                         idea_source_payload = _json_dict(raw_source)
-                followup_depth = _enforced_followup_depth(decision_payload, {"source_payload_json": idea_source_payload})
+                followup_depth = _enforced_followup_depth(
+                    decision_payload, {"source_payload_json": idea_source_payload}
+                )
                 payload = {
                     "gate": gate,
                     "project_root": str(artifact_root_path),
@@ -3763,7 +4840,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 }
                 payload_json = _json(payload)
                 if run_id_value:
-                    found_run = cur.execute("select 1 from runs where run_id = %s", (run_id_value,)).fetchone()
+                    found_run = cur.execute(
+                        "select 1 from runs where run_id = %s", (run_id_value,)
+                    ).fetchone()
                     if not found_run:
                         run_id_value = None
                 cur.execute(
@@ -3834,7 +4913,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "followup_depth": followup_depth,
         }
 
-    def next_followup_candidate(self, *, project_id: str = "", max_followup_depth: int = 4) -> dict[str, Any] | None:
+    def next_followup_candidate(
+        self, *, project_id: str = "", max_followup_depth: int = 4
+    ) -> dict[str, Any] | None:
         clauses = [
             "q.status = %s",
             "q.manual_review_required = false",
@@ -3871,7 +4952,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             params,
         )
         candidates = [
-            row for row in rows
+            row
+            for row in rows
             if ranked_followup_readiness(
                 row,
                 max_followup_depth=max_followup_depth,
@@ -3881,12 +4963,32 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         candidates.sort(key=promising_followup_priority_key)
         return candidates[0] if candidates else None
 
-    def launch_followup_candidate(self, *, project_id: str = "", dry_run: bool = True, requested_by: str = "operator", max_followup_depth: int = 4) -> dict[str, Any]:
-        candidate = self.next_followup_candidate(project_id=project_id, max_followup_depth=max_followup_depth)
+    def launch_followup_candidate(
+        self,
+        *,
+        project_id: str = "",
+        dry_run: bool = True,
+        requested_by: str = "operator",
+        max_followup_depth: int = 4,
+    ) -> dict[str, Any]:
+        candidate = self.next_followup_candidate(
+            project_id=project_id, max_followup_depth=max_followup_depth
+        )
         if not candidate:
-            return {"ok": True, "action": "noop", "reason": "no follow-up candidate", "candidate": None, "followup": None}
-        title = _text(candidate.get("followup_title")) or f"Follow-up: {_text(candidate.get('project_name')) or _text(candidate.get('project_id'))}"
-        hypothesis = _text(candidate.get("followup_hypothesis")) or _text(candidate.get("operator_explanation"))
+            return {
+                "ok": True,
+                "action": "noop",
+                "reason": "no follow-up candidate",
+                "candidate": None,
+                "followup": None,
+            }
+        title = (
+            _text(candidate.get("followup_title"))
+            or f"Follow-up: {_text(candidate.get('project_name')) or _text(candidate.get('project_id'))}"
+        )
+        hypothesis = _text(candidate.get("followup_hypothesis")) or _text(
+            candidate.get("operator_explanation")
+        )
         parent_id = _text(candidate.get("project_id"))
         followup_id = _stable_followup_id(parent_id, title, hypothesis)
         depth = _int(candidate.get("followup_depth"), 0) + 1
@@ -3896,16 +4998,27 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "parent_project_id": parent_id,
             "parent_run_id": _text(candidate.get("current_run_id")),
             "followup_depth": depth,
-            "followup_type": _text(candidate.get("followup_type")).lower().replace("-", "_").replace(" ", "_"),
+            "followup_type": _text(candidate.get("followup_type"))
+            .lower()
+            .replace("-", "_")
+            .replace(" ", "_"),
             "followup_hypothesis": hypothesis,
             "followup_required_evidence": _followup_required_evidence_items(candidate),
-            "followup_success_threshold": _text(candidate.get("followup_success_threshold")),
+            "followup_success_threshold": _text(
+                candidate.get("followup_success_threshold")
+            ),
             "followup_stop_condition": _text(candidate.get("followup_stop_condition")),
             **_followup_escalation_payload(candidate, depth),
         }
         parent_source = _followup_parent_source_record(candidate, followup_payload)
         if dry_run:
-            return {"ok": True, "action": "dry_run_followup", "reason": "follow-up candidate selected; no row inserted", "candidate": candidate, "followup": followup_payload}
+            return {
+                "ok": True,
+                "action": "dry_run_followup",
+                "reason": "follow-up candidate selected; no row inserted",
+                "candidate": candidate,
+                "followup": followup_payload,
+            }
         now = utc_now()
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -3916,7 +5029,10 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 existing_idea = cur.fetchone()
                 if existing_idea and (
                     self._row_value(existing_idea, "title", 1) != title
-                    or self._json_text(self._row_value(existing_idea, "source_payload_json", 2)) != self._json_text(followup_payload)
+                    or self._json_text(
+                        self._row_value(existing_idea, "source_payload_json", 2)
+                    )
+                    != self._json_text(followup_payload)
                 ):
                     raise IdempotencyConflict(
                         f"follow-up idea id {followup_id!r} was reused with different idea identity"
@@ -3931,11 +5047,21 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     on conflict (idea_id) do nothing
                     """,
                     (
-                        followup_id, title, parent_source["url"], hypothesis,
+                        followup_id,
+                        title,
+                        parent_source["url"],
+                        hypothesis,
                         "Bounded follow-up investigation generated from prior no-paper evidence; do not write a paper unless this run independently becomes paper-positive.",
-                        _text(candidate.get("project_name")), _text(candidate.get("followup_stop_condition")),
-                        _text(candidate.get("machine_target")), _text(candidate.get("model")), _text(candidate.get("sandbox")),
-                        _int(candidate.get("selection_rank"), 50), _int(candidate.get("dispatch_priority"), 50), _json(followup_payload), now, now,
+                        _text(candidate.get("project_name")),
+                        _text(candidate.get("followup_stop_condition")),
+                        _text(candidate.get("machine_target")),
+                        _text(candidate.get("model")),
+                        _text(candidate.get("sandbox")),
+                        _int(candidate.get("selection_rank"), 50),
+                        _int(candidate.get("dispatch_priority"), 50),
+                        _json(followup_payload),
+                        now,
+                        now,
                     ),
                 )
                 cur.execute(
@@ -3945,8 +5071,10 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 existing_project = cur.fetchone()
                 if existing_project and (
                     self._row_value(existing_project, "project_name", 1) != title
-                    or self._row_value(existing_project, "project_dir", 2) != followup_id
-                    or self._row_value(existing_project, "origin_idea_status", 3) != "testing"
+                    or self._row_value(existing_project, "project_dir", 2)
+                    != followup_id
+                    or self._row_value(existing_project, "origin_idea_status", 3)
+                    != "testing"
                 ):
                     raise IdempotencyConflict(
                         f"follow-up project id {followup_id!r} was reused with different project identity"
@@ -3965,9 +5093,11 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 )
                 existing_queue = cur.fetchone()
                 if existing_queue and (
-                    self._row_value(existing_queue, "status", 1) != QueueStatus.QUEUED.value
+                    self._row_value(existing_queue, "status", 1)
+                    != QueueStatus.QUEUED.value
                     or self._row_value(existing_queue, "current_run_id", 2)
-                    or self._row_value(existing_queue, "next_action_hint", 3) != "controller_review"
+                    or self._row_value(existing_queue, "next_action_hint", 3)
+                    != "controller_review"
                 ):
                     raise IdempotencyConflict(
                         f"follow-up queue id {followup_id!r} was reused with different queue identity"
@@ -3978,7 +5108,15 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     values (%s,'queued',%s,%s,true,0,0,0,2,'','','','','controller_review',false,'','','',%s,%s,%s,null,null,null,%s)
                     on conflict (project_id) do nothing
                     """,
-                    (followup_id, _int(candidate.get("selection_rank"), 50), _int(candidate.get("dispatch_priority"), 50), _text(candidate.get("machine_target")), _text(candidate.get("model")), _text(candidate.get("sandbox")), now),
+                    (
+                        followup_id,
+                        _int(candidate.get("selection_rank"), 50),
+                        _int(candidate.get("dispatch_priority"), 50),
+                        _text(candidate.get("machine_target")),
+                        _text(candidate.get("model")),
+                        _text(candidate.get("sandbox")),
+                        now,
+                    ),
                 )
                 cur.execute(
                     """
@@ -4002,7 +5140,11 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         parent_source["external_id"],
                         parent_source["summary"],
                         self._json_text(parent_source["payload_json"]),
-                        hashlib.sha256(self._json_text(parent_source["payload_json"]).encode("utf-8")).hexdigest(),
+                        hashlib.sha256(
+                            self._json_text(parent_source["payload_json"]).encode(
+                                "utf-8"
+                            )
+                        ).hexdigest(),
                     ),
                 )
                 cur.execute(
@@ -4023,10 +5165,21 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     (
                         parent_source["source_id"],
                         followup_id,
-                        self._json_text({"source_id": parent_source["source_id"], "source_url": parent_source["url"], "captured_by": "followup.launch"}),
+                        self._json_text(
+                            {
+                                "source_id": parent_source["source_id"],
+                                "source_url": parent_source["url"],
+                                "captured_by": "followup.launch",
+                            }
+                        ),
                         parent_id,
                         followup_id,
-                        self._json_text({"parent_run_id": _text(candidate.get("current_run_id")), "followup_type": followup_payload["followup_type"]}),
+                        self._json_text(
+                            {
+                                "parent_run_id": _text(candidate.get("current_run_id")),
+                                "followup_type": followup_payload["followup_type"],
+                            }
+                        ),
                     ),
                 )
                 event_id, _inserted = self._append_event_in_cursor(
@@ -4035,11 +5188,24 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     event_type="followup.launch",
                     entity_type="project",
                     entity_id=parent_id,
-                    payload={"requested_by": requested_by, "candidate": {"project_id": parent_id}, "followup": followup_payload},
+                    payload={
+                        "requested_by": requested_by,
+                        "candidate": {"project_id": parent_id},
+                        "followup": followup_payload,
+                    },
                 )
-        return {"ok": True, "action": "followup_queued", "reason": "bounded follow-up queued", "candidate": candidate, "followup": followup_payload, "event_id": event_id}
+        return {
+            "ok": True,
+            "action": "followup_queued",
+            "reason": "bounded follow-up queued",
+            "candidate": candidate,
+            "followup": followup_payload,
+            "event_id": event_id,
+        }
 
-    def mark_queue_item_paused(self, *, project_id: str, reason: str, updated_by: str = "operator") -> bool:
+    def mark_queue_item_paused(
+        self, *, project_id: str, reason: str, updated_by: str = "operator"
+    ) -> bool:
         now = utc_now()
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -4049,7 +5215,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     set status=%s, next_action_hint=%s, last_result_summary=%s, updated_at=%s
                     where project_id=%s
                     """,
-                    (QueueStatus.PAUSED.value, "maintenance_cutover_reconcile", reason, now, project_id),
+                    (
+                        QueueStatus.PAUSED.value,
+                        "maintenance_cutover_reconcile",
+                        reason,
+                        now,
+                        project_id,
+                    ),
                 )
                 if result.rowcount < 1:
                     return False
@@ -4073,20 +5245,30 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 )
 
     def _upsert_paper_in_cursor(self, cur: Any, paper: PaperRecord) -> None:
-        status = paper.paper_status.value if hasattr(paper.paper_status, "value") else str(paper.paper_status)
+        status = (
+            paper.paper_status.value
+            if hasattr(paper.paper_status, "value")
+            else str(paper.paper_status)
+        )
         cur.execute(
             "select project_id, run_id, paper_type, updated_at from papers where paper_id=%s",
             (paper.paper_id,),
         )
         existing = cur.fetchone()
-        existing_run_id = _text(self._row_value(existing, "run_id", 1)) if existing else ""
+        existing_run_id = (
+            _text(self._row_value(existing, "run_id", 1)) if existing else ""
+        )
         if existing and (
             self._row_value(existing, "project_id", 0) != _text(paper.project_id)
             or (existing_run_id and existing_run_id != _text(paper.run_id))
             or self._row_value(existing, "paper_type", 2) != _text(paper.paper_type)
         ):
-            raise IdempotencyConflict(f"paper id {paper.paper_id!r} was reused with different paper identity")
-        if existing and _is_older_timestamp(paper.updated_at, existing.get("updated_at")):
+            raise IdempotencyConflict(
+                f"paper id {paper.paper_id!r} was reused with different paper identity"
+            )
+        if existing and _is_older_timestamp(
+            paper.updated_at, existing.get("updated_at")
+        ):
             return
         cur.execute(
             """
@@ -4100,9 +5282,18 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
               generated_at=excluded.generated_at, updated_at=excluded.updated_at
             """,
             (
-                paper.paper_id, paper.project_id, _text(paper.run_id) or None, paper.paper_type, status,
-                paper.draft_markdown_path, paper.draft_latex_path, paper.evidence_bundle_path,
-                paper.claim_ledger_path, paper.manifest_path, paper.generated_at, paper.updated_at,
+                paper.paper_id,
+                paper.project_id,
+                _text(paper.run_id) or None,
+                paper.paper_type,
+                status,
+                paper.draft_markdown_path,
+                paper.draft_latex_path,
+                paper.evidence_bundle_path,
+                paper.claim_ledger_path,
+                paper.manifest_path,
+                paper.generated_at,
+                paper.updated_at,
             ),
         )
 
@@ -4136,9 +5327,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     payload=event_payload,
                 )
 
-    def import_snapshot(self, request: ImportSnapshotRequest) -> tuple[bool, int, int, int]:
+    def import_snapshot(
+        self, request: ImportSnapshotRequest
+    ) -> tuple[bool, int, int, int]:
         queue_rows = [*request.queue_rows, *_snapshot_rows(request.queue_snapshot)]
-        paper_rows = [*request.paper_rows, *_snapshot_rows(request.paper_snapshot, paper=True)]
+        paper_rows = [
+            *request.paper_rows,
+            *_snapshot_rows(request.paper_snapshot, paper=True),
+        ]
         _reject_conflicting_snapshot_rows(
             queue_rows,
             key_fields=("project_id",),
@@ -4186,11 +5382,24 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     project_id = _text(raw.get("project_id"))
                     if not project_id:
                         continue
-                    status_value = _text(_first_present(raw, "status", "queue_status")) or QueueStatus.QUEUED.value
+                    status_value = (
+                        _text(_first_present(raw, "status", "queue_status"))
+                        or QueueStatus.QUEUED.value
+                    )
                     if status_value not in QueueStatus._value2member_map_:
                         status_value = QueueStatus.QUEUED.value
-                    created_at = _text(_first_present(raw, "createdAt", "created_at")) or utc_now()
-                    updated_at = _text(_first_present(raw, "updatedAt", "updated_at", "last_execution_update")) or utc_now()
+                    created_at = (
+                        _text(_first_present(raw, "createdAt", "created_at"))
+                        or utc_now()
+                    )
+                    updated_at = (
+                        _text(
+                            _first_present(
+                                raw, "updatedAt", "updated_at", "last_execution_update"
+                            )
+                        )
+                        or utc_now()
+                    )
                     cur.execute(
                         """
                         insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
@@ -4206,12 +5415,20 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         """,
                         (
                             project_id,
-                            _text(_first_present(raw, "project_name", "name", "title")) or project_id,
+                            _text(_first_present(raw, "project_name", "name", "title"))
+                            or project_id,
                             _text(_first_present(raw, "project_dir", "project_path")),
                             _text(_first_present(raw, "notion_page_url", "url")),
-                            _text(_first_present(raw, "notion_page_id", "page_id", "id"))
-                            or _notion_page_id_from_url(_text(_first_present(raw, "notion_page_url", "url"))),
-                            _text(_first_present(raw, "origin_idea_status", "idea_status")) or "unknown",
+                            _text(
+                                _first_present(raw, "notion_page_id", "page_id", "id")
+                            )
+                            or _notion_page_id_from_url(
+                                _text(_first_present(raw, "notion_page_url", "url"))
+                            ),
+                            _text(
+                                _first_present(raw, "origin_idea_status", "idea_status")
+                            )
+                            or "unknown",
                             created_at,
                             updated_at,
                         ),
@@ -4222,9 +5439,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         (project_id,),
                     )
                     existing_queue = cur.fetchone()
-                    if existing_queue and _is_older_timestamp(updated_at, existing_queue.get("updated_at")):
+                    if existing_queue and _is_older_timestamp(
+                        updated_at, existing_queue.get("updated_at")
+                    ):
                         continue
-                    existing_run_id = _text((existing_queue or {}).get("current_run_id"))
+                    existing_run_id = _text(
+                        (existing_queue or {}).get("current_run_id")
+                    )
                     incoming_run_id = _text(raw.get("current_run_id"))
                     preserve_active_runtime = bool(
                         existing_queue
@@ -4241,11 +5462,18 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         current_session_id = _text(existing_queue["current_session_id"])
                         last_run_state = _text(existing_queue["last_run_state"])
                         last_event_type = _text(existing_queue["last_event_type"])
-                        next_action_hint = _text(existing_queue["next_action_hint"]) or "await_callback"
-                        manual_review_required = _bool(existing_queue["manual_review_required"])
+                        next_action_hint = (
+                            _text(existing_queue["next_action_hint"])
+                            or "await_callback"
+                        )
+                        manual_review_required = _bool(
+                            existing_queue["manual_review_required"]
+                        )
                         blocked_reason = _text(existing_queue["blocked_reason"])
                         last_error = _text(existing_queue["last_error"])
-                        last_result_summary = _text(existing_queue["last_result_summary"])
+                        last_result_summary = _text(
+                            existing_queue["last_result_summary"]
+                        )
                         last_dispatch_at = existing_queue["last_dispatch_at"]
                         last_callback_at = existing_queue["last_callback_at"]
                         stale_after = existing_queue["stale_after"]
@@ -4254,12 +5482,18 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         current_session_id = _text(raw.get("current_session_id"))
                         last_run_state = _text(raw.get("last_run_state"))
                         last_event_type = _text(raw.get("last_event_type"))
-                        next_action_hint = _text(raw.get("next_action_hint")) or "controller_review"
-                        manual_review_required = _bool(raw.get("manual_review_required"))
+                        next_action_hint = (
+                            _text(raw.get("next_action_hint")) or "controller_review"
+                        )
+                        manual_review_required = _bool(
+                            raw.get("manual_review_required")
+                        )
                         blocked_reason = _text(raw.get("blocked_reason"))
                         last_error = _text(raw.get("last_error"))
                         last_result_summary = _text(raw.get("last_result_summary"))
-                        last_dispatch_at = _first_present(raw, "last_dispatch_at", "last_execution_update")
+                        last_dispatch_at = _first_present(
+                            raw, "last_dispatch_at", "last_execution_update"
+                        )
                         last_callback_at = raw.get("last_callback_at")
                         stale_after = raw.get("stale_after")
                     cur.execute(
@@ -4277,18 +5511,38 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                           last_callback_at=excluded.last_callback_at, stale_after=excluded.stale_after, updated_at=excluded.updated_at
                         """,
                         (
-                            project_id, status_value, _int(_first_present(raw, "selection_rank", "rank"), 50),
-                            _int(_first_present(raw, "dispatch_priority", "priority"), 50),
+                            project_id,
+                            status_value,
+                            _int(_first_present(raw, "selection_rank", "rank"), 50),
+                            _int(
+                                _first_present(raw, "dispatch_priority", "priority"), 50
+                            ),
                             _bool(_first_present(raw, "auto_continue", "autoContinue")),
-                            _int(_first_present(raw, "continue_count", "continueCount"), 0),
-                            _int(_first_present(raw, "max_continues", "maxContinues"), 0),
+                            _int(
+                                _first_present(raw, "continue_count", "continueCount"),
+                                0,
+                            ),
+                            _int(
+                                _first_present(raw, "max_continues", "maxContinues"), 0
+                            ),
                             _int(_first_present(raw, "retry_count", "retryCount"), 0),
                             _int(_first_present(raw, "max_retries", "maxRetries"), 2),
-                            current_run_id, current_session_id, last_run_state, last_event_type,
-                            next_action_hint, manual_review_required, blocked_reason, last_error, last_result_summary,
-                            _text(raw.get("machine_target")) or "worker.example", _text(raw.get("model")) or "gpt-5.5",
-                            _text(raw.get("sandbox")) or "danger-full-access", last_dispatch_at,
-                            last_callback_at, stale_after, updated_at,
+                            current_run_id,
+                            current_session_id,
+                            last_run_state,
+                            last_event_type,
+                            next_action_hint,
+                            manual_review_required,
+                            blocked_reason,
+                            last_error,
+                            last_result_summary,
+                            _text(raw.get("machine_target")) or "worker.example",
+                            _text(raw.get("model")) or "gpt-5.5",
+                            _text(raw.get("sandbox")) or "danger-full-access",
+                            last_dispatch_at,
+                            last_callback_at,
+                            stale_after,
+                            updated_at,
                         ),
                     )
                     queue_items += 1
@@ -4304,13 +5558,22 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         on conflict (project_id) do nothing
                         """,
                         (
-                            project_id, _text(raw.get("project_name")) or project_id, _text(raw.get("project_dir")),
+                            project_id,
+                            _text(raw.get("project_name")) or project_id,
+                            _text(raw.get("project_dir")),
                             _text(raw.get("notion_page_url")),
-                            _text(raw.get("notion_page_id")) or _notion_page_id_from_url(_text(raw.get("notion_page_url"))),
-                            "unknown", utc_now(), utc_now(),
+                            _text(raw.get("notion_page_id"))
+                            or _notion_page_id_from_url(
+                                _text(raw.get("notion_page_url"))
+                            ),
+                            "unknown",
+                            utc_now(),
+                            utc_now(),
                         ),
                     )
-                    status = _text(raw.get("paper_status")) or PaperStatus.DRAFT_REVIEW.value
+                    status = (
+                        _text(raw.get("paper_status")) or PaperStatus.DRAFT_REVIEW.value
+                    )
                     if status not in PaperStatus._value2member_map_:
                         status = PaperStatus.DRAFT_REVIEW.value
                     cur.execute(
@@ -4318,13 +5581,20 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         (paper_id,),
                     )
                     existing_paper = cur.fetchone()
-                    if _paper_identity_conflicts(existing_paper, {
-                        "project_id": project_id,
-                        "run_id": _text(raw.get("run_id")),
-                        "paper_type": _text(raw.get("paper_type")) or "arxiv_draft",
-                    }):
-                        raise IdempotencyConflict(f"paper id {paper_id!r} was reused with different paper identity")
-                    if existing_paper and _is_older_timestamp(raw.get("updated_at"), existing_paper["updated_at"]):
+                    if _paper_identity_conflicts(
+                        existing_paper,
+                        {
+                            "project_id": project_id,
+                            "run_id": _text(raw.get("run_id")),
+                            "paper_type": _text(raw.get("paper_type")) or "arxiv_draft",
+                        },
+                    ):
+                        raise IdempotencyConflict(
+                            f"paper id {paper_id!r} was reused with different paper identity"
+                        )
+                    if existing_paper and _is_older_timestamp(
+                        raw.get("updated_at"), existing_paper["updated_at"]
+                    ):
                         continue
                     cur.execute(
                         """
@@ -4338,10 +5608,17 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                           generated_at=excluded.generated_at, updated_at=excluded.updated_at
                         """,
                         (
-                            paper_id, project_id, _text(raw.get("run_id")) or None, _text(raw.get("paper_type")) or "arxiv_draft", status,
-                            _text(raw.get("draft_markdown_path")), _text(raw.get("draft_latex_path")),
-                            _text(raw.get("evidence_bundle_path")), _text(raw.get("claim_ledger_path")),
-                            _text(raw.get("manifest_path")), _text(raw.get("generated_at")) or utc_now(),
+                            paper_id,
+                            project_id,
+                            _text(raw.get("run_id")) or None,
+                            _text(raw.get("paper_type")) or "arxiv_draft",
+                            status,
+                            _text(raw.get("draft_markdown_path")),
+                            _text(raw.get("draft_latex_path")),
+                            _text(raw.get("evidence_bundle_path")),
+                            _text(raw.get("claim_ledger_path")),
+                            _text(raw.get("manifest_path")),
+                            _text(raw.get("generated_at")) or utc_now(),
                             _text(raw.get("updated_at")) or utc_now(),
                         ),
                     )
@@ -4350,4 +5627,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
 
 
 def resolve_supabase_database_url(configured_url: str) -> str:
-    return configured_url.strip() or os.environ.get("ENOCH_SUPABASE_DATABASE_URL", "").strip()
+    return (
+        configured_url.strip()
+        or os.environ.get("ENOCH_SUPABASE_DATABASE_URL", "").strip()
+    )

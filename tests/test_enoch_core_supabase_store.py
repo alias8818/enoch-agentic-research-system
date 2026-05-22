@@ -11,12 +11,18 @@ class Cursor:
         self.state = state
         self.sql = ""
         self.params = ()
-    def __enter__(self): return self
-    def __exit__(self, *args): return None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
     def execute(self, sql, params=()):
         self.sql = sql
         self.params = tuple(params)
         return self
+
     def fetchone(self):
         if "from core_events where idempotency_key" in self.sql:
             key = self.params[0]
@@ -36,15 +42,30 @@ class Cursor:
         if "insert into core_snapshots" in self.sql:
             snap_id = len(self.state["snapshots"]) + 1
             self.state["snapshots_by_key"][self.params[0]] = {"id": snap_id}
-            self.state["snapshots"].append({"id": snap_id, "payload_json": self.params[4], "snapshot_type": self.params[1]})
+            self.state["snapshots"].append(
+                {
+                    "id": snap_id,
+                    "payload_json": self.params[4],
+                    "snapshot_type": self.params[1],
+                }
+            )
             return {"id": snap_id}
         raise AssertionError(self.sql)
+
     def fetchall(self):
         if "from core_snapshots" in self.sql and "order by id desc" in self.sql:
-            rows = [row for row in self.state["snapshots"] if row["snapshot_type"] == self.params[0]]
+            rows = [
+                row
+                for row in self.state["snapshots"]
+                if row["snapshot_type"] == self.params[0]
+            ]
             return rows[-1:] if rows else []
         if "from core_snapshots" in self.sql and "order by id asc" in self.sql:
-            return [row for row in self.state["snapshots"] if row["snapshot_type"] == self.params[0]]
+            return [
+                row
+                for row in self.state["snapshots"]
+                if row["snapshot_type"] == self.params[0]
+            ]
         return []
 
 
@@ -54,12 +75,24 @@ class Conn:
         self.closed = False
         self.committed = False
         self.rolled_back = False
-    def __enter__(self): return self
-    def __exit__(self, *args): return None
-    def cursor(self): return Cursor(self.state)
-    def commit(self): self.committed = True
-    def rollback(self): self.rolled_back = True
-    def close(self): self.closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+    def cursor(self):
+        return Cursor(self.state)
+
+    def commit(self):
+        self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
+
+    def close(self):
+        self.closed = True
 
 
 def test_core_supabase_store_events_snapshots_and_projection() -> None:
@@ -78,10 +111,17 @@ def test_core_supabase_store_events_snapshots_and_projection() -> None:
     assert store.rebuild_queue_projection() == payload
 
     with pytest.raises(IdempotencyConflict):
-        store.append_event(idempotency_key="snap-1", event_type="n8n.queue_snapshot", source="unit", payload={"different": True})
+        store.append_event(
+            idempotency_key="snap-1",
+            event_type="n8n.queue_snapshot",
+            source="unit",
+            payload={"different": True},
+        )
 
 
-def test_core_supabase_store_rejects_replayed_key_with_different_event_identity() -> None:
+def test_core_supabase_store_rejects_replayed_key_with_different_event_identity() -> (
+    None
+):
     state = {"events": {}, "snapshots": [], "snapshots_by_key": {}}
     store = SupabaseEnochCoreStore("postgres://example", connect=lambda: Conn(state))
     payload = {"same": True}
@@ -120,12 +160,20 @@ def test_core_supabase_store_rejects_replayed_key_with_different_event_identity(
 
 
 def test_core_supabase_store_json_helpers_and_empty_projection() -> None:
-    store = SupabaseEnochCoreStore("postgres://example", connect=lambda: Conn({"events": {}, "snapshots": [], "snapshots_by_key": {}}))
+    store = SupabaseEnochCoreStore(
+        "postgres://example",
+        connect=lambda: Conn({"events": {}, "snapshots": [], "snapshots_by_key": {}}),
+    )
     assert store.canonical_json({"b": 2, "a": 1}) == '{"a":1,"b":2}'
     assert store._json_payload(None) == {}
     assert store._json_payload('{"a":1}') == {"a": 1}
     assert store.latest_snapshot() is None
     assert store.all_snapshots() == []
-    assert store.rebuild_queue_projection() == {"source": "none", "queue_rows": [], "paper_rows": [], "captured_at": None}
+    assert store.rebuild_queue_projection() == {
+        "source": "none",
+        "queue_rows": [],
+        "paper_rows": [],
+        "captured_at": None,
+    }
     with pytest.raises(ValueError):
         SupabaseEnochCoreStore(" ")

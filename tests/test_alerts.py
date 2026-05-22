@@ -30,14 +30,15 @@ def test_queue_alert_findings_normalizes_datetime_freshness_observed_at() -> Non
     assert findings[0].observed_at == observed_at.isoformat()
 
 
-
 def test_queue_alert_findings_normalizes_datetime_active_lane_observed_at() -> None:
     updated_at = datetime(2026, 5, 15, 10, 0, tzinfo=timezone.utc)
     status = SimpleNamespace(
         flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
         config=SimpleNamespace(live_dispatch_enabled=True),
         conflicts=[],
-        active_items=[{"project_id": "p", "current_run_id": "r", "updated_at": updated_at}],
+        active_items=[
+            {"project_id": "p", "current_run_id": "r", "updated_at": updated_at}
+        ],
         warnings=[],
         source_freshness={},
     )
@@ -54,7 +55,9 @@ def test_queue_alert_findings_treats_naive_database_timestamps_as_utc() -> None:
         flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
         config=SimpleNamespace(live_dispatch_enabled=True),
         conflicts=[],
-        active_items=[{"project_id": "p", "current_run_id": "r", "updated_at": updated_at}],
+        active_items=[
+            {"project_id": "p", "current_run_id": "r", "updated_at": updated_at}
+        ],
         warnings=[],
         source_freshness={},
     )
@@ -71,7 +74,9 @@ def test_queue_alert_findings_suppresses_old_active_row_when_worker_is_live() ->
         flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
         config=SimpleNamespace(live_dispatch_enabled=True),
         conflicts=[],
-        active_items=[{"project_id": "p", "current_run_id": "r", "updated_at": updated_at}],
+        active_items=[
+            {"project_id": "p", "current_run_id": "r", "updated_at": updated_at}
+        ],
         warnings=[],
         source_freshness={},
         observations={
@@ -110,7 +115,9 @@ def test_queue_alert_findings_reads_live_worker_run_from_observation_model() -> 
         flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
         config=SimpleNamespace(live_dispatch_enabled=True),
         conflicts=[],
-        active_items=[{"project_id": "p", "current_run_id": "r", "updated_at": updated_at}],
+        active_items=[
+            {"project_id": "p", "current_run_id": "r", "updated_at": updated_at}
+        ],
         warnings=[],
         source_freshness={},
         observations={
@@ -146,13 +153,17 @@ def test_queue_alert_findings_reads_live_worker_run_from_observation_model() -> 
     assert findings == []
 
 
-def test_queue_alert_findings_suppresses_expired_stale_after_when_worker_is_live() -> None:
+def test_queue_alert_findings_suppresses_expired_stale_after_when_worker_is_live() -> (
+    None
+):
     stale_after = datetime(2026, 5, 15, 10, 0, tzinfo=timezone.utc)
     status = SimpleNamespace(
         flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
         config=SimpleNamespace(live_dispatch_enabled=True),
         conflicts=[],
-        active_items=[{"project_id": "p", "current_run_id": "r", "stale_after": stale_after}],
+        active_items=[
+            {"project_id": "p", "current_run_id": "r", "stale_after": stale_after}
+        ],
         warnings=[],
         source_freshness={},
         observations={
@@ -185,19 +196,37 @@ def test_queue_alert_findings_suppresses_expired_stale_after_when_worker_is_live
     assert findings == []
 
 
-
-def test_queue_alert_findings_do_not_suppress_worker_stale_when_idle_lane_has_dispatchable_work() -> None:
+def test_queue_alert_findings_do_not_suppress_worker_stale_when_idle_lane_has_dispatchable_work() -> (
+    None
+):
     updated_at = datetime.now(timezone.utc)
     observed_at = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
     status = SimpleNamespace(
         flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
         config=SimpleNamespace(live_dispatch_enabled=True),
         conflicts=[],
-        active_items=[{"project_id": "active-cpu", "current_run_id": "run-cpu", "updated_at": updated_at, "machine_target": "cpu-proxmox-1"}],
+        active_items=[
+            {
+                "project_id": "active-cpu",
+                "current_run_id": "run-cpu",
+                "updated_at": updated_at,
+                "machine_target": "cpu-proxmox-1",
+            }
+        ],
         next_candidate={"project_id": "queued-gb10", "machine_target": "gb10"},
         worker_lanes=[
-            {"machine_target": "cpu-proxmox-1", "status": "active", "dispatch_available": False, "queued_count": 0},
-            {"machine_target": "gb10", "status": "idle", "dispatch_available": True, "queued_count": 1},
+            {
+                "machine_target": "cpu-proxmox-1",
+                "status": "active",
+                "dispatch_available": False,
+                "queued_count": 0,
+            },
+            {
+                "machine_target": "gb10",
+                "status": "idle",
+                "dispatch_available": True,
+                "queued_count": 1,
+            },
         ],
         warnings=[],
         source_freshness={
@@ -215,7 +244,10 @@ def test_queue_alert_findings_do_not_suppress_worker_stale_when_idle_lane_has_di
     assert findings[0].source == "worker_preflight"
     assert "stale or missing" in findings[0].message
 
-def test_send_pushover_rejects_non_http_api_url_before_urlopen(monkeypatch, tmp_path) -> None:
+
+def test_send_pushover_rejects_non_http_api_url_before_urlopen(
+    monkeypatch, tmp_path
+) -> None:
     from enoch_control_plane.config import GateConfig
     from enoch_control_plane.control_plane import alerts
 
@@ -241,10 +273,15 @@ def test_send_pushover_rejects_non_http_api_url_before_urlopen(monkeypatch, tmp_
     assert "pushover api url must use http or https" in result.detail
 
 
-def test_queue_alert_notify_does_not_treat_event_store_failure_as_cooldown(monkeypatch, tmp_path) -> None:
+def test_queue_alert_notify_does_not_treat_event_store_failure_as_cooldown(
+    monkeypatch, tmp_path
+) -> None:
     from enoch_control_plane.config import GateConfig
     from enoch_control_plane.control_plane import alerts
-    from enoch_control_plane.control_plane.alerts import PushoverResult, evaluate_and_notify_queue_alerts
+    from enoch_control_plane.control_plane.alerts import (
+        PushoverResult,
+        evaluate_and_notify_queue_alerts,
+    )
 
     config = GateConfig(
         state_dir=str(tmp_path / "state"),
@@ -265,7 +302,9 @@ def test_queue_alert_notify_does_not_treat_event_store_failure_as_cooldown(monke
         flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
         config=SimpleNamespace(live_dispatch_enabled=True),
         conflicts=[],
-        active_items=[{"project_id": "p", "current_run_id": "r", "updated_at": updated_at}],
+        active_items=[
+            {"project_id": "p", "current_run_id": "r", "updated_at": updated_at}
+        ],
         warnings=[],
         source_freshness={},
         dispatch_safe=False,
@@ -279,14 +318,26 @@ def test_queue_alert_notify_does_not_treat_event_store_failure_as_cooldown(monke
         def append_event(self, **_kwargs):  # noqa: ANN003 - alert store fake
             raise RuntimeError("event store unavailable")
 
-    monkeypatch.setattr(alerts, "send_pushover", lambda *args, **kwargs: PushoverResult(attempted=True, ok=True, detail="sent"))
+    monkeypatch.setattr(
+        alerts,
+        "send_pushover",
+        lambda *args, **kwargs: PushoverResult(attempted=True, ok=True, detail="sent"),
+    )
 
-    result = evaluate_and_notify_queue_alerts(config=config, store=Store(), status=status, dry_run=False, force_notify=False, requested_by="test")  # type: ignore[arg-type]
+    result = evaluate_and_notify_queue_alerts(
+        config=config,
+        store=Store(),
+        status=status,
+        dry_run=False,
+        force_notify=False,
+        requested_by="test",
+    )  # type: ignore[arg-type]
 
     assert result["should_alert"] is True
     assert result["sent"] is True
     assert result["suppressed_by_cooldown"] is False
     assert "event store unavailable" in result["event_append_error"]
+
 
 def test_queue_alert_findings_includes_worker_settling_warning() -> None:
     status = SimpleNamespace(

@@ -17,13 +17,20 @@ def _config(tmp_path: Path) -> GateConfig:
     )
 
 
-def test_backfill_artifact_root_rejects_unsafe_project_id_fallback(tmp_path: Path) -> None:
+def test_backfill_artifact_root_rejects_unsafe_project_id_fallback(
+    tmp_path: Path,
+) -> None:
     config = _config(tmp_path)
 
-    artifact_root = artifact_root_for_row(config, {"project_id": "../outside", "project_dir": ""})
+    artifact_root = artifact_root_for_row(
+        config, {"project_id": "../outside", "project_dir": ""}
+    )
 
     artifact_root.relative_to(config.expanded_project_root.resolve())
-    assert artifact_root != (config.expanded_project_root.resolve().parent / "outside").resolve()
+    assert (
+        artifact_root
+        != (config.expanded_project_root.resolve().parent / "outside").resolve()
+    )
 
 
 def test_backfill_artifact_root_rejects_project_dir_escape(tmp_path: Path) -> None:

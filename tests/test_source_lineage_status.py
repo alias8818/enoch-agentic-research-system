@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from enoch_control_plane.source_lineage.status import classify_source_lineage_report, load_latest_source_lineage_status
+from enoch_control_plane.source_lineage.status import (
+    classify_source_lineage_report,
+    load_latest_source_lineage_status,
+)
 
 
 def test_classify_source_lineage_report_clean() -> None:
@@ -11,7 +14,13 @@ def test_classify_source_lineage_report_clean() -> None:
         {
             "schema_version": "enoch_source_lineage_report_v1",
             "status": "clean",
-            "counts": {"candidates": 2, "followups": 1, "sources": 3, "lineages": 3, "problems": 0},
+            "counts": {
+                "candidates": 2,
+                "followups": 1,
+                "sources": 3,
+                "lineages": 3,
+                "problems": 0,
+            },
             "problem_counts": {},
             "problems": [],
         },
@@ -33,7 +42,13 @@ def test_classify_source_lineage_report_blocks_missing_sources_and_lineage() -> 
         {
             "schema_version": "enoch_source_lineage_report_v1",
             "status": "blocked",
-            "counts": {"candidates": 1, "followups": 1, "sources": 0, "lineages": 0, "problems": 3},
+            "counts": {
+                "candidates": 1,
+                "followups": 1,
+                "sources": 0,
+                "lineages": 0,
+                "problems": 3,
+            },
             "problem_counts": {
                 "candidate_source_url_missing_source": 1,
                 "followup_missing_parent_run_lineage": 1,
@@ -58,7 +73,9 @@ def test_classify_source_lineage_report_blocks_missing_sources_and_lineage() -> 
 
 
 def test_missing_source_lineage_report_blocks_readiness() -> None:
-    status = load_latest_source_lineage_status(("/tmp/does-not-exist-source-lineage.json",))
+    status = load_latest_source_lineage_status(
+        ("/tmp/does-not-exist-source-lineage.json",)
+    )
 
     assert status["ok"] is False
     assert status["status"] == "blocked"
@@ -72,7 +89,13 @@ def test_load_latest_source_lineage_status_reads_report(tmp_path: Path) -> None:
             {
                 "schema_version": "enoch_source_lineage_report_v1",
                 "status": "clean",
-                "counts": {"candidates": 0, "followups": 1, "sources": 4, "lineages": 5, "problems": 0},
+                "counts": {
+                    "candidates": 0,
+                    "followups": 1,
+                    "sources": 4,
+                    "lineages": 5,
+                    "problems": 0,
+                },
                 "problem_counts": {},
                 "problems": [],
             }

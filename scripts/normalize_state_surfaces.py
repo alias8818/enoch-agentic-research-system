@@ -95,7 +95,6 @@ NORMALIZATION_STATEMENTS: tuple[dict[str, str], ...] = (
         """,
         "reason": "session_finished_ready is a delivery-complete alias of wake_ready",
     },
-
     {
         "name": "current_queue_last_run_dispatch_accepted_to_awaiting_wake",
         "sql": """
@@ -188,22 +187,41 @@ def normalize(database_url: str, *, apply: bool) -> dict[str, Any]:
             cur.execute("set search_path to enoch, public")
             for statement in NORMALIZATION_STATEMENTS:
                 cur.execute(statement["sql"])
-                changes.append({
-                    "name": statement["name"],
-                    "rows": int(cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0),
-                    "reason": statement["reason"],
-                })
+                changes.append(
+                    {
+                        "name": statement["name"],
+                        "rows": int(
+                            cur.rowcount
+                            if cur.rowcount is not None and cur.rowcount >= 0
+                            else 0
+                        ),
+                        "reason": statement["reason"],
+                    }
+                )
         if apply:
             conn.commit()
         else:
             conn.rollback()
-    return {"ok": True, "applied": apply, "changes": changes, "total_rows": sum(item["rows"] for item in changes)}
+    return {
+        "ok": True,
+        "applied": apply,
+        "changes": changes,
+        "total_rows": sum(item["rows"] for item in changes),
+    }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Normalize legacy Enoch state values after the Supabase state contract audit.")
-    parser.add_argument("--database-url", default=os.environ.get("ENOCH_SUPABASE_DATABASE_URL", ""))
-    parser.add_argument("--apply", action="store_true", help="Commit updates. Default is a dry-run transaction rollback.")
+    parser = argparse.ArgumentParser(
+        description="Normalize legacy Enoch state values after the Supabase state contract audit."
+    )
+    parser.add_argument(
+        "--database-url", default=os.environ.get("ENOCH_SUPABASE_DATABASE_URL", "")
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Commit updates. Default is a dry-run transaction rollback.",
+    )
     parser.add_argument("--output", default="")
     args = parser.parse_args()
     if not args.database_url:

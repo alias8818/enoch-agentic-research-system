@@ -23,13 +23,25 @@ from pathlib import Path
 from typing import Any
 
 CATEGORY_TERMS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("long-context", ("long context", "retrieval", "memory", "mamba", "ssm", "state space", "ruler")),
+    (
+        "long-context",
+        ("long context", "retrieval", "memory", "mamba", "ssm", "state space", "ruler"),
+    ),
     ("kv-compression", ("kv cache", "cache", "paged attention", "kivi", "attention")),
     ("spec-decoding", ("speculative", "draft", "eagle", "decoding", "inference")),
     ("quantization", ("quant", "bitnet", "bit", "ternary", "fp8", "int4", "int2")),
-    ("home-training", ("qlora", "lora", "fine-tuning", "finetuning", "galore", "training")),
-    ("distributed-training", ("distributed", "federated", "diloco", "volunteer", "decentralized")),
-    ("agent-reliability", ("agent", "factual", "evidence", "benchmark", "verification", "swe-bench")),
+    (
+        "home-training",
+        ("qlora", "lora", "fine-tuning", "finetuning", "galore", "training"),
+    ),
+    (
+        "distributed-training",
+        ("distributed", "federated", "diloco", "volunteer", "decentralized"),
+    ),
+    (
+        "agent-reliability",
+        ("agent", "factual", "evidence", "benchmark", "verification", "swe-bench"),
+    ),
 )
 
 MODE_BY_CATEGORY = {
@@ -42,12 +54,29 @@ MODE_BY_CATEGORY = {
     "agent-reliability": "implementation_gap",
 }
 
-DEFAULT_ARTIFACTS = ["run_notes.md", "metrics.json", "baseline_report.json", "failure_cases.json", ".enoch/project_decision.json"]
-DEFAULT_EVIDENCE = ["source-grounded baseline", "metrics table", "ablation or control", "failure cases", "decision artifact"]
+DEFAULT_ARTIFACTS = [
+    "run_notes.md",
+    "metrics.json",
+    "baseline_report.json",
+    "failure_cases.json",
+    ".enoch/project_decision.json",
+]
+DEFAULT_EVIDENCE = [
+    "source-grounded baseline",
+    "metrics table",
+    "ablation or control",
+    "failure cases",
+    "decision artifact",
+]
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def clean_text(value: str) -> str:
@@ -76,7 +105,16 @@ class SourceRecord:
     content_hash: str = ""
 
     @classmethod
-    def from_parts(cls, *, source_kind: str, title: str, url: str, summary: str = "", external_id: str = "", payload_json: dict[str, Any] | None = None) -> "SourceRecord":
+    def from_parts(
+        cls,
+        *,
+        source_kind: str,
+        title: str,
+        url: str,
+        summary: str = "",
+        external_id: str = "",
+        payload_json: dict[str, Any] | None = None,
+    ) -> "SourceRecord":
         title = clean_text(title)
         url = clean_text(url)
         summary = clean_text(summary)
@@ -95,7 +133,12 @@ class SourceRecord:
 
 
 def fetch_text(url: str, *, timeout: int = 20) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": "EnochResearchFacility/0.1 (+https://github.com/alias8818/enoch-agentic-research-system)"})
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "EnochResearchFacility/0.1 (+https://github.com/alias8818/enoch-agentic-research-system)"
+        },
+    )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.read().decode("utf-8", errors="replace")
 
@@ -119,8 +162,13 @@ def scan_arxiv(query: str, *, max_results: int, timeout: int) -> list[SourceReco
         title = clean_text(entry.findtext("atom:title", default="", namespaces=ns))
         summary = clean_text(entry.findtext("atom:summary", default="", namespaces=ns))
         entry_id = clean_text(entry.findtext("atom:id", default="", namespaces=ns))
-        published = clean_text(entry.findtext("atom:published", default="", namespaces=ns))
-        authors = [clean_text(author.findtext("atom:name", default="", namespaces=ns)) for author in entry.findall("atom:author", ns)]
+        published = clean_text(
+            entry.findtext("atom:published", default="", namespaces=ns)
+        )
+        authors = [
+            clean_text(author.findtext("atom:name", default="", namespaces=ns))
+            for author in entry.findall("atom:author", ns)
+        ]
         records.append(
             SourceRecord.from_parts(
                 source_kind="arxiv",
@@ -128,7 +176,11 @@ def scan_arxiv(query: str, *, max_results: int, timeout: int) -> list[SourceReco
                 url=entry_id,
                 external_id=entry_id.rsplit("/", 1)[-1],
                 summary=summary,
-                payload_json={"published": published, "authors": [a for a in authors if a], "query": query},
+                payload_json={
+                    "published": published,
+                    "authors": [a for a in authors if a],
+                    "query": query,
+                },
             )
         )
     return records
@@ -143,12 +195,16 @@ def load_source_json(path: Path) -> list[SourceRecord]:
         if not isinstance(item, dict):
             continue
         if item.get("source_id") and item.get("source_kind"):
-            records.append(SourceRecord(**{**item, "payload_json": item.get("payload_json") or {}}))
+            records.append(
+                SourceRecord(**{**item, "payload_json": item.get("payload_json") or {}})
+            )
         else:
             records.append(
                 SourceRecord.from_parts(
                     source_kind=str(item.get("source_kind") or "manual_note"),
-                    title=str(item.get("title") or item.get("name") or "Untitled source"),
+                    title=str(
+                        item.get("title") or item.get("name") or "Untitled source"
+                    ),
                     url=str(item.get("url") or item.get("source_external_url") or ""),
                     external_id=str(item.get("external_id") or ""),
                     summary=str(item.get("summary") or item.get("description") or ""),
@@ -167,13 +223,20 @@ def classify_category(text: str) -> str:
             if term in lower:
                 # Multi-word/domain-specific terms are stronger than broad words
                 # such as memory, cache, or attention.
-                score += 3 if " " in term or term in {"speculative", "qlora", "bitnet", "diloco"} else 1
+                score += (
+                    3
+                    if " " in term
+                    or term in {"speculative", "qlora", "bitnet", "diloco"}
+                    else 1
+                )
         weighted_scores[category] = score
     best, score = max(weighted_scores.items(), key=lambda item: item[1])
     return best if score > 0 else "systems-research"
 
 
-def score_from_source(source: SourceRecord, category: str) -> tuple[float, float, float, float]:
+def score_from_source(
+    source: SourceRecord, category: str
+) -> tuple[float, float, float, float]:
     text = f"{source.title} {source.summary}".lower()
     novelty = 7.0
     feasibility = 6.0
@@ -184,21 +247,49 @@ def score_from_source(source: SourceRecord, category: str) -> tuple[float, float
         accessibility += 1.0
     if category in {"long-context", "distributed-training"}:
         novelty += 1.0
-    if any(term in text for term in ("benchmark", "evaluation", "dataset", "ruler", "swe-bench")):
+    if any(
+        term in text
+        for term in ("benchmark", "evaluation", "dataset", "ruler", "swe-bench")
+    ):
         falsifiability += 1.0
-    if any(term in text for term in ("efficient", "local", "memory", "compression", "low-bit", "throughput")):
+    if any(
+        term in text
+        for term in (
+            "efficient",
+            "local",
+            "memory",
+            "compression",
+            "low-bit",
+            "throughput",
+        )
+    ):
         accessibility += 1.0
-    return tuple(min(10.0, value) for value in (novelty, feasibility, accessibility, falsifiability))
+    return tuple(
+        min(10.0, value)
+        for value in (novelty, feasibility, accessibility, falsifiability)
+    )
 
 
-def candidate_from_source(source: SourceRecord, *, default_machine: str, default_model: str, default_sandbox: str) -> dict[str, Any]:
+def candidate_from_source(
+    source: SourceRecord,
+    *,
+    default_machine: str,
+    default_model: str,
+    default_sandbox: str,
+) -> dict[str, Any]:
     source_text = f"{source.title}. {source.summary}"
     category = classify_category(source_text)
     mode = MODE_BY_CATEGORY.get(category, "fresh_grounded")
-    novelty, feasibility, accessibility, falsifiability = score_from_source(source, category)
+    novelty, feasibility, accessibility, falsifiability = score_from_source(
+        source, category
+    )
     short_summary = source.summary[:700]
     title_slug = slugify(source.title)
-    candidate_title = f"Local Probe: {source.title[:90]}" if not source.title.lower().startswith("local probe") else source.title
+    candidate_title = (
+        f"Local Probe: {source.title[:90]}"
+        if not source.title.lower().startswith("local probe")
+        else source.title
+    )
     baseline = {
         "long-context": "Vector RAG, sliding-window context, and periodic exact-anchor baselines at the same memory budget.",
         "kv-compression": "Uniform FP8/int4 KV cache compression and recency-only cache eviction at the same memory budget.",
@@ -207,7 +298,10 @@ def candidate_from_source(source: SourceRecord, *, default_machine: str, default
         "home-training": "Fixed QLoRA/LoRA recipe with manually tuned batch size and checkpointing.",
         "distributed-training": "FedAvg or DiLoCo-style unchecked local worker aggregation under the same simulated worker budget.",
         "agent-reliability": "Vanilla agent run and self-critique-only baseline on the same task set.",
-    }.get(category, "The simplest direct implementation and the strongest existing local baseline identified during setup.")
+    }.get(
+        category,
+        "The simplest direct implementation and the strongest existing local baseline identified during setup.",
+    )
     mechanism = {
         "long-context": "Convert the source mechanism into a bounded local memory wrapper and test whether exact anchors plus compressed state improve retrieval/reasoning beyond RAG.",
         "kv-compression": "Use the source mechanism to derive a mixed cache policy, then measure quality and latency against uniform compression.",
@@ -216,7 +310,10 @@ def candidate_from_source(source: SourceRecord, *, default_machine: str, default
         "home-training": "Turn the source into a scheduler or memory-planning probe for small-VRAM fine-tuning under a hard resource cap.",
         "distributed-training": "Simulate local workers and inject stale/random/poisoned updates to test whether the source mechanism survives adversarial or unreliable peers.",
         "agent-reliability": "Wrap the source idea in an evidence-ledger harness that measures unsupported claims and reproducibility against a baseline agent.",
-    }.get(category, "Extract one practical local variant from the source and compare it against the simplest baseline with bounded metrics.")
+    }.get(
+        category,
+        "Extract one practical local variant from the source and compare it against the simplest baseline with bounded metrics.",
+    )
     return {
         "candidate_id": f"{title_slug}-{sha256_text(source.content_hash, 10)}",
         "generation_mode": mode,
@@ -257,11 +354,21 @@ def candidate_from_source(source: SourceRecord, *, default_machine: str, default
         "provider_model": "none",
         "prompt_version": "research_facility_scan_v1",
         "generated_by": "scripts/research_facility_scan.py",
-        "raw_candidate_json": {"source": asdict(source), "category": category, "mode": mode},
+        "raw_candidate_json": {
+            "source": asdict(source),
+            "category": category,
+            "mode": mode,
+        },
     }
 
 
-def write_outputs(records: list[SourceRecord], candidates: list[dict[str, Any]], output: Path, *, errors: list[dict[str, str]] | None = None) -> None:
+def write_outputs(
+    records: list[SourceRecord],
+    candidates: list[dict[str, Any]],
+    output: Path,
+    *,
+    errors: list[dict[str, str]] | None = None,
+) -> None:
     payload = {
         "ok": not errors,
         "generated_at": utc_now(),
@@ -271,16 +378,33 @@ def write_outputs(records: list[SourceRecord], candidates: list[dict[str, Any]],
         "sources": [asdict(record) for record in records],
         "candidates": candidates,
     }
-    output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--arxiv-query", action="append", default=[], help="arXiv API query, e.g. cat:cs.LG AND all:speculative decoding")
-    parser.add_argument("--source-json", action="append", type=Path, default=[], help="JSON file with source records to convert")
+    parser.add_argument(
+        "--arxiv-query",
+        action="append",
+        default=[],
+        help="arXiv API query, e.g. cat:cs.LG AND all:speculative decoding",
+    )
+    parser.add_argument(
+        "--source-json",
+        action="append",
+        type=Path,
+        default=[],
+        help="JSON file with source records to convert",
+    )
     parser.add_argument("--max-results", type=int, default=5)
     parser.add_argument("--timeout", type=int, default=20)
-    parser.add_argument("--strict-fetch", action="store_true", help="fail instead of recording scanner errors when a remote source fetch fails")
+    parser.add_argument(
+        "--strict-fetch",
+        action="store_true",
+        help="fail instead of recording scanner errors when a remote source fetch fails",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--default-machine", default="gb10")
     parser.add_argument("--default-model", default="gpt-5.5")
@@ -298,7 +422,13 @@ def main(argv: list[str] | None = None) -> int:
             errors.append({"source": str(path), "error": str(exc)})
     for query in args.arxiv_query:
         try:
-            records.extend(scan_arxiv(query, max_results=max(1, min(args.max_results, 50)), timeout=args.timeout))
+            records.extend(
+                scan_arxiv(
+                    query,
+                    max_results=max(1, min(args.max_results, 50)),
+                    timeout=args.timeout,
+                )
+            )
         except Exception as exc:  # noqa: BLE001 - remote scanners can hit rate limits/timeouts
             if args.strict_fetch:
                 raise
@@ -315,7 +445,18 @@ def main(argv: list[str] | None = None) -> int:
         for record in records
     ]
     write_outputs(records, candidates, args.output, errors=errors)
-    print(json.dumps({"ok": not errors, "output": str(args.output), "source_count": len(records), "candidate_count": len(candidates), "error_count": len(errors)}, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "ok": not errors,
+                "output": str(args.output),
+                "source_count": len(records),
+                "candidate_count": len(candidates),
+                "error_count": len(errors),
+            },
+            sort_keys=True,
+        )
+    )
     return 0
 
 

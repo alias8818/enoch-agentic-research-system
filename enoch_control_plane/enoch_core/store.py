@@ -94,7 +94,9 @@ class EnochCoreStore:
 
     @staticmethod
     def canonical_json(payload: Any) -> str:
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
 
     @classmethod
     def payload_hash(cls, payload: Any) -> str:
@@ -130,7 +132,14 @@ class EnochCoreStore:
                 INSERT INTO events(idempotency_key, event_type, source, payload_json, payload_hash, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (idempotency_key, event_type, source, payload_json, payload_hash, utc_now()),
+                (
+                    idempotency_key,
+                    event_type,
+                    source,
+                    payload_json,
+                    payload_hash,
+                    utc_now(),
+                ),
             )
             return AppendResult(event_id=int(cur.lastrowid), inserted=True)
 
@@ -155,11 +164,20 @@ class EnochCoreStore:
                 INSERT INTO snapshots(idempotency_key, snapshot_type, event_id, source, payload_json, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (key, "n8n_queue", event.event_id, str(payload.get("source") or "n8n"), payload_json, utc_now()),
+                (
+                    key,
+                    "n8n_queue",
+                    event.event_id,
+                    str(payload.get("source") or "n8n"),
+                    payload_json,
+                    utc_now(),
+                ),
             )
             return event, int(cur.lastrowid)
 
-    def latest_snapshot(self, snapshot_type: str = "n8n_queue") -> dict[str, Any] | None:
+    def latest_snapshot(
+        self, snapshot_type: str = "n8n_queue"
+    ) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
                 """

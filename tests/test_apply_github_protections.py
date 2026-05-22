@@ -16,7 +16,7 @@ def _fake_gh(tmp_path: Path) -> Path:
     gh = bin_dir / "gh"
     gh.write_text(
         "#!/usr/bin/env bash\n"
-        "printf '%s\\n' \"$*\" >> \"$GH_CALLS\"\n"
+        'printf \'%s\\n\' "$*" >> "$GH_CALLS"\n'
         "cat >/dev/null || true\n",
         encoding="utf-8",
     )
@@ -27,7 +27,10 @@ def _fake_gh(tmp_path: Path) -> Path:
 
 def test_apply_github_protections_derives_counts_from_manifest(tmp_path: Path) -> None:
     manifest = tmp_path / "ecosystem.json"
-    manifest.write_text(json.dumps({"artifact_count": 12, "promising_signal_count": 7}), encoding="utf-8")
+    manifest.write_text(
+        json.dumps({"artifact_count": 12, "promising_signal_count": 7}),
+        encoding="utf-8",
+    )
     bin_dir = _fake_gh(tmp_path)
     env = os.environ.copy()
     env.update(
@@ -48,7 +51,9 @@ def test_apply_github_protections_derives_counts_from_manifest(tmp_path: Path) -
     assert "branches/main/protection" not in calls
 
 
-def test_apply_github_protections_fails_closed_on_missing_manifest_count(tmp_path: Path) -> None:
+def test_apply_github_protections_fails_closed_on_missing_manifest_count(
+    tmp_path: Path,
+) -> None:
     manifest = tmp_path / "ecosystem.json"
     manifest.write_text(json.dumps({"artifact_count": 12}), encoding="utf-8")
     bin_dir = _fake_gh(tmp_path)
@@ -74,7 +79,9 @@ def test_apply_github_protections_fails_closed_on_missing_manifest_count(tmp_pat
     assert (tmp_path / "gh-calls.txt").read_text(encoding="utf-8") == ""
 
 
-def test_apply_github_protections_rejects_boolean_manifest_count(tmp_path: Path) -> None:
+def test_apply_github_protections_rejects_boolean_manifest_count(
+    tmp_path: Path,
+) -> None:
     manifest = tmp_path / "ecosystem.json"
     manifest.write_text(
         json.dumps({"artifact_count": True, "promising_signal_count": 7}),

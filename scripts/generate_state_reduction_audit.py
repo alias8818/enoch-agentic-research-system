@@ -113,14 +113,24 @@ def render(*, live: dict[str, dict[str, int]]) -> str:
         ]
     )
     for surface in sorted(STATE_CONTRACT):
-        lines.extend([f"### `{surface}`", "", _table_for_surface(surface, live=live), ""])
+        lines.extend(
+            [f"### `{surface}`", "", _table_for_surface(surface, live=live), ""]
+        )
     return "\n".join(lines).rstrip() + "\n"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate the raw-state reduction audit Markdown.")
-    parser.add_argument("--database-url", default=os.environ.get("ENOCH_SUPABASE_DATABASE_URL", ""), help="Optional live Supabase/Postgres URL for live counts.")
-    parser.add_argument("--output", type=Path, default=REPO_ROOT / "docs" / "state-reduction-audit.md")
+    parser = argparse.ArgumentParser(
+        description="Generate the raw-state reduction audit Markdown."
+    )
+    parser.add_argument(
+        "--database-url",
+        default=os.environ.get("ENOCH_SUPABASE_DATABASE_URL", ""),
+        help="Optional live Supabase/Postgres URL for live counts.",
+    )
+    parser.add_argument(
+        "--output", type=Path, default=REPO_ROOT / "docs" / "state-reduction-audit.md"
+    )
     args = parser.parse_args()
 
     live = _live_counts(args.database_url) if args.database_url else {}

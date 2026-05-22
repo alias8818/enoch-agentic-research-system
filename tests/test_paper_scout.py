@@ -85,8 +85,13 @@ def test_apply_ready_conflicts_on_reused_event_key_with_different_identity(monke
 
     class Cursor:
         rowcount = 1
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
         def execute(self, sql, params=()):
             normalized = " ".join(str(sql).lower().split())
             if normalized.startswith("select event_id"):
@@ -100,20 +105,35 @@ def test_apply_ready_conflicts_on_reused_event_key_with_different_identity(monke
             elif normalized.startswith("insert into control_events"):
                 raise AssertionError("conflicting replay must not insert")
             return self
+
         def fetchone(self):
             return getattr(self, "_fetchone", None)
 
     class Conn:
         committed = False
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
-        def cursor(self): return Cursor()
-        def commit(self): self.committed = True
 
-    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()))
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+        def commit(self):
+            self.committed = True
+
+    monkeypatch.setitem(
+        sys.modules,
+        "psycopg",
+        SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()),
+    )
 
     with pytest.raises(IdempotencyConflict):
-        paper_scout.apply_ready("postgres://example", [result], max_apply=1, requested_by="unit")
+        paper_scout.apply_ready(
+            "postgres://example", [result], max_apply=1, requested_by="unit"
+        )
 
 
 def test_apply_ready_existing_event_does_not_rewrite_decision_payload(monkeypatch):
@@ -146,8 +166,12 @@ def test_apply_ready_existing_event_does_not_rewrite_decision_payload(monkeypatc
         update_count = 0
         insert_count = 0
 
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
         def execute(self, sql, params=()):
             normalized = " ".join(str(sql).lower().split())
             if normalized.startswith("select event_id"):
@@ -163,6 +187,7 @@ def test_apply_ready_existing_event_does_not_rewrite_decision_payload(monkeypatc
             elif normalized.startswith("insert into control_events"):
                 self.insert_count += 1
             return self
+
         def fetchone(self):
             return getattr(self, "_fetchone", None)
 
@@ -170,14 +195,28 @@ def test_apply_ready_existing_event_does_not_rewrite_decision_payload(monkeypatc
 
     class Conn:
         committed = False
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
-        def cursor(self): return cursor
-        def commit(self): self.committed = True
 
-    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()))
+        def __enter__(self):
+            return self
 
-    applied = paper_scout.apply_ready("postgres://example", [result], max_apply=1, requested_by="unit")
+        def __exit__(self, *args):
+            return None
+
+        def cursor(self):
+            return cursor
+
+        def commit(self):
+            self.committed = True
+
+    monkeypatch.setitem(
+        sys.modules,
+        "psycopg",
+        SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()),
+    )
+
+    applied = paper_scout.apply_ready(
+        "postgres://example", [result], max_apply=1, requested_by="unit"
+    )
 
     assert applied == []
     assert cursor.update_count == 0

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Validate Enoch release-version bookkeeping."""
+
 from __future__ import annotations
 
 import re
@@ -17,7 +18,11 @@ def main() -> int:
     changelog_path = ROOT / "CHANGELOG.md"
     failures: list[str] = []
 
-    version = version_path.read_text(encoding="utf-8").strip() if version_path.exists() else ""
+    version = (
+        version_path.read_text(encoding="utf-8").strip()
+        if version_path.exists()
+        else ""
+    )
     if not version:
         failures.append("VERSION is missing or empty")
     elif not SEMVER.match(version):
@@ -32,11 +37,15 @@ def main() -> int:
     if package_version != version:
         failures.append(f"pyproject version {package_version!r} != VERSION {version!r}")
 
-    changelog = changelog_path.read_text(encoding="utf-8") if changelog_path.exists() else ""
+    changelog = (
+        changelog_path.read_text(encoding="utf-8") if changelog_path.exists() else ""
+    )
     if f"## [{version}]" not in changelog:
         failures.append(f"CHANGELOG.md has no entry for {version}")
     if "omx-wake-gate" in pyproject_path.read_text(encoding="utf-8"):
-        failures.append("pyproject.toml still references the old package name omx-wake-gate")
+        failures.append(
+            "pyproject.toml still references the old package name omx-wake-gate"
+        )
 
     if failures:
         for failure in failures:

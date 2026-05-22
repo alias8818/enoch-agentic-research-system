@@ -38,7 +38,9 @@ def _record(
 
 
 class DashboardTruthTests(unittest.TestCase):
-    def test_callback_ready_states_distinguish_pending_delivered_and_stale(self) -> None:
+    def test_callback_ready_states_distinguish_pending_delivered_and_stale(
+        self,
+    ) -> None:
         delivered = _record(
             "run-delivered",
             GateState.WAKE_READY,
@@ -47,11 +49,17 @@ class DashboardTruthTests(unittest.TestCase):
         pending = _record("run-pending", GateState.WAKE_READY)
         stale = _record("run-stale", GateState.WAKE_READY, age_seconds=999_999)
 
-        self.assertEqual(_dashboard_truth(delivered, [])["lifecycle_state"], "callback_delivered")
+        self.assertEqual(
+            _dashboard_truth(delivered, [])["lifecycle_state"], "callback_delivered"
+        )
         self.assertFalse(_dashboard_truth(delivered, [])["is_live"])
-        self.assertEqual(_dashboard_truth(pending, [])["lifecycle_state"], "callback_pending")
+        self.assertEqual(
+            _dashboard_truth(pending, [])["lifecycle_state"], "callback_pending"
+        )
         self.assertTrue(_dashboard_truth(pending, [])["is_live"])
-        self.assertEqual(_dashboard_truth(stale, [])["lifecycle_state"], "stale_callback_ready")
+        self.assertEqual(
+            _dashboard_truth(stale, [])["lifecycle_state"], "stale_callback_ready"
+        )
         self.assertTrue(_dashboard_truth(stale, [])["needs_attention"])
 
     def test_callback_ready_without_delivered_key_can_be_retried(self) -> None:
@@ -60,7 +68,10 @@ class DashboardTruthTests(unittest.TestCase):
         self.assertIsNotNone(retry)
         assert retry is not None
         self.assertEqual(retry.event_type, "wake_ready")
-        self.assertEqual(retry.idempotency_key, f"{pending.run_id}:wake_ready:{pending.last_event_at}")
+        self.assertEqual(
+            retry.idempotency_key,
+            f"{pending.run_id}:wake_ready:{pending.last_event_at}",
+        )
 
         delivered = _record(
             "run-delivered",
@@ -87,7 +98,9 @@ class DashboardTruthTests(unittest.TestCase):
         self.assertFalse(superseded_question["is_live"])
         self.assertFalse(superseded_question["needs_attention"])
 
-    def test_superseded_records_do_not_count_as_live_or_attention_without_processes(self) -> None:
+    def test_superseded_records_do_not_count_as_live_or_attention_without_processes(
+        self,
+    ) -> None:
         for state in (
             GateState.RUNNING,
             GateState.PENDING_IDLE_GATE,
@@ -99,14 +112,18 @@ class DashboardTruthTests(unittest.TestCase):
             GateState.FINISHED_READY,
         ):
             with self.subTest(state=state.value):
-                truth = _dashboard_truth(_record(f"old-{state.value}", state), [], superseded=True)
+                truth = _dashboard_truth(
+                    _record(f"old-{state.value}", state), [], superseded=True
+                )
                 self.assertEqual(truth["lifecycle_state"], "superseded")
                 self.assertFalse(truth["is_live"])
                 self.assertFalse(truth["needs_attention"])
 
     def test_live_processes_override_superseded_storage_state(self) -> None:
         process = ProcessInfo(pid=1234, cmdline="python active.py")
-        truth = _dashboard_truth(_record("old-running", GateState.RUNNING), [process], superseded=True)
+        truth = _dashboard_truth(
+            _record("old-running", GateState.RUNNING), [process], superseded=True
+        )
         self.assertEqual(truth["lifecycle_state"], "active")
         self.assertTrue(truth["is_live"])
         self.assertFalse(truth["needs_attention"])
@@ -183,7 +200,6 @@ class DashboardTruthTests(unittest.TestCase):
             {row["project_id"] for row in snapshot["rows"]},
             {"idea-active", "idea-positive", "idea-negative", "idea-blocked"},
         )
-
 
 
 if __name__ == "__main__":

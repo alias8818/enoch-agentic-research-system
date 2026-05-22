@@ -14,7 +14,9 @@ class CallbackSender:
 
     def send(self, callback: GateCallback) -> tuple[int, str]:
         body = json.dumps(callback.model_dump()).encode("utf-8")
-        safe_url = validate_http_url(self.config.completion_callback_url, field_name="completion callback url")
+        safe_url = validate_http_url(
+            self.config.completion_callback_url, field_name="completion callback url"
+        )
         req = request.Request(
             safe_url,
             data=body,
@@ -27,6 +29,8 @@ class CallbackSender:
                 "X-Idempotency-Key": callback.idempotency_key,
             },
         )
-        with request.urlopen(req, timeout=self.config.completion_callback_timeout_sec) as resp:  # noqa: S310 - explicit operator URL
+        with request.urlopen(
+            req, timeout=self.config.completion_callback_timeout_sec
+        ) as resp:  # noqa: S310 - explicit operator URL
             text = resp.read().decode("utf-8", errors="replace")
             return resp.status, text

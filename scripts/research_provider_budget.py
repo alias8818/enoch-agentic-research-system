@@ -23,7 +23,12 @@ SYNTHETIC_BASE_URL = "https://api.synthetic.new"
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def fetch_json(url: str, *, api_key: str = "", timeout: int) -> dict[str, Any]:
@@ -56,6 +61,7 @@ def synthetic_budget_status(
     weekly = section("weeklyTokenLimit")
     rolling = section("rollingFiveHourLimit")
     subscription = section("subscription")
+
     def parse_float(section_name: str, field: str, default: float = 0.0) -> float:
         raw = str(section(section_name).get(field) or str(default)).replace("$", "")
         try:
@@ -80,13 +86,21 @@ def synthetic_budget_status(
     subscription_remaining = max(0, subscription_limit - subscription_requests)
     required_rolling = max(0, int(estimated_requests)) + max(0, int(reserve_requests))
     if remaining_credits < min_remaining_credits:
-        failures.append(f"weekly remaining credits {remaining_credits:.2f} < minimum {min_remaining_credits:.2f}")
+        failures.append(
+            f"weekly remaining credits {remaining_credits:.2f} < minimum {min_remaining_credits:.2f}"
+        )
     if rolling.get("limited") is True:
         failures.append("rolling five-hour limit is currently limited")
     if rolling_remaining < max(min_rolling_remaining, required_rolling):
-        failures.append(f"rolling remaining {rolling_remaining} < required {max(min_rolling_remaining, required_rolling)}")
-    if subscription_limit > 0 and subscription_remaining < max(0, int(estimated_requests)):
-        failures.append(f"subscription request allowance remaining {subscription_remaining} < estimated requests {estimated_requests}")
+        failures.append(
+            f"rolling remaining {rolling_remaining} < required {max(min_rolling_remaining, required_rolling)}"
+        )
+    if subscription_limit > 0 and subscription_remaining < max(
+        0, int(estimated_requests)
+    ):
+        failures.append(
+            f"subscription request allowance remaining {subscription_remaining} < estimated requests {estimated_requests}"
+        )
     return {
         "ok": not failures,
         "provider": "synthetic",
@@ -112,16 +126,32 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--provider", choices=["synthetic"], default="synthetic")
     parser.add_argument("--api-key-env", default="SYNTHETIC_API_KEY")
-    parser.add_argument("--base-url", default=os.environ.get("SYNTHETIC_BASE_URL", SYNTHETIC_BASE_URL), help="Synthetic API base URL; can be an exe.dev HTTP proxy such as http://synthetic.int.exe.xyz")
-    parser.add_argument("--no-auth", action="store_true", help="do not attach Authorization; use when an exe.dev HTTP proxy injects the header")
+    parser.add_argument(
+        "--base-url",
+        default=os.environ.get("SYNTHETIC_BASE_URL", SYNTHETIC_BASE_URL),
+        help="Synthetic API base URL; can be an exe.dev HTTP proxy such as http://synthetic.int.exe.xyz",
+    )
+    parser.add_argument(
+        "--no-auth",
+        action="store_true",
+        help="do not attach Authorization; use when an exe.dev HTTP proxy injects the header",
+    )
     parser.add_argument("--estimated-requests", type=int, default=2)
     parser.add_argument("--reserve-requests", type=int, default=2)
     parser.add_argument("--min-remaining-credits", type=float, default=5.0)
     parser.add_argument("--min-rolling-remaining", type=int, default=10)
     parser.add_argument("--timeout", type=int, default=20)
-    parser.add_argument("--input-json", type=Path, help="offline quota payload for tests or dry-runs")
-    parser.add_argument("--output", type=Path, help="write full JSON report to this path")
-    parser.add_argument("--allow-missing-key", action="store_true", help="return ok=false JSON instead of exit 2 when API key is missing")
+    parser.add_argument(
+        "--input-json", type=Path, help="offline quota payload for tests or dry-runs"
+    )
+    parser.add_argument(
+        "--output", type=Path, help="write full JSON report to this path"
+    )
+    parser.add_argument(
+        "--allow-missing-key",
+        action="store_true",
+        help="return ok=false JSON instead of exit 2 when API key is missing",
+    )
     args = parser.parse_args(argv)
 
     if args.input_json:

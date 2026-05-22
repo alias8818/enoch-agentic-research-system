@@ -20,7 +20,13 @@ from typing import Any
 
 
 ACTIVE_QUEUE_STATUSES = {"dispatching", "awaiting_wake", "running"}
-LIVE_LIFECYCLES = {"active", "settling", "question_pending", "callback_pending", "stale_callback_ready"}
+LIVE_LIFECYCLES = {
+    "active",
+    "settling",
+    "question_pending",
+    "callback_pending",
+    "stale_callback_ready",
+}
 PROJECT_PROCESS_MARKERS = ("/projects/idea-", "codex exec", "codex exec")
 
 
@@ -33,7 +39,9 @@ def load_token(config_path: Path) -> str:
 
 
 def fetch_dashboard(api_url: str, token: str, timeout: float) -> dict[str, Any]:
-    request = urllib.request.Request(api_url, headers={"Authorization": f"Bearer {token}"})
+    request = urllib.request.Request(
+        api_url, headers={"Authorization": f"Bearer {token}"}
+    )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         data = json.load(response)
     if not isinstance(data, dict):
@@ -55,7 +63,11 @@ def project_exec_processes(project_root: str) -> list[str]:
     for line in result.stdout.splitlines():
         if "wait_safe_restart_wake_gate.py" in line:
             continue
-        if project_root and project_root in line and ("codex exec" in line or "codex exec" in line):
+        if (
+            project_root
+            and project_root in line
+            and ("codex exec" in line or "codex exec" in line)
+        ):
             matches.append(line.strip())
             continue
         if all(marker in line for marker in PROJECT_PROCESS_MARKERS):
@@ -63,13 +75,21 @@ def project_exec_processes(project_root: str) -> list[str]:
     return matches
 
 
-def safe_report(data: dict[str, Any], project_processes: list[str]) -> tuple[bool, list[str]]:
+def safe_report(
+    data: dict[str, Any], project_processes: list[str]
+) -> tuple[bool, list[str]]:
     reasons: list[str] = []
     totals = data.get("totals") if isinstance(data.get("totals"), dict) else {}
     queue = data.get("queue") if isinstance(data.get("queue"), dict) else {}
     runs = data.get("runs") if isinstance(data.get("runs"), list) else []
-    status_counts = queue.get("status_counts") if isinstance(queue.get("status_counts"), dict) else {}
-    active_rows = queue.get("active_rows") if isinstance(queue.get("active_rows"), list) else []
+    status_counts = (
+        queue.get("status_counts")
+        if isinstance(queue.get("status_counts"), dict)
+        else {}
+    )
+    active_rows = (
+        queue.get("active_rows") if isinstance(queue.get("active_rows"), list) else []
+    )
 
     live = int(totals.get("live") or totals.get("active_or_waiting") or 0)
     if live:
@@ -83,14 +103,17 @@ def safe_report(data: dict[str, Any], project_processes: list[str]) -> tuple[boo
         ]
         reasons.append(f"queue active_rows={len(active_rows)} ({', '.join(labels)})")
 
-    active_status_total = sum(int(status_counts.get(status) or 0) for status in ACTIVE_QUEUE_STATUSES)
+    active_status_total = sum(
+        int(status_counts.get(status) or 0) for status in ACTIVE_QUEUE_STATUSES
+    )
     if active_status_total:
         reasons.append(f"active queue status count={active_status_total}")
 
     live_runs = [
         run
         for run in runs
-        if isinstance(run, dict) and str(run.get("lifecycle_state") or "") in LIVE_LIFECYCLES
+        if isinstance(run, dict)
+        and str(run.get("lifecycle_state") or "") in LIVE_LIFECYCLES
     ]
     if live_runs:
         labels = [
@@ -120,11 +143,15 @@ def restart_service(service: str, verify_url: str, token: str, timeout: float) -
             fetch_dashboard(verify_url, token, timeout=5)
             if active.stdout.strip() == "active":
                 return
-            last_error = f"service state={active.stdout.strip() or active.stderr.strip()}"
+            last_error = (
+                f"service state={active.stdout.strip() or active.stderr.strip()}"
+            )
         except (OSError, urllib.error.URLError, TimeoutError, RuntimeError) as exc:
             last_error = str(exc)
         time.sleep(2)
-    raise RuntimeError(f"{service} did not verify healthy within {timeout:.0f}s: {last_error}")
+    raise RuntimeError(
+        f"{service} did not verify healthy within {timeout:.0f}s: {last_error}"
+    )
 
 
 def main() -> int:
@@ -134,14 +161,21 @@ def main() -> int:
         default="~/enoch/config/enoch-worker-gate.json",
         help="wake-gate config path containing control_api_bearer_token",
     )
-    parser.add_argument("--api-url", default="http://127.0.0.1:8787/dashboard/api?limit=20&event_limit=5")
+    parser.add_argument(
+        "--api-url",
+        default="http://127.0.0.1:8787/dashboard/api?limit=20&event_limit=5",
+    )
     parser.add_argument("--project-root", default="~/enoch/projects")
     parser.add_argument("--service", default="enoch-worker-gate.service")
     parser.add_argument("--interval-sec", type=float, default=30)
     parser.add_argument("--request-timeout-sec", type=float, default=8)
     parser.add_argument("--verify-timeout-sec", type=float, default=60)
-    parser.add_argument("--max-wait-sec", type=float, default=0, help="0 means wait forever")
-    parser.add_argument("--dry-run", action="store_true", help="exit 0 when safe instead of restarting")
+    parser.add_argument(
+        "--max-wait-sec", type=float, default=0, help="0 means wait forever"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="exit 0 when safe instead of restarting"
+    )
     args = parser.parse_args()
 
     token = load_token(Path(args.config))
@@ -151,7 +185,9 @@ def main() -> int:
         attempt += 1
         try:
             data = fetch_dashboard(args.api_url, token, args.request_timeout_sec)
-            processes = project_exec_processes(str(Path(args.project_root).expanduser()))
+            processes = project_exec_processes(
+                str(Path(args.project_root).expanduser())
+            )
             safe, reasons = safe_report(data, processes)
         except Exception as exc:
             safe = False
@@ -159,9 +195,15 @@ def main() -> int:
 
         stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
         if safe:
-            print(f"{stamp} safe restart window reached after {attempt} probes", flush=True)
+            print(
+                f"{stamp} safe restart window reached after {attempt} probes",
+                flush=True,
+            )
             if args.dry_run:
-                print(f"{stamp} dry-run enabled; not restarting {args.service}", flush=True)
+                print(
+                    f"{stamp} dry-run enabled; not restarting {args.service}",
+                    flush=True,
+                )
                 return 0
             restart_service(args.service, args.api_url, token, args.verify_timeout_sec)
             print(f"{stamp} restarted and verified {args.service}", flush=True)
@@ -169,7 +211,11 @@ def main() -> int:
 
         print(f"{stamp} not safe: {'; '.join(reasons)}", flush=True)
         if args.max_wait_sec and time.monotonic() - started >= args.max_wait_sec:
-            print(f"{stamp} max wait exceeded; {args.service} was not restarted", file=sys.stderr, flush=True)
+            print(
+                f"{stamp} max wait exceeded; {args.service} was not restarted",
+                file=sys.stderr,
+                flush=True,
+            )
             return 2
         time.sleep(max(1.0, args.interval_sec))
 

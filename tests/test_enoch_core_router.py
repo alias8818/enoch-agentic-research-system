@@ -67,29 +67,43 @@ class EnochCoreRouterTests(unittest.TestCase):
                     }
                 ],
             )
-            ingest = endpoints["/enoch-core/snapshots/n8n-queue"](payload=payload, authorization="Bearer secret")
+            ingest = endpoints["/enoch-core/snapshots/n8n-queue"](
+                payload=payload, authorization="Bearer secret"
+            )
             self.assertFalse(ingest.would_apply)
             self.assertEqual(ingest.queue_rows, 1)
 
-            projection = endpoints["/enoch-core/projections/queue"](authorization="Bearer secret", mode=None)
+            projection = endpoints["/enoch-core/projections/queue"](
+                authorization="Bearer secret", mode=None
+            )
             self.assertEqual(projection.draft_candidate_count, 1)
             self.assertEqual(projection.polish_candidate_count, 1)
 
-            draft = endpoints["/enoch-core/candidates/paper-draft"](authorization="Bearer secret", mode=None)
+            draft = endpoints["/enoch-core/candidates/paper-draft"](
+                authorization="Bearer secret", mode=None
+            )
             self.assertEqual(draft.action, "draft")
             self.assertFalse(draft.would_apply)
             self.assertEqual(draft.candidate["draft_payload"]["project_id"], "p1")
 
-            polish = endpoints["/enoch-core/candidates/paper-polish"](authorization="Bearer secret", mode=None)
+            polish = endpoints["/enoch-core/candidates/paper-polish"](
+                authorization="Bearer secret", mode=None
+            )
             self.assertEqual(polish.action, "polish")
             self.assertFalse(polish.would_apply)
-            self.assertEqual(polish.candidate["polish_payload"]["paper_id"], "p2:r2:arxiv_draft")
+            self.assertEqual(
+                polish.candidate["polish_payload"]["paper_id"], "p2:r2:arxiv_draft"
+            )
 
     def test_snapshot_idempotency_conflict_raises_409(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             endpoints = self.make_endpoints(tmp)
-            payload = QueueSnapshotRequest(idempotency_key="snap-1", source="test", queue_rows=[], paper_rows=[])
-            endpoints["/enoch-core/snapshots/n8n-queue"](payload=payload, authorization="Bearer secret")
+            payload = QueueSnapshotRequest(
+                idempotency_key="snap-1", source="test", queue_rows=[], paper_rows=[]
+            )
+            endpoints["/enoch-core/snapshots/n8n-queue"](
+                payload=payload, authorization="Bearer secret"
+            )
             changed = QueueSnapshotRequest(
                 idempotency_key="snap-1",
                 source="test",
@@ -97,13 +111,17 @@ class EnochCoreRouterTests(unittest.TestCase):
                 paper_rows=[],
             )
             with self.assertRaises(HTTPException) as raised:
-                endpoints["/enoch-core/snapshots/n8n-queue"](payload=changed, authorization="Bearer secret")
+                endpoints["/enoch-core/snapshots/n8n-queue"](
+                    payload=changed, authorization="Bearer secret"
+                )
             self.assertEqual(raised.exception.status_code, 409)
 
     def test_no_candidate_returns_noop_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             endpoints = self.make_endpoints(tmp)
-            body = endpoints["/enoch-core/candidates/paper-draft"](authorization="Bearer secret", mode=None)
+            body = endpoints["/enoch-core/candidates/paper-draft"](
+                authorization="Bearer secret", mode=None
+            )
             self.assertEqual(body.action, "noop")
             self.assertIsNone(body.candidate)
             self.assertFalse(body.would_apply)
@@ -111,6 +129,7 @@ class EnochCoreRouterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
 
 class EnochCoreSupabaseBackendRoutingTests(unittest.TestCase):
     def test_control_plane_backend_can_route_enoch_core_to_supabase(self) -> None:
@@ -128,19 +147,32 @@ class EnochCoreSupabaseBackendRoutingTests(unittest.TestCase):
 
             class FakeStore:
                 def rebuild_queue_projection(self) -> dict[str, Any]:
-                    return {"source": "none", "queue_rows": [], "paper_rows": [], "captured_at": None}
+                    return {
+                        "source": "none",
+                        "queue_rows": [],
+                        "paper_rows": [],
+                        "captured_at": None,
+                    }
 
             def require_bearer(authorization: str | None) -> None:
                 if authorization != "Bearer secret":
                     raise HTTPException(status_code=401, detail="invalid bearer token")
 
             from unittest.mock import patch
-            with patch("enoch_control_plane.enoch_core.router.SupabaseEnochCoreStore", return_value=FakeStore()) as supabase_store:
+
+            with patch(
+                "enoch_control_plane.enoch_core.router.SupabaseEnochCoreStore",
+                return_value=FakeStore(),
+            ) as supabase_store:
                 router = create_enoch_core_router(config, require_bearer)
                 endpoints = {route.path: route.endpoint for route in router.routes}  # type: ignore[attr-defined]
-                response = endpoints["/enoch-core/health"](authorization="Bearer secret")
+                response = endpoints["/enoch-core/health"](
+                    authorization="Bearer secret"
+                )
 
-            supabase_store.assert_called_once_with("postgresql://example.invalid/postgres")
+            supabase_store.assert_called_once_with(
+                "postgresql://example.invalid/postgres"
+            )
             self.assertEqual(response.store_backend, "supabase")
             self.assertEqual(response.db_path, "supabase")
 

@@ -35,14 +35,22 @@ def _mode_from_env(default: EnochCoreMode = "shadow") -> EnochCoreMode:
     return default
 
 
-def create_enoch_core_router(config: GateConfig, require_bearer: RequireBearer) -> APIRouter:
+def create_enoch_core_router(
+    config: GateConfig, require_bearer: RequireBearer
+) -> APIRouter:
     router = APIRouter(prefix="/enoch-core", tags=["enoch-core"])
     local_db_path = config.expanded_state_dir / "enoch_core.sqlite3"
     backend = config.enoch_core_store_backend
     if backend == "control_plane":
-        backend = "supabase" if config.control_plane_store_backend in {"supabase", "supabase_readonly"} else "sqlite"
+        backend = (
+            "supabase"
+            if config.control_plane_store_backend in {"supabase", "supabase_readonly"}
+            else "sqlite"
+        )
     if backend == "supabase":
-        store = SupabaseEnochCoreStore(resolve_supabase_database_url(config.supabase_database_url))
+        store = SupabaseEnochCoreStore(
+            resolve_supabase_database_url(config.supabase_database_url)
+        )
         store_path = "supabase"
     else:
         store = EnochCoreStore(local_db_path)
@@ -60,7 +68,9 @@ def create_enoch_core_router(config: GateConfig, require_bearer: RequireBearer) 
     @router.get("/health", response_model=HealthResponse)
     def health(authorization: str | None = Header(default=None)) -> HealthResponse:
         authorize(authorization)
-        return HealthResponse(mode=current_mode(), db_path=store_path, store_backend=backend)
+        return HealthResponse(
+            mode=current_mode(), db_path=store_path, store_backend=backend
+        )
 
     @router.post("/snapshots/n8n-queue", response_model=SnapshotIngestResponse)
     def ingest_n8n_queue_snapshot(
@@ -138,7 +148,9 @@ def create_enoch_core_router(config: GateConfig, require_bearer: RequireBearer) 
         authorize(authorization)
         effective_mode = current_mode(mode)
         snapshot = latest_snapshot_or_empty()
-        candidates = eligible_paper_polish_candidates(list(snapshot.get("paper_rows") or []))
+        candidates = eligible_paper_polish_candidates(
+            list(snapshot.get("paper_rows") or [])
+        )
         active_count = len(queue_projection(snapshot)["active_rows"])
         if not candidates:
             return CandidateResponse(

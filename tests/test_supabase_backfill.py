@@ -66,7 +66,9 @@ def test_backfill_rows_rejects_unallowlisted_order_by(tmp_path: Path) -> None:
             rows(conn, "projects", order_by="project_id desc; drop table projects")
 
 
-def test_backfill_decision_file_candidates_stay_under_configured_roots(tmp_path: Path) -> None:
+def test_backfill_decision_file_candidates_stay_under_configured_roots(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "projects"
     root.mkdir()
     inside = root / "safe-project"
@@ -80,7 +82,9 @@ def test_backfill_decision_file_candidates_stay_under_configured_roots(tmp_path:
     )
 
     assert candidates == []
-    assert decision_file_candidates({"project_id": "safe-project", "project_dir": ""}, [root]) == [inside.resolve()]
+    assert decision_file_candidates(
+        {"project_id": "safe-project", "project_dir": ""}, [root]
+    ) == [inside.resolve()]
 
 
 class _FakeCursor:
@@ -97,7 +101,9 @@ class _FakeCursor:
 
 
 def test_backfill_target_identity_guard_rejects_existing_paper_drift() -> None:
-    cur = _FakeCursor({"project_id": "project-a", "run_id": "run-a", "paper_type": "arxiv_draft"})
+    cur = _FakeCursor(
+        {"project_id": "project-a", "run_id": "run-a", "paper_type": "arxiv_draft"}
+    )
 
     with pytest.raises(ValueError, match="conflicting target papers identity"):
         reject_target_identity_conflicts(
@@ -133,7 +139,9 @@ def test_backfill_target_identity_guard_allows_same_existing_identity() -> None:
 
 
 def test_backfill_conflict_updates_are_timestamp_guarded() -> None:
-    source = inspect.getsource(backfill_control_plane_to_supabase.import_sqlite_to_postgres)
+    source = inspect.getsource(
+        backfill_control_plane_to_supabase.import_sqlite_to_postgres
+    )
 
     for nullable_guard in (
         "control_flags.updated_at is null or excluded.updated_at >= control_flags.updated_at",
@@ -147,15 +155,24 @@ def test_backfill_conflict_updates_are_timestamp_guarded() -> None:
 
 
 def test_backfill_project_decision_conflict_update_is_decided_at_guarded() -> None:
-    source = inspect.getsource(backfill_control_plane_to_supabase.import_sqlite_to_postgres)
+    source = inspect.getsource(
+        backfill_control_plane_to_supabase.import_sqlite_to_postgres
+    )
 
-    assert "where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at" in source
+    assert (
+        "where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at"
+        in source
+    )
 
 
 def test_backfill_control_events_are_append_only_on_idempotency_conflict() -> None:
-    source = inspect.getsource(backfill_control_plane_to_supabase.import_sqlite_to_postgres).lower()
+    source = inspect.getsource(
+        backfill_control_plane_to_supabase.import_sqlite_to_postgres
+    ).lower()
     event_insert = source[source.index("insert into control_events(idempotency_key") :]
-    event_insert = event_insert[: event_insert.index('imported["operator_observations"]')]
+    event_insert = event_insert[
+        : event_insert.index('imported["operator_observations"]')
+    ]
 
     assert "on conflict (idempotency_key) do nothing" in event_insert
     assert "on conflict (idempotency_key) do update" not in event_insert

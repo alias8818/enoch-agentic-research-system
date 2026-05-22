@@ -59,7 +59,9 @@ def _is_gpu_idle(body: dict[str, Any], *, max_gpu_pct: float) -> bool:
     telemetry = body.get("telemetry") if isinstance(body.get("telemetry"), dict) else {}
     gpu_pct = _as_float(telemetry.get("gpu_pct"), 0.0)
     gpu_pids = telemetry.get("gpu_compute_pids")
-    return gpu_pct <= max_gpu_pct and not (gpu_pids if isinstance(gpu_pids, list) else [])
+    return gpu_pct <= max_gpu_pct and not (
+        gpu_pids if isinstance(gpu_pids, list) else []
+    )
 
 
 def _looks_like_cpu_script(cmdline: str) -> bool:
@@ -69,7 +71,9 @@ def _looks_like_cpu_script(cmdline: str) -> bool:
     return any(marker in lowered for marker in _CPU_SCRIPT_MARKERS)
 
 
-def _low_utilization_process(processes: list[dict[str, Any]], *, min_elapsed_sec: int, cpu_bound_avg_pct: float) -> dict[str, Any] | None:
+def _low_utilization_process(
+    processes: list[dict[str, Any]], *, min_elapsed_sec: int, cpu_bound_avg_pct: float
+) -> dict[str, Any] | None:
     candidates: list[dict[str, Any]] = []
     for proc in processes:
         elapsed = _as_int(proc.get("elapsed_sec"), 0)
@@ -87,7 +91,13 @@ def _low_utilization_process(processes: list[dict[str, Any]], *, min_elapsed_sec
         candidates.append(proc)
     if not candidates:
         return None
-    return max(candidates, key=lambda item: (_as_int(item.get("elapsed_sec"), 0), _as_float(item.get("avg_cpu_pct"), 0.0)))
+    return max(
+        candidates,
+        key=lambda item: (
+            _as_int(item.get("elapsed_sec"), 0),
+            _as_float(item.get("avg_cpu_pct"), 0.0),
+        ),
+    )
 
 
 def classify_low_utilization_runs(
@@ -111,7 +121,10 @@ def classify_low_utilization_runs(
         return []
     findings: list[DashboardFinding] = []
     for run in _runs_from_worker_dashboard(worker_dashboard_body):
-        if run.get("is_live") is not True and str(run.get("lifecycle_state") or "").lower() != "active":
+        if (
+            run.get("is_live") is not True
+            and str(run.get("lifecycle_state") or "").lower() != "active"
+        ):
             continue
         process = _low_utilization_process(
             _list_items(run.get("active_processes")),

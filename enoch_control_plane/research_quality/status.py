@@ -13,22 +13,36 @@ DEFAULT_REPORT_PATHS = (
     "/tmp/enoch-dspy-quality-report.after.json",
     "/tmp/enoch-dspy-quality-report.json",
 )
-DEFAULT_WINDOW_REPORT_PATH = "/var/lib/enoch-control-plane/research-quality/latest-window-comparison.json"
-DEFAULT_AUTOPILOT_HISTORY_PATH = "/var/lib/enoch-control-plane/research-quality/autopilot-history.jsonl"
+DEFAULT_WINDOW_REPORT_PATH = (
+    "/var/lib/enoch-control-plane/research-quality/latest-window-comparison.json"
+)
+DEFAULT_AUTOPILOT_HISTORY_PATH = (
+    "/var/lib/enoch-control-plane/research-quality/autopilot-history.jsonl"
+)
 
 
 def _utc_iso_from_mtime(path: Path) -> str:
-    return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def _problem_severity(problem: str, item: dict[str, Any]) -> str:
     decision = str(item.get("decision") or "").strip()
     hypothesis_status = str(item.get("hypothesis_status") or "").strip()
     if (
-        (decision == "finalize_negative" and hypothesis_status in {"mixed", "unsupported"})
-        or (decision == "blocked" and hypothesis_status in {"inconclusive", "mixed", "unsupported", "unknown"})
+        decision == "finalize_negative"
+        and hypothesis_status in {"mixed", "unsupported"}
+    ) or (
+        decision == "blocked"
+        and hypothesis_status in {"inconclusive", "mixed", "unsupported", "unknown"}
     ):
-        if problem in {"weak_or_missing_evidence_strength", "supported_but_negative_requires_review"}:
+        if problem in {
+            "weak_or_missing_evidence_strength",
+            "supported_but_negative_requires_review",
+        }:
             return "warning"
     followup_recommended = as_bool(item.get("followup_recommended"))
     bounded_followup = (
@@ -36,17 +50,20 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
         and bool(item.get("followup_success_threshold"))
         and bool(item.get("followup_stop_condition"))
     )
-    if problem == "supported_but_negative_requires_review" and is_supported_negative_nonblocking(
-        decision=decision,
-        hypothesis_status=hypothesis_status,
-        followup_recommended=followup_recommended,
-        rationale=negative_rationale(item),
-        bounded_followup=bounded_followup,
-        research_outcome=str(item.get("research_outcome") or "").strip(),
-        claim_scope=str(item.get("claim_scope") or "").strip(),
-        scale_limits=str(item.get("scale_limits") or "").strip(),
-        evidence_strength=str(item.get("evidence_strength") or "").strip(),
-        bounded_paper_ready=as_bool(item.get("bounded_paper_ready")),
+    if (
+        problem == "supported_but_negative_requires_review"
+        and is_supported_negative_nonblocking(
+            decision=decision,
+            hypothesis_status=hypothesis_status,
+            followup_recommended=followup_recommended,
+            rationale=negative_rationale(item),
+            bounded_followup=bounded_followup,
+            research_outcome=str(item.get("research_outcome") or "").strip(),
+            claim_scope=str(item.get("claim_scope") or "").strip(),
+            scale_limits=str(item.get("scale_limits") or "").strip(),
+            evidence_strength=str(item.get("evidence_strength") or "").strip(),
+            bounded_paper_ready=as_bool(item.get("bounded_paper_ready")),
+        )
     ):
         return "info"
     if problem in {
@@ -60,7 +77,9 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
     return "blocked"
 
 
-def classify_quality_report(report: dict[str, Any], *, report_path: str = "", report_mtime: str = "") -> dict[str, Any]:
+def classify_quality_report(
+    report: dict[str, Any], *, report_path: str = "", report_mtime: str = ""
+) -> dict[str, Any]:
     summary_raw = report.get("summary")
     candidate_scores_raw = report.get("candidate_scores")
     decision_scores_raw = report.get("decision_scores")
@@ -176,7 +195,9 @@ def _load_json_file(path: str) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _load_autopilot_history_summary(path: str, *, cutoff: str = "", max_rows: int = 200) -> dict[str, Any]:
+def _load_autopilot_history_summary(
+    path: str, *, cutoff: str = "", max_rows: int = 200
+) -> dict[str, Any]:
     if not path:
         return {"path": path, "available": False, "reason": "not_configured"}
     candidate = Path(path)
@@ -195,12 +216,16 @@ def _load_autopilot_history_summary(path: str, *, cutoff: str = "", max_rows: in
             continue
         if not isinstance(item, dict):
             continue
-        if cutoff and str(item.get("checked_at") or item.get("recorded_at") or "") < cutoff:
+        if (
+            cutoff
+            and str(item.get("checked_at") or item.get("recorded_at") or "") < cutoff
+        ):
             continue
         rows.append(item)
 
     malformed_rows = [
-        item for item in rows
+        item
+        for item in rows
         if _safe_int(item.get("malformed_provider_response_count")) > 0
     ]
     return {
@@ -208,10 +233,24 @@ def _load_autopilot_history_summary(path: str, *, cutoff: str = "", max_rows: in
         "available": True,
         "rows_checked": len(rows),
         "malformed_provider_response_ticks": len(malformed_rows),
-        "malformed_provider_response_count": sum(_safe_int(item.get("malformed_provider_response_count")) for item in rows),
-        "last_malformed_at": str(malformed_rows[-1].get("checked_at") or malformed_rows[-1].get("recorded_at") or "") if malformed_rows else "",
-        "last_generated_count": _safe_int(rows[-1].get("generated_count")) if rows else 0,
-        "last_checked_at": str(rows[-1].get("checked_at") or rows[-1].get("recorded_at") or "") if rows else "",
+        "malformed_provider_response_count": sum(
+            _safe_int(item.get("malformed_provider_response_count")) for item in rows
+        ),
+        "last_malformed_at": str(
+            malformed_rows[-1].get("checked_at")
+            or malformed_rows[-1].get("recorded_at")
+            or ""
+        )
+        if malformed_rows
+        else "",
+        "last_generated_count": _safe_int(rows[-1].get("generated_count"))
+        if rows
+        else 0,
+        "last_checked_at": str(
+            rows[-1].get("checked_at") or rows[-1].get("recorded_at") or ""
+        )
+        if rows
+        else "",
     }
 
 
@@ -230,11 +269,15 @@ def _post_prompt_monitor(*, window_path: str, history_path: str) -> dict[str, An
     delta = window.get("delta") or {}
     meta = window.get("post_meta") or {}
     eval_counts = post.get("eval_case_counts") or {}
-    candidate_count = _safe_int(post.get("candidate_count") or meta.get("candidate_count"))
+    candidate_count = _safe_int(
+        post.get("candidate_count") or meta.get("candidate_count")
+    )
     decision_count = _safe_int(post.get("decision_count") or meta.get("decision_count"))
     cutoff = str(window.get("cutoff") or "")
     history = _load_autopilot_history_summary(history_path, cutoff=cutoff)
-    decision_coverage = round(decision_count / candidate_count, 3) if candidate_count else 0.0
+    decision_coverage = (
+        round(decision_count / candidate_count, 3) if candidate_count else 0.0
+    )
     return {
         "available": True,
         "window_path": window_path,
@@ -243,17 +286,29 @@ def _post_prompt_monitor(*, window_path: str, history_path: str) -> dict[str, An
         "decision_count": decision_count,
         "decision_coverage": decision_coverage,
         "proxy_only_positive": _safe_int(eval_counts.get("proxy_only_positive")),
-        "proxy_only_positive_delta": _safe_float(delta.get("proxy_only_positive_delta")),
-        "useful_adjacent_followup": _safe_int(eval_counts.get("useful_adjacent_followup")),
-        "useful_adjacent_followup_delta": _safe_float(delta.get("useful_adjacent_followup_delta")),
+        "proxy_only_positive_delta": _safe_float(
+            delta.get("proxy_only_positive_delta")
+        ),
+        "useful_adjacent_followup": _safe_int(
+            eval_counts.get("useful_adjacent_followup")
+        ),
+        "useful_adjacent_followup_delta": _safe_float(
+            delta.get("useful_adjacent_followup_delta")
+        ),
         "high_similarity_pair_count": _safe_int(post.get("high_similarity_pair_count")),
         "moonshot_count": _safe_int(post.get("moonshot_count")),
         "moonshot_avg_score": _safe_float(post.get("moonshot_avg_score")),
         "moonshot_avg_score_delta": _safe_float(delta.get("moonshot_avg_score_delta")),
-        "malformed_provider_response_count": _safe_int(history.get("malformed_provider_response_count")),
-        "malformed_provider_response_ticks": _safe_int(history.get("malformed_provider_response_ticks")),
+        "malformed_provider_response_count": _safe_int(
+            history.get("malformed_provider_response_count")
+        ),
+        "malformed_provider_response_ticks": _safe_int(
+            history.get("malformed_provider_response_ticks")
+        ),
         "last_malformed_at": history.get("last_malformed_at") or "",
-        "last_checked_at": history.get("last_checked_at") or meta.get("candidate_last_created_at") or "",
+        "last_checked_at": history.get("last_checked_at")
+        or meta.get("candidate_last_created_at")
+        or "",
     }
 
 
@@ -278,11 +333,23 @@ def load_latest_quality_status(
             "candidates_checked": 0,
             "problem_counts": {"missing_quality_report": 1},
             "severity_counts": {"blocked": 1},
-            "problem_details": [{"section": "report", "severity": "blocked", "problem": "missing_quality_report"}],
-            "post_prompt_monitor": _post_prompt_monitor(window_path=window_report_path, history_path=autopilot_history_path),
+            "problem_details": [
+                {
+                    "section": "report",
+                    "severity": "blocked",
+                    "problem": "missing_quality_report",
+                }
+            ],
+            "post_prompt_monitor": _post_prompt_monitor(
+                window_path=window_report_path, history_path=autopilot_history_path
+            ),
         }
     with chosen.open("r", encoding="utf-8") as handle:
         report = json.load(handle)
-    status = classify_quality_report(report, report_path=str(chosen), report_mtime=_utc_iso_from_mtime(chosen))
-    status["post_prompt_monitor"] = _post_prompt_monitor(window_path=window_report_path, history_path=autopilot_history_path)
+    status = classify_quality_report(
+        report, report_path=str(chosen), report_mtime=_utc_iso_from_mtime(chosen)
+    )
+    status["post_prompt_monitor"] = _post_prompt_monitor(
+        window_path=window_report_path, history_path=autopilot_history_path
+    )
     return status

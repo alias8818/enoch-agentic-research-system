@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from enoch_control_plane.control_plane.workload_routing import route_machine_target, workload_class_from_row
+from enoch_control_plane.control_plane.workload_routing import (
+    route_machine_target,
+    workload_class_from_row,
+)
 
 
 def test_agent_integrity_ledger_routes_to_agent_harness_cpu_worker() -> None:
@@ -13,7 +16,10 @@ def test_agent_integrity_ledger_routes_to_agent_harness_cpu_worker() -> None:
     routing = route_machine_target(
         row,
         default_machine_target="gb10",
-        workload_machine_targets={"agent_harness": "cpu-proxmox-1", "gpu_required": "gb10"},
+        workload_machine_targets={
+            "agent_harness": "cpu-proxmox-1",
+            "gpu_required": "gb10",
+        },
     )
 
     assert routing == {
@@ -50,7 +56,6 @@ def test_explicit_workload_class_still_wins_over_title_heuristics() -> None:
     assert workload_class_from_row(row) == "gpu_required"
 
 
-
 def test_negated_gpu_phrase_routes_to_cpu_only() -> None:
     row = {
         "title": "CPU-only no GPU regex validator",
@@ -79,7 +84,11 @@ def test_negated_gpu_phrase_does_not_override_cuda_signal() -> None:
     routing = route_machine_target(
         row,
         default_machine_target="gb10",
-        workload_machine_targets={"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10", "training": "gb10"},
+        workload_machine_targets={
+            "cpu_only": "cpu-proxmox-1",
+            "gpu_required": "gb10",
+            "training": "gb10",
+        },
     )
 
     assert routing["workload_class"] == "gpu_required"
@@ -111,7 +120,11 @@ def test_negated_cuda_phrase_overrides_cuda_substring_signal() -> None:
     routing = route_machine_target(
         row,
         default_machine_target="gb10",
-        workload_machine_targets={"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10", "training": "gb10"},
+        workload_machine_targets={
+            "cpu_only": "cpu-proxmox-1",
+            "gpu_required": "gb10",
+            "training": "gb10",
+        },
     )
 
     assert routing["workload_class"] == "cpu_only"
@@ -127,11 +140,16 @@ def test_negated_training_phrase_with_no_gpu_routes_to_cpu_only() -> None:
     routing = route_machine_target(
         row,
         default_machine_target="gb10",
-        workload_machine_targets={"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10", "training": "gb10"},
+        workload_machine_targets={
+            "cpu_only": "cpu-proxmox-1",
+            "gpu_required": "gb10",
+            "training": "gb10",
+        },
     )
 
     assert routing["workload_class"] == "cpu_only"
     assert routing["machine_target"] == "cpu-proxmox-1"
+
 
 def test_non_cuda_gpu_benchmark_stays_gpu_required() -> None:
     row = {"title": "non-CUDA GPU benchmark", "machine_target": "gb10"}
@@ -145,15 +163,21 @@ def test_non_cuda_gpu_benchmark_stays_gpu_required() -> None:
 
 
 def test_training_free_without_no_gpu_routes_to_cpu_only() -> None:
-    row = {"title": "training-free baseline; CPU-only sqlite benchmark", "machine_target": "gb10"}
+    row = {
+        "title": "training-free baseline; CPU-only sqlite benchmark",
+        "machine_target": "gb10",
+    }
     routing = route_machine_target(
         row,
         default_machine_target="gb10",
-        workload_machine_targets={"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10", "training": "gb10"},
+        workload_machine_targets={
+            "cpu_only": "cpu-proxmox-1",
+            "gpu_required": "gb10",
+            "training": "gb10",
+        },
     )
     assert routing["workload_class"] == "cpu_only"
     assert routing["machine_target"] == "cpu-proxmox-1"
-
 
 
 def test_training_free_gpu_inference_stays_gpu_required() -> None:
@@ -161,10 +185,15 @@ def test_training_free_gpu_inference_stays_gpu_required() -> None:
     routing = route_machine_target(
         row,
         default_machine_target="gb10",
-        workload_machine_targets={"cpu_only": "cpu-proxmox-1", "gpu_required": "gb10", "training": "gb10"},
+        workload_machine_targets={
+            "cpu_only": "cpu-proxmox-1",
+            "gpu_required": "gb10",
+            "training": "gb10",
+        },
     )
     assert routing["workload_class"] == "gpu_required"
     assert routing["machine_target"] == "gb10"
+
 
 def test_negated_cuda_gpu_benchmark_stays_gpu_required() -> None:
     row = {"title": "no CUDA GPU benchmark", "machine_target": "gb10"}
@@ -208,4 +237,3 @@ def test_without_cuda_without_gpu_signal_routes_to_cpu_only() -> None:
     )
     assert routing["workload_class"] == "cpu_only"
     assert routing["machine_target"] == "cpu-proxmox-1"
-

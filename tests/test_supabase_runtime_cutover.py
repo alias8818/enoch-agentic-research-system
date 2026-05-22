@@ -5,7 +5,11 @@ from scripts import validate_supabase_runtime_cutover
 from scripts.validate_supabase_runtime_cutover import compare
 
 from enoch_control_plane.control_plane import read_models
-from enoch_control_plane.control_plane.supabase_store import SupabaseControlPlaneStore, _decision_gate_state, _decision_summary
+from enoch_control_plane.control_plane.supabase_store import (
+    SupabaseControlPlaneStore,
+    _decision_gate_state,
+    _decision_summary,
+)
 
 
 def test_compare_accepts_matching_operator_counts_and_safe_pause() -> None:
@@ -27,7 +31,12 @@ def test_compare_accepts_matching_operator_counts_and_safe_pause() -> None:
         "not_writable_by_decision_gate": 215,
         "publication_ready": 371,
         "needs_attention": 9,
-        "table_counts": {"queue_items": 482, "papers": 496, "core_events": 0, "core_snapshots": 0},
+        "table_counts": {
+            "queue_items": 482,
+            "papers": 496,
+            "core_events": 0,
+            "core_snapshots": 0,
+        },
     }
 
     result = compare(live, supabase)
@@ -36,7 +45,9 @@ def test_compare_accepts_matching_operator_counts_and_safe_pause() -> None:
     assert result.failures == []
 
 
-def test_runtime_cutover_preflight_ignores_env_control_url_by_default(monkeypatch) -> None:
+def test_runtime_cutover_preflight_ignores_env_control_url_by_default(
+    monkeypatch,
+) -> None:
     monkeypatch.setenv("ENOCH_CONTROL_PLANE_URL", "https://attacker.invalid")
     observed = {}
 
@@ -62,17 +73,31 @@ def test_runtime_cutover_preflight_ignores_env_control_url_by_default(monkeypatc
             "not_writable_by_decision_gate": 0,
             "publication_ready": 0,
             "needs_attention": 0,
-            "table_counts": {"queue_items": 0, "papers": 0, "core_events": 0, "core_snapshots": 0},
+            "table_counts": {
+                "queue_items": 0,
+                "papers": 0,
+                "core_events": 0,
+                "core_snapshots": 0,
+            },
         }
 
-    monkeypatch.setattr(validate_supabase_runtime_cutover, "_live_counts", fake_live_counts)
-    monkeypatch.setattr(validate_supabase_runtime_cutover, "_supabase_counts", fake_supabase_counts)
+    monkeypatch.setattr(
+        validate_supabase_runtime_cutover, "_live_counts", fake_live_counts
+    )
+    monkeypatch.setattr(
+        validate_supabase_runtime_cutover, "_supabase_counts", fake_supabase_counts
+    )
     token_file = "/tmp/enoch-test-cutover-token"
     from pathlib import Path
 
     Path(token_file).write_text("file-token", encoding="utf-8")
     try:
-        assert validate_supabase_runtime_cutover.main(["--token-file", token_file, "--database-url", "postgres://example"]) == 0
+        assert (
+            validate_supabase_runtime_cutover.main(
+                ["--token-file", token_file, "--database-url", "postgres://example"]
+            )
+            == 0
+        )
     finally:
         Path(token_file).unlink(missing_ok=True)
     assert observed == {"control_url": "http://127.0.0.1:8787", "token": "file-token"}
@@ -102,17 +127,24 @@ def test_compare_rejects_mixed_ledgers_and_unpaused_runtime() -> None:
 
     assert not result.ok
     assert any("write_needed mismatch" in failure for failure in result.failures)
-    assert any("raw_completed_no_paper_candidates mismatch" in failure for failure in result.failures)
+    assert any(
+        "raw_completed_no_paper_candidates mismatch" in failure
+        for failure in result.failures
+    )
     assert any("publication_ready mismatch" in failure for failure in result.failures)
     assert any("queue_paused" in failure for failure in result.failures)
     assert any("queue_items count is lower" in failure for failure in result.failures)
     assert any("papers count does not match" in failure for failure in result.failures)
     assert any("enoch-core store_backend" in failure for failure in result.failures)
-    assert any("Enoch core tables are missing" in failure for failure in result.failures)
+    assert any(
+        "Enoch core tables are missing" in failure for failure in result.failures
+    )
 
 
 def test_supabase_runtime_store_exposes_dashboard_and_dispatch_methods() -> None:
-    store = SupabaseControlPlaneStore("postgresql://example.invalid/postgres", connect=lambda: None)
+    store = SupabaseControlPlaneStore(
+        "postgresql://example.invalid/postgres", connect=lambda: None
+    )
 
     for method_name in (
         "active_items",
@@ -173,7 +205,9 @@ def test_supabase_runtime_store_reuses_connection_for_dashboard_reads() -> None:
         connections.append(conn)
         return conn
 
-    store = SupabaseControlPlaneStore("postgresql://example.invalid/postgres", connect=connect)
+    store = SupabaseControlPlaneStore(
+        "postgresql://example.invalid/postgres", connect=connect
+    )
     store._external_connect_factory = False
 
     store._query("select 1")
@@ -189,7 +223,10 @@ def test_supabase_legacy_notion_intake_preserves_runtime_project_dir() -> None:
     source = inspect.getsource(SupabaseControlPlaneStore.ingest_notion_ideas)
 
     assert "project_dir=projects.project_dir" in source
-    assert "notion_page_url=coalesce(nullif(excluded.notion_page_url,''), projects.notion_page_url)" in source
+    assert (
+        "notion_page_url=coalesce(nullif(excluded.notion_page_url,''), projects.notion_page_url)"
+        in source
+    )
 
 
 def test_project_decision_gate_state_classifies_mixed_as_unknown_not_writable() -> None:
@@ -203,10 +240,15 @@ def test_project_decision_gate_state_classifies_mixed_as_unknown_not_writable() 
     }
 
     assert _decision_gate_state(gate) == "unknown"
-    assert _decision_summary(gate) == "continue (project decision lacks positive draft signal)"
+    assert (
+        _decision_summary(gate)
+        == "continue (project decision lacks positive draft signal)"
+    )
 
 
-def test_project_decision_gate_state_classifies_finalize_negative_with_mixed_as_negative() -> None:
+def test_project_decision_gate_state_classifies_finalize_negative_with_mixed_as_negative() -> (
+    None
+):
     gate = {
         "eligible": False,
         "reason": "project decision is not positive",
@@ -219,17 +261,25 @@ def test_project_decision_gate_state_classifies_finalize_negative_with_mixed_as_
 
     assert _decision_gate_state(gate) == "negative"
 
+
 def test_project_decision_summary_prefers_status_over_long_recommendation() -> None:
     gate = {
         "eligible": False,
         "reason": "project decision lacks positive draft signal",
         "values": [
-            (".omx/project_decision.json", "recommendation", "Do not scale this formulation without a revised mechanism."),
+            (
+                ".omx/project_decision.json",
+                "recommendation",
+                "Do not scale this formulation without a revised mechanism.",
+            ),
             (".omx/project_decision.json", "status", "negative_result"),
         ],
     }
 
-    assert _decision_summary(gate) == "negative_result (project decision lacks positive draft signal)"
+    assert (
+        _decision_summary(gate)
+        == "negative_result (project decision lacks positive draft signal)"
+    )
 
 
 class _CapturingSupabaseStore(SupabaseControlPlaneStore):
@@ -259,7 +309,9 @@ def test_supabase_event_page_uses_bounded_sql_pagination_without_payload_body() 
         ]
     )
 
-    rows, next_cursor, has_more = store.event_page(page_size=2, cursor="301", include_payload=False)
+    rows, next_cursor, has_more = store.event_page(
+        page_size=2, cursor="301", include_payload=False
+    )
 
     assert [row["event_id"] for row in rows] == [300, 299]
     assert rows[0]["payload_summary"] == {"keys": [], "bytes": 1234}
@@ -302,7 +354,9 @@ def test_supabase_event_page_filters_by_event_id_for_v2_detail_route() -> None:
         ]
     )
 
-    rows, next_cursor, has_more = store.event_page(event_id="7174", page_size=1, include_payload=True, sort="recent")
+    rows, next_cursor, has_more = store.event_page(
+        event_id="7174", page_size=1, include_payload=True, sort="recent"
+    )
 
     assert next_cursor is None
     assert has_more is False
@@ -316,7 +370,9 @@ def test_supabase_event_page_filters_by_event_id_for_v2_detail_route() -> None:
 
 
 def test_supabase_queue_page_pushes_filters_sort_and_pagination_into_sql() -> None:
-    store = _CapturingSupabaseStore([{"project_id": "p1"}, {"project_id": "p2"}, {"project_id": "p3"}])
+    store = _CapturingSupabaseStore(
+        [{"project_id": "p1"}, {"project_id": "p2"}, {"project_id": "p3"}]
+    )
 
     rows, next_cursor, has_more = store.queue_page(
         queue="blocked",
@@ -335,7 +391,10 @@ def test_supabase_queue_page_pushes_filters_sort_and_pagination_into_sql() -> No
     assert "from queue_items q" in normalized_sql
     assert "manual_review_required = true or q.status in" in normalized_sql
     assert "p.project_name ilike %s" in normalized_sql
-    assert "order by q.updated_at desc, q.project_id desc limit %s offset %s" in normalized_sql
+    assert (
+        "order by q.updated_at desc, q.project_id desc limit %s offset %s"
+        in normalized_sql
+    )
     assert params[-2:] == (3, 50)
 
 
@@ -360,12 +419,17 @@ def test_supabase_paper_page_pushes_filters_sort_and_pagination_into_sql() -> No
     assert "pa.paper_status = %s" in normalized_sql
     assert "pa.project_id = %s" in normalized_sql
     assert "p.project_name ilike %s" in normalized_sql
-    assert "order by lower(coalesce(p.project_name, '')) asc, pa.updated_at desc, pa.paper_id desc limit %s offset %s" in normalized_sql
+    assert (
+        "order by lower(coalesce(p.project_name, '')) asc, pa.updated_at desc, pa.paper_id desc limit %s offset %s"
+        in normalized_sql
+    )
     assert params[-2:] == (2, 10)
 
 
 def test_supabase_run_page_pushes_filters_sort_and_pagination_into_sql() -> None:
-    store = _CapturingSupabaseStore([{"run_id": "run-1"}, {"run_id": "run-2"}, {"run_id": "run-3"}])
+    store = _CapturingSupabaseStore(
+        [{"run_id": "run-1"}, {"run_id": "run-2"}, {"run_id": "run-3"}]
+    )
 
     rows, next_cursor, has_more = store.run_page(
         state="completed",
@@ -385,7 +449,10 @@ def test_supabase_run_page_pushes_filters_sort_and_pagination_into_sql() -> None
     assert "(r.state = %s or r.gate_state = %s)" in normalized_sql
     assert "r.project_id = %s" in normalized_sql
     assert "r.current_activity ilike %s" in normalized_sql
-    assert "order by r.state asc, r.updated_at desc, r.run_id desc limit %s offset %s" in normalized_sql
+    assert (
+        "order by r.state asc, r.updated_at desc, r.run_id desc limit %s offset %s"
+        in normalized_sql
+    )
     assert params[-2:] == (3, 0)
 
 
@@ -394,12 +461,21 @@ def test_overview_uses_supabase_batched_read_parts_when_available() -> None:
         def __init__(self) -> None:
             self.called = False
 
-        def overview_read_model_parts(self, *, active_limit: int, event_limit: int) -> dict[str, Any]:
+        def overview_read_model_parts(
+            self, *, active_limit: int, event_limit: int
+        ) -> dict[str, Any]:
             self.called = True
             assert active_limit == 1
             assert event_limit == 0
             return {
-                "counts": {"all": 0, "active": 0, "queued": 0, "blocked": 0, "paused": 0, "completed": 0},
+                "counts": {
+                    "all": 0,
+                    "active": 0,
+                    "queued": 0,
+                    "blocked": 0,
+                    "paused": 0,
+                    "completed": 0,
+                },
                 "paper_counts": {"all": 0},
                 "active_items": [],
                 "next_candidate": None,
@@ -409,7 +485,9 @@ def test_overview_uses_supabase_batched_read_parts_when_available() -> None:
             }
 
         def __getattr__(self, name: str) -> Any:
-            raise AssertionError(f"overview should not call unbatched store method {name}")
+            raise AssertionError(
+                f"overview should not call unbatched store method {name}"
+            )
 
     store = BatchedOnlyStore()
 
@@ -420,7 +498,9 @@ def test_overview_uses_supabase_batched_read_parts_when_available() -> None:
     assert data["recent_events"] == []
 
 
-def test_supabase_runtime_store_releases_connection_lock_when_search_path_fails() -> None:
+def test_supabase_runtime_store_releases_connection_lock_when_search_path_fails() -> (
+    None
+):
     class FakeCursor:
         def __init__(self, conn: "FakeConnection") -> None:
             self.conn = conn
@@ -455,7 +535,9 @@ def test_supabase_runtime_store_releases_connection_lock_when_search_path_fails(
             self.closed = True
 
     conn = FakeConnection()
-    store = SupabaseControlPlaneStore("postgresql://example.invalid/postgres", connect=lambda: conn)
+    store = SupabaseControlPlaneStore(
+        "postgresql://example.invalid/postgres", connect=lambda: conn
+    )
     store._external_connect_factory = False
 
     try:

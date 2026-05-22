@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run the source-lineage validator as an operational guard."""
+
 from __future__ import annotations
 
 import argparse
@@ -48,7 +49,9 @@ def _problem_fingerprint(report: dict[str, Any]) -> str:
         "problem_counts": report.get("problem_counts") or {},
         "problems": report.get("problems") or [],
     }
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
 
 
 def _send_alert(config: GateConfig, report: dict[str, Any]) -> dict[str, Any]:
@@ -64,8 +67,15 @@ def _send_alert(config: GateConfig, report: dict[str, Any]) -> dict[str, Any]:
             f"Problem counts: {json.dumps(problem_counts, sort_keys=True)}",
         ]
     )[:1024]
-    result = send_pushover(config, title="Enoch source-lineage blocked", message=message, priority=1)
-    return {"attempted": result.attempted, "ok": result.ok, "status_code": result.status_code, "detail": result.detail}
+    result = send_pushover(
+        config, title="Enoch source-lineage blocked", message=message, priority=1
+    )
+    return {
+        "attempted": result.attempted,
+        "ok": result.ok,
+        "status_code": result.status_code,
+        "detail": result.detail,
+    }
 
 
 def run_check(
@@ -78,29 +88,87 @@ def run_check(
 ) -> dict[str, Any]:
     report = _build_report(database_url, created_after)
     write_report(report, output)
-    alert = {"sent": False, "attempted": False, "suppressed_by_fingerprint": False, "detail": "no alert required"}
-    if report.get("status") == "blocked" and int((report.get("counts") or {}).get("problems") or 0) > 0:
+    alert = {
+        "sent": False,
+        "attempted": False,
+        "suppressed_by_fingerprint": False,
+        "detail": "no alert required",
+    }
+    if (
+        report.get("status") == "blocked"
+        and int((report.get("counts") or {}).get("problems") or 0) > 0
+    ):
         state_dir.mkdir(parents=True, exist_ok=True)
         fingerprint = _problem_fingerprint(report)
         fingerprint_path = state_dir / "last-alert-fingerprint"
-        previous = fingerprint_path.read_text(encoding="utf-8").strip() if fingerprint_path.exists() else ""
+        previous = (
+            fingerprint_path.read_text(encoding="utf-8").strip()
+            if fingerprint_path.exists()
+            else ""
+        )
         if previous == fingerprint:
-            alert = {"sent": False, "attempted": False, "suppressed_by_fingerprint": True, "fingerprint": fingerprint}
+            alert = {
+                "sent": False,
+                "attempted": False,
+                "suppressed_by_fingerprint": True,
+                "fingerprint": fingerprint,
+            }
         else:
-            notification = _send_alert(config, report) if getattr(config, "pushover_alerts_enabled", False) else {"attempted": False, "ok": False, "detail": "pushover alerts disabled"}
-            if notification.get("ok") or not getattr(config, "pushover_alerts_enabled", False):
+            notification = (
+                _send_alert(config, report)
+                if getattr(config, "pushover_alerts_enabled", False)
+                else {
+                    "attempted": False,
+                    "ok": False,
+                    "detail": "pushover alerts disabled",
+                }
+            )
+            if notification.get("ok") or not getattr(
+                config, "pushover_alerts_enabled", False
+            ):
                 fingerprint_path.write_text(fingerprint + "\n", encoding="utf-8")
-            alert = {"sent": bool(notification.get("ok")), "fingerprint": fingerprint, **notification}
-    return {"ok": report.get("status") != "blocked", "report_path": str(output), "report": report, "alert": alert}
+            alert = {
+                "sent": bool(notification.get("ok")),
+                "fingerprint": fingerprint,
+                **notification,
+            }
+    return {
+        "ok": report.get("status") != "blocked",
+        "report_path": str(output),
+        "report": report,
+        "alert": alert,
+    }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default=os.environ.get("ENOCH_CONFIG") or os.environ.get("ENOCH_CONTROL_PLANE_CONFIG") or "/etc/enoch-control-plane/config.json")
+    parser.add_argument(
+        "--config",
+        default=os.environ.get("ENOCH_CONFIG")
+        or os.environ.get("ENOCH_CONTROL_PLANE_CONFIG")
+        or "/etc/enoch-control-plane/config.json",
+    )
     parser.add_argument("--database-url", default="")
-    parser.add_argument("--created-after", default=os.environ.get("ENOCH_SOURCE_LINEAGE_CREATED_AFTER") or os.environ.get("ENOCH_SOURCE_LINEAGE_CUTOVER") or DEFAULT_CUTOVER)
-    parser.add_argument("--output", type=Path, default=Path(os.environ.get("ENOCH_SOURCE_LINEAGE_REPORT_PATH", str(DEFAULT_OUTPUT))))
-    parser.add_argument("--state-dir", type=Path, default=Path(os.environ.get("ENOCH_SOURCE_LINEAGE_STATE_DIR", str(DEFAULT_OUTPUT.parent))))
+    parser.add_argument(
+        "--created-after",
+        default=os.environ.get("ENOCH_SOURCE_LINEAGE_CREATED_AFTER")
+        or os.environ.get("ENOCH_SOURCE_LINEAGE_CUTOVER")
+        or DEFAULT_CUTOVER,
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path(
+            os.environ.get("ENOCH_SOURCE_LINEAGE_REPORT_PATH", str(DEFAULT_OUTPUT))
+        ),
+    )
+    parser.add_argument(
+        "--state-dir",
+        type=Path,
+        default=Path(
+            os.environ.get("ENOCH_SOURCE_LINEAGE_STATE_DIR", str(DEFAULT_OUTPUT.parent))
+        ),
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -119,7 +187,9 @@ def main() -> int:
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
     else:
         counts = result["report"].get("counts") or {}
-        print(f"source-lineage {result['report'].get('status')} problems={counts.get('problems') or 0} report={result['report_path']}")
+        print(
+            f"source-lineage {result['report'].get('status')} problems={counts.get('problems') or 0} report={result['report_path']}"
+        )
     return 0 if result["ok"] else 1
 
 

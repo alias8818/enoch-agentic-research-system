@@ -156,8 +156,12 @@ def infer_workload_class_from_text(row: dict[str, Any]) -> str:
 
     has_negated_gpu = _contains_any(text, NEGATED_GPU_TERMS)
     has_negated_strong_gpu = _contains_any(text, NEGATED_STRONG_GPU_TERMS)
-    has_gpu_required = _contains_any(text_without_negated_strong_gpu, GPU_REQUIRED_TERMS)
-    has_strong_gpu_positive = _contains_any(text_without_negated_strong_gpu, GPU_STRONG_POSITIVE_TERMS)
+    has_gpu_required = _contains_any(
+        text_without_negated_strong_gpu, GPU_REQUIRED_TERMS
+    )
+    has_strong_gpu_positive = _contains_any(
+        text_without_negated_strong_gpu, GPU_STRONG_POSITIVE_TERMS
+    )
     has_training = _contains_any(text_without_negated_training, TRAINING_TERMS)
     has_negated_training = _contains_any(text, NEGATED_TRAINING_TERMS)
 
@@ -210,9 +214,15 @@ def route_machine_target(
     """
 
     workload_class = workload_class_from_row(row)
-    explicit_target = str(row.get("machine_target") or row.get("default_machine_target") or "").strip()
+    explicit_target = str(
+        row.get("machine_target") or row.get("default_machine_target") or ""
+    ).strip()
     fallback_target = explicit_target or default_machine_target
-    target_map = {str(k).strip().lower().replace("-", "_"): str(v).strip() for k, v in (workload_machine_targets or {}).items() if str(v).strip()}
+    target_map = {
+        str(k).strip().lower().replace("-", "_"): str(v).strip()
+        for k, v in (workload_machine_targets or {}).items()
+        if str(v).strip()
+    }
     mapped = target_map.get(workload_class)
     if mapped:
         return {

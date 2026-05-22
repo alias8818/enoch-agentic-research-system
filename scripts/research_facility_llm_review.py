@@ -25,18 +25,35 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from enoch_control_plane.enoch_core.store import IdempotencyConflict
 from enoch_control_plane.timeutils import parse_utc_datetime
-from scripts import research_facility_maintenance, research_provider_budget, research_provider_generate
+from scripts import (
+    research_facility_maintenance,
+    research_provider_budget,
+    research_provider_generate,
+)
 from scripts.research_facility_maintenance import _insert_research_admission
 
 DECISIONS = {"admit", "rewrite_contract", "keep_for_later", "reject"}
-NON_ADMIT_STATUS_BY_DECISION = {"reject": "rejected", "rewrite_contract": "rewrite_needed", "keep_for_later": "deferred"}
-ADMISSION_DECISION_BY_STATUS = {"rejected": "rejected", "rewrite_needed": "rewrite_needed", "deferred": "deferred"}
+NON_ADMIT_STATUS_BY_DECISION = {
+    "reject": "rejected",
+    "rewrite_contract": "rewrite_needed",
+    "keep_for_later": "deferred",
+}
+ADMISSION_DECISION_BY_STATUS = {
+    "rejected": "rejected",
+    "rewrite_needed": "rewrite_needed",
+    "deferred": "deferred",
+}
 DEFAULT_MODEL = "hf:zai-org/GLM-5.1"
 PROMPT_VERSION = "research_facility_llm_review_v1"
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def _as_text(value: Any) -> str:
@@ -48,7 +65,9 @@ def _as_text(value: Any) -> str:
 
 
 def _payload_hash(payload: dict[str, Any]) -> str:
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
+    ).hexdigest()
 
 
 def _row_get(row: Any, key: str, index: int) -> Any:
@@ -85,7 +104,9 @@ def budget_status(
     min_weekly_percent_remaining: float,
     timeout: int,
 ) -> dict[str, Any]:
-    payload = research_provider_budget.fetch_json(f"{base_url.rstrip('/')}/v2/quotas", api_key="", timeout=timeout)
+    payload = research_provider_budget.fetch_json(
+        f"{base_url.rstrip('/')}/v2/quotas", api_key="", timeout=timeout
+    )
     result = research_provider_budget.synthetic_budget_status(
         payload,
         min_remaining_credits=min_remaining_credits,
@@ -108,7 +129,14 @@ def budget_status(
     return result
 
 
-def latest_review_age_minutes(database_url: str, *, event_types: tuple[str, ...] = ("research.janitor.llm_review", "research.janitor.llm_review_cycle")) -> float | None:
+def latest_review_age_minutes(
+    database_url: str,
+    *,
+    event_types: tuple[str, ...] = (
+        "research.janitor.llm_review",
+        "research.janitor.llm_review_cycle",
+    ),
+) -> float | None:
     import psycopg
     from psycopg.rows import dict_row
 
@@ -128,7 +156,9 @@ def latest_review_age_minutes(database_url: str, *, event_types: tuple[str, ...]
     return max(0.0, (datetime.now(timezone.utc) - created).total_seconds() / 60.0)
 
 
-def record_review_cycle_event(database_url: str, *, requested_by: str, provider_model: str, batch_count: int) -> int:
+def record_review_cycle_event(
+    database_url: str, *, requested_by: str, provider_model: str, batch_count: int
+) -> int:
     import psycopg
 
     payload = {
@@ -148,24 +178,44 @@ def record_review_cycle_event(database_url: str, *, requested_by: str, provider_
                 values (%s,'research.janitor.llm_review_cycle','research','janitor_llm',%s::jsonb,%s,%s)
                 on conflict (idempotency_key) do nothing
                 """,
-                (key, json.dumps(payload, sort_keys=True, default=str), _payload_hash(payload), datetime.now(timezone.utc).isoformat()),
+                (
+                    key,
+                    json.dumps(payload, sort_keys=True, default=str),
+                    _payload_hash(payload),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
             )
             return int(cur.rowcount or 0)
 
 
-def select_review_batch(database_url: str, *, limit: int, janitor_limit: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    rows = research_facility_maintenance.fetch_needs_review_rows(database_url, limit=janitor_limit)
-    actions = research_facility_maintenance.classify_rows(rows, policy=research_facility_maintenance.JanitorPolicy())
+def select_review_batch(
+    database_url: str, *, limit: int, janitor_limit: int
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    rows = research_facility_maintenance.fetch_needs_review_rows(
+        database_url, limit=janitor_limit
+    )
+    actions = research_facility_maintenance.classify_rows(
+        rows, policy=research_facility_maintenance.JanitorPolicy()
+    )
     by_id = {str(row.get("candidate_id")): row for row in rows}
-    rewrite = [action for action in actions if action.get("action") == "rewrite_suggested"]
-    rewrite.sort(key=lambda action: float((action.get("dispatch_priority") or {}).get("dispatch_priority_score") or 0), reverse=True)
+    rewrite = [
+        action for action in actions if action.get("action") == "rewrite_suggested"
+    ]
+    rewrite.sort(
+        key=lambda action: float(
+            (action.get("dispatch_priority") or {}).get("dispatch_priority_score") or 0
+        ),
+        reverse=True,
+    )
     batch: list[dict[str, Any]] = []
     for action in rewrite[:limit]:
         row = by_id.get(str(action.get("candidate_id")))
         if not row:
             continue
         batch.append({"candidate": row, "janitor_action": action})
-    return batch, research_facility_maintenance.build_report(rows, actions, applied=False, apply_result=None)
+    return batch, research_facility_maintenance.build_report(
+        rows, actions, applied=False, apply_result=None
+    )
 
 
 def build_review_prompt(batch: list[dict[str, Any]]) -> str:
@@ -173,29 +223,31 @@ def build_review_prompt(batch: list[dict[str, Any]]) -> str:
     for item in batch:
         row = item["candidate"]
         action = item["janitor_action"]
-        compact.append({
-            "candidate_id": row.get("candidate_id"),
-            "title": row.get("title"),
-            "category": row.get("category"),
-            "generation_mode": row.get("generation_mode"),
-            "source_kind": row.get("source_kind"),
-            "source_urls": row.get("source_urls") or [],
-            "parent_project_id": row.get("parent_project_id"),
-            "total_score": row.get("total_score"),
-            "score_breakdown": row.get("score_breakdown") or {},
-            "dispatch_priority": action.get("dispatch_priority") or {},
-            "hypothesis": row.get("hypothesis"),
-            "mechanism": row.get("mechanism"),
-            "baseline_to_beat": row.get("baseline_to_beat"),
-            "success_threshold": row.get("success_threshold"),
-            "kill_condition": row.get("kill_condition"),
-            "accessibility_delta": row.get("accessibility_delta"),
-            "expected_artifacts": row.get("expected_artifacts") or [],
-            "required_evidence": row.get("required_evidence") or [],
-            "likely_failure_modes": row.get("likely_failure_modes") or [],
-            "estimated_runtime_class": row.get("estimated_runtime_class"),
-            "expected_token_budget": row.get("expected_token_budget"),
-        })
+        compact.append(
+            {
+                "candidate_id": row.get("candidate_id"),
+                "title": row.get("title"),
+                "category": row.get("category"),
+                "generation_mode": row.get("generation_mode"),
+                "source_kind": row.get("source_kind"),
+                "source_urls": row.get("source_urls") or [],
+                "parent_project_id": row.get("parent_project_id"),
+                "total_score": row.get("total_score"),
+                "score_breakdown": row.get("score_breakdown") or {},
+                "dispatch_priority": action.get("dispatch_priority") or {},
+                "hypothesis": row.get("hypothesis"),
+                "mechanism": row.get("mechanism"),
+                "baseline_to_beat": row.get("baseline_to_beat"),
+                "success_threshold": row.get("success_threshold"),
+                "kill_condition": row.get("kill_condition"),
+                "accessibility_delta": row.get("accessibility_delta"),
+                "expected_artifacts": row.get("expected_artifacts") or [],
+                "required_evidence": row.get("required_evidence") or [],
+                "likely_failure_modes": row.get("likely_failure_modes") or [],
+                "estimated_runtime_class": row.get("estimated_runtime_class"),
+                "expected_token_budget": row.get("expected_token_budget"),
+            }
+        )
     return f"""
 Return ONLY compact JSON with this exact top-level shape:
 {{"decisions":[{{"candidate_id":"...","decision":"admit|rewrite_contract|keep_for_later|reject","confidence":"low|medium|high","reason":"<=220 chars","rewrite_notes":"<=260 chars"}}]}}
@@ -216,7 +268,15 @@ Candidates JSON:
 """.strip()
 
 
-def call_review_model(*, base_url: str, model: str, prompt: str, timeout: int, max_tokens: int, temperature: float) -> dict[str, Any]:
+def call_review_model(
+    *,
+    base_url: str,
+    model: str,
+    prompt: str,
+    timeout: int,
+    max_tokens: int,
+    temperature: float,
+) -> dict[str, Any]:
     payload = research_provider_generate.call_openai_compatible_chat(
         base_url=base_url,
         model=model,
@@ -232,7 +292,9 @@ def call_review_model(*, base_url: str, model: str, prompt: str, timeout: int, m
     return data
 
 
-def normalize_decisions(raw: dict[str, Any], batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def normalize_decisions(
+    raw: dict[str, Any], batch: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     ordered_ids = [str(item["candidate"].get("candidate_id")) for item in batch]
     allowed_ids = set(ordered_ids)
     by_id: dict[str, dict[str, Any]] = {}
@@ -242,7 +304,11 @@ def normalize_decisions(raw: dict[str, Any], batch: list[dict[str, Any]]) -> lis
             continue
         candidate_id = _as_text(item.get("candidate_id"))
         decision = _as_text(item.get("decision")).lower()
-        if candidate_id not in allowed_ids or candidate_id in seen or decision not in DECISIONS:
+        if (
+            candidate_id not in allowed_ids
+            or candidate_id in seen
+            or decision not in DECISIONS
+        ):
             continue
         seen.add(candidate_id)
         by_id[candidate_id] = {
@@ -255,13 +321,16 @@ def normalize_decisions(raw: dict[str, Any], batch: list[dict[str, Any]]) -> lis
     fallback_reason = "LLM review omitted a valid decision; deferred fail-closed for later reconsideration."
     out: list[dict[str, Any]] = []
     for candidate_id in ordered_ids:
-        out.append(by_id.get(candidate_id) or {
-            "candidate_id": candidate_id,
-            "decision": "keep_for_later",
-            "confidence": "low",
-            "reason": fallback_reason,
-            "rewrite_notes": "",
-        })
+        out.append(
+            by_id.get(candidate_id)
+            or {
+                "candidate_id": candidate_id,
+                "decision": "keep_for_later",
+                "confidence": "low",
+                "reason": fallback_reason,
+                "rewrite_notes": "",
+            }
+        )
     return out
 
 
@@ -276,7 +345,9 @@ def _candidate_status_for_decision(decision: dict[str, Any]) -> str | None:
     return NON_ADMIT_STATUS_BY_DECISION.get(verdict)
 
 
-def _status_update_payload(*, decision: dict[str, Any], provider_model: str, janitor_action: dict[str, Any]) -> dict[str, Any]:
+def _status_update_payload(
+    *, decision: dict[str, Any], provider_model: str, janitor_action: dict[str, Any]
+) -> dict[str, Any]:
     return {
         "janitor_llm_decision": {
             "decision": decision.get("decision"),
@@ -305,7 +376,9 @@ def _apply_non_admit_decision(
         return {"status_updates": 0, "admissions_inserted": 0}
     admission_decision = ADMISSION_DECISION_BY_STATUS[status]
     reason = decision.get("reason") or f"LLM janitor review marked {admission_decision}"
-    payload = _status_update_payload(decision=decision, provider_model=provider_model, janitor_action=janitor_action)
+    payload = _status_update_payload(
+        decision=decision, provider_model=provider_model, janitor_action=janitor_action
+    )
     cur.execute(
         """
         update research_candidates
@@ -315,12 +388,20 @@ def _apply_non_admit_decision(
             updated_at = now()
         where candidate_id = %s and status = 'needs_review'
         """,
-        (status, status, str(reason), json.dumps(payload, sort_keys=True, default=str), candidate_id),
+        (
+            status,
+            status,
+            str(reason),
+            json.dumps(payload, sort_keys=True, default=str),
+            candidate_id,
+        ),
     )
     status_updates = int(cur.rowcount or 0)
     if status_updates <= 0:
         return {"status_updates": 0, "admissions_inserted": 0}
-    admission_key = f"research-janitor-llm-admission:{candidate_id}:{admission_decision}"
+    admission_key = (
+        f"research-janitor-llm-admission:{candidate_id}:{admission_decision}"
+    )
     admissions_inserted = _insert_research_admission(
         cur,
         candidate_id=candidate_id,
@@ -331,7 +412,10 @@ def _apply_non_admit_decision(
         operator=requested_by,
         idempotency_key=admission_key,
     )
-    return {"status_updates": status_updates, "admissions_inserted": admissions_inserted}
+    return {
+        "status_updates": status_updates,
+        "admissions_inserted": admissions_inserted,
+    }
 
 
 def _apply_admit_decision(
@@ -352,7 +436,14 @@ def _apply_admit_decision(
             updated_at = now()
         where candidate_id = %s and status = 'needs_review'
         """,
-        (json.dumps({"janitor_dispatch_priority": action.get("dispatch_priority") or {}}, sort_keys=True, default=str), candidate_id),
+        (
+            json.dumps(
+                {"janitor_dispatch_priority": action.get("dispatch_priority") or {}},
+                sort_keys=True,
+                default=str,
+            ),
+            candidate_id,
+        ),
     )
     promoted = int(cur.rowcount or 0)
     if promoted <= 0:
@@ -371,7 +462,15 @@ def _apply_admit_decision(
     return {"status_updates": promoted, "admissions_inserted": admissions_inserted}
 
 
-def record_review(database_url: str, *, decisions: list[dict[str, Any]], batch: list[dict[str, Any]], requested_by: str, provider_model: str, dry_run: bool) -> dict[str, Any]:
+def record_review(
+    database_url: str,
+    *,
+    decisions: list[dict[str, Any]],
+    batch: list[dict[str, Any]],
+    requested_by: str,
+    provider_model: str,
+    dry_run: bool,
+) -> dict[str, Any]:
     import psycopg
 
     by_id = {str(item["candidate"].get("candidate_id")): item for item in batch}
@@ -403,7 +502,9 @@ def record_review(database_url: str, *, decisions: list[dict[str, Any]], batch: 
                     "llm_decision": decision,
                     "janitor_action": janitor_action,
                 }
-                event_key = f"research-janitor-llm:{candidate_id}:{decision['decision']}"
+                event_key = (
+                    f"research-janitor-llm:{candidate_id}:{decision['decision']}"
+                )
                 payload_hash = _payload_hash(payload)
                 event_type = "research.janitor.llm_review"
                 entity_type = "research_candidate"
@@ -431,10 +532,18 @@ def record_review(database_url: str, *, decisions: list[dict[str, Any]], batch: 
                         insert into control_events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at)
                         values (%s,'research.janitor.llm_review','research_candidate',%s,%s::jsonb,%s,%s)
                         """,
-                        (event_key, candidate_id, json.dumps(payload, sort_keys=True, default=str), payload_hash, datetime.now(timezone.utc).isoformat()),
+                        (
+                            event_key,
+                            candidate_id,
+                            json.dumps(payload, sort_keys=True, default=str),
+                            payload_hash,
+                            datetime.now(timezone.utc).isoformat(),
+                        ),
                     )
                     result["events_inserted"] += int(cur.rowcount or 0)
-                if decision["decision"] == "admit" and _confidence_allows_admit(decision):
+                if decision["decision"] == "admit" and _confidence_allows_admit(
+                    decision
+                ):
                     update = _apply_admit_decision(
                         cur,
                         candidate_id=candidate_id,
@@ -445,7 +554,9 @@ def record_review(database_url: str, *, decisions: list[dict[str, Any]], batch: 
                     promoted = int(update.get("status_updates") or 0)
                     result["admitted"] += promoted
                     result["status_updates"] += promoted
-                    result["admissions_inserted"] += int(update.get("admissions_inserted") or 0)
+                    result["admissions_inserted"] += int(
+                        update.get("admissions_inserted") or 0
+                    )
                     continue
                 update = _apply_non_admit_decision(
                     cur,
@@ -458,13 +569,17 @@ def record_review(database_url: str, *, decisions: list[dict[str, Any]], batch: 
                 status = _candidate_status_for_decision(decision)
                 updated = int(update.get("status_updates") or 0)
                 result["status_updates"] += updated
-                result["admissions_inserted"] += int(update.get("admissions_inserted") or 0)
+                result["admissions_inserted"] += int(
+                    update.get("admissions_inserted") or 0
+                )
                 if updated and status in {"rejected", "rewrite_needed", "deferred"}:
                     result[status] += updated
     return result
 
 
-def apply_stored_llm_decisions(database_url: str, *, requested_by: str, limit: int, dry_run: bool) -> dict[str, Any]:
+def apply_stored_llm_decisions(
+    database_url: str, *, requested_by: str, limit: int, dry_run: bool
+) -> dict[str, Any]:
     """Apply latest stored LLM janitor decisions that were event-only before this patch."""
 
     import psycopg
@@ -504,14 +619,27 @@ def apply_stored_llm_decisions(database_url: str, *, requested_by: str, limit: i
                 (max(1, min(limit, 2000)),),
             ).fetchall()
             result["candidate_count"] = len(rows)
-            decisions = [dict(row["llm_decision"] or {}, candidate_id=row["candidate_id"]) for row in rows]
-            result["decision_counts"] = dict(sorted(Counter(_as_text(d.get("decision")).lower() for d in decisions if _as_text(d.get("decision"))).items()))
+            decisions = [
+                dict(row["llm_decision"] or {}, candidate_id=row["candidate_id"])
+                for row in rows
+            ]
+            result["decision_counts"] = dict(
+                sorted(
+                    Counter(
+                        _as_text(d.get("decision")).lower()
+                        for d in decisions
+                        if _as_text(d.get("decision"))
+                    ).items()
+                )
+            )
             if dry_run:
                 return result
             for row in rows:
                 decision = dict(row["llm_decision"] or {})
                 decision["candidate_id"] = row["candidate_id"]
-                if decision.get("decision") == "admit" and _confidence_allows_admit(decision):
+                if decision.get("decision") == "admit" and _confidence_allows_admit(
+                    decision
+                ):
                     update = _apply_admit_decision(
                         cur,
                         candidate_id=row["candidate_id"],
@@ -522,7 +650,9 @@ def apply_stored_llm_decisions(database_url: str, *, requested_by: str, limit: i
                     promoted = int(update.get("status_updates") or 0)
                     result["admitted"] += promoted
                     result["status_updates"] += promoted
-                    result["admissions_inserted"] += int(update.get("admissions_inserted") or 0)
+                    result["admissions_inserted"] += int(
+                        update.get("admissions_inserted") or 0
+                    )
                     continue
                 update = _apply_non_admit_decision(
                     cur,
@@ -535,7 +665,9 @@ def apply_stored_llm_decisions(database_url: str, *, requested_by: str, limit: i
                 status = _candidate_status_for_decision(decision)
                 updated = int(update.get("status_updates") or 0)
                 result["status_updates"] += updated
-                result["admissions_inserted"] += int(update.get("admissions_inserted") or 0)
+                result["admissions_inserted"] += int(
+                    update.get("admissions_inserted") or 0
+                )
                 if updated and status in {"rejected", "rewrite_needed", "deferred"}:
                     result[status] += updated
     return result
@@ -544,9 +676,23 @@ def apply_stored_llm_decisions(database_url: str, *, requested_by: str, limit: i
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL", ""))
-    parser.add_argument("--provider-base-url", default=os.environ.get("ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"))
-    parser.add_argument("--openai-base-url", default=os.environ.get("ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL", "https://synthetic.int.exe.xyz/openai/v1"))
-    parser.add_argument("--model", default=os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL", DEFAULT_MODEL))
+    parser.add_argument(
+        "--provider-base-url",
+        default=os.environ.get(
+            "ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"
+        ),
+    )
+    parser.add_argument(
+        "--openai-base-url",
+        default=os.environ.get(
+            "ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL",
+            "https://synthetic.int.exe.xyz/openai/v1",
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL", DEFAULT_MODEL),
+    )
     parser.add_argument("--batch-size", type=int, default=15)
     parser.add_argument("--janitor-limit", type=int, default=250)
     parser.add_argument("--estimated-requests", type=int, default=1)
@@ -561,8 +707,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--requested-by", default="research-facility-llm-review")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--apply", action="store_true")
-    parser.add_argument("--apply-stored-decisions", action="store_true", help="Apply prior event-only LLM janitor decisions before any provider call")
-    parser.add_argument("--apply-stored-decisions-only", action="store_true", help="Apply prior event-only LLM janitor decisions and exit without a provider call")
+    parser.add_argument(
+        "--apply-stored-decisions",
+        action="store_true",
+        help="Apply prior event-only LLM janitor decisions before any provider call",
+    )
+    parser.add_argument(
+        "--apply-stored-decisions-only",
+        action="store_true",
+        help="Apply prior event-only LLM janitor decisions and exit without a provider call",
+    )
     parser.add_argument("--stored-decision-limit", type=int, default=500)
     parser.add_argument("--output", type=Path)
     return parser
@@ -573,7 +727,12 @@ def main(argv: list[str] | None = None) -> int:
     if not args.database_url:
         raise SystemExit("--database-url or DATABASE_URL is required")
     dry_run = not args.apply or args.dry_run
-    report: dict[str, Any] = {"ok": False, "action": "research_janitor_llm_review", "dry_run": dry_run, "checked_at": utc_now()}
+    report: dict[str, Any] = {
+        "ok": False,
+        "action": "research_janitor_llm_review",
+        "dry_run": dry_run,
+        "checked_at": utc_now(),
+    }
     if args.apply_stored_decisions or args.apply_stored_decisions_only:
         stored = apply_stored_llm_decisions(
             args.database_url,
@@ -593,7 +752,13 @@ def main(argv: list[str] | None = None) -> int:
     age = latest_review_age_minutes(args.database_url)
     report["last_review_age_minutes"] = age
     if age is not None and age < args.cooldown_minutes:
-        report.update({"ok": True, "action": "skipped", "reason": f"cooldown active: {age:.1f}m < {args.cooldown_minutes}m"})
+        report.update(
+            {
+                "ok": True,
+                "action": "skipped",
+                "reason": f"cooldown active: {age:.1f}m < {args.cooldown_minutes}m",
+            }
+        )
     else:
         budget = budget_status(
             base_url=args.provider_base_url,
@@ -604,18 +769,51 @@ def main(argv: list[str] | None = None) -> int:
             min_weekly_percent_remaining=args.min_weekly_percent_remaining,
             timeout=min(max(args.timeout, 5), 60),
         )
-        report["budget"] = {key: budget.get(key) for key in (
-            "ok", "remaining_credits", "min_remaining_credits", "weekly_percent_remaining", "min_weekly_percent_remaining",
-            "rolling_remaining", "rolling_max", "rolling_limited", "estimated_requests", "reserve_requests", "failures",
-        )}
+        report["budget"] = {
+            key: budget.get(key)
+            for key in (
+                "ok",
+                "remaining_credits",
+                "min_remaining_credits",
+                "weekly_percent_remaining",
+                "min_weekly_percent_remaining",
+                "rolling_remaining",
+                "rolling_max",
+                "rolling_limited",
+                "estimated_requests",
+                "reserve_requests",
+                "failures",
+            )
+        }
         if not budget.get("ok"):
-            report.update({"ok": True, "action": "skipped", "reason": "; ".join(budget.get("failures") or ["budget unavailable"])})
+            report.update(
+                {
+                    "ok": True,
+                    "action": "skipped",
+                    "reason": "; ".join(
+                        budget.get("failures") or ["budget unavailable"]
+                    ),
+                }
+            )
         else:
-            batch, janitor = select_review_batch(args.database_url, limit=max(1, min(args.batch_size, 50)), janitor_limit=args.janitor_limit)
-            report["janitor"] = {"row_count": janitor.get("row_count"), "action_counts": janitor.get("action_counts")}
+            batch, janitor = select_review_batch(
+                args.database_url,
+                limit=max(1, min(args.batch_size, 50)),
+                janitor_limit=args.janitor_limit,
+            )
+            report["janitor"] = {
+                "row_count": janitor.get("row_count"),
+                "action_counts": janitor.get("action_counts"),
+            }
             report["batch_count"] = len(batch)
             if not batch:
-                report.update({"ok": True, "action": "skipped", "reason": "no rewrite_suggested backlog"})
+                report.update(
+                    {
+                        "ok": True,
+                        "action": "skipped",
+                        "reason": "no rewrite_suggested backlog",
+                    }
+                )
             else:
                 prompt = build_review_prompt(batch)
                 report["cooldown_event_inserted"] = record_review_cycle_event(
@@ -641,17 +839,20 @@ def main(argv: list[str] | None = None) -> int:
                     provider_model=args.model,
                     dry_run=dry_run,
                 )
-                report.update({
-                    "ok": True,
-                    "action": "reviewed",
-                    "provider_model": args.model,
-                    "provider_response_id": raw.get("provider_response_id", ""),
-                    "prompt_version": PROMPT_VERSION,
-                    "decision_count": len(decisions),
-                    "decision_counts": apply_result.get("decision_counts") or dict(Counter(d["decision"] for d in decisions)),
-                    "apply_result": apply_result,
-                    "decisions": decisions,
-                })
+                report.update(
+                    {
+                        "ok": True,
+                        "action": "reviewed",
+                        "provider_model": args.model,
+                        "provider_response_id": raw.get("provider_response_id", ""),
+                        "prompt_version": PROMPT_VERSION,
+                        "decision_count": len(decisions),
+                        "decision_counts": apply_result.get("decision_counts")
+                        or dict(Counter(d["decision"] for d in decisions)),
+                        "apply_result": apply_result,
+                        "decisions": decisions,
+                    }
+                )
     text = json.dumps(report, indent=2, sort_keys=True, default=str)
     if args.output:
         args.output.write_text(text + "\n", encoding="utf-8")

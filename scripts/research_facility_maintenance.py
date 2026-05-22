@@ -47,7 +47,9 @@ def _json_default(value: Any) -> str:
 
 
 def _payload_hash(payload: dict[str, Any]) -> str:
-    body = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=_json_default)
+    body = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), default=_json_default
+    )
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
@@ -63,7 +65,9 @@ def _canonical_json_text(value: Any) -> str:
             value = json.loads(value)
         except json.JSONDecodeError:
             return value
-    return json.dumps(value or {}, sort_keys=True, separators=(",", ":"), default=_json_default)
+    return json.dumps(
+        value or {}, sort_keys=True, separators=(",", ":"), default=_json_default
+    )
 
 
 def _insert_research_admission(
@@ -107,7 +111,15 @@ def _insert_research_admission(
         values (%s,%s,%s,%s::jsonb,%s,%s,%s)
         on conflict (idempotency_key) do nothing
         """,
-        (candidate_id, admission_decision, admission_reason, score_json, admitted_idea_id, operator, idempotency_key),
+        (
+            candidate_id,
+            admission_decision,
+            admission_reason,
+            score_json,
+            admitted_idea_id,
+            operator,
+            idempotency_key,
+        ),
     )
     return int(cur.rowcount or 0)
 
@@ -131,12 +143,22 @@ def _priority_signal(row: dict[str, Any], breakdown: dict[str, Any]) -> bool:
     )
 
 
-def classify_candidate(row: dict[str, Any], *, category_counts: dict[str, int], policy: JanitorPolicy, now: datetime | None = None) -> dict[str, Any]:
-    breakdown = research_facility.dispatch_priority_breakdown(row, category_counts=category_counts, now=now)
+def classify_candidate(
+    row: dict[str, Any],
+    *,
+    category_counts: dict[str, int],
+    policy: JanitorPolicy,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    breakdown = research_facility.dispatch_priority_breakdown(
+        row, category_counts=category_counts, now=now
+    )
     total_score = _as_float(row.get("total_score"))
     duplicate_penalty = float(breakdown.get("duplicate_penalty") or 0)
     weak_penalty = float(breakdown.get("weak_contract_penalty") or 0)
-    saturated = int(breakdown.get("category_count") or 0) >= policy.saturated_category_count
+    saturated = (
+        int(breakdown.get("category_count") or 0) >= policy.saturated_category_count
+    )
     has_priority_signal = _priority_signal(row, breakdown)
 
     action = "keep"
@@ -150,8 +172,14 @@ def classify_candidate(row: dict[str, Any], *, category_counts: dict[str, int], 
         and (has_priority_signal or not saturated)
     ):
         action = "promote"
-        reason = "strong borderline needs-review candidate with sufficient priority signal"
-    elif total_score <= policy.reject_score_ceiling and float(breakdown.get("age_days") or 0) >= policy.reject_stale_days and weak_penalty >= 6.0:
+        reason = (
+            "strong borderline needs-review candidate with sufficient priority signal"
+        )
+    elif (
+        total_score <= policy.reject_score_ceiling
+        and float(breakdown.get("age_days") or 0) >= policy.reject_stale_days
+        and weak_penalty >= 6.0
+    ):
         action = "reject"
         reason = "stale low-score needs-review candidate with weak contract signals"
     elif total_score >= policy.rewrite_score_floor:
@@ -171,10 +199,24 @@ def classify_candidate(row: dict[str, Any], *, category_counts: dict[str, int], 
     }
 
 
-def classify_rows(rows: Iterable[dict[str, Any]], *, policy: JanitorPolicy, now: datetime | None = None) -> list[dict[str, Any]]:
+def classify_rows(
+    rows: Iterable[dict[str, Any]],
+    *,
+    policy: JanitorPolicy,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
     rows_list = list(rows)
-    category_counts = Counter(_as_text(row.get("category")).lower() for row in rows_list if _as_text(row.get("category")))
-    return [classify_candidate(row, category_counts=dict(category_counts), policy=policy, now=now) for row in rows_list]
+    category_counts = Counter(
+        _as_text(row.get("category")).lower()
+        for row in rows_list
+        if _as_text(row.get("category"))
+    )
+    return [
+        classify_candidate(
+            row, category_counts=dict(category_counts), policy=policy, now=now
+        )
+        for row in rows_list
+    ]
 
 
 def fetch_needs_review_rows(database_url: str, *, limit: int) -> list[dict[str, Any]]:
@@ -204,10 +246,22 @@ def fetch_needs_review_rows(database_url: str, *, limit: int) -> list[dict[str, 
             return [dict(row) for row in cur.fetchall()]
 
 
-def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested_by: str, apply_rejections: bool) -> dict[str, int]:
+def apply_actions(
+    database_url: str,
+    actions: list[dict[str, Any]],
+    *,
+    requested_by: str,
+    apply_rejections: bool,
+) -> dict[str, int]:
     import psycopg
 
-    counters = {"promoted": 0, "rejected": 0, "skipped_rejections": 0, "events_inserted": 0, "admissions_inserted": 0}
+    counters = {
+        "promoted": 0,
+        "rejected": 0,
+        "skipped_rejections": 0,
+        "events_inserted": 0,
+        "admissions_inserted": 0,
+    }
     with psycopg.connect(database_url) as conn:
         with conn.cursor() as cur:
             cur.execute("set search_path to enoch, public")
@@ -225,7 +279,17 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                         set status = 'admitted', score_breakdown = coalesce(score_breakdown, '{}'::jsonb) || %s::jsonb, updated_at = now()
                         where candidate_id = %s and status = 'needs_review'
                         """,
-                        (json.dumps({"janitor_dispatch_priority": action.get("dispatch_priority") or {}}), candidate_id),
+                        (
+                            json.dumps(
+                                {
+                                    "janitor_dispatch_priority": action.get(
+                                        "dispatch_priority"
+                                    )
+                                    or {}
+                                }
+                            ),
+                            candidate_id,
+                        ),
                     )
                     applied = int(cur.rowcount or 0) > 0
                     record_event = applied
@@ -236,7 +300,10 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                             cur,
                             candidate_id=candidate_id,
                             admission_decision="admitted",
-                            admission_reason=str(action.get("reason") or "janitor admitted needs-review candidate"),
+                            admission_reason=str(
+                                action.get("reason")
+                                or "janitor admitted needs-review candidate"
+                            ),
                             score_breakdown=action.get("dispatch_priority") or {},
                             admitted_idea_id=None,
                             operator=requested_by,
@@ -252,7 +319,13 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                         set status = 'rejected', rejection_reason = %s, updated_at = now()
                         where candidate_id = %s and status = 'needs_review'
                         """,
-                        (str(action.get("reason") or "janitor rejected stale weak candidate"), candidate_id),
+                        (
+                            str(
+                                action.get("reason")
+                                or "janitor rejected stale weak candidate"
+                            ),
+                            candidate_id,
+                        ),
                     )
                     applied = int(cur.rowcount or 0) > 0
                     record_event = applied
@@ -263,7 +336,10 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                             cur,
                             candidate_id=candidate_id,
                             admission_decision="rejected",
-                            admission_reason=str(action.get("reason") or "janitor rejected stale weak candidate"),
+                            admission_reason=str(
+                                action.get("reason")
+                                or "janitor rejected stale weak candidate"
+                            ),
                             score_breakdown=action.get("dispatch_priority") or {},
                             admitted_idea_id=None,
                             operator=requested_by,
@@ -283,10 +359,34 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                         (event_key,),
                     )
                     existing = cur.fetchone()
-                    existing_event_type = existing.get("event_type") if isinstance(existing, dict) else existing[1] if existing else ""
-                    existing_entity_type = existing.get("entity_type") if isinstance(existing, dict) else existing[2] if existing else ""
-                    existing_entity_id = existing.get("entity_id") if isinstance(existing, dict) else existing[3] if existing else ""
-                    existing_payload_hash = existing.get("payload_hash") if isinstance(existing, dict) else existing[4] if existing else ""
+                    existing_event_type = (
+                        existing.get("event_type")
+                        if isinstance(existing, dict)
+                        else existing[1]
+                        if existing
+                        else ""
+                    )
+                    existing_entity_type = (
+                        existing.get("entity_type")
+                        if isinstance(existing, dict)
+                        else existing[2]
+                        if existing
+                        else ""
+                    )
+                    existing_entity_id = (
+                        existing.get("entity_id")
+                        if isinstance(existing, dict)
+                        else existing[3]
+                        if existing
+                        else ""
+                    )
+                    existing_payload_hash = (
+                        existing.get("payload_hash")
+                        if isinstance(existing, dict)
+                        else existing[4]
+                        if existing
+                        else ""
+                    )
                     if existing and (
                         existing_event_type != event_type
                         or existing_entity_type != entity_type
@@ -302,13 +402,26 @@ def apply_actions(database_url: str, actions: list[dict[str, Any]], *, requested
                             insert into control_events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at)
                             values (%s,%s,'research_candidate',%s,%s::jsonb,%s,%s)
                             """,
-                            (event_key, event_type, candidate_id, json.dumps(payload, default=_json_default), payload_hash, datetime.now(timezone.utc).isoformat()),
+                            (
+                                event_key,
+                                event_type,
+                                candidate_id,
+                                json.dumps(payload, default=_json_default),
+                                payload_hash,
+                                datetime.now(timezone.utc).isoformat(),
+                            ),
                         )
                         counters["events_inserted"] += int(cur.rowcount or 0)
     return counters
 
 
-def build_report(rows: list[dict[str, Any]], actions: list[dict[str, Any]], *, applied: bool, apply_result: dict[str, int] | None) -> dict[str, Any]:
+def build_report(
+    rows: list[dict[str, Any]],
+    actions: list[dict[str, Any]],
+    *,
+    applied: bool,
+    apply_result: dict[str, int] | None,
+) -> dict[str, Any]:
     counts = Counter(action["action"] for action in actions)
     return {
         "ok": True,
@@ -322,12 +435,24 @@ def build_report(rows: list[dict[str, Any]], actions: list[dict[str, Any]], *, a
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Classify and optionally clean Research Facility needs-review rows")
-    parser.add_argument("--database-url", required=True, help="Postgres connection URL for the enoch schema")
+    parser = argparse.ArgumentParser(
+        description="Classify and optionally clean Research Facility needs-review rows"
+    )
+    parser.add_argument(
+        "--database-url",
+        required=True,
+        help="Postgres connection URL for the enoch schema",
+    )
     parser.add_argument("--limit", type=int, default=500)
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--apply", action="store_true", help="Apply promotions; rejections still require --apply-rejections")
-    parser.add_argument("--apply-rejections", action="store_true", help="Also apply reject actions")
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply promotions; rejections still require --apply-rejections",
+    )
+    parser.add_argument(
+        "--apply-rejections", action="store_true", help="Also apply reject actions"
+    )
     parser.add_argument("--requested-by", default="research-facility-janitor")
     parser.add_argument("--promote-score-floor", type=float, default=71.5)
     parser.add_argument("--promote-priority-floor", type=float, default=80.0)
@@ -348,7 +473,12 @@ def main(argv: list[str] | None = None) -> int:
     actions = classify_rows(rows, policy=policy)
     apply_result = None
     if args.apply:
-        apply_result = apply_actions(args.database_url, actions, requested_by=args.requested_by, apply_rejections=args.apply_rejections)
+        apply_result = apply_actions(
+            args.database_url,
+            actions,
+            requested_by=args.requested_by,
+            apply_rejections=args.apply_rejections,
+        )
     report = build_report(rows, actions, applied=args.apply, apply_result=apply_result)
     text = json.dumps(report, indent=2, sort_keys=True, default=_json_default)
     if args.output:

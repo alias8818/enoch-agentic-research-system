@@ -119,7 +119,9 @@ def validate_runtime(
             failures.append(f"git commit check failed: {type(exc).__name__}: {exc}")
         else:
             if source_commit != resolved_expected_commit:
-                failures.append(f"source commit drift: HEAD {source_commit} != {expected_commit} {resolved_expected_commit}")
+                failures.append(
+                    f"source commit drift: HEAD {source_commit} != {expected_commit} {resolved_expected_commit}"
+                )
             if dirty_status:
                 failures.append("source checkout is dirty")
 
@@ -138,7 +140,14 @@ def validate_runtime(
             continue
         if not runtime_path.exists():
             failures.append(f"missing runtime file: {rel}")
-            files.append({"path": rel, "ok": False, "reason": "missing_runtime", "source_sha256": _sha256(source_path)})
+            files.append(
+                {
+                    "path": rel,
+                    "ok": False,
+                    "reason": "missing_runtime",
+                    "source_sha256": _sha256(source_path),
+                }
+            )
             continue
         if not runtime_path.is_file():
             failures.append(f"runtime path is not a file: {rel}")
@@ -149,12 +158,14 @@ def validate_runtime(
         ok = source_hash == runtime_hash
         if not ok:
             failures.append(f"hash drift: {rel}")
-        files.append({
-            "path": rel,
-            "ok": ok,
-            "source_sha256": source_hash,
-            "runtime_sha256": runtime_hash,
-        })
+        files.append(
+            {
+                "path": rel,
+                "ok": ok,
+                "source_sha256": source_hash,
+                "runtime_sha256": runtime_hash,
+            }
+        )
 
     return {
         "ok": not failures,
@@ -171,11 +182,26 @@ def validate_runtime(
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", default="/opt/enoch-release/enoch-agentic-research-system")
+    parser.add_argument(
+        "--source", default="/opt/enoch-release/enoch-agentic-research-system"
+    )
     parser.add_argument("--runtime", default="/opt/enoch-control-plane")
-    parser.add_argument("--expected-commit", default="", help="Optional git ref or SHA that source HEAD must match.")
-    parser.add_argument("--path", action="append", dest="paths", help="Relative path to verify. May be repeated.")
-    parser.add_argument("--summary-only", action="store_true", help="Omit per-file rows from JSON output.")
+    parser.add_argument(
+        "--expected-commit",
+        default="",
+        help="Optional git ref or SHA that source HEAD must match.",
+    )
+    parser.add_argument(
+        "--path",
+        action="append",
+        dest="paths",
+        help="Relative path to verify. May be repeated.",
+    )
+    parser.add_argument(
+        "--summary-only",
+        action="store_true",
+        help="Omit per-file rows from JSON output.",
+    )
     args = parser.parse_args(argv)
 
     report = validate_runtime(

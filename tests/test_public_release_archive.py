@@ -11,7 +11,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_public_release_archive_excludes_ignored_secret_state_paths(tmp_path: Path) -> None:
+def test_public_release_archive_excludes_ignored_secret_state_paths(
+    tmp_path: Path,
+) -> None:
     sensitive_paths = [
         ROOT / "config.json",
         ROOT / "secrets" / "aardvark_token.txt",
@@ -58,9 +60,17 @@ def test_public_release_archive_excludes_ignored_secret_state_paths(tmp_path: Pa
         with tarfile.open(archive_path, "r:gz") as archive:
             names = archive.getnames()
             assert "enoch-agentic-research-system/config.json" not in names
-            assert not any(name.startswith("enoch-agentic-research-system/secrets/") for name in names)
-            assert not any(name.startswith("enoch-agentic-research-system/state/") for name in names)
-            assert not any(name.startswith("enoch-agentic-research-system/logs/") for name in names)
+            assert not any(
+                name.startswith("enoch-agentic-research-system/secrets/")
+                for name in names
+            )
+            assert not any(
+                name.startswith("enoch-agentic-research-system/state/")
+                for name in names
+            )
+            assert not any(
+                name.startswith("enoch-agentic-research-system/logs/") for name in names
+            )
     finally:
         for path in reversed(created_paths):
             path.unlink(missing_ok=True)

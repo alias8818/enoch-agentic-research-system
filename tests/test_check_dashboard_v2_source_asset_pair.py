@@ -4,7 +4,9 @@ from scripts import check_dashboard_v2_source_asset_pair as pairing
 
 
 def test_pairing_ok_when_no_dashboard_source_changes() -> None:
-    report = pairing.evaluate_pairing(["docs/readme.md", "enoch_control_plane/control_plane/router.py"])
+    report = pairing.evaluate_pairing(
+        ["docs/readme.md", "enoch_control_plane/control_plane/router.py"]
+    )
     assert report["ok"] is True
 
 
@@ -33,8 +35,12 @@ def test_test_only_dashboard_changes_do_not_require_assets() -> None:
 
 
 def test_package_json_scripts_only_do_not_require_assets(monkeypatch) -> None:
-    monkeypatch.setattr(pairing, "package_json_change_affects_build", lambda _base: False)
-    report = pairing.evaluate_pairing(["dashboard/package.json"], base_ref="origin/main")
+    monkeypatch.setattr(
+        pairing, "package_json_change_affects_build", lambda _base: False
+    )
+    report = pairing.evaluate_pairing(
+        ["dashboard/package.json"], base_ref="origin/main"
+    )
     assert report["ok"] is True
     assert report["source_changed"] == []
 
@@ -85,7 +91,9 @@ def test_package_json_scripts_only_change_does_not_affect_build(monkeypatch) -> 
     assert pairing.package_json_change_affects_build("origin/main") is False
 
 
-def test_package_json_scripts_only_ignores_unrelated_main_dep_changes(monkeypatch) -> None:
+def test_package_json_scripts_only_ignores_unrelated_main_dep_changes(
+    monkeypatch,
+) -> None:
     """Branch scripts-only edits must not fail when origin/main moved deps forward."""
 
     def fake_loader(ref: str) -> dict[str, object] | None:

@@ -1,7 +1,7 @@
 # Dashboard V2 cutover audit (legacy vs V2)
 
-**Date:** 2026-05-21 (Phase 1 parity audit); **Phase 3 doc sync:** 2026-05-21  
-**Scope:** Phase 1 parity audit (Agent 1). Compared inline legacy shell (formerly `CONTROL_DASHBOARD_HTML` in `router.py`, removed after Phase 2 cutover) against V2 (`dashboard/src/routes.ts`, `routePolicy.ts`, components). Phase 3 update re-verifies gate table B1–B8 against landed V2 on `main`.  
+**Date:** 2026-05-21 (Phase 1 parity audit); **Phase 3 doc sync:** 2026-05-21
+**Scope:** Phase 1 parity audit (Agent 1). Compared inline legacy shell (formerly `CONTROL_DASHBOARD_HTML` in `router.py`, removed after Phase 2 cutover) against V2 (`dashboard/src/routes.ts`, `routePolicy.ts`, components). Phase 3 update re-verifies gate table B1–B8 against landed V2 on `main`.
 **Out of scope:** Backend redirect/cutover (Phase 2, merged), deploy.
 
 ## Method
@@ -67,7 +67,7 @@ Implemented in `dashboard/src/routes.ts` → `canonicalDashboardHash`:
 
 ## Publication automation parity (explicit)
 
-Legacy: `reviewsPage()` + `reviewDetail()` in `router.py` (~lines 299–310).  
+Legacy: `reviewsPage()` + `reviewDetail()` in `router.py` (~lines 299–310).
 V2: `AutomationPage.tsx`.
 
 | Capability | Legacy | V2 | Verdict |

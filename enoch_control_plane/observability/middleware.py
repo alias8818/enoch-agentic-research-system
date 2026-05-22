@@ -53,13 +53,17 @@ class RouteObservationMiddleware(BaseHTTPMiddleware):
         memory_warn_rss_mib: int = 0,
     ) -> None:
         super().__init__(app)
-        self.observation_path = Path(observation_path).expanduser() if observation_path else None
+        self.observation_path = (
+            Path(observation_path).expanduser() if observation_path else None
+        )
         self.slow_ms = max(0, int(slow_ms))
         self.memory_warn_rss_mib = max(0, int(memory_warn_rss_mib))
         if self.observation_path is not None:
             self.observation_path.parent.mkdir(parents=True, exist_ok=True)
 
-    async def dispatch(self, request: Request, call_next: Callable[[Request], Any]) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Any]
+    ) -> Response:
         started = time.perf_counter()
         rss_before = current_rss_mib()
         peak_before = peak_rss_mib()
@@ -94,11 +98,17 @@ class RouteObservationMiddleware(BaseHTTPMiddleware):
                 "content_length": content_length,
                 "rss_before_mib": rss_before,
                 "rss_after_mib": rss_after,
-                "rss_delta_mib": None if rss_before is None or rss_after is None else round(rss_after - rss_before, 3),
+                "rss_delta_mib": None
+                if rss_before is None or rss_after is None
+                else round(rss_after - rss_before, 3),
                 "peak_rss_before_mib": round(peak_before, 3),
                 "peak_rss_after_mib": round(peak_after, 3),
                 "slow": bool(self.slow_ms and elapsed_ms >= self.slow_ms),
-                "memory_warn": bool(self.memory_warn_rss_mib and rss_after is not None and rss_after >= self.memory_warn_rss_mib),
+                "memory_warn": bool(
+                    self.memory_warn_rss_mib
+                    and rss_after is not None
+                    and rss_after >= self.memory_warn_rss_mib
+                ),
                 "error_type": error_type,
             }
             self._append_observation(observation)

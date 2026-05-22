@@ -11,7 +11,20 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from enoch_control_plane.config import GateConfig
-from enoch_control_plane.control_plane.read_models import OPERATOR_DETAIL_LABELS, OPERATOR_LANE_LABELS, operator_stage_for_record, paper_links, paper_source_fingerprint, queue_links, row_age_seconds, summarize_automation_workbench, summarize_idea_workbench_row, summarize_intake_workbench, summarize_paper_row, summarize_research_facility_workbench
+from enoch_control_plane.control_plane.read_models import (
+    OPERATOR_DETAIL_LABELS,
+    OPERATOR_LANE_LABELS,
+    operator_stage_for_record,
+    paper_links,
+    paper_source_fingerprint,
+    queue_links,
+    row_age_seconds,
+    summarize_automation_workbench,
+    summarize_idea_workbench_row,
+    summarize_intake_workbench,
+    summarize_paper_row,
+    summarize_research_facility_workbench,
+)
 from enoch_control_plane.control_plane.state_contract import OperatorLane
 from enoch_control_plane.control_plane.store import REVIEW_CHECKLIST_DEFINITION
 from enoch_control_plane.control_plane.router import create_control_plane_router
@@ -23,45 +36,65 @@ TOKEN = "test-token"
 def _write_decision(project_dir: Path, decision: str) -> None:
     decision_dir = project_dir / ".omx"
     decision_dir.mkdir(parents=True, exist_ok=True)
-    (decision_dir / "project_decision.json").write_text(f'{{"decision":"{decision}"}}\n', encoding="utf-8")
+    (decision_dir / "project_decision.json").write_text(
+        f'{{"decision":"{decision}"}}\n', encoding="utf-8"
+    )
 
 
 def _write_publication_artifacts(project_dir: Path) -> None:
     project_dir.mkdir(parents=True, exist_ok=True)
-    (project_dir / "paper.md").write_text("Measured result improved over baseline.", encoding="utf-8")
+    (project_dir / "paper.md").write_text(
+        "Measured result improved over baseline.", encoding="utf-8"
+    )
     (project_dir / "paper.tex").write_text("content", encoding="utf-8")
     (project_dir / "evidence_bundle.json").write_text(
-        json.dumps({
-            "schema_version": "evidence_bundle.v2",
-            "public_evidence_files": [{
-                "path": "evidence/run_notes.md",
-                "source_path": "run_notes.md",
-                "content": "Measured result improved over baseline.",
-                "sha256": "abc",
-            }],
-        }),
+        json.dumps(
+            {
+                "schema_version": "evidence_bundle.v2",
+                "public_evidence_files": [
+                    {
+                        "path": "evidence/run_notes.md",
+                        "source_path": "run_notes.md",
+                        "content": "Measured result improved over baseline.",
+                        "sha256": "abc",
+                    }
+                ],
+            }
+        ),
         encoding="utf-8",
     )
     (project_dir / "claim_ledger.json").write_text(
-        json.dumps({
-            "schema_version": "claim_ledger.v2",
-            "ledger_status": "claims_reference_evidence",
-            "claims": [{
-                "id": "C1",
-                "claim": "Measured result improved over baseline.",
-                "support_status": "supported",
-                "evidence_refs": [{"path": "evidence/run_notes.md", "source_path": "run_notes.md", "match_score": 1.0}],
-            }],
-            "unsupported_claim_count": 0,
-        }),
+        json.dumps(
+            {
+                "schema_version": "claim_ledger.v2",
+                "ledger_status": "claims_reference_evidence",
+                "claims": [
+                    {
+                        "id": "C1",
+                        "claim": "Measured result improved over baseline.",
+                        "support_status": "supported",
+                        "evidence_refs": [
+                            {
+                                "path": "evidence/run_notes.md",
+                                "source_path": "run_notes.md",
+                                "match_score": 1.0,
+                            }
+                        ],
+                    }
+                ],
+                "unsupported_claim_count": 0,
+            }
+        ),
         encoding="utf-8",
     )
     (project_dir / "paper_manifest.json").write_text(
-        json.dumps({
-            "evidence_file_count": 1,
-            "claim_count": 1,
-            "claim_ledger_status": "claims_reference_evidence",
-        }),
+        json.dumps(
+            {
+                "evidence_file_count": 1,
+                "claim_count": 1,
+                "claim_ledger_status": "claims_reference_evidence",
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -92,19 +125,163 @@ class OperatorStatusTests(unittest.TestCase):
         cases = [
             ({"status": "queued"}, "ready_queue", "idea_queued", False),
             ({"status": "awaiting_wake"}, "running", "running", False),
-            ({"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project"}, "complete_no_paper", "run_complete_no_paper", False),
-            ({"status": "completed", "last_run_state": "session_finished_ready", "next_action_hint": "select_next_project"}, "complete_no_paper", "run_complete_no_paper", False),
-            ({"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project", "decision_summary": "finalize_negative", "research_outcome": "useful_signal", "hypothesis_status": "supported", "evidence_strength": "moderate", "claim_scope": "toy baseline", "scale_limits": "local toy evidence only"}, "useful_signal", "useful_signal", False),
-            ({"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project", "decision_summary": "finalize_negative", "research_outcome": "promising_if_scaled", "hypothesis_status": "supported", "evidence_strength": "moderate", "compute_scale_blocked": True, "scale_limits": "requires datacenter validation"}, "compute_scale_blocked", "compute_scale_blocked", False),
-            ({"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project", "decision_summary": "finalize_negative", "followup_recommended": True, "followup_type": "deepen", "followup_title": "Adjacent test", "followup_hypothesis": "A bounded adjacent hypothesis.", "followup_required_evidence": ["baseline", "metrics"], "followup_success_threshold": "beat baseline", "followup_stop_condition": "stop on miss"}, "followup_investigation", "followup_candidate", False),
-            ({"paper_id": "paper-1", "paper_status": "draft_review"}, "automate_publication", "draft_created", False),
-            ({"paper_id": "paper-2", "paper_status": "publication_draft", "review_status": "finalized", "artifact_paths_present": {"finalization_package_path": True, "draft_markdown_path": True, "evidence_bundle_path": True, "claim_ledger_path": True, "manifest_path": True}}, "ready_to_publish", "ready_to_publish", False),
-            ({"paper_id": "paper-finalized-missing-evidence", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json", "draft_markdown_path": "paper.md", "manifest_path": "manifest.json"}, "automate_publication", "finalization_needed", False),
-            ({"paper_id": "paper-imported", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json", "corpus_imported": True}, "published", "published", False),
-            ({"paper_id": "paper-approved", "paper_status": "publication_draft", "review_status": "approved_for_finalization"}, "automate_publication", "finalization_needed", False),
-            ({"paper_id": "paper-finalized-no-package", "paper_status": "publication_draft", "review_status": "finalized"}, "automate_publication", "finalization_needed", False),
-            ({"paper_id": "paper-missing-review", "paper_status": "publication_draft"}, "automate_publication", "finalization_needed", False),
-            ({"paper_id": "paper-3", "paper_status": "publication_draft", "review_status": "unreviewed"}, "automate_publication", "finalization_needed", False),
+            (
+                {
+                    "status": "completed",
+                    "last_run_state": "wake_ready",
+                    "next_action_hint": "draft_paper_or_select_next_project",
+                },
+                "complete_no_paper",
+                "run_complete_no_paper",
+                False,
+            ),
+            (
+                {
+                    "status": "completed",
+                    "last_run_state": "session_finished_ready",
+                    "next_action_hint": "select_next_project",
+                },
+                "complete_no_paper",
+                "run_complete_no_paper",
+                False,
+            ),
+            (
+                {
+                    "status": "completed",
+                    "last_run_state": "wake_ready",
+                    "next_action_hint": "draft_paper_or_select_next_project",
+                    "decision_summary": "finalize_negative",
+                    "research_outcome": "useful_signal",
+                    "hypothesis_status": "supported",
+                    "evidence_strength": "moderate",
+                    "claim_scope": "toy baseline",
+                    "scale_limits": "local toy evidence only",
+                },
+                "useful_signal",
+                "useful_signal",
+                False,
+            ),
+            (
+                {
+                    "status": "completed",
+                    "last_run_state": "wake_ready",
+                    "next_action_hint": "draft_paper_or_select_next_project",
+                    "decision_summary": "finalize_negative",
+                    "research_outcome": "promising_if_scaled",
+                    "hypothesis_status": "supported",
+                    "evidence_strength": "moderate",
+                    "compute_scale_blocked": True,
+                    "scale_limits": "requires datacenter validation",
+                },
+                "compute_scale_blocked",
+                "compute_scale_blocked",
+                False,
+            ),
+            (
+                {
+                    "status": "completed",
+                    "last_run_state": "wake_ready",
+                    "next_action_hint": "draft_paper_or_select_next_project",
+                    "decision_summary": "finalize_negative",
+                    "followup_recommended": True,
+                    "followup_type": "deepen",
+                    "followup_title": "Adjacent test",
+                    "followup_hypothesis": "A bounded adjacent hypothesis.",
+                    "followup_required_evidence": ["baseline", "metrics"],
+                    "followup_success_threshold": "beat baseline",
+                    "followup_stop_condition": "stop on miss",
+                },
+                "followup_investigation",
+                "followup_candidate",
+                False,
+            ),
+            (
+                {"paper_id": "paper-1", "paper_status": "draft_review"},
+                "automate_publication",
+                "draft_created",
+                False,
+            ),
+            (
+                {
+                    "paper_id": "paper-2",
+                    "paper_status": "publication_draft",
+                    "review_status": "finalized",
+                    "artifact_paths_present": {
+                        "finalization_package_path": True,
+                        "draft_markdown_path": True,
+                        "evidence_bundle_path": True,
+                        "claim_ledger_path": True,
+                        "manifest_path": True,
+                    },
+                },
+                "ready_to_publish",
+                "ready_to_publish",
+                False,
+            ),
+            (
+                {
+                    "paper_id": "paper-finalized-missing-evidence",
+                    "paper_status": "publication_draft",
+                    "review_status": "finalized",
+                    "finalization_package_path": "package.json",
+                    "draft_markdown_path": "paper.md",
+                    "manifest_path": "manifest.json",
+                },
+                "automate_publication",
+                "finalization_needed",
+                False,
+            ),
+            (
+                {
+                    "paper_id": "paper-imported",
+                    "paper_status": "publication_draft",
+                    "review_status": "finalized",
+                    "finalization_package_path": "package.json",
+                    "corpus_imported": True,
+                },
+                "published",
+                "published",
+                False,
+            ),
+            (
+                {
+                    "paper_id": "paper-approved",
+                    "paper_status": "publication_draft",
+                    "review_status": "approved_for_finalization",
+                },
+                "automate_publication",
+                "finalization_needed",
+                False,
+            ),
+            (
+                {
+                    "paper_id": "paper-finalized-no-package",
+                    "paper_status": "publication_draft",
+                    "review_status": "finalized",
+                },
+                "automate_publication",
+                "finalization_needed",
+                False,
+            ),
+            (
+                {
+                    "paper_id": "paper-missing-review",
+                    "paper_status": "publication_draft",
+                },
+                "automate_publication",
+                "finalization_needed",
+                False,
+            ),
+            (
+                {
+                    "paper_id": "paper-3",
+                    "paper_status": "publication_draft",
+                    "review_status": "unreviewed",
+                },
+                "automate_publication",
+                "finalization_needed",
+                False,
+            ),
             ({"status": "blocked"}, "needs_operator", "blocked_needs_operator", True),
             ({"status": "paused"}, "paused", "paused_work", False),
             ({"status": "canceled"}, "historical", "historical", False),
@@ -112,13 +289,17 @@ class OperatorStatusTests(unittest.TestCase):
         for row, lane, detail_stage, attention in cases:
             with self.subTest(row=row):
                 translated = operator_stage_for_record(row)
-                self.assertIn(translated["operator_stage"], {item.value for item in OperatorLane})
+                self.assertIn(
+                    translated["operator_stage"], {item.value for item in OperatorLane}
+                )
                 self.assertEqual(translated["operator_stage"], lane)
                 self.assertEqual(translated["operator_lane"], lane)
                 self.assertEqual(translated["operator_detail_stage"], detail_stage)
                 self.assertIs(translated["operator_attention"], attention)
 
-    def test_operator_stage_does_not_treat_path_strings_as_publish_evidence(self) -> None:
+    def test_operator_stage_does_not_treat_path_strings_as_publish_evidence(
+        self,
+    ) -> None:
         row = {
             "paper_id": "paper-path-strings",
             "paper_status": "publication_draft",
@@ -136,34 +317,39 @@ class OperatorStatusTests(unittest.TestCase):
         self.assertEqual(translated["operator_detail_stage"], "finalization_needed")
 
     def test_summarize_idea_workbench_row_adds_operator_stage_fields(self) -> None:
-        summary = summarize_idea_workbench_row({
-            "idea_id": "idea-queued",
-            "title": "Queued idea",
-            "idea_status": "admitted",
-            "queue_status": "queued",
-            "source_kind": "supabase_idea",
-            "machine_target": "gb10",
-            "project_id": "project-queued",
-            "next_action_hint": "dispatch dry-run",
-        })
+        summary = summarize_idea_workbench_row(
+            {
+                "idea_id": "idea-queued",
+                "title": "Queued idea",
+                "idea_status": "admitted",
+                "queue_status": "queued",
+                "source_kind": "supabase_idea",
+                "machine_target": "gb10",
+                "project_id": "project-queued",
+                "next_action_hint": "dispatch dry-run",
+            }
+        )
 
         self.assertEqual(summary["operator_stage"], "ready_queue")
         self.assertEqual(summary["operator_detail_stage"], "idea_queued")
         self.assertEqual(summary["operator_stage_label"], "Ready")
         self.assertIn("Dispatch", summary["operator_next_step"])
 
-    def test_summarize_idea_workbench_row_skips_queue_stage_for_unqueued_ideas(self) -> None:
+    def test_summarize_idea_workbench_row_skips_queue_stage_for_unqueued_ideas(
+        self,
+    ) -> None:
         for idea_status in ("candidate", "rejected"):
-            summary = summarize_idea_workbench_row({
-                "idea_id": f"idea-{idea_status}",
-                "idea_status": idea_status,
-                "queue_status": "",
-                "source_kind": "research_facility",
-            })
+            summary = summarize_idea_workbench_row(
+                {
+                    "idea_id": f"idea-{idea_status}",
+                    "idea_status": idea_status,
+                    "queue_status": "",
+                    "source_kind": "research_facility",
+                }
+            )
             self.assertNotIn("operator_stage", summary)
             self.assertNotIn("operator_attention", summary)
             self.assertNotIn("operator_next_step", summary)
-
 
     def test_summarize_intake_workbench_reports_empty_projection(self) -> None:
         summary = summarize_intake_workbench(
@@ -181,7 +367,9 @@ class OperatorStatusTests(unittest.TestCase):
         )
         self.assertIn("2 idea(s) queued for operator review", summary)
 
-    def test_summarize_intake_workbench_falls_back_when_primary_count_is_zero(self) -> None:
+    def test_summarize_intake_workbench_falls_back_when_primary_count_is_zero(
+        self,
+    ) -> None:
         summary = summarize_intake_workbench(
             projection_counts={"queued": 0, "queued_projection": 5},
             queued_projection=[{"idea_id": f"idea-{index}"} for index in range(5)],
@@ -189,7 +377,9 @@ class OperatorStatusTests(unittest.TestCase):
         )
         self.assertIn("5 idea(s) queued for operator review", summary)
 
-    def test_summarize_research_facility_workbench_prioritizes_needs_review(self) -> None:
+    def test_summarize_research_facility_workbench_prioritizes_needs_review(
+        self,
+    ) -> None:
         summary = summarize_research_facility_workbench(
             counts={"admitted": 4, "needs_review": 2},
             returned_rows=1,
@@ -226,7 +416,13 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertEqual(missing["operator_detail_stage"], "finalization_needed")
             self.assertFalse(missing["artifact_paths_present"]["draft_markdown_path"])
 
-            for rel in ("package.json", "paper.md", "evidence.json", "claims.json", "manifest.json"):
+            for rel in (
+                "package.json",
+                "paper.md",
+                "evidence.json",
+                "claims.json",
+                "manifest.json",
+            ):
                 (project_dir / rel).write_text("verified artifact\n", encoding="utf-8")
             present = summarize_paper_row(row)
             self.assertEqual(present["operator_stage"], "ready_to_publish")
@@ -281,12 +477,13 @@ class OperatorStatusTests(unittest.TestCase):
                 self.assertEqual(translated["operator_detail_stage"], detail_stage)
 
     def test_operator_stage_normalizes_boolean_flags(self) -> None:
-        translated = operator_stage_for_record({"status": "queued", "manual_review_required": "false"})
+        translated = operator_stage_for_record(
+            {"status": "queued", "manual_review_required": "false"}
+        )
 
         self.assertEqual(translated["operator_stage"], "ready_queue")
         self.assertEqual(translated["operator_detail_stage"], "idea_queued")
         self.assertIs(translated["operator_attention"], False)
-
 
     def test_row_age_seconds_handles_naive_database_timestamps(self) -> None:
         age = row_age_seconds({"updated_at": "2026-05-17 13:25:57.966354"})
@@ -294,13 +491,26 @@ class OperatorStatusTests(unittest.TestCase):
         self.assertGreaterEqual(age, 0)
 
     def test_read_model_links_url_encode_path_segments(self) -> None:
-        queue = queue_links({"project_id": "project/with spaces?x=1", "current_run_id": "run/../evil"})
-        self.assertEqual(queue["project"], "/control/api/v1/projects/project%2Fwith%20spaces%3Fx%3D1")
+        queue = queue_links(
+            {"project_id": "project/with spaces?x=1", "current_run_id": "run/../evil"}
+        )
+        self.assertEqual(
+            queue["project"], "/control/api/v1/projects/project%2Fwith%20spaces%3Fx%3D1"
+        )
         self.assertEqual(queue["run"], "/control/api/v1/runs/run%2F..%2Fevil")
-        self.assertEqual(queue["legacy_project"], "/control/api/projects/project%2Fwith%20spaces%3Fx%3D1")
+        self.assertEqual(
+            queue["legacy_project"],
+            "/control/api/projects/project%2Fwith%20spaces%3Fx%3D1",
+        )
         self.assertEqual(queue["legacy_run"], "/control/api/runs/run%2F..%2Fevil")
 
-        paper = paper_links({"paper_id": "paper/one", "project_id": "project space", "run_id": "run#frag"})
+        paper = paper_links(
+            {
+                "paper_id": "paper/one",
+                "project_id": "project space",
+                "run_id": "run#frag",
+            }
+        )
         self.assertEqual(paper["paper"], "/control/api/v1/papers/paper%2Fone")
         self.assertEqual(paper["project"], "/control/api/v1/projects/project%20space")
         self.assertEqual(paper["run"], "/control/api/v1/runs/run%23frag")
@@ -323,18 +533,58 @@ class OperatorStatusTests(unittest.TestCase):
             "historical": "Historical",
         }
         self.assertEqual(OPERATOR_LANE_LABELS, expected_lane_labels)
-        risky_words = ("Review", "Approved", "Wake", "Session", "Draft Needed", "Run Complete")
+        risky_words = (
+            "Review",
+            "Approved",
+            "Wake",
+            "Session",
+            "Draft Needed",
+            "Run Complete",
+        )
         for row in (
             {"status": "queued"},
             {"status": "blocked"},
-            {"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project"},
-            {"status": "completed", "last_run_state": "wake_ready", "next_action_hint": "draft_paper_or_select_next_project", "followup_recommended": True, "followup_type": "deepen", "followup_title": "Adjacent test", "followup_hypothesis": "A bounded adjacent hypothesis.", "followup_required_evidence": ["baseline", "metrics"], "followup_success_threshold": "beat baseline", "followup_stop_condition": "stop on miss"},
+            {
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+            },
+            {
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "followup_recommended": True,
+                "followup_type": "deepen",
+                "followup_title": "Adjacent test",
+                "followup_hypothesis": "A bounded adjacent hypothesis.",
+                "followup_required_evidence": ["baseline", "metrics"],
+                "followup_success_threshold": "beat baseline",
+                "followup_stop_condition": "stop on miss",
+            },
             {"paper_id": "paper-1", "paper_status": "publication_draft"},
-            {"paper_id": "paper-2", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json", "draft_markdown_path": "paper.md", "evidence_bundle_path": "evidence.json", "claim_ledger_path": "claims.json", "manifest_path": "manifest.json"},
-            {"paper_id": "paper-imported", "paper_status": "publication_draft", "review_status": "finalized", "finalization_package_path": "package.json", "corpus_imported": True},
+            {
+                "paper_id": "paper-2",
+                "paper_status": "publication_draft",
+                "review_status": "finalized",
+                "finalization_package_path": "package.json",
+                "draft_markdown_path": "paper.md",
+                "evidence_bundle_path": "evidence.json",
+                "claim_ledger_path": "claims.json",
+                "manifest_path": "manifest.json",
+            },
+            {
+                "paper_id": "paper-imported",
+                "paper_status": "publication_draft",
+                "review_status": "finalized",
+                "finalization_package_path": "package.json",
+                "corpus_imported": True,
+            },
         ):
             translated = operator_stage_for_record(row)
-            labels = (translated["operator_stage_label"], translated["operator_detail_stage_label"])
+            labels = (
+                translated["operator_stage_label"],
+                translated["operator_detail_stage_label"],
+            )
             for label in labels:
                 for word in risky_words:
                     self.assertNotIn(word, label)
@@ -350,108 +600,144 @@ class OperatorStatusTests(unittest.TestCase):
             project_dir.mkdir(parents=True)
             _write_decision(project_dir, "finalize_positive")
             _write_publication_artifacts(project_dir)
-            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
-                "idempotency_key": "operator-status-import",
-                "queue_rows": [
-                    {
-                        "project_id": "idea-draft-needed",
-                        "project_name": "Draft Needed",
-                        "project_dir": str(project_dir),
-                        "status": "completed",
-                        "last_run_state": "wake_ready",
-                        "next_action_hint": "draft_paper_or_select_next_project",
-                        "current_run_id": "run-draft-needed",
-                    },
-                    {
-                        "project_id": "idea-ready",
-                        "project_name": "Ready Paper",
-                        "project_dir": str(project_dir),
-                        "status": "completed",
-                        "last_run_state": "wake_ready",
-                        "next_action_hint": "draft_paper_or_select_next_project",
-                        "current_run_id": "run-ready",
-                    },
-                    {
-                        "project_id": "idea-unreviewed",
-                        "project_name": "Unreviewed Paper",
-                        "project_dir": str(project_dir),
-                        "status": "completed",
-                        "last_run_state": "session_finished_ready",
-                        "next_action_hint": "draft_paper_or_select_next_project",
-                        "current_run_id": "run-unreviewed",
-                    },
-                ],
-                "paper_rows": [
-                    {
-                        "paper_id": "paper-ready",
-                        "project_id": "idea-ready",
-                        "run_id": "run-ready",
-                        "paper_status": "publication_draft",
-                        "draft_markdown_path": "paper.md",
-                        "draft_latex_path": "paper.tex",
-                        "evidence_bundle_path": "evidence_bundle.json",
-                        "claim_ledger_path": "claim_ledger.json",
-                        "manifest_path": "paper_manifest.json",
-                    },
-                    {
-                        "paper_id": "paper-unreviewed",
-                        "project_id": "idea-unreviewed",
-                        "run_id": "run-unreviewed",
-                        "paper_status": "publication_draft",
-                        "draft_markdown_path": "paper.md",
-                        "draft_latex_path": "paper.tex",
-                        "evidence_bundle_path": "evidence_bundle.json",
-                        "claim_ledger_path": "claim_ledger.json",
-                        "manifest_path": "paper_manifest.json",
-                    },
-                ],
-            })
+            imported = client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "operator-status-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "idea-draft-needed",
+                            "project_name": "Draft Needed",
+                            "project_dir": str(project_dir),
+                            "status": "completed",
+                            "last_run_state": "wake_ready",
+                            "next_action_hint": "draft_paper_or_select_next_project",
+                            "current_run_id": "run-draft-needed",
+                        },
+                        {
+                            "project_id": "idea-ready",
+                            "project_name": "Ready Paper",
+                            "project_dir": str(project_dir),
+                            "status": "completed",
+                            "last_run_state": "wake_ready",
+                            "next_action_hint": "draft_paper_or_select_next_project",
+                            "current_run_id": "run-ready",
+                        },
+                        {
+                            "project_id": "idea-unreviewed",
+                            "project_name": "Unreviewed Paper",
+                            "project_dir": str(project_dir),
+                            "status": "completed",
+                            "last_run_state": "session_finished_ready",
+                            "next_action_hint": "draft_paper_or_select_next_project",
+                            "current_run_id": "run-unreviewed",
+                        },
+                    ],
+                    "paper_rows": [
+                        {
+                            "paper_id": "paper-ready",
+                            "project_id": "idea-ready",
+                            "run_id": "run-ready",
+                            "paper_status": "publication_draft",
+                            "draft_markdown_path": "paper.md",
+                            "draft_latex_path": "paper.tex",
+                            "evidence_bundle_path": "evidence_bundle.json",
+                            "claim_ledger_path": "claim_ledger.json",
+                            "manifest_path": "paper_manifest.json",
+                        },
+                        {
+                            "paper_id": "paper-unreviewed",
+                            "project_id": "idea-unreviewed",
+                            "run_id": "run-unreviewed",
+                            "paper_status": "publication_draft",
+                            "draft_markdown_path": "paper.md",
+                            "draft_latex_path": "paper.tex",
+                            "evidence_bundle_path": "evidence_bundle.json",
+                            "claim_ledger_path": "claim_ledger.json",
+                            "manifest_path": "paper_manifest.json",
+                        },
+                    ],
+                },
+            )
             self.assertEqual(imported.status_code, 200)
-            backfill = client.post("/control/api/paper-reviews/backfill", headers=headers, json={
-                "idempotency_key": "operator-status-backfill",
-                "dry_run": False,
-            })
+            backfill = client.post(
+                "/control/api/paper-reviews/backfill",
+                headers=headers,
+                json={
+                    "idempotency_key": "operator-status-backfill",
+                    "dry_run": False,
+                },
+            )
             self.assertEqual(backfill.status_code, 200, backfill.text)
-            approved_paper = client.get("/control/api/v1/papers/paper-ready", headers=headers).json()
-            self.assertEqual(approved_paper["paper"]["operator_detail_stage"], "finalization_needed")
-            finalized = client.post("/control/api/paper-reviews/paper-ready/prepare-finalization-package", headers=headers, json={
-                "idempotency_key": "operator-status-finalized",
-                "requested_by": "test",
-                "target_label": "operator-status",
-                "dry_run": False,
-            })
+            approved_paper = client.get(
+                "/control/api/v1/papers/paper-ready", headers=headers
+            ).json()
+            self.assertEqual(
+                approved_paper["paper"]["operator_detail_stage"], "finalization_needed"
+            )
+            finalized = client.post(
+                "/control/api/paper-reviews/paper-ready/prepare-finalization-package",
+                headers=headers,
+                json={
+                    "idempotency_key": "operator-status-finalized",
+                    "requested_by": "test",
+                    "target_label": "operator-status",
+                    "dry_run": False,
+                },
+            )
             self.assertEqual(finalized.status_code, 200, finalized.text)
 
             overview = client.get("/control/api/v1/overview", headers=headers).json()
             self.assertIn("operator_counts", overview)
             self.assertIn("operator_model", overview)
             self.assertEqual(overview["operator_counts"]["ready_to_publish"], 1)
-            self.assertEqual(overview["operator_detail_counts"]["run_complete_draft_needed"], 1)
+            self.assertEqual(
+                overview["operator_detail_counts"]["run_complete_draft_needed"], 1
+            )
             self.assertIn("paper_pipeline", overview)
             self.assertIn("write_needed", overview["paper_pipeline"])
             self.assertEqual(overview["paper_pipeline"]["publish_ready"], 1)
             self.assertEqual(overview["operator_counts"].get("needs_attention", 0), 0)
 
-            queue = client.get("/control/api/v1/queue?page_size=3&sort=name", headers=headers).json()
+            queue = client.get(
+                "/control/api/v1/queue?page_size=3&sort=name", headers=headers
+            ).json()
             stages = {row["project_id"]: row["operator_stage"] for row in queue["rows"]}
-            detail_stages = {row["project_id"]: row["operator_detail_stage"] for row in queue["rows"]}
+            detail_stages = {
+                row["project_id"]: row["operator_detail_stage"] for row in queue["rows"]
+            }
             self.assertEqual(stages["idea-draft-needed"], "write_paper")
-            self.assertEqual(detail_stages["idea-draft-needed"], "run_complete_draft_needed")
+            self.assertEqual(
+                detail_stages["idea-draft-needed"], "run_complete_draft_needed"
+            )
             self.assertIn("operator_next_step", queue["rows"][0])
 
-            papers = client.get("/control/api/v1/papers?page_size=10", headers=headers).json()
-            paper_stages = {row["paper_id"]: row["operator_stage"] for row in papers["rows"]}
-            paper_detail_stages = {row["paper_id"]: row["operator_detail_stage"] for row in papers["rows"]}
+            papers = client.get(
+                "/control/api/v1/papers?page_size=10", headers=headers
+            ).json()
+            paper_stages = {
+                row["paper_id"]: row["operator_stage"] for row in papers["rows"]
+            }
+            paper_detail_stages = {
+                row["paper_id"]: row["operator_detail_stage"] for row in papers["rows"]
+            }
             self.assertEqual(paper_stages["paper-ready"], "ready_to_publish")
             self.assertEqual(paper_stages["paper-unreviewed"], "automate_publication")
-            self.assertEqual(paper_detail_stages["paper-unreviewed"], "finalization_needed")
+            self.assertEqual(
+                paper_detail_stages["paper-unreviewed"], "finalization_needed"
+            )
 
-            detail = client.get("/control/api/v1/projects/idea-ready", headers=headers).json()
+            detail = client.get(
+                "/control/api/v1/projects/idea-ready", headers=headers
+            ).json()
             self.assertEqual(detail["queue_item"]["operator_stage"], "ready_to_publish")
             self.assertEqual(detail["queue_item"]["related_paper_id"], "paper-ready")
             self.assertEqual(detail["papers"][0]["operator_stage"], "ready_to_publish")
 
-    def test_corpus_import_ledger_removes_publication_draft_from_publish_work(self) -> None:
+    def test_corpus_import_ledger_removes_publication_draft_from_publish_work(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
             headers = {"Authorization": f"Bearer {TOKEN}"}
@@ -459,42 +745,58 @@ class OperatorStatusTests(unittest.TestCase):
             project_dir.mkdir(parents=True)
             _write_decision(project_dir, "finalize_positive")
             _write_publication_artifacts(project_dir)
-            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
-                "idempotency_key": "operator-imported-ledger-import",
-                "queue_rows": [{
-                    "project_id": "idea-imported",
-                    "project_name": "Imported Paper",
-                    "project_dir": str(project_dir),
-                    "status": "completed",
-                    "last_run_state": "wake_ready",
-                    "next_action_hint": "draft_paper_or_select_next_project",
-                    "current_run_id": "run-imported",
-                }],
-                "paper_rows": [{
-                    "paper_id": "paper-imported",
-                    "project_id": "idea-imported",
-                    "run_id": "run-imported",
-                    "paper_status": "publication_draft",
-                    "draft_markdown_path": "paper.md",
-                    "draft_latex_path": "paper.tex",
-                    "evidence_bundle_path": "evidence_bundle.json",
-                    "claim_ledger_path": "claim_ledger.json",
-                    "manifest_path": "paper_manifest.json",
-                }],
-            })
+            imported = client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "operator-imported-ledger-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "idea-imported",
+                            "project_name": "Imported Paper",
+                            "project_dir": str(project_dir),
+                            "status": "completed",
+                            "last_run_state": "wake_ready",
+                            "next_action_hint": "draft_paper_or_select_next_project",
+                            "current_run_id": "run-imported",
+                        }
+                    ],
+                    "paper_rows": [
+                        {
+                            "paper_id": "paper-imported",
+                            "project_id": "idea-imported",
+                            "run_id": "run-imported",
+                            "paper_status": "publication_draft",
+                            "draft_markdown_path": "paper.md",
+                            "draft_latex_path": "paper.tex",
+                            "evidence_bundle_path": "evidence_bundle.json",
+                            "claim_ledger_path": "claim_ledger.json",
+                            "manifest_path": "paper_manifest.json",
+                        }
+                    ],
+                },
+            )
             self.assertEqual(imported.status_code, 200, imported.text)
-            backfill = client.post("/control/api/paper-reviews/backfill", headers=headers, json={
-                "idempotency_key": "operator-imported-ledger-backfill",
-                "paper_ids": ["paper-imported"],
-                "dry_run": False,
-            })
+            backfill = client.post(
+                "/control/api/paper-reviews/backfill",
+                headers=headers,
+                json={
+                    "idempotency_key": "operator-imported-ledger-backfill",
+                    "paper_ids": ["paper-imported"],
+                    "dry_run": False,
+                },
+            )
             self.assertEqual(backfill.status_code, 200, backfill.text)
-            finalized = client.post("/control/api/paper-reviews/paper-imported/prepare-finalization-package", headers=headers, json={
-                "idempotency_key": "operator-imported-ledger-finalized",
-                "requested_by": "test",
-                "target_label": "operator-imported-ledger",
-                "dry_run": False,
-            })
+            finalized = client.post(
+                "/control/api/paper-reviews/paper-imported/prepare-finalization-package",
+                headers=headers,
+                json={
+                    "idempotency_key": "operator-imported-ledger-finalized",
+                    "requested_by": "test",
+                    "target_label": "operator-imported-ledger",
+                    "dry_run": False,
+                },
+            )
             self.assertEqual(finalized.status_code, 200, finalized.text)
 
             with sqlite3.connect(Path(tmp) / "state" / "control_plane.sqlite3") as conn:
@@ -529,39 +831,53 @@ class OperatorStatusTests(unittest.TestCase):
             self.assertEqual(overview["paper_pipeline"]["published_imported"], 1)
             self.assertEqual(overview["paper_pipeline"]["publication_ready_total"], 1)
 
-            detail = client.get("/control/api/v1/projects/idea-imported", headers=headers).json()
+            detail = client.get(
+                "/control/api/v1/projects/idea-imported", headers=headers
+            ).json()
             self.assertEqual(detail["queue_item"]["operator_stage"], "published")
             self.assertEqual(detail["papers"][0]["operator_stage"], "published")
 
-    def test_overview_suppresses_stale_queue_without_run_id_by_project_fallback(self) -> None:
+    def test_overview_suppresses_stale_queue_without_run_id_by_project_fallback(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
             headers = {"Authorization": f"Bearer {TOKEN}"}
             project_dir = Path(tmp) / "projects" / "idea-no-run"
             project_dir.mkdir(parents=True)
             _write_decision(project_dir, "finalize_positive")
-            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
-                "idempotency_key": "operator-no-run-import",
-                "queue_rows": [{
-                    "project_id": "idea-no-run",
-                    "project_name": "No Run Queue",
-                    "project_dir": str(project_dir),
-                    "status": "completed",
-                    "last_run_state": "wake_ready",
-                    "next_action_hint": "draft_paper_or_select_next_project",
-                }],
-                "paper_rows": [{
-                    "paper_id": "paper-with-run",
-                    "project_id": "idea-no-run",
-                    "run_id": "run-known-paper",
-                    "paper_status": "publication_draft",
-                }],
-            })
+            imported = client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "operator-no-run-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "idea-no-run",
+                            "project_name": "No Run Queue",
+                            "project_dir": str(project_dir),
+                            "status": "completed",
+                            "last_run_state": "wake_ready",
+                            "next_action_hint": "draft_paper_or_select_next_project",
+                        }
+                    ],
+                    "paper_rows": [
+                        {
+                            "paper_id": "paper-with-run",
+                            "project_id": "idea-no-run",
+                            "run_id": "run-known-paper",
+                            "paper_status": "publication_draft",
+                        }
+                    ],
+                },
+            )
             self.assertEqual(imported.status_code, 200, imported.text)
 
             overview = client.get("/control/api/v1/overview", headers=headers).json()
             self.assertNotIn("run_complete_draft_needed", overview["operator_counts"])
-            self.assertNotIn("run_complete_draft_needed", overview.get("operator_detail_counts", {}))
+            self.assertNotIn(
+                "run_complete_draft_needed", overview.get("operator_detail_counts", {})
+            )
             self.assertEqual(overview["operator_counts"].get("needs_attention", 0), 0)
 
     def test_overview_suppresses_project_level_duplicate_draft_needed(self) -> None:
@@ -571,32 +887,44 @@ class OperatorStatusTests(unittest.TestCase):
             project_dir = Path(tmp) / "projects" / "idea-rerun"
             project_dir.mkdir(parents=True)
             _write_decision(project_dir, "finalize_positive")
-            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
-                "idempotency_key": "operator-rerun-import",
-                "queue_rows": [{
-                    "project_id": "idea-rerun",
-                    "project_name": "Rerun Project",
-                    "project_dir": str(project_dir),
-                    "status": "completed",
-                    "last_run_state": "wake_ready",
-                    "next_action_hint": "draft_paper_or_select_next_project",
-                    "current_run_id": "run-new",
-                }],
-                "paper_rows": [{
-                    "paper_id": "paper-old",
-                    "project_id": "idea-rerun",
-                    "run_id": "run-old",
-                    "paper_status": "publication_draft",
-                }],
-            })
+            imported = client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "operator-rerun-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "idea-rerun",
+                            "project_name": "Rerun Project",
+                            "project_dir": str(project_dir),
+                            "status": "completed",
+                            "last_run_state": "wake_ready",
+                            "next_action_hint": "draft_paper_or_select_next_project",
+                            "current_run_id": "run-new",
+                        }
+                    ],
+                    "paper_rows": [
+                        {
+                            "paper_id": "paper-old",
+                            "project_id": "idea-rerun",
+                            "run_id": "run-old",
+                            "paper_status": "publication_draft",
+                        }
+                    ],
+                },
+            )
             self.assertEqual(imported.status_code, 200, imported.text)
 
             overview = client.get("/control/api/v1/overview", headers=headers).json()
-            self.assertNotIn("run_complete_draft_needed", overview.get("operator_detail_counts", {}))
+            self.assertNotIn(
+                "run_complete_draft_needed", overview.get("operator_detail_counts", {})
+            )
             self.assertEqual(overview["paper_pipeline"]["write_needed"], 0)
             self.assertEqual(overview["operator_counts"].get("needs_attention", 0), 0)
 
-    def test_overview_counts_unbackfilled_publication_drafts_and_suppresses_stale_queue_actions(self) -> None:
+    def test_overview_counts_unbackfilled_publication_drafts_and_suppresses_stale_queue_actions(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
             headers = {"Authorization": f"Bearer {TOKEN}"}
@@ -604,88 +932,121 @@ class OperatorStatusTests(unittest.TestCase):
             project_dir.mkdir(parents=True)
             _write_decision(project_dir, "finalize_positive")
             _write_publication_artifacts(project_dir)
-            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
-                "idempotency_key": "operator-unbackfilled-import",
-                "queue_rows": [
-                    {
-                        "project_id": "idea-unbackfilled",
-                        "project_name": "Unbackfilled Paper",
-                        "project_dir": str(project_dir),
-                        "status": "completed",
-                        "last_run_state": "wake_ready",
-                        "next_action_hint": "draft_paper_or_select_next_project",
-                        "current_run_id": "run-unbackfilled",
-                    },
-                    {
-                        "project_id": "idea-ready-stale",
-                        "project_name": "Ready But Stale Queue",
-                        "project_dir": str(project_dir),
-                        "status": "completed",
-                        "last_run_state": "wake_ready",
-                        "next_action_hint": "draft_paper_or_select_next_project",
-                        "current_run_id": "run-ready-stale",
-                    },
-                ],
-                "paper_rows": [
-                    {
-                        "paper_id": "paper-unbackfilled",
-                        "project_id": "idea-unbackfilled",
-                        "run_id": "run-unbackfilled",
-                        "paper_status": "publication_draft",
-                        "draft_markdown_path": "paper.md",
-                        "draft_latex_path": "paper.tex",
-                        "evidence_bundle_path": "evidence_bundle.json",
-                        "claim_ledger_path": "claim_ledger.json",
-                        "manifest_path": "paper_manifest.json",
-                    },
-                    {
-                        "paper_id": "paper-ready-stale",
-                        "project_id": "idea-ready-stale",
-                        "run_id": "run-ready-stale",
-                        "paper_status": "publication_draft",
-                        "draft_markdown_path": "paper.md",
-                        "draft_latex_path": "paper.tex",
-                        "evidence_bundle_path": "evidence_bundle.json",
-                        "claim_ledger_path": "claim_ledger.json",
-                        "manifest_path": "paper_manifest.json",
-                    },
-                ],
-            })
+            imported = client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "operator-unbackfilled-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "idea-unbackfilled",
+                            "project_name": "Unbackfilled Paper",
+                            "project_dir": str(project_dir),
+                            "status": "completed",
+                            "last_run_state": "wake_ready",
+                            "next_action_hint": "draft_paper_or_select_next_project",
+                            "current_run_id": "run-unbackfilled",
+                        },
+                        {
+                            "project_id": "idea-ready-stale",
+                            "project_name": "Ready But Stale Queue",
+                            "project_dir": str(project_dir),
+                            "status": "completed",
+                            "last_run_state": "wake_ready",
+                            "next_action_hint": "draft_paper_or_select_next_project",
+                            "current_run_id": "run-ready-stale",
+                        },
+                    ],
+                    "paper_rows": [
+                        {
+                            "paper_id": "paper-unbackfilled",
+                            "project_id": "idea-unbackfilled",
+                            "run_id": "run-unbackfilled",
+                            "paper_status": "publication_draft",
+                            "draft_markdown_path": "paper.md",
+                            "draft_latex_path": "paper.tex",
+                            "evidence_bundle_path": "evidence_bundle.json",
+                            "claim_ledger_path": "claim_ledger.json",
+                            "manifest_path": "paper_manifest.json",
+                        },
+                        {
+                            "paper_id": "paper-ready-stale",
+                            "project_id": "idea-ready-stale",
+                            "run_id": "run-ready-stale",
+                            "paper_status": "publication_draft",
+                            "draft_markdown_path": "paper.md",
+                            "draft_latex_path": "paper.tex",
+                            "evidence_bundle_path": "evidence_bundle.json",
+                            "claim_ledger_path": "claim_ledger.json",
+                            "manifest_path": "paper_manifest.json",
+                        },
+                    ],
+                },
+            )
             self.assertEqual(imported.status_code, 200, imported.text)
             with sqlite3.connect(Path(tmp) / "state" / "control_plane.sqlite3") as conn:
                 conn.execute(
                     """INSERT INTO runs(run_id, project_id, session_id, state, dispatch_mode, started_at, ended_at, last_callback_at, gate_state, current_activity, idempotency_key, updated_at)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    ("run-with-paper", "idea-with-paper", "session-with-paper", "wake_ready", "live", "2026-05-04T12:00:00+00:00", "2026-05-04T12:10:00+00:00", "2026-05-04T12:10:00+00:00", "wake_ready", "worker_callback", "run-with-paper-key", "2026-05-04T12:10:00+00:00"),
+                    (
+                        "run-with-paper",
+                        "idea-with-paper",
+                        "session-with-paper",
+                        "wake_ready",
+                        "live",
+                        "2026-05-04T12:00:00+00:00",
+                        "2026-05-04T12:10:00+00:00",
+                        "2026-05-04T12:10:00+00:00",
+                        "wake_ready",
+                        "worker_callback",
+                        "run-with-paper-key",
+                        "2026-05-04T12:10:00+00:00",
+                    ),
                 )
-            backfill = client.post("/control/api/paper-reviews/backfill", headers=headers, json={
-                "idempotency_key": "operator-ready-stale-backfill",
-                "paper_ids": ["paper-ready-stale"],
-                "dry_run": False,
-            })
+            backfill = client.post(
+                "/control/api/paper-reviews/backfill",
+                headers=headers,
+                json={
+                    "idempotency_key": "operator-ready-stale-backfill",
+                    "paper_ids": ["paper-ready-stale"],
+                    "dry_run": False,
+                },
+            )
             self.assertEqual(backfill.status_code, 200, backfill.text)
-            finalized = client.post("/control/api/paper-reviews/paper-ready-stale/prepare-finalization-package", headers=headers, json={
-                "idempotency_key": "operator-ready-stale-finalized",
-                "requested_by": "test",
-                "target_label": "operator-ready-stale",
-                "dry_run": False,
-            })
+            finalized = client.post(
+                "/control/api/paper-reviews/paper-ready-stale/prepare-finalization-package",
+                headers=headers,
+                json={
+                    "idempotency_key": "operator-ready-stale-finalized",
+                    "requested_by": "test",
+                    "target_label": "operator-ready-stale",
+                    "dry_run": False,
+                },
+            )
             self.assertEqual(finalized.status_code, 200, finalized.text)
 
             overview = client.get("/control/api/v1/overview", headers=headers).json()
             self.assertEqual(overview["operator_counts"].get("needs_attention", 0), 0)
             self.assertEqual(overview["operator_counts"]["ready_to_publish"], 1)
             self.assertNotIn("run_complete_draft_needed", overview["operator_counts"])
-            self.assertNotIn("run_complete_draft_needed", overview.get("operator_detail_counts", {}))
+            self.assertNotIn(
+                "run_complete_draft_needed", overview.get("operator_detail_counts", {})
+            )
 
-            papers = client.get("/control/api/v1/papers?page_size=10", headers=headers).json()
-            paper_stages = {row["paper_id"]: row["operator_stage"] for row in papers["rows"]}
-            paper_detail_stages = {row["paper_id"]: row["operator_detail_stage"] for row in papers["rows"]}
+            papers = client.get(
+                "/control/api/v1/papers?page_size=10", headers=headers
+            ).json()
+            paper_stages = {
+                row["paper_id"]: row["operator_stage"] for row in papers["rows"]
+            }
+            paper_detail_stages = {
+                row["paper_id"]: row["operator_detail_stage"] for row in papers["rows"]
+            }
             self.assertEqual(paper_stages["paper-unbackfilled"], "automate_publication")
-            self.assertEqual(paper_detail_stages["paper-unbackfilled"], "finalization_needed")
+            self.assertEqual(
+                paper_detail_stages["paper-unbackfilled"], "finalization_needed"
+            )
             self.assertEqual(paper_stages["paper-ready-stale"], "ready_to_publish")
-
-
 
     def test_existing_finalized_paper_controls_queue_and_run_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -695,65 +1056,102 @@ class OperatorStatusTests(unittest.TestCase):
             project_dir.mkdir(parents=True)
             _write_decision(project_dir, "provisional_positive_continue")
             _write_publication_artifacts(project_dir)
-            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
-                "idempotency_key": "operator-existing-paper-import",
-                "queue_rows": [{
-                    "project_id": "idea-with-paper",
-                    "project_name": "Existing Paper",
-                    "project_dir": str(project_dir),
-                    "status": "completed",
-                    "last_run_state": "wake_ready",
-                    "next_action_hint": "draft_paper_or_select_next_project",
-                    "current_run_id": "run-with-paper",
-                }],
-                "run_rows": [{
-                    "run_id": "run-with-paper",
-                    "project_id": "idea-with-paper",
-                    "state": "wake_ready",
-                    "gate_state": "wake_ready",
-                    "current_activity": "worker_callback",
-                }],
-                "paper_rows": [{
-                    "paper_id": "paper-existing",
-                    "project_id": "idea-with-paper",
-                    "run_id": "run-with-paper",
-                    "paper_status": "publication_draft",
-                    "draft_markdown_path": "paper.md",
-                    "draft_latex_path": "paper.tex",
-                    "evidence_bundle_path": "evidence_bundle.json",
-                    "claim_ledger_path": "claim_ledger.json",
-                    "manifest_path": "paper_manifest.json",
-                }],
-            })
+            imported = client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "operator-existing-paper-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "idea-with-paper",
+                            "project_name": "Existing Paper",
+                            "project_dir": str(project_dir),
+                            "status": "completed",
+                            "last_run_state": "wake_ready",
+                            "next_action_hint": "draft_paper_or_select_next_project",
+                            "current_run_id": "run-with-paper",
+                        }
+                    ],
+                    "run_rows": [
+                        {
+                            "run_id": "run-with-paper",
+                            "project_id": "idea-with-paper",
+                            "state": "wake_ready",
+                            "gate_state": "wake_ready",
+                            "current_activity": "worker_callback",
+                        }
+                    ],
+                    "paper_rows": [
+                        {
+                            "paper_id": "paper-existing",
+                            "project_id": "idea-with-paper",
+                            "run_id": "run-with-paper",
+                            "paper_status": "publication_draft",
+                            "draft_markdown_path": "paper.md",
+                            "draft_latex_path": "paper.tex",
+                            "evidence_bundle_path": "evidence_bundle.json",
+                            "claim_ledger_path": "claim_ledger.json",
+                            "manifest_path": "paper_manifest.json",
+                        }
+                    ],
+                },
+            )
             self.assertEqual(imported.status_code, 200, imported.text)
             with sqlite3.connect(Path(tmp) / "state" / "control_plane.sqlite3") as conn:
                 conn.execute(
                     """INSERT INTO runs(run_id, project_id, session_id, state, dispatch_mode, started_at, ended_at, last_callback_at, gate_state, current_activity, idempotency_key, updated_at)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    ("run-with-paper", "idea-with-paper", "session-with-paper", "wake_ready", "live", "2026-05-04T12:00:00+00:00", "2026-05-04T12:10:00+00:00", "2026-05-04T12:10:00+00:00", "wake_ready", "worker_callback", "run-with-paper-key", "2026-05-04T12:10:00+00:00"),
+                    (
+                        "run-with-paper",
+                        "idea-with-paper",
+                        "session-with-paper",
+                        "wake_ready",
+                        "live",
+                        "2026-05-04T12:00:00+00:00",
+                        "2026-05-04T12:10:00+00:00",
+                        "2026-05-04T12:10:00+00:00",
+                        "wake_ready",
+                        "worker_callback",
+                        "run-with-paper-key",
+                        "2026-05-04T12:10:00+00:00",
+                    ),
                 )
-            backfill = client.post("/control/api/paper-reviews/backfill", headers=headers, json={
-                "idempotency_key": "operator-existing-paper-backfill",
-                "paper_ids": ["paper-existing"],
-                "dry_run": False,
-            })
+            backfill = client.post(
+                "/control/api/paper-reviews/backfill",
+                headers=headers,
+                json={
+                    "idempotency_key": "operator-existing-paper-backfill",
+                    "paper_ids": ["paper-existing"],
+                    "dry_run": False,
+                },
+            )
             self.assertEqual(backfill.status_code, 200, backfill.text)
-            finalized = client.post("/control/api/paper-reviews/paper-existing/prepare-finalization-package", headers=headers, json={
-                "idempotency_key": "operator-existing-paper-finalized",
-                "requested_by": "test",
-                "target_label": "operator-existing-paper",
-                "dry_run": False,
-            })
+            finalized = client.post(
+                "/control/api/paper-reviews/paper-existing/prepare-finalization-package",
+                headers=headers,
+                json={
+                    "idempotency_key": "operator-existing-paper-finalized",
+                    "requested_by": "test",
+                    "target_label": "operator-existing-paper",
+                    "dry_run": False,
+                },
+            )
             self.assertEqual(finalized.status_code, 200, finalized.text)
 
-            detail = client.get("/control/api/v1/projects/idea-with-paper", headers=headers).json()
+            detail = client.get(
+                "/control/api/v1/projects/idea-with-paper", headers=headers
+            ).json()
             self.assertEqual(detail["queue_item"]["operator_stage"], "ready_to_publish")
             self.assertEqual(detail["queue_item"]["related_paper_id"], "paper-existing")
-            runs = client.get("/control/api/v1/runs?search=run-with-paper", headers=headers).json()
+            runs = client.get(
+                "/control/api/v1/runs?search=run-with-paper", headers=headers
+            ).json()
             self.assertEqual(runs["rows"][0]["operator_stage"], "ready_to_publish")
             overview = client.get("/control/api/v1/overview", headers=headers).json()
             self.assertNotIn("run_complete_draft_needed", overview["operator_counts"])
-            self.assertNotIn("run_complete_draft_needed", overview.get("operator_detail_counts", {}))
+            self.assertNotIn(
+                "run_complete_draft_needed", overview.get("operator_detail_counts", {})
+            )
             self.assertEqual(overview["operator_counts"]["ready_to_publish"], 1)
 
     def test_negative_decision_artifact_is_no_paper_not_draft_needed(self) -> None:
@@ -763,33 +1161,48 @@ class OperatorStatusTests(unittest.TestCase):
             project_dir = Path(tmp) / "projects" / "idea-negative"
             project_dir.mkdir(parents=True)
             _write_decision(project_dir, "negative_result")
-            imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
-                "idempotency_key": "operator-negative-import",
-                "queue_rows": [{
-                    "project_id": "idea-negative",
-                    "project_name": "Negative Result",
-                    "project_dir": str(project_dir),
-                    "status": "completed",
-                    "last_run_state": "wake_ready",
-                    "next_action_hint": "draft_paper_or_select_next_project",
-                    "current_run_id": "run-negative",
-                }],
-            })
+            imported = client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "operator-negative-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "idea-negative",
+                            "project_name": "Negative Result",
+                            "project_dir": str(project_dir),
+                            "status": "completed",
+                            "last_run_state": "wake_ready",
+                            "next_action_hint": "draft_paper_or_select_next_project",
+                            "current_run_id": "run-negative",
+                        }
+                    ],
+                },
+            )
             self.assertEqual(imported.status_code, 200, imported.text)
 
-            detail = client.get("/control/api/v1/projects/idea-negative", headers=headers).json()
+            detail = client.get(
+                "/control/api/v1/projects/idea-negative", headers=headers
+            ).json()
             queue_item = detail["queue_item"]
             self.assertEqual(queue_item["operator_stage"], "complete_no_paper")
             self.assertFalse(queue_item["paper_draft_eligible"])
-            self.assertEqual(queue_item["project_decision_summary"], "negative_result (project decision is not positive)")
+            self.assertEqual(
+                queue_item["project_decision_summary"],
+                "negative_result (project decision is not positive)",
+            )
             self.assertIn("No paper draft is needed", queue_item["operator_next_step"])
 
             overview = client.get("/control/api/v1/overview", headers=headers).json()
             self.assertNotIn("run_complete_draft_needed", overview["operator_counts"])
-            self.assertNotIn("run_complete_draft_needed", overview.get("operator_detail_counts", {}))
+            self.assertNotIn(
+                "run_complete_draft_needed", overview.get("operator_detail_counts", {})
+            )
             self.assertEqual(overview["operator_counts"]["complete_no_paper"], 1)
 
-    def test_missing_project_dir_uses_project_id_evidence_fallback_for_gate(self) -> None:
+    def test_missing_project_dir_uses_project_id_evidence_fallback_for_gate(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
             headers = {"Authorization": f"Bearer {TOKEN}"}
@@ -801,24 +1214,34 @@ class OperatorStatusTests(unittest.TestCase):
                 encoding="utf-8",
             )
             config_path = Path(tmp) / "config.json"
-            config_path.write_text(f'{{"project_root": "{Path(tmp) / "projects"}"}}\n', encoding="utf-8")
+            config_path.write_text(
+                f'{{"project_root": "{Path(tmp) / "projects"}"}}\n', encoding="utf-8"
+            )
             with patch.dict("os.environ", {"ENOCH_CONFIG": str(config_path)}):
-                imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
-                    "idempotency_key": "operator-fallback-import",
-                    "queue_rows": [{
-                        "project_id": "idea-fallback",
-                        "project_name": "Fallback Mixed Result",
-                        "project_dir": "",
-                        "status": "completed",
-                        "last_run_state": "wake_ready",
-                        "next_action_hint": "draft_paper_or_select_next_project",
-                        "current_run_id": "run-fallback",
-                        "last_result_summary": "worker completed with artifacts",
-                    }],
-                })
+                imported = client.post(
+                    "/control/import/legacy-snapshot",
+                    headers=headers,
+                    json={
+                        "idempotency_key": "operator-fallback-import",
+                        "queue_rows": [
+                            {
+                                "project_id": "idea-fallback",
+                                "project_name": "Fallback Mixed Result",
+                                "project_dir": "",
+                                "status": "completed",
+                                "last_run_state": "wake_ready",
+                                "next_action_hint": "draft_paper_or_select_next_project",
+                                "current_run_id": "run-fallback",
+                                "last_result_summary": "worker completed with artifacts",
+                            }
+                        ],
+                    },
+                )
                 self.assertEqual(imported.status_code, 200, imported.text)
 
-                detail = client.get("/control/api/v1/projects/idea-fallback", headers=headers).json()
+                detail = client.get(
+                    "/control/api/v1/projects/idea-fallback", headers=headers
+                ).json()
                 queue_item = detail["queue_item"]
                 self.assertEqual(queue_item["operator_stage"], "complete_no_paper")
                 self.assertFalse(queue_item["paper_draft_eligible"])
@@ -827,7 +1250,9 @@ class OperatorStatusTests(unittest.TestCase):
                     "continue (continue decision is not paper-positive)",
                 )
 
-                overview = client.get("/control/api/v1/overview", headers=headers).json()
+                overview = client.get(
+                    "/control/api/v1/overview", headers=headers
+                ).json()
             pipeline = overview["paper_pipeline"]
             self.assertEqual(pipeline["write_needed"], 0)
             self.assertEqual(pipeline["raw_completed_no_paper_candidates"], 1)
@@ -839,24 +1264,34 @@ class OperatorStatusTests(unittest.TestCase):
             client = _client(tmp)
             headers = {"Authorization": f"Bearer {TOKEN}"}
             config_path = Path(tmp) / "config.json"
-            config_path.write_text(f'{{"project_root": "{Path(tmp) / "projects"}"}}\n', encoding="utf-8")
+            config_path.write_text(
+                f'{{"project_root": "{Path(tmp) / "projects"}"}}\n', encoding="utf-8"
+            )
             with patch.dict("os.environ", {"ENOCH_CONFIG": str(config_path)}):
-                imported = client.post("/control/import/legacy-snapshot", headers=headers, json={
-                    "idempotency_key": "operator-missing-decision-import",
-                    "queue_rows": [{
-                        "project_id": "idea-missing-decision",
-                        "project_name": "Missing Decision",
-                        "project_dir": "",
-                        "status": "completed",
-                        "last_run_state": "wake_ready",
-                        "next_action_hint": "draft_paper_or_select_next_project",
-                        "current_run_id": "run-missing-decision",
-                        "last_result_summary": "worker completed with artifacts",
-                    }],
-                })
+                imported = client.post(
+                    "/control/import/legacy-snapshot",
+                    headers=headers,
+                    json={
+                        "idempotency_key": "operator-missing-decision-import",
+                        "queue_rows": [
+                            {
+                                "project_id": "idea-missing-decision",
+                                "project_name": "Missing Decision",
+                                "project_dir": "",
+                                "status": "completed",
+                                "last_run_state": "wake_ready",
+                                "next_action_hint": "draft_paper_or_select_next_project",
+                                "current_run_id": "run-missing-decision",
+                                "last_result_summary": "worker completed with artifacts",
+                            }
+                        ],
+                    },
+                )
                 self.assertEqual(imported.status_code, 200, imported.text)
 
-                overview = client.get("/control/api/v1/overview", headers=headers).json()
+                overview = client.get(
+                    "/control/api/v1/overview", headers=headers
+                ).json()
             pipeline = overview["paper_pipeline"]
             self.assertEqual(pipeline["write_needed"], 0)
             self.assertEqual(pipeline["raw_completed_no_paper_candidates"], 1)

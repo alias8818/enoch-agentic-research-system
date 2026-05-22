@@ -54,7 +54,9 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as fh:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=path.parent, delete=False
+        ) as fh:
             json.dump(payload, fh, indent=2, sort_keys=True)
             fh.write("\n")
             tmp = Path(fh.name)
@@ -81,12 +83,16 @@ def write_pending(state_dir: str | Path, payload: dict[str, Any]) -> Path:
     if path.exists():
         try:
             existing = json.loads(path.read_text(encoding="utf-8"))
-            record["outbox_created_at"] = existing.get("outbox_created_at") or record["outbox_created_at"]
+            record["outbox_created_at"] = (
+                existing.get("outbox_created_at") or record["outbox_created_at"]
+            )
             record["attempt_count"] = int(existing.get("attempt_count") or 0)
             record["last_attempt_at"] = existing.get("last_attempt_at") or ""
             record["last_error"] = existing.get("last_error") or ""
         except Exception as exc:
-            record["last_error"] = f"existing pending metadata unreadable: {type(exc).__name__}: {exc}"
+            record["last_error"] = (
+                f"existing pending metadata unreadable: {type(exc).__name__}: {exc}"
+            )
     _atomic_write_json(path, record)
     _update_local_worker_state(state_dir, record)
     return path
@@ -106,9 +112,13 @@ def _update_local_worker_state(state_dir: str | Path, payload: dict[str, Any]) -
     try:
         record = json.loads(path.read_text(encoding="utf-8"))
         record["gate_state"] = payload.get("gate_state") or record.get("gate_state")
-        record["last_idempotency_key"] = payload.get("idempotency_key") or record.get("last_idempotency_key")
+        record["last_idempotency_key"] = payload.get("idempotency_key") or record.get(
+            "last_idempotency_key"
+        )
         if payload.get("gate_state") == "gate_error":
-            record["last_error"] = payload.get("reason") or record.get("last_error") or "gate_error"
+            record["last_error"] = (
+                payload.get("reason") or record.get("last_error") or "gate_error"
+            )
         record["updated_at"] = utc_now()
         _atomic_write_json(path, record)
         return ""
@@ -116,7 +126,9 @@ def _update_local_worker_state(state_dir: str | Path, payload: dict[str, Any]) -
         return f"local worker state update failed: {type(exc).__name__}: {exc}"
 
 
-def _mark_local_worker_state_delivered(state_dir: str | Path, payload: dict[str, Any]) -> str:
+def _mark_local_worker_state_delivered(
+    state_dir: str | Path, payload: dict[str, Any]
+) -> str:
     return _update_local_worker_state(state_dir, payload)
 
 
@@ -128,7 +140,9 @@ class DeliveryResult:
     path: str = ""
 
 
-def deliver_payload(payload: dict[str, Any], *, url: str, token: str, timeout: float) -> DeliveryResult:
+def deliver_payload(
+    payload: dict[str, Any], *, url: str, token: str, timeout: float
+) -> DeliveryResult:
     try:
         safe_url = validate_http_url(url, field_name="callback url")
     except ValueError as exc:
@@ -137,13 +151,18 @@ def deliver_payload(payload: dict[str, Any], *, url: str, token: str, timeout: f
     req = request.Request(
         safe_url,
         data=data,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
         method="POST",
     )
     try:
         with request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - operator-configured callback URL
             body = resp.read(4096).decode("utf-8", errors="replace")
-            return DeliveryResult(ok=200 <= resp.status < 300, status_code=resp.status, detail=body)
+            return DeliveryResult(
+                ok=200 <= resp.status < 300, status_code=resp.status, detail=body
+            )
     except error.HTTPError as exc:
         body = exc.read(4096).decode("utf-8", errors="replace")
         return DeliveryResult(ok=False, status_code=exc.code, detail=body)
@@ -159,15 +178,25 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
         return False
 
 
-def deliver_pending_file(path: str | Path, *, state_dir: str | Path, url: str, token: str, timeout: float) -> DeliveryResult:
+def deliver_pending_file(
+    path: str | Path, *, state_dir: str | Path, url: str, token: str, timeout: float
+) -> DeliveryResult:
     try:
         pending = Path(path).expanduser()
         pending_resolved = pending.resolve(strict=False)
         outbox_resolved = outbox_dir(state_dir).resolve(strict=False)
     except Exception as exc:
-        return DeliveryResult(ok=False, detail=f"invalid callback outbox path: {type(exc).__name__}: {exc}", path=str(path))
+        return DeliveryResult(
+            ok=False,
+            detail=f"invalid callback outbox path: {type(exc).__name__}: {exc}",
+            path=str(path),
+        )
     if not _is_relative_to(pending_resolved, outbox_resolved):
-        return DeliveryResult(ok=False, detail="pending callback path is outside callback outbox", path=str(pending))
+        return DeliveryResult(
+            ok=False,
+            detail="pending callback path is outside callback outbox",
+            path=str(pending),
+        )
     try:
         payload = json.loads(pending.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -192,24 +221,57 @@ def deliver_pending_file(path: str | Path, *, state_dir: str | Path, url: str, t
         if local_state_error:
             payload["local_worker_state_error"] = local_state_error
             _atomic_write_json(dest, payload)
-            detail = f"{result.detail}\n{local_state_error}" if result.detail else local_state_error
-            return DeliveryResult(ok=True, status_code=result.status_code, detail=detail, path=str(dest))
-        return DeliveryResult(ok=True, status_code=result.status_code, detail=result.detail, path=str(dest))
+            detail = (
+                f"{result.detail}\n{local_state_error}"
+                if result.detail
+                else local_state_error
+            )
+            return DeliveryResult(
+                ok=True, status_code=result.status_code, detail=detail, path=str(dest)
+            )
+        return DeliveryResult(
+            ok=True,
+            status_code=result.status_code,
+            detail=result.detail,
+            path=str(dest),
+        )
     payload["last_error"] = result.detail
     _atomic_write_json(pending, payload)
-    return DeliveryResult(ok=False, status_code=result.status_code, detail=result.detail, path=str(pending))
+    return DeliveryResult(
+        ok=False,
+        status_code=result.status_code,
+        detail=result.detail,
+        path=str(pending),
+    )
 
 
-def replay_pending(*, state_dir: str | Path, url: str, token: str, timeout: float = 30.0, limit: int = 20) -> list[DeliveryResult]:
+def replay_pending(
+    *,
+    state_dir: str | Path,
+    url: str,
+    token: str,
+    timeout: float = 30.0,
+    limit: int = 20,
+) -> list[DeliveryResult]:
     if not url or not token:
         return []
-    pending = sorted(outbox_dir(state_dir).glob("*.json"), key=lambda p: p.stat().st_mtime)[: max(0, limit)]
+    pending = sorted(
+        outbox_dir(state_dir).glob("*.json"), key=lambda p: p.stat().st_mtime
+    )[: max(0, limit)]
     results: list[DeliveryResult] = []
     for path in pending:
         try:
-            results.append(deliver_pending_file(path, state_dir=state_dir, url=url, token=token, timeout=timeout))
+            results.append(
+                deliver_pending_file(
+                    path, state_dir=state_dir, url=url, token=token, timeout=timeout
+                )
+            )
         except Exception as exc:
-            results.append(DeliveryResult(ok=False, detail=f"{type(exc).__name__}: {exc}", path=str(path)))
+            results.append(
+                DeliveryResult(
+                    ok=False, detail=f"{type(exc).__name__}: {exc}", path=str(path)
+                )
+            )
     return results
 
 
@@ -228,14 +290,22 @@ def main(argv: list[str] | None = None) -> int:
     deliver.add_argument("--url", required=True)
     deliver_token = deliver.add_mutually_exclusive_group(required=True)
     deliver_token.add_argument("--token")
-    deliver_token.add_argument("--token-stdin", action="store_true", help="read bearer token from stdin instead of argv")
+    deliver_token.add_argument(
+        "--token-stdin",
+        action="store_true",
+        help="read bearer token from stdin instead of argv",
+    )
     deliver.add_argument("--timeout", type=float, default=30.0)
     replay = sub.add_parser("replay")
     replay.add_argument("--state-dir", required=True)
     replay.add_argument("--url", required=True)
     replay_token = replay.add_mutually_exclusive_group(required=True)
     replay_token.add_argument("--token")
-    replay_token.add_argument("--token-stdin", action="store_true", help="read bearer token from stdin instead of argv")
+    replay_token.add_argument(
+        "--token-stdin",
+        action="store_true",
+        help="read bearer token from stdin instead of argv",
+    )
     replay.add_argument("--timeout", type=float, default=30.0)
     replay.add_argument("--limit", type=int, default=20)
     args = parser.parse_args(argv)
@@ -247,13 +317,33 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "deliver":
         token = sys.stdin.read().rstrip("\r\n") if args.token_stdin else args.token
-        result = deliver_pending_file(pending_path(args.state_dir, args.run_id), state_dir=args.state_dir, url=args.url, token=token, timeout=args.timeout)
+        result = deliver_pending_file(
+            pending_path(args.state_dir, args.run_id),
+            state_dir=args.state_dir,
+            url=args.url,
+            token=token,
+            timeout=args.timeout,
+        )
         print(json.dumps(result.__dict__, sort_keys=True))
         return 0 if result.ok else 1
     if args.cmd == "replay":
         token = sys.stdin.read().rstrip("\r\n") if args.token_stdin else args.token
-        results = replay_pending(state_dir=args.state_dir, url=args.url, token=token, timeout=args.timeout, limit=args.limit)
-        print(json.dumps({"ok": all(r.ok for r in results), "results": [r.__dict__ for r in results]}, sort_keys=True))
+        results = replay_pending(
+            state_dir=args.state_dir,
+            url=args.url,
+            token=token,
+            timeout=args.timeout,
+            limit=args.limit,
+        )
+        print(
+            json.dumps(
+                {
+                    "ok": all(r.ok for r in results),
+                    "results": [r.__dict__ for r in results],
+                },
+                sort_keys=True,
+            )
+        )
         return 0 if all(r.ok for r in results) else 1
     return 2
 

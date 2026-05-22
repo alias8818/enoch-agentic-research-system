@@ -41,7 +41,11 @@ def load_snapshot(path: Path) -> dict[str, Any]:
 
 
 def _canonical_json(value: Any) -> str:
-    return json.dumps(value if isinstance(value, dict | list) else {}, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        value if isinstance(value, dict | list) else {},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def _reject_conflicting_snapshot_replays(
@@ -66,7 +70,9 @@ def _reject_conflicting_snapshot_replays(
 def _reject_conflicting_event_replays(rows: list[dict[str, Any]]) -> None:
     seen: dict[str, tuple[str, str, str, str]] = {}
     for row in rows:
-        key = text(row.get("idempotency_key")) or f"snapshot-event:{row.get('event_id')}"
+        key = (
+            text(row.get("idempotency_key")) or f"snapshot-event:{row.get('event_id')}"
+        )
         payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
         identity = (
             text(row.get("event_type")) or "unknown",
@@ -87,8 +93,12 @@ def convert(snapshot_path: Path, output_path: Path) -> dict[str, Any]:
         output_path.unlink()
     store = ControlPlaneStore(output_path)
     now = utc_now()
-    queue_rows = [row for row in snapshot.get("queue_rows") or [] if isinstance(row, dict)]
-    paper_rows = [row for row in snapshot.get("paper_rows") or [] if isinstance(row, dict)]
+    queue_rows = [
+        row for row in snapshot.get("queue_rows") or [] if isinstance(row, dict)
+    ]
+    paper_rows = [
+        row for row in snapshot.get("paper_rows") or [] if isinstance(row, dict)
+    ]
     event_rows = [row for row in snapshot.get("events") or [] if isinstance(row, dict)]
     flags = snapshot.get("flags") if isinstance(snapshot.get("flags"), dict) else {}
     run_project: dict[str, dict[str, str]] = {}
@@ -203,7 +213,14 @@ def convert(snapshot_path: Path, output_path: Path) -> dict[str, Any]:
             )
             run_id = text(row.get("current_run_id"))
             if run_id:
-                run_project.setdefault(run_id, {"project_id": project_id, "state": text(row.get("last_run_state")) or "unknown", "session_id": text(row.get("current_session_id"))})
+                run_project.setdefault(
+                    run_id,
+                    {
+                        "project_id": project_id,
+                        "state": text(row.get("last_run_state")) or "unknown",
+                        "session_id": text(row.get("current_session_id")),
+                    },
+                )
 
         for row in paper_rows:
             project_id = text(row.get("project_id"))
@@ -216,11 +233,22 @@ def convert(snapshot_path: Path, output_path: Path) -> dict[str, Any]:
                   origin_idea_status, created_at, updated_at)
                 values (?, ?, ?, ?, ?, '', ?, ?)
                 """,
-                (project_id, text(row.get("project_name")) or project_id, text(row.get("project_dir")), text(row.get("notion_page_url")), text(row.get("notion_page_id")), now, now),
+                (
+                    project_id,
+                    text(row.get("project_name")) or project_id,
+                    text(row.get("project_dir")),
+                    text(row.get("notion_page_url")),
+                    text(row.get("notion_page_id")),
+                    now,
+                    now,
+                ),
             )
             run_id = text(row.get("run_id"))
             if run_id:
-                run_project.setdefault(run_id, {"project_id": project_id, "state": "unknown", "session_id": ""})
+                run_project.setdefault(
+                    run_id,
+                    {"project_id": project_id, "state": "unknown", "session_id": ""},
+                )
             conn.execute(
                 """
                 insert or replace into papers(paper_id, project_id, run_id, paper_type, paper_status,
@@ -229,14 +257,23 @@ def convert(snapshot_path: Path, output_path: Path) -> dict[str, Any]:
                 values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    paper_id, project_id, run_id, text(row.get("paper_type")) or "arxiv_draft",
-                    text(row.get("paper_status")) or "draft_review", text(row.get("draft_markdown_path")),
-                    text(row.get("draft_latex_path")), text(row.get("evidence_bundle_path")),
-                    text(row.get("claim_ledger_path")), text(row.get("manifest_path")),
-                    text(row.get("generated_at")) or now, text(row.get("updated_at")) or now,
+                    paper_id,
+                    project_id,
+                    run_id,
+                    text(row.get("paper_type")) or "arxiv_draft",
+                    text(row.get("paper_status")) or "draft_review",
+                    text(row.get("draft_markdown_path")),
+                    text(row.get("draft_latex_path")),
+                    text(row.get("evidence_bundle_path")),
+                    text(row.get("claim_ledger_path")),
+                    text(row.get("manifest_path")),
+                    text(row.get("generated_at")) or now,
+                    text(row.get("updated_at")) or now,
                 ),
             )
-            review_status = text(row.get("review_status") or row.get("related_review_status"))
+            review_status = text(
+                row.get("review_status") or row.get("related_review_status")
+            )
             if review_status:
                 conn.execute(
                     """
@@ -246,11 +283,30 @@ def convert(snapshot_path: Path, output_path: Path) -> dict[str, Any]:
                     values (?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        paper_id, review_status, text(row.get("blocker")), text(row.get("claimed_at")),
-                        json.dumps(row.get("checklist_json") or {}, sort_keys=True, separators=(",", ":")),
+                        paper_id,
+                        review_status,
+                        text(row.get("blocker")),
+                        text(row.get("claimed_at")),
+                        json.dumps(
+                            row.get("checklist_json") or {},
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
                         integer(row.get("rank_score")),
-                        json.dumps(row.get("rank_reasons") or row.get("rank_reasons_json") or [], sort_keys=True, separators=(",", ":")),
-                        json.dumps(row.get("missing_signals") or row.get("missing_signals_json") or [], sort_keys=True, separators=(",", ":")),
+                        json.dumps(
+                            row.get("rank_reasons")
+                            or row.get("rank_reasons_json")
+                            or [],
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                        json.dumps(
+                            row.get("missing_signals")
+                            or row.get("missing_signals_json")
+                            or [],
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
                         text(row.get("rank_tiebreaker") or paper_id),
                         text(row.get("source_audit_path")),
                         text(row.get("finalization_package_path")),
@@ -268,18 +324,28 @@ def convert(snapshot_path: Path, output_path: Path) -> dict[str, Any]:
                   last_callback_at, gate_state, current_activity, idempotency_key, updated_at)
                 values (?, ?, ?, ?, '', null, null, null, '', '', ?, ?)
                 """,
-                (run_id, meta["project_id"], meta["session_id"], meta["state"], f"snapshot-run:{run_id}", now),
+                (
+                    run_id,
+                    meta["project_id"],
+                    meta["session_id"],
+                    meta["state"],
+                    f"snapshot-run:{run_id}",
+                    now,
+                ),
             )
 
         for event in event_rows:
-            payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            payload = (
+                event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            )
             conn.execute(
                 """
                 insert or ignore into events(idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash, created_at)
                 values (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    text(event.get("idempotency_key")) or f"snapshot-event:{event.get('event_id')}",
+                    text(event.get("idempotency_key"))
+                    or f"snapshot-event:{event.get('event_id')}",
                     text(event.get("event_type")) or "unknown",
                     text(event.get("entity_type")) or "unknown",
                     text(event.get("entity_id")),
@@ -304,7 +370,9 @@ def main() -> int:
     parser.add_argument("--snapshot-json", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
-    print(json.dumps(convert(args.snapshot_json, args.output), indent=2, sort_keys=True))
+    print(
+        json.dumps(convert(args.snapshot_json, args.output), indent=2, sort_keys=True)
+    )
     return 0
 
 

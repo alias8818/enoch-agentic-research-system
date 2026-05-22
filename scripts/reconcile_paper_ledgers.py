@@ -6,6 +6,7 @@ only finalized `publication_draft` rows, which is the public corpus import
 lane. Historical draft-review rows and future paper-writing candidates are
 separate diagnostics, not part of the corpus-import backlog.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -26,12 +27,16 @@ def source_fingerprint(paper_id: str) -> str:
 
 
 def request_json(base_url: str, token: str, path: str) -> dict[str, Any]:
-    req = urllib.request.Request(base_url.rstrip("/") + path, headers={"Authorization": f"Bearer {token}"})
+    req = urllib.request.Request(
+        base_url.rstrip("/") + path, headers={"Authorization": f"Bearer {token}"}
+    )
     with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310 - operator-provided control URL
         return json.loads(resp.read())
 
 
-def iter_review_rows(base_url: str, token: str, *, review_status: str, paper_status: str, page_size: int) -> list[dict[str, Any]]:
+def iter_review_rows(
+    base_url: str, token: str, *, review_status: str, paper_status: str, page_size: int
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     page = 1
     while True:
@@ -44,7 +49,9 @@ def iter_review_rows(base_url: str, token: str, *, review_status: str, paper_sta
                 "include_rank_reasons": "false",
             }
         )
-        payload = request_json(base_url, token, f"/control/api/publication-automation?{query}")
+        payload = request_json(
+            base_url, token, f"/control/api/publication-automation?{query}"
+        )
         page_rows = list(payload.get("rows") or [])
         rows.extend(page_rows)
         page_meta = payload.get("page") or {}
@@ -58,8 +65,17 @@ def load_public_index(corpus: Path) -> dict[str, Any]:
     index_path = corpus / "papers" / "index.json"
     payload = json.loads(index_path.read_text(encoding="utf-8"))
     papers = list(payload.get("papers") or [])
-    by_fp = {str(row.get("source_record_fingerprint") or ""): row for row in papers if row.get("source_record_fingerprint")}
-    return {"path": str(index_path), "count": int(payload.get("count") or len(papers)), "papers": papers, "by_fingerprint": by_fp}
+    by_fp = {
+        str(row.get("source_record_fingerprint") or ""): row
+        for row in papers
+        if row.get("source_record_fingerprint")
+    }
+    return {
+        "path": str(index_path),
+        "count": int(payload.get("count") or len(papers)),
+        "papers": papers,
+        "by_fingerprint": by_fp,
+    }
 
 
 def compact_row(row: dict[str, Any]) -> dict[str, str]:
@@ -73,7 +89,9 @@ def compact_row(row: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def classify_finalized_rows(finalized_rows: list[dict[str, Any]], public: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+def classify_finalized_rows(
+    finalized_rows: list[dict[str, Any]], public: dict[str, Any]
+) -> dict[str, list[dict[str, Any]]]:
     public_by_fp: dict[str, Any] = public["by_fingerprint"]
     exact_existing: list[dict[str, Any]] = []
     importable: list[dict[str, Any]] = []
@@ -91,35 +109,84 @@ def classify_finalized_rows(finalized_rows: list[dict[str, Any]], public: dict[s
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Compare live Enoch paper ledgers with the public corpus index.")
-    parser.add_argument("--control-url", default=os.environ.get("ENOCH_CONTROL_URL", "http://127.0.0.1:8787"))
+    parser = argparse.ArgumentParser(
+        description="Compare live Enoch paper ledgers with the public corpus index."
+    )
+    parser.add_argument(
+        "--control-url",
+        default=os.environ.get("ENOCH_CONTROL_URL", "http://127.0.0.1:8787"),
+    )
     parser.add_argument("--token", default=os.environ.get("ENOCH_CONTROL_TOKEN", ""))
-    parser.add_argument("--corpus", type=Path, default=Path("../enoch-ai-research-corpus"))
+    parser.add_argument(
+        "--corpus", type=Path, default=Path("../enoch-ai-research-corpus")
+    )
     parser.add_argument("--page-size", type=int, default=200)
-    parser.add_argument("--paper-status", default=DEFAULT_PAPER_STATUS, help="Paper status to reconcile; defaults to publication_draft, the corpus import lane. Use '' only for legacy audit diagnostics.")
-    parser.add_argument("--include-draft-candidate", action="store_true", help="Also fetch /control/state and report next_candidate as a separate paper-writing diagnostic.")
-    parser.add_argument("--require-synced", action="store_true", help="Exit nonzero if unpublished finalized corpus-lane papers remain.")
-    parser.add_argument("--verbose", action="store_true", help="Show exact-fingerprint diagnostics in human output.")
-    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON only.")
+    parser.add_argument(
+        "--paper-status",
+        default=DEFAULT_PAPER_STATUS,
+        help="Paper status to reconcile; defaults to publication_draft, the corpus import lane. Use '' only for legacy audit diagnostics.",
+    )
+    parser.add_argument(
+        "--include-draft-candidate",
+        action="store_true",
+        help="Also fetch /control/state and report next_candidate as a separate paper-writing diagnostic.",
+    )
+    parser.add_argument(
+        "--require-synced",
+        action="store_true",
+        help="Exit nonzero if unpublished finalized corpus-lane papers remain.",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show exact-fingerprint diagnostics in human output.",
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON only."
+    )
     args = parser.parse_args()
 
     if not args.token:
         print("Set --token or ENOCH_CONTROL_TOKEN", file=sys.stderr)
         return 2
 
-    overview = request_json(args.control_url, args.token, "/control/api/v1/overview?active_limit=5&event_limit=5")
-    state = request_json(args.control_url, args.token, "/control/state") if args.include_draft_candidate else {}
+    overview = request_json(
+        args.control_url,
+        args.token,
+        "/control/api/v1/overview?active_limit=5&event_limit=5",
+    )
+    state = (
+        request_json(args.control_url, args.token, "/control/state")
+        if args.include_draft_candidate
+        else {}
+    )
     paper_status_filter = args.paper_status
-    finalized_rows = iter_review_rows(args.control_url, args.token, review_status="finalized", paper_status=paper_status_filter, page_size=args.page_size)
+    finalized_rows = iter_review_rows(
+        args.control_url,
+        args.token,
+        review_status="finalized",
+        paper_status=paper_status_filter,
+        page_size=args.page_size,
+    )
     public = load_public_index(args.corpus)
 
-    finalized_by_fp = {source_fingerprint(str(row.get("paper_id") or "")): row for row in finalized_rows if row.get("paper_id")}
+    finalized_by_fp = {
+        source_fingerprint(str(row.get("paper_id") or "")): row
+        for row in finalized_rows
+        if row.get("paper_id")
+    }
     public_by_fp: dict[str, Any] = public["by_fingerprint"]
-    missing_exact_fingerprint = [row for fp, row in finalized_by_fp.items() if fp not in public_by_fp]
+    missing_exact_fingerprint = [
+        row for fp, row in finalized_by_fp.items() if fp not in public_by_fp
+    ]
     classified = classify_finalized_rows(finalized_rows, public)
     importable = classified["importable"]
-    public_without_live_finalized = [row for fp, row in public_by_fp.items() if fp not in finalized_by_fp]
-    next_candidate = state.get("next_candidate") if args.include_draft_candidate else None
+    public_without_live_finalized = [
+        row for fp, row in public_by_fp.items() if fp not in finalized_by_fp
+    ]
+    next_candidate = (
+        state.get("next_candidate") if args.include_draft_candidate else None
+    )
 
     report = {
         "ok": not importable,
@@ -149,20 +216,31 @@ def main() -> int:
         print(f"  paper status filter: {paper_status_filter or 'all'}")
         print(f"  finalized rows in corpus lane: {report['live_finalized_count']}")
         print(f"  public corpus rows: {report['public_corpus_count']}")
-        print(f"  already represented by source fingerprint: {report['exact_existing_finalized_count']}")
+        print(
+            f"  already represented by source fingerprint: {report['exact_existing_finalized_count']}"
+        )
         print(f"  importable finalized rows: {report['importable_finalized_count']}")
         if args.verbose:
-            print(f"  finalized rows missing exact fingerprint: {report['missing_exact_fingerprint_count']}")
-            print(f"  public rows outside this live finalized filter: {report['public_without_live_finalized_count']}")
+            print(
+                f"  finalized rows missing exact fingerprint: {report['missing_exact_fingerprint_count']}"
+            )
+            print(
+                f"  public rows outside this live finalized filter: {report['public_without_live_finalized_count']}"
+            )
         if args.include_draft_candidate and next_candidate:
-            print("  next live draft candidate: " + json.dumps(next_candidate, sort_keys=True))
+            print(
+                "  next live draft candidate: "
+                + json.dumps(next_candidate, sort_keys=True)
+            )
         elif args.include_draft_candidate:
             print("  next live draft candidate: none")
         if importable:
             print("  importable finalized sample:")
             for row in importable[:20]:
                 item = compact_row(row)
-                print(f"    - {item['project_name']} | {item['project_id']} | {item['paper_status']} / {item['review_status']}")
+                print(
+                    f"    - {item['project_name']} | {item['project_id']} | {item['paper_status']} / {item['review_status']}"
+                )
 
     if args.require_synced and importable:
         return 1

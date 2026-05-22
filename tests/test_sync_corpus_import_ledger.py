@@ -11,21 +11,30 @@ from scripts.sync_corpus_import_ledger import (
     source_fingerprint,
     sync_records,
 )
-from scripts.validate_corpus_import_ledger import render_validation_sql, validate_metrics
+from scripts.validate_corpus_import_ledger import (
+    render_validation_sql,
+    validate_metrics,
+)
 
 
 def test_source_fingerprint_matches_public_corpus_contract() -> None:
     assert source_fingerprint("paper-1") == "dbb6181095c94272"
 
 
-def test_load_public_records_dedupes_fingerprints_and_derives_manifest(tmp_path: Path) -> None:
+def test_load_public_records_dedupes_fingerprints_and_derives_manifest(
+    tmp_path: Path,
+) -> None:
     corpus = tmp_path / "corpus"
     (corpus / "papers").mkdir(parents=True)
     (corpus / "papers" / "index.json").write_text(
         json.dumps(
             {
                 "papers": [
-                    {"source_record_fingerprint": "fp1", "slug": "paper-one", "public_id": "enoch-paper-0001"},
+                    {
+                        "source_record_fingerprint": "fp1",
+                        "slug": "paper-one",
+                        "public_id": "enoch-paper-0001",
+                    },
                     {"source_record_fingerprint": "fp1", "slug": "duplicate"},
                     {"source_record_fingerprint": "", "slug": "missing-fp"},
                 ]
@@ -47,7 +56,17 @@ def test_render_supabase_cli_sql_escapes_values(tmp_path: Path) -> None:
     corpus = tmp_path / "corpus"
     (corpus / "papers").mkdir(parents=True)
     (corpus / "papers" / "index.json").write_text(
-        json.dumps({"papers": [{"source_record_fingerprint": "fp1", "slug": "paper's-one", "public_id": "id"}]}),
+        json.dumps(
+            {
+                "papers": [
+                    {
+                        "source_record_fingerprint": "fp1",
+                        "slug": "paper's-one",
+                        "public_id": "id",
+                    }
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     records = load_public_records(corpus)
@@ -60,26 +79,56 @@ def test_render_supabase_cli_sql_escapes_values(tmp_path: Path) -> None:
     assert "publication_automation_items" not in sql
 
 
-def test_render_supabase_cli_sql_preserves_existing_provenance_hashes(tmp_path: Path) -> None:
+def test_render_supabase_cli_sql_preserves_existing_provenance_hashes(
+    tmp_path: Path,
+) -> None:
     corpus = tmp_path / "corpus"
     (corpus / "papers").mkdir(parents=True)
     (corpus / "papers" / "index.json").write_text(
-        json.dumps({"papers": [{"source_record_fingerprint": "fp1", "slug": "paper-one", "public_id": "id"}]}),
+        json.dumps(
+            {
+                "papers": [
+                    {
+                        "source_record_fingerprint": "fp1",
+                        "slug": "paper-one",
+                        "public_id": "id",
+                    }
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     records = load_public_records(corpus)
 
     sql = render_supabase_cli_sql(records)
 
-    assert "commit_sha = coalesce(nullif(excluded.commit_sha, ''), enoch.corpus_imports.commit_sha)" in sql
-    assert "manifest_hash = coalesce(nullif(excluded.manifest_hash, ''), enoch.corpus_imports.manifest_hash)" in sql
+    assert (
+        "commit_sha = coalesce(nullif(excluded.commit_sha, ''), enoch.corpus_imports.commit_sha)"
+        in sql
+    )
+    assert (
+        "manifest_hash = coalesce(nullif(excluded.manifest_hash, ''), enoch.corpus_imports.manifest_hash)"
+        in sql
+    )
 
 
-def test_render_supabase_cli_sql_scopes_import_totals_to_corpus_repo(tmp_path: Path) -> None:
+def test_render_supabase_cli_sql_scopes_import_totals_to_corpus_repo(
+    tmp_path: Path,
+) -> None:
     corpus = tmp_path / "corpus"
     (corpus / "papers").mkdir(parents=True)
     (corpus / "papers" / "index.json").write_text(
-        json.dumps({"papers": [{"source_record_fingerprint": "fp1", "slug": "paper-one", "public_id": "id"}]}),
+        json.dumps(
+            {
+                "papers": [
+                    {
+                        "source_record_fingerprint": "fp1",
+                        "slug": "paper-one",
+                        "public_id": "id",
+                    }
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     records = load_public_records(corpus)
@@ -92,11 +141,23 @@ def test_render_supabase_cli_sql_scopes_import_totals_to_corpus_repo(tmp_path: P
     assert "where ci.corpus_repo = 'custom-corpus'" in total_expr
 
 
-def test_render_supabase_cli_sql_can_prune_stale_rows_and_roll_back(tmp_path: Path) -> None:
+def test_render_supabase_cli_sql_can_prune_stale_rows_and_roll_back(
+    tmp_path: Path,
+) -> None:
     corpus = tmp_path / "corpus"
     (corpus / "papers").mkdir(parents=True)
     (corpus / "papers" / "index.json").write_text(
-        json.dumps({"papers": [{"source_record_fingerprint": "fp1", "slug": "paper-one", "public_id": "id"}]}),
+        json.dumps(
+            {
+                "papers": [
+                    {
+                        "source_record_fingerprint": "fp1",
+                        "slug": "paper-one",
+                        "public_id": "id",
+                    }
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     records = load_public_records(corpus)
@@ -115,18 +176,26 @@ def test_render_supabase_cli_sql_can_prune_stale_rows_and_roll_back(tmp_path: Pa
 def test_match_public_records_to_live_papers_uses_python_fingerprint() -> None:
     paper_id = "paper-1"
     records = [
-        type("Record", (), {
-            "source_record_fingerprint": source_fingerprint(paper_id),
-            "artifact_slug": "paper-one",
-            "public_artifact_id": "enoch-paper-0001",
-            "public_manifest_path": "papers/paper-one/paper_manifest.json",
-        })(),
-        type("Record", (), {
-            "source_record_fingerprint": "no-match",
-            "artifact_slug": "other",
-            "public_artifact_id": "enoch-paper-0002",
-            "public_manifest_path": "papers/other/paper_manifest.json",
-        })(),
+        type(
+            "Record",
+            (),
+            {
+                "source_record_fingerprint": source_fingerprint(paper_id),
+                "artifact_slug": "paper-one",
+                "public_artifact_id": "enoch-paper-0001",
+                "public_manifest_path": "papers/paper-one/paper_manifest.json",
+            },
+        )(),
+        type(
+            "Record",
+            (),
+            {
+                "source_record_fingerprint": "no-match",
+                "artifact_slug": "other",
+                "public_artifact_id": "enoch-paper-0002",
+                "public_manifest_path": "papers/other/paper_manifest.json",
+            },
+        )(),
     ]
 
     matched = match_public_records_to_live_papers([paper_id, "unpublished"], records)
@@ -136,11 +205,23 @@ def test_match_public_records_to_live_papers_uses_python_fingerprint() -> None:
     assert matched[0].artifact_slug == "paper-one"
 
 
-def test_validate_corpus_import_ledger_sql_checks_stale_and_missing(tmp_path: Path) -> None:
+def test_validate_corpus_import_ledger_sql_checks_stale_and_missing(
+    tmp_path: Path,
+) -> None:
     corpus = tmp_path / "corpus"
     (corpus / "papers").mkdir(parents=True)
     (corpus / "papers" / "index.json").write_text(
-        json.dumps({"papers": [{"source_record_fingerprint": "fp1", "slug": "paper-one", "public_id": "id"}]}),
+        json.dumps(
+            {
+                "papers": [
+                    {
+                        "source_record_fingerprint": "fp1",
+                        "slug": "paper-one",
+                        "public_id": "id",
+                    }
+                ]
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -171,13 +252,17 @@ def test_validate_corpus_import_ledger_metrics_fail_on_drift() -> None:
 
 def test_render_supabase_cli_sql_guards_public_placeholder_identity() -> None:
     records = [
-        type("Record", (), {
-            "source_record_fingerprint": "fp1",
-            "artifact_slug": "paper-one",
-            "public_artifact_id": "enoch-paper-0001",
-            "public_manifest_path": "papers/paper-one/paper_manifest.json",
-            "title": "Paper One",
-        })(),
+        type(
+            "Record",
+            (),
+            {
+                "source_record_fingerprint": "fp1",
+                "artifact_slug": "paper-one",
+                "public_artifact_id": "enoch-paper-0001",
+                "public_manifest_path": "papers/paper-one/paper_manifest.json",
+                "title": "Paper One",
+            },
+        )(),
     ]
 
     sql = render_supabase_cli_sql(records)
@@ -195,35 +280,50 @@ def test_sync_records_rejects_public_placeholder_project_conflicts(monkeypatch) 
     from scripts import sync_corpus_import_ledger as module
 
     records = [
-        type("Record", (), {
-            "source_record_fingerprint": "fp1",
-            "artifact_slug": "paper-one",
-            "public_artifact_id": "enoch-paper-0001",
-            "public_manifest_path": "papers/paper-one/paper_manifest.json",
-            "title": "Paper One",
-        })(),
+        type(
+            "Record",
+            (),
+            {
+                "source_record_fingerprint": "fp1",
+                "artifact_slug": "paper-one",
+                "public_artifact_id": "enoch-paper-0001",
+                "public_manifest_path": "papers/paper-one/paper_manifest.json",
+                "title": "Paper One",
+            },
+        )(),
     ]
     executed: list[str] = []
 
     class Cursor:
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
         def execute(self, sql, params=()):
             normalized = " ".join(str(sql).lower().split())
             executed.append(normalized)
             self._fetchone = None
             if normalized.startswith("select paper_id, project_id from enoch.papers"):
                 self._fetchall = []
-            elif normalized.startswith("select count(*) as count from tmp_conflicting_public_projects"):
+            elif normalized.startswith(
+                "select count(*) as count from tmp_conflicting_public_projects"
+            ):
                 self._fetchone = {"count": 1}
             elif normalized.startswith("insert into enoch.projects"):
-                raise AssertionError("project insert must not run after identity conflict")
+                raise AssertionError(
+                    "project insert must not run after identity conflict"
+                )
             return self
+
         def executemany(self, sql, params):
             executed.append("executemany " + " ".join(str(sql).lower().split()))
             return self
+
         def fetchall(self):
             return getattr(self, "_fetchall", [])
+
         def fetchone(self):
             return getattr(self, "_fetchone", None)
 
@@ -231,16 +331,27 @@ def test_sync_records_rejects_public_placeholder_project_conflicts(monkeypatch) 
         def __init__(self):
             self.rolled_back = False
 
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
-        def cursor(self): return Cursor()
-        def commit(self): raise AssertionError("conflicting sync must not commit")
-        def rollback(self): self.rolled_back = True
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+        def commit(self):
+            raise AssertionError("conflicting sync must not commit")
+
+        def rollback(self):
+            self.rolled_back = True
 
     conn = Conn()
     monkeypatch.setattr(module, "_connect", lambda _database_url: conn)
 
-    with pytest.raises(RuntimeError, match="conflicting public-corpus project identity"):
+    with pytest.raises(
+        RuntimeError, match="conflicting public-corpus project identity"
+    ):
         sync_records(database_url="postgres://example", records=records, apply=True)
 
     assert any("tmp_conflicting_public_projects" in item for item in executed)
@@ -251,37 +362,54 @@ def test_sync_records_rejects_public_placeholder_paper_conflicts(monkeypatch) ->
     from scripts import sync_corpus_import_ledger as module
 
     records = [
-        type("Record", (), {
-            "source_record_fingerprint": "fp1",
-            "artifact_slug": "paper-one",
-            "public_artifact_id": "enoch-paper-0001",
-            "public_manifest_path": "papers/paper-one/paper_manifest.json",
-            "title": "Paper One",
-        })(),
+        type(
+            "Record",
+            (),
+            {
+                "source_record_fingerprint": "fp1",
+                "artifact_slug": "paper-one",
+                "public_artifact_id": "enoch-paper-0001",
+                "public_manifest_path": "papers/paper-one/paper_manifest.json",
+                "title": "Paper One",
+            },
+        )(),
     ]
     executed: list[str] = []
 
     class Cursor:
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
         def execute(self, sql, params=()):
             normalized = " ".join(str(sql).lower().split())
             executed.append(normalized)
             self._fetchone = None
             if normalized.startswith("select paper_id, project_id from enoch.papers"):
                 self._fetchall = []
-            elif normalized.startswith("select count(*) as count from tmp_conflicting_public_projects"):
+            elif normalized.startswith(
+                "select count(*) as count from tmp_conflicting_public_projects"
+            ):
                 self._fetchone = {"count": 0}
-            elif normalized.startswith("select count(*) as count from tmp_conflicting_public_papers"):
+            elif normalized.startswith(
+                "select count(*) as count from tmp_conflicting_public_papers"
+            ):
                 self._fetchone = {"count": 1}
             elif normalized.startswith("insert into enoch.papers"):
-                raise AssertionError("paper insert must not run after identity conflict")
+                raise AssertionError(
+                    "paper insert must not run after identity conflict"
+                )
             return self
+
         def executemany(self, sql, params):
             executed.append("executemany " + " ".join(str(sql).lower().split()))
             return self
+
         def fetchall(self):
             return getattr(self, "_fetchall", [])
+
         def fetchone(self):
             return getattr(self, "_fetchone", None)
 
@@ -289,11 +417,20 @@ def test_sync_records_rejects_public_placeholder_paper_conflicts(monkeypatch) ->
         def __init__(self):
             self.rolled_back = False
 
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
-        def cursor(self): return Cursor()
-        def commit(self): raise AssertionError("conflicting sync must not commit")
-        def rollback(self): self.rolled_back = True
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+        def commit(self):
+            raise AssertionError("conflicting sync must not commit")
+
+        def rollback(self):
+            self.rolled_back = True
 
     conn = Conn()
     monkeypatch.setattr(module, "_connect", lambda _database_url: conn)

@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.validate_state_contract import validate as validate_state_contract
+
 DEFAULT_IMAGE = "postgres:17-alpine"
 
 
@@ -29,7 +30,9 @@ class ValidationError(RuntimeError):
     """Raised when validation cannot complete."""
 
 
-def run(cmd: list[str], *, stdin: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run(
+    cmd: list[str], *, stdin: str | None = None, check: bool = True
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         cmd,
         input=stdin,
@@ -44,11 +47,25 @@ def docker_available() -> None:
     try:
         run(["docker", "version", "--format", "{{.Server.Version}}"])
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
-        raise ValidationError("Docker is required for local migration validation") from exc
+        raise ValidationError(
+            "Docker is required for local migration validation"
+        ) from exc
 
 
 def psql(container: str, sql: str, *, tuples_only: bool = False) -> str:
-    cmd = ["docker", "exec", "-i", container, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1"]
+    cmd = [
+        "docker",
+        "exec",
+        "-i",
+        container,
+        "psql",
+        "-U",
+        "postgres",
+        "-d",
+        "postgres",
+        "-v",
+        "ON_ERROR_STOP=1",
+    ]
     if tuples_only:
         cmd.extend(["-A", "-t"])
     result = run(cmd, stdin=sql)
@@ -79,7 +96,9 @@ def psql_file(container: str, path: Path) -> str:
 def wait_for_postgres(container: str, timeout_seconds: int = 60) -> None:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
-        probe = run(["docker", "exec", container, "pg_isready", "-U", "postgres"], check=False)
+        probe = run(
+            ["docker", "exec", container, "pg_isready", "-U", "postgres"], check=False
+        )
         if probe.returncode == 0:
             return
         time.sleep(1)
@@ -390,11 +409,17 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
 
     failures: list[str] = []
     if not state_contract.get("ok"):
-        failures.append(f"state contract validation failed: {state_contract.get('failures')}")
+        failures.append(
+            f"state contract validation failed: {state_contract.get('failures')}"
+        )
     if checks["enoch_base_tables"] < 15:
-        failures.append("expected at least 15 enoch base tables including Enoch core Supabase tables")
+        failures.append(
+            "expected at least 15 enoch base tables including Enoch core Supabase tables"
+        )
     if checks["enoch_views"] < 3:
-        failures.append("expected at least 3 enoch views including Research Facility workbench")
+        failures.append(
+            "expected at least 3 enoch views including Research Facility workbench"
+        )
     if checks["public_base_tables"] != 0:
         failures.append("expected 0 public base tables")
     dashboard_counts = checks["operator_dashboard_counts"]
@@ -405,7 +430,9 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
     if dashboard_counts["not_writable_by_decision_gate"] != 1:
         failures.append("expected fixture decision-gate rejects to be 1")
     if dashboard_counts["publication_ready"] != 0:
-        failures.append("expected fixture publication-ready missing-corpus count to be 0")
+        failures.append(
+            "expected fixture publication-ready missing-corpus count to be 0"
+        )
     if dashboard_counts["publication_ready_total"] != 1:
         failures.append("expected fixture publication-ready total count to be 1")
     if dashboard_counts["corpus_imported"] != 1:
@@ -413,46 +440,72 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
     if checks["rls_disabled_tables"]:
         failures.append(f"RLS disabled tables: {checks['rls_disabled_tables']}")
     if checks["rls_tables_without_policies"]:
-        failures.append(f"RLS tables without policies: {checks['rls_tables_without_policies']}")
+        failures.append(
+            f"RLS tables without policies: {checks['rls_tables_without_policies']}"
+        )
     if "search_path=enoch, pg_temp" not in (checks["set_updated_at_search_path"] or []):
         failures.append("set_updated_at must pin search_path to enoch, pg_temp")
     native_ideas = checks["native_ideas_contract"]
     rich_idea = native_ideas["rich_idea"] or {}
     project_snapshot = native_ideas["project_snapshot"] or {}
     if rich_idea.get("title") != "Fixture Rich Idea":
-        failures.append("native ideas migration did not backfill rich Notion payload title")
+        failures.append(
+            "native ideas migration did not backfill rich Notion payload title"
+        )
     if rich_idea.get("source_kind") != "notion_import":
-        failures.append("native ideas migration did not preserve Notion import as provenance")
+        failures.append(
+            "native ideas migration did not preserve Notion import as provenance"
+        )
     if rich_idea.get("selection_rank") != 7 or rich_idea.get("dispatch_priority") != 8:
-        failures.append("native ideas migration did not preserve numeric dispatch metadata")
+        failures.append(
+            "native ideas migration did not preserve numeric dispatch metadata"
+        )
     if project_snapshot.get("source_kind") != "project_snapshot":
         failures.append("native ideas migration did not backfill project-only rows")
     if native_ideas.get("workbench_rows") != 2:
         failures.append("idea_workbench must expose both native ideas fixture rows")
     enoch_core = checks["enoch_core_contract"] or {}
     if enoch_core.get("event_count") != 1 or enoch_core.get("snapshot_count") != 1:
-        failures.append("Enoch core Supabase tables must accept one shadow event and one snapshot")
+        failures.append(
+            "Enoch core Supabase tables must accept one shadow event and one snapshot"
+        )
     if enoch_core.get("latest_project_id") != "core-fixture":
-        failures.append("Enoch core Supabase snapshot payload did not preserve queue rows")
+        failures.append(
+            "Enoch core Supabase snapshot payload did not preserve queue rows"
+        )
     research_facility = checks.get("research_facility_contract") or {}
     if research_facility.get("source_tables_present") != 4:
         failures.append("Research Facility must create all four ledgers")
     if not research_facility.get("workbench_present"):
         failures.append("Research Facility workbench view is missing")
     if not research_facility.get("fresh_grounded_check"):
-        failures.append("Research Facility fresh_grounded candidates must require source evidence")
+        failures.append(
+            "Research Facility fresh_grounded candidates must require source evidence"
+        )
     if not research_facility.get("followup_parent_check"):
-        failures.append("Research Facility followup_from_negative candidates must require parent lineage")
+        failures.append(
+            "Research Facility followup_from_negative candidates must require parent lineage"
+        )
     if not research_facility.get("followup_source_kind_allowed"):
-        failures.append("Research Facility research_sources constraint must allow followup_parent_run")
+        failures.append(
+            "Research Facility research_sources constraint must allow followup_parent_run"
+        )
     if not research_facility.get("research_synthesis_source_kind_allowed"):
-        failures.append("Research Facility research_sources constraint must allow research_synthesis")
+        failures.append(
+            "Research Facility research_sources constraint must allow research_synthesis"
+        )
     if not research_facility.get("followup_parent_relation_allowed"):
-        failures.append("Research Facility lineage must allow followup_parent project edges")
+        failures.append(
+            "Research Facility lineage must allow followup_parent project edges"
+        )
     if not research_facility.get("synthesis_candidate_statuses_allowed"):
-        failures.append("Research Facility candidates must allow synthesis deferral statuses")
+        failures.append(
+            "Research Facility candidates must allow synthesis deferral statuses"
+        )
     if not research_facility.get("synthesis_relation_allowed"):
-        failures.append("Research Facility lineage must allow synthesis/reflection relation edges")
+        failures.append(
+            "Research Facility lineage must allow synthesis/reflection relation edges"
+        )
     if not research_facility.get("security_invoker"):
         failures.append("Research Facility workbench must use security_invoker")
 
@@ -467,7 +520,9 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image", default=os.environ.get("POSTGRES_IMAGE", DEFAULT_IMAGE))
+    parser.add_argument(
+        "--image", default=os.environ.get("POSTGRES_IMAGE", DEFAULT_IMAGE)
+    )
     parser.add_argument("--keep-container", action="store_true")
     args = parser.parse_args()
 

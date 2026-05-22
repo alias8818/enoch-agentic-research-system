@@ -20,7 +20,9 @@ class _StaticTelemetry:
         )
 
 
-def test_dispatch_resolves_prompt_file_under_project_root(tmp_path, monkeypatch) -> None:
+def test_dispatch_resolves_prompt_file_under_project_root(
+    tmp_path, monkeypatch
+) -> None:
     script = tmp_path / "dispatch.sh"
     script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
     script.chmod(0o755)

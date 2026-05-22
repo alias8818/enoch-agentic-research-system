@@ -62,7 +62,15 @@ def _decision_payload(payload_json: dict[str, Any]) -> dict[str, Any]:
 
 
 def _metric_count(*values: str) -> int:
-    return sum(len(re.findall(r"(?<![a-zA-Z])\d+(?:\.\d+)?\s*(?:%|x|tok/s|ms|tokens|seeds|runs)?", value)) for value in values)
+    return sum(
+        len(
+            re.findall(
+                r"(?<![a-zA-Z])\d+(?:\.\d+)?\s*(?:%|x|tok/s|ms|tokens|seeds|runs)?",
+                value,
+            )
+        )
+        for value in values
+    )
 
 
 def score_payload(payload: dict[str, Any]) -> tuple[int, list[str], list[str]]:
@@ -75,7 +83,9 @@ def score_payload(payload: dict[str, Any]) -> tuple[int, list[str], list[str]]:
     summary = _text(payload.get("useful_signal_summary"))
     stop = _text(payload.get("stop_reason"))
     next_action = _text(payload.get("recommended_next_action"))
-    combined = "\n".join([claim_scope, scale_limits, summary, stop, next_action]).lower()
+    combined = "\n".join(
+        [claim_scope, scale_limits, summary, stop, next_action]
+    ).lower()
     blockers: list[str] = []
     reasons: list[str] = []
     score = 0
@@ -89,42 +99,76 @@ def score_payload(payload: dict[str, Any]) -> tuple[int, list[str], list[str]]:
     if _truthy(payload.get("compute_scale_blocked")):
         blockers.append("compute-scale blocked")
     if hyp == "supported":
-        score += 30; reasons.append("supported hypothesis")
+        score += 30
+        reasons.append("supported hypothesis")
     elif hyp == "mixed":
-        score += 18; reasons.append("mixed but partially supported hypothesis")
+        score += 18
+        reasons.append("mixed but partially supported hypothesis")
     else:
         blockers.append(f"hypothesis_status={hyp or 'missing'}")
     if evidence == "strong":
-        score += 24; reasons.append("strong evidence")
+        score += 24
+        reasons.append("strong evidence")
     elif evidence == "moderate":
-        score += 14; reasons.append("moderate evidence")
+        score += 14
+        reasons.append("moderate evidence")
     else:
         blockers.append(f"evidence_strength={evidence or 'missing'}")
     if len(claim_scope) >= 80:
-        score += 14; reasons.append("explicit scoped claim")
+        score += 14
+        reasons.append("explicit scoped claim")
     else:
         blockers.append("claim_scope too thin")
     if len(scale_limits) >= 80:
-        score += 14; reasons.append("explicit scale limits")
+        score += 14
+        reasons.append("explicit scale limits")
     else:
         blockers.append("scale_limits too thin")
     metrics = _metric_count(summary, claim_scope)
     if metrics >= 4:
-        score += 12; reasons.append("numeric metrics present")
+        score += 12
+        reasons.append("numeric metrics present")
     elif metrics >= 2:
-        score += 6; reasons.append("some numeric metrics present")
+        score += 6
+        reasons.append("some numeric metrics present")
     else:
         blockers.append("insufficient numeric metrics")
-    if any(marker in combined for marker in ("baseline", "control", "ablation", "versus", "compared")):
-        score += 8; reasons.append("baseline/control language present")
+    if any(
+        marker in combined
+        for marker in ("baseline", "control", "ablation", "versus", "compared")
+    ):
+        score += 8
+        reasons.append("baseline/control language present")
     else:
         blockers.append("baseline/control evidence unclear")
-    if any(marker in combined for marker in ("not paper-ready", "no-paper", "publication-grade", "paper", "scoped")):
-        score += 6; reasons.append("paper limits are explicit")
+    if any(
+        marker in combined
+        for marker in (
+            "not paper-ready",
+            "no-paper",
+            "publication-grade",
+            "paper",
+            "scoped",
+        )
+    ):
+        score += 6
+        reasons.append("paper limits are explicit")
     else:
         blockers.append("paper-limit rationale unclear")
-    if any(marker in combined for marker in ("real", "gpt-2", "distilgpt2", "wikitext", "cifar", "wall-clock", "kv-cache")):
-        score += 4; reasons.append("direct/local target evidence marker present")
+    if any(
+        marker in combined
+        for marker in (
+            "real",
+            "gpt-2",
+            "distilgpt2",
+            "wikitext",
+            "cifar",
+            "wall-clock",
+            "kv-cache",
+        )
+    ):
+        score += 4
+        reasons.append("direct/local target evidence marker present")
 
     return score, reasons, blockers
 
@@ -132,6 +176,7 @@ def score_payload(payload: dict[str, Any]) -> tuple[int, list[str], list[str]]:
 def load_candidates(database_url: str, *, days: int, limit: int) -> list[ScoutRow]:
     import psycopg
     from psycopg.rows import dict_row
+
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
             cur.execute("set search_path to enoch, public")
@@ -155,7 +200,17 @@ def load_candidates(database_url: str, *, days: int, limit: int) -> list[ScoutRo
                 """,
                 (days, limit),
             ).fetchall()
-    return [ScoutRow(int(r["decision_id"]), _text(r["project_id"]), _text(r["project_name"]), _text(r["run_id"]), _text(r["decided_at"]), dict(r["payload_json"] or {})) for r in rows]
+    return [
+        ScoutRow(
+            int(r["decision_id"]),
+            _text(r["project_id"]),
+            _text(r["project_name"]),
+            _text(r["run_id"]),
+            _text(r["decided_at"]),
+            dict(r["payload_json"] or {}),
+        )
+        for r in rows
+    ]
 
 
 def scout(rows: list[ScoutRow], *, threshold: int) -> list[ScoutResult]:
@@ -166,7 +221,9 @@ def scout(rows: list[ScoutRow], *, threshold: int) -> list[ScoutResult]:
         eligible = score >= threshold and not blockers
         if _text(payload.get("research_outcome")) == "useful_signal":
             results.append(ScoutResult(row, score, eligible, reasons, blockers))
-    results.sort(key=lambda item: (item.eligible, item.score, item.row.decided_at), reverse=True)
+    results.sort(
+        key=lambda item: (item.eligible, item.score, item.row.decided_at), reverse=True
+    )
     return results
 
 
@@ -184,8 +241,11 @@ def _row_get(row: Any, key: str, index: int) -> Any:
     return row[index]
 
 
-def apply_ready(database_url: str, results: list[ScoutResult], *, max_apply: int, requested_by: str) -> list[dict[str, Any]]:
+def apply_ready(
+    database_url: str, results: list[ScoutResult], *, max_apply: int, requested_by: str
+) -> list[dict[str, Any]]:
     import psycopg
+
     applied: list[dict[str, Any]] = []
     selected = [r for r in results if r.eligible][:max_apply]
     if not selected:
@@ -227,7 +287,11 @@ def apply_ready(database_url: str, results: list[ScoutResult], *, max_apply: int
                 if existing:
                     continue
                 payload = dict(result.row.payload)
-                nested = payload.get("project_decision") if isinstance(payload.get("project_decision"), dict) else payload
+                nested = (
+                    payload.get("project_decision")
+                    if isinstance(payload.get("project_decision"), dict)
+                    else payload
+                )
                 nested["bounded_paper_ready"] = True
                 nested["paper_scout_review"] = {
                     "reviewed_at": datetime.now(timezone.utc).isoformat(),
@@ -280,7 +344,16 @@ def main() -> int:
         raise SystemExit("--database-url or DATABASE_URL is required")
     rows = load_candidates(args.database_url, days=args.days, limit=args.limit)
     results = scout(rows, threshold=args.threshold)
-    applied = apply_ready(args.database_url, results, max_apply=args.max_apply, requested_by=args.requested_by) if args.apply else []
+    applied = (
+        apply_ready(
+            args.database_url,
+            results,
+            max_apply=args.max_apply,
+            requested_by=args.requested_by,
+        )
+        if args.apply
+        else []
+    )
     report = {
         "schema_version": "enoch_paper_scout_v1",
         "generated_at": datetime.now(timezone.utc).isoformat(),

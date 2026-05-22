@@ -30,7 +30,11 @@ from enoch_control_plane.research_quality.datasets import (  # noqa: E402
     jaccard,
     token_set,
 )
-from scripts.dspy_research_quality import _candidate_from_mapping, _decision_from_mapping, _load_json_rows  # noqa: E402
+from scripts.dspy_research_quality import (
+    _candidate_from_mapping,
+    _decision_from_mapping,
+    _load_json_rows,
+)  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -96,7 +100,18 @@ def _combined_rationale(row: DecisionRow) -> str:
 
 def _proxy_only(row: DecisionRow) -> bool:
     text = _combined_rationale(row)
-    return any(marker in text for marker in ("proxy-only", "proxy only", "proxy/early", "proxy early", "synthetic proxy", "trace-only", "not full validation"))
+    return any(
+        marker in text
+        for marker in (
+            "proxy-only",
+            "proxy only",
+            "proxy/early",
+            "proxy early",
+            "synthetic proxy",
+            "trace-only",
+            "not full validation",
+        )
+    )
 
 
 def _case_id(case_type: str, entity_id: str) -> str:
@@ -146,7 +161,16 @@ def _compact_decision(row: DecisionRow, raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _case(case_type: str, label: str, severity: str, entity_id: str, title: str, input_payload: dict[str, Any], expected_behavior: str, rationale: str) -> dict[str, Any]:
+def _case(
+    case_type: str,
+    label: str,
+    severity: str,
+    entity_id: str,
+    title: str,
+    input_payload: dict[str, Any],
+    expected_behavior: str,
+    rationale: str,
+) -> dict[str, Any]:
     return {
         "schema_version": "enoch_research_quality_evalcase_v1",
         "case_id": _case_id(case_type, entity_id),
@@ -163,7 +187,10 @@ def _case(case_type: str, label: str, severity: str, entity_id: str, title: str,
 def candidate_cases(candidates: list[CandidateRow]) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
     seen: set[str] = set()
-    tokens = [token_set(" ".join([row.title, row.mechanism, row.baseline_to_beat])) for row in candidates]
+    tokens = [
+        token_set(" ".join([row.title, row.mechanism, row.baseline_to_beat]))
+        for row in candidates
+    ]
     for index, left in enumerate(candidates):
         _, problems = classify_candidate_contract(left)
         if "similar_prior_without_novelty_comparison" in problems:
@@ -205,7 +232,9 @@ def candidate_cases(candidates: list[CandidateRow]) -> list[dict[str, Any]]:
     return cases
 
 
-def decision_cases(raw_decisions: list[RawDecision], *, max_followup_depth: int) -> list[dict[str, Any]]:
+def decision_cases(
+    raw_decisions: list[RawDecision], *, max_followup_depth: int
+) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
     seen: set[str] = set()
     for raw in raw_decisions:
@@ -225,7 +254,11 @@ def decision_cases(raw_decisions: list[RawDecision], *, max_followup_depth: int)
                     "Supported-but-negative decisions can be legitimate proxy/support cases, but they are exactly where prompt and paper-gate policy should be evaluated.",
                 )
             )
-        if _proxy_only(row) and row.hypothesis_status in {"supported", "mixed"} and row.decision == "finalize_negative":
+        if (
+            _proxy_only(row)
+            and row.hypothesis_status in {"supported", "mixed"}
+            and row.decision == "finalize_negative"
+        ):
             cases.append(
                 _case(
                     "proxy_only_positive",
@@ -238,7 +271,10 @@ def decision_cases(raw_decisions: list[RawDecision], *, max_followup_depth: int)
                     "Proxy-only or early-falsification support should guide follow-up policy, not become publication work.",
                 )
             )
-        if _followup_depth(raw.row) >= max_followup_depth and row.decision == "finalize_negative":
+        if (
+            _followup_depth(raw.row) >= max_followup_depth
+            and row.decision == "finalize_negative"
+        ):
             cases.append(
                 _case(
                     "max_depth_followup_ending",
@@ -251,7 +287,11 @@ def decision_cases(raw_decisions: list[RawDecision], *, max_followup_depth: int)
                     "Depth-capped negative endings are useful eval cases for preventing infinite adjacent variants.",
                 )
             )
-        if has_bounded_followup(row) and _followup_depth(raw.row) < max_followup_depth and row.decision == "finalize_negative":
+        if (
+            has_bounded_followup(row)
+            and _followup_depth(raw.row) < max_followup_depth
+            and row.decision == "finalize_negative"
+        ):
             case = _case(
                 "useful_adjacent_followup",
                 "promote_bounded_followup_candidate",
@@ -281,7 +321,9 @@ def _load_decisions(path: Path | None) -> list[RawDecision]:
     return [RawDecision(row=row, decision=_decision_from_mapping(row)) for row in rows]
 
 
-def _fetch_from_database(database_url: str, *, limit: int) -> tuple[list[CandidateRow], list[RawDecision]]:
+def _fetch_from_database(
+    database_url: str, *, limit: int
+) -> tuple[list[CandidateRow], list[RawDecision]]:
     import psycopg
     from psycopg.rows import dict_row
 
@@ -325,12 +367,23 @@ def _fetch_from_database(database_url: str, *, limit: int) -> tuple[list[Candida
                 (safe_limit,),
             ).fetchall()
     candidates = [_candidate_from_mapping(dict(row)) for row in candidate_rows]
-    decisions = [RawDecision(row=dict(row), decision=_decision_from_mapping(dict(row))) for row in decision_rows]
+    decisions = [
+        RawDecision(row=dict(row), decision=_decision_from_mapping(dict(row)))
+        for row in decision_rows
+    ]
     return candidates, decisions
 
 
-def build_eval_cases(candidates: list[CandidateRow], decisions: list[RawDecision], *, max_followup_depth: int = 2) -> list[dict[str, Any]]:
-    cases = [*candidate_cases(candidates), *decision_cases(decisions, max_followup_depth=max_followup_depth)]
+def build_eval_cases(
+    candidates: list[CandidateRow],
+    decisions: list[RawDecision],
+    *,
+    max_followup_depth: int = 2,
+) -> list[dict[str, Any]]:
+    cases = [
+        *candidate_cases(candidates),
+        *decision_cases(decisions, max_followup_depth=max_followup_depth),
+    ]
     cases.sort(key=lambda item: (item["case_type"], item["case_id"]))
     return cases
 
@@ -344,12 +397,39 @@ def write_jsonl(path: Path, cases: Iterable[dict[str, Any]]) -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--database-url", default=os.environ.get("ENOCH_CONTROL_DATABASE_URL") or os.environ.get("ENOCH_SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL") or "", help="Postgres URL for read-only input; defaults to ENOCH_CONTROL_DATABASE_URL/ENOCH_SUPABASE_DATABASE_URL/DATABASE_URL")
-    parser.add_argument("--candidate-json", type=Path, help="optional JSON candidate fixture instead of DB candidates")
-    parser.add_argument("--decision-json", type=Path, help="optional JSON decision fixture instead of DB decisions")
-    parser.add_argument("--limit", type=int, default=100, help="maximum candidate and decision rows to inspect")
-    parser.add_argument("--max-followup-depth", type=int, default=2, help="automatic follow-up depth cap used for eval labels")
-    parser.add_argument("--output", type=Path, required=True, help="write JSONL eval cases here")
+    parser.add_argument(
+        "--database-url",
+        default=os.environ.get("ENOCH_CONTROL_DATABASE_URL")
+        or os.environ.get("ENOCH_SUPABASE_DATABASE_URL")
+        or os.environ.get("DATABASE_URL")
+        or "",
+        help="Postgres URL for read-only input; defaults to ENOCH_CONTROL_DATABASE_URL/ENOCH_SUPABASE_DATABASE_URL/DATABASE_URL",
+    )
+    parser.add_argument(
+        "--candidate-json",
+        type=Path,
+        help="optional JSON candidate fixture instead of DB candidates",
+    )
+    parser.add_argument(
+        "--decision-json",
+        type=Path,
+        help="optional JSON decision fixture instead of DB decisions",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=100,
+        help="maximum candidate and decision rows to inspect",
+    )
+    parser.add_argument(
+        "--max-followup-depth",
+        type=int,
+        default=2,
+        help="automatic follow-up depth cap used for eval labels",
+    )
+    parser.add_argument(
+        "--output", type=Path, required=True, help="write JSONL eval cases here"
+    )
     return parser.parse_args(argv)
 
 
@@ -361,14 +441,28 @@ def main(argv: list[str] | None = None) -> int:
     else:
         if not args.database_url:
             raise SystemExit("--database-url or fixture JSON is required")
-        candidates, decisions = _fetch_from_database(args.database_url, limit=args.limit)
+        candidates, decisions = _fetch_from_database(
+            args.database_url, limit=args.limit
+        )
 
-    cases = build_eval_cases(candidates, decisions, max_followup_depth=max(0, args.max_followup_depth))
+    cases = build_eval_cases(
+        candidates, decisions, max_followup_depth=max(0, args.max_followup_depth)
+    )
     write_jsonl(args.output, cases)
     counts: dict[str, int] = {}
     for case in cases:
         counts[case["case_type"]] = counts.get(case["case_type"], 0) + 1
-    print(json.dumps({"ok": True, "output": str(args.output), "case_count": len(cases), "case_counts": counts}, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "output": str(args.output),
+                "case_count": len(cases),
+                "case_counts": counts,
+            },
+            sort_keys=True,
+        )
+    )
     return 0
 
 

@@ -29,7 +29,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.validate_supabase_resume_readiness import validate as validate_resume_readiness
+from scripts.validate_supabase_resume_readiness import (
+    validate as validate_resume_readiness,
+)
 
 
 class DrillError(RuntimeError):
@@ -46,7 +48,14 @@ def _load_token(path: str) -> str:
         return ""
 
 
-def _request(method: str, url: str, token: str, payload: dict[str, Any] | None = None, *, timeout: int = 30) -> tuple[int, Any]:
+def _request(
+    method: str,
+    url: str,
+    token: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    timeout: int = 30,
+) -> tuple[int, Any]:
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=body, method=method)
     req.add_header("Accept", "application/json")
@@ -78,10 +87,14 @@ def _get_state(base: str, token: str) -> dict[str, Any]:
 
 
 def _get_overview(base: str, token: str) -> dict[str, Any]:
-    return _require_200("overview", _request("GET", f"{base}/control/api/v1/overview", token))
+    return _require_200(
+        "overview", _request("GET", f"{base}/control/api/v1/overview", token)
+    )
 
 
-def _wait_for_active(base: str, token: str, *, timeout_seconds: float) -> dict[str, Any] | None:
+def _wait_for_active(
+    base: str, token: str, *, timeout_seconds: float
+) -> dict[str, Any] | None:
     deadline = time.monotonic() + timeout_seconds
     last_overview: dict[str, Any] | None = None
     last_state: dict[str, Any] | None = None
@@ -92,7 +105,7 @@ def _wait_for_active(base: str, token: str, *, timeout_seconds: float) -> dict[s
             return state_active[0]
         last_state = state
         overview = _get_overview(base, token)
-        active = ((overview.get("lanes") or {}).get("active") or [])
+        active = (overview.get("lanes") or {}).get("active") or []
         if active:
             return active[0]
         last_overview = overview
@@ -107,10 +120,17 @@ def _wait_for_active(base: str, token: str, *, timeout_seconds: float) -> dict[s
 def drill(args: argparse.Namespace) -> dict[str, Any]:
     token = _load_token(args.token_file)
     if not token:
-        raise DrillError("missing control-plane token; set ENOCH_CONTROL_PLANE_TOKEN or --token-file")
+        raise DrillError(
+            "missing control-plane token; set ENOCH_CONTROL_PLANE_TOKEN or --token-file"
+        )
     base = args.control_url.rstrip("/")
 
-    readiness_args = argparse.Namespace(control_url=args.control_url, token_file=args.token_file, ssh_host=args.ssh_host, output="")
+    readiness_args = argparse.Namespace(
+        control_url=args.control_url,
+        token_file=args.token_file,
+        ssh_host=args.ssh_host,
+        output="",
+    )
     readiness = validate_resume_readiness(readiness_args)
     if not readiness.get("ok"):
         raise DrillError(f"resume readiness failed: {readiness.get('failures')}")
@@ -118,16 +138,28 @@ def drill(args: argparse.Namespace) -> dict[str, Any]:
     state_before = _get_state(base, token)
     flags_before = state_before.get("flags") or {}
     if not flags_before.get("queue_paused") or not flags_before.get("maintenance_mode"):
-        raise DrillError(f"expected paused maintenance before drill, got flags={flags_before}")
+        raise DrillError(
+            f"expected paused maintenance before drill, got flags={flags_before}"
+        )
 
     overview_before = _get_overview(base, token)
     queued_before = int(((overview_before.get("counts") or {}).get("queued") or 0))
     dry_dispatch = _require_200(
         "dispatch dry-run",
-        _request("POST", f"{base}/control/dispatch-next", token, {"dry_run": True, "requested_by": "supabase-controlled-resume-drill"}),
+        _request(
+            "POST",
+            f"{base}/control/dispatch-next",
+            token,
+            {"dry_run": True, "requested_by": "supabase-controlled-resume-drill"},
+        ),
     )
-    if dry_dispatch.get("action") != "paused" or dry_dispatch.get("event_id") is not None:
-        raise DrillError(f"paused dry-run dispatch is not side-effect-free: {dry_dispatch}")
+    if (
+        dry_dispatch.get("action") != "paused"
+        or dry_dispatch.get("event_id") is not None
+    ):
+        raise DrillError(
+            f"paused dry-run dispatch is not side-effect-free: {dry_dispatch}"
+        )
 
     report: dict[str, Any] = {
         "ok": True,
@@ -142,10 +174,16 @@ def drill(args: argparse.Namespace) -> dict[str, Any]:
         "dry_dispatch_before": dry_dispatch,
     }
     if not args.apply:
-        report["next"] = "rerun with --apply to dispatch exactly one candidate, then re-pause" if queued_before > 0 else "no queued candidate is available; add/import a Supabase idea before running --apply"
+        report["next"] = (
+            "rerun with --apply to dispatch exactly one candidate, then re-pause"
+            if queued_before > 0
+            else "no queued candidate is available; add/import a Supabase idea before running --apply"
+        )
         return report
     if queued_before <= 0:
-        raise DrillError("no queued candidate is available; refusing to unpause for an apply drill")
+        raise DrillError(
+            "no queued candidate is available; refusing to unpause for an apply drill"
+        )
 
     resumed = _require_200(
         "resume",
@@ -153,7 +191,10 @@ def drill(args: argparse.Namespace) -> dict[str, Any]:
             "POST",
             f"{base}/control/resume",
             token,
-            {"resumed_by": "supabase-controlled-resume-drill", "maintenance_mode": False},
+            {
+                "resumed_by": "supabase-controlled-resume-drill",
+                "maintenance_mode": False,
+            },
         ),
     )
     report["resume"] = resumed.get("flags") or resumed
@@ -164,14 +205,20 @@ def drill(args: argparse.Namespace) -> dict[str, Any]:
                 "POST",
                 f"{base}/control/dispatch-next",
                 token,
-                {"dry_run": False, "requested_by": "supabase-controlled-resume-drill", "force_preflight": True},
+                {
+                    "dry_run": False,
+                    "requested_by": "supabase-controlled-resume-drill",
+                    "force_preflight": True,
+                },
                 timeout=args.dispatch_timeout,
             ),
         )
         report["live_dispatch"] = live_dispatch
         if live_dispatch.get("action") != "live_dispatch":
             raise DrillError(f"expected exactly one live_dispatch, got {live_dispatch}")
-        report["active_after_dispatch"] = _wait_for_active(base, token, timeout_seconds=args.active_wait_seconds)
+        report["active_after_dispatch"] = _wait_for_active(
+            base, token, timeout_seconds=args.active_wait_seconds
+        )
         return report
     finally:
         if not args.leave_unpaused:
@@ -188,17 +235,37 @@ def drill(args: argparse.Namespace) -> dict[str, Any]:
             if paused[0] != 200:
                 report["ok"] = False
                 report["re_pause"] = {"status": paused[0], "body": paused[1]}
-                raise DrillError(f"failed to re-pause after drill: HTTP {paused[0]} {paused[1]}")
+                raise DrillError(
+                    f"failed to re-pause after drill: HTTP {paused[0]} {paused[1]}"
+                )
             report["re_pause"] = paused[1]
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--control-url", default=os.environ.get("ENOCH_CONTROL_PLANE_URL", "http://192.168.1.166:8787"))
-    parser.add_argument("--token-file", default=os.environ.get("ENOCH_CONTROL_PLANE_TOKEN_FILE", "/root/enoch-control-plane-token.txt"))
-    parser.add_argument("--ssh-host", default=os.environ.get("ENOCH_CONTROL_PLANE_SSH_HOST", ""))
-    parser.add_argument("--apply", action="store_true", help="actually unpause and dispatch exactly one candidate")
-    parser.add_argument("--leave-unpaused", action="store_true", help="do not automatically re-pause after the one dispatch")
+    parser.add_argument(
+        "--control-url",
+        default=os.environ.get("ENOCH_CONTROL_PLANE_URL", "http://192.168.1.166:8787"),
+    )
+    parser.add_argument(
+        "--token-file",
+        default=os.environ.get(
+            "ENOCH_CONTROL_PLANE_TOKEN_FILE", "/root/enoch-control-plane-token.txt"
+        ),
+    )
+    parser.add_argument(
+        "--ssh-host", default=os.environ.get("ENOCH_CONTROL_PLANE_SSH_HOST", "")
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="actually unpause and dispatch exactly one candidate",
+    )
+    parser.add_argument(
+        "--leave-unpaused",
+        action="store_true",
+        help="do not automatically re-pause after the one dispatch",
+    )
     parser.add_argument("--dispatch-timeout", type=int, default=90)
     parser.add_argument("--active-wait-seconds", type=float, default=45.0)
     parser.add_argument("--output", default="")

@@ -96,7 +96,9 @@ class NotionIntakeRequest(BaseModel):
     source: str = "notion"
     notion_rows: list[dict[str, Any]] = Field(default_factory=list)
     dry_run: bool = True
-    include_statuses: list[str] = Field(default_factory=lambda: ["exploring", "testing"])
+    include_statuses: list[str] = Field(
+        default_factory=lambda: ["exploring", "testing"]
+    )
     default_machine_target: str = "worker.example"
     workload_machine_targets: dict[str, str] = Field(default_factory=dict)
     default_model: str = "gpt-5.5"
@@ -120,7 +122,9 @@ class IdeaIntakeRequest(BaseModel):
     source: str = "supabase_native"
     ideas: list[dict[str, Any]] = Field(default_factory=list)
     dry_run: bool = True
-    include_statuses: list[str] = Field(default_factory=lambda: ["exploring", "testing"])
+    include_statuses: list[str] = Field(
+        default_factory=lambda: ["exploring", "testing"]
+    )
     default_machine_target: str = "worker.example"
     workload_machine_targets: dict[str, str] = Field(default_factory=dict)
     default_model: str = "gpt-5.5"
@@ -265,7 +269,9 @@ class ReviewQueueItem(BaseModel):
 
 
 class PaperReviewBackfillRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-backfill:{utc_now()}")
+    idempotency_key: str = Field(
+        default_factory=lambda: f"paper-review-backfill:{utc_now()}"
+    )
     requested_by: str = "operator"
     source_audit_path: str = ""
     paper_ids: list[str] = Field(default_factory=list)
@@ -290,7 +296,9 @@ class PaperReviewMutationResponse(BaseModel):
 
 
 class PaperReviewClaimRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-claim:{utc_now()}")
+    idempotency_key: str = Field(
+        default_factory=lambda: f"paper-review-claim:{utc_now()}"
+    )
     requested_by: str = "operator"
     reviewer: str
     note: str = ""
@@ -298,14 +306,18 @@ class PaperReviewClaimRequest(BaseModel):
 
 
 class PaperReviewChecklistUpdateRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-checklist:{utc_now()}")
+    idempotency_key: str = Field(
+        default_factory=lambda: f"paper-review-checklist:{utc_now()}"
+    )
     requested_by: str = "operator"
     status: Literal["pending", "pass", "fail", "accepted_risk", "not_applicable"]
     note: str = ""
 
 
 class PaperReviewStatusUpdateRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-status:{utc_now()}")
+    idempotency_key: str = Field(
+        default_factory=lambda: f"paper-review-status:{utc_now()}"
+    )
     requested_by: str = "operator"
     review_status: ReviewStatus
     note: str = ""
@@ -313,20 +325,26 @@ class PaperReviewStatusUpdateRequest(BaseModel):
 
 
 class PaperReviewApproveFinalizationRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-approval:{utc_now()}")
+    idempotency_key: str = Field(
+        default_factory=lambda: f"paper-review-approval:{utc_now()}"
+    )
     requested_by: str = "operator"
     note: str = ""
 
 
 class PaperReviewPrepareFinalizationRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-package:{utc_now()}")
+    idempotency_key: str = Field(
+        default_factory=lambda: f"paper-review-package:{utc_now()}"
+    )
     requested_by: str = "operator"
     target_label: str = ""
     dry_run: bool = True
 
 
 class PaperReviewRewriteDraftRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-rewrite:{utc_now()}")
+    idempotency_key: str = Field(
+        default_factory=lambda: f"paper-review-rewrite:{utc_now()}"
+    )
     requested_by: str = "operator"
     force: bool = True
 
@@ -342,7 +360,9 @@ class PaperReviewRewriteDraftResponse(BaseModel):
 
 
 class PaperReviewBulkRewriteRequest(BaseModel):
-    idempotency_key: str = Field(default_factory=lambda: f"paper-review-bulk-rewrite:{utc_now()}")
+    idempotency_key: str = Field(
+        default_factory=lambda: f"paper-review-bulk-rewrite:{utc_now()}"
+    )
     requested_by: str = "ai-publication-pipeline"
     paper_status: str = "publication_draft"
     review_status: str = ""
@@ -501,7 +521,13 @@ class WorkerPreflightResponse(BaseModel):
 
 class DashboardObservationRecord(BaseModel):
     observation_id: int | None = None
-    source: Literal["worker_dashboard_api", "worker_preflight", "notion_sync", "snapshot_mirror", "idea_intake"]
+    source: Literal[
+        "worker_dashboard_api",
+        "worker_preflight",
+        "notion_sync",
+        "snapshot_mirror",
+        "idea_intake",
+    ]
     scope: str = "global"
     observed_at: str = Field(default_factory=utc_now)
     ttl_seconds: int = 300
@@ -562,12 +588,12 @@ class DashboardStatusResponse(BaseModel):
     dispatch_safe: bool = False
     dispatch_blockers: list[str] = Field(default_factory=list)
     source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
-    observations: dict[str, DashboardObservationRecord | None] = Field(default_factory=dict)
+    observations: dict[str, DashboardObservationRecord | None] = Field(
+        default_factory=dict
+    )
     warnings: list[DashboardFinding] = Field(default_factory=list)
     conflicts: list[DashboardFinding] = Field(default_factory=list)
     recent_events: list[EventRecord] = Field(default_factory=list)
-
-
 
 
 class DashboardPageMeta(BaseModel):
@@ -605,7 +631,9 @@ class DashboardProjectDetailResponse(BaseModel):
     runs: list[dict[str, Any]] = Field(default_factory=list)
     papers: list[dict[str, Any]] = Field(default_factory=list)
     events: list[dict[str, Any]] = Field(default_factory=list)
-    worker_observations: dict[str, DashboardObservationRecord | None] = Field(default_factory=dict)
+    worker_observations: dict[str, DashboardObservationRecord | None] = Field(
+        default_factory=dict
+    )
     source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
     warnings: list[DashboardFinding] = Field(default_factory=list)
     conflicts: list[DashboardFinding] = Field(default_factory=list)
@@ -622,7 +650,9 @@ class DashboardRunDetailResponse(BaseModel):
     project: dict[str, Any] | None = None
     papers: list[dict[str, Any]] = Field(default_factory=list)
     events: list[dict[str, Any]] = Field(default_factory=list)
-    worker_observations: dict[str, DashboardObservationRecord | None] = Field(default_factory=dict)
+    worker_observations: dict[str, DashboardObservationRecord | None] = Field(
+        default_factory=dict
+    )
     source_freshness: dict[str, DashboardFreshness] = Field(default_factory=dict)
     warnings: list[DashboardFinding] = Field(default_factory=list)
     conflicts: list[DashboardFinding] = Field(default_factory=list)
@@ -700,7 +730,9 @@ class DashboardEventsResponse(BaseModel):
 
 class DashboardIntakeResponse(BaseModel):
     ok: bool = True
-    source: Literal["control_api_intake_ideas", "control_api_intake_notion"] = "control_api_intake_ideas"
+    source: Literal["control_api_intake_ideas", "control_api_intake_notion"] = (
+        "control_api_intake_ideas"
+    )
     authority: str = "Supabase-native ideas workbench plus latest intake observation"
     generated_at: str = Field(default_factory=utc_now)
     operator_summary: str = ""

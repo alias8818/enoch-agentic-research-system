@@ -36,7 +36,9 @@ def _connect(database_url: str) -> Any:
     return psycopg.connect(database_url, row_factory=dict_row)
 
 
-def _worker_process_check(worker_ssh_host: str, project_ids: list[str]) -> dict[str, Any]:
+def _worker_process_check(
+    worker_ssh_host: str, project_ids: list[str]
+) -> dict[str, Any]:
     if not worker_ssh_host or not project_ids:
         return {"checked": False, "matches": []}
     cmd = [
@@ -46,7 +48,9 @@ def _worker_process_check(worker_ssh_host: str, project_ids: list[str]) -> dict[
         worker_ssh_host,
         "ps -eo pid=,etimes=,cmd=",
     ]
-    completed = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    completed = subprocess.run(
+        cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False
+    )
     project_tokens = [project_id for project_id in project_ids if project_id]
     matches = [
         line
@@ -61,7 +65,13 @@ def _worker_process_check(worker_ssh_host: str, project_ids: list[str]) -> dict[
             "matches": [],
             "raw": completed.stdout,
         }
-    return {"checked": True, "ok": True, "returncode": completed.returncode, "matches": matches, "raw": completed.stdout}
+    return {
+        "checked": True,
+        "ok": True,
+        "returncode": completed.returncode,
+        "matches": matches,
+        "raw": completed.stdout,
+    }
 
 
 def _jsonable(value: Any) -> Any:
@@ -100,18 +110,29 @@ def _candidate_rows(conn: Any) -> list[dict[str, Any]]:
 
 
 def reconcile(args: argparse.Namespace) -> dict[str, Any]:
-    database_url = args.database_url or os.environ.get("ENOCH_SUPABASE_DATABASE_URL", "")
+    database_url = args.database_url or os.environ.get(
+        "ENOCH_SUPABASE_DATABASE_URL", ""
+    )
     if not database_url.strip():
-        return {"ok": False, "failures": ["missing database URL; set ENOCH_SUPABASE_DATABASE_URL or --database-url"]}
+        return {
+            "ok": False,
+            "failures": [
+                "missing database URL; set ENOCH_SUPABASE_DATABASE_URL or --database-url"
+            ],
+        }
     with _connect(database_url) as conn:
         rows = _candidate_rows(conn)
         project_ids = [row["project_id"] for row in rows]
         process_check = _worker_process_check(args.worker_ssh_host, project_ids)
         failures: list[str] = []
         if process_check.get("checked") and not process_check.get("ok", True):
-            failures.append("worker process check failed; refusing to requeue without clean process evidence")
+            failures.append(
+                "worker process check failed; refusing to requeue without clean process evidence"
+            )
         if process_check.get("matches"):
-            failures.append("worker process check found matching project processes; refusing to requeue")
+            failures.append(
+                "worker process check found matching project processes; refusing to requeue"
+            )
         if failures or not args.apply:
             return {
                 "ok": not failures,
@@ -137,7 +158,10 @@ def reconcile(args: argparse.Namespace) -> dict[str, Any]:
                   and not exists (select 1 from papers pa where pa.project_id = q.project_id)
                 returning q.project_id
                 """,
-                (f"Re-queued after Supabase cutover reconciliation by {args.requested_by}.", now),
+                (
+                    f"Re-queued after Supabase cutover reconciliation by {args.requested_by}.",
+                    now,
+                ),
             ).fetchall()
             payload = {
                 "requested_by": args.requested_by,
@@ -147,6 +171,7 @@ def reconcile(args: argparse.Namespace) -> dict[str, Any]:
                 "worker_process_check": process_check,
             }
             import hashlib
+
             payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
             payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
             event_key = args.idempotency_key or f"queue-cutover-requeue:{now}"
@@ -177,7 +202,12 @@ def reconcile(args: argparse.Namespace) -> dict[str, Any]:
                 (event_key, payload_json, payload_hash, now),
             )
         conn.commit()
-    return {"ok": True, "applied": True, "updated_count": len(updated), "updated_project_ids": [row["project_id"] for row in updated]}
+    return {
+        "ok": True,
+        "applied": True,
+        "updated_count": len(updated),
+        "updated_project_ids": [row["project_id"] for row in updated],
+    }
 
 
 def main() -> int:

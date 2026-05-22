@@ -44,4 +44,3 @@ The admitted project should precede deeper implementation of the five branch ide
 - `oracle_report.md`
 - `failure_cases.jsonl`
 - `.enoch/project_decision.json`
-

@@ -9,9 +9,16 @@ import pytest
 from scripts.control_export_to_sqlite import convert
 
 
-def test_control_export_to_sqlite_preserves_paper_review_and_run_rows(tmp_path: Path) -> None:
+def test_control_export_to_sqlite_preserves_paper_review_and_run_rows(
+    tmp_path: Path,
+) -> None:
     snapshot = {
-        "flags": {"queue_paused": True, "maintenance_mode": True, "pause_reason": "migration", "paused_by": "test"},
+        "flags": {
+            "queue_paused": True,
+            "maintenance_mode": True,
+            "pause_reason": "migration",
+            "paused_by": "test",
+        },
         "queue_rows": [
             {
                 "project_id": "p1",
@@ -39,7 +46,15 @@ def test_control_export_to_sqlite_preserves_paper_review_and_run_rows(tmp_path: 
                 "updated_at": "2026-05-06T10:00:00Z",
             }
         ],
-        "events": [{"idempotency_key": "e1", "event_type": "fixture", "entity_type": "project", "entity_id": "p1", "payload": {"ok": True}}],
+        "events": [
+            {
+                "idempotency_key": "e1",
+                "event_type": "fixture",
+                "entity_type": "project",
+                "entity_id": "p1",
+                "payload": {"ok": True},
+            }
+        ],
     }
     source = tmp_path / "snapshot.json"
     output = tmp_path / "snapshot.sqlite3"
@@ -53,11 +68,19 @@ def test_control_export_to_sqlite_preserves_paper_review_and_run_rows(tmp_path: 
     with sqlite3.connect(output) as conn:
         assert conn.execute("select count(*) from queue_items").fetchone()[0] == 1
         assert conn.execute("select count(*) from papers").fetchone()[0] == 1
-        assert conn.execute("select review_status from paper_review_items").fetchone()[0] == "finalized"
-        assert conn.execute("select state from runs where run_id='r1'").fetchone()[0] == "wake_ready"
+        assert (
+            conn.execute("select review_status from paper_review_items").fetchone()[0]
+            == "finalized"
+        )
+        assert (
+            conn.execute("select state from runs where run_id='r1'").fetchone()[0]
+            == "wake_ready"
+        )
 
 
-def test_control_export_to_sqlite_rejects_conflicting_event_replays(tmp_path: Path) -> None:
+def test_control_export_to_sqlite_rejects_conflicting_event_replays(
+    tmp_path: Path,
+) -> None:
     snapshot = {
         "events": [
             {
@@ -84,11 +107,21 @@ def test_control_export_to_sqlite_rejects_conflicting_event_replays(tmp_path: Pa
         convert(source, output)
 
 
-def test_control_export_to_sqlite_rejects_conflicting_paper_replays(tmp_path: Path) -> None:
+def test_control_export_to_sqlite_rejects_conflicting_paper_replays(
+    tmp_path: Path,
+) -> None:
     snapshot = {
         "paper_rows": [
-            {"paper_id": "paper-1", "project_id": "project-a", "paper_status": "publication_draft"},
-            {"paper_id": "paper-1", "project_id": "project-b", "paper_status": "publication_draft"},
+            {
+                "paper_id": "paper-1",
+                "project_id": "project-a",
+                "paper_status": "publication_draft",
+            },
+            {
+                "paper_id": "paper-1",
+                "project_id": "project-b",
+                "paper_status": "publication_draft",
+            },
         ],
     }
     source = tmp_path / "snapshot.json"

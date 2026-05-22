@@ -54,7 +54,11 @@ class WakeGate:
             record.updated_at = utc_now()
             return record
 
-        current_rank = _EVENT_PRECEDENCE.get(record.last_event.value, -1) if record.last_event else -1
+        current_rank = (
+            _EVENT_PRECEDENCE.get(record.last_event.value, -1)
+            if record.last_event
+            else -1
+        )
         incoming_rank = _EVENT_PRECEDENCE.get(event.event.value, -1)
 
         if incoming_rank < current_rank:
@@ -84,7 +88,9 @@ class WakeGate:
             return record, False
 
         sample = self.telemetry.sample()
-        process_snapshot = self.process_tracker.snapshot(record, sample.gpu_compute_pids)
+        process_snapshot = self.process_tracker.snapshot(
+            record, sample.gpu_compute_pids
+        )
         if (
             process_snapshot.process_alive
             or process_snapshot.descendants_alive
@@ -109,21 +115,29 @@ class WakeGate:
             return record, None
 
         if record.workload_profile is not None:
-            workload_class = record.workload_class or self.config.normalize_workload_class(None)
+            workload_class = (
+                record.workload_class or self.config.normalize_workload_class(None)
+            )
             workload_profile = record.workload_profile
             if record.workload_class != workload_class:
                 record.workload_class = workload_class
         else:
-            workload_class, workload_profile = self.config.resolve_workload_profile(record.workload_class)
+            workload_class, workload_profile = self.config.resolve_workload_profile(
+                record.workload_class
+            )
             if record.workload_class != workload_class:
                 record.workload_class = workload_class
             if record.workload_profile != workload_profile:
                 record.workload_profile = workload_profile
 
         sample = self.telemetry.sample()
-        process_snapshot = self.process_tracker.snapshot(record, sample.gpu_compute_pids)
+        process_snapshot = self.process_tracker.snapshot(
+            record, sample.gpu_compute_pids
+        )
         record.quiet_samples.append(sample)
-        max_samples = max(1, workload_profile.idle_sustain_sec // self.config.sample_interval_sec)
+        max_samples = max(
+            1, workload_profile.idle_sustain_sec // self.config.sample_interval_sec
+        )
         record.quiet_samples = record.quiet_samples[-max_samples:]
         record.updated_at = utc_now()
 
@@ -160,9 +174,15 @@ class WakeGate:
             # delta here can wedge the gate even when no project process and no
             # GPU work remain. On UMA, require enough allocatable memory for
             # another run instead of requiring pressure to return to baseline.
-            memory_quiet_enough = latest_sample.uma_allocatable_mib > workload_profile.vram_delta_threshold_mib
+            memory_quiet_enough = (
+                latest_sample.uma_allocatable_mib
+                > workload_profile.vram_delta_threshold_mib
+            )
         else:
-            memory_quiet_enough = vram_current <= vram_baseline + workload_profile.vram_delta_threshold_mib
+            memory_quiet_enough = (
+                vram_current
+                <= vram_baseline + workload_profile.vram_delta_threshold_mib
+            )
 
         quiet_enough = (
             len(record.quiet_samples) >= max_samples
@@ -260,4 +280,6 @@ class WakeGate:
         idle_seen_at = parse_utc_datetime(record.idle_seen_at)
         if idle_seen_at is None:
             return False
-        return (datetime.now(timezone.utc) - idle_seen_at).total_seconds() >= self.config.max_wait_after_idle_sec
+        return (
+            datetime.now(timezone.utc) - idle_seen_at
+        ).total_seconds() >= self.config.max_wait_after_idle_sec

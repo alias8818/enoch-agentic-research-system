@@ -56,7 +56,9 @@ def test_cli_writes_report_and_backfilled_rows_without_private_paths(tmp_path) -
     report_md = tmp_path / "report.md"
     backfilled_rows = tmp_path / "backfilled.json"
     input_json.write_text(
-        json.dumps([_row(updated_at=datetime(2026, 5, 19, tzinfo=timezone.utc).isoformat())]),
+        json.dumps(
+            [_row(updated_at=datetime(2026, 5, 19, tzinfo=timezone.utc).isoformat())]
+        ),
         encoding="utf-8",
     )
 
@@ -77,13 +79,21 @@ def test_cli_writes_report_and_backfilled_rows_without_private_paths(tmp_path) -
     report = json.loads(report_json.read_text(encoding="utf-8"))
     rows = json.loads(backfilled_rows.read_text(encoding="utf-8"))
     assert report["summary"]["backfilled_exportable"] == 1
-    assert rows[0]["source_records"][0]["source_id"] == "internal_generated:missing-source"
-    serialized = report_json.read_text(encoding="utf-8") + report_md.read_text(encoding="utf-8") + backfilled_rows.read_text(encoding="utf-8")
+    assert (
+        rows[0]["source_records"][0]["source_id"] == "internal_generated:missing-source"
+    )
+    serialized = (
+        report_json.read_text(encoding="utf-8")
+        + report_md.read_text(encoding="utf-8")
+        + backfilled_rows.read_text(encoding="utf-8")
+    )
     assert "/var/lib/enoch-control-plane" not in serialized
 
 
 def test_sanitized_backfilled_rows_handle_live_datetime_values() -> None:
-    rows = backfill._sanitized_backfilled_rows([_row(updated_at=datetime(2026, 5, 19, tzinfo=timezone.utc))])
+    rows = backfill._sanitized_backfilled_rows(
+        [_row(updated_at=datetime(2026, 5, 19, tzinfo=timezone.utc))]
+    )
 
     assert rows[0]["updated_at"].startswith("2026-05-19")
     json.dumps(rows, sort_keys=True)

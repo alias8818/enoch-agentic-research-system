@@ -2,14 +2,23 @@ from __future__ import annotations
 
 import unittest
 
-from enoch_control_plane.control_plane.read_models import _safe_count, movement_diagnosis, primary_operator_action, top_operator_actions
+from enoch_control_plane.control_plane.read_models import (
+    _safe_count,
+    movement_diagnosis,
+    primary_operator_action,
+    top_operator_actions,
+)
 
 
 class TopOperatorActionsTests(unittest.TestCase):
     def test_idle_returns_empty_list(self) -> None:
         actions = top_operator_actions(
             operator_counts={"needs_attention": 0},
-            paper_pipeline={"write_needed": 0, "finalize_needed": 0, "publish_ready": 0},
+            paper_pipeline={
+                "write_needed": 0,
+                "finalize_needed": 0,
+                "publish_ready": 0,
+            },
             investigation_pipeline={"ranked_followup_ready": 0},
             counts={"active": 0, "queued": 0},
         )
@@ -42,8 +51,14 @@ class TopOperatorActionsTests(unittest.TestCase):
                 "write_needed": 2,
                 "finalize_needed": 1,
                 "publish_ready": 3,
-                "next_write_candidate": {"project_id": "p1", "project_name": "Alpha project"},
-                "next_publish_candidate": {"paper_id": "paper-9", "project_name": "Bravo paper"},
+                "next_write_candidate": {
+                    "project_id": "p1",
+                    "project_name": "Alpha project",
+                },
+                "next_publish_candidate": {
+                    "paper_id": "paper-9",
+                    "project_name": "Bravo paper",
+                },
             },
             investigation_pipeline={"ranked_followup_ready": 0},
             counts={"active": 1, "queued": 0},
@@ -52,7 +67,9 @@ class TopOperatorActionsTests(unittest.TestCase):
         self.assertEqual(kinds, ["write_paper", "finalize_paper", "publish_paper"])
         self.assertEqual(actions[0]["priority"], 1)
         self.assertEqual(actions[2]["priority"], 3)
-        self.assertEqual(actions[0]["target"], {"project_id": "p1", "name": "Alpha project"})
+        self.assertEqual(
+            actions[0]["target"], {"project_id": "p1", "name": "Alpha project"}
+        )
         self.assertEqual(actions[0]["action_hash"], "#papers?status=publication_draft")
         self.assertEqual(actions[2]["action_hash"], "#corpus")
         self.assertIn("Alpha project", actions[0]["summary"])
@@ -61,10 +78,17 @@ class TopOperatorActionsTests(unittest.TestCase):
     def test_followup_promoted_when_pipeline_clear(self) -> None:
         actions = top_operator_actions(
             operator_counts={"needs_attention": 0},
-            paper_pipeline={"write_needed": 0, "finalize_needed": 0, "publish_ready": 0},
+            paper_pipeline={
+                "write_needed": 0,
+                "finalize_needed": 0,
+                "publish_ready": 0,
+            },
             investigation_pipeline={
                 "ranked_followup_ready": 2,
-                "next_ranked_followup_candidate": {"project_id": "p7", "followup_title": "Adjacent FFT"},
+                "next_ranked_followup_candidate": {
+                    "project_id": "p7",
+                    "followup_title": "Adjacent FFT",
+                },
             },
             counts={"active": 0, "queued": 0},
         )
@@ -80,7 +104,11 @@ class TopOperatorActionsTests(unittest.TestCase):
         # never emits a dispatch_next card, even on an apparently idle queue.
         with_active = top_operator_actions(
             operator_counts={"needs_attention": 0},
-            paper_pipeline={"write_needed": 0, "finalize_needed": 0, "publish_ready": 0},
+            paper_pipeline={
+                "write_needed": 0,
+                "finalize_needed": 0,
+                "publish_ready": 0,
+            },
             investigation_pipeline={"ranked_followup_ready": 0},
             counts={"active": 1, "queued": 5},
         )
@@ -88,7 +116,11 @@ class TopOperatorActionsTests(unittest.TestCase):
 
         idle_with_queue = top_operator_actions(
             operator_counts={"needs_attention": 0},
-            paper_pipeline={"write_needed": 0, "finalize_needed": 0, "publish_ready": 0},
+            paper_pipeline={
+                "write_needed": 0,
+                "finalize_needed": 0,
+                "publish_ready": 0,
+            },
             investigation_pipeline={"ranked_followup_ready": 0},
             counts={"active": 0, "queued": 5},
         )
@@ -100,7 +132,11 @@ class TopOperatorActionsTests(unittest.TestCase):
         # count come from the open lane(s), not aggregate counts.
         actions = top_operator_actions(
             operator_counts={"needs_attention": 0},
-            paper_pipeline={"write_needed": 0, "finalize_needed": 0, "publish_ready": 0},
+            paper_pipeline={
+                "write_needed": 0,
+                "finalize_needed": 0,
+                "publish_ready": 0,
+            },
             investigation_pipeline={"ranked_followup_ready": 0},
             counts={"active": 1, "queued": 0},  # aggregate says busy; lane data wins
             worker_lanes=[
@@ -134,12 +170,24 @@ class TopOperatorActionsTests(unittest.TestCase):
         # aggregate counts say something is queued.
         actions = top_operator_actions(
             operator_counts={"needs_attention": 0},
-            paper_pipeline={"write_needed": 0, "finalize_needed": 0, "publish_ready": 0},
+            paper_pipeline={
+                "write_needed": 0,
+                "finalize_needed": 0,
+                "publish_ready": 0,
+            },
             investigation_pipeline={"ranked_followup_ready": 0},
             counts={"active": 0, "queued": 7},
             worker_lanes=[
-                {"machine_target": "cpu-proxmox-1", "dispatch_available": False, "queued_count": 3},
-                {"machine_target": "gb10", "dispatch_available": False, "queued_count": 4},
+                {
+                    "machine_target": "cpu-proxmox-1",
+                    "dispatch_available": False,
+                    "queued_count": 3,
+                },
+                {
+                    "machine_target": "gb10",
+                    "dispatch_available": False,
+                    "queued_count": 4,
+                },
             ],
         )
         self.assertEqual(actions, [])
@@ -147,7 +195,11 @@ class TopOperatorActionsTests(unittest.TestCase):
     def test_results_are_bounded(self) -> None:
         actions = top_operator_actions(
             operator_counts={"needs_attention": 1},
-            paper_pipeline={"write_needed": 1, "finalize_needed": 1, "publish_ready": 1},
+            paper_pipeline={
+                "write_needed": 1,
+                "finalize_needed": 1,
+                "publish_ready": 1,
+            },
             investigation_pipeline={"ranked_followup_ready": 1},
             counts={"active": 0, "queued": 1},
         )
@@ -184,7 +236,11 @@ class TopOperatorActionsHardenedInputTests(unittest.TestCase):
     def test_malformed_string_count_does_not_crash(self) -> None:
         actions = top_operator_actions(
             operator_counts={"needs_attention": "bad"},
-            paper_pipeline={"write_needed": "🌶", "finalize_needed": "n/a", "publish_ready": "  "},
+            paper_pipeline={
+                "write_needed": "🌶",
+                "finalize_needed": "n/a",
+                "publish_ready": "  ",
+            },
             investigation_pipeline={"ranked_followup_ready": "many"},
             counts={"active": "?", "queued": "lots"},
         )
@@ -197,7 +253,11 @@ class TopOperatorActionsHardenedInputTests(unittest.TestCase):
         # reject booleans explicitly.
         actions = top_operator_actions(
             operator_counts={"needs_attention": True},
-            paper_pipeline={"write_needed": False, "finalize_needed": True, "publish_ready": False},
+            paper_pipeline={
+                "write_needed": False,
+                "finalize_needed": True,
+                "publish_ready": False,
+            },
             investigation_pipeline={"ranked_followup_ready": True},
             counts={"active": True, "queued": True, "blocked": False},
         )
@@ -209,7 +269,11 @@ class TopOperatorActionsHardenedInputTests(unittest.TestCase):
         # positive card surfaces.
         empty = top_operator_actions(
             operator_counts={"needs_attention": -5},
-            paper_pipeline={"write_needed": -1, "finalize_needed": -2, "publish_ready": -3},
+            paper_pipeline={
+                "write_needed": -1,
+                "finalize_needed": -2,
+                "publish_ready": -3,
+            },
             investigation_pipeline={"ranked_followup_ready": -10},
             counts={"active": -1, "queued": -1, "blocked": -1},
         )
@@ -217,7 +281,11 @@ class TopOperatorActionsHardenedInputTests(unittest.TestCase):
 
         only_write = top_operator_actions(
             operator_counts={"needs_attention": -2},
-            paper_pipeline={"write_needed": 3, "finalize_needed": -2, "publish_ready": -1},
+            paper_pipeline={
+                "write_needed": 3,
+                "finalize_needed": -2,
+                "publish_ready": -1,
+            },
             investigation_pipeline={"ranked_followup_ready": -1},
             counts={"active": 0, "queued": 0},
         )
@@ -229,7 +297,11 @@ class TopOperatorActionsHardenedInputTests(unittest.TestCase):
         # bounded list (default 3) of the highest priority actions.
         actions = top_operator_actions(
             operator_counts={"needs_attention": 1},
-            paper_pipeline={"write_needed": 1, "finalize_needed": 1, "publish_ready": 1},
+            paper_pipeline={
+                "write_needed": 1,
+                "finalize_needed": 1,
+                "publish_ready": 1,
+            },
             investigation_pipeline={"ranked_followup_ready": 1},
             counts={"active": 0, "queued": 1},
             limit="bad",  # type: ignore[arg-type]
@@ -240,7 +312,11 @@ class TopOperatorActionsHardenedInputTests(unittest.TestCase):
     def test_negative_limit_returns_empty_list(self) -> None:
         actions = top_operator_actions(
             operator_counts={"needs_attention": 1},
-            paper_pipeline={"write_needed": 1, "finalize_needed": 1, "publish_ready": 1},
+            paper_pipeline={
+                "write_needed": 1,
+                "finalize_needed": 1,
+                "publish_ready": 1,
+            },
             investigation_pipeline={"ranked_followup_ready": 1},
             counts={"active": 0, "queued": 1},
             limit=-7,
@@ -250,7 +326,11 @@ class TopOperatorActionsHardenedInputTests(unittest.TestCase):
     def test_oversized_limit_is_capped(self) -> None:
         actions = top_operator_actions(
             operator_counts={"needs_attention": 1},
-            paper_pipeline={"write_needed": 1, "finalize_needed": 1, "publish_ready": 1},
+            paper_pipeline={
+                "write_needed": 1,
+                "finalize_needed": 1,
+                "publish_ready": 1,
+            },
             investigation_pipeline={"ranked_followup_ready": 1},
             counts={"active": 1, "queued": 0},
             limit=999,
@@ -263,13 +343,21 @@ class TopOperatorActionsHardenedInputTests(unittest.TestCase):
         # in lane fields) must not propagate exceptions.
         actions = top_operator_actions(
             operator_counts={"needs_attention": 0},
-            paper_pipeline={"write_needed": 0, "finalize_needed": 0, "publish_ready": 0},
+            paper_pipeline={
+                "write_needed": 0,
+                "finalize_needed": 0,
+                "publish_ready": 0,
+            },
             investigation_pipeline={"ranked_followup_ready": 0},
             counts={"active": 0, "queued": 0},
             worker_lanes=[
                 None,  # type: ignore[list-item]
                 {"machine_target": "cpu-proxmox-1"},  # missing dispatch_available
-                {"machine_target": "gb10", "dispatch_available": "yes please", "queued_count": "two"},
+                {
+                    "machine_target": "gb10",
+                    "dispatch_available": "yes please",
+                    "queued_count": "two",
+                },
                 {"dispatch_available": True, "queued_count": -3, "machine_target": ""},
             ],
         )
@@ -334,7 +422,13 @@ class MovementDiagnosisTests(unittest.TestCase):
         diagnosis = movement_diagnosis(
             flags={"queue_paused": True, "maintenance_mode": False},
             worker_lanes=[
-                {"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "queued_count": 1, "dispatch_available": True},
+                {
+                    "machine_target": "gb10",
+                    "worker_role": "gpu_worker",
+                    "status": "idle",
+                    "queued_count": 1,
+                    "dispatch_available": True,
+                },
             ],
             paper_pipeline={},
             investigation_pipeline={},
@@ -348,15 +442,30 @@ class MovementDiagnosisTests(unittest.TestCase):
         diagnosis = movement_diagnosis(
             flags={"queue_paused": False, "maintenance_mode": False},
             worker_lanes=[
-                {"machine_target": "cpu-proxmox-1", "worker_role": "cpu_worker", "status": "active", "queued_count": 0, "dispatch_available": False, "dispatch_blocker": "lane active"},
-                {"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "queued_count": 2, "dispatch_available": True},
+                {
+                    "machine_target": "cpu-proxmox-1",
+                    "worker_role": "cpu_worker",
+                    "status": "active",
+                    "queued_count": 0,
+                    "dispatch_available": False,
+                    "dispatch_blocker": "lane active",
+                },
+                {
+                    "machine_target": "gb10",
+                    "worker_role": "gpu_worker",
+                    "status": "idle",
+                    "queued_count": 2,
+                    "dispatch_available": True,
+                },
             ],
             paper_pipeline={},
             investigation_pipeline={},
         )
 
         self.assertEqual(diagnosis["status"], "actionable")
-        self.assertEqual(diagnosis["primary_reason"], "GB10 lane can dispatch queued work.")
+        self.assertEqual(
+            diagnosis["primary_reason"], "GB10 lane can dispatch queued work."
+        )
         kinds = [item["kind"] for item in diagnosis["blockers"]]
         self.assertIn("lane_active", kinds)
         self.assertIn("dispatch_available", kinds)
@@ -399,23 +508,56 @@ class MovementDiagnosisTests(unittest.TestCase):
         diagnosis = movement_diagnosis(
             flags={"queue_paused": False, "maintenance_mode": False},
             worker_lanes=[
-                {"machine_target": "cpu-proxmox-1", "worker_role": "cpu_worker", "status": "active", "active_count": 2, "queued_count": 0, "dispatch_available": False},
-                {"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "active_count": 0, "queued_count": 0, "dispatch_available": False},
+                {
+                    "machine_target": "cpu-proxmox-1",
+                    "worker_role": "cpu_worker",
+                    "status": "active",
+                    "active_count": 2,
+                    "queued_count": 0,
+                    "dispatch_available": False,
+                },
+                {
+                    "machine_target": "gb10",
+                    "worker_role": "gpu_worker",
+                    "status": "idle",
+                    "active_count": 0,
+                    "queued_count": 0,
+                    "dispatch_available": False,
+                },
             ],
             paper_pipeline={},
             investigation_pipeline={},
         )
 
         self.assertEqual(diagnosis["status"], "blocked")
-        self.assertIn("violates the single-active-run lane invariant", diagnosis["primary_reason"])
+        self.assertIn(
+            "violates the single-active-run lane invariant", diagnosis["primary_reason"]
+        )
         kinds = [item["kind"] for item in diagnosis["blockers"]]
         self.assertIn("lane_conflict_active", kinds)
 
 
 class PrimaryOperatorActionTests(unittest.TestCase):
     def test_dispatch_lane_beats_feed(self) -> None:
-        lanes = [{"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "queued_count": 2, "dispatch_available": True, "next_candidate": {"project_id": "gb10-job", "project_name": "GB10 job"}}]
-        movement = movement_diagnosis(flags={"queue_paused": False, "maintenance_mode": False}, worker_lanes=lanes, paper_pipeline={}, investigation_pipeline={})
+        lanes = [
+            {
+                "machine_target": "gb10",
+                "worker_role": "gpu_worker",
+                "status": "idle",
+                "queued_count": 2,
+                "dispatch_available": True,
+                "next_candidate": {
+                    "project_id": "gb10-job",
+                    "project_name": "GB10 job",
+                },
+            }
+        ]
+        movement = movement_diagnosis(
+            flags={"queue_paused": False, "maintenance_mode": False},
+            worker_lanes=lanes,
+            paper_pipeline={},
+            investigation_pipeline={},
+        )
         action = primary_operator_action(worker_lanes=lanes, movement=movement)
         self.assertIsNotNone(action)
         assert action is not None
@@ -423,8 +565,25 @@ class PrimaryOperatorActionTests(unittest.TestCase):
         self.assertEqual(action["project_id"], "gb10-job")
 
     def test_queue_paused_blocker_beats_dispatch_lane(self) -> None:
-        lanes = [{"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "queued_count": 2, "dispatch_available": True, "next_candidate": {"project_id": "gb10-job", "project_name": "GB10 job"}}]
-        movement = movement_diagnosis(flags={"queue_paused": True, "maintenance_mode": False}, worker_lanes=lanes, paper_pipeline={}, investigation_pipeline={})
+        lanes = [
+            {
+                "machine_target": "gb10",
+                "worker_role": "gpu_worker",
+                "status": "idle",
+                "queued_count": 2,
+                "dispatch_available": True,
+                "next_candidate": {
+                    "project_id": "gb10-job",
+                    "project_name": "GB10 job",
+                },
+            }
+        ]
+        movement = movement_diagnosis(
+            flags={"queue_paused": True, "maintenance_mode": False},
+            worker_lanes=lanes,
+            paper_pipeline={},
+            investigation_pipeline={},
+        )
         action = primary_operator_action(worker_lanes=lanes, movement=movement)
         self.assertIsNotNone(action)
         assert action is not None
@@ -432,8 +591,25 @@ class PrimaryOperatorActionTests(unittest.TestCase):
         self.assertEqual(action["blocker_kind"], "queue_paused")
 
     def test_maintenance_mode_blocker_beats_dispatch_lane(self) -> None:
-        lanes = [{"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "queued_count": 2, "dispatch_available": True, "next_candidate": {"project_id": "gb10-job", "project_name": "GB10 job"}}]
-        movement = movement_diagnosis(flags={"queue_paused": False, "maintenance_mode": True}, worker_lanes=lanes, paper_pipeline={}, investigation_pipeline={})
+        lanes = [
+            {
+                "machine_target": "gb10",
+                "worker_role": "gpu_worker",
+                "status": "idle",
+                "queued_count": 2,
+                "dispatch_available": True,
+                "next_candidate": {
+                    "project_id": "gb10-job",
+                    "project_name": "GB10 job",
+                },
+            }
+        ]
+        movement = movement_diagnosis(
+            flags={"queue_paused": False, "maintenance_mode": True},
+            worker_lanes=lanes,
+            paper_pipeline={},
+            investigation_pipeline={},
+        )
         action = primary_operator_action(worker_lanes=lanes, movement=movement)
         self.assertIsNotNone(action)
         assert action is not None
@@ -441,40 +617,89 @@ class PrimaryOperatorActionTests(unittest.TestCase):
         self.assertEqual(action["blocker_kind"], "maintenance_mode")
 
     def test_feed_lane_when_no_dispatch(self) -> None:
-        lanes = [{"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "queued_count": 0, "dispatch_available": False, "feed_pressure": {"next_autopilot_action": "generate_candidate"}}]
-        movement = {"status": "ready", "primary_reason": "No dispatch blocker.", "blockers": []}
+        lanes = [
+            {
+                "machine_target": "gb10",
+                "worker_role": "gpu_worker",
+                "status": "idle",
+                "queued_count": 0,
+                "dispatch_available": False,
+                "feed_pressure": {"next_autopilot_action": "generate_candidate"},
+            }
+        ]
+        movement = {
+            "status": "ready",
+            "primary_reason": "No dispatch blocker.",
+            "blockers": [],
+        }
         action = primary_operator_action(worker_lanes=lanes, movement=movement)
         self.assertIsNotNone(action)
         assert action is not None
         self.assertEqual(action["kind"], "feed_lanes")
 
     def test_open_blocker_when_blocked(self) -> None:
-        lanes = [{"machine_target": "gb10", "worker_role": "gpu_worker", "status": "idle", "queued_count": 1, "dispatch_available": False}]
-        movement = movement_diagnosis(flags={"queue_paused": True, "maintenance_mode": False}, worker_lanes=lanes, paper_pipeline={}, investigation_pipeline={})
+        lanes = [
+            {
+                "machine_target": "gb10",
+                "worker_role": "gpu_worker",
+                "status": "idle",
+                "queued_count": 1,
+                "dispatch_available": False,
+            }
+        ]
+        movement = movement_diagnosis(
+            flags={"queue_paused": True, "maintenance_mode": False},
+            worker_lanes=lanes,
+            paper_pipeline={},
+            investigation_pipeline={},
+        )
         action = primary_operator_action(worker_lanes=lanes, movement=movement)
         self.assertIsNotNone(action)
         assert action is not None
         self.assertEqual(action["kind"], "open_blocker")
 
     def test_open_blocker_beats_feed_when_movement_blocked(self) -> None:
-        lanes = [{
-            "machine_target": "gb10",
-            "worker_role": "gpu_worker",
-            "status": "idle",
-            "queued_count": 0,
-            "dispatch_available": False,
-            "feed_pressure": {"next_autopilot_action": "generate_candidate"},
-        }]
-        movement = movement_diagnosis(flags={"queue_paused": True, "maintenance_mode": False}, worker_lanes=lanes, paper_pipeline={}, investigation_pipeline={})
+        lanes = [
+            {
+                "machine_target": "gb10",
+                "worker_role": "gpu_worker",
+                "status": "idle",
+                "queued_count": 0,
+                "dispatch_available": False,
+                "feed_pressure": {"next_autopilot_action": "generate_candidate"},
+            }
+        ]
+        movement = movement_diagnosis(
+            flags={"queue_paused": True, "maintenance_mode": False},
+            worker_lanes=lanes,
+            paper_pipeline={},
+            investigation_pipeline={},
+        )
         action = primary_operator_action(worker_lanes=lanes, movement=movement)
         self.assertIsNotNone(action)
         assert action is not None
         self.assertEqual(action["kind"], "open_blocker")
 
     def test_returns_none_when_healthy_and_idle(self) -> None:
-        lanes = [{"machine_target": "gb10", "worker_role": "gpu_worker", "status": "active", "queued_count": 0, "dispatch_available": False, "active_item": {"project_id": "active"}}]
-        movement = movement_diagnosis(flags={"queue_paused": False, "maintenance_mode": False}, worker_lanes=lanes, paper_pipeline={}, investigation_pipeline={})
-        self.assertIsNone(primary_operator_action(worker_lanes=lanes, movement=movement))
+        lanes = [
+            {
+                "machine_target": "gb10",
+                "worker_role": "gpu_worker",
+                "status": "active",
+                "queued_count": 0,
+                "dispatch_available": False,
+                "active_item": {"project_id": "active"},
+            }
+        ]
+        movement = movement_diagnosis(
+            flags={"queue_paused": False, "maintenance_mode": False},
+            worker_lanes=lanes,
+            paper_pipeline={},
+            investigation_pipeline={},
+        )
+        self.assertIsNone(
+            primary_operator_action(worker_lanes=lanes, movement=movement)
+        )
 
 
 if __name__ == "__main__":

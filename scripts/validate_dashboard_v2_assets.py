@@ -129,7 +129,9 @@ def validate_dashboard_v2_assets(
         with tempfile.TemporaryDirectory(prefix="dashboard-v2-build-") as tmp:
             out_dir = Path(tmp)
             _run_build(repo_root, out_dir, skip_npm_ci=skip_npm_ci)
-            return compare_asset_trees(committed_root=committed_root, built_root=out_dir)
+            return compare_asset_trees(
+                committed_root=committed_root, built_root=out_dir
+            )
 
     out_dir = build_out_dir.expanduser().resolve()
     _run_build(repo_root, out_dir, skip_npm_ci=skip_npm_ci)

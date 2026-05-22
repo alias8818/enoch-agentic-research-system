@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 from urllib.parse import quote
 
-from enoch_control_plane.enoch_core.logic import draft_candidate_payload, eligible_paper_draft_candidates, paper_draft_decision_gate
+from enoch_control_plane.enoch_core.logic import (
+    draft_candidate_payload,
+    eligible_paper_draft_candidates,
+    paper_draft_decision_gate,
+)
 from enoch_control_plane.timeutils import parse_utc_datetime
 
 from .models import PaperStatus, QueueStatus
@@ -121,7 +125,9 @@ REQUIRED_PUBLICATION_ARTIFACT_FIELDS = (
 )
 
 
-def _artifact_file_is_readable(project_dir: Any, raw_path: Any, *, allow_absolute_outside_root: bool = False) -> bool:
+def _artifact_file_is_readable(
+    project_dir: Any, raw_path: Any, *, allow_absolute_outside_root: bool = False
+) -> bool:
     project_dir_text = _text(project_dir)
     path_text = _text(raw_path)
     if not path_text:
@@ -145,7 +151,9 @@ def _artifact_file_is_readable(project_dir: Any, raw_path: Any, *, allow_absolut
 def _paper_artifact_flags(row: dict[str, Any]) -> dict[str, bool]:
     existing_flags = row.get("artifact_paths_present")
     if isinstance(existing_flags, dict):
-        return {name: bool(existing_flags.get(name)) for name in PUBLICATION_ARTIFACT_FIELDS}
+        return {
+            name: bool(existing_flags.get(name)) for name in PUBLICATION_ARTIFACT_FIELDS
+        }
     project_dir = row.get("project_dir")
     return {
         name: _artifact_file_is_readable(
@@ -191,10 +199,16 @@ def _drop_related_artifact_paths(summary: dict[str, Any]) -> dict[str, Any]:
 def _paper_publication_artifacts_present(row: dict[str, Any]) -> bool:
     artifact_flags = row.get("artifact_paths_present")
     if isinstance(artifact_flags, dict):
-        return all(bool(artifact_flags.get(name)) for name in REQUIRED_PUBLICATION_ARTIFACT_FIELDS)
+        return all(
+            bool(artifact_flags.get(name))
+            for name in REQUIRED_PUBLICATION_ARTIFACT_FIELDS
+        )
     related_artifact_flags = row.get("related_artifact_paths_present")
     if isinstance(related_artifact_flags, dict):
-        return all(bool(related_artifact_flags.get(name)) for name in REQUIRED_PUBLICATION_ARTIFACT_FIELDS)
+        return all(
+            bool(related_artifact_flags.get(name))
+            for name in REQUIRED_PUBLICATION_ARTIFACT_FIELDS
+        )
     return False
 
 
@@ -220,10 +234,14 @@ def _stage(
 ) -> dict[str, Any]:
     stage = {
         "operator_stage": lane.value,
-        "operator_stage_label": OPERATOR_LANE_LABELS.get(lane.value, lane.value.replace("_", " ").title()),
+        "operator_stage_label": OPERATOR_LANE_LABELS.get(
+            lane.value, lane.value.replace("_", " ").title()
+        ),
         "operator_lane": lane.value,
         "operator_detail_stage": detail_label,
-        "operator_detail_stage_label": OPERATOR_DETAIL_LABELS.get(detail_label, detail_label.replace("_", " ").title()),
+        "operator_detail_stage_label": OPERATOR_DETAIL_LABELS.get(
+            detail_label, detail_label.replace("_", " ").title()
+        ),
         "operator_tone": tone,
         "operator_attention": attention,
         "operator_next_step": next_step,
@@ -234,7 +252,9 @@ def _stage(
 
 
 def _configured_project_root() -> str:
-    config_path = os.environ.get("ENOCH_CONFIG") or os.environ.get("ENOCH_CONTROL_PLANE_CONFIG", "/etc/enoch/config.json")
+    config_path = os.environ.get("ENOCH_CONFIG") or os.environ.get(
+        "ENOCH_CONTROL_PLANE_CONFIG", "/etc/enoch/config.json"
+    )
     try:
         with open(config_path, encoding="utf-8") as handle:
             payload = json.load(handle)
@@ -277,13 +297,23 @@ def _paper_draft_gate_for_row(row: dict[str, Any]) -> dict[str, Any] | None:
     if not project_dir:
         project_dir = _text(row.get("project_id"))
     if not project_dir:
-        return {"eligible": False, "reason": "missing project decision artifact", "values": [], "project_dir": ""}
+        return {
+            "eligible": False,
+            "reason": "missing project decision artifact",
+            "values": [],
+            "project_dir": "",
+        }
     last_gate: dict[str, Any] | None = None
     for candidate in _project_dir_candidates(project_dir):
         try:
             gate = paper_draft_decision_gate(candidate)
         except (OSError, ValueError):
-            last_gate = {"eligible": False, "reason": "project decision artifact could not be read", "values": [], "project_dir": str(candidate)}
+            last_gate = {
+                "eligible": False,
+                "reason": "project decision artifact could not be read",
+                "values": [],
+                "project_dir": str(candidate),
+            }
             continue
         values = gate.get("values")
         if isinstance(values, list):
@@ -323,7 +353,11 @@ def _listish(value: Any) -> list[str]:
     if isinstance(value, list):
         return [_text(item) for item in value if _text(item)]
     if isinstance(value, str):
-        return [item.strip() for item in value.replace(";", "\n").splitlines() if item.strip()]
+        return [
+            item.strip()
+            for item in value.replace(";", "\n").splitlines()
+            if item.strip()
+        ]
     return []
 
 
@@ -342,15 +376,29 @@ def _decision_payload_fields(row: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(decision, dict):
         decision = {}
     return {
-        "research_outcome": row.get("research_outcome", decision.get("research_outcome", "")),
-        "hypothesis_status": row.get("hypothesis_status", decision.get("hypothesis_status", "")),
-        "evidence_strength": row.get("evidence_strength", decision.get("evidence_strength", "")),
+        "research_outcome": row.get(
+            "research_outcome", decision.get("research_outcome", "")
+        ),
+        "hypothesis_status": row.get(
+            "hypothesis_status", decision.get("hypothesis_status", "")
+        ),
+        "evidence_strength": row.get(
+            "evidence_strength", decision.get("evidence_strength", "")
+        ),
         "claim_scope": row.get("claim_scope", decision.get("claim_scope", "")),
         "scale_limits": row.get("scale_limits", decision.get("scale_limits", "")),
-        "useful_signal_summary": row.get("useful_signal_summary", decision.get("useful_signal_summary", "")),
-        "bounded_paper_ready": row.get("bounded_paper_ready", decision.get("bounded_paper_ready", False)),
-        "compute_scale_blocked": row.get("compute_scale_blocked", decision.get("compute_scale_blocked", False)),
-        "recommended_next_action": row.get("recommended_next_action", decision.get("recommended_next_action", "")),
+        "useful_signal_summary": row.get(
+            "useful_signal_summary", decision.get("useful_signal_summary", "")
+        ),
+        "bounded_paper_ready": row.get(
+            "bounded_paper_ready", decision.get("bounded_paper_ready", False)
+        ),
+        "compute_scale_blocked": row.get(
+            "compute_scale_blocked", decision.get("compute_scale_blocked", False)
+        ),
+        "recommended_next_action": row.get(
+            "recommended_next_action", decision.get("recommended_next_action", "")
+        ),
         "stop_reason": row.get("stop_reason", decision.get("stop_reason", "")),
     }
 
@@ -358,7 +406,9 @@ def _decision_payload_fields(row: dict[str, Any]) -> dict[str, Any]:
 def _research_outcome(row: dict[str, Any]) -> str:
     if "decision_payload_json" in row and not _text(row.get("research_outcome")):
         row = {**row, **_decision_payload_fields(row)}
-    outcome = _text(row.get("research_outcome")).lower().replace("-", "_").replace(" ", "_")
+    outcome = (
+        _text(row.get("research_outcome")).lower().replace("-", "_").replace(" ", "_")
+    )
     if outcome:
         return outcome
     return ""
@@ -393,7 +443,9 @@ def _compute_scale_blocked(row: dict[str, Any]) -> bool:
         "full scale",
         "full-scale",
     )
-    return outcome in {"useful_signal", "promising_if_scaled"} and any(marker in haystack for marker in scale_markers)
+    return outcome in {"useful_signal", "promising_if_scaled"} and any(
+        marker in haystack for marker in scale_markers
+    )
 
 
 def _is_useful_signal(row: dict[str, Any]) -> bool:
@@ -416,7 +468,10 @@ def _useful_signal_from_row(row: dict[str, Any]) -> dict[str, Any]:
 
 def _followup_from_row(row: dict[str, Any]) -> dict[str, Any]:
     try:
-        depth = max(int(row.get("followup_depth") or 0), int(row.get("source_followup_depth") or 0))
+        depth = max(
+            int(row.get("followup_depth") or 0),
+            int(row.get("source_followup_depth") or 0),
+        )
     except (TypeError, ValueError):
         depth = 0
     return {
@@ -433,7 +488,10 @@ def _followup_from_row(row: dict[str, Any]) -> dict[str, Any]:
 
 def _is_followup_candidate(row: dict[str, Any]) -> bool:
     try:
-        depth = max(int(row.get("followup_depth") or 0), int(row.get("source_followup_depth") or 0))
+        depth = max(
+            int(row.get("followup_depth") or 0),
+            int(row.get("source_followup_depth") or 0),
+        )
     except (TypeError, ValueError):
         depth = 0
     required_evidence = _listish(row.get("followup_required_evidence"))
@@ -459,8 +517,19 @@ def _paper_draft_gate_from_row_decision(row: dict[str, Any]) -> dict[str, Any] |
         return None
     summary = _text(row.get("decision_summary"))
     if state == "positive":
-        reason = "bounded useful signal is paper-scoped" if _research_outcome(row) == "useful_signal" and _truthy(row.get("bounded_paper_ready")) else "project decision is positive"
-        return {"eligible": True, "reason": reason, "decision": summary or state, "values": [], "source": "supabase_project_decisions"}
+        reason = (
+            "bounded useful signal is paper-scoped"
+            if _research_outcome(row) == "useful_signal"
+            and _truthy(row.get("bounded_paper_ready"))
+            else "project decision is positive"
+        )
+        return {
+            "eligible": True,
+            "reason": reason,
+            "decision": summary or state,
+            "values": [],
+            "source": "supabase_project_decisions",
+        }
     if (
         state == "negative"
         and _research_outcome(row) == "useful_signal"
@@ -486,7 +555,9 @@ def _paper_draft_gate_from_row_decision(row: dict[str, Any]) -> dict[str, Any] |
     }
     return {
         "eligible": False,
-        "reason": reason_by_state.get(state, "project decision lacks positive draft signal"),
+        "reason": reason_by_state.get(
+            state, "project decision lacks positive draft signal"
+        ),
         "decision": summary,
         "values": [],
         "source": "supabase_project_decisions",
@@ -503,11 +574,17 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
     """
 
     queue_status = _normal(row.get("status") or row.get("queue_status"))
-    last_run_state = _normal(row.get("last_run_state") or row.get("state") or row.get("gate_state"))
+    last_run_state = _normal(
+        row.get("last_run_state") or row.get("state") or row.get("gate_state")
+    )
     next_action = _normal(row.get("next_action_hint"))
     paper_status = _normal(row.get("paper_status") or row.get("related_paper_status"))
-    review_status = _normal(row.get("review_status") or row.get("related_review_status"))
-    has_paper = bool(_text(row.get("paper_id") or row.get("related_paper_id")) or paper_status)
+    review_status = _normal(
+        row.get("review_status") or row.get("related_review_status")
+    )
+    has_paper = bool(
+        _text(row.get("paper_id") or row.get("related_paper_id")) or paper_status
+    )
     manual_review = _truthy(row.get("manual_review_required"))
 
     if queue_status == QueueStatus.CANCELED.value and not manual_review:
@@ -565,7 +642,8 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
             explanation="The corpus import ledger contains this paper, so it is public/imported rather than publish work.",
         )
     if (
-        paper_status in {PaperStatus.PUBLICATION_DRAFT.value, PaperStatus.DRAFT_REVIEW.value}
+        paper_status
+        in {PaperStatus.PUBLICATION_DRAFT.value, PaperStatus.DRAFT_REVIEW.value}
         and review_status in READY_REVIEW_STATUSES
         and _paper_finalization_package_present(row)
         and _paper_publication_artifacts_present(row)
@@ -605,8 +683,14 @@ def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
             next_step="Dispatch when the lane is available.",
             explanation="The idea is queued and not currently running.",
         )
-    if queue_status == "completed" and last_run_state in WAKE_GATE_COMPLETION_STATES and next_action == PAPER_DRAFT_NEXT_ACTION:
-        gate = _paper_draft_gate_from_row_decision(row) or _paper_draft_gate_for_row(row)
+    if (
+        queue_status == "completed"
+        and last_run_state in WAKE_GATE_COMPLETION_STATES
+        and next_action == PAPER_DRAFT_NEXT_ACTION
+    ):
+        gate = _paper_draft_gate_from_row_decision(row) or _paper_draft_gate_for_row(
+            row
+        )
         decision_summary = _decision_summary_from_gate(gate)
         if gate is None or not bool(gate.get("eligible")):
             if _is_useful_signal(row):
@@ -729,6 +813,7 @@ def with_operator_stage(row: dict[str, Any]) -> dict[str, Any]:
     stage = operator_stage_for_record(row)
     return {**row, **stage}
 
+
 from .store import ControlPlaneStore
 
 
@@ -769,7 +854,9 @@ def queue_links(row: dict[str, Any]) -> dict[str, str]:
 def project_links(row: dict[str, Any]) -> dict[str, str]:
     project_id = _url_path_segment(row.get("project_id"))
     run_id = _url_path_segment(row.get("current_run_id") or row.get("latest_run_id"))
-    paper_id = _url_path_segment(row.get("related_paper_id") or row.get("latest_paper_id"))
+    paper_id = _url_path_segment(
+        row.get("related_paper_id") or row.get("latest_paper_id")
+    )
     return {
         "project": f"/control/api/v1/projects/{project_id}" if project_id else "",
         "run": f"/control/api/v1/runs/{run_id}" if run_id else "",
@@ -797,75 +884,114 @@ def summarize_project_row(row: dict[str, Any]) -> dict[str, Any]:
         **row,
         "status": queue_status,
         "current_run_id": row.get("current_run_id") or row.get("latest_run_id") or "",
-        "related_paper_id": row.get("related_paper_id") or row.get("latest_paper_id") or "",
-        "related_paper_status": row.get("related_paper_status") or row.get("latest_paper_status") or "",
-        "project_updated_at": row.get("project_updated_at") or row.get("updated_at") or "",
+        "related_paper_id": row.get("related_paper_id")
+        or row.get("latest_paper_id")
+        or "",
+        "related_paper_status": row.get("related_paper_status")
+        or row.get("latest_paper_status")
+        or "",
+        "project_updated_at": row.get("project_updated_at")
+        or row.get("updated_at")
+        or "",
     }
-    return _drop_related_artifact_paths(with_operator_stage({
-        "project_id": project_id,
-        "project_name": row.get("project_name", ""),
-        "origin_idea_status": row.get("origin_idea_status", ""),
-        "queue_status": queue_status,
-        "current_run_id": stage_source["current_run_id"],
-        "latest_run_id": row.get("latest_run_id", ""),
-        "latest_run_state": row.get("latest_run_state", ""),
-        "related_paper_id": stage_source["related_paper_id"],
-        "related_paper_status": stage_source["related_paper_status"],
-        "created_at": row.get("project_created_at") or row.get("created_at", ""),
-        "updated_at": row.get("project_updated_at") or row.get("updated_at", ""),
-        "age_seconds": row_age_seconds({"updated_at": row.get("project_updated_at") or row.get("updated_at", ""), "created_at": row.get("project_created_at") or row.get("created_at", "")}),
-        "links": project_links(stage_source),
-        **{key: value for key, value in with_operator_stage(stage_source).items() if key.startswith("operator_")},
-    }))
+    return _drop_related_artifact_paths(
+        with_operator_stage(
+            {
+                "project_id": project_id,
+                "project_name": row.get("project_name", ""),
+                "origin_idea_status": row.get("origin_idea_status", ""),
+                "queue_status": queue_status,
+                "current_run_id": stage_source["current_run_id"],
+                "latest_run_id": row.get("latest_run_id", ""),
+                "latest_run_state": row.get("latest_run_state", ""),
+                "related_paper_id": stage_source["related_paper_id"],
+                "related_paper_status": stage_source["related_paper_status"],
+                "created_at": row.get("project_created_at")
+                or row.get("created_at", ""),
+                "updated_at": row.get("project_updated_at")
+                or row.get("updated_at", ""),
+                "age_seconds": row_age_seconds(
+                    {
+                        "updated_at": row.get("project_updated_at")
+                        or row.get("updated_at", ""),
+                        "created_at": row.get("project_created_at")
+                        or row.get("created_at", ""),
+                    }
+                ),
+                "links": project_links(stage_source),
+                **{
+                    key: value
+                    for key, value in with_operator_stage(stage_source).items()
+                    if key.startswith("operator_")
+                },
+            }
+        )
+    )
 
 
 def summarize_queue_row(row: dict[str, Any]) -> dict[str, Any]:
     decision_fields = _decision_payload_fields(row)
-    return _drop_related_artifact_paths(with_operator_stage({
-        "project_id": _text(row.get("project_id")),
-        "project_name": _text(row.get("project_name")),
-        "status": _text(row.get("status")),
-        "machine_target": _text(row.get("machine_target")),
-        "model": _text(row.get("model")),
-        "sandbox": _text(row.get("sandbox")),
-        "dispatch_priority": row.get("dispatch_priority", 0),
-        "selection_rank": row.get("selection_rank", 0),
-        "current_run_id": _text(row.get("current_run_id")),
-        "current_session_id": _text(row.get("current_session_id")),
-        "last_run_state": _text(row.get("last_run_state")),
-        "next_action_hint": _text(row.get("next_action_hint")),
-        "manual_review_required": _truthy(row.get("manual_review_required")),
-        "blocked_reason": _text(row.get("blocked_reason")),
-        "decision_gate_state": _text(row.get("decision_gate_state")),
-        "decision_summary": _text(row.get("decision_summary")),
-        **decision_fields,
-        "followup_recommended": row.get("followup_recommended", False),
-        "followup_type": _text(row.get("followup_type")),
-        "followup_title": _text(row.get("followup_title")),
-        "followup_hypothesis": _text(row.get("followup_hypothesis")),
-        "followup_required_evidence": row.get("followup_required_evidence", []),
-        "followup_success_threshold": _text(row.get("followup_success_threshold")),
-        "followup_stop_condition": _text(row.get("followup_stop_condition")),
-        "followup_depth": row.get("followup_depth", 0),
-        "source_followup_depth": row.get("source_followup_depth", 0),
-        "followup_launched": row.get("followup_launched", False),
-        "project_dir": _text(row.get("project_dir")),
-        "related_paper_id": _text(row.get("related_paper_id")),
-        "related_paper_status": _text(row.get("related_paper_status")),
-        "related_review_status": _text(row.get("related_review_status")),
-        "related_finalization_package_path": _text(row.get("related_finalization_package_path")),
-        "related_draft_markdown_path": _text(row.get("related_draft_markdown_path")),
-        "related_evidence_bundle_path": _text(row.get("related_evidence_bundle_path")),
-        "related_claim_ledger_path": _text(row.get("related_claim_ledger_path")),
-        "related_manifest_path": _text(row.get("related_manifest_path")),
-        "related_corpus_imported": row.get("related_corpus_imported", False),
-        "related_corpus_import_id": _text(row.get("related_corpus_import_id")),
-        "related_artifact_slug": _text(row.get("related_artifact_slug")),
-        "related_source_record_fingerprint": _text(row.get("related_source_record_fingerprint")),
-        "updated_at": _text(row.get("updated_at")),
-        "age_seconds": row_age_seconds(row),
-        "links": queue_links(row),
-    }))
+    return _drop_related_artifact_paths(
+        with_operator_stage(
+            {
+                "project_id": _text(row.get("project_id")),
+                "project_name": _text(row.get("project_name")),
+                "status": _text(row.get("status")),
+                "machine_target": _text(row.get("machine_target")),
+                "model": _text(row.get("model")),
+                "sandbox": _text(row.get("sandbox")),
+                "dispatch_priority": row.get("dispatch_priority", 0),
+                "selection_rank": row.get("selection_rank", 0),
+                "current_run_id": _text(row.get("current_run_id")),
+                "current_session_id": _text(row.get("current_session_id")),
+                "last_run_state": _text(row.get("last_run_state")),
+                "next_action_hint": _text(row.get("next_action_hint")),
+                "manual_review_required": _truthy(row.get("manual_review_required")),
+                "blocked_reason": _text(row.get("blocked_reason")),
+                "decision_gate_state": _text(row.get("decision_gate_state")),
+                "decision_summary": _text(row.get("decision_summary")),
+                **decision_fields,
+                "followup_recommended": row.get("followup_recommended", False),
+                "followup_type": _text(row.get("followup_type")),
+                "followup_title": _text(row.get("followup_title")),
+                "followup_hypothesis": _text(row.get("followup_hypothesis")),
+                "followup_required_evidence": row.get("followup_required_evidence", []),
+                "followup_success_threshold": _text(
+                    row.get("followup_success_threshold")
+                ),
+                "followup_stop_condition": _text(row.get("followup_stop_condition")),
+                "followup_depth": row.get("followup_depth", 0),
+                "source_followup_depth": row.get("source_followup_depth", 0),
+                "followup_launched": row.get("followup_launched", False),
+                "project_dir": _text(row.get("project_dir")),
+                "related_paper_id": _text(row.get("related_paper_id")),
+                "related_paper_status": _text(row.get("related_paper_status")),
+                "related_review_status": _text(row.get("related_review_status")),
+                "related_finalization_package_path": _text(
+                    row.get("related_finalization_package_path")
+                ),
+                "related_draft_markdown_path": _text(
+                    row.get("related_draft_markdown_path")
+                ),
+                "related_evidence_bundle_path": _text(
+                    row.get("related_evidence_bundle_path")
+                ),
+                "related_claim_ledger_path": _text(
+                    row.get("related_claim_ledger_path")
+                ),
+                "related_manifest_path": _text(row.get("related_manifest_path")),
+                "related_corpus_imported": row.get("related_corpus_imported", False),
+                "related_corpus_import_id": _text(row.get("related_corpus_import_id")),
+                "related_artifact_slug": _text(row.get("related_artifact_slug")),
+                "related_source_record_fingerprint": _text(
+                    row.get("related_source_record_fingerprint")
+                ),
+                "updated_at": _text(row.get("updated_at")),
+                "age_seconds": row_age_seconds(row),
+                "links": queue_links(row),
+            }
+        )
+    )
 
 
 def _idea_has_queue_context(row: dict[str, Any]) -> bool:
@@ -957,7 +1083,9 @@ def summarize_intake_workbench(
     return f"{headline} idea(s) queued for operator review; promote or dispatch from the table below."
 
 
-def summarize_research_facility_workbench(*, counts: dict[str, int] | None, returned_rows: int = 0) -> str:
+def summarize_research_facility_workbench(
+    *, counts: dict[str, int] | None, returned_rows: int = 0
+) -> str:
     counts = counts or {}
     admitted = _count_value(counts, "admitted")
     needs_review = _count_value(counts, "needs_review")
@@ -1018,34 +1146,36 @@ def summarize_automation_workbench(
 
 
 def summarize_paper_row(row: dict[str, Any]) -> dict[str, Any]:
-    summary = with_operator_stage({
-        "paper_id": row.get("paper_id", ""),
-        "project_id": row.get("project_id", ""),
-        "project_name": row.get("project_name", ""),
-        "run_id": row.get("run_id", ""),
-        "paper_type": row.get("paper_type", ""),
-        "paper_status": row.get("paper_status", ""),
-        "draft_markdown_path": row.get("draft_markdown_path", ""),
-        "draft_latex_path": row.get("draft_latex_path", ""),
-        "evidence_bundle_path": row.get("evidence_bundle_path", ""),
-        "claim_ledger_path": row.get("claim_ledger_path", ""),
-        "manifest_path": row.get("manifest_path", ""),
-        "review_status": row.get("review_status", ""),
-        "finalization_package_path": row.get("finalization_package_path", ""),
-        "corpus_imported": row.get("corpus_imported", False),
-        "corpus_import_id": row.get("corpus_import_id", ""),
-        "artifact_slug": row.get("artifact_slug", ""),
-        "source_record_fingerprint": row.get("source_record_fingerprint", ""),
-        "corpus_commit_sha": row.get("corpus_commit_sha", ""),
-        "corpus_manifest_path": row.get("corpus_manifest_path", ""),
-        "corpus_imported_at": row.get("corpus_imported_at", ""),
-        "hf_dataset_synced": row.get("hf_dataset_synced", False),
-        "generated_at": row.get("generated_at", ""),
-        "updated_at": row.get("updated_at", ""),
-        "age_seconds": row_age_seconds(row),
-        "artifact_paths_present": _paper_artifact_flags(row),
-        "links": paper_links(row),
-    })
+    summary = with_operator_stage(
+        {
+            "paper_id": row.get("paper_id", ""),
+            "project_id": row.get("project_id", ""),
+            "project_name": row.get("project_name", ""),
+            "run_id": row.get("run_id", ""),
+            "paper_type": row.get("paper_type", ""),
+            "paper_status": row.get("paper_status", ""),
+            "draft_markdown_path": row.get("draft_markdown_path", ""),
+            "draft_latex_path": row.get("draft_latex_path", ""),
+            "evidence_bundle_path": row.get("evidence_bundle_path", ""),
+            "claim_ledger_path": row.get("claim_ledger_path", ""),
+            "manifest_path": row.get("manifest_path", ""),
+            "review_status": row.get("review_status", ""),
+            "finalization_package_path": row.get("finalization_package_path", ""),
+            "corpus_imported": row.get("corpus_imported", False),
+            "corpus_import_id": row.get("corpus_import_id", ""),
+            "artifact_slug": row.get("artifact_slug", ""),
+            "source_record_fingerprint": row.get("source_record_fingerprint", ""),
+            "corpus_commit_sha": row.get("corpus_commit_sha", ""),
+            "corpus_manifest_path": row.get("corpus_manifest_path", ""),
+            "corpus_imported_at": row.get("corpus_imported_at", ""),
+            "hf_dataset_synced": row.get("hf_dataset_synced", False),
+            "generated_at": row.get("generated_at", ""),
+            "updated_at": row.get("updated_at", ""),
+            "age_seconds": row_age_seconds(row),
+            "artifact_paths_present": _paper_artifact_flags(row),
+            "links": paper_links(row),
+        }
+    )
     for private_path_field in (
         "draft_markdown_path",
         "draft_latex_path",
@@ -1060,35 +1190,47 @@ def summarize_paper_row(row: dict[str, Any]) -> dict[str, Any]:
 def summarize_run_row(row: dict[str, Any]) -> dict[str, Any]:
     run_id = str(row.get("run_id") or "")
     project_id = str(row.get("project_id") or "")
-    return _drop_related_artifact_paths(with_operator_stage({
-        "run_id": run_id,
-        "project_id": project_id,
-        "project_name": row.get("project_name", ""),
-        "project_dir": row.get("project_dir", ""),
-        "session_id": row.get("session_id", ""),
-        "related_paper_id": row.get("related_paper_id", ""),
-        "related_paper_status": row.get("related_paper_status", ""),
-        "related_review_status": row.get("related_review_status", ""),
-        "related_finalization_package_path": row.get("related_finalization_package_path", ""),
-        "related_draft_markdown_path": row.get("related_draft_markdown_path", ""),
-        "related_evidence_bundle_path": row.get("related_evidence_bundle_path", ""),
-        "related_claim_ledger_path": row.get("related_claim_ledger_path", ""),
-        "related_manifest_path": row.get("related_manifest_path", ""),
-        "state": row.get("state", ""),
-        "gate_state": row.get("gate_state", ""),
-        "dispatch_mode": row.get("dispatch_mode", ""),
-        "started_at": row.get("started_at", ""),
-        "ended_at": row.get("ended_at", ""),
-        "last_callback_at": row.get("last_callback_at", ""),
-        "current_activity": row.get("current_activity", ""),
-        "updated_at": row.get("updated_at", ""),
-        "age_seconds": row_age_seconds(row),
-        "links": {
-            "run": f"/control/api/v1/runs/{run_id}" if run_id else "",
-            "project": f"/control/api/v1/projects/{project_id}" if project_id else "",
-            "legacy_run": f"/control/api/runs/{run_id}" if run_id else "",
-        },
-    }))
+    return _drop_related_artifact_paths(
+        with_operator_stage(
+            {
+                "run_id": run_id,
+                "project_id": project_id,
+                "project_name": row.get("project_name", ""),
+                "project_dir": row.get("project_dir", ""),
+                "session_id": row.get("session_id", ""),
+                "related_paper_id": row.get("related_paper_id", ""),
+                "related_paper_status": row.get("related_paper_status", ""),
+                "related_review_status": row.get("related_review_status", ""),
+                "related_finalization_package_path": row.get(
+                    "related_finalization_package_path", ""
+                ),
+                "related_draft_markdown_path": row.get(
+                    "related_draft_markdown_path", ""
+                ),
+                "related_evidence_bundle_path": row.get(
+                    "related_evidence_bundle_path", ""
+                ),
+                "related_claim_ledger_path": row.get("related_claim_ledger_path", ""),
+                "related_manifest_path": row.get("related_manifest_path", ""),
+                "state": row.get("state", ""),
+                "gate_state": row.get("gate_state", ""),
+                "dispatch_mode": row.get("dispatch_mode", ""),
+                "started_at": row.get("started_at", ""),
+                "ended_at": row.get("ended_at", ""),
+                "last_callback_at": row.get("last_callback_at", ""),
+                "current_activity": row.get("current_activity", ""),
+                "updated_at": row.get("updated_at", ""),
+                "age_seconds": row_age_seconds(row),
+                "links": {
+                    "run": f"/control/api/v1/runs/{run_id}" if run_id else "",
+                    "project": f"/control/api/v1/projects/{project_id}"
+                    if project_id
+                    else "",
+                    "legacy_run": f"/control/api/runs/{run_id}" if run_id else "",
+                },
+            }
+        )
+    )
 
 
 def _list_projection(
@@ -1100,44 +1242,51 @@ def _list_projection(
     return {
         key: value
         for key, value in row.items()
-        if key not in drop_keys and not any(key.startswith(prefix) for prefix in drop_prefixes)
+        if key not in drop_keys
+        and not any(key.startswith(prefix) for prefix in drop_prefixes)
     }
 
 
-_QUEUE_LIST_DROP_KEYS = frozenset({
-    "project_dir",
-    "current_session_id",
-    "last_run_state",
-    "related_paper_id",
-    "related_paper_status",
-    "related_review_status",
-    "related_finalization_package_path",
-    "related_draft_markdown_path",
-    "related_evidence_bundle_path",
-    "related_claim_ledger_path",
-    "related_manifest_path",
-    "related_corpus_imported",
-    "related_corpus_import_id",
-    "related_artifact_slug",
-    "related_source_record_fingerprint",
-})
-_PROJECT_LIST_DROP_KEYS = frozenset({
-    "origin_idea_status",
-    "related_paper_id",
-    "related_paper_status",
-})
-_RUN_LIST_DROP_KEYS = frozenset({
-    "project_dir",
-    "session_id",
-    "related_paper_id",
-    "related_paper_status",
-    "related_review_status",
-    "related_finalization_package_path",
-    "related_draft_markdown_path",
-    "related_evidence_bundle_path",
-    "related_claim_ledger_path",
-    "related_manifest_path",
-})
+_QUEUE_LIST_DROP_KEYS = frozenset(
+    {
+        "project_dir",
+        "current_session_id",
+        "last_run_state",
+        "related_paper_id",
+        "related_paper_status",
+        "related_review_status",
+        "related_finalization_package_path",
+        "related_draft_markdown_path",
+        "related_evidence_bundle_path",
+        "related_claim_ledger_path",
+        "related_manifest_path",
+        "related_corpus_imported",
+        "related_corpus_import_id",
+        "related_artifact_slug",
+        "related_source_record_fingerprint",
+    }
+)
+_PROJECT_LIST_DROP_KEYS = frozenset(
+    {
+        "origin_idea_status",
+        "related_paper_id",
+        "related_paper_status",
+    }
+)
+_RUN_LIST_DROP_KEYS = frozenset(
+    {
+        "project_dir",
+        "session_id",
+        "related_paper_id",
+        "related_paper_status",
+        "related_review_status",
+        "related_finalization_package_path",
+        "related_draft_markdown_path",
+        "related_evidence_bundle_path",
+        "related_claim_ledger_path",
+        "related_manifest_path",
+    }
+)
 
 
 def summarize_queue_list_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -1149,7 +1298,9 @@ def summarize_queue_list_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def summarize_project_list_row(row: dict[str, Any]) -> dict[str, Any]:
-    return _list_projection(summarize_project_row(row), drop_keys=_PROJECT_LIST_DROP_KEYS)
+    return _list_projection(
+        summarize_project_row(row), drop_keys=_PROJECT_LIST_DROP_KEYS
+    )
 
 
 def summarize_run_list_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -1205,7 +1356,13 @@ def _typed_lifecycle_key(row: dict[str, Any]) -> str:
     if project_id:
         if bool(row.get("operator_attention")):
             run_id = _text(row.get("run_id") or row.get("current_run_id"))
-            status = _text(row.get("status") or row.get("queue_status") or row.get("last_run_state") or row.get("state") or row.get("gate_state"))
+            status = _text(
+                row.get("status")
+                or row.get("queue_status")
+                or row.get("last_run_state")
+                or row.get("state")
+                or row.get("gate_state")
+            )
             return f"queue_attention:{project_id}:{run_id or status}"
         return f"queue:{project_id}"
     run_id = _text(row.get("run_id") or row.get("current_run_id"))
@@ -1214,11 +1371,11 @@ def _typed_lifecycle_key(row: dict[str, Any]) -> str:
     return ""
 
 
-
-
 def _operator_row_is_active(row: dict[str, Any]) -> bool:
     status = _text(row.get("status") or row.get("queue_status"))
-    state = _text(row.get("last_run_state") or row.get("state") or row.get("gate_state"))
+    state = _text(
+        row.get("last_run_state") or row.get("state") or row.get("gate_state")
+    )
     return status in ACTIVE_QUEUE_STATUSES or state in ACTIVE_QUEUE_STATUSES
 
 
@@ -1288,9 +1445,13 @@ def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]
     paper_run_keys = {
         (_text(row.get("project_id")), _text(row.get("run_id")))
         for row in staged_rows
-        if _text(row.get("paper_id")) and _text(row.get("project_id")) and _text(row.get("run_id"))
+        if _text(row.get("paper_id"))
+        and _text(row.get("project_id"))
+        and _text(row.get("run_id"))
     }
-    paper_ids = {_text(row.get("paper_id")) for row in staged_rows if _text(row.get("paper_id"))}
+    paper_ids = {
+        _text(row.get("paper_id")) for row in staged_rows if _text(row.get("paper_id"))
+    }
     by_key: dict[str, dict[str, Any]] = {}
     anonymous: list[dict[str, Any]] = []
     for staged in staged_rows:
@@ -1298,12 +1459,27 @@ def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]
         is_queue_row = not _text(staged.get("paper_id"))
         is_active_row = _operator_row_is_active(staged)
         needs_attention = bool(staged.get("operator_attention"))
-        if is_queue_row and _has_related_paper_projection(staged) and (not related_paper_id or related_paper_id not in paper_ids):
+        if (
+            is_queue_row
+            and _has_related_paper_projection(staged)
+            and (not related_paper_id or related_paper_id not in paper_ids)
+        ):
             staged = _strip_related_paper_projection(staged)
             related_paper_id = ""
-        if is_queue_row and related_paper_id and related_paper_id in paper_ids and not is_active_row and not needs_attention:
+        if (
+            is_queue_row
+            and related_paper_id
+            and related_paper_id in paper_ids
+            and not is_active_row
+            and not needs_attention
+        ):
             continue
-        if is_queue_row and not is_active_row and not needs_attention and _queue_is_superseded_by_paper(staged, paper_run_keys):
+        if (
+            is_queue_row
+            and not is_active_row
+            and not needs_attention
+            and _queue_is_superseded_by_paper(staged, paper_run_keys)
+        ):
             continue
         key = _typed_lifecycle_key(staged)
         if not key:
@@ -1319,14 +1495,31 @@ def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]
         detail_stage = _text(staged.get("operator_detail_stage"))
         current_detail_stage = _text((current or {}).get("operator_detail_stage"))
         lane = _text(staged.get("operator_lane") or staged.get("operator_stage"))
-        current_lane = _text((current or {}).get("operator_lane") or (current or {}).get("operator_stage"))
-        if current is not None and current_lane == OperatorLane.PUBLISHED.value and lane != OperatorLane.NEEDS_OPERATOR.value:
+        current_lane = _text(
+            (current or {}).get("operator_lane")
+            or (current or {}).get("operator_stage")
+        )
+        if (
+            current is not None
+            and current_lane == OperatorLane.PUBLISHED.value
+            and lane != OperatorLane.NEEDS_OPERATOR.value
+        ):
             continue
-        if current is not None and lane == OperatorLane.PUBLISHED.value and current_lane != OperatorLane.NEEDS_OPERATOR.value:
+        if (
+            current is not None
+            and lane == OperatorLane.PUBLISHED.value
+            and current_lane != OperatorLane.NEEDS_OPERATOR.value
+        ):
             by_key[key] = staged
             continue
-        precedence = max(OPERATOR_STAGE_PRECEDENCE.get(detail_stage, 0), OPERATOR_LANE_PRECEDENCE.get(lane, 0))
-        current_precedence = max(OPERATOR_STAGE_PRECEDENCE.get(current_detail_stage, 0), OPERATOR_LANE_PRECEDENCE.get(current_lane, 0))
+        precedence = max(
+            OPERATOR_STAGE_PRECEDENCE.get(detail_stage, 0),
+            OPERATOR_LANE_PRECEDENCE.get(lane, 0),
+        )
+        current_precedence = max(
+            OPERATOR_STAGE_PRECEDENCE.get(current_detail_stage, 0),
+            OPERATOR_LANE_PRECEDENCE.get(current_lane, 0),
+        )
         if current is None or precedence > current_precedence:
             by_key[key] = staged
     return [*by_key.values(), *anonymous]
@@ -1335,7 +1528,10 @@ def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]
 def operator_detail_counts_from_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for row in _reconciled_operator_rows(rows):
-        detail_stage = _text(row.get("operator_detail_stage")) or operator_stage_for_record(row)["operator_detail_stage"]
+        detail_stage = (
+            _text(row.get("operator_detail_stage"))
+            or operator_stage_for_record(row)["operator_detail_stage"]
+        )
         counts[detail_stage] = counts.get(detail_stage, 0) + 1
     return counts
 
@@ -1344,15 +1540,35 @@ def operator_counts_from_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
     counts: dict[str, int] = {}
     reconciled = _reconciled_operator_rows(rows)
     for row in reconciled:
-        lane = _text(row.get("operator_lane") or row.get("operator_stage")) or operator_stage_for_record(row)["operator_lane"]
+        lane = (
+            _text(row.get("operator_lane") or row.get("operator_stage"))
+            or operator_stage_for_record(row)["operator_lane"]
+        )
         counts[lane] = counts.get(lane, 0) + 1
-    counts["needs_attention"] = sum(1 for row in reconciled if bool(row.get("operator_attention") or operator_stage_for_record(row)["operator_attention"]))
-    counts[OperatorLane.READY_TO_PUBLISH.value] = counts.get(OperatorLane.READY_TO_PUBLISH.value, 0)
+    counts["needs_attention"] = sum(
+        1
+        for row in reconciled
+        if bool(
+            row.get("operator_attention")
+            or operator_stage_for_record(row)["operator_attention"]
+        )
+    )
+    counts[OperatorLane.READY_TO_PUBLISH.value] = counts.get(
+        OperatorLane.READY_TO_PUBLISH.value, 0
+    )
     counts["total_operator_items"] = len(reconciled)
     return counts
 
 
-def page_response(*, rows: list[dict[str, Any]], next_cursor: str | None, has_more: bool, page_size_value: int, cursor: str, filters: dict[str, Any]) -> dict[str, Any]:
+def page_response(
+    *,
+    rows: list[dict[str, Any]],
+    next_cursor: str | None,
+    has_more: bool,
+    page_size_value: int,
+    cursor: str,
+    filters: dict[str, Any],
+) -> dict[str, Any]:
     return {
         "page_size": page_size_value,
         "returned": len(rows),
@@ -1393,7 +1609,9 @@ def _valid_overview_batch(value: Any) -> Mapping[str, Any] | None:
         rows = value.get(rows_key)
         if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
             return None
-    if not isinstance(value.get("counts"), dict) or not isinstance(value.get("paper_counts"), dict):
+    if not isinstance(value.get("counts"), dict) or not isinstance(
+        value.get("paper_counts"), dict
+    ):
         return None
     return value
 
@@ -1403,7 +1621,14 @@ def _candidate_label(candidate: Mapping[str, Any] | None) -> str:
         return ""
     if not isinstance(candidate, Mapping):
         return ""
-    for key in ("project_name", "paper_title", "followup_title", "title", "project_id", "paper_id"):
+    for key in (
+        "project_name",
+        "paper_title",
+        "followup_title",
+        "title",
+        "project_id",
+        "paper_id",
+    ):
         value = candidate.get(key)
         if value:
             return str(value)
@@ -1557,23 +1782,27 @@ def movement_diagnosis(
     blockers: list[dict[str, Any]] = []
 
     if flags.get("maintenance_mode"):
-        blockers.append({
-            "kind": "maintenance_mode",
-            "tone": "warn",
-            "title": "Maintenance mode is on",
-            "summary": "Automation is intentionally held until maintenance mode is cleared.",
-            "action_label": "Resume queue",
-            "action_hash": "#overview",
-        })
+        blockers.append(
+            {
+                "kind": "maintenance_mode",
+                "tone": "warn",
+                "title": "Maintenance mode is on",
+                "summary": "Automation is intentionally held until maintenance mode is cleared.",
+                "action_label": "Resume queue",
+                "action_hash": "#overview",
+            }
+        )
     if flags.get("queue_paused"):
-        blockers.append({
-            "kind": "queue_paused",
-            "tone": "warn",
-            "title": "Queue is paused",
-            "summary": "Queued work will not dispatch until the queue is resumed.",
-            "action_label": "Resume queue",
-            "action_hash": "#overview",
-        })
+        blockers.append(
+            {
+                "kind": "queue_paused",
+                "tone": "warn",
+                "title": "Queue is paused",
+                "summary": "Queued work will not dispatch until the queue is resumed.",
+                "action_label": "Resume queue",
+                "action_hash": "#overview",
+            }
+        )
 
     for lane in lanes:
         label = _lane_label(lane)
@@ -1582,110 +1811,143 @@ def movement_diagnosis(
         feed_action = str(feed.get("next_autopilot_action") or "")
         queued_count = _safe_count(lane.get("queued_count"))
         if bool(lane.get("dispatch_available")):
-            blockers.append({
-                "kind": "dispatch_available",
-                "lane": label,
-                "tone": "good",
-                "title": f"{label} can dispatch",
-                "summary": f"{label} can dispatch queued work.",
-                "action_label": "Dispatch this lane",
-                "action_hash": "#queue:queued",
-            })
+            blockers.append(
+                {
+                    "kind": "dispatch_available",
+                    "lane": label,
+                    "tone": "good",
+                    "title": f"{label} can dispatch",
+                    "summary": f"{label} can dispatch queued work.",
+                    "action_label": "Dispatch this lane",
+                    "action_hash": "#queue:queued",
+                }
+            )
         elif str(lane.get("status") or "") == "active":
             active_count = _safe_count(lane.get("active_count"))
             if active_count > 1:
-                blockers.append({
-                    "kind": "lane_conflict_active",
+                blockers.append(
+                    {
+                        "kind": "lane_conflict_active",
+                        "lane": label,
+                        "tone": "warn",
+                        "title": f"{label} has duplicate active work",
+                        "summary": f"{label} reports {active_count} active runs, which violates the single-active-run lane invariant.",
+                        "action_label": "Open active work",
+                        "action_hash": "#queue:active",
+                    }
+                )
+                continue
+            blockers.append(
+                {
+                    "kind": "lane_active",
                     "lane": label,
-                    "tone": "warn",
-                    "title": f"{label} has duplicate active work",
-                    "summary": f"{label} reports {active_count} active runs, which violates the single-active-run lane invariant.",
+                    "tone": "info",
+                    "title": f"{label} is running",
+                    "summary": f"{label} is occupied by {active.get('project_name') or active.get('project_id') or 'active work'}.",
                     "action_label": "Open active work",
                     "action_hash": "#queue:active",
-                })
-                continue
-            blockers.append({
-                "kind": "lane_active",
-                "lane": label,
-                "tone": "info",
-                "title": f"{label} is running",
-                "summary": f"{label} is occupied by {active.get('project_name') or active.get('project_id') or 'active work'}.",
-                "action_label": "Open active work",
-                "action_hash": "#queue:active",
-            })
+                }
+            )
         elif queued_count and not bool(lane.get("configured", True)):
-            blockers.append({
-                "kind": "no_matching_machine_target",
-                "lane": label,
-                "tone": "warn",
-                "title": f"{label} is not configured",
-                "summary": "Queued work targets a worker lane that is not in the configured worker-target set.",
-                "action_label": "Open queue",
-                "action_hash": "#queue:queued",
-            })
+            blockers.append(
+                {
+                    "kind": "no_matching_machine_target",
+                    "lane": label,
+                    "tone": "warn",
+                    "title": f"{label} is not configured",
+                    "summary": "Queued work targets a worker lane that is not in the configured worker-target set.",
+                    "action_label": "Open queue",
+                    "action_hash": "#queue:queued",
+                }
+            )
         elif feed_action == "promote_candidate":
-            blockers.append({
-                "kind": "lane_queue_empty",
-                "lane": label,
-                "tone": "warn",
-                "title": f"{label} needs a queued candidate",
-                "summary": str(feed.get("operator_summary") or f"{label} has admitted candidates that should be promoted."),
-                "action_label": "Feed idle lane",
-                "action_hash": "#research",
-            })
+            blockers.append(
+                {
+                    "kind": "lane_queue_empty",
+                    "lane": label,
+                    "tone": "warn",
+                    "title": f"{label} needs a queued candidate",
+                    "summary": str(
+                        feed.get("operator_summary")
+                        or f"{label} has admitted candidates that should be promoted."
+                    ),
+                    "action_label": "Feed idle lane",
+                    "action_hash": "#research",
+                }
+            )
         elif feed_action == "generate_candidate":
-            blockers.append({
-                "kind": "no_admitted_candidates",
-                "lane": label,
-                "tone": "warn",
-                "title": f"{label} has no admitted candidate",
-                "summary": str(feed.get("operator_summary") or f"{label} needs generated/admitted work before dispatch can happen."),
-                "action_label": "Open research facility",
-                "action_hash": "#research",
-            })
+            blockers.append(
+                {
+                    "kind": "no_admitted_candidates",
+                    "lane": label,
+                    "tone": "warn",
+                    "title": f"{label} has no admitted candidate",
+                    "summary": str(
+                        feed.get("operator_summary")
+                        or f"{label} needs generated/admitted work before dispatch can happen."
+                    ),
+                    "action_label": "Open research facility",
+                    "action_hash": "#research",
+                }
+            )
         elif str(lane.get("dispatch_blocker") or ""):
-            blockers.append({
-                "kind": "lane_blocked",
-                "lane": label,
-                "tone": "warn",
-                "title": f"{label} cannot dispatch",
-                "summary": str(lane.get("dispatch_blocker")),
-                "action_label": "Open queue",
-                "action_hash": "#queue:queued",
-            })
+            blockers.append(
+                {
+                    "kind": "lane_blocked",
+                    "lane": label,
+                    "tone": "warn",
+                    "title": f"{label} cannot dispatch",
+                    "summary": str(lane.get("dispatch_blocker")),
+                    "action_label": "Open queue",
+                    "action_hash": "#queue:queued",
+                }
+            )
 
     gate_blocked = _safe_count(paper_pipeline.get("not_writable_by_decision_gate"))
     if gate_blocked:
-        blockers.append({
-            "kind": "paper_gate_blocked",
-            "tone": "warn",
-            "title": "Paper gate is blocking candidates",
-            "summary": f"{gate_blocked} completed no-paper candidate{'s' if gate_blocked != 1 else ''} failed the deterministic paper decision gate.",
-            "action_label": "Open paper details",
-            "action_hash": "#papers",
-        })
+        blockers.append(
+            {
+                "kind": "paper_gate_blocked",
+                "tone": "warn",
+                "title": "Paper gate is blocking candidates",
+                "summary": f"{gate_blocked} completed no-paper candidate{'s' if gate_blocked != 1 else ''} failed the deterministic paper decision gate.",
+                "action_label": "Open paper details",
+                "action_hash": "#papers",
+            }
+        )
     finalize_needed = _safe_count(paper_pipeline.get("finalize_needed"))
     if finalize_needed:
-        blockers.append({
-            "kind": "evidence_missing",
-            "tone": "warn",
-            "title": "Publication evidence/package is incomplete",
-            "summary": f"{finalize_needed} publication draft{'s' if finalize_needed != 1 else ''} still need automated finalization/evidence packaging.",
-            "action_label": "Open automation",
-            "action_hash": "#automation",
-        })
+        blockers.append(
+            {
+                "kind": "evidence_missing",
+                "tone": "warn",
+                "title": "Publication evidence/package is incomplete",
+                "summary": f"{finalize_needed} publication draft{'s' if finalize_needed != 1 else ''} still need automated finalization/evidence packaging.",
+                "action_label": "Open automation",
+                "action_hash": "#automation",
+            }
+        )
     if _safe_count(investigation_pipeline.get("ranked_followup_ready")):
-        blockers.append({
-            "kind": "followup_ready",
-            "tone": "info",
-            "title": "Bounded follow-up is ready",
-            "summary": "A preserved signal has enough bounded evidence to queue the next investigation.",
-            "action_label": "Queue follow-up",
-            "action_hash": "#research",
-        })
+        blockers.append(
+            {
+                "kind": "followup_ready",
+                "tone": "info",
+                "title": "Bounded follow-up is ready",
+                "summary": "A preserved signal has enough bounded evidence to queue the next investigation.",
+                "action_label": "Queue follow-up",
+                "action_hash": "#research",
+            }
+        )
 
     primary = blockers[0] if blockers else None
-    actionable = next((item for item in blockers if item["kind"] in {"dispatch_available", "followup_ready"}), None)
+    actionable = next(
+        (
+            item
+            for item in blockers
+            if item["kind"] in {"dispatch_available", "followup_ready"}
+        ),
+        None,
+    )
     hard_blocker_kinds = {
         "maintenance_mode",
         "queue_paused",
@@ -1696,7 +1958,9 @@ def movement_diagnosis(
         "lane_conflict_active",
         "evidence_missing",
     }
-    hard_blocker = next((item for item in blockers if item["kind"] in hard_blocker_kinds), None)
+    hard_blocker = next(
+        (item for item in blockers if item["kind"] in hard_blocker_kinds), None
+    )
     active_lanes = [item for item in blockers if item["kind"] == "lane_active"]
     if flags.get("maintenance_mode"):
         status = "blocked"
@@ -1715,7 +1979,10 @@ def movement_diagnosis(
         if len(active_lanes) > 1:
             primary_reason = "Configured worker lanes are occupied by active runs; this is normal while queued backlog waits."
         else:
-            primary_reason = str(active_lanes[0]["summary"]) + " This is normal active work, not a health blocker."
+            primary_reason = (
+                str(active_lanes[0]["summary"])
+                + " This is normal active work, not a health blocker."
+            )
     elif primary:
         status = "ready"
         primary_reason = "No dispatch or automation health blocker is preventing unattended operation."
@@ -1768,68 +2035,76 @@ def top_operator_actions(
     if needs_attention == 0 and needs_attention_value in (None, ""):
         needs_attention = _safe_count(counts.get("blocked"))
     if needs_attention > 0:
-        candidates.append({
-            "kind": "needs_attention",
-            "tone": "warn",
-            "title": "Resolve operator attention items",
-            "summary": (
-                f"{needs_attention} item{'s' if needs_attention != 1 else ''} flagged for operator action."
-            ),
-            "count": needs_attention,
-            "action_label": "Open attention queue",
-            "action_hash": "#queue:blocked",
-        })
+        candidates.append(
+            {
+                "kind": "needs_attention",
+                "tone": "warn",
+                "title": "Resolve operator attention items",
+                "summary": (
+                    f"{needs_attention} item{'s' if needs_attention != 1 else ''} flagged for operator action."
+                ),
+                "count": needs_attention,
+                "action_label": "Open attention queue",
+                "action_hash": "#queue:blocked",
+            }
+        )
 
     write_needed = _safe_count(paper_pipeline.get("write_needed"))
     if write_needed > 0:
         next_write = paper_pipeline.get("next_write_candidate") or {}
         next_label = _candidate_label(next_write) or "next paper-ready run"
-        candidates.append({
-            "kind": "write_paper",
-            "tone": "warn",
-            "title": "Draft the next paper",
-            "summary": (
-                f"{write_needed} paper-ready run{'s' if write_needed != 1 else ''} need a first draft. "
-                f"Next: {next_label}."
-            ),
-            "count": write_needed,
-            "action_label": "Open draft lane",
-            "action_hash": "#papers?status=publication_draft",
-            "target": _candidate_target(next_write) or None,
-        })
+        candidates.append(
+            {
+                "kind": "write_paper",
+                "tone": "warn",
+                "title": "Draft the next paper",
+                "summary": (
+                    f"{write_needed} paper-ready run{'s' if write_needed != 1 else ''} need a first draft. "
+                    f"Next: {next_label}."
+                ),
+                "count": write_needed,
+                "action_label": "Open draft lane",
+                "action_hash": "#papers?status=publication_draft",
+                "target": _candidate_target(next_write) or None,
+            }
+        )
 
     finalize_needed = _safe_count(paper_pipeline.get("finalize_needed"))
     if finalize_needed > 0:
-        candidates.append({
-            "kind": "finalize_paper",
-            "tone": "warn",
-            "title": "Finalize publication drafts",
-            "summary": (
-                f"{finalize_needed} publication draft{'s' if finalize_needed != 1 else ''} "
-                "missing automated finalization package."
-            ),
-            "count": finalize_needed,
-            "action_label": "Open automation queue",
-            "action_hash": "#automation",
-        })
+        candidates.append(
+            {
+                "kind": "finalize_paper",
+                "tone": "warn",
+                "title": "Finalize publication drafts",
+                "summary": (
+                    f"{finalize_needed} publication draft{'s' if finalize_needed != 1 else ''} "
+                    "missing automated finalization package."
+                ),
+                "count": finalize_needed,
+                "action_label": "Open automation queue",
+                "action_hash": "#automation",
+            }
+        )
 
     publish_ready = _safe_count(paper_pipeline.get("publish_ready"))
     if publish_ready > 0:
         next_publish = paper_pipeline.get("next_publish_candidate") or {}
         next_label = _candidate_label(next_publish) or "the next finalized draft"
-        candidates.append({
-            "kind": "publish_paper",
-            "tone": "warn",
-            "title": "Import finalized drafts",
-            "summary": (
-                f"{publish_ready} finalized draft{'s' if publish_ready != 1 else ''} missing a "
-                f"corpus-import ledger row. Next: {next_label}."
-            ),
-            "count": publish_ready,
-            "action_label": "Open corpus import",
-            "action_hash": "#corpus",
-            "target": _candidate_target(next_publish) or None,
-        })
+        candidates.append(
+            {
+                "kind": "publish_paper",
+                "tone": "warn",
+                "title": "Import finalized drafts",
+                "summary": (
+                    f"{publish_ready} finalized draft{'s' if publish_ready != 1 else ''} missing a "
+                    f"corpus-import ledger row. Next: {next_label}."
+                ),
+                "count": publish_ready,
+                "action_label": "Open corpus import",
+                "action_hash": "#corpus",
+                "target": _candidate_target(next_publish) or None,
+            }
+        )
 
     followup_ready = _safe_count(investigation_pipeline.get("ranked_followup_ready"))
     if followup_ready > 0:
@@ -1839,19 +2114,21 @@ def top_operator_actions(
             or {}
         )
         next_label = _candidate_label(next_followup) or "the top ranked candidate"
-        candidates.append({
-            "kind": "investigate_followup",
-            "tone": "info",
-            "title": "Queue a follow-up investigation",
-            "summary": (
-                f"{followup_ready} ranked follow-up{'s' if followup_ready != 1 else ''} ready for a bounded "
-                f"adjacent investigation. Next: {next_label}."
-            ),
-            "count": followup_ready,
-            "action_label": "Queue follow-up",
-            "action_hash": "#research",
-            "target": _candidate_target(next_followup) or None,
-        })
+        candidates.append(
+            {
+                "kind": "investigate_followup",
+                "tone": "info",
+                "title": "Queue a follow-up investigation",
+                "summary": (
+                    f"{followup_ready} ranked follow-up{'s' if followup_ready != 1 else ''} ready for a bounded "
+                    f"adjacent investigation. Next: {next_label}."
+                ),
+                "count": followup_ready,
+                "action_label": "Queue follow-up",
+                "action_hash": "#research",
+                "target": _candidate_target(next_followup) or None,
+            }
+        )
 
     # dispatch_next is intentionally lane-aware. We never use the aggregate
     # `counts.active` / `counts.queued` to imply lane dispatch truth, because
@@ -1868,19 +2145,21 @@ def top_operator_actions(
         for lane in worker_lanes or ():
             if isinstance(lane, Mapping) and bool(lane.get("dispatch_available")):
                 queued_for_lanes += _safe_count(lane.get("queued_count"))
-        candidates.append({
-            "kind": "dispatch_next",
-            "tone": "info",
-            "title": "Dispatch the next queued item",
-            "summary": (
-                f"{lane_summary} {'is' if len(open_lanes) == 1 else 'are'} idle with "
-                f"{queued_for_lanes} queued candidate{'s' if queued_for_lanes != 1 else ''} "
-                "ready to dispatch."
-            ),
-            "count": queued_for_lanes,
-            "action_label": "Open ready queue",
-            "action_hash": "#queue:queued",
-        })
+        candidates.append(
+            {
+                "kind": "dispatch_next",
+                "tone": "info",
+                "title": "Dispatch the next queued item",
+                "summary": (
+                    f"{lane_summary} {'is' if len(open_lanes) == 1 else 'are'} idle with "
+                    f"{queued_for_lanes} queued candidate{'s' if queued_for_lanes != 1 else ''} "
+                    "ready to dispatch."
+                ),
+                "count": queued_for_lanes,
+                "action_label": "Open ready queue",
+                "action_hash": "#queue:queued",
+            }
+        )
 
     ranked = candidates[:safe_limit]
     for index, item in enumerate(ranked, start=1):
@@ -1917,7 +2196,9 @@ def primary_operator_action(
             "kind": "open_blocker",
             "tone": primary.get("tone", "warn"),
             "title": str(primary.get("title") or "Resolve blocker"),
-            "summary": str(primary.get("summary") or movement.get("primary_reason") or ""),
+            "summary": str(
+                primary.get("summary") or movement.get("primary_reason") or ""
+            ),
             "action_label": str(primary.get("action_label") or "Open details"),
             "action_hash": str(primary.get("action_hash") or "#overview"),
             "blocker_kind": primary.get("kind"),
@@ -1943,7 +2224,9 @@ def primary_operator_action(
         }
         if project_id:
             payload["project_id"] = project_id
-            payload["target"] = _candidate_target(next_candidate) or {"project_id": project_id}
+            payload["target"] = _candidate_target(next_candidate) or {
+                "project_id": project_id
+            }
         return payload
 
     for lane in lanes:
@@ -1981,7 +2264,9 @@ def overview(
     batched_parts = None
     batched_reader = getattr(store, "overview_read_model_parts", None)
     if callable(batched_reader):
-        batched_parts = _valid_overview_batch(batched_reader(active_limit=active_limit, event_limit=event_limit))
+        batched_parts = _valid_overview_batch(
+            batched_reader(active_limit=active_limit, event_limit=event_limit)
+        )
 
     if batched_parts is not None:
         counts = batched_parts["counts"]
@@ -1993,7 +2278,10 @@ def overview(
     else:
         counts = store.queue_counts_sql()
         paper_counts = store.paper_counts_sql()
-        active = [summarize_queue_row(row) for row in store.active_items_sql(limit=active_limit)]
+        active = [
+            summarize_queue_row(row)
+            for row in store.active_items_sql(limit=active_limit)
+        ]
         next_candidate = store.next_candidate_sql()
         raw_queue_rows = store.operator_queue_rows_sql()
         raw_paper_rows = store.operator_paper_rows_sql()
@@ -2006,20 +2294,32 @@ def overview(
     # both surfaces.
     operator_queue_rows = [*queue_rows, *active]
     operator_counts = operator_counts_from_rows([*operator_queue_rows, *paper_rows])
-    operator_detail_counts = operator_detail_counts_from_rows([*operator_queue_rows, *paper_rows])
-    raw_write_candidates = eligible_paper_draft_candidates(raw_queue_rows, raw_paper_rows)
+    operator_detail_counts = operator_detail_counts_from_rows(
+        [*operator_queue_rows, *paper_rows]
+    )
+    raw_write_candidates = eligible_paper_draft_candidates(
+        raw_queue_rows, raw_paper_rows
+    )
     write_candidates: list[dict[str, Any]] = []
     gate_rejected: list[dict[str, Any]] = []
     for candidate in raw_write_candidates:
-        gate = _paper_draft_gate_from_row_decision(candidate) or _paper_draft_gate_for_row(candidate)
+        gate = _paper_draft_gate_from_row_decision(
+            candidate
+        ) or _paper_draft_gate_for_row(candidate)
         if gate is None or not bool(gate.get("eligible")):
-            gate_rejected.append({
-                "project_id": candidate.get("project_id", ""),
-                "project_name": candidate.get("project_name", ""),
-                "run_id": candidate.get("current_run_id") or candidate.get("run_id") or "",
-                "decision_summary": _decision_summary_from_gate(gate),
-                "gate_reason": (gate or {}).get("reason", "missing project decision artifact"),
-            })
+            gate_rejected.append(
+                {
+                    "project_id": candidate.get("project_id", ""),
+                    "project_name": candidate.get("project_name", ""),
+                    "run_id": candidate.get("current_run_id")
+                    or candidate.get("run_id")
+                    or "",
+                    "decision_summary": _decision_summary_from_gate(gate),
+                    "gate_reason": (gate or {}).get(
+                        "reason", "missing project decision artifact"
+                    ),
+                }
+            )
             continue
         write_candidates.append(candidate)
     # Operator counts are the high-level read model used by cards and alerts.
@@ -2033,39 +2333,78 @@ def overview(
         operator_detail_counts.pop("run_complete_draft_needed", None)
     reconciled_queue_rows = _reconciled_operator_rows(queue_rows)
     raw_reconciled_queue_rows = _reconciled_operator_rows(raw_queue_rows)
-    followup_rows = [row for row in reconciled_queue_rows if _text(row.get("operator_detail_stage")) == "followup_candidate"]
+    followup_rows = [
+        row
+        for row in reconciled_queue_rows
+        if _text(row.get("operator_detail_stage")) == "followup_candidate"
+    ]
     followup_rows.sort(key=promising_followup_priority_key)
     ranked_ready_rows = [
-        row for row in raw_reconciled_queue_rows
+        row
+        for row in raw_reconciled_queue_rows
         if ranked_followup_readiness(row)["ready"]
     ]
     ranked_ready_rows.sort(key=promising_followup_priority_key)
     ranked_stale_rows = [
-        row for row in raw_reconciled_queue_rows
+        row
+        for row in raw_reconciled_queue_rows
         if promising_signal_bucket(row) == LIKELY_STALE_LOW_VALUE_ARCHIVE
         and _truthy(row.get("followup_recommended"))
         and not ranked_followup_readiness(row)["ready"]
     ]
-    useful_signal_rows = [row for row in reconciled_queue_rows if _text(row.get("operator_lane")) == OperatorLane.USEFUL_SIGNAL.value]
-    compute_scale_blocked_rows = [row for row in reconciled_queue_rows if _text(row.get("operator_lane")) == OperatorLane.COMPUTE_SCALE_BLOCKED.value]
-    publish_candidates = [row for row in paper_rows if _text(row.get("operator_stage")) == "ready_to_publish"]
+    useful_signal_rows = [
+        row
+        for row in reconciled_queue_rows
+        if _text(row.get("operator_lane")) == OperatorLane.USEFUL_SIGNAL.value
+    ]
+    compute_scale_blocked_rows = [
+        row
+        for row in reconciled_queue_rows
+        if _text(row.get("operator_lane")) == OperatorLane.COMPUTE_SCALE_BLOCKED.value
+    ]
+    publish_candidates = [
+        row
+        for row in paper_rows
+        if _text(row.get("operator_stage")) == "ready_to_publish"
+    ]
     imported_candidates = [row for row in paper_rows if _paper_imported(row)]
-    imported_candidates.sort(key=lambda row: _text(row.get("corpus_imported_at") or row.get("updated_at")), reverse=True)
-    publication_ready_total = operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0) + operator_counts.get(OperatorLane.PUBLISHED.value, 0)
+    imported_candidates.sort(
+        key=lambda row: _text(row.get("corpus_imported_at") or row.get("updated_at")),
+        reverse=True,
+    )
+    publication_ready_total = operator_counts.get(
+        OperatorLane.READY_TO_PUBLISH.value, 0
+    ) + operator_counts.get(OperatorLane.PUBLISHED.value, 0)
     investigation_pipeline = {
         "followup_needed": len(followup_rows),
         "useful_signals": len(useful_signal_rows),
         "compute_scale_blocked": len(compute_scale_blocked_rows),
         "ranked_followup_ready": len(ranked_ready_rows),
-        "ranked_top_external_researcher_candidates": sum(1 for row in ranked_ready_rows if promising_signal_bucket(row) == TOP_EXTERNAL_RESEARCHER_CANDIDATES),
-        "ranked_compute_scale_blocked_ready": sum(1 for row in ranked_ready_rows if promising_signal_bucket(row) == COMPUTE_SCALE_BLOCKED),
-        "ranked_followup_recommended_ready": sum(1 for row in ranked_ready_rows if promising_signal_bucket(row) == FOLLOWUP_RECOMMENDED),
+        "ranked_top_external_researcher_candidates": sum(
+            1
+            for row in ranked_ready_rows
+            if promising_signal_bucket(row) == TOP_EXTERNAL_RESEARCHER_CANDIDATES
+        ),
+        "ranked_compute_scale_blocked_ready": sum(
+            1
+            for row in ranked_ready_rows
+            if promising_signal_bucket(row) == COMPUTE_SCALE_BLOCKED
+        ),
+        "ranked_followup_recommended_ready": sum(
+            1
+            for row in ranked_ready_rows
+            if promising_signal_bucket(row) == FOLLOWUP_RECOMMENDED
+        ),
         "ranked_likely_stale_low_value_archive": len(ranked_stale_rows),
         "max_followup_depth": MAX_FOLLOWUP_DEPTH,
         "next_followup_candidate": followup_rows[0] if followup_rows else None,
-        "next_ranked_followup_candidate": ranked_ready_rows[0] if ranked_ready_rows else None,
+        "next_ranked_followup_candidate": ranked_ready_rows[0]
+        if ranked_ready_rows
+        else None,
         "next_useful_signal": useful_signal_rows[0] if useful_signal_rows else None,
-        "next_compute_scale_blocked": compute_scale_blocked_rows[0] if compute_scale_blocked_rows else None,
+        "next_compute_scale_blocked": compute_scale_blocked_rows[0]
+        if compute_scale_blocked_rows
+        else None,
         "definitions": {
             "followup_needed": "completed no-paper rows whose decision artifact recommends a bounded adjacent investigation",
             "ranked_followup_ready": "deterministically ranked promising signals with concrete bounded follow-up evidence eligible for automatic selection",
@@ -2080,12 +2419,16 @@ def overview(
         "raw_completed_no_paper_candidates": len(raw_write_candidates),
         "not_writable_by_decision_gate": len(gate_rejected),
         "gate_rejected_sample": gate_rejected[:10],
-        "next_write_candidate": draft_candidate_payload(write_candidates[0]) if write_candidates else None,
+        "next_write_candidate": draft_candidate_payload(write_candidates[0])
+        if write_candidates
+        else None,
         "finalize_needed": operator_detail_counts.get("finalization_needed", 0),
         "publish_ready": operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0),
         "next_publish_candidate": publish_candidates[0] if publish_candidates else None,
         "last_import_result": imported_candidates[0] if imported_candidates else None,
-        "missing_from_corpus": operator_counts.get(OperatorLane.READY_TO_PUBLISH.value, 0),
+        "missing_from_corpus": operator_counts.get(
+            OperatorLane.READY_TO_PUBLISH.value, 0
+        ),
         "published_imported": operator_counts.get(OperatorLane.PUBLISHED.value, 0),
         "publication_ready_total": publication_ready_total,
         "definitions": {
@@ -2102,7 +2445,9 @@ def overview(
     if batched_parts is not None:
         events, next_cursor, has_more = batched_parts["events_page"]
     else:
-        events, next_cursor, has_more = store.event_page(page_size=event_limit, include_payload=False)
+        events, next_cursor, has_more = store.event_page(
+            page_size=event_limit, include_payload=False
+        )
     top_actions = top_operator_actions(
         operator_counts=operator_counts,
         paper_pipeline=paper_pipeline,
@@ -2117,7 +2462,9 @@ def overview(
         paper_pipeline=paper_pipeline,
         investigation_pipeline=investigation_pipeline,
     )
-    primary_action = primary_operator_action(worker_lanes=worker_lanes, movement=movement)
+    primary_action = primary_operator_action(
+        worker_lanes=worker_lanes, movement=movement
+    )
     return {
         "counts": {
             **counts,
@@ -2137,7 +2484,16 @@ def overview(
         "primary_operator_action": primary_action,
         "movement_diagnosis": movement,
         "active_items": active,
-        "next_candidate": summarize_queue_row(next_candidate) if next_candidate else None,
+        "next_candidate": summarize_queue_row(next_candidate)
+        if next_candidate
+        else None,
         "recent_events": events,
-        "recent_events_page": page_response(rows=events, next_cursor=next_cursor, has_more=has_more, page_size_value=page_size(event_limit), cursor="", filters={}),
+        "recent_events_page": page_response(
+            rows=events,
+            next_cursor=next_cursor,
+            has_more=has_more,
+            page_size_value=page_size(event_limit),
+            cursor="",
+            filters={},
+        ),
     }

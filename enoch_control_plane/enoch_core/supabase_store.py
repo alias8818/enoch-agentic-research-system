@@ -21,10 +21,14 @@ class SupabaseEnochCoreStore:
     Supabase cutover.
     """
 
-    def __init__(self, database_url: str, *, connect: ConnectionFactory | None = None) -> None:
+    def __init__(
+        self, database_url: str, *, connect: ConnectionFactory | None = None
+    ) -> None:
         self.database_url = database_url.strip()
         if not self.database_url:
-            raise ValueError("supabase_database_url is required for the Supabase Enoch core store")
+            raise ValueError(
+                "supabase_database_url is required for the Supabase Enoch core store"
+            )
         self._connect_factory = connect or self._psycopg_connect
         self._external_connect_factory = connect is not None
 
@@ -32,8 +36,12 @@ class SupabaseEnochCoreStore:
         try:
             import psycopg
             from psycopg.rows import dict_row
-        except ImportError as exc:  # pragma: no cover - dependency is declared in pyproject.
-            raise RuntimeError("psycopg is required for the Supabase Enoch core store") from exc
+        except (
+            ImportError
+        ) as exc:  # pragma: no cover - dependency is declared in pyproject.
+            raise RuntimeError(
+                "psycopg is required for the Supabase Enoch core store"
+            ) from exc
         return psycopg.connect(self.database_url, row_factory=dict_row)
 
     @contextmanager
@@ -71,7 +79,9 @@ class SupabaseEnochCoreStore:
 
     @staticmethod
     def canonical_json(payload: Any) -> str:
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
 
     @classmethod
     def payload_hash(cls, payload: Any) -> str:
@@ -124,7 +134,14 @@ class SupabaseEnochCoreStore:
                     values (%s, %s, %s, %s::jsonb, %s, %s)
                     returning id
                     """,
-                    (idempotency_key, event_type, source, payload_json, payload_hash, utc_now()),
+                    (
+                        idempotency_key,
+                        event_type,
+                        source,
+                        payload_json,
+                        payload_hash,
+                        utc_now(),
+                    ),
                 ).fetchone()
                 return AppendResult(event_id=int(row["id"]), inserted=True)
 
@@ -151,11 +168,20 @@ class SupabaseEnochCoreStore:
                     values (%s, %s, %s, %s, %s::jsonb, %s)
                     returning id
                     """,
-                    (key, "n8n_queue", event.event_id, str(payload.get("source") or "n8n"), payload_json, utc_now()),
+                    (
+                        key,
+                        "n8n_queue",
+                        event.event_id,
+                        str(payload.get("source") or "n8n"),
+                        payload_json,
+                        utc_now(),
+                    ),
                 ).fetchone()
                 return event, int(row["id"])
 
-    def latest_snapshot(self, snapshot_type: str = "n8n_queue") -> dict[str, Any] | None:
+    def latest_snapshot(
+        self, snapshot_type: str = "n8n_queue"
+    ) -> dict[str, Any] | None:
         rows = self._query(
             """
             select payload_json from core_snapshots

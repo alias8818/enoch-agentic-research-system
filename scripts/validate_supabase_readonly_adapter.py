@@ -32,7 +32,11 @@ from enoch_control_plane.control_plane.models import (  # noqa: E402
     PaperReviewPrepareFinalizationRequest,
     PaperStatus,
 )
-from enoch_control_plane.control_plane.supabase_store import ReadOnlyStoreError, SupabaseControlPlaneStore, SupabaseReadOnlyControlPlaneStore  # noqa: E402
+from enoch_control_plane.control_plane.supabase_store import (
+    ReadOnlyStoreError,
+    SupabaseControlPlaneStore,
+    SupabaseReadOnlyControlPlaneStore,
+)  # noqa: E402
 
 IMAGE = "postgres:17-alpine"
 NOW = "2026-05-05T23:55:00Z"
@@ -40,24 +44,57 @@ HASH_0 = "0" * 64
 HASH_1 = "1" * 64
 
 
-def run(cmd: list[str], *, stdin: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, input=stdin, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=check)
+def run(
+    cmd: list[str], *, stdin: str | None = None, check: bool = True
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        cmd,
+        input=stdin,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=check,
+    )
 
 
 def wait_for_postgres(container: str) -> None:
     for _ in range(60):
-        if run(["docker", "exec", container, "pg_isready", "-U", "postgres"], check=False).returncode == 0:
+        if (
+            run(
+                ["docker", "exec", container, "pg_isready", "-U", "postgres"],
+                check=False,
+            ).returncode
+            == 0
+        ):
             return
         time.sleep(1)
     raise RuntimeError("Postgres container did not become ready")
 
 
 def psql(container: str, sql: str) -> None:
-    run(["docker", "exec", "-i", container, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1"], stdin=sql)
+    run(
+        [
+            "docker",
+            "exec",
+            "-i",
+            container,
+            "psql",
+            "-U",
+            "postgres",
+            "-d",
+            "postgres",
+            "-v",
+            "ON_ERROR_STOP=1",
+        ],
+        stdin=sql,
+    )
 
 
 def apply_migrations(container: str) -> None:
-    psql(container, "create role anon; create role authenticated; create role service_role;")
+    psql(
+        container,
+        "create role anon; create role authenticated; create role service_role;",
+    )
     for migration in sorted((ROOT / "supabase" / "migrations").glob("*.sql")):
         psql(container, migration.read_text())
 
@@ -101,7 +138,16 @@ def sqlite_fixture(store: ControlPlaneStore) -> None:
               origin_idea_status, created_at, updated_at
             ) values (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            ("proj-1", "Adapter Fixture", "Adapter Fixture", "", "", "exploring", NOW, NOW),
+            (
+                "proj-1",
+                "Adapter Fixture",
+                "Adapter Fixture",
+                "",
+                "",
+                "exploring",
+                NOW,
+                NOW,
+            ),
         )
         conn.execute(
             """
@@ -115,9 +161,31 @@ def sqlite_fixture(store: ControlPlaneStore) -> None:
             ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                "proj-1", "queued", 1, 5, 0, 0, 2, 0, 2, "run-1", "session-1",
-                "", "", "select_next", 0, "", "", "", "worker", "gpt-5.5",
-                "danger-full-access", None, None, None, NOW,
+                "proj-1",
+                "queued",
+                1,
+                5,
+                0,
+                0,
+                2,
+                0,
+                2,
+                "run-1",
+                "session-1",
+                "",
+                "",
+                "select_next",
+                0,
+                "",
+                "",
+                "",
+                "worker",
+                "gpt-5.5",
+                "danger-full-access",
+                None,
+                None,
+                None,
+                NOW,
             ),
         )
         conn.execute(
@@ -128,7 +196,20 @@ def sqlite_fixture(store: ControlPlaneStore) -> None:
               idempotency_key, updated_at
             ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            ("run-1", "proj-1", "session-1", "wake_ready", "live", NOW, None, NOW, "", "worker_callback", "run-key-1", NOW),
+            (
+                "run-1",
+                "proj-1",
+                "session-1",
+                "wake_ready",
+                "live",
+                NOW,
+                None,
+                NOW,
+                "",
+                "worker_callback",
+                "run-key-1",
+                NOW,
+            ),
         )
         conn.execute(
             """
@@ -139,8 +220,18 @@ def sqlite_fixture(store: ControlPlaneStore) -> None:
             ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                "paper-1", "proj-1", "run-1", "arxiv_draft", "publication_draft",
-                "draft.md", "draft.tex", "evidence.json", "claims.json", "manifest.json", NOW, NOW,
+                "paper-1",
+                "proj-1",
+                "run-1",
+                "arxiv_draft",
+                "publication_draft",
+                "draft.md",
+                "draft.tex",
+                "evidence.json",
+                "claims.json",
+                "manifest.json",
+                NOW,
+                NOW,
             ),
         )
         conn.execute(
@@ -153,8 +244,22 @@ def sqlite_fixture(store: ControlPlaneStore) -> None:
             ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                "paper-1", "finalized", "", "", "", "{}", 100, "[]", "[]", "paper-1",
-                "audit.json", "package.json", NOW, "positive", NOW, NOW,
+                "paper-1",
+                "finalized",
+                "",
+                "",
+                "",
+                "{}",
+                100,
+                "[]",
+                "[]",
+                "paper-1",
+                "audit.json",
+                "package.json",
+                NOW,
+                "positive",
+                NOW,
+                NOW,
             ),
         )
         payload = {"ok": True}
@@ -163,14 +268,31 @@ def sqlite_fixture(store: ControlPlaneStore) -> None:
             insert into events(idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash, created_at)
             values (?, ?, ?, ?, ?, ?, ?)
             """,
-            ("event-1", "fixture.created", "project", "proj-1", json.dumps(payload), HASH_0, NOW),
+            (
+                "event-1",
+                "fixture.created",
+                "project",
+                "proj-1",
+                json.dumps(payload),
+                HASH_0,
+                NOW,
+            ),
         )
         conn.execute(
             """
             insert into dashboard_observations(source, scope, observed_at, ttl_seconds, status, payload_json, payload_hash, created_at)
             values (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            ("worker_preflight", "global", NOW, 300, "ok", json.dumps(payload), HASH_1, NOW),
+            (
+                "worker_preflight",
+                "global",
+                NOW,
+                300,
+                "ok",
+                json.dumps(payload),
+                HASH_1,
+                NOW,
+            ),
         )
 
 
@@ -255,10 +377,22 @@ def main() -> int:
         sqlite_store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
         sqlite_fixture(sqlite_store)
         try:
-            run([
-                "docker", "run", "--name", container, "-e", "POSTGRES_PASSWORD=postgres",
-                "-e", "POSTGRES_DB=postgres", "-p", "127.0.0.1::5432", "-d", IMAGE,
-            ])
+            run(
+                [
+                    "docker",
+                    "run",
+                    "--name",
+                    container,
+                    "-e",
+                    "POSTGRES_PASSWORD=postgres",
+                    "-e",
+                    "POSTGRES_DB=postgres",
+                    "-p",
+                    "127.0.0.1::5432",
+                    "-d",
+                    IMAGE,
+                ]
+            )
             wait_for_postgres(container)
             apply_migrations(container)
             url = pg_url(container)
@@ -266,29 +400,65 @@ def main() -> int:
             pg_store = SupabaseReadOnlyControlPlaneStore(url)
 
             failures: list[str] = []
-            if sqlite_store.flags().model_dump(mode="json")["queue_paused"] != pg_store.flags().model_dump(mode="json")["queue_paused"]:
+            if (
+                sqlite_store.flags().model_dump(mode="json")["queue_paused"]
+                != pg_store.flags().model_dump(mode="json")["queue_paused"]
+            ):
                 failures.append("flags queue_paused mismatch")
             if sqlite_store.queue_counts_sql() != pg_store.queue_counts_sql():
                 failures.append("queue_counts_sql mismatch")
             if sqlite_store.paper_counts_sql() != pg_store.paper_counts_sql():
                 failures.append("paper_counts_sql mismatch")
-            queue_keys = ["project_id", "project_name", "status", "current_run_id", "related_paper_id", "related_paper_status"]
-            if comparable(sqlite_store.queue_rows()[0], queue_keys) != comparable(pg_store.queue_rows()[0], queue_keys):
+            queue_keys = [
+                "project_id",
+                "project_name",
+                "status",
+                "current_run_id",
+                "related_paper_id",
+                "related_paper_status",
+            ]
+            if comparable(sqlite_store.queue_rows()[0], queue_keys) != comparable(
+                pg_store.queue_rows()[0], queue_keys
+            ):
                 failures.append("queue_rows first row mismatch")
-            paper_keys = ["paper_id", "project_id", "run_id", "paper_status", "review_status", "finalization_package_path"]
-            if comparable(sqlite_store.paper_rows()[0], paper_keys) != comparable(pg_store.paper_rows()[0], paper_keys):
+            paper_keys = [
+                "paper_id",
+                "project_id",
+                "run_id",
+                "paper_status",
+                "review_status",
+                "finalization_package_path",
+            ]
+            if comparable(sqlite_store.paper_rows()[0], paper_keys) != comparable(
+                pg_store.paper_rows()[0], paper_keys
+            ):
                 failures.append("paper_rows first row mismatch")
             sqlite_recent_payload = sqlite_store.recent_events(1)[0]["payload"]
             pg_recent_payload = pg_store.recent_events(1)[0]["payload"]
-            if not (sqlite_recent_payload.get("payload_omitted") and pg_recent_payload.get("payload_omitted")):
+            if not (
+                sqlite_recent_payload.get("payload_omitted")
+                and pg_recent_payload.get("payload_omitted")
+            ):
                 failures.append("recent_events did not omit payloads consistently")
-            if int(sqlite_recent_payload.get("payload_bytes") or 0) <= 0 or int(pg_recent_payload.get("payload_bytes") or 0) <= 0:
+            if (
+                int(sqlite_recent_payload.get("payload_bytes") or 0) <= 0
+                or int(pg_recent_payload.get("payload_bytes") or 0) <= 0
+            ):
                 failures.append("recent_events omitted payload byte counts missing")
-            if sqlite_store.latest_dashboard_observation(source="worker_preflight").payload != pg_store.latest_dashboard_observation(source="worker_preflight").payload:  # type: ignore[union-attr]
+            if (
+                sqlite_store.latest_dashboard_observation(
+                    source="worker_preflight"
+                ).payload
+                != pg_store.latest_dashboard_observation(
+                    source="worker_preflight"
+                ).payload
+            ):  # type: ignore[union-attr]
                 failures.append("latest_dashboard_observation payload mismatch")
 
             try:
-                pg_store.pause(reason="should fail", paused_by="validator", maintenance_mode=True)
+                pg_store.pause(
+                    reason="should fail", paused_by="validator", maintenance_mode=True
+                )
                 failures.append("read-only store accepted pause")
             except ReadOnlyStoreError:
                 pass
@@ -310,55 +480,84 @@ def main() -> int:
             )
             if not inserted or inserted_again or event_id != event_id_again:
                 failures.append("append_event idempotency mismatch")
-            paused_flags, pause_event_id = write_store.pause(reason="validator pause", paused_by="validator", maintenance_mode=True)
+            paused_flags, pause_event_id = write_store.pause(
+                reason="validator pause", paused_by="validator", maintenance_mode=True
+            )
             if not paused_flags.queue_paused or pause_event_id <= 0:
                 failures.append("pause did not persist queue_paused")
-            resumed_flags, resume_event_id = write_store.resume(resumed_by="validator", maintenance_mode=True)
-            if resumed_flags.queue_paused or not resumed_flags.maintenance_mode or resume_event_id <= 0:
+            resumed_flags, resume_event_id = write_store.resume(
+                resumed_by="validator", maintenance_mode=True
+            )
+            if (
+                resumed_flags.queue_paused
+                or not resumed_flags.maintenance_mode
+                or resume_event_id <= 0
+            ):
                 failures.append("resume did not persist expected flags")
             observation = write_store.upsert_dashboard_observation(
                 source="worker_preflight",
                 status="ok",
                 payload={"write": True},
             )
-            if observation.observation_id <= 0 or write_store.latest_dashboard_observation(source="worker_preflight") is None:
+            if (
+                observation.observation_id <= 0
+                or write_store.latest_dashboard_observation(source="worker_preflight")
+                is None
+            ):
                 failures.append("upsert_dashboard_observation did not persist")
-            if not write_store.mark_queue_item_paused(project_id="proj-1", reason="validator item pause", updated_by="validator"):
+            if not write_store.mark_queue_item_paused(
+                project_id="proj-1",
+                reason="validator item pause",
+                updated_by="validator",
+            ):
                 failures.append("mark_queue_item_paused returned false")
             if write_store.queue_row("proj-1")["status"] != "paused":  # type: ignore[index]
                 failures.append("mark_queue_item_paused did not update queue status")
             write_store.update_project_dir("proj-1", "updated-dir")
             if write_store.project_row("proj-1")["project_dir"] != "updated-dir":  # type: ignore[index]
                 failures.append("update_project_dir did not persist")
-            write_store.upsert_paper(PaperRecord(
-                paper_id="paper-write-smoke",
-                project_id="proj-1",
-                run_id="run-1",
-                paper_status=PaperStatus.DRAFT_REVIEW,
-                draft_markdown_path="write.md",
-            ))
+            write_store.upsert_paper(
+                PaperRecord(
+                    paper_id="paper-write-smoke",
+                    project_id="proj-1",
+                    run_id="run-1",
+                    paper_status=PaperStatus.DRAFT_REVIEW,
+                    draft_markdown_path="write.md",
+                )
+            )
             if write_store.paper_row("paper-write-smoke") is None:
                 failures.append("upsert_paper did not persist")
-            inserted_snapshot, projects, queue_items, papers = write_store.import_snapshot(ImportSnapshotRequest(
-                idempotency_key="write-smoke-import",
-                source="validator",
-                queue_rows=[{
-                    "project_id": "proj-import",
-                    "project_name": "Imported Project",
-                    "status": "queued",
-                    "current_run_id": "run-import",
-                    "next_action_hint": "select_next",
-                }],
-                paper_rows=[{
-                    "paper_id": "paper-import",
-                    "project_id": "proj-import",
-                    "run_id": "",
-                    "paper_status": "draft_review",
-                }],
-            ))
+            inserted_snapshot, projects, queue_items, papers = (
+                write_store.import_snapshot(
+                    ImportSnapshotRequest(
+                        idempotency_key="write-smoke-import",
+                        source="validator",
+                        queue_rows=[
+                            {
+                                "project_id": "proj-import",
+                                "project_name": "Imported Project",
+                                "status": "queued",
+                                "current_run_id": "run-import",
+                                "next_action_hint": "select_next",
+                            }
+                        ],
+                        paper_rows=[
+                            {
+                                "paper_id": "paper-import",
+                                "project_id": "proj-import",
+                                "run_id": "",
+                                "paper_status": "draft_review",
+                            }
+                        ],
+                    )
+                )
+            )
             if not inserted_snapshot or (projects, queue_items, papers) != (1, 1, 1):
                 failures.append("import_snapshot counts mismatch")
-            if write_store.queue_row("proj-import") is None or write_store.paper_row("paper-import") is None:
+            if (
+                write_store.queue_row("proj-import") is None
+                or write_store.paper_row("paper-import") is None
+            ):
                 failures.append("import_snapshot did not persist imported rows")
             dispatch_event_id, dispatched = write_store.mark_dispatch_started(
                 project_id="proj-import",
@@ -367,8 +566,14 @@ def main() -> int:
                 dispatch_payload={"target": "validator"},
                 requested_by="validator",
             )
-            if dispatch_event_id <= 0 or dispatched.get("status") != "awaiting_wake" or dispatched.get("last_run_state") != "awaiting_wake":
-                failures.append("mark_dispatch_started did not persist awaiting_wake state")
+            if (
+                dispatch_event_id <= 0
+                or dispatched.get("status") != "awaiting_wake"
+                or dispatched.get("last_run_state") != "awaiting_wake"
+            ):
+                failures.append(
+                    "mark_dispatch_started did not persist awaiting_wake state"
+                )
             callback_payload = {
                 "run_id": "run-live-smoke",
                 "project_id": "proj-import",
@@ -378,79 +583,150 @@ def main() -> int:
                 "reason": "validator ready",
                 "idempotency_key": "write-smoke-worker-callback",
             }
-            callback_event_id, callback_inserted, callback_row = write_store.record_worker_callback(callback_payload)
-            callback_event_id_again, callback_inserted_again, _ = write_store.record_worker_callback(callback_payload)
+            callback_event_id, callback_inserted, callback_row = (
+                write_store.record_worker_callback(callback_payload)
+            )
+            callback_event_id_again, callback_inserted_again, _ = (
+                write_store.record_worker_callback(callback_payload)
+            )
             if (
                 callback_event_id <= 0
                 or not callback_inserted
                 or callback_inserted_again
                 or callback_event_id_again != callback_event_id
                 or callback_row.get("status") != "completed"
-                or callback_row.get("next_action_hint") != "draft_paper_or_select_next_project"
+                or callback_row.get("next_action_hint")
+                != "draft_paper_or_select_next_project"
             ):
-                failures.append("record_worker_callback did not persist idempotent wake_ready completion")
+                failures.append(
+                    "record_worker_callback did not persist idempotent wake_ready completion"
+                )
             final_queue_counts = write_store.queue_counts_sql()
-            if final_queue_counts.get("queued") != 0 or final_queue_counts.get("paused") != 1 or final_queue_counts.get("completed") != 1:
-                failures.append(f"queue_counts_sql bucket mismatch after writes: {final_queue_counts}")
-            dry_notion = write_store.ingest_notion_ideas(NotionIntakeRequest(
-                dry_run=True,
-                source="validator-notion",
-                notion_rows=[{"Idea": "Dry Notion Idea", "Status": "exploring"}],
-            ))
+            if (
+                final_queue_counts.get("queued") != 0
+                or final_queue_counts.get("paused") != 1
+                or final_queue_counts.get("completed") != 1
+            ):
+                failures.append(
+                    f"queue_counts_sql bucket mismatch after writes: {final_queue_counts}"
+                )
+            dry_notion = write_store.ingest_notion_ideas(
+                NotionIntakeRequest(
+                    dry_run=True,
+                    source="validator-notion",
+                    notion_rows=[{"Idea": "Dry Notion Idea", "Status": "exploring"}],
+                )
+            )
             if dry_notion[0] or dry_notion[1] != 0 or not dry_notion[4]:
-                failures.append("dry-run notion intake did not return candidates without insert")
-            notion_inserted, notion_created, notion_updated, notion_skipped, notion_candidates, _ = write_store.ingest_notion_ideas(NotionIntakeRequest(
-                dry_run=False,
-                idempotency_key="write-smoke-notion-intake",
-                source="validator-notion",
-                include_statuses=["exploring"],
-                default_machine_target="validator-worker",
-                default_model="gpt-5.5",
-                default_sandbox="danger-full-access",
-                notion_rows=[{
-                    "Idea": "Live Notion Idea",
-                    "Status": "exploring",
-                    "url": "https://www.notion.so/Live-Notion-Idea-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    "Priority": "High",
-                }],
-            ))
-            if not notion_inserted or notion_created != 1 or notion_updated != 0 or notion_skipped != 0 or not notion_candidates:
+                failures.append(
+                    "dry-run notion intake did not return candidates without insert"
+                )
+            (
+                notion_inserted,
+                notion_created,
+                notion_updated,
+                notion_skipped,
+                notion_candidates,
+                _,
+            ) = write_store.ingest_notion_ideas(
+                NotionIntakeRequest(
+                    dry_run=False,
+                    idempotency_key="write-smoke-notion-intake",
+                    source="validator-notion",
+                    include_statuses=["exploring"],
+                    default_machine_target="validator-worker",
+                    default_model="gpt-5.5",
+                    default_sandbox="danger-full-access",
+                    notion_rows=[
+                        {
+                            "Idea": "Live Notion Idea",
+                            "Status": "exploring",
+                            "url": "https://www.notion.so/Live-Notion-Idea-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                            "Priority": "High",
+                        }
+                    ],
+                )
+            )
+            if (
+                not notion_inserted
+                or notion_created != 1
+                or notion_updated != 0
+                or notion_skipped != 0
+                or not notion_candidates
+            ):
                 failures.append("notion intake insert counts mismatch")
-            notion_project_id = notion_candidates[0]["project_id"] if notion_candidates else ""
-            notion_row = write_store.queue_row(notion_project_id) if notion_project_id else None
+            notion_project_id = (
+                notion_candidates[0]["project_id"] if notion_candidates else ""
+            )
+            notion_row = (
+                write_store.queue_row(notion_project_id) if notion_project_id else None
+            )
             if not notion_row or notion_row.get("machine_target") != "validator-worker":
                 failures.append("notion intake did not persist queue/project metadata")
-            if not any(row.get("project_id") == notion_project_id for row in write_store.queue_notion_projection()):
+            if not any(
+                row.get("project_id") == notion_project_id
+                for row in write_store.queue_notion_projection()
+            ):
                 failures.append("queue_notion_projection missing notion intake row")
-            if not any(row.get("project_id") == notion_project_id for row in write_store.notion_execution_update_projection()):
-                failures.append("notion_execution_update_projection missing notion intake row")
-            write_store.upsert_paper(PaperRecord(
-                paper_id="paper-review-smoke",
-                project_id=notion_project_id,
-                run_id="",
-                paper_status=PaperStatus.DRAFT_REVIEW,
-                draft_markdown_path="draft.md",
-                draft_latex_path="draft.tex",
-                evidence_bundle_path="evidence.json",
-                claim_ledger_path="claims.json",
-                manifest_path="manifest.json",
-            ))
-            review_inserted, review_created, review_updated, _review_skipped, review_errors = write_store.backfill_paper_reviews(PaperReviewBackfillRequest(
-                idempotency_key="write-smoke-paper-review-backfill",
-                dry_run=False,
-                paper_ids=["paper-review-smoke"],
-            ))
-            if not review_inserted or review_created != 1 or review_updated != 0 or review_errors:
-                failures.append(f"publication automation backfill mismatch: created={review_created} updated={review_updated} errors={review_errors}")
-            claim_event_id, claim_inserted, claimed_review = write_store.claim_paper_review(
-                "paper-review-smoke",
-                PaperReviewClaimRequest(
-                    idempotency_key="write-smoke-paper-review-claim",
-                    reviewer="validator",
-                ),
+            if not any(
+                row.get("project_id") == notion_project_id
+                for row in write_store.notion_execution_update_projection()
+            ):
+                failures.append(
+                    "notion_execution_update_projection missing notion intake row"
+                )
+            write_store.upsert_paper(
+                PaperRecord(
+                    paper_id="paper-review-smoke",
+                    project_id=notion_project_id,
+                    run_id="",
+                    paper_status=PaperStatus.DRAFT_REVIEW,
+                    draft_markdown_path="draft.md",
+                    draft_latex_path="draft.tex",
+                    evidence_bundle_path="evidence.json",
+                    claim_ledger_path="claims.json",
+                    manifest_path="manifest.json",
+                )
             )
-            if claim_event_id <= 0 or not claim_inserted or claimed_review.get("review_status") != "claimed":
-                failures.append("publication automation claim did not persist claimed state")
+            (
+                review_inserted,
+                review_created,
+                review_updated,
+                _review_skipped,
+                review_errors,
+            ) = write_store.backfill_paper_reviews(
+                PaperReviewBackfillRequest(
+                    idempotency_key="write-smoke-paper-review-backfill",
+                    dry_run=False,
+                    paper_ids=["paper-review-smoke"],
+                )
+            )
+            if (
+                not review_inserted
+                or review_created != 1
+                or review_updated != 0
+                or review_errors
+            ):
+                failures.append(
+                    f"publication automation backfill mismatch: created={review_created} updated={review_updated} errors={review_errors}"
+                )
+            claim_event_id, claim_inserted, claimed_review = (
+                write_store.claim_paper_review(
+                    "paper-review-smoke",
+                    PaperReviewClaimRequest(
+                        idempotency_key="write-smoke-paper-review-claim",
+                        reviewer="validator",
+                    ),
+                )
+            )
+            if (
+                claim_event_id <= 0
+                or not claim_inserted
+                or claimed_review.get("review_status") != "claimed"
+            ):
+                failures.append(
+                    "publication automation claim did not persist claimed state"
+                )
             checklist = write_store.paper_review_checklist("paper-review-smoke")
             for item in checklist.get("items", []):
                 if item.get("required"):
@@ -463,24 +739,48 @@ def main() -> int:
                             status="pass",
                         ),
                     )
-            if not any(row.get("paper_id") == "paper-review-smoke" for row in write_store.paper_review_rows()):
+            if not any(
+                row.get("paper_id") == "paper-review-smoke"
+                for row in write_store.paper_review_rows()
+            ):
                 failures.append("paper_review_rows missing smoke review row")
             artifact_root = Path(tmp) / "artifact-root"
             artifact_root.mkdir()
-            for rel_path in ("draft.md", "draft.tex", "evidence.json", "claims.json", "manifest.json"):
+            for rel_path in (
+                "draft.md",
+                "draft.tex",
+                "evidence.json",
+                "claims.json",
+                "manifest.json",
+            ):
                 (artifact_root / rel_path).write_text(f"{rel_path}\n", encoding="utf-8")
             write_store.update_project_dir(notion_project_id, str(artifact_root))
-            dry_event_id, dry_inserted, _dry_item, dry_package_path, dry_manifest = write_store.prepare_paper_review_finalization_package(
-                "paper-review-smoke",
-                PaperReviewPrepareFinalizationRequest(
-                    idempotency_key="write-smoke-finalization-dry",
-                    requested_by="validator",
-                    dry_run=True,
-                ),
+            dry_event_id, dry_inserted, _dry_item, dry_package_path, dry_manifest = (
+                write_store.prepare_paper_review_finalization_package(
+                    "paper-review-smoke",
+                    PaperReviewPrepareFinalizationRequest(
+                        idempotency_key="write-smoke-finalization-dry",
+                        requested_by="validator",
+                        dry_run=True,
+                    ),
+                )
             )
-            if dry_event_id is not None or dry_inserted or not dry_manifest.get("dry_run") or not dry_package_path:
-                failures.append("dry-run finalization package did not stay side-effect free")
-            package_event_id, package_inserted, finalized_item, package_path, manifest = write_store.prepare_paper_review_finalization_package(
+            if (
+                dry_event_id is not None
+                or dry_inserted
+                or not dry_manifest.get("dry_run")
+                or not dry_package_path
+            ):
+                failures.append(
+                    "dry-run finalization package did not stay side-effect free"
+                )
+            (
+                package_event_id,
+                package_inserted,
+                finalized_item,
+                package_path,
+                manifest,
+            ) = write_store.prepare_paper_review_finalization_package(
                 "paper-review-smoke",
                 PaperReviewPrepareFinalizationRequest(
                     idempotency_key="write-smoke-finalization",
@@ -489,7 +789,13 @@ def main() -> int:
                 ),
                 require_approval=False,
             )
-            package_event_id_again, package_inserted_again, _finalized_item_again, package_path_again, _manifest_again = write_store.prepare_paper_review_finalization_package(
+            (
+                package_event_id_again,
+                package_inserted_again,
+                _finalized_item_again,
+                package_path_again,
+                _manifest_again,
+            ) = write_store.prepare_paper_review_finalization_package(
                 "paper-review-smoke",
                 PaperReviewPrepareFinalizationRequest(
                     idempotency_key="write-smoke-finalization",
@@ -509,7 +815,9 @@ def main() -> int:
                 or not Path(package_path).exists()
                 or manifest.get("schema") != "paper_finalization_package_v1"
             ):
-                failures.append("finalization package did not persist idempotent finalized state")
+                failures.append(
+                    "finalization package did not persist idempotent finalized state"
+                )
 
             report: dict[str, Any] = {
                 "ok": not failures,

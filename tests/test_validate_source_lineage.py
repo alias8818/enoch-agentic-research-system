@@ -29,7 +29,9 @@ def test_candidate_source_url_requires_materialized_source():
 
     problems = vsl.validate_snapshot(snapshot)
 
-    assert {problem["kind"] for problem in problems} == {"candidate_source_url_missing_source"}
+    assert {problem["kind"] for problem in problems} == {
+        "candidate_source_url_missing_source"
+    }
     assert problems[0]["expected_source_id"] == vsl.source_id_for_url(source_url)
 
 
@@ -67,7 +69,10 @@ def test_followup_requires_parent_run_source_and_project_lineage():
                 "idea_id": "followup-1",
                 "title": "Follow-up branch",
                 "source_external_url": "enoch://control-plane/projects/parent/runs/run-1",
-                "source_payload_json": {"parent_project_id": "parent", "parent_run_id": "run-1"},
+                "source_payload_json": {
+                    "parent_project_id": "parent",
+                    "parent_run_id": "run-1",
+                },
             }
         ]
     )
@@ -78,8 +83,14 @@ def test_followup_requires_parent_run_source_and_project_lineage():
         "followup_missing_parent_run_source",
         "followup_missing_parent_project_lineage",
     }
-    parent_source = next(problem for problem in problems if problem["kind"] == "followup_missing_parent_run_source")
-    assert parent_source["expected_source_id"] == vsl.followup_parent_source_id("parent", "run-1")
+    parent_source = next(
+        problem
+        for problem in problems
+        if problem["kind"] == "followup_missing_parent_run_source"
+    )
+    assert parent_source["expected_source_id"] == vsl.followup_parent_source_id(
+        "parent", "run-1"
+    )
 
 
 def test_followup_passes_with_parent_run_source_and_lineage_edges():
@@ -90,7 +101,10 @@ def test_followup_passes_with_parent_run_source_and_lineage_edges():
                 "idea_id": "followup-1",
                 "title": "Follow-up branch",
                 "source_external_url": "enoch://control-plane/projects/parent/runs/run-1",
-                "source_payload_json": {"parent_project_id": "parent", "parent_run_id": "run-1"},
+                "source_payload_json": {
+                    "parent_project_id": "parent",
+                    "parent_run_id": "run-1",
+                },
             }
         ],
         sources=[
@@ -167,14 +181,23 @@ def test_fetch_snapshot_uses_read_only_provenance_queries(monkeypatch):
             return FakeConnection()
 
     monkeypatch.setitem(__import__("sys").modules, "psycopg", FakePsycopg())
-    monkeypatch.setitem(__import__("sys").modules, "psycopg.rows", type("Rows", (), {"dict_row": object()})())
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "psycopg.rows",
+        type("Rows", (), {"dict_row": object()})(),
+    )
 
-    snapshot = vsl.fetch_snapshot("postgres://example", created_after="2026-05-19T00:00:00Z")
+    snapshot = vsl.fetch_snapshot(
+        "postgres://example", created_after="2026-05-19T00:00:00Z"
+    )
 
     assert snapshot == _snapshot()
     assert len(executed) == 4
     assert all("enoch.research_" in sql or "enoch.ideas" in sql for sql, _ in executed)
-    assert all("notion" not in sql.lower() and "title like" not in sql.lower() for sql, _ in executed)
+    assert all(
+        "notion" not in sql.lower() and "title like" not in sql.lower()
+        for sql, _ in executed
+    )
     assert [params for _, params in executed] == [
         {"created_after": "2026-05-19T00:00:00Z"},
         {"created_after": "2026-05-19T00:00:00Z"},
@@ -208,6 +231,7 @@ def test_report_includes_operational_status_schema_and_output(tmp_path):
     assert loaded["schema_version"] == "enoch_source_lineage_report_v1"
     assert loaded["status"] == "blocked"
 
+
 def test_synthesized_candidate_requires_branch_and_reflection_lineage():
     snapshot = _snapshot(
         candidates=[
@@ -216,7 +240,10 @@ def test_synthesized_candidate_requires_branch_and_reflection_lineage():
                 "title": "Oracle",
                 "source_ids": [],
                 "source_urls": [],
-                "raw_candidate_json": {"synthesized_from": ["branch-1"], "reflection_source_ids": ["positive-1"]},
+                "raw_candidate_json": {
+                    "synthesized_from": ["branch-1"],
+                    "reflection_source_ids": ["positive-1"],
+                },
             }
         ]
     )
@@ -237,7 +264,10 @@ def test_synthesized_candidate_passes_with_branch_and_reflection_lineage():
                 "title": "Oracle",
                 "source_ids": [],
                 "source_urls": [],
-                "raw_candidate_json": {"synthesized_from": ["branch-1"], "reflection_source_ids": ["positive-1"]},
+                "raw_candidate_json": {
+                    "synthesized_from": ["branch-1"],
+                    "reflection_source_ids": ["positive-1"],
+                },
             }
         ],
         lineages=[

@@ -64,7 +64,9 @@ def test_compare_asset_trees_rejects_missing_and_extra_files(tmp_path: Path) -> 
     assert "unexpected built file: assets/index-new.js" in report["failures"]
 
 
-def test_validate_dashboard_v2_assets_rejects_missing_committed_dir(tmp_path: Path) -> None:
+def test_validate_dashboard_v2_assets_rejects_missing_committed_dir(
+    tmp_path: Path,
+) -> None:
     report = validate_dashboard_v2_assets.validate_dashboard_v2_assets(
         repo_root=tmp_path,
         run_build=False,
@@ -74,7 +76,9 @@ def test_validate_dashboard_v2_assets_rejects_missing_committed_dir(tmp_path: Pa
     assert report["failures"][0].startswith("missing committed assets directory:")
 
 
-def test_main_json_success_when_skip_build_and_assets_present(tmp_path: Path, capsys) -> None:
+def test_main_json_success_when_skip_build_and_assets_present(
+    tmp_path: Path, capsys
+) -> None:
     committed = tmp_path / "enoch_control_plane/control_plane/dashboard_v2"
     _write_asset(committed, "index.html", "<html>v2</html>\n")
 
@@ -93,7 +97,9 @@ def test_main_json_success_when_skip_build_and_assets_present(tmp_path: Path, ca
     assert payload["file_count"] == 1
 
 
-def test_main_json_failure_when_committed_assets_missing(tmp_path: Path, capsys) -> None:
+def test_main_json_failure_when_committed_assets_missing(
+    tmp_path: Path, capsys
+) -> None:
     code = validate_dashboard_v2_assets.main(
         [
             "--repo-root",
