@@ -36,21 +36,21 @@ function pagedRowsSchema<T extends z.ZodTypeAny>(rowSchema: T) {
 }
 
 export const queueListRowSchema = z.object({
-  project_id: z.string().optional(),
-  project_name: z.string().optional(),
-  title: z.string().optional(),
-  status: z.string().optional(),
+  project_id: apiString,
+  project_name: apiString,
+  title: apiString,
+  status: apiString,
   dispatch_priority: z.number().optional(),
   selection_rank: z.number().optional(),
-  current_run_id: z.string().optional(),
-  next_action_hint: z.string().optional(),
+  current_run_id: apiString,
+  next_action_hint: apiString,
   manual_review_required: z.boolean().optional(),
-  blocked_reason: z.string().optional(),
-  decision_summary: z.string().optional(),
-  machine_target: z.string().optional(),
-  operator_lane: z.string().optional(),
-  operator_stage_label: z.string().optional(),
-  updated_at: z.string().optional(),
+  blocked_reason: apiString,
+  decision_summary: apiString,
+  machine_target: apiString,
+  operator_lane: apiString,
+  operator_stage_label: apiString,
+  updated_at: apiString,
   age_seconds: z.number().optional(),
 }).passthrough()
 

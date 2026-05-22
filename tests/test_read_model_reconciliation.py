@@ -340,6 +340,32 @@ def test_summarize_queue_list_row_omits_followup_and_related_artifact_paths() ->
     assert summary["operator_lane"] == full["operator_lane"]
 
 
+def test_summarize_queue_list_row_normalizes_nullable_text_fields() -> None:
+    from enoch_control_plane.control_plane.read_models import summarize_queue_list_row
+
+    summary = summarize_queue_list_row({
+        "project_id": "nullable-queue-row",
+        "project_name": None,
+        "status": "queued",
+        "machine_target": None,
+        "current_run_id": None,
+        "next_action_hint": None,
+        "blocked_reason": None,
+        "decision_gate_state": None,
+        "decision_summary": None,
+        "updated_at": None,
+    })
+
+    assert summary["project_name"] == ""
+    assert summary["machine_target"] == ""
+    assert summary["current_run_id"] == ""
+    assert summary["next_action_hint"] == ""
+    assert summary["blocked_reason"] == ""
+    assert summary["decision_gate_state"] == ""
+    assert summary["decision_summary"] == ""
+    assert summary["updated_at"] == ""
+
+
 def test_queue_summary_normalizes_manual_review_flag() -> None:
     from enoch_control_plane.control_plane.read_models import summarize_queue_row
 
