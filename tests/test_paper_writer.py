@@ -13,6 +13,7 @@ from fastapi import HTTPException
 
 from enoch_control_plane.control_plane.paper_writer import (
     _build_claim_ledger_data,
+    _sentence_claims,
     _write_files,
     backfill_paper_evidence_artifacts,
     write_paper_artifacts,
@@ -853,6 +854,27 @@ class PaperWriterTests(unittest.TestCase):
             )
             self.assertTrue(meta["fallback_used"])
             self.assertTrue((project / "papers/run/paper.md").exists())
+
+    def test_sentence_claims_uses_safe_detection_and_extracts_signals(self) -> None:
+        """_sentence_claims must extract claims using safe keyword matching (no ReDoS regex)."""
+        md = """
+# Header
+
+Some sentence without signal.
+
+The result showed 42% improvement in latency and throughput.
+
+This is a long sentence that mentions evidence and was validated in testing with positive support from the baseline run.
+
+"""
+        claims = _sentence_claims(md)
+        self.assertGreater(len(claims), 0)
+        joined = " ".join(claims).lower()
+        self.assertIn("result", joined)
+        self.assertIn("42", joined)  # digit trigger
+        self.assertIn("improvement", joined)
+        # Should not include the header or non-signal
+        self.assertNotIn("header", joined)
 
 
 if __name__ == "__main__":

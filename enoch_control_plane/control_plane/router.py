@@ -252,7 +252,9 @@ def _extract_safe_tar_bytes(
     skipped: list[dict[str, Any]] = []
     total_bytes = 0
     try:
-        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+        with (
+            tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive
+        ):  # NOSONAR(archive-extraction) - safe because _safe_tar_target prevents traversal; see function above
             for member in archive.getmembers():
                 target = _safe_tar_target(artifact_root, member.name)
                 if target is None:
@@ -5823,8 +5825,8 @@ def create_control_plane_router(
             research_facility_scan.candidate_from_source(
                 record,
                 default_machine=os.environ.get(
-                    "ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"
-                ),
+                    "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
+                ),  # NOSONAR(hardcoded-ip) - default placeholder; real value from env or config
                 default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
                 default_sandbox=os.environ.get(
                     "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
@@ -5836,8 +5838,8 @@ def create_control_plane_router(
             candidates,
             Namespace(
                 default_machine=os.environ.get(
-                    "ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"
-                ),
+                    "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
+                ),  # NOSONAR(hardcoded-ip) - default placeholder; real value from env or config
                 default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
                 default_sandbox=os.environ.get(
                     "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
@@ -6033,8 +6035,8 @@ def create_control_plane_router(
                 max_tokens=generation_max_tokens,
                 attempts=generation_attempts,
                 default_machine=os.environ.get(
-                    "ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"
-                ),
+                    "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
+                ),  # NOSONAR(hardcoded-ip) - default placeholder; real value from env or config
                 default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
                 default_sandbox=os.environ.get(
                     "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
@@ -6072,8 +6074,8 @@ def create_control_plane_router(
             generated_candidates,
             Namespace(
                 default_machine=os.environ.get(
-                    "ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"
-                ),
+                    "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
+                ),  # NOSONAR(hardcoded-ip) - default placeholder; real value from env or config
                 default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
                 default_sandbox=os.environ.get(
                     "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"

@@ -465,27 +465,66 @@ def _build_evidence_bundle_data(
 
 
 def _sentence_claims(markdown: str) -> list[str]:
+    """Extract candidate claim sentences from markdown.
+
+    Uses safe (non-regex-backtracking) detection for signal keywords to avoid ReDoS.
+    """
     body = re.sub(r"```.*?```", " ", markdown, flags=re.S)
     body = re.sub(r"^#+\s+.*$", " ", body, flags=re.M)
     raw_sentences = re.split(r"(?<=[.!?])\s+", body)
     claims: list[str] = []
-    signal_re = re.compile(
-        r"\b(result|measur|improv|reduce|increase|decrease|pass|fail|accuracy|latency|throughput|speed|token|baseline|evidence|validated|tested|observed|showed|found|negative|positive|support)\b|[0-9]",
-        re.I,
+
+    # Safe keyword-based signal detection (avoids catastrophic backtracking in the
+    # previous long alternation regex that Sonar flagged as ReDoS risk).
+    SIGNAL_KEYWORDS = (
+        "result",
+        "measur",
+        "improv",
+        "reduce",
+        "increase",
+        "decrease",
+        "pass",
+        "fail",
+        "accuracy",
+        "latency",
+        "throughput",
+        "speed",
+        "token",
+        "baseline",
+        "evidence",
+        "validated",
+        "tested",
+        "observed",
+        "showed",
+        "found",
+        "negative",
+        "positive",
+        "support",
     )
-    skip_re = re.compile(
-        r"\b(ai provenance|operator claims no|readers should treat|unreviewed ai-generated|no independent human review)\b",
-        re.I,
+
+    SKIP_KEYWORDS = (
+        "ai provenance",
+        "operator claims no",
+        "readers should treat",
+        "unreviewed ai-generated",
+        "no independent human review",
     )
+
     for sentence in raw_sentences:
         clean = " ".join(sentence.strip().split())
         clean = clean.strip("-* >")
         if len(clean) < 35 or len(clean) > 360:
             continue
-        if skip_re.search(clean):
+
+        lower = clean.lower()
+        if any(kw in lower for kw in SKIP_KEYWORDS):
             continue
-        if signal_re.search(clean):
+
+        if any(kw in lower for kw in SIGNAL_KEYWORDS) or any(
+            ch.isdigit() for ch in clean
+        ):
             claims.append(clean)
+
         if len(claims) >= 16:
             break
     return claims
