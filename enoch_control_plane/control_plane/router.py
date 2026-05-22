@@ -172,6 +172,45 @@ def _bounded_float_from_mapping(
     return max(lower, min(parsed, upper))
 
 
+def _resolve_research_provider_model(
+    body: dict[str, Any],
+) -> tuple[str, list[str]] | dict[str, Any]:
+    """Resolve and validate the research provider model against the allow-list.
+
+    Extracted from dashboard_research_run_cycle to reduce cyclomatic complexity.
+    Returns (provider_model, allowed_models) on success or an error response dict.
+    """
+    allowed_models = [
+        item.strip()
+        for item in os.environ.get(
+            "ENOCH_RESEARCH_ALLOWED_MODELS",
+            "hf:moonshotai/Kimi-K2.6,hf:zai-org/GLM-5.1",
+        ).split(",")
+        if item.strip()
+    ]
+    if not allowed_models:
+        allowed_models = ["hf:moonshotai/Kimi-K2.6", "hf:zai-org/GLM-5.1"]
+
+    provider_model = str(
+        body.get("model")
+        or os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL")
+        or "hf:zai-org/GLM-5.1"
+    ).strip()
+
+    if provider_model not in allowed_models:
+        return {
+            "ok": False,
+            "action": "research_cycle_blocked",
+            "dry_run": bool(body.get("dry_run", True)),
+            "reason": f"provider model {provider_model!r} is not in the allowed model list",
+            "allowed_models": allowed_models,
+            "queue_admitted": False,
+            "dispatch_started": False,
+        }
+
+    return provider_model, allowed_models
+
+
 def _bounded_int_env(name: str, default: int, lower: int, upper: int) -> int:
     try:
         parsed = int(os.environ.get(name) or default)
@@ -6154,31 +6193,10 @@ def create_control_plane_router(
         ) -> float:
             return _bounded_float_from_mapping(body, name, default, lower, upper)
 
-        allowed_models = [
-            item.strip()
-            for item in os.environ.get(
-                "ENOCH_RESEARCH_ALLOWED_MODELS",
-                "hf:moonshotai/Kimi-K2.6,hf:zai-org/GLM-5.1",
-            ).split(",")
-            if item.strip()
-        ]
-        if not allowed_models:
-            allowed_models = ["hf:moonshotai/Kimi-K2.6", "hf:zai-org/GLM-5.1"]
-        provider_model = str(
-            body.get("model")
-            or os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL")
-            or "hf:zai-org/GLM-5.1"
-        ).strip()
-        if provider_model not in allowed_models:
-            return {
-                "ok": False,
-                "action": "research_cycle_blocked",
-                "dry_run": dry_run,
-                "reason": f"provider model {provider_model!r} is not in the allowed model list",
-                "allowed_models": allowed_models,
-                "queue_admitted": False,
-                "dispatch_started": False,
-            }
+        model_resolution = _resolve_research_provider_model(body)
+        if isinstance(model_resolution, dict):
+            return model_resolution
+        provider_model, allowed_models = model_resolution
         max_provider_requests = bounded_int("max_provider_requests_per_run", 1, 0, 3)
         worker_lane_limit = max(1, min(4, len(_configured_worker_lanes()) or 1))
         promotion_batch_limit = _bounded_int_env(
