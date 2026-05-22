@@ -2879,6 +2879,120 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertIn("machine_target=gb10", generate.call_args.kwargs["topic"])
         self.assertTrue(any(stage.get("stage") == "provider_generation" and stage.get("generation_target_lane") == "gb10" for stage in body["stages"]))
 
+    def test_research_facility_run_cycle_does_not_let_followup_starve_empty_cpu_lane(self) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.events = []
+                self.ledger_plans = []
+                self.followup_launches = 0
+
+            def active_items(self) -> list[dict[str, str]]:
+                return [{
+                    "project_id": "active-gb10",
+                    "project_name": "Active GB10",
+                    "status": "awaiting_wake",
+                    "machine_target": "gb10",
+                    "current_run_id": "run-active-gb10",
+                }]
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 6, "active": 1}
+
+            def flags(self):
+                return SimpleNamespace(queue_paused=False, maintenance_mode=False)
+
+            def queued_items_sql(self, *, limit: int = 200) -> list[dict[str, str]]:
+                return [
+                    {"project_id": f"gb10-{idx}", "status": "queued", "machine_target": "gb10"}
+                    for idx in range(6)
+                ]
+
+            def next_followup_candidate(self, *, max_followup_depth: int = 4, project_id: str = "") -> dict[str, str]:
+                return {
+                    "project_id": "completed-gb10-parent",
+                    "project_name": "Completed GB10 Parent",
+                    "machine_target": "gb10",
+                    "model": "gpt-5.5",
+                    "sandbox": "danger-full-access",
+                    "followup_title": "GB10 Followup",
+                    "followup_hypothesis": "GPU follow-up should not starve CPU feed.",
+                }
+
+            def launch_followup_candidate(self, *_args, **_kwargs):  # pragma: no cover - regression guard
+                self.followup_launches += 1
+                raise AssertionError("GB10 follow-up should be skipped while CPU lane needs fresh work")
+
+            def research_facility_workbench_projection(self, *, limit: int = 100) -> list[dict[str, str]]:
+                return []
+
+            def record_research_facility_plans(self, plans, *, requested_by: str, queue_admitted: bool = False):
+                self.ledger_plans.extend(plans)
+                return {"inserted": len(plans), "queue_admitted": queue_admitted, "requested_by": requested_by}
+
+            def promote_research_candidate(self, *_args, **_kwargs):  # pragma: no cover - promotion disabled in this test
+                raise AssertionError("this test only verifies lane-targeted generation")
+
+            def append_event(self, **kwargs):
+                self.events.append(kwargs)
+                return len(self.events), True
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+            live_dispatch_enabled=True,
+            worker_wake_gate_url="http://gb10-worker:8787",
+            worker_wake_gate_bearer_token="gb10-token",
+            worker_targets={
+                "cpu-proxmox-1": {"wake_gate_url": "http://cpu-worker:8787", "bearer_token": "cpu-token", "role": "cpu_worker"},
+                "gb10": {"wake_gate_url": "http://gb10-worker:8787", "bearer_token": "gb10-token", "role": "gpu_worker"},
+            },
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+        generated_candidate = {"candidate_id": "generated-cpu", "title": "Generated CPU", "machine_target": "cpu-proxmox-1"}
+
+        with patch("enoch_control_plane.control_plane.router.SupabaseControlPlaneStore", return_value=fake_store), \
+             patch("scripts.research_provider_budget.fetch_json", return_value=quota), \
+             patch("scripts.research_provider_generate.generate_provider_candidates", return_value={"candidates": [generated_candidate], "provider_response_id": "resp-cpu", "attempts_used": 1}) as generate, \
+             patch("scripts.research_facility.plan_candidates", return_value=[{"candidate": generated_candidate, "admission_decision": "admitted"}]):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={
+                    "dry_run": False,
+                    "enabled": True,
+                    "max_provider_requests_per_run": 1,
+                    "max_promotions_per_run": 0,
+                    "max_dispatches_per_run": 2,
+                    "max_paper_drafts_per_run": 0,
+                    "min_queue_depth_per_lane": 25,
+                    "requested_by": "pytest",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["generation_target_lane"]["machine_target"], "cpu-proxmox-1")
+        self.assertEqual(body["followup_launch"]["action"], "skipped")
+        self.assertIn("different lane", body["followup_launch"]["reason"])
+        self.assertFalse(body["fresh_generation_skipped"])
+        self.assertEqual(body["generated_count"], 1)
+        self.assertEqual(fake_store.followup_launches, 0)
+        self.assertEqual(generate.call_args.kwargs["default_machine"], "cpu-proxmox-1")
+        self.assertIn("machine_target=cpu-proxmox-1", generate.call_args.kwargs["topic"])
+
     def test_research_facility_run_cycle_targets_largest_lane_queue_deficit(self) -> None:
         class FakeSupabaseStore:
             def __init__(self) -> None:

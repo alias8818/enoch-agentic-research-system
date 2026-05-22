@@ -4508,8 +4508,39 @@ def create_control_plane_router(config: GateConfig, require_bearer: RequireBeare
         if hasattr(store, "next_followup_candidate"):
             followup_candidate = store.next_followup_candidate(max_followup_depth=4)
         if followup_candidate:
-            if max_dispatches:
-                followup_launch = store.launch_followup_candidate(dry_run=False, requested_by=requested_by, max_followup_depth=4)
+            followup_lane_key = research_row_lane_key(followup_candidate)
+            generation_lane_key = str((generation_target_lane or {}).get("lane_key") or "")
+            followup_starves_target_lane = (
+                bool(generation_target_lane)
+                and bool(max_provider_requests)
+                and bool(followup_lane_key)
+                and bool(generation_lane_key)
+                and followup_lane_key != generation_lane_key
+            )
+            if followup_starves_target_lane:
+                response["followup_launch"] = {
+                    "action": "skipped",
+                    "reason": "bounded follow-up candidate targets a different lane than the largest empty queue deficit",
+                    "candidate": followup_candidate,
+                    "candidate_lane_key": followup_lane_key,
+                    "generation_target_lane": generation_target_lane,
+                }
+                response["stages"].append({
+                    "stage": "followup_launch",
+                    "ok": True,
+                    "action": "skipped",
+                    "reason": response["followup_launch"]["reason"],
+                    "parent_project_id": followup_candidate.get("project_id"),
+                    "candidate_lane_key": followup_lane_key,
+                    "generation_lane_key": generation_lane_key,
+                })
+            elif max_dispatches:
+                followup_launch = store.launch_followup_candidate(
+                    project_id=str(followup_candidate.get("project_id") or ""),
+                    dry_run=False,
+                    requested_by=requested_by,
+                    max_followup_depth=4,
+                )
                 response["followup_launch"] = followup_launch
                 response["stages"].append({
                     "stage": "followup_launch",
