@@ -42,6 +42,12 @@ def test_sonar_analysis_scope_excludes_generated_artifacts_and_classifies_tests(
         props["sonar.exclusions"]
     )
     assert "dashboard/src/**/*.test.tsx" in _csv(props["sonar.exclusions"])
+    assert "dashboard/src/components/WorkerLanes.tsx" in _csv(
+        props["sonar.cpd.exclusions"]
+    )
+    assert "dashboard/src/components/ResearchPage.tsx" in _csv(
+        props["sonar.cpd.exclusions"]
+    )
 
 
 def test_sonar_imports_python_coverage_and_ignores_non_product_coverage_debt() -> None:
