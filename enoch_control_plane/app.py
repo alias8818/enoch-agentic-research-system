@@ -2937,5 +2937,5 @@ async def _shutdown_tasks() -> None:
         try:
             await reconcile_task
         except asyncio.CancelledError:
-            pass
+            raise
         reconcile_task = None

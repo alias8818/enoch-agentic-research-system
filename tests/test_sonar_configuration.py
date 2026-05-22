@@ -73,3 +73,14 @@ def test_sonar_workflow_generates_coverage_before_scan_and_uses_node24_actions()
         "SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9"
         in workflow
     )
+
+
+def test_sonar_accepts_internal_http_for_research_control_plane() -> None:
+    """Internal/dev http URLs are intentionally allowed (private nets, examples, no public TLS)."""
+    props = _properties()
+    assert "sonar.issue.ignore.multicriteria" in props
+    assert "httpInternal" in props["sonar.issue.ignore.multicriteria"]
+    # The actual rule keys are listed under the .httpInternal suffix
+    http_rule = props.get("sonar.issue.ignore.multicriteria.httpInternal.ruleKey", "")
+    assert "python:S5332" in http_rule
+    assert "typescript:S5332" in http_rule
