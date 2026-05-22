@@ -27,7 +27,7 @@ LIVE_LIFECYCLES = {
     "callback_pending",
     "stale_callback_ready",
 }
-PROJECT_PROCESS_MARKERS = ("/projects/idea-", "codex exec", "codex exec")
+PROJECT_PROCESS_MARKERS = ("/projects/idea-", "codex exec")
 
 
 def load_token(config_path: Path) -> str:
@@ -63,11 +63,7 @@ def project_exec_processes(project_root: str) -> list[str]:
     for line in result.stdout.splitlines():
         if "wait_safe_restart_wake_gate.py" in line:
             continue
-        if (
-            project_root
-            and project_root in line
-            and ("codex exec" in line or "codex exec" in line)
-        ):
+        if project_root and project_root in line and "codex exec" in line:
             matches.append(line.strip())
             continue
         if all(marker in line for marker in PROJECT_PROCESS_MARKERS):

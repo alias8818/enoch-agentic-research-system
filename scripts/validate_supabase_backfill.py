@@ -236,7 +236,7 @@ def main() -> int:
                     "--name",
                     container,
                     "-e",
-                    "POSTGRES_PASSWORD=postgres",
+                    "POSTGRES_PASSWORD=postgres",  # NOSONAR(S2068) - ephemeral test-only Postgres container using official image default
                     "-e",
                     "POSTGRES_DB=postgres",
                     "-p",

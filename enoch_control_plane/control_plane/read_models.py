@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import hashlib
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -1689,7 +1690,10 @@ def _safe_count(value: Any, default: int = 0) -> int:
     if isinstance(value, int):
         return value if value >= 0 else 0
     if isinstance(value, float):
-        if value != value or value in (float("inf"), float("-inf")):  # NaN / inf guard
+        if math.isnan(value) or value in (
+            float("inf"),
+            float("-inf"),
+        ):  # NaN / inf guard
             return default_int
         return int(value) if value >= 0 else 0
     if isinstance(value, str):
