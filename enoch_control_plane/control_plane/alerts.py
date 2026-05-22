@@ -187,6 +187,13 @@ def queue_alert_findings(
         active_lane_unhealthy = bool(active_lane_findings)
         idle_lane_dispatch_opportunity = _has_idle_lane_dispatch_opportunity(status)
 
+        def _should_suppress_worker_warning() -> bool:
+            return (
+                active_lane_present
+                and not active_lane_unhealthy
+                and not idle_lane_dispatch_opportunity
+            )
+
         for item in status.warnings:
             if item.source == "worker_resource_policy":
                 findings.append(item)
@@ -197,12 +204,10 @@ def queue_alert_findings(
                 "control_plane_db+worker_preflight",
                 "worker_settling",
             }:
-                if (
-                    active_lane_present
-                    and not active_lane_unhealthy
-                    and not idle_lane_dispatch_opportunity
-                    and item.source in {"worker_preflight", "worker_dashboard_api"}
-                ):
+                if _should_suppress_worker_warning() and item.source in {
+                    "worker_preflight",
+                    "worker_dashboard_api",
+                }:
                     continue
                 findings.append(item)
 
@@ -211,11 +216,7 @@ def queue_alert_findings(
                 source in {"worker_preflight", "worker_dashboard_api"}
                 and freshness.stale
             ):
-                if (
-                    active_lane_present
-                    and not active_lane_unhealthy
-                    and not idle_lane_dispatch_opportunity
-                ):
+                if _should_suppress_worker_warning():
                     continue
                 findings.append(
                     DashboardFinding(

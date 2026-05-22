@@ -260,32 +260,38 @@ def _dedupe_public_evidence_path(
 
 
 def _iter_source_evidence_files(project_dir: Path) -> list[Path]:
+    """Collect unique evidence files for the paper writer.
+
+    Refactored for lower complexity (was C901=14). Logic split into small focused helpers.
+    """
     candidates: list[Path] = []
-    explicit = [
-        "run_notes.md",
-        ".enoch/project_decision.json",
-        ".enoch/metrics.json",
-        ".omx/project_decision.json",
-        ".omx/metrics.json",
-    ]
-    for rel in explicit:
-        path = project_dir / rel
-        if _path_exists_for_paper(
-            path, label="source evidence path", status_code=424
-        ) and _path_is_file_for_paper(
-            path, label="source evidence path", status_code=424
-        ):
-            candidates.append(path)
-    for rel_dir in ("results",):
+
+    def _add_explicit() -> None:
+        for rel in [
+            "run_notes.md",
+            ".enoch/project_decision.json",
+            ".enoch/metrics.json",
+            ".omx/project_decision.json",
+            ".omx/metrics.json",
+        ]:
+            path = project_dir / rel
+            if _path_exists_for_paper(
+                path, label="source evidence path", status_code=424
+            ) and _path_is_file_for_paper(
+                path, label="source evidence path", status_code=424
+            ):
+                candidates.append(path)
+
+    def _scan_dir(rel_dir: str) -> None:
         root = project_dir / rel_dir
         if not _path_exists_for_paper(
             root, label="source evidence directory", status_code=424
         ):
-            continue
+            return
         if not _path_is_dir_for_paper(
             root, label="source evidence directory", status_code=424
         ):
-            continue
+            return
         try:
             paths = sorted(root.rglob("*"))
         except (OSError, RuntimeError, ValueError) as exc:
@@ -303,6 +309,11 @@ def _iter_source_evidence_files(project_dir: Path) -> list[Path]:
             if path.suffix.lower() not in EVIDENCE_TEXT_EXTENSIONS:
                 continue
             candidates.append(path)
+
+    _add_explicit()
+    _scan_dir("results")
+
+    # Dedup + limit (preserve order of first discovery)
     unique: list[Path] = []
     seen: set[Path] = set()
     for path in candidates:
@@ -703,6 +714,11 @@ def deterministic_paper_files(
 def _candidate_context(
     config: GateConfig, candidate: dict[str, Any], paper: PaperRecord
 ) -> str:
+    """Gather compact, high-signal local evidence for the paper writer.
+
+    Refactored for lower complexity (was C901=16). Evidence is collected in
+    three focused helpers so the orchestrator stays small and readable.
+    """
     project_dir = _resolve_project_dir(config, candidate)
     snippets: list[str] = []
     seen: set[Path] = set()
@@ -726,26 +742,22 @@ def _candidate_context(
             return
         snippets.append(f"## {display}\n{_redact_public_evidence_text(text)}")
 
-    # High-signal project-level evidence. These are copied from the GB10 worker
-    # when legacy paper reviews are rewritten on the VM. Do not omit them: the
-    # paper writer must not infer “untested” merely because the VM-local
-    # publication folder was freshly generated.
-    for rel in (
-        "run_notes.md",
-        ".enoch/project_decision.json",
-        ".enoch/metrics.json",
-        ".omx/project_decision.json",
-        ".omx/metrics.json",
-        "logs/main_run.log",
-    ):
-        add_file(rel, limit=24000)
+    def _add_project_level_evidence() -> None:
+        for rel in (
+            "run_notes.md",
+            ".enoch/project_decision.json",
+            ".enoch/metrics.json",
+            ".omx/project_decision.json",
+            ".omx/metrics.json",
+            "logs/main_run.log",
+        ):
+            add_file(rel, limit=24000)
 
-    # Source paper artifacts from the original research run. These usually carry
-    # the claim ledger, evidence strength, tested metrics, and allowed/forbidden
-    # wording for publication drafts.
-    papers_dir = project_dir / "papers"
-    if _path_exists_quiet(papers_dir):
-        preferred_names = {
+    def _add_paper_artifacts() -> None:
+        papers_dir = project_dir / "papers"
+        if not _path_exists_quiet(papers_dir):
+            return
+        preferred = {
             "evidence_bundle.json",
             "claim_ledger.json",
             "paper.md",
@@ -753,36 +765,37 @@ def _candidate_context(
             "README.md",
         }
         try:
-            paper_paths = sorted(papers_dir.rglob("*"))
+            for p in sorted(papers_dir.rglob("*")):
+                if _path_is_file_quiet(p) and p.name in preferred:
+                    add_file(p.relative_to(project_dir), limit=22000)
         except (OSError, RuntimeError, ValueError):
-            paper_paths = []
-        for path in paper_paths:
-            if _path_is_file_quiet(path) and path.name in preferred_names:
-                add_file(path.relative_to(project_dir), limit=22000)
+            pass
 
-    # Compact result summaries and key JSON outputs. Avoid huge trace CSVs/logs,
-    # but include summary CSV/JSON files and top-level result JSONs so the model
-    # sees actual measured outcomes.
-    results_dir = project_dir / "results"
-    if _path_exists_quiet(results_dir):
+    def _add_result_summaries() -> None:
+        results_dir = project_dir / "results"
+        if not _path_exists_quiet(results_dir):
+            return
         try:
-            result_paths = sorted(results_dir.rglob("*"))
+            for p in sorted(results_dir.rglob("*")):
+                if not _path_is_file_quiet(p):
+                    continue
+                name = p.name.lower()
+                if name.endswith(".log") or "trace" in name:
+                    continue
+                if (
+                    name.endswith("summary.csv")
+                    or name.endswith("summary.json")
+                    or name
+                    in {"hot_cold_sim_results.json", "smoke.json", "hotcold_probe.json"}
+                    or ("sweep" in name and name.endswith(".json"))
+                ):
+                    add_file(p.relative_to(project_dir), limit=18000)
         except (OSError, RuntimeError, ValueError):
-            result_paths = []
-        for path in result_paths:
-            if not _path_is_file_quiet(path):
-                continue
-            name = path.name.lower()
-            if name.endswith(".log") or "trace" in name:
-                continue
-            if (
-                name.endswith("summary.csv")
-                or name.endswith("summary.json")
-                or name
-                in {"hot_cold_sim_results.json", "smoke.json", "hotcold_probe.json"}
-                or ("sweep" in name and name.endswith(".json"))
-            ):
-                add_file(path.relative_to(project_dir), limit=18000)
+            pass
+
+    _add_project_level_evidence()
+    _add_paper_artifacts()
+    _add_result_summaries()
 
     return (
         "\n\n".join(snippets)

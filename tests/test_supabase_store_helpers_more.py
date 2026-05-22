@@ -4040,3 +4040,34 @@ def test_supabase_next_followup_candidate_defers_ranking_to_deterministic_python
     assert "promising_followup_priority_key" in source
     assert "not coalesce(pe.compute_scale_blocked, false)" not in source
     assert "limit 1" not in source.lower()
+
+
+def test_validate_supabase_readonly_adapter_assert_and_comparable_helpers() -> None:
+    """Deterministic unit test for the helpers extracted during C901 reduction
+    of the long validator main(). Exercises _assert_ok (new) and comparable
+    (existing) via direct import of the script module. This test would have
+    caught a bad implementation of the extracted assertion helper.
+    """
+    import importlib.util
+
+    script_path = (
+        Path(__file__).parent.parent
+        / "scripts"
+        / "validate_supabase_readonly_adapter.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "validate_supabase_readonly_adapter", script_path
+    )
+    v = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(v)
+
+    # comparable is pure and was already present
+    assert v.comparable({"a": 1, "b": 2, "c": 3}, ["a", "c"]) == {"a": 1, "c": 3}
+    assert v.comparable({"x": 9}, ["x", "missing"]) == {"x": 9, "missing": None}
+
+    # _assert_ok is the new extraction for reducing cyclomatic complexity in main()
+    failures: list[str] = []
+    v._assert_ok(True, "should-not-appear", failures)
+    v._assert_ok(False, "expected-failure-recorded", failures)
+    v._assert_ok(2 + 2 == 4, "math-failed", failures)
+    assert failures == ["expected-failure-recorded"]
