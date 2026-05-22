@@ -453,10 +453,18 @@ function eventEntityLinks(payload: Record<string, unknown>): EntityLink[] {
     pushLink(entityLinks, entityLink('paper', source.paper_id))
   }
   if (!entityLinks.length && entityId !== '—') {
+    if (entityType === 'queue_alert') return entityLinks
     const kind: DetailKind = entityType.includes('run') ? 'run' : entityType.includes('paper') || entityType.includes('paper_review') ? 'paper' : 'project'
     pushLink(entityLinks, entityLink(kind, entityId))
   }
   return entityLinks
+}
+
+function eventEntityLabel(entityType: string, entityId: string): string {
+  if (entityId === '—') return ''
+  const normalized = entityType.toLowerCase()
+  if (normalized === 'queue_alert') return `Alert fingerprint ${shortId(entityId)}`
+  return `${entityType} ${shortId(entityId)}`
 }
 
 function payloadProofAnswers(payload: Record<string, unknown>): OperatorAnswer[] {
@@ -521,7 +529,7 @@ function eventSummary(payload: Record<string, unknown>): DetailOperatorSummary {
 
   return {
     state: operatorStageLabel(stageSource, headline !== eventType ? headline : eventType),
-    context: entityId !== '—' ? `${entityType} ${shortId(entityId)} · logged ${createdAt}.` : `Logged ${createdAt}.`,
+    context: entityId !== '—' ? `${eventEntityLabel(entityType, entityId)} · logged ${createdAt}.` : `Logged ${createdAt}.`,
     next: operatorNextStep(stageSource, actionNeeded ? `Resolve the recorded blocker: ${actionNeeded}` : entityLinks.length ? 'Open the related project, run, or paper if this event requires action.' : 'Use the payload only as supporting detail; do not treat it as a command.'),
     entityLinks,
     sections: [

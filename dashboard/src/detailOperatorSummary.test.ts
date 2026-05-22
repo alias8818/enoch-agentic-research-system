@@ -133,6 +133,25 @@ describe('deriveDetailOperatorSummary', () => {
     expect(laneSection?.answers.find((answer) => answer.label === 'operator lane')?.value).toBe('write_paper')
   })
 
+  it('labels queue alert entity ids as alert fingerprints instead of project links', () => {
+    const summary = deriveDetailOperatorSummary('event', {
+      event_id: 8275,
+      event_type: 'queue_alert.detected',
+      entity_type: 'queue_alert',
+      entity_id: '16a0c1751e3c6e9c',
+      created_at: '2026-05-22T08:55:41Z',
+      payload: {
+        fingerprint: '16a0c1751e3c6e9c',
+        findings: [{ message: 'worker_dashboard_api status is unavailable' }],
+      },
+    })
+
+    expect(summary.context).toContain('Alert fingerprint 16a0c1751e3c6e9c')
+    expect(summary.context).not.toContain('queue_alert 16a0c1751e3c6e9c')
+    expect(summary.entityLinks).toEqual([])
+    expect(summary.next).toContain('worker_dashboard_api status is unavailable')
+  })
+
   it('labels finished runs from ended_at even when gate is still awaiting_wake', () => {
     const summary = deriveDetailOperatorSummary('run', {
       run_id: 'run-1',
