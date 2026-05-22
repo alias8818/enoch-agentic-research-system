@@ -4011,7 +4011,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     select source_type, source_id, target_type, target_id, relation_type, evidence_json::jsonb
                     from (values
                       ('source', %s, 'candidate', %s, 'generated_from', %s),
-                      ('project', %s, 'project', %s, 'branched_from', %s)
+                      ('project', %s, 'project', %s, 'followup_parent', %s)
                     ) as v(source_type, source_id, target_type, target_id, relation_type, evidence_json)
                     where not exists (
                       select 1 from research_lineage rl

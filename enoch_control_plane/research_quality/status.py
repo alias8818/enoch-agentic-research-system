@@ -24,7 +24,10 @@ def _utc_iso_from_mtime(path: Path) -> str:
 def _problem_severity(problem: str, item: dict[str, Any]) -> str:
     decision = str(item.get("decision") or "").strip()
     hypothesis_status = str(item.get("hypothesis_status") or "").strip()
-    if decision == "finalize_negative" and hypothesis_status in {"mixed", "unsupported"}:
+    if (
+        (decision == "finalize_negative" and hypothesis_status in {"mixed", "unsupported"})
+        or (decision == "blocked" and hypothesis_status in {"inconclusive", "mixed", "unsupported", "unknown"})
+    ):
         if problem in {"weak_or_missing_evidence_strength", "supported_but_negative_requires_review"}:
             return "warning"
     followup_recommended = as_bool(item.get("followup_recommended"))

@@ -30,6 +30,15 @@ def _report_with_decision(problem: str, *, decision: str = "finalize_negative", 
     }
 
 
+def test_weak_evidence_on_blocked_inconclusive_result_is_warning_not_blocked() -> None:
+    status = classify_quality_report(_report_with_decision("weak_or_missing_evidence_strength", decision="blocked", hypothesis_status="inconclusive"), report_path="/tmp/report.json", report_mtime="2026-05-11T00:00:01Z")
+
+    assert status["ok"] is True
+    assert status["status"] == "warnings"
+    assert status["problem_counts"] == {"weak_or_missing_evidence_strength": 1}
+    assert status["severity_counts"] == {"warning": 1}
+
+
 def test_weak_evidence_on_negative_mixed_result_is_warning_not_blocked() -> None:
     status = classify_quality_report(_report_with_decision("weak_or_missing_evidence_strength"), report_path="/tmp/report.json", report_mtime="2026-05-11T00:00:01Z")
 
