@@ -61,7 +61,7 @@ def test_sonar_imports_python_coverage_and_ignores_non_product_coverage_debt() -
     assert "enoch_control_plane/control_plane/dashboard_v2/**" in coverage_exclusions
 
 
-def test_sonar_workflow_generates_coverage_before_scan_and_uses_node24_actions() -> (
+def test_sonar_workflow_isolates_coverage_from_secret_bearing_scan_and_uses_node24_actions() -> (
     None
 ):
     workflow = (ROOT / ".github" / "workflows" / "build.yml").read_text(
@@ -71,9 +71,12 @@ def test_sonar_workflow_generates_coverage_before_scan_and_uses_node24_actions()
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in workflow
     assert "uv run coverage run -m pytest -q" in workflow
     assert "uv run coverage xml -o coverage.xml" in workflow
-    assert workflow.index("uv run coverage xml -o coverage.xml") < workflow.index(
-        "SonarSource/sonarqube-scan-action"
-    )
+    assert "coverage:" in workflow
+    assert "sonar:" in workflow
+    assert "needs: coverage" in workflow
+    assert "actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808" in workflow
+    assert "actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16" in workflow
+    assert "persist-credentials: false" in workflow
     assert "actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3" in workflow
     assert (
         "SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9"
