@@ -245,6 +245,43 @@ def test_queue_alert_findings_do_not_suppress_worker_stale_when_idle_lane_has_di
     assert "stale or missing" in findings[0].message
 
 
+def test_has_idle_lane_dispatch_opportunity_s3776_helpers_extracted() -> None:
+    """AGENTS.md guard for lowest OPEN alerts.py S3776 (~20 at _has_idle_lane_dispatch_opportunity)."""
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/alerts.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def _lane_has_dispatchable_queued_work(" in src
+    assert "def _worker_lane_dicts(" in src
+
+    from enoch_control_plane.control_plane.alerts import (
+        _has_idle_lane_dispatch_opportunity,
+        _lane_has_dispatchable_queued_work,
+        _worker_lane_dicts,
+    )
+
+    status = SimpleNamespace(
+        next_candidate=None,
+        worker_lanes=[
+            {"dispatch_available": False, "queued_count": 2},
+            {"dispatch_available": True, "queued_count": 1},
+            "not-a-lane",
+        ],
+    )
+    assert _lane_has_dispatchable_queued_work(
+        {"dispatch_available": True, "queued_count": 1}
+    )
+    assert not _lane_has_dispatchable_queued_work(
+        {"dispatch_available": True, "queued_count": 0}
+    )
+    assert _worker_lane_dicts(status) == [  # type: ignore[arg-type]
+        {"dispatch_available": False, "queued_count": 2},
+        {"dispatch_available": True, "queued_count": 1},
+    ]
+    assert _has_idle_lane_dispatch_opportunity(status) is True  # type: ignore[arg-type]
+
+
 def test_send_pushover_rejects_non_http_api_url_before_urlopen(
     monkeypatch, tmp_path
 ) -> None:
