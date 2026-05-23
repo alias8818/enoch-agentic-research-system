@@ -1538,6 +1538,67 @@ def _recent_files(
     ]
 
 
+_RESULT_FOLDER_NAMES = ("results", "artifacts")
+_RESULT_WALK_SKIP_DIRS = frozenset(
+    {".git", "__pycache__", ".mypy_cache", ".pytest_cache"}
+)
+
+
+def _push_mtime_heap_entry(
+    collected: list[tuple[float, str]],
+    limit: int,
+    entry: tuple[float, str],
+) -> None:
+    if len(collected) < limit:
+        heapq.heappush(collected, entry)
+    else:
+        heapq.heappushpop(collected, entry)
+
+
+def _result_file_mtime_entry(path: Path, project_dir: Path) -> tuple[float, str] | None:
+    try:
+        if not path.is_file():
+            return None
+        stat = path.stat()
+        return (stat.st_mtime, path.relative_to(project_dir).as_posix())
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _collect_result_files_in_folder(
+    folder_root: Path,
+    project_dir: Path,
+    collected: list[tuple[float, str]],
+    *,
+    limit: int,
+    scanned: int,
+    deadline: float,
+    max_entries: int,
+) -> int:
+    try:
+        walker = os.walk(folder_root, onerror=lambda _exc: None)
+        for current_root, dirs, files in walker:
+            if scanned >= max_entries or time.monotonic() > deadline:
+                break
+            dirs[:] = [
+                directory
+                for directory in dirs
+                if directory not in _RESULT_WALK_SKIP_DIRS
+            ]
+            for filename in files:
+                scanned += 1
+                if scanned > max_entries or time.monotonic() > deadline:
+                    break
+                entry = _result_file_mtime_entry(
+                    Path(current_root) / filename, project_dir
+                )
+                if entry is not None:
+                    _push_mtime_heap_entry(collected, limit, entry)
+    except (OSError, RuntimeError, ValueError):
+        return scanned
+    return scanned
+
+
 def _result_files(
     project_dir: Path,
     limit: int = 20,
@@ -1548,40 +1609,19 @@ def _result_files(
     collected: list[tuple[float, str]] = []
     scanned = 0
     deadline = time.monotonic() + max_seconds
-    for folder_name in ("results", "artifacts"):
+    for folder_name in _RESULT_FOLDER_NAMES:
         root = project_dir / folder_name
         if not _path_exists(root):
             continue
-        try:
-            walker = os.walk(root, onerror=lambda _exc: None)
-            for current_root, dirs, files in walker:
-                if scanned >= max_entries or time.monotonic() > deadline:
-                    break
-                dirs[:] = [
-                    directory
-                    for directory in dirs
-                    if directory
-                    not in {".git", "__pycache__", ".mypy_cache", ".pytest_cache"}
-                ]
-                for filename in files:
-                    scanned += 1
-                    if scanned > max_entries or time.monotonic() > deadline:
-                        break
-                    path = Path(current_root) / filename
-                    try:
-                        if not path.is_file():
-                            continue
-                        stat = path.stat()
-                        rel_path = path.relative_to(project_dir).as_posix()
-                    except (OSError, RuntimeError, ValueError):
-                        continue
-                    entry = (stat.st_mtime, rel_path)
-                    if len(collected) < limit:
-                        heapq.heappush(collected, entry)
-                    else:
-                        heapq.heappushpop(collected, entry)
-        except (OSError, RuntimeError, ValueError):
-            continue
+        scanned = _collect_result_files_in_folder(
+            root,
+            project_dir,
+            collected,
+            limit=limit,
+            scanned=scanned,
+            deadline=deadline,
+            max_entries=max_entries,
+        )
         if scanned >= max_entries or time.monotonic() > deadline:
             break
     return [
