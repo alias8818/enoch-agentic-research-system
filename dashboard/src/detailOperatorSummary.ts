@@ -33,6 +33,12 @@ export type {
   ResearchCandidateOperatorSummary,
 } from './detailOperatorSummaryHelpers'
 
+function projectActionNeeded(attention: boolean, blocked: string): string | null {
+  if (!attention) return null
+  if (blocked !== '—') return blocked
+  return 'Operator attention required.'
+}
+
 function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const project = record(payload.project)
   const queue = queueRecord(payload)
@@ -103,7 +109,7 @@ function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary
       },
     ],
     recentActivity: recentActivityFrom(events, queue.last_result_summary, queue.decision_summary),
-    actionNeeded: attention && blocked !== '—' ? blocked : attention ? 'Operator attention required.' : null,
+    actionNeeded: projectActionNeeded(attention, blocked),
   }
 }
 
