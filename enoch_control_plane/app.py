@@ -13,7 +13,7 @@ import os
 import subprocess
 from pathlib import Path
 import time
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import FastAPI, Header, HTTPException, Query, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -2042,7 +2042,7 @@ def _build_queue_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
 @app.post("/dashboard/queue-snapshot")
 def dashboard_queue_snapshot(
     payload: dict[str, Any],
-    authorization: str | None = Header(default=None),
+    authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     _require_local_bearer(authorization)
     snapshot = _build_queue_snapshot(payload)
@@ -2162,7 +2162,7 @@ def _build_paper_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
 @app.post("/dashboard/paper-snapshot")
 def dashboard_paper_snapshot(
     payload: dict[str, Any],
-    authorization: str | None = Header(default=None),
+    authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     _require_local_bearer(authorization)
     snapshot = _build_paper_snapshot(payload)
@@ -2176,10 +2176,10 @@ def dashboard_paper_snapshot(
 @app.get("/dashboard/api/paper-artifact/{project_id}")
 def dashboard_api_paper_artifact(
     project_id: str,
-    path: str = Query(..., min_length=1),
-    authorization: str | None = Header(default=None),
-    token: str | None = Query(default=None),
-    max_bytes: int = Query(default=350_000, ge=1, le=2_000_000),
+    path: Annotated[str, Query(min_length=1)],
+    authorization: Annotated[str | None, Header()] = None,
+    token: Annotated[str | None, Query()] = None,
+    max_bytes: Annotated[int, Query(ge=1, le=2_000_000)] = 350_000,
 ) -> dict[str, Any]:
     _require_dashboard_bearer(authorization, token)
     project_dir = _resolve_project_dir(project_id, None)
@@ -2235,9 +2235,9 @@ def dashboard_api_paper_artifact(
 @app.get("/dashboard/paper-artifact/{project_id}", response_class=HTMLResponse)
 def dashboard_paper_artifact(
     project_id: str,
-    path: str = Query(..., min_length=1),
-    authorization: str | None = Header(default=None),
-    token: str | None = Query(default=None),
+    path: Annotated[str, Query(min_length=1)],
+    authorization: Annotated[str | None, Header()] = None,
+    token: Annotated[str | None, Query()] = None,
 ) -> HTMLResponse:
     data = dashboard_api_paper_artifact(
         project_id, path, authorization=authorization, token=token, max_bytes=2_000_000
@@ -2256,11 +2256,11 @@ def dashboard_paper_artifact(
 
 @app.get("/dashboard/api")
 def dashboard_api(
-    authorization: str | None = Header(default=None),
-    token: str | None = Query(default=None),
-    limit: int = Query(default=40, ge=1, le=250),
-    event_limit: int = Query(default=30, ge=0, le=200),
-    detail: bool = Query(default=False),
+    authorization: Annotated[str | None, Header()] = None,
+    token: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=250)] = 40,
+    event_limit: Annotated[int, Query(ge=0, le=200)] = 30,
+    detail: Annotated[bool, Query()] = False,
 ) -> dict[str, Any]:
     _require_dashboard_bearer(authorization, token)
 
@@ -2356,8 +2356,8 @@ def dashboard_api(
 @app.get("/dashboard/api/run/{run_id}")
 def dashboard_api_run(
     run_id: str,
-    authorization: str | None = Header(default=None),
-    token: str | None = Query(default=None),
+    authorization: Annotated[str | None, Header()] = None,
+    token: Annotated[str | None, Query()] = None,
 ) -> dict[str, Any]:
     _require_dashboard_bearer(authorization, token)
     record = store.load_run(run_id)
@@ -2382,9 +2382,9 @@ def dashboard_api_run(
 @app.get("/project-status/{project_id}")
 async def project_status(
     project_id: str,
-    authorization: str | None = Header(default=None),
-    run_id: str | None = Query(default=None),
-    project_dir: str | None = Query(default=None),
+    authorization: Annotated[str | None, Header()] = None,
+    run_id: Annotated[str | None, Query()] = None,
+    project_dir: Annotated[str | None, Query()] = None,
 ) -> dict[str, Any]:
     _require_local_bearer(authorization)
 
@@ -2434,7 +2434,7 @@ async def project_status(
 @app.post("/prepare-project")
 async def prepare_project(
     request: PrepareProjectRequest,
-    authorization: str | None = Header(default=None),
+    authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     _require_local_bearer(authorization)
     metadata = _normalize_prepare_metadata(request.metadata)
@@ -2493,7 +2493,7 @@ async def prepare_project(
 async def read_project_paper(
     project_id: str,
     request: PaperArtifactReadRequest,
-    authorization: str | None = Header(default=None),
+    authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     _require_local_bearer(authorization)
     if len(request.paths) > 20:
@@ -2569,7 +2569,7 @@ async def read_project_paper(
 async def write_project_paper(
     project_id: str,
     request: PaperArtifactRequest,
-    authorization: str | None = Header(default=None),
+    authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     _require_local_bearer(authorization)
     if len(request.files) > 20:
@@ -2630,7 +2630,7 @@ async def write_project_paper(
 @app.post("/dispatch")
 async def dispatch_run(
     request: DispatchRequest,
-    authorization: str | None = Header(default=None),
+    authorization: Annotated[str | None, Header()] = None,
 ) -> dict:
     _require_local_bearer(authorization)
     project_dir = _resolve_under_root(request.project_dir, config.expanded_project_root)
