@@ -128,6 +128,10 @@ class UnresolvableArtifactRootsError(RuntimeError):
     """Configured project and state artifact roots could not be resolved."""
 
 
+class UnresolvableConfiguredProjectRootError(ValueError):
+    """Configured project root path could not be resolved."""
+
+
 RequireBearer = Callable[[str | None], None]
 
 _RUN_NOTES_MD = "run_notes.md"
@@ -757,9 +761,9 @@ _PAPER_REWRITE_PUBLICATION_POLICY = {
 _PAPER_REWRITE_DRAFT_RESPONSES: dict[int, dict[str, str]] = {
     400: {
         "description": (
-            "Invalid rewrite request: blocked review status, project or "
-            "artifact root could not be resolved or inspected, unreadable "
-            "artifacts, or validation error"
+            "Invalid rewrite request: blocked review status, configured "
+            "project root or artifact root could not be resolved or "
+            "inspected, unreadable artifacts, or validation error"
         ),
     },
     404: {"description": "Publication automation item not found"},
@@ -802,12 +806,12 @@ def _paper_rewrite_rows_or_404(
     return paper, item
 
 
-def _configured_project_root_or_400(config: GateConfig) -> Path:
+def _expanded_configured_project_root(config: GateConfig) -> Path:
     try:
         return config.expanded_project_root.resolve()
     except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=400, detail="configured project root could not be resolved"
+        raise UnresolvableConfiguredProjectRootError(
+            "configured project root could not be resolved"
         ) from exc
 
 
@@ -852,7 +856,10 @@ def _resolve_paper_rewrite_artifact_root(
     project_id: str,
     project: dict[str, Any] | None,
 ) -> tuple[Path, bool]:
-    configured_root = _configured_project_root_or_400(config)
+    try:
+        configured_root = _expanded_configured_project_root(config)
+    except UnresolvableConfiguredProjectRootError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     current_project_dir = _paper_rewrite_current_project_dir(project)
     use_current_dir, resolved_current_project_dir = (
         _paper_rewrite_current_dir_resolution(configured_root, current_project_dir)
