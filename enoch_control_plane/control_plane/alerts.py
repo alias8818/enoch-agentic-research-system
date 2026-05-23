@@ -179,75 +179,115 @@ def _collect_active_lane_findings(
     return findings
 
 
-def queue_alert_findings(
-    status: DashboardStatusResponse, *, hang_after_sec: int
-) -> list[DashboardFinding]:
-    flags = status.flags
-    intentional_hold = flags.queue_paused or flags.maintenance_mode
-    findings: list[DashboardFinding] = []
-    active_lane_findings: list[DashboardFinding] = []
+_WORKER_WARNING_SOURCES = frozenset(
+    {
+        "worker_preflight",
+        "worker_dashboard_api",
+        "control_plane_db+worker_preflight",
+        "worker_settling",
+    }
+)
+_WORKER_STALE_FRESHNESS_SOURCES = frozenset(
+    {"worker_preflight", "worker_dashboard_api"}
+)
 
-    for item in status.conflicts:
+
+def _should_suppress_worker_warning(
+    *,
+    active_lane_present: bool,
+    active_lane_unhealthy: bool,
+    idle_lane_dispatch_opportunity: bool,
+) -> bool:
+    return (
+        active_lane_present
+        and not active_lane_unhealthy
+        and not idle_lane_dispatch_opportunity
+    )
+
+
+def _append_queue_warning_findings(
+    status: DashboardStatusResponse,
+    findings: list[DashboardFinding],
+    *,
+    suppress_worker_warning: bool,
+) -> None:
+    for item in status.warnings:
+        if item.source == "worker_resource_policy":
+            findings.append(item)
+            continue
+        if item.source not in _WORKER_WARNING_SOURCES:
+            continue
+        if suppress_worker_warning and item.source in _WORKER_STALE_FRESHNESS_SOURCES:
+            continue
         findings.append(item)
 
-    if not intentional_hold and status.config.live_dispatch_enabled:
-        active_lane_findings = _collect_active_lane_findings(
-            status, hang_after_sec=hang_after_sec
+
+def _append_stale_worker_source_freshness_findings(
+    status: DashboardStatusResponse,
+    findings: list[DashboardFinding],
+    *,
+    suppress_worker_warning: bool,
+) -> None:
+    for source, freshness in status.source_freshness.items():
+        if source not in _WORKER_STALE_FRESHNESS_SOURCES or not freshness.stale:
+            continue
+        if suppress_worker_warning:
+            continue
+        findings.append(
+            DashboardFinding(
+                severity="warn",
+                source=source,
+                authority=freshness.authority,
+                message=f"{source} is stale or missing while live dispatch is enabled",
+                observed_at=_observed_at_text(freshness.observed_at),
+                suggested_action="refresh /control/api/preflight and verify GB10 worker health",
+            )
         )
 
-        active_lane_present = bool(status.active_items)
-        active_lane_unhealthy = bool(active_lane_findings)
-        idle_lane_dispatch_opportunity = _has_idle_lane_dispatch_opportunity(status)
 
-        def _should_suppress_worker_warning() -> bool:
-            return (
-                active_lane_present
-                and not active_lane_unhealthy
-                and not idle_lane_dispatch_opportunity
-            )
+def _collect_live_dispatch_alert_findings(
+    status: DashboardStatusResponse, *, hang_after_sec: int
+) -> list[DashboardFinding]:
+    findings: list[DashboardFinding] = []
+    active_lane_findings = _collect_active_lane_findings(
+        status, hang_after_sec=hang_after_sec
+    )
+    suppress_worker_warning = _should_suppress_worker_warning(
+        active_lane_present=bool(status.active_items),
+        active_lane_unhealthy=bool(active_lane_findings),
+        idle_lane_dispatch_opportunity=_has_idle_lane_dispatch_opportunity(status),
+    )
+    _append_queue_warning_findings(
+        status, findings, suppress_worker_warning=suppress_worker_warning
+    )
+    _append_stale_worker_source_freshness_findings(
+        status, findings, suppress_worker_warning=suppress_worker_warning
+    )
+    findings.extend(active_lane_findings)
+    return findings
 
-        for item in status.warnings:
-            if item.source == "worker_resource_policy":
-                findings.append(item)
-                continue
-            if item.source in {
-                "worker_preflight",
-                "worker_dashboard_api",
-                "control_plane_db+worker_preflight",
-                "worker_settling",
-            }:
-                if _should_suppress_worker_warning() and item.source in {
-                    "worker_preflight",
-                    "worker_dashboard_api",
-                }:
-                    continue
-                findings.append(item)
 
-        for source, freshness in status.source_freshness.items():
-            if (
-                source in {"worker_preflight", "worker_dashboard_api"}
-                and freshness.stale
-            ):
-                if _should_suppress_worker_warning():
-                    continue
-                findings.append(
-                    DashboardFinding(
-                        severity="warn",
-                        source=source,
-                        authority=freshness.authority,
-                        message=f"{source} is stale or missing while live dispatch is enabled",
-                        observed_at=_observed_at_text(freshness.observed_at),
-                        suggested_action="refresh /control/api/preflight and verify GB10 worker health",
-                    )
-                )
-
-        findings.extend(active_lane_findings)
-
+def _dedupe_alert_findings(findings: list[DashboardFinding]) -> list[DashboardFinding]:
     deduped: dict[str, DashboardFinding] = {}
     for item in findings:
         key = f"{item.severity}|{item.source}|{item.message}"
         deduped.setdefault(key, item)
     return list(deduped.values())
+
+
+def queue_alert_findings(
+    status: DashboardStatusResponse, *, hang_after_sec: int
+) -> list[DashboardFinding]:
+    flags = status.flags
+    intentional_hold = flags.queue_paused or flags.maintenance_mode
+    findings: list[DashboardFinding] = list(status.conflicts)
+
+    if not intentional_hold and status.config.live_dispatch_enabled:
+        findings.extend(
+            _collect_live_dispatch_alert_findings(status, hang_after_sec=hang_after_sec)
+        )
+
+    return _dedupe_alert_findings(findings)
 
 
 def _recent_dispatch_transition_projects(
