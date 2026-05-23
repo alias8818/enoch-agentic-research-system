@@ -364,6 +364,48 @@ export function deriveDetailOperatorSummary(kind: DetailKind, payload: Record<st
   return eventSummary(payload)
 }
 
+function researchCandidateRejected(status: string, admission: string): boolean {
+  return status === 'rejected' || admission.toLowerCase().includes('reject')
+}
+
+function researchCandidateAdmitted(status: string, admission: string): boolean {
+  return status === 'admitted' || admission.toLowerCase().includes('admit')
+}
+
+function researchCandidateNeedsAttention(row: Record<string, unknown>, rejected: boolean): boolean {
+  return rejected || row.manual_review_required === true || row.operator_attention === true
+}
+
+function researchCandidatePromotePath(
+  rejected: boolean,
+  admitted: boolean,
+  promoted: boolean,
+  ideaId: string,
+  projectId: string,
+): string {
+  if (rejected) return 'admission rejected — keep as negative evidence'
+  if (!admitted) return 'not admitted — review facility scoring before promote'
+  if (!promoted) return 'admitted but not yet promoted to intake/queue'
+  if (ideaId !== '—') return `promoted to idea ${shortId(ideaId)}`
+  return `linked project ${shortId(projectId)}`
+}
+
+function researchCandidateNextStepMessage(rejected: boolean, admitted: boolean): string {
+  if (rejected) {
+    return 'No launch action is needed; keep this as negative evidence unless a new follow-up is warranted.'
+  }
+  if (admitted) {
+    return 'Promote only after dry-run confirms this exact candidate still maps to a queue item.'
+  }
+  return 'Review admission, source lineage, and machine target before promoting or queuing work.'
+}
+
+function researchCandidateActionNeeded(attention: boolean, rejected: boolean): string | null {
+  if (!attention) return null
+  if (rejected) return 'Candidate rejected at admission.'
+  return 'Admission needs operator review before promote.'
+}
+
 export function deriveResearchCandidateOperatorSummary(row: Record<string, unknown>): ResearchCandidateOperatorSummary {
   const status = text(row.status)
   const admission = text(row.admission_decision)
@@ -372,29 +414,17 @@ export function deriveResearchCandidateOperatorSummary(row: Record<string, unkno
   const ideaId = text(firstValue(row.admitted_idea_id, row.idea_id))
   const projectId = text(row.project_id)
   const promoted = ideaId !== '—' || projectId !== '—'
-  const rejected = status === 'rejected' || admission.toLowerCase().includes('reject')
-  const admitted = status === 'admitted' || admission.toLowerCase().includes('admit')
-  const attention = rejected || row.manual_review_required === true || row.operator_attention === true
-  const whyNotPromoted = rejected
-    ? 'admission rejected — keep as negative evidence'
-    : !admitted
-      ? 'not admitted — review facility scoring before promote'
-      : promoted
-        ? ideaId !== '—'
-          ? `promoted to idea ${shortId(ideaId)}`
-          : `linked project ${shortId(projectId)}`
-        : 'admitted but not yet promoted to intake/queue'
+  const rejected = researchCandidateRejected(status, admission)
+  const admitted = researchCandidateAdmitted(status, admission)
+  const attention = researchCandidateNeedsAttention(row, rejected)
+  const promotePath = researchCandidatePromotePath(rejected, admitted, promoted, ideaId, projectId)
   const entityLinks: EntityLink[] = []
   pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, row.title))
 
   return {
     state: operatorStageLabel(row, status),
     context: `Admission ${admission}; target ${target}; facility status ${status}.`,
-    next: operatorNextStep(row, rejected
-      ? 'No launch action is needed; keep this as negative evidence unless a new follow-up is warranted.'
-      : admitted
-        ? 'Promote only after dry-run confirms this exact candidate still maps to a queue item.'
-        : 'Review admission, source lineage, and machine target before promoting or queuing work.'),
+    next: operatorNextStep(row, researchCandidateNextStepMessage(rejected, admitted)),
     entityLinks,
     sections: [
       {
@@ -413,7 +443,7 @@ export function deriveResearchCandidateOperatorSummary(row: Record<string, unkno
           { label: 'admission decision', value: admission },
           { label: 'admitted idea', value: ideaId },
           { label: 'linked project', value: projectId },
-          { label: 'promote path', value: whyNotPromoted },
+          { label: 'promote path', value: promotePath },
           { label: 'selection rank', value: text(row.selection_rank) },
         ],
       },
@@ -426,6 +456,6 @@ export function deriveResearchCandidateOperatorSummary(row: Record<string, unkno
         ],
       },
     ],
-    actionNeeded: attention ? (rejected ? 'Candidate rejected at admission.' : 'Admission needs operator review before promote.') : null,
+    actionNeeded: researchCandidateActionNeeded(attention, rejected),
   }
 }
