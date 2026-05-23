@@ -3,6 +3,6 @@ export function RawDetails({ summary, children, className }: Readonly<{ summary:
   const classes = ['raw-details', className].filter(Boolean).join(' ')
   return <details className={classes}><summary>{summary}</summary>{children}</details>
 }
-export function RawJsonDetails({ summary, payload, className }: { summary: string; payload: unknown; className?: string }) {
+export function RawJsonDetails({ summary, payload, className }: Readonly<{ summary: string; payload: unknown; className?: string }>) {
   return <RawDetails summary={summary} className={className}><pre className="json-block">{JSON.stringify(payload, null, 2)}</pre></RawDetails>
 }
