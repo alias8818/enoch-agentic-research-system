@@ -1665,7 +1665,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
             event = store.event_rows(
                 limit=1, entity_type="run", entity_id="idea-active-empty"
             )[0]
-            self.assertEqual(event["payload"]["stale_callback_ignored"], True)
+            self.assertTrue(event["payload"]["stale_callback_ignored"])
             self.assertEqual(
                 event["payload"]["ignore_reason"], "missing_run_id_for_active_project"
             )
