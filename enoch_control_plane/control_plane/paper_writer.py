@@ -847,92 +847,122 @@ def deterministic_paper_files(
     }
 
 
+_PROJECT_LEVEL_EVIDENCE_RELS = (
+    "run_notes.md",
+    ".enoch/project_decision.json",
+    ".enoch/metrics.json",
+    ".omx/project_decision.json",
+    ".omx/metrics.json",
+    "logs/main_run.log",
+)
+_PREFERRED_PAPER_ARTIFACT_NAMES = frozenset(
+    {
+        "evidence_bundle.json",
+        "claim_ledger.json",
+        "paper.md",
+        "paper_manifest.json",
+        "README.md",
+    }
+)
+_RESULT_SUMMARY_JSON_NAMES = frozenset(
+    {"hot_cold_sim_results.json", "smoke.json", "hotcold_probe.json"}
+)
+
+
+def _try_append_context_snippet(
+    project_dir: Path,
+    rel: str | Path,
+    *,
+    seen: set[Path],
+    snippets: list[str],
+    limit: int = 16000,
+) -> None:
+    path = (project_dir / rel).resolve()
+    try:
+        display = path.relative_to(project_dir)
+    except ValueError:
+        return
+    if path in seen or not _path_exists_quiet(path) or not _path_is_file_quiet(path):
+        return
+    seen.add(path)
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")[:limit]
+    except (OSError, RuntimeError, ValueError):
+        return
+    snippets.append(f"## {display}\n{_redact_public_evidence_text(text)}")
+
+
+def _append_project_level_evidence(
+    project_dir: Path, *, seen: set[Path], snippets: list[str]
+) -> None:
+    for rel in _PROJECT_LEVEL_EVIDENCE_RELS:
+        _try_append_context_snippet(
+            project_dir, rel, seen=seen, snippets=snippets, limit=24000
+        )
+
+
+def _append_paper_artifacts(
+    project_dir: Path, *, seen: set[Path], snippets: list[str]
+) -> None:
+    papers_dir = project_dir / "papers"
+    if not _path_exists_quiet(papers_dir):
+        return
+    try:
+        for p in sorted(papers_dir.rglob("*")):
+            if _path_is_file_quiet(p) and p.name in _PREFERRED_PAPER_ARTIFACT_NAMES:
+                _try_append_context_snippet(
+                    project_dir,
+                    p.relative_to(project_dir),
+                    seen=seen,
+                    snippets=snippets,
+                    limit=22000,
+                )
+    except (OSError, RuntimeError, ValueError):
+        pass
+
+
+def _is_result_summary_candidate(path: Path) -> bool:
+    name = path.name.lower()
+    if name.endswith(".log") or "trace" in name:
+        return False
+    if name.endswith(("summary.csv", "summary.json")):
+        return True
+    if name in _RESULT_SUMMARY_JSON_NAMES:
+        return True
+    return "sweep" in name and name.endswith(".json")
+
+
+def _append_result_summaries(
+    project_dir: Path, *, seen: set[Path], snippets: list[str]
+) -> None:
+    results_dir = project_dir / "results"
+    if not _path_exists_quiet(results_dir):
+        return
+    try:
+        for p in sorted(results_dir.rglob("*")):
+            if not _path_is_file_quiet(p) or not _is_result_summary_candidate(p):
+                continue
+            _try_append_context_snippet(
+                project_dir,
+                p.relative_to(project_dir),
+                seen=seen,
+                snippets=snippets,
+                limit=18000,
+            )
+    except (OSError, RuntimeError, ValueError):
+        pass
+
+
 def _candidate_context(
     config: GateConfig, candidate: dict[str, Any], paper: PaperRecord
 ) -> str:
-    """Gather compact, high-signal local evidence for the paper writer.
-
-    Refactored for lower complexity (was C901=16). Evidence is collected in
-    three focused helpers so the orchestrator stays small and readable.
-    """
+    """Gather compact, high-signal local evidence for the paper writer."""
     project_dir = _resolve_project_dir(config, candidate)
     snippets: list[str] = []
     seen: set[Path] = set()
-
-    def add_file(rel: str | Path, *, limit: int = 16000) -> None:
-        path = (project_dir / rel).resolve()
-        try:
-            display = path.relative_to(project_dir)
-        except ValueError:
-            return
-        if (
-            path in seen
-            or not _path_exists_quiet(path)
-            or not _path_is_file_quiet(path)
-        ):
-            return
-        seen.add(path)
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")[:limit]
-        except (OSError, RuntimeError, ValueError):
-            return
-        snippets.append(f"## {display}\n{_redact_public_evidence_text(text)}")
-
-    def _add_project_level_evidence() -> None:
-        for rel in (
-            "run_notes.md",
-            ".enoch/project_decision.json",
-            ".enoch/metrics.json",
-            ".omx/project_decision.json",
-            ".omx/metrics.json",
-            "logs/main_run.log",
-        ):
-            add_file(rel, limit=24000)
-
-    def _add_paper_artifacts() -> None:
-        papers_dir = project_dir / "papers"
-        if not _path_exists_quiet(papers_dir):
-            return
-        preferred = {
-            "evidence_bundle.json",
-            "claim_ledger.json",
-            "paper.md",
-            "paper_manifest.json",
-            "README.md",
-        }
-        try:
-            for p in sorted(papers_dir.rglob("*")):
-                if _path_is_file_quiet(p) and p.name in preferred:
-                    add_file(p.relative_to(project_dir), limit=22000)
-        except (OSError, RuntimeError, ValueError):
-            pass
-
-    def _add_result_summaries() -> None:
-        results_dir = project_dir / "results"
-        if not _path_exists_quiet(results_dir):
-            return
-        try:
-            for p in sorted(results_dir.rglob("*")):
-                if not _path_is_file_quiet(p):
-                    continue
-                name = p.name.lower()
-                if name.endswith(".log") or "trace" in name:
-                    continue
-                if (
-                    name.endswith("summary.csv")
-                    or name.endswith("summary.json")
-                    or name
-                    in {"hot_cold_sim_results.json", "smoke.json", "hotcold_probe.json"}
-                    or ("sweep" in name and name.endswith(".json"))
-                ):
-                    add_file(p.relative_to(project_dir), limit=18000)
-        except (OSError, RuntimeError, ValueError):
-            pass
-
-    _add_project_level_evidence()
-    _add_paper_artifacts()
-    _add_result_summaries()
-
+    _append_project_level_evidence(project_dir, seen=seen, snippets=snippets)
+    _append_paper_artifacts(project_dir, seen=seen, snippets=snippets)
+    _append_result_summaries(project_dir, seen=seen, snippets=snippets)
     return (
         "\n\n".join(snippets)
         or "No local run artifacts were found; write a cautious review-required draft from the queue metadata only."
