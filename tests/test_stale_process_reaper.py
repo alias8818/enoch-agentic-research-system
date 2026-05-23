@@ -240,7 +240,8 @@ class StaleProcessReaperTests(unittest.TestCase):
                 [],
             )
 
-        self.assertEqual(len(signaled), 1)
+        # Reused PID: identity mismatch blocks SIGTERM as well as SIGKILL.
+        self.assertEqual(len(signaled), 0)
 
     def test_reaper_audits_process_that_exits_during_identity_check(self) -> None:
         class _GoneProcess:

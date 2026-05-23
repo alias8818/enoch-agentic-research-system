@@ -50,7 +50,10 @@ def _safe_send_signal(
         if active_proc is None:
             if psutil is None:
                 raise ProcessLookupError(pid)
-            active_proc = psutil.Process(pid)
+            try:
+                active_proc = psutil.Process(pid)
+            except psutil.NoSuchProcess as exc:
+                raise ProcessLookupError(pid) from exc
         if ProcessTracker._same_process(active_proc, tracked) is not True:
             raise ProcessLookupError(pid)
     os.kill(pid, sig)
@@ -337,13 +340,27 @@ class ProcessTracker:
         term_signaled: list[ProcessInfo] = []
         for info in candidates:
             pid = info.pid
-            # S4828: never signal pid <= 0 (pid 0 is the process group).
             if pid <= 0:
                 continue
             try:
-                os.kill(pid, signal.SIGTERM)
+                proc = None
+                if psutil is not None:
+                    try:
+                        proc = psutil.Process(pid)
+                    except psutil.NoSuchProcess:
+                        proc = None
+                if info.create_time is not None and proc is not None:
+                    same = self._same_process(proc, info)
+                    if same is False:
+                        continue
+                    if same is None:
+                        # Cannot verify identity; TERM only (SIGKILL path re-checks).
+                        _safe_send_signal(pid, signal.SIGTERM, tracked=None, proc=None)
+                        term_signaled.append(info)
+                        continue
+                _safe_send_signal(pid, signal.SIGTERM, tracked=info, proc=proc)
                 term_signaled.append(info)
-            except (ProcessLookupError, PermissionError, OSError):
+            except (ProcessLookupError, PermissionError, OSError, ValueError):
                 continue
 
         if term_grace_sec > 0:
