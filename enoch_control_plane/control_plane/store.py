@@ -504,6 +504,72 @@ def _notion_page_id(raw: dict[str, Any]) -> str:
     ) or _notion_page_id_from_url(_notion_url(raw))
 
 
+def _notion_intake_row_result(
+    raw: dict[str, Any],
+    *,
+    include_statuses: set[str],
+    default_machine_target: str,
+    workload_machine_targets: dict[str, str] | None,
+    default_model: str,
+    default_sandbox: str,
+    source: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    title = _notion_title(raw)
+    status = _notion_status(raw).lower()
+    page_id = _notion_page_id(raw)
+    page_url = _notion_url(raw)
+    if not title:
+        return None, {"reason": "missing title", "row": raw}
+    if include_statuses and not status:
+        return None, {
+            "reason": "missing status",
+            "title": title,
+            "status": status,
+            "page_id": page_id,
+        }
+    if include_statuses and status not in include_statuses:
+        return None, {
+            "reason": f"status {status!r} not included",
+            "title": title,
+            "status": status,
+            "page_id": page_id,
+        }
+    project_id = (
+        _slug_id(page_id.replace("-", "")) if page_id else f"notion-{_slug_id(title)}"
+    )
+    if not project_id:
+        return None, {
+            "reason": "missing project id",
+            "title": title,
+            "page_id": page_id,
+        }
+    rank = _priority_rank(raw)
+    routing = route_machine_target(
+        raw,
+        default_machine_target=default_machine_target,
+        workload_machine_targets=workload_machine_targets,
+    )
+    return {
+        "project_id": project_id,
+        "project_name": title,
+        "project_dir": project_id,
+        "notion_page_url": page_url,
+        "notion_page_id": page_id,
+        "origin_idea_status": status,
+        "status": QueueStatus.QUEUED.value,
+        "selection_rank": rank,
+        "dispatch_priority": rank,
+        "next_action_hint": "controller_review",
+        "machine_target": routing["machine_target"],
+        "workload_class": routing["workload_class"],
+        "routing_reason": routing["routing_reason"],
+        "model": default_model,
+        "sandbox": default_sandbox,
+        "source_kind": source or "notion",
+        "source_row": raw,
+    }, None
+
+
 _NOTION_EXECUTION_STATE_MAP = {
     QueueStatus.QUEUED.value: "queued",
     QueueStatus.DISPATCHING.value: "running",
