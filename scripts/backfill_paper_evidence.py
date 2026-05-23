@@ -230,48 +230,67 @@ def _process_paper_row(
         )
 
 
+def _should_process_row(
+    row: dict[str, Any],
+    *,
+    wanted: set[str],
+    published_only: bool,
+) -> bool:
+    paper_id = str(row.get("paper_id") or "")
+    if wanted and paper_id not in wanted:
+        return False
+    if published_only and not row.get("corpus_imported"):
+        return False
+    return True
+
+
+def _record_status_count(status: ProcessStatus, counts: dict[str, int]) -> None:
+    if status == "updated":
+        counts["updated"] += 1
+    elif status == "skipped":
+        counts["skipped"] += 1
+    else:
+        counts["failed"] += 1
+
+
+def _run_backfill_rows(
+    config: GateConfig,
+    args: argparse.Namespace,
+    rows: list[dict[str, Any]],
+) -> tuple[dict[str, int], list[dict[str, Any]]]:
+    wanted = {str(item) for item in args.paper_id}
+    counts = {"processed": 0, "updated": 0, "skipped": 0, "failed": 0}
+    out_rows: list[dict[str, Any]] = []
+
+    for row in rows:
+        if not _should_process_row(
+            row, wanted=wanted, published_only=args.published_only
+        ):
+            continue
+        if args.limit and counts["processed"] >= args.limit:
+            break
+        counts["processed"] += 1
+        status, result = _process_paper_row(config, args, row)
+        out_rows.append(result)
+        _record_status_count(status, counts)
+
+    return counts, out_rows
+
+
 def main() -> int:
     args = _parse_args()
     config = load_config(args.config)
     store = make_store(config)
-    wanted = {str(item) for item in args.paper_id}
-    rows = store.paper_rows()
-    processed = updated = skipped = failed = 0
-    out_rows: list[dict[str, Any]] = []
-
-    for row in rows:
-        paper_id = str(row.get("paper_id") or "")
-        if wanted and paper_id not in wanted:
-            continue
-        if args.published_only and not row.get("corpus_imported"):
-            continue
-        if args.limit and processed >= args.limit:
-            break
-        processed += 1
-        status, result = _process_paper_row(config, args, row)
-        out_rows.append(result)
-        if status == "updated":
-            updated += 1
-        elif status == "skipped":
-            skipped += 1
-        else:
-            failed += 1
-
+    counts, out_rows = _run_backfill_rows(config, args, store.paper_rows())
     print(
         json.dumps(
-            {
-                "processed": processed,
-                "updated": updated,
-                "skipped": skipped,
-                "failed": failed,
-                "rows": out_rows[:200],
-            },
+            {**counts, "rows": out_rows[:200]},
             indent=2,
             sort_keys=True,
             default=str,
         )
     )
-    return 1 if failed else 0
+    return 1 if counts["failed"] else 0
 
 
 if __name__ == "__main__":
