@@ -31,6 +31,21 @@ class HttpResult:
     body: Any
 
 
+@dataclass
+class ValidationResponses:
+    health: HttpResult
+    state: HttpResult
+    overview: HttpResult
+    core_health: HttpResult
+    ideas: HttpResult
+    workbench: HttpResult
+    legacy_intake: HttpResult
+    legacy_projection: HttpResult
+    dispatch_dry: HttpResult
+    idea_dry: HttpResult
+    review_backfill_dry: HttpResult
+
+
 def _load_token(path: str) -> str:
     explicit = os.environ.get("ENOCH_CONTROL_PLANE_TOKEN", "").strip()
     if explicit:
@@ -94,75 +109,77 @@ def _run_ssh_timer_check(ssh_host: str) -> dict[str, Any]:
     }
 
 
-def validate(args: argparse.Namespace) -> dict[str, Any]:
-    failures: list[str] = []
-    token = _load_token(args.token_file)
-    if not token:
-        return {
-            "ok": False,
-            "failures": [
-                "missing control-plane token; set ENOCH_CONTROL_PLANE_TOKEN or --token-file"
-            ],
-        }
-    base = args.control_url.rstrip("/")
-
-    health = _request("GET", f"{base}/control/health", token)
-    state = _request("GET", f"{base}/control/state", token)
-    overview = _request("GET", f"{base}/control/api/v1/overview", token)
-    core_health = _request("GET", f"{base}/enoch-core/health", token)
-    ideas = _request("GET", f"{base}/control/api/intake/ideas", token)
-    workbench = _request("GET", f"{base}/control/projections/ideas/workbench", token)
-    legacy_intake = _request("GET", f"{base}/control/api/intake/notion", token)
-    legacy_projection = _request(
-        "GET", f"{base}/control/projections/notion/queue", token
-    )
-    dispatch_dry = _request(
-        "POST",
-        f"{base}/control/dispatch-next",
-        token,
-        {"dry_run": True, "requested_by": "supabase-resume-readiness"},
-    )
-    idea_dry = _request(
-        "POST",
-        f"{base}/control/intake/ideas",
-        token,
-        {
-            "dry_run": True,
-            "ideas": [
-                {
-                    "idea_id": "resume-readiness-smoke",
-                    "title": "Resume Readiness Smoke",
-                    "idea_status": "testing",
-                }
-            ],
-        },
-    )
-    review_backfill_dry = _request(
-        "POST",
-        f"{base}/control/api/publication-automation/backfill",
-        token,
-        {
-            "dry_run": True,
-            "requested_by": "supabase-resume-readiness",
-            "paper_ids": ["__resume_readiness_noop__"],
-        },
+def _fetch_validation_responses(base: str, token: str) -> ValidationResponses:
+    return ValidationResponses(
+        health=_request("GET", f"{base}/control/health", token),
+        state=_request("GET", f"{base}/control/state", token),
+        overview=_request("GET", f"{base}/control/api/v1/overview", token),
+        core_health=_request("GET", f"{base}/enoch-core/health", token),
+        ideas=_request("GET", f"{base}/control/api/intake/ideas", token),
+        workbench=_request("GET", f"{base}/control/projections/ideas/workbench", token),
+        legacy_intake=_request("GET", f"{base}/control/api/intake/notion", token),
+        legacy_projection=_request(
+            "GET", f"{base}/control/projections/notion/queue", token
+        ),
+        dispatch_dry=_request(
+            "POST",
+            f"{base}/control/dispatch-next",
+            token,
+            {"dry_run": True, "requested_by": "supabase-resume-readiness"},
+        ),
+        idea_dry=_request(
+            "POST",
+            f"{base}/control/intake/ideas",
+            token,
+            {
+                "dry_run": True,
+                "ideas": [
+                    {
+                        "idea_id": "resume-readiness-smoke",
+                        "title": "Resume Readiness Smoke",
+                        "idea_status": "testing",
+                    }
+                ],
+            },
+        ),
+        review_backfill_dry=_request(
+            "POST",
+            f"{base}/control/api/publication-automation/backfill",
+            token,
+            {
+                "dry_run": True,
+                "requested_by": "supabase-resume-readiness",
+                "paper_ids": ["__resume_readiness_noop__"],
+            },
+        ),
     )
 
+
+def _check_http_statuses(failures: list[str], responses: ValidationResponses) -> None:
     for label, result in (
-        ("health", health),
-        ("state", state),
-        ("overview", overview),
-        ("enoch-core health", core_health),
-        ("ideas intake dashboard", ideas),
-        ("ideas workbench", workbench),
-        ("dispatch dry-run", dispatch_dry),
-        ("ideas dry-run", idea_dry),
-        ("publication automation backfill dry-run", review_backfill_dry),
+        ("health", responses.health),
+        ("state", responses.state),
+        ("overview", responses.overview),
+        ("enoch-core health", responses.core_health),
+        ("ideas intake dashboard", responses.ideas),
+        ("ideas workbench", responses.workbench),
+        ("dispatch dry-run", responses.dispatch_dry),
+        ("ideas dry-run", responses.idea_dry),
+        (
+            "publication automation backfill dry-run",
+            responses.review_backfill_dry,
+        ),
     ):
         _check_status(failures, result, 200, label)
-    _check_status(failures, legacy_intake, 410, "legacy Notion intake")
-    _check_status(failures, legacy_projection, 410, "legacy Notion projection")
+    _check_status(failures, responses.legacy_intake, 410, "legacy Notion intake")
+    _check_status(
+        failures, responses.legacy_projection, 410, "legacy Notion projection"
+    )
 
+
+def _check_store_backends(
+    failures: list[str], health: HttpResult, core_health: HttpResult
+) -> None:
     if health.status == 200 and health.body.get("store_backend") != "supabase":
         failures.append(
             f"health store_backend={health.body.get('store_backend')!r}, expected 'supabase'"
@@ -174,25 +191,40 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
         failures.append(
             f"enoch-core store_backend={core_health.body.get('store_backend')!r}, expected 'supabase'"
         )
-    flags = state.body.get("flags") if isinstance(state.body, dict) else {}
+
+
+def _extract_state_flags(state: HttpResult) -> dict[str, Any]:
+    return state.body.get("flags") if isinstance(state.body, dict) else {}
+
+
+def _check_runtime_pause(failures: list[str], flags: dict[str, Any]) -> None:
     if not flags.get("queue_paused") or not flags.get("maintenance_mode"):
         failures.append(f"runtime is not safely paused for migration: flags={flags}")
-    pipeline = (
-        (overview.body.get("paper_pipeline") or {})
-        if isinstance(overview.body, dict)
-        else {}
-    )
+
+
+def _extract_pipeline(overview: HttpResult) -> dict[str, Any]:
+    if not isinstance(overview.body, dict):
+        return {}
+    return overview.body.get("paper_pipeline") or {}
+
+
+def _check_pipeline_invariants(failures: list[str], pipeline: dict[str, Any]) -> None:
     if int(pipeline.get("write_needed") or 0) != 0:
         failures.append(
             f"write_needed={pipeline.get('write_needed')}, expected 0 before resume"
         )
-    if int(pipeline.get("raw_completed_no_paper_candidates") or 0) != int(
-        pipeline.get("not_writable_by_decision_gate") or 0
-    ):
+    raw_count = int(pipeline.get("raw_completed_no_paper_candidates") or 0)
+    gated_count = int(pipeline.get("not_writable_by_decision_gate") or 0)
+    if raw_count != gated_count:
         failures.append(
             "raw completed/no-paper candidates do not match decision-gated non-writable count: "
             f"raw={pipeline.get('raw_completed_no_paper_candidates')} gated={pipeline.get('not_writable_by_decision_gate')}"
         )
+
+
+def _check_ideas_surface(
+    failures: list[str], ideas: HttpResult, workbench: HttpResult
+) -> None:
     if ideas.status == 200 and "Supabase-native" not in str(
         ideas.body.get("authority", "")
     ):
@@ -201,6 +233,14 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
         )
     if workbench.status == 200 and not workbench.body.get("rows"):
         failures.append("ideas workbench returned no rows")
+
+
+def _check_dry_run_surface(
+    failures: list[str],
+    dispatch_dry: HttpResult,
+    idea_dry: HttpResult,
+    review_backfill_dry: HttpResult,
+) -> None:
     if dispatch_dry.status == 200 and dispatch_dry.body.get("action") != "paused":
         failures.append(
             f"dispatch dry-run action={dispatch_dry.body.get('action')!r}, expected paused while migration pause is active"
@@ -221,57 +261,97 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
             f"publication automation backfill did not remain dry-run: {review_backfill_dry.body}"
         )
 
-    timer_check: dict[str, Any] | None = None
-    if args.ssh_host:
-        timer_check = _run_ssh_timer_check(args.ssh_host)
-        if timer_check["returncode"] != 0:
-            failures.append(f"timer ssh check failed: {timer_check['raw']}")
-        enabled = timer_check.get("enabled") or []
-        active = timer_check.get("active") or []
-        if enabled[:2] != ["masked", "masked"]:
-            failures.append(f"Notion sync units are not masked: enabled={enabled}")
-        if enabled[2:] != ["disabled", "disabled"]:
-            failures.append(f"paper/queue timers are not disabled: enabled={enabled}")
-        if active != ["inactive", "inactive", "inactive", "inactive"]:
-            failures.append(f"migration-sensitive timers are active: active={active}")
 
+def _check_ssh_timers(failures: list[str], ssh_host: str) -> dict[str, Any] | None:
+    if not ssh_host:
+        return None
+    timer_check = _run_ssh_timer_check(ssh_host)
+    if timer_check["returncode"] != 0:
+        failures.append(f"timer ssh check failed: {timer_check['raw']}")
+    enabled = timer_check.get("enabled") or []
+    active = timer_check.get("active") or []
+    if enabled[:2] != ["masked", "masked"]:
+        failures.append(f"Notion sync units are not masked: enabled={enabled}")
+    if enabled[2:] != ["disabled", "disabled"]:
+        failures.append(f"paper/queue timers are not disabled: enabled={enabled}")
+    if active != ["inactive", "inactive", "inactive", "inactive"]:
+        failures.append(f"migration-sensitive timers are active: active={active}")
+    return timer_check
+
+
+def _build_validation_report(
+    failures: list[str],
+    responses: ValidationResponses,
+    flags: dict[str, Any],
+    pipeline: dict[str, Any],
+    timer_check: dict[str, Any] | None,
+) -> dict[str, Any]:
     return {
         "ok": not failures,
         "failures": failures,
-        "health": {"status": health.status, "body": health.body},
+        "health": {"status": responses.health.status, "body": responses.health.body},
         "state_flags": flags,
         "paper_pipeline": pipeline,
         "enoch_core": {
-            "status": core_health.status,
-            "store_backend": core_health.body.get("store_backend")
-            if isinstance(core_health.body, dict)
+            "status": responses.core_health.status,
+            "store_backend": responses.core_health.body.get("store_backend")
+            if isinstance(responses.core_health.body, dict)
             else "",
-            "db_path": core_health.body.get("db_path")
-            if isinstance(core_health.body, dict)
+            "db_path": responses.core_health.body.get("db_path")
+            if isinstance(responses.core_health.body, dict)
             else "",
         },
         "ideas": {
-            "status": ideas.status,
-            "authority": ideas.body.get("authority")
-            if isinstance(ideas.body, dict)
+            "status": responses.ideas.status,
+            "authority": responses.ideas.body.get("authority")
+            if isinstance(responses.ideas.body, dict)
             else "",
         },
-        "workbench_rows": len(workbench.body.get("rows") or [])
-        if isinstance(workbench.body, dict)
+        "workbench_rows": len(responses.workbench.body.get("rows") or [])
+        if isinstance(responses.workbench.body, dict)
         else 0,
         "legacy": {
-            "intake_status": legacy_intake.status,
-            "projection_status": legacy_projection.status,
+            "intake_status": responses.legacy_intake.status,
+            "projection_status": responses.legacy_projection.status,
         },
         "dry_runs": {
-            "dispatch": dispatch_dry.body,
-            "ideas_created": idea_dry.body.get("created")
-            if isinstance(idea_dry.body, dict)
+            "dispatch": responses.dispatch_dry.body,
+            "ideas_created": responses.idea_dry.body.get("created")
+            if isinstance(responses.idea_dry.body, dict)
             else None,
-            "publication_automation_backfill": review_backfill_dry.body,
+            "publication_automation_backfill": responses.review_backfill_dry.body,
         },
         "timer_check": timer_check,
     }
+
+
+def validate(args: argparse.Namespace) -> dict[str, Any]:
+    token = _load_token(args.token_file)
+    if not token:
+        return {
+            "ok": False,
+            "failures": [
+                "missing control-plane token; set ENOCH_CONTROL_PLANE_TOKEN or --token-file"
+            ],
+        }
+
+    failures: list[str] = []
+    responses = _fetch_validation_responses(args.control_url.rstrip("/"), token)
+    _check_http_statuses(failures, responses)
+    _check_store_backends(failures, responses.health, responses.core_health)
+    flags = _extract_state_flags(responses.state)
+    _check_runtime_pause(failures, flags)
+    pipeline = _extract_pipeline(responses.overview)
+    _check_pipeline_invariants(failures, pipeline)
+    _check_ideas_surface(failures, responses.ideas, responses.workbench)
+    _check_dry_run_surface(
+        failures,
+        responses.dispatch_dry,
+        responses.idea_dry,
+        responses.review_backfill_dry,
+    )
+    timer_check = _check_ssh_timers(failures, args.ssh_host)
+    return _build_validation_report(failures, responses, flags, pipeline, timer_check)
 
 
 def main() -> int:
