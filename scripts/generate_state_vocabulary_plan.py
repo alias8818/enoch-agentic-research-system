@@ -44,9 +44,10 @@ PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS = (
     "publication_automation_items.automation_status"
 )
 
-# Centralized surface name for the duplicated RUNS_STATE literal
-# (addresses current top remaining S1192 in the same file, ~20x in Runs surfaces and mappings).
+# Centralized surface names for duplicated Runs-domain literals (S1192).
 RUNS_STATE = "runs.state"
+QUEUE_ITEMS_LAST_RUN_STATE = "queue_items.last_run_state"
+RUNS_GATE_STATE = "runs.gate_state"
 
 DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
     {
@@ -82,7 +83,7 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
             ),
         },
         "Runs": {
-            "surfaces": [RUNS_STATE, "queue_items.last_run_state", "runs.gate_state"],
+            "surfaces": [RUNS_STATE, QUEUE_ITEMS_LAST_RUN_STATE, RUNS_GATE_STATE],
             "states": OrderedDict(
                 {
                     "running": "Worker dispatch/callback is in progress.",
@@ -163,12 +164,12 @@ FINAL_STATE_OVERRIDES: dict[tuple[str, str], str] = {
     (RUNS_STATE, "unknown"): "historical",
     (RUNS_STATE, "cancelled"): "canceled",
     (RUNS_STATE, "canceled"): "canceled",
-    ("queue_items.last_run_state", "positive"): "decision_positive",
-    ("queue_items.last_run_state", "negative"): "decision_no_paper",
-    ("queue_items.last_run_state", "missing"): "decision_no_paper",
-    ("queue_items.last_run_state", "malformed"): "decision_no_paper",
-    ("queue_items.last_run_state", ""): "historical",
-    ("runs.gate_state", ""): "historical",
+    (QUEUE_ITEMS_LAST_RUN_STATE, "positive"): "decision_positive",
+    (QUEUE_ITEMS_LAST_RUN_STATE, "negative"): "decision_no_paper",
+    (QUEUE_ITEMS_LAST_RUN_STATE, "missing"): "decision_no_paper",
+    (QUEUE_ITEMS_LAST_RUN_STATE, "malformed"): "decision_no_paper",
+    (QUEUE_ITEMS_LAST_RUN_STATE, ""): "historical",
+    (RUNS_GATE_STATE, ""): "historical",
     # Papers / publication automation
     (PAPERS_PAPER_STATUS, "eligible"): "needed",
     (PAPERS_PAPER_STATUS, "draft_generating"): "drafting",
@@ -202,7 +203,7 @@ def final_state_for(surface: str, raw_value: str) -> str:
     if surface in {"projects.origin_idea_status"}:
         return "historical"
     if (
-        surface in {"queue_items.last_run_state", "runs.gate_state"}
+        surface in {QUEUE_ITEMS_LAST_RUN_STATE, RUNS_GATE_STATE}
         and (RUNS_STATE, raw_value) in FINAL_STATE_OVERRIDES
     ):
         return FINAL_STATE_OVERRIDES[(RUNS_STATE, raw_value)]
