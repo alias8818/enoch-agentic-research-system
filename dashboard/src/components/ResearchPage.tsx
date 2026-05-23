@@ -124,32 +124,33 @@ function liveGenerateDisabledReason(canLive: boolean, dryRunReady: boolean, isPe
   return ''
 }
 
-function CandidateDetail({ row, candidateId }: Readonly<{ row: Record<string, unknown> | null; candidateId: string }>) {
-  if (!row && candidateId) {
-    return (
-      <section className="detail-panel" aria-label="Research candidate detail">
-        <div className="detail-panel-head">
-          <div>
-            <p className="eyebrow">Research candidate detail</p>
-            <h2>Candidate detail</h2>
-            <span className="detail-id-chip" title={candidateId}>{shortId(candidateId)}</span>
-          </div>
+function CandidateDetailMissing({ candidateId }: Readonly<{ candidateId: string }>) {
+  return (
+    <section className="detail-panel" aria-label="Research candidate detail">
+      <div className="detail-panel-head">
+        <div>
+          <p className="eyebrow">Research candidate detail</p>
+          <h2>Candidate detail</h2>
+          <span className="detail-id-chip" title={candidateId}>{shortId(candidateId)}</span>
         </div>
-        <section className="detail-summary">
-          <p>Candidate {candidateId} is not present in the bounded research facility rows returned by /control/api/research/facility.</p>
-        </section>
+      </div>
+      <section className="detail-summary">
+        <p>Candidate {candidateId} is not present in the bounded research facility rows returned by /control/api/research/facility.</p>
       </section>
-    )
-  }
-  if (!row) return null
+    </section>
+  )
+}
+
+function CandidateDetailPanel({ row }: Readonly<{ row: Record<string, unknown> }>) {
   const operatorSummary = deriveResearchCandidateOperatorSummary(row)
+  const rowCandidateId = displayText(row.candidate_id)
   return (
     <section className="detail-panel" aria-label="Research candidate detail">
       <div className="detail-panel-head">
         <div>
           <p className="eyebrow">Research candidate detail</p>
           <h2>{displayText(row.title || row.candidate_id, 'Selected candidate')}</h2>
-          <span className="detail-id-chip" title={displayText(row.candidate_id)}>{shortId(displayText(row.candidate_id))}</span>
+          <span className="detail-id-chip" title={rowCandidateId}>{shortId(rowCandidateId)}</span>
         </div>
       </div>
       <section className="detail-summary">
@@ -167,10 +168,20 @@ function CandidateDetail({ row, candidateId }: Readonly<{ row: Record<string, un
   )
 }
 
+function CandidateDetail({ row, candidateId }: Readonly<{ row: Record<string, unknown> | null; candidateId: string }>) {
+  if (!row && candidateId) return <CandidateDetailMissing candidateId={candidateId} />
+  if (!row) return null
+  return <CandidateDetailPanel row={row} />
+}
+
+function researchCandidateDetailHref(candidateId: string): string {
+  return dashboardV2Href(`#research:${encodeURIComponent(candidateId)}`)
+}
+
 function candidateCellHref(row: Record<string, unknown>, column: string): string | undefined {
   if (column !== 'candidate_id') return undefined
   const candidateId = displayText(row.candidate_id)
-  return candidateId ? dashboardV2Href(`#research:${encodeURIComponent(candidateId)}`) : undefined
+  return candidateId ? researchCandidateDetailHref(candidateId) : undefined
 }
 
 type ResearchGenerationSectionProps = Readonly<{
@@ -279,7 +290,26 @@ function ResearchFacilityBody({ rows, counts, activeCandidate, routeCandidateId,
   )
 }
 
-export function ResearchPage({ route }: Readonly<{ route?: Extract<DashboardRoute, { page: 'research' }> }>) {
+
+type ResearchConfirm = ReturnType<typeof useOperatorDialog>['confirm']
+
+type ResearchConfirmOptions = Parameters<ResearchConfirm>[0]
+
+async function runConfirmedOperatorAction(
+  canLive: boolean,
+  confirm: ResearchConfirm,
+  dialog: ResearchConfirmOptions,
+  mutate: () => Promise<unknown>,
+) {
+  if (!canLive) return
+  const confirmed = await confirm(dialog)
+  if (!confirmed) return
+  await mutate()
+}
+
+type ResearchPageRoute = Extract<DashboardRoute, { page: 'research' }>
+
+function useResearchPageController(route?: ResearchPageRoute) {
   const queryClient = useQueryClient()
   const { confirm, dialog } = useOperatorDialog()
   const [selectedCandidate, setSelectedCandidate] = useState<Record<string, unknown> | null>(null)
@@ -296,10 +326,9 @@ export function ResearchPage({ route }: Readonly<{ route?: Extract<DashboardRout
   const promotion = useMutation({
     mutationFn: (payload: { candidate_id: string; dry_run: boolean; requested_by: string }) => apiPost<PromotionResponse>('/control/api/research/promote-candidate', payload),
     onSuccess: (payload) => {
-      if (payload.action === 'promote_candidate') {
-        setSelectedCandidate(null)
-        void queryClient.invalidateQueries({ queryKey: ['research-facility'] })
-      }
+      if (payload.action !== 'promote_candidate') return
+      setSelectedCandidate(null)
+      void queryClient.invalidateQueries({ queryKey: ['research-facility'] })
     },
   })
   const generateBatch = useMutation({
@@ -307,10 +336,10 @@ export function ResearchPage({ route }: Readonly<{ route?: Extract<DashboardRout
     onSuccess: (payload, variables) => {
       if (variables.dry_run) {
         setBatchDryRunReady(generateBatchAllowsLive(payload))
-      } else {
-        setBatchDryRunReady(false)
-        void queryClient.invalidateQueries({ queryKey: ['research-facility'] })
+        return
       }
+      setBatchDryRunReady(false)
+      void queryClient.invalidateQueries({ queryKey: ['research-facility'] })
     },
   })
   const generateProviderBatch = useMutation({
@@ -318,10 +347,10 @@ export function ResearchPage({ route }: Readonly<{ route?: Extract<DashboardRout
     onSuccess: (payload, variables) => {
       if (variables.dry_run) {
         setProviderBatchDryRunReady(providerBatchAllowsLive(payload))
-      } else {
-        setProviderBatchDryRunReady(false)
-        void queryClient.invalidateQueries({ queryKey: ['research-facility'] })
+        return
       }
+      setProviderBatchDryRunReady(false)
+      void queryClient.invalidateQueries({ queryKey: ['research-facility'] })
     },
   })
 
@@ -333,41 +362,34 @@ export function ResearchPage({ route }: Readonly<{ route?: Extract<DashboardRout
   }
 
   async function runLiveCycle() {
-    if (!canLiveCycle) return
-    const confirmed = await confirm({
+    await runConfirmedOperatorAction(canLiveCycle, confirm, {
       title: 'Run one bounded live cycle?',
       message: 'This can spend one provider request and promote candidates. V2 will not dispatch, wait for completion, write papers, or finalize publications from this action.',
       confirmLabel: 'Run bounded cycle',
       tone: 'warn',
+    }, async () => {
+      await cycle.mutateAsync(liveCyclePayload)
+      setCycleDryRunReady(false)
+      setCycleDryRunSignature('')
     })
-    if (!confirmed) return
-    await cycle.mutateAsync(liveCyclePayload)
-    setCycleDryRunReady(false)
-    setCycleDryRunSignature('')
   }
 
   async function runLiveGenerateBatch() {
-    if (!canLiveGenerateBatch) return
-    const confirmed = await confirm({
+    await runConfirmedOperatorAction(canLiveGenerateBatch, confirm, {
       title: 'Generate research candidates now?',
       message: 'This writes new internal research candidates to the facility ledger. Review dry-run counts before proceeding.',
       confirmLabel: 'Generate candidates',
       tone: 'warn',
-    })
-    if (!confirmed) return
-    await generateBatch.mutateAsync({ dry_run: false, max_candidates: 3, requested_by: 'dashboard-v2' })
+    }, () => generateBatch.mutateAsync({ dry_run: false, max_candidates: 3, requested_by: 'dashboard-v2' }))
   }
 
   async function runLiveProviderBatch() {
-    if (!canLiveProviderBatch) return
-    const confirmed = await confirm({
+    await runConfirmedOperatorAction(canLiveProviderBatch, confirm, {
       title: 'Generate provider-backed candidates now?',
       message: 'This spends provider inference budget and writes candidates to the facility ledger. Review dry-run budget checks first.',
       confirmLabel: 'Generate provider batch',
       tone: 'danger',
-    })
-    if (!confirmed) return
-    await generateProviderBatch.mutateAsync({ dry_run: false, max_candidates: 2, requested_by: 'dashboard-v2' })
+    }, () => generateProviderBatch.mutateAsync({ dry_run: false, max_candidates: 2, requested_by: 'dashboard-v2' }))
   }
 
   const rows = facility.data?.rows || []
@@ -392,14 +414,12 @@ export function ResearchPage({ route }: Readonly<{ route?: Extract<DashboardRout
 
   async function promoteCandidate() {
     if (!selectedCandidateId) return
-    const confirmed = await confirm({
+    await runConfirmedOperatorAction(true, confirm, {
       title: 'Promote admitted candidate?',
       message: `Promote ${selectedCandidateId} into queued idea/project rows? This writes queue ledgers only and will not dispatch work.`,
       confirmLabel: 'Promote candidate',
       tone: 'warn',
-    })
-    if (!confirmed) return
-    await promotion.mutateAsync({ candidate_id: selectedCandidateId, dry_run: false, requested_by: 'dashboard-v2' })
+    }, () => promotion.mutateAsync({ candidate_id: selectedCandidateId, dry_run: false, requested_by: 'dashboard-v2' }))
   }
 
   const counts = facility.data?.counts || {}
@@ -411,6 +431,42 @@ export function ResearchPage({ route }: Readonly<{ route?: Extract<DashboardRout
     void facility.refetch()
   }
 
+  return {
+    dialog,
+    facility,
+    budget,
+    cycle,
+    promotion,
+    generateBatch,
+    generateProviderBatch,
+    cycleDisabledReason,
+    canLiveCycle,
+    staleCycleDryRun,
+    canLiveGenerateBatch,
+    canLiveProviderBatch,
+    generateBatchDisabledReason,
+    providerBatchDisabledReason,
+    selectedCandidateTitle,
+    selectedCandidateId,
+    candidateDryRunPassed,
+    rows,
+    counts,
+    activeCandidate,
+    routeCandidateId,
+    setSelectedCandidate,
+    runDryCycle,
+    runLiveCycle,
+    runLiveGenerateBatch,
+    runLiveProviderBatch,
+    dryRunPromotion,
+    promoteCandidate,
+    refreshCandidates,
+  }
+}
+
+export function ResearchPage({ route }: Readonly<{ route?: ResearchPageRoute }>) {
+  const page = useResearchPageController(route)
+
   return (
     <section className="page-stack">
       <PageHeader
@@ -419,58 +475,58 @@ export function ResearchPage({ route }: Readonly<{ route?: Extract<DashboardRout
         dataSource="/control/api/v1/research-facility and autopilot endpoints"
         action={(
           <>
-            <span>Last loaded {facility.data?.generated_at || 'unknown'}</span>
-            <button className="secondary-button" type="button" disabled={facility.isFetching} onClick={refreshCandidates}>
-              {facility.isFetching ? 'Refreshing…' : 'Refresh candidates'}
+            <span>Last loaded {page.facility.data?.generated_at || 'unknown'}</span>
+            <button className="secondary-button" type="button" disabled={page.facility.isFetching} onClick={page.refreshCandidates}>
+              {page.facility.isFetching ? 'Refreshing…' : 'Refresh candidates'}
             </button>
           </>
         )}
         toolbar={(
           <div className="action-row">
-            <button className="secondary-button" type="button" onClick={() => budget.mutate()} disabled={budget.isPending}>Check provider budget</button>
-            <button className="secondary-button" type="button" onClick={runDryCycle} disabled={cycle.isPending}>Dry-run bounded cycle</button>
-            <button className="primary-button" type="button" onClick={runLiveCycle} disabled={cycle.isPending || !canLiveCycle}>Run one bounded cycle</button>
+            <button className="secondary-button" type="button" onClick={() => page.budget.mutate()} disabled={page.budget.isPending}>Check provider budget</button>
+            <button className="secondary-button" type="button" onClick={() => { page.runDryCycle().catch(() => undefined) }} disabled={page.cycle.isPending}>Dry-run bounded cycle</button>
+            <button className="primary-button" type="button" onClick={() => { page.runLiveCycle().catch(() => undefined) }} disabled={page.cycle.isPending || !page.canLiveCycle}>Run one bounded cycle</button>
           </div>
         )}
       />
-      {cycleDisabledReason ? <p className="primary-action-disabled-reason">{cycleDisabledReason}</p> : null}
+      {page.cycleDisabledReason ? <p className="primary-action-disabled-reason">{page.cycleDisabledReason}</p> : null}
 
       <ResearchGenerationSection
-        generateBatchPending={generateBatch.isPending}
-        generateProviderBatchPending={generateProviderBatch.isPending}
-        canLiveGenerateBatch={canLiveGenerateBatch}
-        canLiveProviderBatch={canLiveProviderBatch}
-        generateBatchDisabledReason={generateBatchDisabledReason}
-        providerBatchDisabledReason={providerBatchDisabledReason}
-        onDryRunGenerateBatch={() => { void generateBatch.mutateAsync({ dry_run: true, max_candidates: 3, requested_by: 'dashboard-v2' }) }}
-        onLiveGenerateBatch={() => { void runLiveGenerateBatch() }}
-        onDryRunProviderBatch={() => { void generateProviderBatch.mutateAsync({ dry_run: true, max_candidates: 2, requested_by: 'dashboard-v2' }) }}
-        onLiveProviderBatch={() => { void runLiveProviderBatch() }}
+        generateBatchPending={page.generateBatch.isPending}
+        generateProviderBatchPending={page.generateProviderBatch.isPending}
+        canLiveGenerateBatch={page.canLiveGenerateBatch}
+        canLiveProviderBatch={page.canLiveProviderBatch}
+        generateBatchDisabledReason={page.generateBatchDisabledReason}
+        providerBatchDisabledReason={page.providerBatchDisabledReason}
+        onDryRunGenerateBatch={() => { page.generateBatch.mutateAsync({ dry_run: true, max_candidates: 3, requested_by: 'dashboard-v2' }).catch(() => undefined) }}
+        onLiveGenerateBatch={() => { page.runLiveGenerateBatch().catch(() => undefined) }}
+        onDryRunProviderBatch={() => { page.generateProviderBatch.mutateAsync({ dry_run: true, max_candidates: 2, requested_by: 'dashboard-v2' }).catch(() => undefined) }}
+        onLiveProviderBatch={() => { page.runLiveProviderBatch().catch(() => undefined) }}
       />
 
-      <WorkbenchOperatorSummary summary={facility.data?.operator_summary} />
+      <WorkbenchOperatorSummary summary={page.facility.data?.operator_summary} />
 
-      <ResultCard result={budget.data} context={{ commandFamily: 'research' }} />
-      <ResultCard result={cycle.data} context={{ commandFamily: 'research' }} stale={staleCycleDryRun} />
-      <ResultCard result={generateBatch.data} context={{ commandFamily: 'research' }} />
-      <ResultCard result={generateProviderBatch.data} context={{ commandFamily: 'research' }} />
+      <ResultCard result={page.budget.data} context={{ commandFamily: 'research' }} />
+      <ResultCard result={page.cycle.data} context={{ commandFamily: 'research' }} stale={page.staleCycleDryRun} />
+      <ResultCard result={page.generateBatch.data} context={{ commandFamily: 'research' }} />
+      <ResultCard result={page.generateProviderBatch.data} context={{ commandFamily: 'research' }} />
 
       <ResearchSelectedCandidateSection
-        selectedCandidateTitle={selectedCandidateTitle}
-        selectedCandidateId={selectedCandidateId}
-        promotionPending={promotion.isPending}
-        candidateDryRunPassed={candidateDryRunPassed}
-        onDryRunPromotion={() => { void dryRunPromotion() }}
-        onPromoteCandidate={() => { void promoteCandidate() }}
-        promotionResult={promotion.data}
+        selectedCandidateTitle={page.selectedCandidateTitle}
+        selectedCandidateId={page.selectedCandidateId}
+        promotionPending={page.promotion.isPending}
+        candidateDryRunPassed={page.candidateDryRunPassed}
+        onDryRunPromotion={() => { page.dryRunPromotion().catch(() => undefined) }}
+        onPromoteCandidate={() => { page.promoteCandidate().catch(() => undefined) }}
+        promotionResult={page.promotion.data}
       />
 
-      {dialog}
+      {page.dialog}
 
-      {facility.isLoading ? <LoadingStateCard label="research facility" /> : null}
-      {facility.isError ? <InlineErrorStateCard prefix="Research data unavailable" message={String(facility.error.message)} /> : null}
-      {!facility.isLoading && !facility.isError ? (
-        <ResearchFacilityBody rows={rows} counts={counts} activeCandidate={activeCandidate} routeCandidateId={routeCandidateId} onSelectRow={setSelectedCandidate} />
+      {page.facility.isLoading ? <LoadingStateCard label="research facility" /> : null}
+      {page.facility.isError ? <InlineErrorStateCard prefix="Research data unavailable" message={String(page.facility.error.message)} /> : null}
+      {!page.facility.isLoading && !page.facility.isError ? (
+        <ResearchFacilityBody rows={page.rows} counts={page.counts} activeCandidate={page.activeCandidate} routeCandidateId={page.routeCandidateId} onSelectRow={page.setSelectedCandidate} />
       ) : null}
     </section>
   )
