@@ -22,6 +22,10 @@ ACTION_BY_DISPOSITION = {
     "legacy_internal": "retire",
 }
 
+# Centralized surface name for the duplicated IDEAS_IDEA_STATUS literal
+# (addresses S1192 in DOMAIN_TARGETS surfaces and FINAL_STATE_OVERRIDES mappings).
+IDEAS_IDEA_STATUS = "ideas.idea_status"
+
 # Centralized surface name for the duplicated QUEUE_ITEMS_STATUS literal
 # (addresses top remaining S1192, 13x in DOMAIN_TARGETS and state reduction mappings).
 QUEUE_ITEMS_STATUS = "queue_items.status"
@@ -43,7 +47,7 @@ PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS = (
 DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
     {
         "Ideas": {
-            "surfaces": ["ideas.idea_status"],
+            "surfaces": [IDEAS_IDEA_STATUS],
             "states": OrderedDict(
                 {
                     "ready": "Candidate intake item that can become project work.",
@@ -110,13 +114,13 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
 
 FINAL_STATE_OVERRIDES: dict[tuple[str, str], str] = {
     # Ideas / provenance
-    ("ideas.idea_status", "unknown"): "historical",
-    ("ideas.idea_status", "exploring"): "ready",
-    ("ideas.idea_status", "testing"): "ready",
-    ("ideas.idea_status", "validated"): "promoted",
-    ("ideas.idea_status", "discarded"): "discarded",
-    ("ideas.idea_status", "parked"): "held",
-    ("ideas.idea_status", "deprecated"): "discarded",
+    (IDEAS_IDEA_STATUS, "unknown"): "historical",
+    (IDEAS_IDEA_STATUS, "exploring"): "ready",
+    (IDEAS_IDEA_STATUS, "testing"): "ready",
+    (IDEAS_IDEA_STATUS, "validated"): "promoted",
+    (IDEAS_IDEA_STATUS, "discarded"): "discarded",
+    (IDEAS_IDEA_STATUS, "parked"): "held",
+    (IDEAS_IDEA_STATUS, "deprecated"): "discarded",
     # Project queue
     (QUEUE_ITEMS_STATUS, "queued"): "ready",
     (QUEUE_ITEMS_STATUS, "dispatching"): "running",
