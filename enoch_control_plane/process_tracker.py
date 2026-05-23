@@ -339,7 +339,7 @@ class ProcessTracker:
             try:
                 _safe_send_signal(info.pid, signal.SIGTERM, tracked=info)
                 term_signaled.append(info)
-            except (ProcessLookupError, PermissionError, OSError, ValueError):
+            except (OSError, ValueError):
                 continue
 
         if term_grace_sec > 0:
