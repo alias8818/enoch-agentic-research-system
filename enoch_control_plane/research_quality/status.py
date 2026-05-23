@@ -33,9 +33,12 @@ def _utc_iso_from_mtime(path: Path) -> str:
     )
 
 
-def _problem_severity(problem: str, item: dict[str, Any]) -> str:
-    decision = str(item.get("decision") or "").strip()
-    hypothesis_status = str(item.get("hypothesis_status") or "").strip()
+def _weak_evidence_problem_severity(
+    problem: str,
+    *,
+    decision: str,
+    hypothesis_status: str,
+) -> str | None:
     if (
         decision == "finalize_negative"
         and hypothesis_status in {"mixed", "unsupported"}
@@ -48,6 +51,17 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
             "supported_but_negative_requires_review",
         }:
             return "warning"
+    return None
+
+
+def _problem_severity(problem: str, item: dict[str, Any]) -> str:
+    decision = str(item.get("decision") or "").strip()
+    hypothesis_status = str(item.get("hypothesis_status") or "").strip()
+    demoted = _weak_evidence_problem_severity(
+        problem, decision=decision, hypothesis_status=hypothesis_status
+    )
+    if demoted is not None:
+        return demoted
     followup_recommended = as_bool(item.get("followup_recommended"))
     bounded_followup = (
         followup_recommended
