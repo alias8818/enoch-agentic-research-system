@@ -371,35 +371,73 @@ def _iter_source_evidence_files(project_dir: Path) -> list[Path]:
     return _dedupe_resolved_source_evidence(candidates, project_dir)
 
 
+def _metrics_at_limit(out: dict[str, Any], limit: int) -> bool:
+    return len(out) >= limit
+
+
+def _is_scalar_metric_value(value: Any) -> bool:
+    return isinstance(value, (int, float, str, bool)) or value is None
+
+
+def _is_simple_primitive_list(value: list[Any]) -> bool:
+    return bool(value) and all(
+        isinstance(item, (int, float, str, bool)) or item is None for item in value[:20]
+    )
+
+
+def _flatten_dict_metrics(
+    value: dict[Any, Any],
+    *,
+    prefix: str,
+    out: dict[str, Any],
+    limit: int,
+) -> None:
+    for key, child in value.items():
+        if _metrics_at_limit(out, limit):
+            break
+        next_prefix = f"{prefix}.{key}" if prefix else str(key)
+        _flatten_json_metrics(child, prefix=next_prefix, out=out, limit=limit)
+
+
+def _flatten_list_metrics(
+    value: list[Any],
+    *,
+    prefix: str,
+    out: dict[str, Any],
+    limit: int,
+) -> None:
+    if _is_simple_primitive_list(value):
+        out[prefix or "list"] = value[:20]
+        return
+    for idx, child in enumerate(value[:12]):
+        if _metrics_at_limit(out, limit):
+            break
+        _flatten_json_metrics(child, prefix=f"{prefix}[{idx}]", out=out, limit=limit)
+
+
+def _flatten_scalar_metric(
+    value: Any,
+    *,
+    prefix: str,
+    out: dict[str, Any],
+) -> None:
+    if prefix:
+        out[prefix] = value
+
+
 def _flatten_json_metrics(
     value: Any, *, prefix: str = "", out: dict[str, Any] | None = None, limit: int = 120
 ) -> dict[str, Any]:
     if out is None:
         out = {}
-    if len(out) >= limit:
+    if _metrics_at_limit(out, limit):
         return out
     if isinstance(value, dict):
-        for key, child in value.items():
-            if len(out) >= limit:
-                break
-            next_prefix = f"{prefix}.{key}" if prefix else str(key)
-            _flatten_json_metrics(child, prefix=next_prefix, out=out, limit=limit)
+        _flatten_dict_metrics(value, prefix=prefix, out=out, limit=limit)
     elif isinstance(value, list):
-        if value and all(
-            isinstance(item, (int, float, str, bool)) or item is None
-            for item in value[:20]
-        ):
-            out[prefix or "list"] = value[:20]
-        else:
-            for idx, child in enumerate(value[:12]):
-                if len(out) >= limit:
-                    break
-                _flatten_json_metrics(
-                    child, prefix=f"{prefix}[{idx}]", out=out, limit=limit
-                )
-    elif isinstance(value, (int, float, str, bool)) or value is None:
-        if prefix:
-            out[prefix] = value
+        _flatten_list_metrics(value, prefix=prefix, out=out, limit=limit)
+    elif _is_scalar_metric_value(value):
+        _flatten_scalar_metric(value, prefix=prefix, out=out)
     return out
 
 
