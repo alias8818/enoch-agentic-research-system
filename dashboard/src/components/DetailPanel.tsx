@@ -47,7 +47,8 @@ function stringifyValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—'
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
   if (typeof value === 'object') return JSON.stringify(value)
-  return String(value)
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') return String(value)
+  return '—'
 }
 
 function kindLabel(kind: DetailKind): string {
@@ -62,7 +63,7 @@ function rowTitle(row: Record<string, unknown>, fallback: string): string {
   return stringifyValue(firstValue(row.title, row.project_name, row.paper_title, row.summary, row.current_activity, row.event_type, fallback))
 }
 
-function RelatedSection({ title, rows, kind }: { title: string; rows: Record<string, unknown>[]; kind: 'run' | 'paper' | 'event' }) {
+function RelatedSection({ title, rows, kind }: Readonly<{ title: string; rows: Record<string, unknown>[]; kind: 'run' | 'paper' | 'event' }>) {
   if (!rows.length) return null
   return (
     <section className="detail-related">
@@ -84,7 +85,7 @@ function RelatedSection({ title, rows, kind }: { title: string; rows: Record<str
   )
 }
 
-function RelatedDetails({ payload }: { payload: Record<string, unknown> }) {
+function RelatedDetails({ payload }: Readonly<{ payload: Record<string, unknown> }>) {
   const runs = recordArray(payload.runs)
   const papers = recordArray(payload.papers)
   const events = recordArray(payload.events)
@@ -122,7 +123,14 @@ const artifactFlagKeys: Record<(typeof artifactFields)[number][0], string> = {
   manifest_path: 'manifest',
 }
 
-function PaperArtifacts({ id, payload }: { id: string; payload: Record<string, unknown> }) {
+function artifactPreviewMeta(preview: ArtifactPreview): string {
+  const parts = [preview.field]
+  if (preview.size_bytes) parts.push(`${preview.size_bytes} bytes`)
+  if (preview.truncated) parts.push('truncated')
+  return parts.join(' · ')
+}
+
+function PaperArtifacts({ id, payload }: Readonly<{ id: string; payload: Record<string, unknown> }>) {
   const paper = record(payload.paper)
   const flags = record(paper.artifact_paths_present)
   const available = artifactFields.filter(([field]) => Boolean(flags[artifactFlagKeys[field]] || paper[field]))
@@ -158,7 +166,7 @@ function PaperArtifacts({ id, payload }: { id: string; payload: Record<string, u
       {preview ? (
         <section className="artifact-preview">
           <h5>Artifact preview</h5>
-          <p>{preview.field}{preview.size_bytes ? ` · ${preview.size_bytes} bytes` : ''}{preview.truncated ? ' · truncated' : ''}</p>
+          <p>{artifactPreviewMeta(preview)}</p>
           <pre className="json-block">{preview.reason || preview.content || ''}</pre>
         </section>
       ) : null}
@@ -189,12 +197,14 @@ function detailTitle(kind: DetailKind, payload: Record<string, unknown>, fallbac
 function isSlugLikeTitle(title: string): boolean {
   const trimmed = title.trim()
   if (!trimmed || /\s/.test(trimmed)) return false
-  return trimmed.length > 30 && /^[a-z0-9_:\-]+$/i.test(trimmed)
+  return trimmed.length > 30 && /^[a-z0-9_:-]+$/i.test(trimmed)
 }
+
+const kindPrefixPattern = /^(project|run|paper|event):(.+)/i
 
 function sanitizeHeroTitle(title: string, kind: DetailKind): string {
   const trimmed = title.trim()
-  const match = trimmed.match(/^(project|run|paper|event):(.+)/i)
+  const match = kindPrefixPattern.exec(trimmed)
   if (!match) return trimmed
   const rest = match[2].trim()
   return rest ? shortId(rest) : kindLabel(kind)
@@ -250,7 +260,7 @@ function detailFields(kind: DetailKind, payload: Record<string, unknown>, fallba
   ]
 }
 
-function FieldGrid({ fields }: { fields: Field[] }) {
+function FieldGrid({ fields }: Readonly<{ fields: Field[] }>) {
   const visible = fields.filter((field) => field.value !== null && field.value !== undefined && field.value !== '')
   if (!visible.length) return null
   return (
@@ -265,7 +275,7 @@ function FieldGrid({ fields }: { fields: Field[] }) {
   )
 }
 
-function RecordFields({ kind, id, payload, presentation }: { kind: DetailKind; id: string; payload: Record<string, unknown>; presentation: 'panel' | 'page' }) {
+function RecordFields({ kind, id, payload, presentation }: Readonly<{ kind: DetailKind; id: string; payload: Record<string, unknown>; presentation: 'panel' | 'page' }>) {
   const fields = detailFields(kind, payload, id)
   if (presentation === 'page') {
     return (
@@ -287,7 +297,23 @@ function listValues(value: unknown): string[] {
   return value.map((item) => stringifyValue(item)).filter((item) => item !== '—')
 }
 
-function QueueAlertDetails({ payload }: { payload: Record<string, unknown> }) {
+function queueAlertCurrentState(isLoading: boolean, isError: boolean, resolvedNow: boolean): string {
+  if (isLoading) return 'Checking current status…'
+  if (isError) return 'Current status unavailable'
+  if (resolvedNow) return 'Resolved now'
+  return 'Still blocking now'
+}
+
+function currentBlockersLabel(isSuccess: boolean, currentBlockers: string[]): string {
+  if (!isSuccess) return '—'
+  return currentBlockers.length ? currentBlockers.join('; ') : 'none'
+}
+
+function findingKey(finding: Record<string, unknown>, index: number): string {
+  return `${stringifyValue(firstValue(finding.message, finding.source))}-${index}`
+}
+
+function QueueAlertDetails({ payload }: Readonly<{ payload: Record<string, unknown> }>) {
   const isQueueAlert = isQueueAlertEvent(payload)
   const nested = record(payload.payload)
   const findings = recordArray(nested.findings)
@@ -302,7 +328,7 @@ function QueueAlertDetails({ payload }: { payload: Record<string, unknown> }) {
   if (!isQueueAlert) return null
   const currentBlockers = listValues(status.data?.dispatch_blockers)
   const resolvedNow = status.isSuccess && Boolean(status.data?.dispatch_safe) && currentBlockers.length === 0
-  const currentState = status.isLoading ? 'Checking current status…' : status.isError ? 'Current status unavailable' : resolvedNow ? 'Resolved now' : 'Still blocking now'
+  const currentState = queueAlertCurrentState(status.isLoading, status.isError, resolvedNow)
   return (
     <section className="detail-related queue-alert-detail" aria-label="Queue alert detail">
       <h4>Queue alert detail</h4>
@@ -321,7 +347,7 @@ function QueueAlertDetails({ payload }: { payload: Record<string, unknown> }) {
         </div>
         <div className="detail-field">
           <dt>current blockers</dt>
-          <dd>{status.isSuccess ? (currentBlockers.length ? currentBlockers.join('; ') : 'none') : '—'}</dd>
+          <dd>{currentBlockersLabel(status.isSuccess, currentBlockers)}</dd>
         </div>
         <div className="detail-field">
           <dt>suppressed transient findings</dt>
@@ -331,33 +357,46 @@ function QueueAlertDetails({ payload }: { payload: Record<string, unknown> }) {
       {findings.length ? (
         <div className="detail-related-list">
           <strong>Alert findings</strong>
-          {findings.slice(0, 5).map((finding, index) => (
-            <div key={`queue-alert-finding-${index}`} className="detail-related-row">
+          {findings.slice(0, 5).map((finding, index) => {
+            const suggestedAction = stringifyValue(finding.suggested_action)
+            return (
+            <div key={findingKey(finding, index)} className="detail-related-row">
               <strong>{stringifyValue(firstValue(finding.message, finding.source, `finding ${index + 1}`))}</strong>
               <span>{stringifyValue(firstValue(finding.severity, 'unknown'))} · {stringifyValue(firstValue(finding.source, 'unknown source'))}</span>
-              {stringifyValue(finding.suggested_action) !== '—' ? <span>{stringifyValue(finding.suggested_action)}</span> : null}
+              {suggestedAction !== '—' ? <span>{suggestedAction}</span> : null}
             </div>
-          ))}
+            )
+          })}
         </div>
       ) : null}
     </section>
   )
 }
 
-function StructuredDetail({ kind, id, payload, presentation = 'panel', operatorSummary: operatorSummaryProp }: { kind: DetailKind; id: string; payload: Record<string, unknown>; presentation?: 'panel' | 'page'; operatorSummary?: DetailOperatorSummary }) {
+function structuredDetailLead(presentation: 'panel' | 'page', summary: string, title: string, kind: DetailKind) {
+  if (presentation === 'panel') {
+    return (
+      <>
+        <Eyebrow>{kindLabel(kind)}</Eyebrow>
+        <h3>{title}</h3>
+        {summary !== '—' && summary !== title ? <p>{summary}</p> : null}
+      </>
+    )
+  }
+  if (summary !== '—' && summary !== title) {
+    return <p className="detail-page-lead">{summary}</p>
+  }
+  return null
+}
+
+function StructuredDetail({ kind, id, payload, presentation = 'panel', operatorSummary: operatorSummaryProp }: Readonly<{ kind: DetailKind; id: string; payload: Record<string, unknown>; presentation?: 'panel' | 'page'; operatorSummary?: DetailOperatorSummary }>) {
   const title = detailTitle(kind, payload, id)
   const summary = stringifyValue(firstValue(payload.summary, record(payload.project).abstract, record(payload.paper).summary, record(payload.paper).abstract))
   const operatorSummary = operatorSummaryProp ?? deriveDetailOperatorSummary(kind, payload)
   return (
     <div className={`detail-body${presentation === 'page' ? ' detail-body--page' : ''}`}>
       <section className={`detail-summary${presentation === 'page' ? ' detail-summary--flat' : ''}`}>
-        {presentation === 'panel' ? (
-          <>
-            <Eyebrow>{kindLabel(kind)}</Eyebrow>
-            <h3>{title}</h3>
-            {summary !== '—' && summary !== title ? <p>{summary}</p> : null}
-          </>
-        ) : summary !== '—' && summary !== title ? <p className="detail-page-lead">{summary}</p> : null}
+        {structuredDetailLead(presentation, summary, title, kind)}
         <EntityLinkChips links={operatorSummary.entityLinks} />
         {presentation === 'panel' ? <FieldGrid fields={detailFields(kind, payload, id)} /> : null}
       </section>
@@ -372,9 +411,18 @@ function StructuredDetail({ kind, id, payload, presentation = 'panel', operatorS
   )
 }
 
-function DetailBody({ selection }: { selection: DetailSelection }) {
-  const inlineRow = selection.row
-  const hasInlineEvent = selection.kind === 'event' && inlineRow
+function resolveDetailPayload(selection: DetailSelection, queryData?: Record<string, unknown>): Record<string, unknown> {
+  if (selection.kind === 'event' && selection.row) return selection.row
+  if (!endpoint(selection)) return selection.row || {}
+  if (selection.kind === 'event') {
+    const rows = Array.isArray(queryData?.rows) ? queryData.rows : []
+    return record(rows[0])
+  }
+  return queryData || {}
+}
+
+function DetailBody({ selection }: Readonly<{ selection: DetailSelection }>) {
+  const hasInlineEvent = selection.kind === 'event' && selection.row
   const url = endpoint(selection)
   const query = useQuery({
     queryKey: ['detail', selection.kind, selection.id],
@@ -382,17 +430,10 @@ function DetailBody({ selection }: { selection: DetailSelection }) {
     enabled: Boolean(url) && !hasInlineEvent,
     retry: false,
   })
-  if (hasInlineEvent) {
-    return <StructuredDetail kind={selection.kind} id={selection.id} payload={inlineRow} />
-  }
-  if (!url) return <StructuredDetail kind={selection.kind} id={selection.id} payload={selection.row || {}} />
-  if (query.isLoading) return <LoadingStateCard label="detail" />
-  if (query.isError) return <InlineErrorStateCard prefix="Detail unavailable" message={String(query.error.message)} />
-  if (selection.kind === 'event') {
-    const rows = Array.isArray(query.data?.rows) ? query.data.rows : []
-    return <StructuredDetail kind={selection.kind} id={selection.id} payload={record(rows[0])} />
-  }
-  return <StructuredDetail kind={selection.kind} id={selection.id} payload={query.data || {}} />
+  if (query.isLoading && !hasInlineEvent && url) return <LoadingStateCard label="detail" />
+  if (query.isError && !hasInlineEvent && url) return <InlineErrorStateCard prefix="Detail unavailable" message={String(query.error.message)} />
+  const payload = hasInlineEvent ? selection.row! : resolveDetailPayload(selection, query.data)
+  return <StructuredDetail kind={selection.kind} id={selection.id} payload={payload} />
 }
 
 function payloadFromDetailData(kind: DetailKind, data?: Record<string, unknown>): Record<string, unknown> {
@@ -407,7 +448,7 @@ function statusSubtitle(kind: DetailKind, id: string, state: string): string {
   return `${kindLabel(kind)} · ${shortId(id)} · ${state}`
 }
 
-export function DetailPanel({ selection, onClose }: { selection: DetailSelection | null; onClose: () => void }) {
+export function DetailPanel({ selection, onClose }: Readonly<{ selection: DetailSelection | null; onClose: () => void }>) {
   if (!selection) return null
   return (
     <aside className="detail-panel" aria-label="Dashboard detail panel">
@@ -430,7 +471,7 @@ function detailDataSource(kind: DetailKind, id: string): string {
   return `/control/api/v1/events?event_id=${encodeURIComponent(id)}&include_payload=true&page_size=1&sort=recent`
 }
 
-export function DetailPage({ selection }: { selection: DetailSelection }) {
+export function DetailPage({ selection }: Readonly<{ selection: DetailSelection }>) {
   const inlineRow = selection.row
   const hasInlineEvent = selection.kind === 'event' && inlineRow
   const url = endpoint(selection)

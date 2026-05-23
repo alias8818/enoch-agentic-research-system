@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { apiGet, apiPost } from '../api/client'
+import { displayText } from '../displayText'
 import { dryRunCyclePayload, liveCyclePayload } from '../researchCyclePayloads'
 import { dashboardV2Href } from '../routes'
 import type { DashboardRoute } from '../routes'
@@ -63,7 +64,7 @@ type GenerateBatchResponse = {
   queued_count?: number
 }
 
-function ResultCard({ result, context, stale }: { result?: Record<string, unknown>; context?: CommandPresentationContext; stale?: boolean }) {
+function ResultCard({ result, context, stale }: Readonly<{ result?: Record<string, unknown>; context?: CommandPresentationContext; stale?: boolean }>) {
   if (!result) return null
   return <CommandResultSummary result={{ payload: result, context: { ...context, stale } }} />
 }
@@ -77,11 +78,11 @@ function facilitySignature(facility?: ResearchFacilityResponse): string {
     generated_at: facility.generated_at || '',
     counts,
     rows: (facility.rows || []).map((row) => [
-      String(row.candidate_id || ''),
-      String(row.status || ''),
-      String(row.admission_decision || ''),
-      String(row.machine_target || ''),
-      String(row.updated_at || ''),
+      displayText(row.candidate_id),
+      displayText(row.status),
+      displayText(row.admission_decision),
+      displayText(row.machine_target),
+      displayText(row.updated_at),
     ]),
   })
 }
@@ -123,7 +124,7 @@ function liveGenerateDisabledReason(canLive: boolean, dryRunReady: boolean, isPe
   return ''
 }
 
-function CandidateDetail({ row, candidateId }: { row: Record<string, unknown> | null; candidateId: string }) {
+function CandidateDetail({ row, candidateId }: Readonly<{ row: Record<string, unknown> | null; candidateId: string }>) {
   if (!row && candidateId) {
     return (
       <section className="detail-panel" aria-label="Research candidate detail">
@@ -147,8 +148,8 @@ function CandidateDetail({ row, candidateId }: { row: Record<string, unknown> | 
       <div className="detail-panel-head">
         <div>
           <p className="eyebrow">Research candidate detail</p>
-          <h2>{String(row.title || row.candidate_id || 'Selected candidate')}</h2>
-          <span className="detail-id-chip" title={String(row.candidate_id || '')}>{shortId(String(row.candidate_id || ''))}</span>
+          <h2>{displayText(row.title || row.candidate_id, 'Selected candidate')}</h2>
+          <span className="detail-id-chip" title={displayText(row.candidate_id)}>{shortId(displayText(row.candidate_id))}</span>
         </div>
       </div>
       <section className="detail-summary">
@@ -168,11 +169,117 @@ function CandidateDetail({ row, candidateId }: { row: Record<string, unknown> | 
 
 function candidateCellHref(row: Record<string, unknown>, column: string): string | undefined {
   if (column !== 'candidate_id') return undefined
-  const candidateId = String(row.candidate_id || '')
+  const candidateId = displayText(row.candidate_id)
   return candidateId ? dashboardV2Href(`#research:${encodeURIComponent(candidateId)}`) : undefined
 }
 
-export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page: 'research' }> }) {
+type ResearchGenerationSectionProps = Readonly<{
+  generateBatchPending: boolean
+  generateProviderBatchPending: boolean
+  canLiveGenerateBatch: boolean
+  canLiveProviderBatch: boolean
+  generateBatchDisabledReason: string
+  providerBatchDisabledReason: string
+  onDryRunGenerateBatch: () => void
+  onLiveGenerateBatch: () => void
+  onDryRunProviderBatch: () => void
+  onLiveProviderBatch: () => void
+}>
+
+function ResearchGenerationSection({
+  generateBatchPending,
+  generateProviderBatchPending,
+  canLiveGenerateBatch,
+  canLiveProviderBatch,
+  generateBatchDisabledReason,
+  providerBatchDisabledReason,
+  onDryRunGenerateBatch,
+  onLiveGenerateBatch,
+  onDryRunProviderBatch,
+  onLiveProviderBatch,
+}: ResearchGenerationSectionProps) {
+  return (
+    <>
+      <section className="queue-command-card queue-command-card--compact" aria-label="Research candidate generation">
+        <div>
+          <p className="eyebrow">Candidate generation</p>
+          <h2>Generate research candidates</h2>
+          <p>Dry-run internal or provider-backed batches first. Live generation writes facility ledger rows only; it does not dispatch queue work.</p>
+        </div>
+        <div className="action-row">
+          <button className="secondary-button" type="button" disabled={generateBatchPending} onClick={onDryRunGenerateBatch}>Dry-run generate batch</button>
+          <button className="primary-button" type="button" disabled={generateBatchPending || !canLiveGenerateBatch} onClick={onLiveGenerateBatch}>Generate candidate batch</button>
+          <button className="secondary-button" type="button" disabled={generateProviderBatchPending} onClick={onDryRunProviderBatch}>Dry-run provider batch</button>
+          <button className="danger-button" type="button" disabled={generateProviderBatchPending || !canLiveProviderBatch} onClick={onLiveProviderBatch}>Generate provider batch</button>
+        </div>
+      </section>
+      {generateBatchDisabledReason ? <p className="primary-action-disabled-reason">{generateBatchDisabledReason}</p> : null}
+      {providerBatchDisabledReason ? <p className="primary-action-disabled-reason">{providerBatchDisabledReason}</p> : null}
+    </>
+  )
+}
+
+type ResearchSelectedCandidateSectionProps = Readonly<{
+  selectedCandidateTitle: string
+  selectedCandidateId: string
+  promotionPending: boolean
+  candidateDryRunPassed: boolean
+  onDryRunPromotion: () => void
+  onPromoteCandidate: () => void
+  promotionResult?: PromotionResponse
+}>
+
+function ResearchSelectedCandidateSection({
+  selectedCandidateTitle,
+  selectedCandidateId,
+  promotionPending,
+  candidateDryRunPassed,
+  onDryRunPromotion,
+  onPromoteCandidate,
+  promotionResult,
+}: ResearchSelectedCandidateSectionProps) {
+  return (
+    <>
+      <section className="queue-command-card">
+        <div>
+          <p className="eyebrow">Selected candidate</p>
+          <h2>{selectedCandidateTitle}</h2>
+          <p>{selectedCandidateId ? 'Dry-run promotion first. Live promotion queues the idea/project row only; it does not dispatch.' : 'Select an admitted candidate row before promotion.'}</p>
+        </div>
+        <div className="action-row">
+          <button className="secondary-button" type="button" disabled={!selectedCandidateId || promotionPending} onClick={onDryRunPromotion}>
+            {promotionPending ? 'Checking…' : 'Dry-run promote selected'}
+          </button>
+          <button className="primary-button" type="button" disabled={!selectedCandidateId || !candidateDryRunPassed || promotionPending} onClick={onPromoteCandidate}>
+            Promote selected candidate
+          </button>
+        </div>
+      </section>
+      {promotionResult?.action === 'dry_run_promote_candidate' ? <ResultCard result={promotionResult} context={{ commandFamily: 'research' }} /> : null}
+      {promotionResult?.action === 'promote_candidate' ? <ResultCard result={promotionResult} context={{ commandFamily: 'research' }} /> : null}
+    </>
+  )
+}
+
+type ResearchFacilityBodyProps = Readonly<{
+  rows: Record<string, unknown>[]
+  counts: Record<string, unknown>
+  activeCandidate: Record<string, unknown> | null
+  routeCandidateId: string
+  onSelectRow: (row: Record<string, unknown>) => void
+}>
+
+function ResearchFacilityBody({ rows, counts, activeCandidate, routeCandidateId, onSelectRow }: ResearchFacilityBodyProps) {
+  return (
+    <>
+      <DataTable rows={rows} columns={simpleTableColumns(['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at'], { title: { kind: 'primary' }, candidate_id: { kind: 'id' } })} empty="No research candidates returned." cellHref={candidateCellHref} onSelectRow={onSelectRow} />
+      <WorkbenchCountsFold counts={counts} label="Research facility counts" />
+      <CandidateDetail row={activeCandidate} candidateId={routeCandidateId} />
+    </>
+  )
+}
+
+export function ResearchPage({ route }: Readonly<{ route?: Extract<DashboardRoute, { page: 'research' }> }>) {
   const queryClient = useQueryClient()
   const { confirm, dialog } = useOperatorDialog()
   const [selectedCandidate, setSelectedCandidate] = useState<Record<string, unknown> | null>(null)
@@ -273,9 +380,9 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
   const generateBatchDisabledReason = liveGenerateDisabledReason(canLiveGenerateBatch, batchDryRunReady, generateBatch.isPending, 'Generate candidate batch')
   const providerBatchDisabledReason = liveGenerateDisabledReason(canLiveProviderBatch, providerBatchDryRunReady, generateProviderBatch.isPending, 'Generate provider batch')
   const routeCandidateId = route?.candidateId || ''
-  const activeCandidate = selectedCandidate || rows.find((row) => String(row.candidate_id || '') === routeCandidateId) || null
-  const selectedCandidateId = String(activeCandidate?.candidate_id || routeCandidateId || '')
-  const selectedCandidateTitle = String(activeCandidate?.title || selectedCandidateId || 'No candidate selected')
+  const activeCandidate = selectedCandidate || rows.find((row) => displayText(row.candidate_id) === routeCandidateId) || null
+  const selectedCandidateId = displayText(activeCandidate?.candidate_id, routeCandidateId)
+  const selectedCandidateTitle = displayText(activeCandidate?.title, selectedCandidateId || 'No candidate selected')
   const candidateDryRunPassed = promotion.data?.action === 'dry_run_promote_candidate' && promotion.data?.candidate_id === selectedCandidateId
 
   async function dryRunPromotion() {
@@ -328,58 +435,42 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
       />
       {cycleDisabledReason ? <p className="primary-action-disabled-reason">{cycleDisabledReason}</p> : null}
 
-      <section className="queue-command-card queue-command-card--compact" aria-label="Research candidate generation">
-        <div>
-          <p className="eyebrow">Candidate generation</p>
-          <h2>Generate research candidates</h2>
-          <p>Dry-run internal or provider-backed batches first. Live generation writes facility ledger rows only; it does not dispatch queue work.</p>
-        </div>
-        <div className="action-row">
-          <button className="secondary-button" type="button" disabled={generateBatch.isPending} onClick={() => { void generateBatch.mutateAsync({ dry_run: true, max_candidates: 3, requested_by: 'dashboard-v2' }) }}>Dry-run generate batch</button>
-          <button className="primary-button" type="button" disabled={generateBatch.isPending || !canLiveGenerateBatch} onClick={() => { void runLiveGenerateBatch() }}>Generate candidate batch</button>
-          <button className="secondary-button" type="button" disabled={generateProviderBatch.isPending} onClick={() => { void generateProviderBatch.mutateAsync({ dry_run: true, max_candidates: 2, requested_by: 'dashboard-v2' }) }}>Dry-run provider batch</button>
-          <button className="danger-button" type="button" disabled={generateProviderBatch.isPending || !canLiveProviderBatch} onClick={() => { void runLiveProviderBatch() }}>Generate provider batch</button>
-        </div>
-      </section>
-      {generateBatchDisabledReason ? <p className="primary-action-disabled-reason">{generateBatchDisabledReason}</p> : null}
-      {providerBatchDisabledReason ? <p className="primary-action-disabled-reason">{providerBatchDisabledReason}</p> : null}
+      <ResearchGenerationSection
+        generateBatchPending={generateBatch.isPending}
+        generateProviderBatchPending={generateProviderBatch.isPending}
+        canLiveGenerateBatch={canLiveGenerateBatch}
+        canLiveProviderBatch={canLiveProviderBatch}
+        generateBatchDisabledReason={generateBatchDisabledReason}
+        providerBatchDisabledReason={providerBatchDisabledReason}
+        onDryRunGenerateBatch={() => { void generateBatch.mutateAsync({ dry_run: true, max_candidates: 3, requested_by: 'dashboard-v2' }) }}
+        onLiveGenerateBatch={() => { void runLiveGenerateBatch() }}
+        onDryRunProviderBatch={() => { void generateProviderBatch.mutateAsync({ dry_run: true, max_candidates: 2, requested_by: 'dashboard-v2' }) }}
+        onLiveProviderBatch={() => { void runLiveProviderBatch() }}
+      />
 
       <WorkbenchOperatorSummary summary={facility.data?.operator_summary} />
 
-      <ResultCard result={budget.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} />
-      <ResultCard result={cycle.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} stale={staleCycleDryRun} />
-      <ResultCard result={generateBatch.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} />
-      <ResultCard result={generateProviderBatch.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} />
+      <ResultCard result={budget.data} context={{ commandFamily: 'research' }} />
+      <ResultCard result={cycle.data} context={{ commandFamily: 'research' }} stale={staleCycleDryRun} />
+      <ResultCard result={generateBatch.data} context={{ commandFamily: 'research' }} />
+      <ResultCard result={generateProviderBatch.data} context={{ commandFamily: 'research' }} />
 
-      <section className="queue-command-card">
-        <div>
-          <p className="eyebrow">Selected candidate</p>
-          <h2>{selectedCandidateTitle}</h2>
-          <p>{selectedCandidateId ? 'Dry-run promotion first. Live promotion queues the idea/project row only; it does not dispatch.' : 'Select an admitted candidate row before promotion.'}</p>
-        </div>
-        <div className="action-row">
-          <button className="secondary-button" type="button" disabled={!selectedCandidateId || promotion.isPending} onClick={dryRunPromotion}>
-            {promotion.isPending ? 'Checking…' : 'Dry-run promote selected'}
-          </button>
-          <button className="primary-button" type="button" disabled={!selectedCandidateId || !candidateDryRunPassed || promotion.isPending} onClick={promoteCandidate}>
-            Promote selected candidate
-          </button>
-        </div>
-      </section>
-
-      {promotion.data?.action === 'dry_run_promote_candidate' ? <ResultCard result={promotion.data as Record<string, unknown>} context={{ commandFamily: 'research' }} /> : null}
-      {promotion.data?.action === 'promote_candidate' ? <ResultCard result={promotion.data as Record<string, unknown>} context={{ commandFamily: 'research' }} /> : null}
+      <ResearchSelectedCandidateSection
+        selectedCandidateTitle={selectedCandidateTitle}
+        selectedCandidateId={selectedCandidateId}
+        promotionPending={promotion.isPending}
+        candidateDryRunPassed={candidateDryRunPassed}
+        onDryRunPromotion={() => { void dryRunPromotion() }}
+        onPromoteCandidate={() => { void promoteCandidate() }}
+        promotionResult={promotion.data}
+      />
 
       {dialog}
 
       {facility.isLoading ? <LoadingStateCard label="research facility" /> : null}
       {facility.isError ? <InlineErrorStateCard prefix="Research data unavailable" message={String(facility.error.message)} /> : null}
       {!facility.isLoading && !facility.isError ? (
-        <>
-          <DataTable rows={rows} columns={simpleTableColumns(['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at'], { title: { kind: 'primary' }, candidate_id: { kind: 'id' } })} empty="No research candidates returned." cellHref={candidateCellHref} onSelectRow={setSelectedCandidate} />
-          <WorkbenchCountsFold counts={counts as Record<string, number>} label="Research facility counts" />
-          <CandidateDetail row={activeCandidate} candidateId={routeCandidateId} />
-        </>
+        <ResearchFacilityBody rows={rows} counts={counts} activeCandidate={activeCandidate} routeCandidateId={routeCandidateId} onSelectRow={setSelectedCandidate} />
       ) : null}
     </section>
   )
