@@ -241,6 +241,36 @@ def _candidate_source_records(candidate: dict[str, Any]) -> list[dict[str, Any]]
     return records
 
 
+def _unique_candidate_source_ids(
+    candidate: dict[str, Any], source_records: list[dict[str, Any]]
+) -> list[str]:
+    source_ids: list[str] = []
+    for source_id in [
+        *list(candidate.get("source_ids") or []),
+        *[_text(source.get("source_id")) for source in source_records],
+    ]:
+        source_id_text = _text(source_id)
+        if source_id_text and source_id_text not in source_ids:
+            source_ids.append(source_id_text)
+    return source_ids
+
+
+def _candidate_source_url_list(candidate: dict[str, Any]) -> list[str]:
+    return [_text(url) for url in (candidate.get("source_urls") or []) if _text(url)]
+
+
+def _research_candidate_rejection_reason(plan_json: dict[str, Any]) -> str:
+    if plan_json.get("admission_decision") != "rejected":
+        return ""
+    return str(plan_json.get("admission_reason") or "")
+
+
+def _plan_to_json(plan: Any) -> dict[str, Any]:
+    if hasattr(plan, "to_json"):
+        return plan.to_json()
+    return dict(plan)
+
+
 def _internal_project_source_record(
     project_id: str,
     title: str,
@@ -4282,6 +4312,198 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 response["lineage_inserted"] = int(cur.rowcount or 0)
                 return response
 
+    def _upsert_research_source_record(
+        self, cur: Any, source: dict[str, Any], candidate: dict[str, Any]
+    ) -> bool:
+        source_id = _text(source.get("source_id"))
+        if not source_id:
+            return False
+        cur.execute(
+            """
+            insert into research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash)
+            values (%s,%s,%s,%s,%s,nullif(%s,'')::timestamptz,%s,%s::jsonb,%s)
+            on conflict (source_id) do update set
+              source_kind=excluded.source_kind,
+              title=excluded.title,
+              url=excluded.url,
+              external_id=excluded.external_id,
+              summary=excluded.summary,
+              payload_json=excluded.payload_json,
+              content_hash=excluded.content_hash,
+              updated_at=now()
+            """,
+            (
+                source_id,
+                _text(
+                    source.get("source_kind") or candidate.get("source_kind") or "other"
+                ),
+                _text(source.get("title") or candidate.get("title")),
+                _text(source.get("url")),
+                _text(source.get("external_id")),
+                _text(source.get("retrieved_at")),
+                _text(source.get("summary")),
+                self._json_text(source.get("payload_json") or {}),
+                _text(source.get("content_hash"))
+                or hashlib.sha256(self._json_text(source).encode("utf-8")).hexdigest(),
+            ),
+        )
+        return True
+
+    def _research_candidate_upsert_params(
+        self,
+        candidate: dict[str, Any],
+        candidate_id: str,
+        plan_json: dict[str, Any],
+        source_ids: list[str],
+        source_urls: list[str],
+    ) -> tuple[Any, ...]:
+        return (
+            candidate_id,
+            str(candidate.get("generation_mode") or "manual_import"),
+            str(candidate.get("status") or "generated"),
+            str(candidate.get("title") or candidate_id),
+            str(candidate.get("category") or ""),
+            str(candidate.get("priority") or ""),
+            str(candidate.get("source_kind") or ""),
+            self._json_text(source_ids),
+            self._json_text(source_urls),
+            str(candidate.get("parent_project_id") or ""),
+            str(candidate.get("parent_run_id") or ""),
+            str(candidate.get("hypothesis") or ""),
+            str(candidate.get("mechanism") or ""),
+            str(candidate.get("description") or ""),
+            str(candidate.get("implementation") or ""),
+            str(candidate.get("baseline_to_beat") or ""),
+            str(candidate.get("success_threshold") or ""),
+            str(candidate.get("kill_condition") or ""),
+            str(candidate.get("accessibility_delta") or ""),
+            self._json_text(candidate.get("expected_artifacts") or []),
+            self._json_text(candidate.get("required_evidence") or []),
+            self._json_text(candidate.get("likely_failure_modes") or []),
+            str(candidate.get("estimated_runtime_class") or ""),
+            str(candidate.get("expected_token_budget") or ""),
+            str(candidate.get("machine_target") or ""),
+            str(candidate.get("model") or ""),
+            str(candidate.get("sandbox") or ""),
+            float(candidate.get("novelty_score") or 0),
+            float(candidate.get("feasibility_score") or 0),
+            float(candidate.get("accessibility_score") or 0),
+            float(candidate.get("falsifiability_score") or 0),
+            float(candidate.get("total_score") or 0),
+            self._json_text(candidate.get("score_breakdown") or {}),
+            str(candidate.get("dedupe_key") or candidate_id),
+            self._json_text(candidate.get("similar_prior_projects") or []),
+            str(candidate.get("novelty_comparison") or ""),
+            str(candidate.get("risk_notes") or ""),
+            _research_candidate_rejection_reason(plan_json),
+            str(candidate.get("provider") or ""),
+            str(candidate.get("provider_model") or ""),
+            str(candidate.get("prompt_version") or ""),
+            str(candidate.get("generated_by") or ""),
+            self._json_text(candidate.get("raw_candidate_json") or candidate),
+        )
+
+    def _upsert_research_candidate_row(
+        self,
+        cur: Any,
+        candidate: dict[str, Any],
+        candidate_id: str,
+        plan_json: dict[str, Any],
+        source_ids: list[str],
+        source_urls: list[str],
+    ) -> None:
+        cur.execute(
+            """
+            insert into research_candidates(
+              candidate_id,generation_mode,status,title,category,priority,source_kind,source_ids,source_urls,
+              parent_project_id,parent_run_id,hypothesis,mechanism,description,implementation,baseline_to_beat,
+              success_threshold,kill_condition,accessibility_delta,expected_artifacts,required_evidence,likely_failure_modes,
+              estimated_runtime_class,expected_token_budget,machine_target,model,sandbox,novelty_score,feasibility_score,
+              accessibility_score,falsifiability_score,total_score,score_breakdown,dedupe_key,similar_prior_projects,
+              novelty_comparison,risk_notes,rejection_reason,provider,provider_model,prompt_version,generated_by,raw_candidate_json
+            ) values (
+              %s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,
+              %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s::jsonb
+            )
+            on conflict (candidate_id) do update set
+              status=excluded.status,
+              total_score=excluded.total_score,
+              score_breakdown=excluded.score_breakdown,
+              raw_candidate_json=excluded.raw_candidate_json,
+              updated_at=now()
+            """,
+            self._research_candidate_upsert_params(
+                candidate, candidate_id, plan_json, source_ids, source_urls
+            ),
+        )
+
+    def _insert_source_candidate_lineage(
+        self, cur: Any, source_ids: list[str], candidate_id: str
+    ) -> int:
+        inserted = 0
+        for source_id in source_ids:
+            cur.execute(
+                """
+                insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
+                select 'source', %s, 'candidate', %s, 'generated_from', %s::jsonb
+                where not exists (
+                  select 1 from research_lineage
+                  where source_type='source' and source_id=%s and target_type='candidate' and target_id=%s and relation_type='generated_from'
+                )
+                """,
+                (
+                    str(source_id),
+                    candidate_id,
+                    self._json_text({"source_ids": source_ids}),
+                    str(source_id),
+                    candidate_id,
+                ),
+            )
+            inserted += int(cur.rowcount or 0)
+        return inserted
+
+    def _persist_research_facility_plan(
+        self,
+        cur: Any,
+        plan: Any,
+        *,
+        requested_by: str,
+        counters: dict[str, int],
+    ) -> None:
+        plan_json = _plan_to_json(plan)
+        candidate = dict(plan_json.get("candidate") or {})
+        candidate_id = str(candidate.get("candidate_id") or "").strip()
+        if not candidate_id:
+            return
+        source_records = _candidate_source_records(candidate)
+        source_ids = _unique_candidate_source_ids(candidate, source_records)
+        source_urls = _candidate_source_url_list(candidate)
+        for source in source_records:
+            if self._upsert_research_source_record(cur, source, candidate):
+                counters["sources_upserted"] += 1
+        self._upsert_research_candidate_row(
+            cur, candidate, candidate_id, plan_json, source_ids, source_urls
+        )
+        counters["candidates_upserted"] += 1
+        counters["lineage_inserted"] += self._insert_source_candidate_lineage(
+            cur, source_ids, candidate_id
+        )
+        idempotency_key = (
+            f"research-admission:{candidate_id}:{plan_json.get('admission_decision')}"
+        )
+        counters["admissions_inserted"] += self._insert_research_admission(
+            cur,
+            candidate_id=candidate_id,
+            admission_decision=str(
+                plan_json.get("admission_decision") or "needs_review"
+            ),
+            admission_reason=str(plan_json.get("admission_reason") or ""),
+            score_breakdown=plan_json.get("score_breakdown") or {},
+            admitted_idea_id=None,
+            operator=requested_by,
+            idempotency_key=idempotency_key,
+        )
+
     def record_research_facility_plans(
         self, plans: Sequence[Any], *, requested_by: str, queue_admitted: bool = False
     ) -> dict[str, Any]:
@@ -4306,173 +4528,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         with self._connect() as conn:
             with conn.cursor() as cur:
                 for plan in plans:
-                    plan_json = (
-                        plan.to_json() if hasattr(plan, "to_json") else dict(plan)
-                    )
-                    candidate = dict(plan_json.get("candidate") or {})
-                    candidate_id = str(candidate.get("candidate_id") or "").strip()
-                    if not candidate_id:
-                        continue
-                    source_records = _candidate_source_records(candidate)
-                    source_ids = []
-                    for source_id in [
-                        *list(candidate.get("source_ids") or []),
-                        *[_text(source.get("source_id")) for source in source_records],
-                    ]:
-                        source_id_text = _text(source_id)
-                        if source_id_text and source_id_text not in source_ids:
-                            source_ids.append(source_id_text)
-                    source_urls = [
-                        _text(url)
-                        for url in (candidate.get("source_urls") or [])
-                        if _text(url)
-                    ]
-                    for source in source_records:
-                        source_id = _text(source.get("source_id"))
-                        if not source_id:
-                            continue
-                        cur.execute(
-                            """
-                            insert into research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash)
-                            values (%s,%s,%s,%s,%s,nullif(%s,'')::timestamptz,%s,%s::jsonb,%s)
-                            on conflict (source_id) do update set
-                              source_kind=excluded.source_kind,
-                              title=excluded.title,
-                              url=excluded.url,
-                              external_id=excluded.external_id,
-                              summary=excluded.summary,
-                              payload_json=excluded.payload_json,
-                              content_hash=excluded.content_hash,
-                              updated_at=now()
-                            """,
-                            (
-                                source_id,
-                                _text(
-                                    source.get("source_kind")
-                                    or candidate.get("source_kind")
-                                    or "other"
-                                ),
-                                _text(source.get("title") or candidate.get("title")),
-                                _text(source.get("url")),
-                                _text(source.get("external_id")),
-                                _text(source.get("retrieved_at")),
-                                _text(source.get("summary")),
-                                self._json_text(source.get("payload_json") or {}),
-                                _text(source.get("content_hash"))
-                                or hashlib.sha256(
-                                    self._json_text(source).encode("utf-8")
-                                ).hexdigest(),
-                            ),
-                        )
-                        counters["sources_upserted"] += 1
-                    cur.execute(
-                        """
-                        insert into research_candidates(
-                          candidate_id,generation_mode,status,title,category,priority,source_kind,source_ids,source_urls,
-                          parent_project_id,parent_run_id,hypothesis,mechanism,description,implementation,baseline_to_beat,
-                          success_threshold,kill_condition,accessibility_delta,expected_artifacts,required_evidence,likely_failure_modes,
-                          estimated_runtime_class,expected_token_budget,machine_target,model,sandbox,novelty_score,feasibility_score,
-                          accessibility_score,falsifiability_score,total_score,score_breakdown,dedupe_key,similar_prior_projects,
-                          novelty_comparison,risk_notes,rejection_reason,provider,provider_model,prompt_version,generated_by,raw_candidate_json
-                        ) values (
-                          %s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,
-                          %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s::jsonb
-                        )
-                        on conflict (candidate_id) do update set
-                          status=excluded.status,
-                          total_score=excluded.total_score,
-                          score_breakdown=excluded.score_breakdown,
-                          raw_candidate_json=excluded.raw_candidate_json,
-                          updated_at=now()
-                        """,
-                        (
-                            candidate_id,
-                            str(candidate.get("generation_mode") or "manual_import"),
-                            str(candidate.get("status") or "generated"),
-                            str(candidate.get("title") or candidate_id),
-                            str(candidate.get("category") or ""),
-                            str(candidate.get("priority") or ""),
-                            str(candidate.get("source_kind") or ""),
-                            self._json_text(source_ids),
-                            self._json_text(source_urls),
-                            str(candidate.get("parent_project_id") or ""),
-                            str(candidate.get("parent_run_id") or ""),
-                            str(candidate.get("hypothesis") or ""),
-                            str(candidate.get("mechanism") or ""),
-                            str(candidate.get("description") or ""),
-                            str(candidate.get("implementation") or ""),
-                            str(candidate.get("baseline_to_beat") or ""),
-                            str(candidate.get("success_threshold") or ""),
-                            str(candidate.get("kill_condition") or ""),
-                            str(candidate.get("accessibility_delta") or ""),
-                            self._json_text(candidate.get("expected_artifacts") or []),
-                            self._json_text(candidate.get("required_evidence") or []),
-                            self._json_text(
-                                candidate.get("likely_failure_modes") or []
-                            ),
-                            str(candidate.get("estimated_runtime_class") or ""),
-                            str(candidate.get("expected_token_budget") or ""),
-                            str(candidate.get("machine_target") or ""),
-                            str(candidate.get("model") or ""),
-                            str(candidate.get("sandbox") or ""),
-                            float(candidate.get("novelty_score") or 0),
-                            float(candidate.get("feasibility_score") or 0),
-                            float(candidate.get("accessibility_score") or 0),
-                            float(candidate.get("falsifiability_score") or 0),
-                            float(candidate.get("total_score") or 0),
-                            self._json_text(candidate.get("score_breakdown") or {}),
-                            str(candidate.get("dedupe_key") or candidate_id),
-                            self._json_text(
-                                candidate.get("similar_prior_projects") or []
-                            ),
-                            str(candidate.get("novelty_comparison") or ""),
-                            str(candidate.get("risk_notes") or ""),
-                            str(
-                                plan_json.get("admission_reason")
-                                if plan_json.get("admission_decision") == "rejected"
-                                else ""
-                            ),
-                            str(candidate.get("provider") or ""),
-                            str(candidate.get("provider_model") or ""),
-                            str(candidate.get("prompt_version") or ""),
-                            str(candidate.get("generated_by") or ""),
-                            self._json_text(
-                                candidate.get("raw_candidate_json") or candidate
-                            ),
-                        ),
-                    )
-                    counters["candidates_upserted"] += 1
-                    for source_id in source_ids:
-                        cur.execute(
-                            """
-                            insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
-                            select 'source', %s, 'candidate', %s, 'generated_from', %s::jsonb
-                            where not exists (
-                              select 1 from research_lineage
-                              where source_type='source' and source_id=%s and target_type='candidate' and target_id=%s and relation_type='generated_from'
-                            )
-                            """,
-                            (
-                                str(source_id),
-                                candidate_id,
-                                self._json_text({"source_ids": source_ids}),
-                                str(source_id),
-                                candidate_id,
-                            ),
-                        )
-                        counters["lineage_inserted"] += int(cur.rowcount or 0)
-                    idempotency_key = f"research-admission:{candidate_id}:{plan_json.get('admission_decision')}"
-                    counters["admissions_inserted"] += self._insert_research_admission(
-                        cur,
-                        candidate_id=candidate_id,
-                        admission_decision=str(
-                            plan_json.get("admission_decision") or "needs_review"
-                        ),
-                        admission_reason=str(plan_json.get("admission_reason") or ""),
-                        score_breakdown=plan_json.get("score_breakdown") or {},
-                        admitted_idea_id=None,
-                        operator=requested_by,
-                        idempotency_key=idempotency_key,
+                    self._persist_research_facility_plan(
+                        cur, plan, requested_by=requested_by, counters=counters
                     )
         return counters
 
