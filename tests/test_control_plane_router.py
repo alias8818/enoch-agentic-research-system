@@ -9921,8 +9921,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(
                 prepare_payload["metadata"]["machine_target"], "cpu-proxmox-1"
             )
-            self.assertEqual(
-                prepare_payload["metadata"]["dispatch_route"]["token_configured"], True
+            self.assertTrue(
+                prepare_payload["metadata"]["dispatch_route"]["token_configured"]
             )
             self.assertNotIn(
                 "bearer_token", prepare_payload["metadata"]["dispatch_route"]
