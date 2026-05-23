@@ -14141,6 +14141,26 @@ def test_promotable_rows_computed_extracted_no_duplication_in_giant():
     assert callable(_compute_promotable_rows)
 
 
+def test_followup_and_early_skips_extracted_no_duplication_in_giant():
+    """AGENTS.md test-first for the next horrible-first S3776 inside the 1595
+    create_control_plane_router / dashboard_research_run_cycle (after promotable_rows extraction).
+
+    The large followup + early backlog skip decision tree (next_followup_candidate,
+    starvation check vs generation_target_lane, launch, setting fresh_*_skipped flags,
+    backlog threshold skip) is extracted to _handle_followup_and_early_skips to further
+    reduce cognitive complexity of the giant.
+    """
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    assert "def _handle_followup_and_early_skips(" in src, (
+        "_handle_followup_and_early_skips helper missing (followup/early-skips logic still inline in the giant)"
+    )
+
+    from enoch_control_plane.control_plane.router import _handle_followup_and_early_skips
+    assert callable(_handle_followup_and_early_skips)
+
+
 def test_router_no_redundant_response_model_fastapi_style():
     """AGENTS.md test-first validator for top BLOCKERs (S8409/S8410, ~49 instances in router.py).
 
