@@ -1,8 +1,10 @@
+import tempfile
 from pathlib import Path
 
 from scripts.run_public_corpus_release import (
     build_steps,
     default_control_url,
+    default_generated_manifest_path,
     parse_args,
 )
 
@@ -30,6 +32,28 @@ def test_default_control_url_honors_control_plane_url_env(monkeypatch) -> None:
 def test_parse_args_control_url_has_no_inline_magic_ip() -> None:
     source = Path("scripts/run_public_corpus_release.py").read_text(encoding="utf-8")
     assert "192.168.1.166" not in source.split("def parse_args", 1)[1]
+
+
+def test_default_generated_manifest_path_honors_override(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manifest = tmp_path / "manifest.json"
+    monkeypatch.setenv("ENOCH_ECOSYSTEM_MANIFEST", str(manifest))
+    assert default_generated_manifest_path() == manifest
+
+
+def test_default_generated_manifest_path_uses_private_temp_file(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ENOCH_ECOSYSTEM_MANIFEST", raising=False)
+    path = default_generated_manifest_path()
+    try:
+        assert path.name.startswith("enoch-ecosystem.generated.")
+        assert path.suffix == ".json"
+        assert path.parent == Path(tempfile.gettempdir())
+        assert path.stat().st_mode & 0o777 == 0o600
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def test_release_plan_includes_validation_by_default(tmp_path: Path) -> None:

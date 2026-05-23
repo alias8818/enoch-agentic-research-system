@@ -49,6 +49,18 @@ def default_control_url() -> str:
     return secure_default_service_url(host, CONTROL_PLANE_PORT)
 
 
+def default_generated_manifest_path() -> Path:
+    override = os.environ.get("ENOCH_ECOSYSTEM_MANIFEST")
+    if override:
+        return Path(override)
+    fd, path = tempfile.mkstemp(
+        prefix="enoch-ecosystem.generated.",
+        suffix=".json",
+    )
+    os.close(fd)
+    return Path(path)
+
+
 @dataclass(frozen=True)
 class Step:
     name: str
@@ -320,7 +332,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--token", default="")
     parser.add_argument(
-        "--generated-manifest", default="/tmp/enoch-ecosystem.generated.json"
+        "--generated-manifest",
+        default=None,
+        help="Path for ecosystem manifest output (default: private temp file).",
     )
     parser.add_argument(
         "--import-from-control-plane",
@@ -370,6 +384,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Print the planned commands without running them.",
     )
     args = parser.parse_args(argv)
+    if args.generated_manifest is None:
+        args.generated_manifest = str(default_generated_manifest_path())
     if args.publish_hf:
         args.build_hf = True
     return args
