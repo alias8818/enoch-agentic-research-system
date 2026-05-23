@@ -177,6 +177,12 @@ class StaleProcessReaperTests(unittest.TestCase):
             )
 
     def test_reaper_returns_only_successfully_signaled_processes(self) -> None:
+        class _MatchProcess:
+            pid = 123456
+
+            def create_time(self) -> float:
+                return 1000.0
+
         tracker = ProcessTracker(Path("/tmp"))
         record = RunRecord(run_id="run", session_id="session", root_pid=999_999_999)
         candidate = ProcessInfo(
@@ -184,6 +190,10 @@ class StaleProcessReaperTests(unittest.TestCase):
         )
         with (
             patch.object(tracker, "stale_reap_candidates", return_value=[candidate]),
+            patch(
+                "enoch_control_plane.process_tracker.psutil.Process",
+                return_value=_MatchProcess(),
+            ),
             patch(
                 "enoch_control_plane.process_tracker.os.kill",
                 side_effect=PermissionError,
@@ -240,7 +250,7 @@ class StaleProcessReaperTests(unittest.TestCase):
                 [],
             )
 
-        self.assertEqual(len(signaled), 1)
+        self.assertEqual(len(signaled), 0)
 
     def test_reaper_audits_process_that_exits_during_identity_check(self) -> None:
         class _GoneProcess:

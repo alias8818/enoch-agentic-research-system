@@ -335,15 +335,27 @@ class ProcessTracker:
             return []
 
         term_signaled: list[ProcessInfo] = []
+        already_gone: list[ProcessInfo] = []
         for info in candidates:
             pid = info.pid
-            # S4828: never signal pid <= 0 (pid 0 is the process group).
-            if pid <= 0:
-                continue
+            if info.create_time is not None and psutil is not None:
+                try:
+                    proc = psutil.Process(pid)
+                    same_process = self._same_process(proc, info)
+                    if same_process is None:
+                        already_gone.append(info)
+                        continue
+                    if same_process is False:
+                        continue
+                except (psutil.NoSuchProcess, ProcessLookupError):
+                    already_gone.append(info)
+                    continue
+                except (PermissionError, psutil.AccessDenied, OSError):
+                    continue
             try:
-                os.kill(pid, signal.SIGTERM)
+                _safe_send_signal(pid, signal.SIGTERM, tracked=info)
                 term_signaled.append(info)
-            except (ProcessLookupError, PermissionError, OSError):
+            except (ProcessLookupError, PermissionError, OSError, ValueError):
                 continue
 
         if term_grace_sec > 0:
@@ -372,4 +384,4 @@ class ProcessTracker:
                 reaped.append(info)
             except (PermissionError, psutil.AccessDenied):
                 continue
-        return reaped
+        return already_gone + reaped
