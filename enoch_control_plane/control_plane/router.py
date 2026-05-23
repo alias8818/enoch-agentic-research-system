@@ -3582,6 +3582,121 @@ def _append_research_cycle_queue_paused_guardrail(
         )
 
 
+def _append_research_run_cycle_event_if_supported(
+    store: Any,
+    *,
+    idempotency_key: str,
+    event_type: str,
+    payload: Mapping[str, Any],
+) -> None:
+    if not hasattr(store, "append_event"):
+        return
+    store.append_event(
+        idempotency_key=idempotency_key,
+        event_type=event_type,
+        entity_type="research",
+        entity_id="run-cycle",
+        payload=jsonable_encoder(payload),
+    )
+
+
+def _research_cycle_live_mode_label(*, dry_run: bool) -> str:
+    return "dry" if dry_run else "live"
+
+
+def _research_cycle_blocked_early_response(
+    *,
+    store: Any,
+    response: dict[str, Any],
+    dry_run: bool,
+    requested_by: str,
+    stop_reasons: list[str],
+) -> dict[str, Any]:
+    response["reason"] = "; ".join(stop_reasons)
+    mode = _research_cycle_live_mode_label(dry_run=dry_run)
+    _append_research_run_cycle_event_if_supported(
+        store,
+        idempotency_key=f"research-cycle:{mode}:{requested_by}:{utc_now()}",
+        event_type="research.run_cycle.blocked",
+        payload=response,
+    )
+    return response
+
+
+def _research_cycle_backpressure_early_response(
+    *,
+    store: Any,
+    response: dict[str, Any],
+    dry_run: bool,
+    requested_by: str,
+    backpressure_reasons: list[str],
+    active: list[dict[str, Any]],
+) -> dict[str, Any]:
+    response["ok"] = True
+    response["action"] = (
+        "dry_run_research_cycle_backpressure"
+        if dry_run
+        else "research_cycle_backpressure"
+    )
+    response["reason"] = "; ".join(backpressure_reasons)
+    response["backpressure"] = True
+    response["active_count"] = len(active)
+    response["stages"].append(
+        {
+            "stage": "backpressure",
+            "ok": True,
+            "reason": response["reason"],
+            "active_count": len(active),
+        }
+    )
+    if not hasattr(store, "append_event"):
+        return response
+    mode = _research_cycle_live_mode_label(dry_run=dry_run)
+    try:
+        store.append_event(
+            idempotency_key=(
+                f"research-cycle:backpressure:{mode}:{requested_by}:"
+                f"{_active_lane_signature(active)}:{_event_cooldown_bucket()}"
+            ),
+            event_type="research.run_cycle.backpressure",
+            entity_type="research",
+            entity_id="run-cycle",
+            payload=jsonable_encoder(response),
+        )
+    except IdempotencyConflict as exc:
+        response["event_write_suppressed"] = "idempotency_conflict"
+        response["event_write_suppressed_reason"] = str(exc)
+    return response
+
+
+def _research_cycle_dry_run_early_response(
+    *,
+    store: Any,
+    response: dict[str, Any],
+    requested_by: str,
+    wait_for_completion: bool,
+    max_wait_seconds: int,
+    cycle_limits: Mapping[str, int],
+) -> dict[str, Any]:
+    response["reason"] = (
+        "dry-run only; provider was not called and no ledgers, queue rows, "
+        "dispatches, or papers were written"
+    )
+    response["would_generate"] = cycle_limits["max_provider_requests"] > 0
+    response["would_promote_up_to"] = cycle_limits["max_promotions"]
+    response["would_dispatch_up_to"] = cycle_limits["max_dispatches"]
+    response["would_wait_for_completion"] = wait_for_completion and max_wait_seconds > 0
+    response["would_draft_papers_up_to"] = cycle_limits["max_paper_drafts"]
+    response["would_finalize_papers_up_to"] = cycle_limits["max_publication_rewrites"]
+    _append_research_run_cycle_event_if_supported(
+        store,
+        idempotency_key=f"research-cycle:dry:{requested_by}:{utc_now()}",
+        event_type="research.run_cycle.dry_run",
+        payload=response,
+    )
+    return response
+
+
 def _research_cycle_pre_live_exit(
     *,
     store: Any,
@@ -3600,73 +3715,31 @@ def _research_cycle_pre_live_exit(
     Returns a response dict when the handler should return early; None to continue to live execution.
     """
     if stop_reasons:
-        response["reason"] = "; ".join(stop_reasons)
-        if hasattr(store, "append_event"):
-            store.append_event(
-                idempotency_key=f"research-cycle:{'dry' if dry_run else 'live'}:{requested_by}:{utc_now()}",
-                event_type="research.run_cycle.blocked",
-                entity_type="research",
-                entity_id="run-cycle",
-                payload=jsonable_encoder(response),
-            )
-        return response
+        return _research_cycle_blocked_early_response(
+            store=store,
+            response=response,
+            dry_run=dry_run,
+            requested_by=requested_by,
+            stop_reasons=stop_reasons,
+        )
     if backpressure_reasons:
-        response["ok"] = True
-        response["action"] = (
-            "dry_run_research_cycle_backpressure"
-            if dry_run
-            else "research_cycle_backpressure"
+        return _research_cycle_backpressure_early_response(
+            store=store,
+            response=response,
+            dry_run=dry_run,
+            requested_by=requested_by,
+            backpressure_reasons=backpressure_reasons,
+            active=active,
         )
-        response["reason"] = "; ".join(backpressure_reasons)
-        response["backpressure"] = True
-        response["active_count"] = len(active)
-        response["stages"].append(
-            {
-                "stage": "backpressure",
-                "ok": True,
-                "reason": response["reason"],
-                "active_count": len(active),
-            }
-        )
-        if hasattr(store, "append_event"):
-            try:
-                store.append_event(
-                    idempotency_key=(
-                        f"research-cycle:backpressure:{'dry' if dry_run else 'live'}:{requested_by}:"
-                        f"{_active_lane_signature(active)}:{_event_cooldown_bucket()}"
-                    ),
-                    event_type="research.run_cycle.backpressure",
-                    entity_type="research",
-                    entity_id="run-cycle",
-                    payload=jsonable_encoder(response),
-                )
-            except IdempotencyConflict as exc:
-                response["event_write_suppressed"] = "idempotency_conflict"
-                response["event_write_suppressed_reason"] = str(exc)
-        return response
     if dry_run:
-        response["reason"] = (
-            "dry-run only; provider was not called and no ledgers, queue rows, dispatches, or papers were written"
+        return _research_cycle_dry_run_early_response(
+            store=store,
+            response=response,
+            requested_by=requested_by,
+            wait_for_completion=wait_for_completion,
+            max_wait_seconds=max_wait_seconds,
+            cycle_limits=cycle_limits,
         )
-        response["would_generate"] = cycle_limits["max_provider_requests"] > 0
-        response["would_promote_up_to"] = cycle_limits["max_promotions"]
-        response["would_dispatch_up_to"] = cycle_limits["max_dispatches"]
-        response["would_wait_for_completion"] = (
-            wait_for_completion and max_wait_seconds > 0
-        )
-        response["would_draft_papers_up_to"] = cycle_limits["max_paper_drafts"]
-        response["would_finalize_papers_up_to"] = cycle_limits[
-            "max_publication_rewrites"
-        ]
-        if hasattr(store, "append_event"):
-            store.append_event(
-                idempotency_key=f"research-cycle:dry:{requested_by}:{utc_now()}",
-                event_type="research.run_cycle.dry_run",
-                entity_type="research",
-                entity_id="run-cycle",
-                payload=jsonable_encoder(response),
-            )
-        return response
     return None
 
 
