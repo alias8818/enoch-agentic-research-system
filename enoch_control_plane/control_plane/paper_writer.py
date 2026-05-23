@@ -33,7 +33,7 @@ MAX_PUBLIC_EVIDENCE_BYTES = 80_000
 MAX_METRIC_FILES = 40
 MAX_SECRET_TOKEN_LENGTH = 12_000
 SECRET_REDACTION_PATTERNS = [
-    re.compile(r"(?i)(Authorization\s*:\s*Bearer\s+)([A-Za-z0-9._\-]{16,})"),
+    re.compile(r"(?i)(Authorization\s*:\s*Bearer\s+)([A-Za-z0-9._-]{16,})"),
     re.compile(
         r"(?i)((?:OPENAI|ANTHROPIC|SYNTHETIC|GITHUB|HF|HUGGINGFACE|SUPABASE)[_-](?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[=:]\s*)([^\s'\"]{12,})"
     ),
