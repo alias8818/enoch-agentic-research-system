@@ -49,6 +49,9 @@ RUNS_STATE = "runs.state"
 QUEUE_ITEMS_LAST_RUN_STATE = "queue_items.last_run_state"
 RUNS_GATE_STATE = "runs.gate_state"
 
+# Centralized target state for duplicated historical vocabulary (S1192 ~line 81).
+STATE_HISTORICAL = "historical"
+
 DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
     {
         "Ideas": {
@@ -59,7 +62,7 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
                     "held": "Intentionally parked idea; no worker action.",
                     "discarded": "Rejected/deprecated idea; no worker action.",
                     "promoted": "Idea already became project/publication provenance.",
-                    "historical": "Imported or incomplete source provenance only.",
+                    STATE_HISTORICAL: "Imported or incomplete source provenance only.",
                 }
             ),
         },
@@ -78,7 +81,7 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
                     "done_no_paper": "Completed or non-positive project; no paper action.",
                     "paper_positive": "Decision gate says the completed work is paper-actionable.",
                     "canceled": "Terminal canceled project work.",
-                    "historical": "Source/provenance-only project field; not runtime state.",
+                    STATE_HISTORICAL: "Source/provenance-only project field; not runtime state.",
                 }
             ),
         },
@@ -93,7 +96,7 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
                     "canceled": "Terminal canceled run.",
                     "decision_positive": "Detail-only positive decision hint; not a run lifecycle.",
                     "decision_no_paper": "Detail-only non-positive/missing/malformed decision hint.",
-                    "historical": "Imported/blank/legacy detail evidence; not active work.",
+                    STATE_HISTORICAL: "Imported/blank/legacy detail evidence; not active work.",
                 }
             ),
         },
@@ -119,7 +122,7 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
 
 FINAL_STATE_OVERRIDES: dict[tuple[str, str], str] = {
     # Ideas / provenance
-    (IDEAS_IDEA_STATUS, "unknown"): "historical",
+    (IDEAS_IDEA_STATUS, "unknown"): STATE_HISTORICAL,
     (IDEAS_IDEA_STATUS, "exploring"): "ready",
     (IDEAS_IDEA_STATUS, "testing"): "ready",
     (IDEAS_IDEA_STATUS, "validated"): "promoted",
@@ -161,15 +164,15 @@ FINAL_STATE_OVERRIDES: dict[tuple[str, str], str] = {
     (RUNS_STATE, "dispatch_accepted"): "running",
     (RUNS_STATE, "needs_review"): "needs_attention",
     (RUNS_STATE, "waiting_external_evidence"): "needs_attention",
-    (RUNS_STATE, "unknown"): "historical",
+    (RUNS_STATE, "unknown"): STATE_HISTORICAL,
     (RUNS_STATE, "cancelled"): "canceled",
     (RUNS_STATE, "canceled"): "canceled",
     (QUEUE_ITEMS_LAST_RUN_STATE, "positive"): "decision_positive",
     (QUEUE_ITEMS_LAST_RUN_STATE, "negative"): "decision_no_paper",
     (QUEUE_ITEMS_LAST_RUN_STATE, "missing"): "decision_no_paper",
     (QUEUE_ITEMS_LAST_RUN_STATE, "malformed"): "decision_no_paper",
-    (QUEUE_ITEMS_LAST_RUN_STATE, ""): "historical",
-    (RUNS_GATE_STATE, ""): "historical",
+    (QUEUE_ITEMS_LAST_RUN_STATE, ""): STATE_HISTORICAL,
+    (RUNS_GATE_STATE, ""): STATE_HISTORICAL,
     # Papers / publication automation
     (PAPERS_PAPER_STATUS, "eligible"): "needed",
     (PAPERS_PAPER_STATUS, "draft_generating"): "drafting",
@@ -201,7 +204,7 @@ def final_state_for(surface: str, raw_value: str) -> str:
     if (surface, raw_value) in FINAL_STATE_OVERRIDES:
         return FINAL_STATE_OVERRIDES[(surface, raw_value)]
     if surface in {"projects.origin_idea_status"}:
-        return "historical"
+        return STATE_HISTORICAL
     if (
         surface in {QUEUE_ITEMS_LAST_RUN_STATE, RUNS_GATE_STATE}
         and (RUNS_STATE, raw_value) in FINAL_STATE_OVERRIDES
