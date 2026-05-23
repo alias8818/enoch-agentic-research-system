@@ -1176,6 +1176,79 @@ def _audit_row_summary(
     return summary
 
 
+def _promising_signal_backfill_meta(backfilled: dict[str, Any]) -> dict[str, Any]:
+    meta = backfilled.get("_promising_signal_backfill")
+    return meta if isinstance(meta, dict) else {}
+
+
+def _audit_stale_row_summary(
+    row: dict[str, Any],
+    *,
+    project_id: str,
+    run_id: str,
+    latest_keys: set[tuple[str, str]],
+) -> dict[str, Any] | None:
+    if not project_id or (project_id, run_id) in latest_keys:
+        return None
+    return _audit_row_summary(
+        row,
+        ["stale_duplicate_superseded"],
+        backfill={
+            "classification": ["stale_duplicate_superseded"],
+            "actions": [],
+            "remaining_issues": [],
+        },
+        include_identifiers=False,
+    )
+
+
+def _audit_paper_corpus_row_summary(row: dict[str, Any]) -> dict[str, Any] | None:
+    if not _paper_or_corpus_excluded(row):
+        return None
+    return _audit_row_summary(
+        row,
+        ["paper_or_corpus_row"],
+        backfill={
+            "classification": [],
+            "actions": [],
+            "remaining_issues": [],
+        },
+        include_identifiers=False,
+    )
+
+
+def _audit_exportable_row_outcome(
+    row: dict[str, Any],
+) -> tuple[str, dict[str, Any], bool]:
+    backfilled = backfill_promising_signal_row(row)
+    backfill_meta = _promising_signal_backfill_meta(backfilled)
+    status = _export_status(backfilled)
+    if status not in EXPORT_STATUSES:
+        return (
+            "hard_negative_or_stale",
+            _audit_row_summary(
+                backfilled,
+                ["research_outcome:not_export_status"],
+                backfill=backfill_meta,
+                include_identifiers=False,
+            ),
+            False,
+        )
+    signal = signal_from_row(backfilled)
+    issues = validate_signal(signal)
+    if issues:
+        return (
+            "missing_required_evidence_or_fields",
+            _audit_row_summary(backfilled, issues, backfill=backfill_meta),
+            False,
+        )
+    return (
+        "export_cleanly_now",
+        _audit_row_summary(backfilled, [], backfill=backfill_meta),
+        bool(backfill_meta.get("actions")),
+    )
+
+
 def audit_backfill(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     materialized = list(rows)
     latest_keys = _latest_project_keys(materialized)
@@ -1191,63 +1264,20 @@ def audit_backfill(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
         total += 1
         project_id = _text(row.get("project_id"))
         run_id = _text(row.get("run_id") or row.get("current_run_id"))
-        if project_id and (project_id, run_id) not in latest_keys:
-            buckets["hard_negative_or_stale"].append(
-                _audit_row_summary(
-                    row,
-                    ["stale_duplicate_superseded"],
-                    backfill={
-                        "classification": ["stale_duplicate_superseded"],
-                        "actions": [],
-                        "remaining_issues": [],
-                    },
-                    include_identifiers=False,
-                )
-            )
-            continue
-        if _paper_or_corpus_excluded(row):
-            buckets["excluded_paper_or_corpus"].append(
-                _audit_row_summary(
-                    row,
-                    ["paper_or_corpus_row"],
-                    backfill={
-                        "classification": [],
-                        "actions": [],
-                        "remaining_issues": [],
-                    },
-                    include_identifiers=False,
-                )
-            )
-            continue
-        backfilled = backfill_promising_signal_row(row)
-        backfill_meta = (
-            backfilled.get("_promising_signal_backfill")
-            if isinstance(backfilled.get("_promising_signal_backfill"), dict)
-            else {}
+        stale_summary = _audit_stale_row_summary(
+            row, project_id=project_id, run_id=run_id, latest_keys=latest_keys
         )
-        status = _export_status(backfilled)
-        if status not in EXPORT_STATUSES:
-            buckets["hard_negative_or_stale"].append(
-                _audit_row_summary(
-                    backfilled,
-                    ["research_outcome:not_export_status"],
-                    backfill=backfill_meta,
-                    include_identifiers=False,
-                )
-            )
+        if stale_summary is not None:
+            buckets["hard_negative_or_stale"].append(stale_summary)
             continue
-        signal = signal_from_row(backfilled)
-        issues = validate_signal(signal)
-        if issues:
-            buckets["missing_required_evidence_or_fields"].append(
-                _audit_row_summary(backfilled, issues, backfill=backfill_meta)
-            )
+        paper_summary = _audit_paper_corpus_row_summary(row)
+        if paper_summary is not None:
+            buckets["excluded_paper_or_corpus"].append(paper_summary)
             continue
-        if backfill_meta.get("actions"):
+        bucket_key, summary, exportable = _audit_exportable_row_outcome(row)
+        if exportable:
             backfilled_exportable += 1
-        buckets["export_cleanly_now"].append(
-            _audit_row_summary(backfilled, [], backfill=backfill_meta)
-        )
+        buckets[bucket_key].append(summary)
     for key in buckets:
         buckets[key].sort(
             key=lambda item: (item.get("project_id") or "", item.get("run_id") or "")
