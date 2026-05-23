@@ -76,7 +76,7 @@ def _base_url(config: dict[str, Any]) -> str:
         host = "127.0.0.1"
     return (
         os.environ.get("ENOCH_CONTROL_URL")
-        or f"http://{host}:{int(config.get('listen_port') or 8787)}"
+        or f"https://{host}:{int(config.get('listen_port') or 8787)}"
     )
 
 
