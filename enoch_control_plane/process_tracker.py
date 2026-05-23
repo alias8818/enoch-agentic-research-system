@@ -200,42 +200,76 @@ class ProcessTracker:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return None
 
-    def snapshot(
-        self, record: RunRecord, gpu_compute_pids: list[int] | None = None
-    ) -> ProcessSnapshot:
-        if psutil is None:
-            return ProcessSnapshot(
-                tracked=record.root_pid is not None,
-                root_pid=record.root_pid,
-                process_alive=False,
-                descendants_alive=False,
-                gpu_processes_alive=False,
-                project_cwd_processes_alive=False,
-            )
+    @staticmethod
+    def _process_is_alive(proc: object) -> bool:
+        try:
+            return proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return False
 
-        tracked = self._tracked_processes(record)
+    def _has_non_benign_project_cwd_process(
+        self, proc: object, project_dir: Path
+    ) -> bool:
+        if not self._process_in_project_dir(proc, project_dir):
+            return False
+        cmdline = " ".join(proc.cmdline()).strip() or proc.name()
+        return not _is_benign_project_process(cmdline)
+
+    def _scan_tracked_alive_state(
+        self,
+        record: RunRecord,
+        tracked: dict[int, object],
+        project_dir: Path | None,
+    ) -> tuple[bool, bool, bool, set[int]]:
         process_alive = False
         descendants_alive = False
         project_cwd_processes_alive = False
         alive_pids: set[int] = set()
-        project_dir = self._project_dir(record)
 
         for pid, proc in tracked.items():
-            try:
-                if proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE:
-                    alive_pids.add(pid)
-                    if pid == record.root_pid:
-                        process_alive = True
-                    else:
-                        descendants_alive = True
-                    if project_dir is not None and self._process_in_project_dir(
-                        proc, project_dir
-                    ):
-                        cmdline = " ".join(proc.cmdline()).strip() or proc.name()
-                        if not _is_benign_project_process(cmdline):
-                            project_cwd_processes_alive = True
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            if not self._process_is_alive(proc):
                 continue
+            alive_pids.add(pid)
+            if pid == record.root_pid:
+                process_alive = True
+            else:
+                descendants_alive = True
+            if project_dir is not None and self._has_non_benign_project_cwd_process(
+                proc, project_dir
+            ):
+                project_cwd_processes_alive = True
+
+        return (
+            process_alive,
+            descendants_alive,
+            project_cwd_processes_alive,
+            alive_pids,
+        )
+
+    def _snapshot_without_psutil(self, record: RunRecord) -> ProcessSnapshot:
+        return ProcessSnapshot(
+            tracked=record.root_pid is not None,
+            root_pid=record.root_pid,
+            process_alive=False,
+            descendants_alive=False,
+            gpu_processes_alive=False,
+            project_cwd_processes_alive=False,
+        )
+
+    def snapshot(
+        self, record: RunRecord, gpu_compute_pids: list[int] | None = None
+    ) -> ProcessSnapshot:
+        if psutil is None:
+            return self._snapshot_without_psutil(record)
+
+        tracked = self._tracked_processes(record)
+        project_dir = self._project_dir(record)
+        (
+            process_alive,
+            descendants_alive,
+            project_cwd_processes_alive,
+            alive_pids,
+        ) = self._scan_tracked_alive_state(record, tracked, project_dir)
 
         gpu_processes_alive = any(pid in alive_pids for pid in (gpu_compute_pids or []))
 
