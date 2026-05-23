@@ -56,36 +56,50 @@ def _fingerprint(findings: list[DashboardFinding]) -> str:
     return hashlib.sha256("\n".join(sorted(parts)).encode("utf-8")).hexdigest()[:16]
 
 
+def _coerce_observation_value(value: Any) -> Any:
+    if isinstance(value, (dict, list)) or not hasattr(value, "model_dump"):
+        return value
+    try:
+        return value.model_dump(mode="json")
+    except TypeError:
+        return value.model_dump()
+
+
+def _append_worker_runs_from_dict(
+    value: dict[str, Any], runs: list[dict[str, Any]]
+) -> None:
+    maybe_runs = value.get("runs")
+    if isinstance(maybe_runs, list):
+        runs.extend(item for item in maybe_runs if isinstance(item, dict))
+
+
+def _accumulate_worker_runs_from_observation(
+    value: Any, runs: list[dict[str, Any]]
+) -> None:
+    value = _coerce_observation_value(value)
+    if isinstance(value, dict):
+        _append_worker_runs_from_dict(value, runs)
+        for nested_key in ("body", "payload", "data"):
+            nested = value.get(nested_key)
+            if nested is not value:
+                _accumulate_worker_runs_from_observation(nested, runs)
+        checks = value.get("checks")
+        if isinstance(checks, list):
+            for check in checks:
+                _accumulate_worker_runs_from_observation(check, runs)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _accumulate_worker_runs_from_observation(item, runs)
+
+
 def _observed_worker_runs(status: DashboardStatusResponse) -> list[dict[str, Any]]:
     observations = getattr(status, "observations", {}) or {}
     runs: list[dict[str, Any]] = []
     if not isinstance(observations, dict):
         return runs
-
-    def add_from(value: Any) -> None:
-        if not isinstance(value, (dict, list)) and hasattr(value, "model_dump"):
-            try:
-                value = value.model_dump(mode="json")
-            except TypeError:
-                value = value.model_dump()
-        if isinstance(value, dict):
-            maybe_runs = value.get("runs")
-            if isinstance(maybe_runs, list):
-                runs.extend(item for item in maybe_runs if isinstance(item, dict))
-            for nested_key in ("body", "payload", "data"):
-                nested = value.get(nested_key)
-                if nested is not value:
-                    add_from(nested)
-            checks = value.get("checks")
-            if isinstance(checks, list):
-                for check in checks:
-                    add_from(check)
-        elif isinstance(value, list):
-            for item in value:
-                add_from(item)
-
     for source in ("worker_preflight", "worker_dashboard_api"):
-        add_from(observations.get(source))
+        _accumulate_worker_runs_from_observation(observations.get(source), runs)
     return runs
 
 
