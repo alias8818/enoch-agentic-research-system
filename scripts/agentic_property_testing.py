@@ -463,7 +463,96 @@ def generate_provider_proposal(
     }
 
 
-def main(argv: list[str] | None = None) -> int:
+_LOOP_FAILURE_STATUSES = frozenset(
+    {"counterexample_found", "execution_error", "max_attempts_exhausted"}
+)
+_EXECUTE_FAILURE_STATUSES = frozenset({"counterexample_found", "execution_error"})
+
+
+def _emit_json_result(result: dict[str, Any], *, exit_code: int) -> int:
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return exit_code
+
+
+def _resolve_python_target(repo_root: Path, target: Path) -> Path:
+    resolved = (
+        (repo_root / target).resolve() if not target.is_absolute() else target.resolve()
+    )
+    if not resolved.exists() or resolved.suffix != ".py":
+        raise SystemExit(f"target must be an existing Python file: {resolved}")
+    return resolved
+
+
+def _provider_blocked_result(
+    *,
+    next_action: str,
+    failures: list[str] | None = None,
+    budget: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "ok": False,
+        "status": "provider_budget_blocked",
+        "agentic_terminal": True,
+        "next_action": next_action,
+    }
+    if failures is not None:
+        result["failures"] = failures
+    if budget is not None:
+        result["budget"] = budget
+    return result
+
+
+def _provider_api_key_for_args(args: argparse.Namespace) -> str:
+    if args.provider_no_auth:
+        return ""
+    return os.environ.get(args.provider_api_key_env, "")
+
+
+def _probe_provider_budget(
+    args: argparse.Namespace, api_key: str
+) -> dict[str, Any] | None:
+    if not api_key and not args.provider_no_auth:
+        _emit_json_result(
+            _provider_blocked_result(
+                next_action="agent_retry_after_provider_credentials_or_proxy_are_available",
+                failures=[f"missing API key env {args.provider_api_key_env}"],
+            ),
+            exit_code=1,
+        )
+        return None
+    try:
+        budget = synthetic_budget_preflight(
+            base_url=args.provider_base_url,
+            api_key=api_key,
+            no_auth=args.provider_no_auth,
+            timeout=args.provider_timeout,
+            estimated_requests=1,
+            reserve_requests=args.reserve_requests,
+            min_remaining_credits=args.min_remaining_credits,
+            min_rolling_remaining=args.min_rolling_remaining,
+        )
+    except Exception as exc:
+        _emit_json_result(
+            _provider_blocked_result(
+                next_action="agent_retry_after_provider_budget_probe_recovers",
+                failures=[f"{type(exc).__name__}: {exc}"],
+            ),
+            exit_code=1,
+        )
+        return None
+    if not budget.get("ok"):
+        _emit_json_result(
+            _provider_blocked_result(
+                next_action="agent_retry_after_provider_budget_regenerates",
+                budget=budget,
+            ),
+            exit_code=1,
+        )
+        return None
+    return budget
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     parser.add_argument(
@@ -523,94 +612,50 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-remaining-credits", type=float, default=5.0)
     parser.add_argument("--min-rolling-remaining", type=int, default=10)
     parser.add_argument("--reserve-requests", type=int, default=1)
-    args, passthrough = parser.parse_known_args(argv)
-    if passthrough and passthrough[0] == "--":
-        passthrough = passthrough[1:]
+    return parser
 
-    repo_root = args.repo_root.resolve()
-    target = (
-        (repo_root / args.target).resolve()
-        if not args.target.is_absolute()
-        else args.target.resolve()
-    )
-    if not target.exists() or target.suffix != ".py":
-        raise SystemExit(f"target must be an existing Python file: {target}")
 
-    report_dir = (repo_root / args.report_dir).resolve()
-    if args.generate_provider_proposal:
-        api_key = (
-            ""
-            if args.provider_no_auth
-            else os.environ.get(args.provider_api_key_env, "")
+def _run_generate_provider_proposal(
+    args: argparse.Namespace,
+    *,
+    repo_root: Path,
+    target: Path,
+    report_dir: Path,
+) -> int:
+    api_key = _provider_api_key_for_args(args)
+    budget = _probe_provider_budget(args, api_key)
+    if budget is None:
+        return 1
+
+    provider_prompt = report_dir / f"{target.stem}-provider-prompt.md"
+    write_prompt(repo_root, target, provider_prompt, max_chars=args.max_chars)
+    try:
+        generated = generate_provider_proposal(
+            prompt_text=provider_prompt.read_text(encoding="utf-8"),
+            output=report_dir / f"{target.stem}-provider-proposal.json",
+            openai_base_url=args.openai_base_url,
+            model=args.provider_model,
+            api_key=api_key,
+            no_auth=args.provider_no_auth,
+            temperature=args.provider_temperature,
+            max_tokens=args.provider_max_tokens,
+            timeout=args.provider_timeout,
         )
-        if not api_key and not args.provider_no_auth:
-            result = {
-                "ok": False,
-                "status": "provider_budget_blocked",
-                "agentic_terminal": True,
-                "next_action": "agent_retry_after_provider_credentials_or_proxy_are_available",
-                "failures": [f"missing API key env {args.provider_api_key_env}"],
-            }
-            print(json.dumps(result, indent=2, sort_keys=True))
-            return 1
-        try:
-            budget = synthetic_budget_preflight(
-                base_url=args.provider_base_url,
-                api_key=api_key,
-                no_auth=args.provider_no_auth,
-                timeout=args.provider_timeout,
-                estimated_requests=1,
-                reserve_requests=args.reserve_requests,
-                min_remaining_credits=args.min_remaining_credits,
-                min_rolling_remaining=args.min_rolling_remaining,
-            )
-        except Exception as exc:
-            result = {
-                "ok": False,
-                "status": "provider_budget_blocked",
-                "agentic_terminal": True,
-                "next_action": "agent_retry_after_provider_budget_probe_recovers",
-                "failures": [f"{type(exc).__name__}: {exc}"],
-            }
-            print(json.dumps(result, indent=2, sort_keys=True))
-            return 1
-        if not budget.get("ok"):
-            result = {
-                "ok": False,
-                "status": "provider_budget_blocked",
-                "agentic_terminal": True,
-                "next_action": "agent_retry_after_provider_budget_regenerates",
-                "budget": budget,
-            }
-            print(json.dumps(result, indent=2, sort_keys=True))
-            return 1
-        provider_prompt = report_dir / f"{target.stem}-provider-prompt.md"
-        write_prompt(repo_root, target, provider_prompt, max_chars=args.max_chars)
-        try:
-            generated = generate_provider_proposal(
-                prompt_text=provider_prompt.read_text(encoding="utf-8"),
-                output=report_dir / f"{target.stem}-provider-proposal.json",
-                openai_base_url=args.openai_base_url,
-                model=args.provider_model,
-                api_key=api_key,
-                no_auth=args.provider_no_auth,
-                temperature=args.provider_temperature,
-                max_tokens=args.provider_max_tokens,
-                timeout=args.provider_timeout,
-            )
-        except Exception as exc:
-            result = {
+    except Exception as exc:
+        return _emit_json_result(
+            {
                 "ok": False,
                 "status": "provider_generation_failed",
                 "agentic_terminal": True,
                 "next_action": "agent_retry_with_smaller_prompt_or_next_provider",
                 "failures": [f"{type(exc).__name__}: {exc}"],
                 "prompt_path": str(provider_prompt),
-            }
-            print(json.dumps(result, indent=2, sort_keys=True))
-            return 1
-        if args.autonomous_loop:
-            result = {
+            },
+            exit_code=1,
+        )
+    if args.autonomous_loop:
+        return _emit_json_result(
+            {
                 "ok": False,
                 "status": "provider_proposal_requires_review",
                 "agentic_terminal": True,
@@ -618,50 +663,60 @@ def main(argv: list[str] | None = None) -> int:
                 "proposal_file": generated["proposal_file"],
                 "prompt_path": str(provider_prompt),
                 "budget": budget,
-            }
-            print(json.dumps(result, indent=2, sort_keys=True))
-            return 1
-        print(
-            json.dumps(
-                {"status": "provider_proposal_written", "budget": budget, **generated},
-                indent=2,
-                sort_keys=True,
-            )
+            },
+            exit_code=1,
         )
-        return 0
+    print(
+        json.dumps(
+            {"status": "provider_proposal_written", "budget": budget, **generated},
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
 
-    if args.autonomous_loop:
-        if not args.loop_proposal_file and args.proposal_file:
-            args.loop_proposal_file.append(args.proposal_file)
-        if not args.loop_proposal_file:
-            raise SystemExit(
-                "--autonomous-loop requires --loop-proposal-file, --proposal-file, or --generate-provider-proposal"
-            )
-        result = run_autonomous_loop(
-            repo_root,
-            target,
-            [path.resolve() for path in args.loop_proposal_file],
-            report_dir,
-            max_attempts=args.max_attempts,
-            pytest_args=passthrough,
-        )
-        print(json.dumps(result, indent=2, sort_keys=True))
-        return (
-            1
-            if result["status"]
-            in {"counterexample_found", "execution_error", "max_attempts_exhausted"}
-            else 0
-        )
 
-    if args.proposal_file and args.execute_proposals:
-        result = execute_proposals(
-            repo_root, args.proposal_file.resolve(), report_dir, pytest_args=passthrough
+def _run_autonomous_loop_mode(
+    args: argparse.Namespace,
+    *,
+    repo_root: Path,
+    target: Path,
+    report_dir: Path,
+    passthrough: list[str],
+) -> int:
+    if not args.loop_proposal_file and args.proposal_file:
+        args.loop_proposal_file.append(args.proposal_file)
+    if not args.loop_proposal_file:
+        raise SystemExit(
+            "--autonomous-loop requires --loop-proposal-file, --proposal-file, or --generate-provider-proposal"
         )
-        print(json.dumps(result, indent=2, sort_keys=True))
-        return (
-            1 if result["status"] in {"counterexample_found", "execution_error"} else 0
-        )
+    result = run_autonomous_loop(
+        repo_root,
+        target,
+        [path.resolve() for path in args.loop_proposal_file],
+        report_dir,
+        max_attempts=args.max_attempts,
+        pytest_args=passthrough,
+    )
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 1 if result["status"] in _LOOP_FAILURE_STATUSES else 0
 
+
+def _run_execute_proposals(
+    args: argparse.Namespace,
+    *,
+    repo_root: Path,
+    report_dir: Path,
+    passthrough: list[str],
+) -> int:
+    result = execute_proposals(
+        repo_root, args.proposal_file.resolve(), report_dir, pytest_args=passthrough
+    )
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 1 if result["status"] in _EXECUTE_FAILURE_STATUSES else 0
+
+
+def _run_prompt_mode(args: argparse.Namespace, *, repo_root: Path, target: Path) -> int:
     output = (
         (repo_root / args.prompt_output).resolve()
         if not args.prompt_output.is_absolute()
@@ -676,6 +731,34 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args, passthrough = _build_arg_parser().parse_known_args(argv)
+    if passthrough and passthrough[0] == "--":
+        passthrough = passthrough[1:]
+
+    repo_root = args.repo_root.resolve()
+    target = _resolve_python_target(repo_root, args.target)
+    report_dir = (repo_root / args.report_dir).resolve()
+
+    if args.generate_provider_proposal:
+        return _run_generate_provider_proposal(
+            args, repo_root=repo_root, target=target, report_dir=report_dir
+        )
+    if args.autonomous_loop:
+        return _run_autonomous_loop_mode(
+            args,
+            repo_root=repo_root,
+            target=target,
+            report_dir=report_dir,
+            passthrough=passthrough,
+        )
+    if args.proposal_file and args.execute_proposals:
+        return _run_execute_proposals(
+            args, repo_root=repo_root, report_dir=report_dir, passthrough=passthrough
+        )
+    return _run_prompt_mode(args, repo_root=repo_root, target=target)
 
 
 if __name__ == "__main__":
