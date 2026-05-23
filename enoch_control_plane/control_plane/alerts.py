@@ -408,15 +408,66 @@ def send_pushover(
         )
 
 
-def evaluate_and_notify_queue_alerts(
+def _findings_include_critical(findings: list[DashboardFinding]) -> bool:
+    return any(f.severity == "critical" for f in findings)
+
+
+def _pushover_configured(config: GateConfig) -> bool:
+    return bool(
+        (config.pushover_app_token or os.environ.get("PUSHOVER_APP_TOKEN"))
+        and (config.pushover_user_key or os.environ.get("PUSHOVER_USER_KEY"))
+    )
+
+
+@dataclass(frozen=True)
+class _QueueAlertPrepared:
+    requested_by: str
+    dry_run: bool
+    force_notify: bool
+    fingerprint: str
+    cooldown_bucket: int
+    cooldown_sec: int
+    findings: list[DashboardFinding]
+    transient_suppressed_findings: list[DashboardFinding]
+    status: DashboardStatusResponse
+    should_alert: bool
+    idempotency_key: str
+
+    @property
+    def payload(self) -> dict[str, Any]:
+        return {
+            "requested_by": self.requested_by,
+            "dry_run": self.dry_run,
+            "force_notify": self.force_notify,
+            "fingerprint": self.fingerprint,
+            "cooldown_bucket": self.cooldown_bucket,
+            "cooldown_sec": self.cooldown_sec,
+            "generated_at": utc_now(),
+            "findings": [item.model_dump(mode="json") for item in self.findings],
+            "transient_suppressed_findings": [
+                item.model_dump(mode="json")
+                for item in self.transient_suppressed_findings
+            ],
+            "transient_suppression": {
+                "enabled": True,
+                "grace_sec": DISPATCH_RACE_GRACE_SEC,
+                "reason": "recent dispatch transition can precede worker preflight visibility",
+            },
+            "dispatch_safe": self.status.dispatch_safe,
+            "dispatch_blockers": self.status.dispatch_blockers,
+            "active_count": len(self.status.active_items),
+        }
+
+
+def _prepare_queue_alert(
     *,
     config: GateConfig,
     store: ControlPlaneStore,
     status: DashboardStatusResponse,
+    requested_by: str,
     dry_run: bool,
     force_notify: bool,
-    requested_by: str,
-) -> dict[str, Any]:
+) -> _QueueAlertPrepared:
     raw_findings = queue_alert_findings(
         status, hang_after_sec=config.queue_alert_hang_after_sec
     )
@@ -426,110 +477,262 @@ def evaluate_and_notify_queue_alerts(
     fingerprint = _fingerprint(findings) if findings else "none"
     now = datetime.now(timezone.utc)
     cooldown_bucket = int(now.timestamp() // config.queue_alert_cooldown_sec)
-    idempotency_key = f"queue-alert:{fingerprint}:{cooldown_bucket}"
-    should_alert = bool(findings)
-    payload = {
-        "requested_by": requested_by,
-        "dry_run": dry_run,
-        "force_notify": force_notify,
-        "fingerprint": fingerprint,
-        "cooldown_bucket": cooldown_bucket,
-        "cooldown_sec": config.queue_alert_cooldown_sec,
-        "generated_at": utc_now(),
-        "findings": [item.model_dump(mode="json") for item in findings],
-        "transient_suppressed_findings": [
-            item.model_dump(mode="json") for item in transient_suppressed_findings
-        ],
-        "transient_suppression": {
-            "enabled": True,
-            "grace_sec": DISPATCH_RACE_GRACE_SEC,
-            "reason": "recent dispatch transition can precede worker preflight visibility",
-        },
-        "dispatch_safe": status.dispatch_safe,
-        "dispatch_blockers": status.dispatch_blockers,
-        "active_count": len(status.active_items),
-    }
-    sent = False
-    suppressed = False
-    notification = PushoverResult(attempted=False, ok=False, detail="no alert findings")
-    event_id = None
+    return _QueueAlertPrepared(
+        requested_by=requested_by,
+        dry_run=dry_run,
+        force_notify=force_notify,
+        fingerprint=fingerprint,
+        cooldown_bucket=cooldown_bucket,
+        cooldown_sec=config.queue_alert_cooldown_sec,
+        findings=findings,
+        transient_suppressed_findings=transient_suppressed_findings,
+        status=status,
+        should_alert=bool(findings),
+        idempotency_key=f"queue-alert:{fingerprint}:{cooldown_bucket}",
+    )
+
+
+def _format_queue_alert_message(
+    status: DashboardStatusResponse, findings: list[DashboardFinding]
+) -> str:
+    severity_label = "critical" if _findings_include_critical(findings) else "warn"
+    blockers = ", ".join(status.dispatch_blockers) or "none"
+    message_lines = [
+        "Enoch queue alert: possible stoppage/hang",
+        f"Severity: {severity_label}",
+        f"Active: {len(status.active_items)} | Blockers: {blockers}",
+        "Findings:",
+    ]
+    for item in findings[:5]:
+        message_lines.append(f"- {item.severity.upper()} {item.source}: {item.message}")
+    if len(findings) > 5:
+        message_lines.append(f"- +{len(findings) - 5} more")
+    return "\n".join(message_lines)[:1024]
+
+
+def _append_queue_alert_event(
+    store: ControlPlaneStore,
+    *,
+    idempotency_key: str,
+    fingerprint: str,
+    payload: dict[str, Any],
+) -> tuple[str | None, bool, str]:
+    event_id: str | None = None
     inserted = False
     event_append_error = ""
-    if should_alert:
-        message_lines = [
-            "Enoch queue alert: possible stoppage/hang",
-            f"Severity: {'critical' if any(f.severity == 'critical' for f in findings) else 'warn'}",
-            f"Active: {len(status.active_items)} | Blockers: {', '.join(status.dispatch_blockers) or 'none'}",
-            "Findings:",
-        ]
-        for item in findings[:5]:
-            message_lines.append(
-                f"- {item.severity.upper()} {item.source}: {item.message}"
-            )
-        if len(findings) > 5:
-            message_lines.append(f"- +{len(findings) - 5} more")
-        message = "\n".join(message_lines)[:1024]
-        if dry_run:
-            notification = PushoverResult(attempted=False, ok=True, detail="dry run")
-        else:
-            try:
-                event_id, inserted = store.append_event(
-                    idempotency_key=idempotency_key,
-                    event_type="queue_alert.detected",
-                    entity_type="queue_alert",
-                    entity_id=fingerprint,
-                    payload={**payload, "payload_hash": _event_payload_hash(payload)},
-                )
-            except IdempotencyConflict:
-                # Same alert bucket with a non-identical timestamp/payload shape; treat as cooldown.
-                inserted = False
-            except Exception as exc:
-                event_append_error = f"{type(exc).__name__}: {exc}"
-                inserted = False
-            if inserted or force_notify or event_append_error:
-                if config.pushover_alerts_enabled or force_notify:
-                    notification = send_pushover(
-                        config,
-                        title="Enoch queue alert",
-                        message=message,
-                        priority=1
-                        if any(f.severity == "critical" for f in findings)
-                        else 0,
-                    )
-                    sent = notification.ok
-                else:
-                    notification = PushoverResult(
-                        attempted=False, ok=False, detail="pushover alerts disabled"
-                    )
-            else:
-                suppressed = True
-                notification = PushoverResult(
-                    attempted=False, ok=True, detail="cooldown duplicate suppressed"
-                )
-    return {
-        "ok": not should_alert
+    try:
+        event_id, inserted = store.append_event(
+            idempotency_key=idempotency_key,
+            event_type="queue_alert.detected",
+            entity_type="queue_alert",
+            entity_id=fingerprint,
+            payload={**payload, "payload_hash": _event_payload_hash(payload)},
+        )
+    except IdempotencyConflict:
+        inserted = False
+    except Exception as exc:
+        event_append_error = f"{type(exc).__name__}: {exc}"
+        inserted = False
+    return event_id, inserted, event_append_error
+
+
+def _dispatch_queue_alert_notification(
+    config: GateConfig,
+    *,
+    findings: list[DashboardFinding],
+    message: str,
+    force_notify: bool,
+    inserted: bool,
+    event_append_error: str,
+) -> tuple[bool, bool, PushoverResult]:
+    if not (inserted or force_notify or event_append_error):
+        return (
+            False,
+            True,
+            PushoverResult(
+                attempted=False, ok=True, detail="cooldown duplicate suppressed"
+            ),
+        )
+    if not (config.pushover_alerts_enabled or force_notify):
+        return (
+            False,
+            False,
+            PushoverResult(
+                attempted=False, ok=False, detail="pushover alerts disabled"
+            ),
+        )
+    notification = send_pushover(
+        config,
+        title="Enoch queue alert",
+        message=message,
+        priority=1 if _findings_include_critical(findings) else 0,
+    )
+    return notification.ok, False, notification
+
+
+def _queue_alert_result_ok(
+    *,
+    should_alert: bool,
+    dry_run: bool,
+    sent: bool,
+    suppressed: bool,
+    config: GateConfig,
+    force_notify: bool,
+) -> bool:
+    return (
+        not should_alert
         or dry_run
         or sent
         or suppressed
-        or not (config.pushover_alerts_enabled or force_notify),
+        or not (config.pushover_alerts_enabled or force_notify)
+    )
+
+
+@dataclass(frozen=True)
+class _QueueAlertDeliveryState:
+    sent: bool
+    suppressed: bool
+    notification: PushoverResult
+    event_id: str | None
+    inserted: bool
+    event_append_error: str
+
+
+_NO_ALERT_DELIVERY = _QueueAlertDeliveryState(
+    sent=False,
+    suppressed=False,
+    notification=PushoverResult(attempted=False, ok=False, detail="no alert findings"),
+    event_id=None,
+    inserted=False,
+    event_append_error="",
+)
+
+
+def _build_queue_alert_result(
+    *,
+    config: GateConfig,
+    dry_run: bool,
+    force_notify: bool,
+    should_alert: bool,
+    fingerprint: str,
+    delivery: _QueueAlertDeliveryState,
+    findings: list[DashboardFinding],
+    transient_suppressed_findings: list[DashboardFinding],
+) -> dict[str, Any]:
+    return {
+        "ok": _queue_alert_result_ok(
+            should_alert=should_alert,
+            dry_run=dry_run,
+            sent=delivery.sent,
+            suppressed=delivery.suppressed,
+            config=config,
+            force_notify=force_notify,
+        ),
         "source": "control_api_queue_alert_check",
         "generated_at": utc_now(),
         "dry_run": dry_run,
         "should_alert": should_alert,
-        "sent": sent,
-        "suppressed_by_cooldown": suppressed,
+        "sent": delivery.sent,
+        "suppressed_by_cooldown": delivery.suppressed,
         "fingerprint": fingerprint,
-        "event_id": event_id,
-        "inserted_event": inserted,
-        "event_append_error": event_append_error,
+        "event_id": delivery.event_id,
+        "inserted_event": delivery.inserted,
+        "event_append_error": delivery.event_append_error,
         "alerts_enabled": config.pushover_alerts_enabled,
-        "pushover_configured": bool(
-            (config.pushover_app_token or os.environ.get("PUSHOVER_APP_TOKEN"))
-            and (config.pushover_user_key or os.environ.get("PUSHOVER_USER_KEY"))
-        ),
-        "notification": notification.__dict__,
+        "pushover_configured": _pushover_configured(config),
+        "notification": delivery.notification.__dict__,
         "findings": [item.model_dump(mode="json") for item in findings],
         "transient_suppressed_findings": [
             item.model_dump(mode="json") for item in transient_suppressed_findings
         ],
     }
+
+
+def _deliver_queue_alert(
+    *,
+    config: GateConfig,
+    store: ControlPlaneStore,
+    status: DashboardStatusResponse,
+    dry_run: bool,
+    force_notify: bool,
+    findings: list[DashboardFinding],
+    idempotency_key: str,
+    fingerprint: str,
+    payload: dict[str, Any],
+) -> _QueueAlertDeliveryState:
+    message = _format_queue_alert_message(status, findings)
+    if dry_run:
+        return _QueueAlertDeliveryState(
+            sent=False,
+            suppressed=False,
+            notification=PushoverResult(attempted=False, ok=True, detail="dry run"),
+            event_id=None,
+            inserted=False,
+            event_append_error="",
+        )
+    event_id, inserted, event_append_error = _append_queue_alert_event(
+        store,
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        payload=payload,
+    )
+    sent, suppressed, notification = _dispatch_queue_alert_notification(
+        config,
+        findings=findings,
+        message=message,
+        force_notify=force_notify,
+        inserted=inserted,
+        event_append_error=event_append_error,
+    )
+    return _QueueAlertDeliveryState(
+        sent=sent,
+        suppressed=suppressed,
+        notification=notification,
+        event_id=event_id,
+        inserted=inserted,
+        event_append_error=event_append_error,
+    )
+
+
+def evaluate_and_notify_queue_alerts(
+    *,
+    config: GateConfig,
+    store: ControlPlaneStore,
+    status: DashboardStatusResponse,
+    dry_run: bool,
+    force_notify: bool,
+    requested_by: str,
+) -> dict[str, Any]:
+    prepared = _prepare_queue_alert(
+        config=config,
+        store=store,
+        status=status,
+        requested_by=requested_by,
+        dry_run=dry_run,
+        force_notify=force_notify,
+    )
+    delivery = (
+        _deliver_queue_alert(
+            config=config,
+            store=store,
+            status=prepared.status,
+            dry_run=prepared.dry_run,
+            force_notify=prepared.force_notify,
+            findings=prepared.findings,
+            idempotency_key=prepared.idempotency_key,
+            fingerprint=prepared.fingerprint,
+            payload=prepared.payload,
+        )
+        if prepared.should_alert
+        else _NO_ALERT_DELIVERY
+    )
+    return _build_queue_alert_result(
+        config=config,
+        dry_run=prepared.dry_run,
+        force_notify=prepared.force_notify,
+        should_alert=prepared.should_alert,
+        fingerprint=prepared.fingerprint,
+        delivery=delivery,
+        findings=prepared.findings,
+        transient_suppressed_findings=prepared.transient_suppressed_findings,
+    )
