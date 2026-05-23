@@ -69,9 +69,10 @@ def test_sonar_workflow_generates_coverage_before_scan_and_uses_node24_actions()
     )
 
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in workflow
-    assert "uv run coverage run -m pytest -q" in workflow
-    assert "uv run coverage xml -o coverage.xml" in workflow
-    assert workflow.index("uv run coverage xml -o coverage.xml") < workflow.index(
+    assert 'uv run pytest -q -n auto -m "not repo_root"' in workflow
+    assert 'uv run pytest -q -m "repo_root"' in workflow
+    assert "--cov-report=xml:coverage.xml" in workflow
+    assert workflow.index("--cov-report=xml:coverage.xml") < workflow.index(
         "SonarSource/sonarqube-scan-action"
     )
     assert "actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3" in workflow

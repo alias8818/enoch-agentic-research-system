@@ -35,6 +35,8 @@ dev = [
     "pre-commit>=4.2.0",
     "pyright>=1.1.408",
     "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.14.0",
     "schemathesis>=4.17.0",
     "semgrep>=1.144.0",
@@ -56,6 +58,9 @@ select = ["E9", "F821", "F822", "F823"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = [
+    "repo_root: touches or archives the repository working tree",
+]
 
 [tool.coverage.run]
 branch = true
