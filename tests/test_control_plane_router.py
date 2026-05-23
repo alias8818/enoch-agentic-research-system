@@ -13990,3 +13990,34 @@ def test_resolve_research_cycle_params_extracted_no_duplication_in_giant() -> No
     p = _resolve_research_cycle_params({})
     assert hasattr(p, "max_provider_requests")
     assert hasattr(p, "generation_attempts")
+
+
+def test_resolve_research_provider_model_no_duplicated_literals() -> None:
+    """AGENTS.md deterministic validator for S1192 duplication (CRITICAL).
+
+    The default allowed models list and fallback model string must be defined
+    in exactly one canonical constant after the patch. This kills the top
+    CRITICAL S1192 in router.py:192 (and related sites) while the helper
+    remains the single source of truth.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.find_spec("enoch_control_plane.control_plane.router")
+    router_src = Path(spec.origin)
+    src = router_src.read_text(encoding="utf-8")
+
+    # The individual model ID strings are duplicated across the getenv default,
+    # the fallback list, and the provider_model default (Sonar S1192 CRITICAL at :192).
+    # After patch, the canonical constant is the single source; raw literals appear once.
+    moonshot = "hf:moonshotai/Kimi-K2.6"
+    assert src.count(moonshot) == 1, (
+        f"'{moonshot}' duplicated (count={src.count(moonshot)}); must be centralized in const"
+    )
+
+    zai = "hf:zai-org/GLM-5.1"
+    # Currently 4 (getenv + list + provider default + possibly one more site or the test itself?);
+    # patch will reduce to 1 (const only). Use <=1 post-patch as the strict guard.
+    assert src.count(zai) <= 1, (
+        f"'{zai}' over-duplicated (count={src.count(zai)}); must be 1 via const"
+    )

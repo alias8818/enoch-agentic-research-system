@@ -184,17 +184,17 @@ def _resolve_research_provider_model(
         item.strip()
         for item in os.environ.get(
             "ENOCH_RESEARCH_ALLOWED_MODELS",
-            "hf:moonshotai/Kimi-K2.6,hf:zai-org/GLM-5.1",
+            ",".join(DEFAULT_ALLOWED_RESEARCH_MODELS),
         ).split(",")
         if item.strip()
     ]
     if not allowed_models:
-        allowed_models = ["hf:moonshotai/Kimi-K2.6", "hf:zai-org/GLM-5.1"]
+        allowed_models = list(DEFAULT_ALLOWED_RESEARCH_MODELS)
 
     provider_model = str(
         body.get("model")
         or os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL")
-        or "hf:zai-org/GLM-5.1"
+        or DEFAULT_ALLOWED_RESEARCH_MODELS[-1]
     ).strip()
 
     if provider_model not in allowed_models:
@@ -321,6 +321,14 @@ def _active_lane_signature(active_items: list[dict[str, Any]]) -> str:
 
 
 DASHBOARD_V2_DIST_PATH = Path(__file__).with_name("dashboard_v2")
+
+# Single source of truth for allowed research provider/models (kills S1192 duplication
+# in _resolve_research_provider_model getenv default + fallback list + provider default).
+# Update here when the allow-list changes; the resolver and any callers stay in sync.
+DEFAULT_ALLOWED_RESEARCH_MODELS: list[str] = [
+    "hf:moonshotai/Kimi-K2.6",
+    "hf:zai-org/GLM-5.1",
+]
 
 
 def _atomic_write_bytes(path: Path, content: bytes) -> None:
@@ -6041,7 +6049,7 @@ def create_control_plane_router(
         provider_model = str(
             body.get("model")
             or os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL")
-            or "hf:zai-org/GLM-5.1"
+            or DEFAULT_ALLOWED_RESEARCH_MODELS[-1]
         ).strip()
         topic = str(body.get("topic") or "").strip()
         temperature = _bounded_float_from_mapping(body, "temperature", 0.8, 0.0, 1.5)
