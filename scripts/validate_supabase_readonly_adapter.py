@@ -51,6 +51,10 @@ DRAFT_MD = "draft.md"
 # (addresses current top remaining S1192 in artifact name lists and path assignments).
 DRAFT_TEX = "draft.tex"
 
+# Centralized filename for the duplicated EVIDENCE_JSON literal
+# (addresses current top remaining S1192 in artifact name lists and path assignments).
+EVIDENCE_JSON = "evidence.json"
+
 
 def run(
     cmd: list[str], *, stdin: str | None = None, check: bool = True
@@ -235,7 +239,7 @@ def sqlite_fixture(store: ControlPlaneStore) -> None:
                 "publication_draft",
                 DRAFT_MD,
                 DRAFT_TEX,
-                "evidence.json",
+                EVIDENCE_JSON,
                 "claims.json",
                 "manifest.json",
                 NOW,
@@ -756,7 +760,7 @@ def main() -> int:
                     paper_status=PaperStatus.DRAFT_REVIEW,
                     draft_markdown_path=DRAFT_MD,
                     draft_latex_path=DRAFT_TEX,
-                    evidence_bundle_path="evidence.json",
+                    evidence_bundle_path=EVIDENCE_JSON,
                     claim_ledger_path="claims.json",
                     manifest_path="manifest.json",
                 )
@@ -822,7 +826,7 @@ def main() -> int:
             for rel_path in (
                 DRAFT_MD,
                 DRAFT_TEX,
-                "evidence.json",
+                EVIDENCE_JSON,
                 "claims.json",
                 "manifest.json",
             ):
