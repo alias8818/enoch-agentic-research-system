@@ -549,6 +549,11 @@ WORKER_PREFLIGHT_FAILED_REASON = "worker preflight failed"
 # Dashboard finding source for cross-source control-plane DB + worker preflight.
 CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE = "control_plane_db+worker_preflight"
 
+# Centralized authority for cross-source active-lane reconciliation findings.
+CROSS_SOURCE_ACTIVE_LANE_RECONCILIATION_AUTHORITY = (
+    "cross-source active-lane reconciliation"
+)
+
 # Centralized event type / status constant for the top remaining S1192 duplication
 # (paper_review draft rewrite events and comparisons in router.py).
 PAPER_REVIEW_DRAFT_REWRITTEN = "paper_review.draft_rewritten"
@@ -5929,7 +5934,7 @@ def _register_control_plane_routes(
                 DashboardFinding(
                     severity="warn",
                     source=CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
-                    authority="cross-source active-lane reconciliation",
+                    authority=CROSS_SOURCE_ACTIVE_LANE_RECONCILIATION_AUTHORITY,
                     message="VM control plane has an active row on the default worker, but cached default-worker preflight says no live worker run",
                     observed_at=preflight.observed_at if preflight else None,
                     suggested_action="inspect run detail and reconcile if the worker truly exited",
@@ -5966,7 +5971,7 @@ def _register_control_plane_routes(
                 DashboardFinding(
                     severity="warn",
                     source="worker_settling",
-                    authority="cross-source active-lane reconciliation",
+                    authority=CROSS_SOURCE_ACTIVE_LANE_RECONCILIATION_AUTHORITY,
                     message=settling_message,
                     observed_at=preflight.observed_at if preflight else None,
                     suggested_action="wait for the worker quiet-window to clear before dispatch",
@@ -7183,7 +7188,7 @@ def _register_control_plane_routes(
                 DashboardFinding(
                     severity="warn",
                     source=CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
-                    authority="cross-source active-lane reconciliation",
+                    authority=CROSS_SOURCE_ACTIVE_LANE_RECONCILIATION_AUTHORITY,
                     message="control-plane row is active but latest worker preflight reports no live run",
                     observed_at=preflight.observed_at if preflight else None,
                     suggested_action="inspect run detail and reconcile the active row if the worker exited",
