@@ -71,13 +71,15 @@ def project_exec_processes(project_root: str) -> list[str]:
     return matches
 
 
-def safe_report(
-    data: dict[str, Any], project_processes: list[str]
-) -> tuple[bool, list[str]]:
-    reasons: list[str] = []
-    totals = data.get("totals") if isinstance(data.get("totals"), dict) else {}
-    queue = data.get("queue") if isinstance(data.get("queue"), dict) else {}
-    runs = data.get("runs") if isinstance(data.get("runs"), list) else []
+def _check_live_totals(totals: dict[str, Any], reasons: list[str]) -> None:
+    """Extracted checker for live gate count (part of C901 reduction for safe_report)."""
+    live = int(totals.get("live") or totals.get("active_or_waiting") or 0)
+    if live:
+        reasons.append(f"live gate runs={live}")
+
+
+def _check_active_queue(queue: dict[str, Any], reasons: list[str]) -> None:
+    """Extracted checker for active queue rows and status counts (C901 reduction)."""
     status_counts = (
         queue.get("status_counts")
         if isinstance(queue.get("status_counts"), dict)
@@ -86,11 +88,6 @@ def safe_report(
     active_rows = (
         queue.get("active_rows") if isinstance(queue.get("active_rows"), list) else []
     )
-
-    live = int(totals.get("live") or totals.get("active_or_waiting") or 0)
-    if live:
-        reasons.append(f"live gate runs={live}")
-
     if active_rows:
         labels = [
             f"{row.get('project_name') or row.get('project_id') or 'unknown'}:{row.get('queue_status') or 'unknown'}"
@@ -98,13 +95,15 @@ def safe_report(
             if isinstance(row, dict)
         ]
         reasons.append(f"queue active_rows={len(active_rows)} ({', '.join(labels)})")
-
     active_status_total = sum(
         int(status_counts.get(status) or 0) for status in ACTIVE_QUEUE_STATUSES
     )
     if active_status_total:
         reasons.append(f"active queue status count={active_status_total}")
 
+
+def _check_live_runs(runs: list[dict[str, Any]], reasons: list[str]) -> None:
+    """Extracted checker for live lifecycle runs (C901 reduction for safe_report)."""
     live_runs = [
         run
         for run in runs
@@ -117,6 +116,24 @@ def safe_report(
             for run in live_runs[:5]
         ]
         reasons.append(f"live run rows={len(live_runs)} ({', '.join(labels)})")
+
+
+def safe_report(
+    data: dict[str, Any], project_processes: list[str]
+) -> tuple[bool, list[str]]:
+    """Return (is_safe, reasons) after checking dashboard snapshot + process table.
+
+    Refactored with three small pure checkers to reduce cognitive complexity from 17
+    to well under the 15 threshold (AGENTS.md + Sonar S3776).
+    """
+    reasons: list[str] = []
+    totals = data.get("totals") if isinstance(data.get("totals"), dict) else {}
+    queue = data.get("queue") if isinstance(data.get("queue"), dict) else {}
+    runs = data.get("runs") if isinstance(data.get("runs"), list) else []
+
+    _check_live_totals(totals, reasons)
+    _check_active_queue(queue, reasons)
+    _check_live_runs(runs, reasons)
 
     if project_processes:
         reasons.append(f"project Codex processes={len(project_processes)}")
