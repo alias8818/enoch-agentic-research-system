@@ -14377,35 +14377,34 @@ def test_research_lane_feed_pressure_helpers_extracted_for_s3776():
         encoding="utf-8"
     )
     for helper in (
-        "_promotable_rows_for_research_lane_feed",
-        "_index_research_lane_feed_rows_by_lane",
-        "_research_lane_feed_next_action_and_summary",
-        "_research_lane_target_label",
+        "_promotable_rows_for_lane_feed_from_store",
+        "_rows_by_worker_lane_key",
+        "_research_lane_feed_autopilot_plan",
+        "_research_lane_generation_target_label",
+        "_single_lane_feed_pressure_entry",
     ):
         assert f"def {helper}(" in src, (
             f"{helper} helper missing (S3776 4001 still monolithic)"
         )
 
     from enoch_control_plane.control_plane.router import (
-        _index_research_lane_feed_rows_by_lane,
-        _promotable_rows_for_research_lane_feed,
-        _research_lane_feed_next_action_and_summary,
-        _research_lane_target_label,
+        _promotable_rows_for_lane_feed_from_store,
+        _research_lane_feed_autopilot_plan,
+        _research_lane_generation_target_label,
     )
 
-    assert callable(_promotable_rows_for_research_lane_feed)
-    assert callable(_index_research_lane_feed_rows_by_lane)
-    assert callable(_research_lane_feed_next_action_and_summary)
-    assert callable(_research_lane_target_label)
+    assert callable(_promotable_rows_for_lane_feed_from_store)
+    assert callable(_research_lane_feed_autopilot_plan)
+    assert callable(_research_lane_generation_target_label)
 
-    action, summary = _research_lane_feed_next_action_and_summary(
+    action, summary = _research_lane_feed_autopilot_plan(
         label="GB10 lane",
-        machine_target="gb10",
-        queued_count=0,
-        promotable_count=0,
-        active_count=0,
         queue_deficit=1,
+        queued_count=0,
+        active_count=0,
+        promotable_count=0,
         min_queue_depth=1,
+        machine_target="gb10",
     )
     assert action == "generate_candidate"
     assert "GB10-targeted" in summary
