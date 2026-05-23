@@ -808,24 +808,78 @@ def validate_source_backfill_policy(
     }
 
 
-def _markdown(signal: dict[str, Any]) -> str:
-    sources = signal.get("sources") or []
-    source_lines = [
-        f"- {src.get('title') or src.get('source_id') or 'source'}: {src.get('url') or src.get('source_id') or ''}"
-        for src in sources
+def _markdown_source_line(src: dict[str, Any]) -> str:
+    title = src.get("title") or src.get("source_id") or "source"
+    ref = src.get("url") or src.get("source_id") or ""
+    return f"- {title}: {ref}"
+
+
+def _markdown_source_section_lines(sources: Any) -> list[str]:
+    source_lines = [_markdown_source_line(src) for src in (sources or [])]
+    return source_lines or ["- No source URL recorded."]
+
+
+def _markdown_curation(signal: dict[str, Any]) -> dict[str, Any]:
+    curation = signal.get("curation")
+    if isinstance(curation, dict):
+        return curation
+    return rank_signal(signal)
+
+
+def _markdown_score_breakdown(curation: dict[str, Any]) -> dict[str, Any]:
+    breakdown = curation.get("score_breakdown")
+    if isinstance(breakdown, dict):
+        return breakdown
+    return {}
+
+
+def _markdown_curation_section_lines(
+    curation: dict[str, Any], breakdown: dict[str, Any]
+) -> list[str]:
+    bucket = curation.get("bucket_label") or curation.get("bucket")
+    reason_lines = [f"- {reason}" for reason in curation.get("reasons") or []]
+    return [
+        "## Deterministic curation",
+        "",
+        f"- Bucket: {bucket}",
+        f"- Score: `{curation.get('score')}`",
+        f"- Score breakdown: `{json.dumps(breakdown, sort_keys=True)}`",
+        "",
+        "Reasons:",
+        *reason_lines,
+        "",
     ]
+
+
+def _markdown_followup_section_lines(followup: dict[str, Any]) -> list[str]:
+    return [
+        "## Follow-up",
+        "",
+        f"- Recommended: `{str(bool(followup.get('recommended'))).lower()}`",
+        f"- Type: `{followup.get('type') or ''}`",
+        f"- Title: {followup.get('title') or ''}",
+        f"- Success threshold: {followup.get('success_threshold') or ''}",
+        f"- Stop condition: {followup.get('stop_condition') or ''}",
+        "",
+    ]
+
+
+def _markdown_evidence_section_lines(evidence: dict[str, Any]) -> list[str]:
+    path_lines = [f"- `{path}`" for path in evidence.get("artifact_paths") or []]
+    return [
+        "## Evidence references",
+        "",
+        f"- Artifact root: `{evidence.get('artifact_root') or ''}`",
+        *path_lines,
+        "",
+    ]
+
+
+def _markdown(signal: dict[str, Any]) -> str:
     followup = signal.get("followup") or {}
     evidence = signal.get("evidence") or {}
-    curation = (
-        signal.get("curation")
-        if isinstance(signal.get("curation"), dict)
-        else rank_signal(signal)
-    )
-    breakdown = (
-        curation.get("score_breakdown")
-        if isinstance(curation.get("score_breakdown"), dict)
-        else {}
-    )
+    curation = _markdown_curation(signal)
+    breakdown = _markdown_score_breakdown(curation)
     return "\n".join(
         [
             f"# {signal['title']}",
@@ -838,18 +892,10 @@ def _markdown(signal: dict[str, Any]) -> str:
             "",
             "> This is a promising-signal record, not a paper. It is bounded local evidence preserved for possible larger-compute follow-up.",
             "",
-            "## Deterministic curation",
-            "",
-            f"- Bucket: {curation.get('bucket_label') or curation.get('bucket')}",
-            f"- Score: `{curation.get('score')}`",
-            f"- Score breakdown: `{json.dumps(breakdown, sort_keys=True)}`",
-            "",
-            "Reasons:",
-            *(f"- {reason}" for reason in curation.get("reasons") or []),
-            "",
+            *_markdown_curation_section_lines(curation, breakdown),
             "## Source",
             "",
-            *(source_lines or ["- No source URL recorded."]),
+            *_markdown_source_section_lines(signal.get("sources")),
             "",
             "## What looked useful",
             "",
@@ -871,19 +917,8 @@ def _markdown(signal: dict[str, Any]) -> str:
             "",
             signal["recommended_next_action"],
             "",
-            "## Follow-up",
-            "",
-            f"- Recommended: `{str(bool(followup.get('recommended'))).lower()}`",
-            f"- Type: `{followup.get('type') or ''}`",
-            f"- Title: {followup.get('title') or ''}",
-            f"- Success threshold: {followup.get('success_threshold') or ''}",
-            f"- Stop condition: {followup.get('stop_condition') or ''}",
-            "",
-            "## Evidence references",
-            "",
-            f"- Artifact root: `{evidence.get('artifact_root') or ''}`",
-            *[f"- `{path}`" for path in evidence.get("artifact_paths") or []],
-            "",
+            *_markdown_followup_section_lines(followup),
+            *_markdown_evidence_section_lines(evidence),
             "## Do not overclaim",
             "",
             signal["do_not_overclaim"]["disclaimer"],
