@@ -41,6 +41,117 @@ def fetch_json(url: str, *, api_key: str = "", timeout: int) -> dict[str, Any]:
         return json.loads(response.read().decode("utf-8"))
 
 
+def _quota_section(
+    payload: dict[str, Any], failures: list[str], name: str
+) -> dict[str, Any]:
+    value = payload.get(name) or {}
+    if isinstance(value, dict):
+        return value
+    failures.append(f"malformed {name} section")
+    return {}
+
+
+def _parse_quota_float(
+    sections: dict[str, dict[str, Any]],
+    failures: list[str],
+    section_name: str,
+    field: str,
+    default: float = 0.0,
+) -> float:
+    raw = str(sections[section_name].get(field) or str(default)).replace("$", "")
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        failures.append(f"malformed {section_name}.{field}")
+        return default
+
+
+def _parse_quota_int(
+    sections: dict[str, dict[str, Any]],
+    failures: list[str],
+    section_name: str,
+    field: str,
+    default: int = 0,
+) -> int:
+    raw = sections[section_name].get(field)
+    try:
+        return int(raw or default)
+    except (TypeError, ValueError):
+        failures.append(f"malformed {section_name}.{field}")
+        return default
+
+
+def _synthetic_budget_metrics(
+    payload: dict[str, Any],
+    failures: list[str],
+    *,
+    estimated_requests: int,
+    reserve_requests: int,
+) -> dict[str, Any]:
+    weekly = _quota_section(payload, failures, "weeklyTokenLimit")
+    rolling = _quota_section(payload, failures, "rollingFiveHourLimit")
+    subscription = _quota_section(payload, failures, "subscription")
+    sections = {
+        "weeklyTokenLimit": weekly,
+        "rollingFiveHourLimit": rolling,
+        "subscription": subscription,
+    }
+    subscription_limit = _parse_quota_int(sections, failures, "subscription", "limit")
+    subscription_requests = _parse_quota_int(
+        sections, failures, "subscription", "requests"
+    )
+    return {
+        "weekly": weekly,
+        "rolling": rolling,
+        "subscription": subscription,
+        "remaining_credits": _parse_quota_float(
+            sections, failures, "weeklyTokenLimit", "remainingCredits"
+        ),
+        "rolling_remaining": _parse_quota_int(
+            sections, failures, "rollingFiveHourLimit", "remaining"
+        ),
+        "rolling_max": _parse_quota_int(
+            sections, failures, "rollingFiveHourLimit", "max"
+        ),
+        "subscription_limit": subscription_limit,
+        "subscription_remaining": max(0, subscription_limit - subscription_requests),
+        "required_rolling": max(0, int(estimated_requests))
+        + max(0, int(reserve_requests)),
+    }
+
+
+def _append_synthetic_budget_threshold_failures(
+    failures: list[str],
+    metrics: dict[str, Any],
+    *,
+    min_remaining_credits: float,
+    min_rolling_remaining: int,
+    estimated_requests: int,
+) -> None:
+    remaining_credits = metrics["remaining_credits"]
+    if remaining_credits < min_remaining_credits:
+        failures.append(
+            f"weekly remaining credits {remaining_credits:.2f} < minimum {min_remaining_credits:.2f}"
+        )
+    rolling = metrics["rolling"]
+    if rolling.get("limited") is True:
+        failures.append("rolling five-hour limit is currently limited")
+    rolling_remaining = metrics["rolling_remaining"]
+    required_rolling = metrics["required_rolling"]
+    if rolling_remaining < max(min_rolling_remaining, required_rolling):
+        failures.append(
+            f"rolling remaining {rolling_remaining} < required {max(min_rolling_remaining, required_rolling)}"
+        )
+    subscription_limit = metrics["subscription_limit"]
+    subscription_remaining = metrics["subscription_remaining"]
+    if subscription_limit > 0 and subscription_remaining < max(
+        0, int(estimated_requests)
+    ):
+        failures.append(
+            f"subscription request allowance remaining {subscription_remaining} < estimated requests {estimated_requests}"
+        )
+
+
 def synthetic_budget_status(
     payload: dict[str, Any],
     *,
@@ -50,72 +161,37 @@ def synthetic_budget_status(
     reserve_requests: int,
 ) -> dict[str, Any]:
     failures: list[str] = []
-
-    def section(name: str) -> dict[str, Any]:
-        value = payload.get(name) or {}
-        if isinstance(value, dict):
-            return value
-        failures.append(f"malformed {name} section")
-        return {}
-
-    weekly = section("weeklyTokenLimit")
-    rolling = section("rollingFiveHourLimit")
-    subscription = section("subscription")
-
-    def parse_float(section_name: str, field: str, default: float = 0.0) -> float:
-        raw = str(section(section_name).get(field) or str(default)).replace("$", "")
-        try:
-            return float(raw)
-        except (TypeError, ValueError):
-            failures.append(f"malformed {section_name}.{field}")
-            return default
-
-    def parse_int(section_name: str, field: str, default: int = 0) -> int:
-        raw = section(section_name).get(field)
-        try:
-            return int(raw or default)
-        except (TypeError, ValueError):
-            failures.append(f"malformed {section_name}.{field}")
-            return default
-
-    remaining_credits = parse_float("weeklyTokenLimit", "remainingCredits")
-    rolling_remaining = parse_int("rollingFiveHourLimit", "remaining")
-    rolling_max = parse_int("rollingFiveHourLimit", "max")
-    subscription_limit = parse_int("subscription", "limit")
-    subscription_requests = parse_int("subscription", "requests")
-    subscription_remaining = max(0, subscription_limit - subscription_requests)
-    required_rolling = max(0, int(estimated_requests)) + max(0, int(reserve_requests))
-    if remaining_credits < min_remaining_credits:
-        failures.append(
-            f"weekly remaining credits {remaining_credits:.2f} < minimum {min_remaining_credits:.2f}"
-        )
-    if rolling.get("limited") is True:
-        failures.append("rolling five-hour limit is currently limited")
-    if rolling_remaining < max(min_rolling_remaining, required_rolling):
-        failures.append(
-            f"rolling remaining {rolling_remaining} < required {max(min_rolling_remaining, required_rolling)}"
-        )
-    if subscription_limit > 0 and subscription_remaining < max(
-        0, int(estimated_requests)
-    ):
-        failures.append(
-            f"subscription request allowance remaining {subscription_remaining} < estimated requests {estimated_requests}"
-        )
+    metrics = _synthetic_budget_metrics(
+        payload,
+        failures,
+        estimated_requests=estimated_requests,
+        reserve_requests=reserve_requests,
+    )
+    _append_synthetic_budget_threshold_failures(
+        failures,
+        metrics,
+        min_remaining_credits=min_remaining_credits,
+        min_rolling_remaining=min_rolling_remaining,
+        estimated_requests=estimated_requests,
+    )
+    weekly = metrics["weekly"]
+    rolling = metrics["rolling"]
+    subscription = metrics["subscription"]
     return {
         "ok": not failures,
         "provider": "synthetic",
         "checked_at": utc_now(),
         "estimated_requests": estimated_requests,
         "reserve_requests": reserve_requests,
-        "remaining_credits": remaining_credits,
+        "remaining_credits": metrics["remaining_credits"],
         "min_remaining_credits": min_remaining_credits,
-        "rolling_remaining": rolling_remaining,
-        "rolling_max": rolling_max,
+        "rolling_remaining": metrics["rolling_remaining"],
+        "rolling_max": metrics["rolling_max"],
         "rolling_limited": bool(rolling.get("limited")),
         "rolling_next_tick_at": rolling.get("nextTickAt") or "",
         "weekly_next_regen_at": weekly.get("nextRegenAt") or "",
         "weekly_next_regen_credits": weekly.get("nextRegenCredits") or "",
-        "subscription_remaining": subscription_remaining,
+        "subscription_remaining": metrics["subscription_remaining"],
         "subscription_renews_at": subscription.get("renewsAt") or "",
         "failures": failures,
         "payload_json": payload,
