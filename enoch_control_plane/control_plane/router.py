@@ -8234,11 +8234,12 @@ def _register_control_plane_http_routes(
         path = _expanduser_path_or_http(
             raw_path, detail="paper artifact path contains an unexpandable user home"
         )
-        resolved = (
-            path
-            if path.is_absolute()
-            else ((project_dir / path) if project_dir else path)
-        )
+        if path.is_absolute():
+            resolved = path
+        elif project_dir is not None:
+            resolved = project_dir / path
+        else:
+            resolved = path
         try:
             resolved = resolved.resolve()
         except (OSError, RuntimeError, ValueError) as exc:
