@@ -3670,6 +3670,61 @@ def _research_cycle_pre_live_exit(
     return None
 
 
+def _dispatch_wait_in_progress_statuses() -> frozenset[str]:
+    return frozenset(
+        {
+            "dispatching",
+            "running",
+            "awaiting_wake",
+            "wake_received",
+            "reconciling",
+        }
+    )
+
+
+def _dispatch_wait_still_active(
+    *, active_now: list[dict[str, Any]], last_status: str
+) -> bool:
+    if active_now:
+        return True
+    return last_status in _dispatch_wait_in_progress_statuses()
+
+
+def _poll_dispatch_completion(
+    *,
+    store: Any,
+    dispatched_project_id: str,
+    deadline: float,
+    poll_interval_seconds: int,
+) -> dict[str, Any]:
+    """Poll queue status until dispatch completes or the deadline is reached."""
+    polls = 0
+    last_status = ""
+    while True:
+        polls += 1
+        row = store.queue_row(dispatched_project_id) if dispatched_project_id else None
+        active_now = store.active_items()
+        last_status = str((row or {}).get("status") or "")
+        if not _dispatch_wait_still_active(
+            active_now=active_now, last_status=last_status
+        ):
+            return {
+                "action": "completed",
+                "project_id": dispatched_project_id,
+                "status": last_status,
+                "polls": polls,
+            }
+        if time.monotonic() >= deadline:
+            return {
+                "action": "timeout",
+                "project_id": dispatched_project_id,
+                "status": last_status,
+                "active_count": len(active_now),
+                "polls": polls,
+            }
+        time.sleep(poll_interval_seconds)
+
+
 def _wait_for_completion(
     *,
     store: Any,
@@ -3697,41 +3752,12 @@ def _wait_for_completion(
             or ""
         )
         deadline = time.monotonic() + max_wait_seconds
-        polls = 0
-        last_status = ""
-        while True:
-            polls += 1
-            row = (
-                store.queue_row(dispatched_project_id)
-                if dispatched_project_id
-                else None
-            )
-            active_now = store.active_items()
-            last_status = str((row or {}).get("status") or "")
-            if not active_now and last_status not in {
-                "dispatching",
-                "running",
-                "awaiting_wake",
-                "wake_received",
-                "reconciling",
-            }:
-                wait_result = {
-                    "action": "completed",
-                    "project_id": dispatched_project_id,
-                    "status": last_status,
-                    "polls": polls,
-                }
-                break
-            if time.monotonic() >= deadline:
-                wait_result = {
-                    "action": "timeout",
-                    "project_id": dispatched_project_id,
-                    "status": last_status,
-                    "active_count": len(active_now),
-                    "polls": polls,
-                }
-                break
-            time.sleep(poll_interval_seconds)
+        wait_result = _poll_dispatch_completion(
+            store=store,
+            dispatched_project_id=dispatched_project_id,
+            deadline=deadline,
+            poll_interval_seconds=poll_interval_seconds,
+        )
     response["wait"] = wait_result
     response["stages"].append({"stage": "wait_for_completion", **wait_result})
     return wait_result
