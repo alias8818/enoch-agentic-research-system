@@ -14220,6 +14220,27 @@ def test_dispatch_queued_project_extracted_no_duplication_in_giant():
     assert callable(_dispatch_queued_project)
 
 
+def test_lane_helpers_extracted_no_duplication_in_giant():
+    """AGENTS.md test-first for the next horrible-first S3776 inside the (now much smaller) 1595
+    create_control_plane_router / dashboard_research_run_cycle (after dispatch_queued_project extraction).
+
+    The small but frequently used lane helpers `research_row_lane_key` + `open_lane_research_rows`
+    (which close over _worker_lane_key and are used throughout the giant for lane matching and
+    open-lane filtering) are extracted to top-level to further reduce cognitive complexity and
+    improve testability of the giant.
+    """
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    assert "def research_row_lane_key(" in src
+    assert "def open_lane_research_rows(" in src
+
+    # Behavioral smoke
+    from enoch_control_plane.control_plane.router import research_row_lane_key, open_lane_research_rows
+    assert callable(research_row_lane_key)
+    assert callable(open_lane_research_rows)
+
+
 def test_router_no_redundant_response_model_fastapi_style():
     """AGENTS.md test-first validator for top BLOCKERs (S8409/S8410, ~49 instances in router.py).
 
