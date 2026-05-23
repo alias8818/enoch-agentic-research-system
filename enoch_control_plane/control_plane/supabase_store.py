@@ -1088,6 +1088,134 @@ def _decision_summary(gate: dict[str, Any]) -> str:
     return decision or reason
 
 
+def _resolve_project_decision_artifact_path(artifact_root_path: Path) -> Path:
+    candidates = (
+        artifact_root_path / ".enoch" / PROJECT_DECISION_JSON_FILENAME,
+        artifact_root_path / ".omx" / PROJECT_DECISION_JSON_FILENAME,
+        artifact_root_path / PROJECT_DECISION_JSON_FILENAME,
+    )
+    for path in candidates:
+        if path.exists():
+            return path
+    return candidates[-1]
+
+
+def _idea_source_payload_for_project(cur: Any, project_id: str) -> dict[str, Any]:
+    source_row = cur.execute(
+        "select source_payload_json from ideas where idea_id = %s",
+        (project_id,),
+    ).fetchone()
+    if not source_row:
+        return {}
+    raw_source = (
+        source_row[0]
+        if not isinstance(source_row, dict)
+        else source_row.get("source_payload_json")
+    )
+    if isinstance(raw_source, dict):
+        return raw_source
+    if isinstance(raw_source, str):
+        return _json_dict(raw_source)
+    return {}
+
+
+def _verified_run_id_for_decision(cur: Any, run_id_value: str | None) -> str | None:
+    if not run_id_value:
+        return None
+    found_run = cur.execute(
+        "select 1 from runs where run_id = %s", (run_id_value,)
+    ).fetchone()
+    return run_id_value if found_run else None
+
+
+_PROJECT_DECISION_UPSERT_SQL = """
+                    insert into project_decisions(project_id, run_id, decision_type, decision_gate_state,
+                      decision_summary, artifact_path, payload_json, payload_hash, decided_at,
+                      followup_recommended, followup_type, followup_title, followup_hypothesis,
+                      followup_required_evidence, followup_success_threshold, followup_stop_condition, followup_depth)
+                    values (%s,%s,'project_outcome',%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s)
+                    on conflict (project_id, run_id, decision_type) do update set
+                      decision_gate_state=excluded.decision_gate_state,
+                      decision_summary=excluded.decision_summary,
+                      artifact_path=excluded.artifact_path,
+                      payload_json=excluded.payload_json,
+                      payload_hash=excluded.payload_hash,
+                      decided_at=excluded.decided_at,
+                      followup_recommended=excluded.followup_recommended,
+                      followup_type=excluded.followup_type,
+                      followup_title=excluded.followup_title,
+                      followup_hypothesis=excluded.followup_hypothesis,
+                      followup_required_evidence=excluded.followup_required_evidence,
+                      followup_success_threshold=excluded.followup_success_threshold,
+                      followup_stop_condition=excluded.followup_stop_condition,
+                      followup_depth=excluded.followup_depth,
+                      updated_at=now()
+                    where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at
+                    """
+
+
+def _upsert_project_decision_gate_row(
+    cur: Any,
+    *,
+    project_id: str,
+    run_id_value: str | None,
+    gate: dict[str, Any],
+    artifact_path: Path,
+    payload: dict[str, Any],
+    payload_json: str,
+    followup: dict[str, Any],
+    followup_depth: int,
+    decided_at: str | None,
+) -> bool:
+    cur.execute(
+        _PROJECT_DECISION_UPSERT_SQL,
+        (
+            project_id,
+            run_id_value,
+            _decision_gate_state(gate),
+            _decision_summary(gate),
+            str(artifact_path),
+            payload_json,
+            _hash(payload),
+            decided_at or utc_now(),
+            bool(followup.get("followup_recommended")),
+            _text(followup.get("followup_type")),
+            _text(followup.get("followup_title")),
+            _text(followup.get("followup_hypothesis")),
+            _json(followup.get("followup_required_evidence") or []),
+            _text(followup.get("followup_success_threshold")),
+            _text(followup.get("followup_stop_condition")),
+            followup_depth,
+        ),
+    )
+    return getattr(cur, "rowcount", None) != 0
+
+
+def _project_decision_gate_record(
+    *,
+    persisted: bool,
+    project_id: str,
+    run_id_value: str | None,
+    gate: dict[str, Any],
+    artifact_path: Path,
+    followup: dict[str, Any],
+    followup_depth: int,
+) -> dict[str, Any]:
+    record = {
+        "ok": True,
+        "persisted": persisted,
+        "project_id": project_id,
+        "run_id": run_id_value or "",
+        "decision_gate_state": _decision_gate_state(gate),
+        "decision_summary": _decision_summary(gate),
+        "artifact_path": str(artifact_path),
+    }
+    if not persisted:
+        record["reason"] = "stale project decision ignored"
+        return record
+    return {**record, **followup, "followup_depth": followup_depth}
+
+
 def _unresolved_artifact(field: str, raw_path: str) -> dict[str, Any]:
     return {
         "field": field,
@@ -5037,31 +5165,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 "reason": "missing project decision artifact",
                 "gate": gate,
             }
-        artifact_path = artifact_root_path / ".enoch" / PROJECT_DECISION_JSON_FILENAME
-        if not artifact_path.exists():
-            artifact_path = artifact_root_path / ".omx" / PROJECT_DECISION_JSON_FILENAME
-        if not artifact_path.exists():
-            artifact_path = artifact_root_path / PROJECT_DECISION_JSON_FILENAME
+        artifact_path = _resolve_project_decision_artifact_path(artifact_root_path)
         decision_payload = project_decision_payload(artifact_root_path)
         followup = followup_candidate_from_decision_payload(decision_payload)
         run_id_value = _text(run_id) or None
-        idea_source_payload: dict[str, Any] = {}
         with self._connect() as conn:
             with conn.cursor() as cur:
-                source_row = cur.execute(
-                    "select source_payload_json from ideas where idea_id = %s",
-                    (project_id,),
-                ).fetchone()
-                if source_row:
-                    raw_source = (
-                        source_row[0]
-                        if not isinstance(source_row, dict)
-                        else source_row.get("source_payload_json")
-                    )
-                    if isinstance(raw_source, dict):
-                        idea_source_payload = raw_source
-                    elif isinstance(raw_source, str):
-                        idea_source_payload = _json_dict(raw_source)
+                idea_source_payload = _idea_source_payload_for_project(cur, project_id)
                 followup_depth = _enforced_followup_depth(
                     decision_payload, {"source_payload_json": idea_source_payload}
                 )
@@ -5073,79 +5183,28 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     "enforced_followup_depth": followup_depth,
                 }
                 payload_json = _json(payload)
-                if run_id_value:
-                    found_run = cur.execute(
-                        "select 1 from runs where run_id = %s", (run_id_value,)
-                    ).fetchone()
-                    if not found_run:
-                        run_id_value = None
-                cur.execute(
-                    """
-                    insert into project_decisions(project_id, run_id, decision_type, decision_gate_state,
-                      decision_summary, artifact_path, payload_json, payload_hash, decided_at,
-                      followup_recommended, followup_type, followup_title, followup_hypothesis,
-                      followup_required_evidence, followup_success_threshold, followup_stop_condition, followup_depth)
-                    values (%s,%s,'project_outcome',%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s)
-                    on conflict (project_id, run_id, decision_type) do update set
-                      decision_gate_state=excluded.decision_gate_state,
-                      decision_summary=excluded.decision_summary,
-                      artifact_path=excluded.artifact_path,
-                      payload_json=excluded.payload_json,
-                      payload_hash=excluded.payload_hash,
-                      decided_at=excluded.decided_at,
-                      followup_recommended=excluded.followup_recommended,
-                      followup_type=excluded.followup_type,
-                      followup_title=excluded.followup_title,
-                      followup_hypothesis=excluded.followup_hypothesis,
-                      followup_required_evidence=excluded.followup_required_evidence,
-                      followup_success_threshold=excluded.followup_success_threshold,
-                      followup_stop_condition=excluded.followup_stop_condition,
-                      followup_depth=excluded.followup_depth,
-                      updated_at=now()
-                    where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at
-                    """,
-                    (
-                        project_id,
-                        run_id_value,
-                        _decision_gate_state(gate),
-                        _decision_summary(gate),
-                        str(artifact_path),
-                        payload_json,
-                        _hash(payload),
-                        decided_at or utc_now(),
-                        bool(followup.get("followup_recommended")),
-                        _text(followup.get("followup_type")),
-                        _text(followup.get("followup_title")),
-                        _text(followup.get("followup_hypothesis")),
-                        _json(followup.get("followup_required_evidence") or []),
-                        _text(followup.get("followup_success_threshold")),
-                        _text(followup.get("followup_stop_condition")),
-                        followup_depth,
-                    ),
+                run_id_value = _verified_run_id_for_decision(cur, run_id_value)
+                persisted = _upsert_project_decision_gate_row(
+                    cur,
+                    project_id=project_id,
+                    run_id_value=run_id_value,
+                    gate=gate,
+                    artifact_path=artifact_path,
+                    payload=payload,
+                    payload_json=payload_json,
+                    followup=followup,
+                    followup_depth=followup_depth,
+                    decided_at=decided_at,
                 )
-                persisted = getattr(cur, "rowcount", None) != 0
-        if not persisted:
-            return {
-                "ok": True,
-                "persisted": False,
-                "project_id": project_id,
-                "run_id": run_id_value or "",
-                "reason": "stale project decision ignored",
-                "decision_gate_state": _decision_gate_state(gate),
-                "decision_summary": _decision_summary(gate),
-                "artifact_path": str(artifact_path),
-            }
-        return {
-            "ok": True,
-            "persisted": True,
-            "project_id": project_id,
-            "run_id": run_id_value or "",
-            "decision_gate_state": _decision_gate_state(gate),
-            "decision_summary": _decision_summary(gate),
-            "artifact_path": str(artifact_path),
-            **followup,
-            "followup_depth": followup_depth,
-        }
+        return _project_decision_gate_record(
+            persisted=persisted,
+            project_id=project_id,
+            run_id_value=run_id_value,
+            gate=gate,
+            artifact_path=artifact_path,
+            followup=followup,
+            followup_depth=followup_depth,
+        )
 
     def next_followup_candidate(
         self, *, project_id: str = "", max_followup_depth: int = 4

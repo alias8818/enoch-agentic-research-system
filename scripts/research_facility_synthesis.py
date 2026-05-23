@@ -579,12 +579,7 @@ def synthesize_clusters(
     }
 
 
-def emit_synthesis_sql(
-    report: dict[str, Any], *, requested_by: str, queue_synthesized: bool
-) -> str:
-    candidates = [
-        row for row in report.get("synthesized_candidates", []) if isinstance(row, dict)
-    ]
+def _synthesis_admission_plans(candidates: list[dict[str, Any]]) -> list[Any]:
     args = argparse.Namespace(
         default_machine="gb10",
         default_model="gpt-5.5",
@@ -603,53 +598,109 @@ def emit_synthesis_sql(
         raise ValueError(
             f"synthesized candidates must pass admission before SQL emission: {summary}"
         )
-    sql = research_facility.emit_sql(
-        plans, requested_by=requested_by, queue_admitted=queue_synthesized
-    )
+    return plans
+
+
+def _sql_lines_without_trailing_commit(sql: str) -> list[str]:
     sql_lines = sql.rstrip().splitlines()
     if sql_lines and sql_lines[-1].strip().lower() == "commit;":
         sql_lines = sql_lines[:-1]
-    lines = [*sql_lines, ""]
-    for cluster, candidate in zip(report.get("clusters", []), candidates, strict=False):
-        synthesized_id = _text(candidate.get("candidate_id"))
-        if not synthesized_id:
+    return [*sql_lines, ""]
+
+
+def _branch_supersede_update_sql(
+    *, branch_id: str, synthesized_id: str, cluster: dict[str, Any]
+) -> str:
+    return (
+        "update enoch.research_candidates "
+        "set status = 'deferred_pending_oracle', updated_at = now(), "
+        "raw_candidate_json = coalesce(raw_candidate_json, '{}'::jsonb) || "
+        f"{research_facility.sql_json({'superseded_by': synthesized_id, 'synthesis_reason': cluster.get('reason', '')})} "
+        f"where candidate_id = {research_facility.sql_literal(branch_id)} "
+        "and status in ('generated','needs_review','admitted');"
+    )
+
+
+def _candidate_lineage_insert_sql(
+    *,
+    source_id: str,
+    synthesized_id: str,
+    relation: str,
+    cluster_key: Any,
+    requested_by: str,
+) -> str:
+    return (
+        "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
+        f"('candidate', {research_facility.sql_literal(source_id)}, 'candidate', {research_facility.sql_literal(synthesized_id)}, {research_facility.sql_literal(relation)}, "
+        f"{research_facility.sql_json({'cluster_key': cluster_key, 'requested_by': requested_by})}) "
+        "on conflict do nothing;"
+    )
+
+
+def _synthesis_cluster_sql_lines(
+    cluster: dict[str, Any],
+    candidate: dict[str, Any],
+    *,
+    requested_by: str,
+    reflection_patterns: Iterable[Any],
+) -> list[str]:
+    synthesized_id = _text(candidate.get("candidate_id"))
+    if not synthesized_id:
+        return []
+    lines: list[str] = []
+    cluster_key = cluster.get("cluster_key")
+    for branch in cluster.get("candidates", []):
+        branch_id = _text(branch.get("candidate_id"))
+        if not branch_id:
             continue
-        for branch in cluster.get("candidates", []):
-            branch_id = _text(branch.get("candidate_id"))
-            if not branch_id:
-                continue
-            lines.append(
-                "update enoch.research_candidates "
-                "set status = 'deferred_pending_oracle', updated_at = now(), "
-                "raw_candidate_json = coalesce(raw_candidate_json, '{}'::jsonb) || "
-                f"{research_facility.sql_json({'superseded_by': synthesized_id, 'synthesis_reason': cluster.get('reason', '')})} "
-                f"where candidate_id = {research_facility.sql_literal(branch_id)} "
-                "and status in ('generated','needs_review','admitted');"
+        lines.append(
+            _branch_supersede_update_sql(
+                branch_id=branch_id,
+                synthesized_id=synthesized_id,
+                cluster=cluster,
             )
-            for source_type, source_id, target_type, target_id, relation in (
-                (
-                    "candidate",
-                    branch_id,
-                    "candidate",
-                    synthesized_id,
-                    "synthesized_from",
-                ),
-                ("candidate", branch_id, "candidate", synthesized_id, "superseded_by"),
-            ):
-                lines.append(
-                    "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
-                    f"({research_facility.sql_literal(source_type)}, {research_facility.sql_literal(source_id)}, {research_facility.sql_literal(target_type)}, {research_facility.sql_literal(target_id)}, {research_facility.sql_literal(relation)}, "
-                    f"{research_facility.sql_json({'cluster_key': cluster.get('cluster_key'), 'requested_by': requested_by})}) "
-                    "on conflict do nothing;"
+        )
+        for relation in ("synthesized_from", "superseded_by"):
+            lines.append(
+                _candidate_lineage_insert_sql(
+                    source_id=branch_id,
+                    synthesized_id=synthesized_id,
+                    relation=relation,
+                    cluster_key=cluster_key,
+                    requested_by=requested_by,
                 )
-        for pattern in report.get("reflection_patterns", []):
-            source_id = _text(pattern.get("project_id"))
-            if source_id:
-                lines.append(
-                    "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
-                    f"('project', {research_facility.sql_literal(source_id)}, 'candidate', {research_facility.sql_literal(synthesized_id)}, 'inspired_by_success', {research_facility.sql_json({'not_system_truth': True})}) "
-                    "on conflict do nothing;"
-                )
+            )
+    for pattern in reflection_patterns:
+        source_id = _text(pattern.get("project_id"))
+        if source_id:
+            lines.append(
+                "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
+                f"('project', {research_facility.sql_literal(source_id)}, 'candidate', {research_facility.sql_literal(synthesized_id)}, 'inspired_by_success', {research_facility.sql_json({'not_system_truth': True})}) "
+                "on conflict do nothing;"
+            )
+    return lines
+
+
+def emit_synthesis_sql(
+    report: dict[str, Any], *, requested_by: str, queue_synthesized: bool
+) -> str:
+    candidates = [
+        row for row in report.get("synthesized_candidates", []) if isinstance(row, dict)
+    ]
+    plans = _synthesis_admission_plans(candidates)
+    sql = research_facility.emit_sql(
+        plans, requested_by=requested_by, queue_admitted=queue_synthesized
+    )
+    lines = _sql_lines_without_trailing_commit(sql)
+    for cluster, candidate in zip(report.get("clusters", []), candidates, strict=False):
+        lines.extend(
+            _synthesis_cluster_sql_lines(
+                cluster,
+                candidate,
+                requested_by=requested_by,
+                reflection_patterns=report.get("reflection_patterns", []),
+            )
+        )
     lines.extend(["commit;", ""])
     return "\n".join(lines)
 

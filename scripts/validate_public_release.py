@@ -55,10 +55,26 @@ OF_PASS_PHRASE = re.compile(
     r"\b(\d{2,5})\s+of\s+(\d{2,5})\s+pass(?:es)?\s+(?:the\s+)?packaging(?:/| and )provenance",
     re.I,
 )
-STRICT_FAIL_PHRASE = re.compile(
-    r"\b(?:fails?|flags|rejects)\s+(\d{1,5})\s+of\s+(?:its own\s+|its\s+|the\s+)?(\d{2,5})\s+(?:canonical\s+)?outputs",
-    re.I,
+_STRICT_FAIL_VERB = r"\b(?:fail|fails|flag|flags|reject|rejects)"
+_STRICT_FAIL_COUNTS = r"\s+(\d{1,5})\s+of\s+"
+_STRICT_FAIL_OUTPUTS = r"(\d{2,5})\s+(?:canonical )?outputs"
+
+
+def _strict_fail_phrase_pattern(owner: str) -> re.Pattern[str]:
+    owner_fragment = re.escape(owner) if owner else ""
+    return re.compile(
+        f"{_STRICT_FAIL_VERB}{_STRICT_FAIL_COUNTS}{owner_fragment}{_STRICT_FAIL_OUTPUTS}",
+        re.I,
+    )
+
+
+STRICT_FAIL_PHRASES: tuple[re.Pattern[str], ...] = (
+    _strict_fail_phrase_pattern("its own "),
+    _strict_fail_phrase_pattern("its "),
+    _strict_fail_phrase_pattern("the "),
+    _strict_fail_phrase_pattern(""),
 )
+STRICT_FAIL_PHRASE = STRICT_FAIL_PHRASES[-1]
 _HTML_GAP = r"(?:\s|<[^>]+>)+"
 _PROMISING_LEADS = r"(?:leads|signals)"
 _PROMISING_TAIL = r"(?:preserved|outside|that are not|repo|records)"
@@ -246,13 +262,14 @@ def check_strict_public_counts(
                     f"strict audit pass count drift in {path}:{line_for(text, match.start())}: {left}/{right} != {strict_pass_count}/{artifact_count}",
                     failures,
                 )
-        for match in STRICT_FAIL_PHRASE.finditer(text):
-            left, right = int(match.group(1)), int(match.group(2))
-            if (left, right) != (strict_fail_count, artifact_count):
-                fail(
-                    f"strict audit fail count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {strict_fail_count} of {artifact_count}",
-                    failures,
-                )
+        for pattern in STRICT_FAIL_PHRASES:
+            for match in pattern.finditer(text):
+                left, right = int(match.group(1)), int(match.group(2))
+                if (left, right) != (strict_fail_count, artifact_count):
+                    fail(
+                        f"strict audit fail count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {strict_fail_count} of {artifact_count}",
+                        failures,
+                    )
 
 
 def check_quality_scope(paths: list[Path], failures: list[str]) -> None:
