@@ -14103,6 +14103,25 @@ def test_janitor_report_computed_extracted_no_duplication_in_giant():
     assert callable(_compute_janitor_report)
 
 
+def test_generation_target_lane_extracted_no_duplication_in_giant():
+    """AGENTS.md test-first for the next horrible-first S3776 inside the 1595
+    create_control_plane_router / dashboard_research_run_cycle (after janitor 61 removal).
+
+    The self-contained generation target lane selection logic (actions + candidates
+    filter over lane_feed_pressure + max with queue_deficit) is extracted to
+    _select_generation_target_lane to further reduce cognitive complexity.
+    """
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    assert "def _select_generation_target_lane(" in src, (
+        "_select_generation_target_lane helper missing (generation target logic still inline)"
+    )
+
+    from enoch_control_plane.control_plane.router import _select_generation_target_lane
+    assert callable(_select_generation_target_lane)
+
+
 def test_router_no_redundant_response_model_fastapi_style():
     """AGENTS.md test-first validator for top BLOCKERs (S8409/S8410, ~49 instances in router.py).
 

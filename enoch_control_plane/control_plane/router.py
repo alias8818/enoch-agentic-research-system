@@ -1836,6 +1836,43 @@ def _compute_janitor_report(
     return janitor_report
 
 
+def _select_generation_target_lane(
+    lane_feed_pressure: dict, max_dispatches: int
+) -> str | None:
+    """Extracted from dashboard_research_run_cycle (reduces cognitive complexity in the 1595 giant).
+
+    Computes the best lane to target for fresh generation based on queue deficit,
+    promotable count, and dispatch pressure. Pure and testable.
+    """
+    if not lane_feed_pressure:
+        return None
+
+    generation_target_actions = {"generate_candidate"}
+    if max_dispatches <= 0:
+        generation_target_actions.add("dispatch_queued")
+
+    generation_target_candidates = [
+        item
+        for item in lane_feed_pressure.values()
+        if item.get("queue_deficit")
+        and item.get("next_autopilot_action") in generation_target_actions
+        and not item.get("promotable_count")
+    ]
+
+    if not generation_target_candidates:
+        return None
+
+    chosen = max(
+        generation_target_candidates,
+        key=lambda item: (
+            int(item.get("queue_deficit") or 0),
+            -int(item.get("queued_count") or 0),
+            str(item.get("machine_target") or ""),
+        ),
+    )
+    return chosen  # return the full pressure item dict (original max() semantics) so callers can do .get("lane_key") etc.
+
+
 def create_control_plane_router(
     config: GateConfig, require_bearer: RequireBearer
 ) -> APIRouter:
@@ -6530,24 +6567,8 @@ def create_control_plane_router(
             min_queue_depth=min_queue_depth_per_lane,
             min_admission_score=min_admission_score,
         )
-        generation_target_actions = {"generate_candidate"}
-        if max_dispatches <= 0:
-            generation_target_actions.add("dispatch_queued")
-        generation_target_candidates = [
-            item
-            for item in lane_feed_pressure.values()
-            if item.get("queue_deficit")
-            and item.get("next_autopilot_action") in generation_target_actions
-            and not item.get("promotable_count")
-        ]
-        generation_target_lane = max(
-            generation_target_candidates,
-            key=lambda item: (
-                int(item.get("queue_deficit") or 0),
-                -int(item.get("queued_count") or 0),
-                str(item.get("machine_target") or ""),
-            ),
-            default=None,
+        generation_target_lane = _select_generation_target_lane(
+            lane_feed_pressure, max_dispatches
         )
         if (
             active
