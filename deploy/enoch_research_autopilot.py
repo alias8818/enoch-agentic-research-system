@@ -354,7 +354,7 @@ def refresh_research_quality_window_comparison() -> dict:
     }
 
 
-def _janitor_llm_review_report_path() -> Path:
+def _janitor_llm_review_output_path() -> Path:
     output = Path(
         os.environ.get(
             "ENOCH_RESEARCH_JANITOR_LLM_REPORT_PATH",
@@ -365,11 +365,10 @@ def _janitor_llm_review_report_path() -> Path:
     return output
 
 
-def _build_janitor_llm_review_command(output: Path, timeout: int) -> list[str]:
-    script = _repo_root() / "scripts" / "research_facility_llm_review.py"
+def _janitor_llm_review_command(output: Path, timeout: int) -> list[str]:
     cmd = [
         sys.executable,
-        str(script),
+        str(_repo_root() / "scripts" / "research_facility_llm_review.py"),
         "--provider-base-url",
         os.environ.get(
             "ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"
@@ -411,9 +410,10 @@ def _build_janitor_llm_review_command(output: Path, timeout: int) -> list[str]:
         "--output",
         str(output),
     ]
-    cmd.append(
-        "--apply" if _truthy("ENOCH_RESEARCH_JANITOR_LLM_APPLY") else "--dry-run"
-    )
+    if _truthy("ENOCH_RESEARCH_JANITOR_LLM_APPLY"):
+        cmd.append("--apply")
+    else:
+        cmd.append("--dry-run")
     if _truthy("ENOCH_RESEARCH_JANITOR_LLM_APPLY_STORED", default=True):
         cmd.append("--apply-stored-decisions")
         cmd.extend(
@@ -429,21 +429,33 @@ def _build_janitor_llm_review_command(output: Path, timeout: int) -> list[str]:
     return cmd
 
 
-def _load_json_report(path: Path) -> dict:
-    if not path.exists():
+def _read_janitor_llm_payload(output: Path) -> dict:
+    if not output.exists():
         return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(output.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def _janitor_llm_review_subprocess_error(
+    *, reason: str, display_cmd: list, output: Path
+) -> dict:
+    return {
+        "ok": False,
+        "action": "research_janitor_llm_review_failed",
+        "reason": reason,
+        "command": display_cmd,
+        "output": str(output),
+    }
 
 
 def _janitor_llm_review_result(
     proc: subprocess.CompletedProcess[str],
     *,
     output: Path,
-    display_cmd: list[str],
     payload: dict,
+    display_cmd: list,
 ) -> dict:
     return {
         "ok": proc.returncode == 0 and bool(payload.get("ok", proc.returncode == 0)),
@@ -487,9 +499,9 @@ def run_quota_gated_janitor_llm_review() -> dict:
             "reason": MISSING_DATABASE_URL_REASON,
         }
 
-    output = _janitor_llm_review_report_path()
+    output = _janitor_llm_review_output_path()
     timeout = _bounded_int("ENOCH_RESEARCH_JANITOR_LLM_TIMEOUT_SECONDS", 180, 30, 600)
-    display_cmd = _build_janitor_llm_review_command(output, timeout)
+    display_cmd = _janitor_llm_review_command(output, timeout)
     try:
         proc = subprocess.run(
             display_cmd,
@@ -502,26 +514,23 @@ def run_quota_gated_janitor_llm_review() -> dict:
             env=_database_url_env(database_url),
         )
     except subprocess.TimeoutExpired:
-        return {
-            "ok": False,
-            "action": "research_janitor_llm_review_failed",
-            "reason": _timeout_reason(timeout + 30),
-            "command": display_cmd,
-            "output": str(output),
-        }
+        return _janitor_llm_review_subprocess_error(
+            reason=_timeout_reason(timeout + 30),
+            display_cmd=display_cmd,
+            output=output,
+        )
     except OSError as exc:
-        return {
-            "ok": False,
-            "action": "research_janitor_llm_review_failed",
-            "reason": f"{type(exc).__name__}: {exc}",
-            "command": display_cmd,
-            "output": str(output),
-        }
+        return _janitor_llm_review_subprocess_error(
+            reason=f"{type(exc).__name__}: {exc}",
+            display_cmd=display_cmd,
+            output=output,
+        )
+
     return _janitor_llm_review_result(
         proc,
         output=output,
+        payload=_read_janitor_llm_payload(output),
         display_cmd=display_cmd,
-        payload=_load_json_report(output),
     )
 
 
