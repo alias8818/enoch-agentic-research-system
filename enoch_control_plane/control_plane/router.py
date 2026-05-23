@@ -4034,7 +4034,7 @@ def _research_lane_feed_pressure_label(machine_target: str, worker_role: Any) ->
     return f"{machine_target or 'default'} lane"
 
 
-def _research_lane_target_label(machine_target: str) -> str:
+def _research_lane_generation_target_label(machine_target: str) -> str:
     machine_lower = machine_target.lower()
     if "gb10" in machine_lower:
         return "GB10"
@@ -4043,20 +4043,17 @@ def _research_lane_target_label(machine_target: str) -> str:
     return machine_target or "default"
 
 
-def _promotable_rows_for_research_lane_feed(
-    *,
+def _promotable_rows_for_lane_feed_from_store(
     store: Any,
-    promotable: list[dict[str, Any]] | None,
+    *,
     min_admission_score: float,
 ) -> list[dict[str, Any]]:
-    if promotable is not None:
-        return list(promotable)
     if not hasattr(store, "research_facility_workbench_projection"):
         return []
     try:
         workbench_rows = list(store.research_facility_workbench_projection(limit=100))  # type: ignore[attr-defined]
     except Exception:
-        workbench_rows = []
+        return []
     return [
         row
         for row in workbench_rows
@@ -4066,31 +4063,29 @@ def _promotable_rows_for_research_lane_feed(
     ]
 
 
-def _index_research_lane_feed_rows_by_lane(
+def _rows_by_worker_lane_key(
+    rows: list[dict[str, Any]],
     *,
-    queued_rows: list[dict[str, Any]],
-    promotable_rows: list[dict[str, Any]],
-    _queued_dispatch_candidates: Callable,
-    _worker_lane_key: Callable,
-) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]]]:
-    queued_by_lane: dict[str, list[dict[str, Any]]] = {}
-    promotable_by_lane: dict[str, list[dict[str, Any]]] = {}
-    for row in _queued_dispatch_candidates(queued_rows):
-        queued_by_lane.setdefault(_worker_lane_key(row), []).append(row)
-    for row in promotable_rows:
-        promotable_by_lane.setdefault(_worker_lane_key(row), []).append(row)
-    return queued_by_lane, promotable_by_lane
+    worker_lane_key: Callable[[dict[str, Any]], str],
+    include_row: Callable[[dict[str, Any]], bool] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        if include_row is not None and not include_row(row):
+            continue
+        grouped.setdefault(worker_lane_key(row), []).append(row)
+    return grouped
 
 
-def _research_lane_feed_next_action_and_summary(
+def _research_lane_feed_autopilot_plan(
     *,
     label: str,
-    machine_target: str,
-    queued_count: int,
-    promotable_count: int,
-    active_count: int,
     queue_deficit: int,
+    queued_count: int,
+    active_count: int,
+    promotable_count: int,
     min_queue_depth: int,
+    machine_target: str,
 ) -> tuple[str, str]:
     if not queue_deficit:
         return (
@@ -4108,19 +4103,58 @@ def _research_lane_feed_next_action_and_summary(
             f"{label} needs queued depth {queued_count}/{min_queue_depth}; "
             f"autopilot should promote {promotable_count} admitted candidate(s).",
         )
-    target_label = _research_lane_target_label(machine_target)
+    target_label = _research_lane_generation_target_label(machine_target)
     if queued_count:
         summary = (
             f"{label} active with queued depth {queued_count}/{min_queue_depth}; "
             f"autopilot should generate {target_label}-targeted work to fill the remaining deficit."
         )
     else:
-        idle_prefix = "idle " if not active_count else ""
+        active_prefix = "idle " if not active_count else ""
         summary = (
-            f"{label} {idle_prefix}with no queued candidate; "
+            f"{label} {active_prefix}with no queued candidate; "
             f"autopilot should generate {target_label}-targeted work."
         )
     return ("generate_candidate", summary)
+
+
+def _single_lane_feed_pressure_entry(
+    lane: dict[str, Any],
+    *,
+    queued_by_lane: dict[str, list[dict[str, Any]]],
+    promotable_by_lane: dict[str, list[dict[str, Any]]],
+    min_queue_depth: int,
+) -> tuple[str, dict[str, Any]]:
+    lane_key = str(lane.get("lane_key") or "")
+    machine_target = str(lane.get("machine_target") or "")
+    label = _research_lane_feed_pressure_label(machine_target, lane.get("worker_role"))
+    queued_count = len(queued_by_lane.get(lane_key, []))
+    promotable_count = len(promotable_by_lane.get(lane_key, []))
+    active_count = int(lane.get("active_count") or 0)
+    queue_deficit = max(0, min_queue_depth - queued_count)
+    next_action, summary = _research_lane_feed_autopilot_plan(
+        label=label,
+        queue_deficit=queue_deficit,
+        queued_count=queued_count,
+        active_count=active_count,
+        promotable_count=promotable_count,
+        min_queue_depth=min_queue_depth,
+        machine_target=machine_target,
+    )
+    pressure_key = machine_target or lane_key
+    entry = {
+        "lane_key": lane_key,
+        "machine_target": machine_target,
+        "worker_role": lane.get("worker_role"),
+        "desired_queue_depth": min_queue_depth,
+        "active_count": active_count,
+        "queued_count": queued_count,
+        "promotable_count": promotable_count,
+        "queue_deficit": queue_deficit,
+        "next_autopilot_action": next_action,
+        "operator_summary": summary,
+    }
+    return pressure_key, entry
 
 
 def _compute_research_lane_feed_pressure(
@@ -4139,51 +4173,32 @@ def _compute_research_lane_feed_pressure(
 ) -> dict[str, dict[str, Any]]:
     lane_rows = lanes or _worker_lane_capacity(active=active, rows=queued or [])
     queued_rows = list(queued if queued is not None else _queue_rows_for_lane_feed())
-    promotable_rows_for_feed = _promotable_rows_for_research_lane_feed(
-        store=store,
-        promotable=promotable,
-        min_admission_score=min_admission_score,
+    if promotable is None:
+        promotable_rows_for_feed = _promotable_rows_for_lane_feed_from_store(
+            store, min_admission_score=min_admission_score
+        )
+    else:
+        promotable_rows_for_feed = list(promotable)
+
+    queued_by_lane = _rows_by_worker_lane_key(
+        _queued_dispatch_candidates(queued_rows),
+        worker_lane_key=_worker_lane_key,
     )
-    queued_by_lane, promotable_by_lane = _index_research_lane_feed_rows_by_lane(
-        queued_rows=queued_rows,
-        promotable_rows=promotable_rows_for_feed,
-        _queued_dispatch_candidates=_queued_dispatch_candidates,
-        _worker_lane_key=_worker_lane_key,
+    promotable_by_lane = _rows_by_worker_lane_key(
+        promotable_rows_for_feed,
+        worker_lane_key=_worker_lane_key,
     )
 
     pressure: dict[str, dict[str, Any]] = {}
     min_queue_depth = max(0, min(int(min_queue_depth), 100))
     for lane in lane_rows:
-        lane_key = str(lane.get("lane_key") or "")
-        machine_target = str(lane.get("machine_target") or "")
-        label = _research_lane_feed_pressure_label(
-            machine_target, lane.get("worker_role")
-        )
-        queued_count = len(queued_by_lane.get(lane_key, []))
-        promotable_count = len(promotable_by_lane.get(lane_key, []))
-        active_count = int(lane.get("active_count") or 0)
-        queue_deficit = max(0, min_queue_depth - queued_count)
-        next_action, summary = _research_lane_feed_next_action_and_summary(
-            label=label,
-            machine_target=machine_target,
-            queued_count=queued_count,
-            promotable_count=promotable_count,
-            active_count=active_count,
-            queue_deficit=queue_deficit,
+        pressure_key, entry = _single_lane_feed_pressure_entry(
+            lane,
+            queued_by_lane=queued_by_lane,
+            promotable_by_lane=promotable_by_lane,
             min_queue_depth=min_queue_depth,
         )
-        pressure[machine_target or lane_key] = {
-            "lane_key": lane_key,
-            "machine_target": machine_target,
-            "worker_role": lane.get("worker_role"),
-            "desired_queue_depth": min_queue_depth,
-            "active_count": active_count,
-            "queued_count": queued_count,
-            "promotable_count": promotable_count,
-            "queue_deficit": queue_deficit,
-            "next_autopilot_action": next_action,
-            "operator_summary": summary,
-        }
+        pressure[pressure_key] = entry
     return pressure
 
 

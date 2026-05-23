@@ -14310,27 +14310,59 @@ def test_lane_helpers_extracted_no_duplication_in_giant():
 
 
 def test_research_lane_feed_pressure_extracted_no_duplication_in_giant():
-    """AGENTS.md test-first for the next horrible-first S3776 inside the (now substantially smaller) 1595
-    create_control_plane_router / dashboard_research_run_cycle (after lane helpers extraction).
+    """AGENTS.md test-first for OPEN S3776 at router.py ~4001 (_compute_research_lane_feed_pressure).
 
-    The large _research_lane_feed_pressure function (builds the pressure map with queue_deficit,
-    next_autopilot_action, operator_summary, using lane capacity, queued rows, promotable, etc.)
-    is extracted to a top-level helper to further reduce cognitive complexity of the giant.
+    Promotable loading, lane grouping, autopilot plan, and per-lane entry assembly are extracted
+    so cognitive complexity stays under Sonar's threshold.
     """
     from pathlib import Path
 
     src = Path("enoch_control_plane/control_plane/router.py").read_text(
         encoding="utf-8"
     )
-    assert "def _compute_research_lane_feed_pressure(" in src, (
-        "_compute_research_lane_feed_pressure helper missing (pressure computation logic still inline in the giant)"
-    )
+    for helper in (
+        "_compute_research_lane_feed_pressure",
+        "_promotable_rows_for_lane_feed_from_store",
+        "_rows_by_worker_lane_key",
+        "_research_lane_feed_autopilot_plan",
+        "_single_lane_feed_pressure_entry",
+    ):
+        assert f"def {helper}(" in src, (
+            f"{helper} helper missing (S3776 4001 still monolithic)"
+        )
 
     from enoch_control_plane.control_plane.router import (
         _compute_research_lane_feed_pressure,
+        _research_lane_feed_autopilot_plan,
+        _single_lane_feed_pressure_entry,
     )
 
     assert callable(_compute_research_lane_feed_pressure)
+    action, summary = _research_lane_feed_autopilot_plan(
+        label="GB10 lane",
+        queue_deficit=1,
+        queued_count=0,
+        active_count=0,
+        promotable_count=0,
+        min_queue_depth=1,
+        machine_target="gb10-worker",
+    )
+    assert action == "generate_candidate"
+    assert "GB10-targeted" in summary
+
+    pressure_key, entry = _single_lane_feed_pressure_entry(
+        {
+            "lane_key": "gb10",
+            "machine_target": "gb10-worker",
+            "worker_role": "gpu",
+            "active_count": 0,
+        },
+        queued_by_lane={"gb10": []},
+        promotable_by_lane={"gb10": []},
+        min_queue_depth=1,
+    )
+    assert pressure_key == "gb10-worker"
+    assert entry["next_autopilot_action"] == "generate_candidate"
 
 
 def test_research_lane_feed_pressure_helpers_extracted_for_s3776():
