@@ -181,9 +181,7 @@ def _compact_dashboard_body(body: dict[str, Any]) -> dict[str, Any]:
     compact: dict[str, Any] = {}
     for key in ("timestamp", "service", "totals", "telemetry", "queue", "papers"):
         value = body.get(key)
-        if isinstance(value, dict):
-            compact[key] = value
-        elif value is not None:
+        if value is not None:
             compact[key] = value
     runs = body.get("runs")
     if isinstance(runs, list):
