@@ -11,6 +11,7 @@ import json
 from typing import Any
 
 from enoch_control_plane.timeutils import parse_utc_datetime
+from enoch_control_plane.url_safety import looks_like_external_source_reference
 
 TOP_EXTERNAL_RESEARCHER_CANDIDATES = "top_external_researcher_candidates"
 COMPUTE_SCALE_BLOCKED = "compute_scale_blocked"
@@ -116,9 +117,7 @@ def _sources_present(row: dict[str, Any]) -> tuple[bool, bool]:
         else:
             candidates.append(_text(record))
     has_external = any(
-        item.lower().startswith(("http://", "https://", "arxiv:", "doi:"))
-        for item in candidates
-        if item
+        looks_like_external_source_reference(item) for item in candidates if item
     )
     return has_source, has_external
 
