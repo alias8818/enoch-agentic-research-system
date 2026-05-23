@@ -67,7 +67,7 @@ def _get_json(base_url: str, path: str, token: str, *, timeout: int) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _control_plane_recovered(base_url: str, token: str) -> bool:
+def _control_plane_recovered(base_url: str) -> bool:
     """Return true when the local control API is reachable after a dropped tick.
 
     A deploy or service restart can close the long-running run-cycle request
@@ -725,7 +725,7 @@ def _build_research_run_cycle_payload() -> tuple[dict, int]:
 def _transient_disconnect_exit(
     exc: BaseException, base_url: str, token: str, *, phase: str
 ) -> int | None:
-    if not _control_plane_recovered(base_url, token):
+    if not _control_plane_recovered(base_url):
         return None
     print(
         json.dumps(
