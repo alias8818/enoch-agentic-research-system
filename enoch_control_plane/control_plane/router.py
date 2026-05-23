@@ -1222,6 +1222,41 @@ def _stop_process(proc: subprocess.Popen | None) -> None:
         pass
 
 
+def _restore_fd_blocking(fd: int, previous_blocking: bool | None) -> None:
+    if previous_blocking is None:
+        return
+    try:
+        os.set_blocking(fd, previous_blocking)
+    except OSError:
+        pass
+
+
+def _read_bounded_fd_chunk(fd: int, *, max_bytes: int, total: int) -> bytes | None:
+    try:
+        return os.read(fd, min(1024 * 1024, max_bytes - total + 1))
+    except BlockingIOError:
+        return None
+
+
+def _read_stdout_chunk_after_select(
+    fd: int,
+    proc: subprocess.Popen,
+    *,
+    ready: bool,
+    max_bytes: int,
+    total: int,
+) -> tuple[bytes | None, bool]:
+    if not ready:
+        if proc.poll() is None:
+            return None, True
+        chunk = _read_bounded_fd_chunk(fd, max_bytes=max_bytes, total=total)
+        return (b"", False) if chunk is None else (chunk, False)
+    chunk = _read_bounded_fd_chunk(fd, max_bytes=max_bytes, total=total)
+    if chunk is None:
+        return None, True
+    return chunk, False
+
+
 def _read_process_stdout_bounded(
     proc: subprocess.Popen,
     *,
@@ -1245,18 +1280,15 @@ def _read_process_stdout_bounded(
             if remaining <= 0:
                 raise subprocess.TimeoutExpired(command, timeout_sec)
             ready, _, _ = select.select([fd], [], [], min(remaining, 0.25))
-            if not ready:
-                if proc.poll() is None:
-                    continue
-                try:
-                    chunk = os.read(fd, min(1024 * 1024, max_bytes - total + 1))
-                except BlockingIOError:
-                    break
-            else:
-                try:
-                    chunk = os.read(fd, min(1024 * 1024, max_bytes - total + 1))
-                except BlockingIOError:
-                    continue
+            chunk, should_continue = _read_stdout_chunk_after_select(
+                fd,
+                proc,
+                ready=bool(ready),
+                max_bytes=max_bytes,
+                total=total,
+            )
+            if should_continue:
+                continue
             if not chunk:
                 break
             total += len(chunk)
@@ -1264,11 +1296,7 @@ def _read_process_stdout_bounded(
                 return b"".join(chunks), True
             chunks.append(chunk)
     finally:
-        if previous_blocking is not None:
-            try:
-                os.set_blocking(fd, previous_blocking)
-            except OSError:
-                pass
+        _restore_fd_blocking(fd, previous_blocking)
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise subprocess.TimeoutExpired(command, timeout_sec)
