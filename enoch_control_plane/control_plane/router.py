@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
 from functools import partial
 import io
 import hashlib
@@ -2833,27 +2834,32 @@ def _provider_generation_topic(
     ).strip()
 
 
+@dataclass(frozen=True)
+class _ProviderGenerationParams:
+    max_provider_requests: int
+    generation_target_lane: Any
+    provider_openai_base_url: str
+    provider_model: str
+    max_candidates: int
+    topic: str
+    temperature: float
+    seed: str
+    generation_timeout: int
+    generation_max_tokens: int
+    generation_attempts: int
+    min_admission_score: float
+    bounded_float: Callable[[str, float, float, float], float]
+    namespace_cls: Any
+    research_provider_generate: Any
+    research_facility: Any
+    store: Any
+    requested_by: str
+
+
 def _execute_provider_generation(
     *,
-    max_provider_requests: int,
+    params: _ProviderGenerationParams,
     response: dict[str, Any],
-    generation_target_lane: Any,
-    provider_openai_base_url: str,
-    provider_model: str,
-    max_candidates: int,
-    topic: str,
-    temperature: float,
-    seed: str,
-    generation_timeout: int,
-    generation_max_tokens: int,
-    generation_attempts: int,
-    min_admission_score: float,
-    bounded_float: Callable,
-    namespace_cls: Any,
-    research_provider_generate: Any,
-    research_facility: Any,
-    store: Any,
-    requested_by: str,
 ) -> dict[str, Any]:
     """Extracted from dashboard_research_run_cycle (large live execution path contributing to 1595/remaining S3776).
 
@@ -2861,27 +2867,27 @@ def _execute_provider_generation(
     planning, ledger recording, stages append, and error handling. Thin delegation left in the giant.
     """
     generated_plans = []
-    if max_provider_requests and not response.get("fresh_generation_skipped"):
+    if params.max_provider_requests and not response.get("fresh_generation_skipped"):
         try:
             generation_machine_target = _provider_generation_machine_target(
-                generation_target_lane
+                params.generation_target_lane
             )
             generation_topic = _provider_generation_topic(
-                topic=topic,
-                generation_target_lane=generation_target_lane,
+                topic=params.topic,
+                generation_target_lane=params.generation_target_lane,
                 generation_machine_target=generation_machine_target,
             )
-            generated = research_provider_generate.generate_provider_candidates(
-                base_url=provider_openai_base_url,
-                model=provider_model,
+            generated = params.research_provider_generate.generate_provider_candidates(
+                base_url=params.provider_openai_base_url,
+                model=params.provider_model,
                 api_key="",
-                max_candidates=max_candidates,
+                max_candidates=params.max_candidates,
                 topic=generation_topic,
-                temperature=temperature,
-                seed=seed,
-                timeout=generation_timeout,
-                max_tokens=generation_max_tokens,
-                attempts=generation_attempts,
+                temperature=params.temperature,
+                seed=params.seed,
+                timeout=params.generation_timeout,
+                max_tokens=params.generation_max_tokens,
+                attempts=params.generation_attempts,
                 default_machine=generation_machine_target,
                 default_model=os.environ.get(
                     "ENOCH_RESEARCH_DEFAULT_MODEL", _DEFAULT_RESEARCH_MODEL
@@ -2890,9 +2896,9 @@ def _execute_provider_generation(
                     "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
                 ),
             )
-            generated_plans = research_facility.plan_candidates(
-                (generated.get("candidates") or [])[:max_candidates],
-                namespace_cls(
+            generated_plans = params.research_facility.plan_candidates(
+                (generated.get("candidates") or [])[: params.max_candidates],
+                params.namespace_cls(
                     default_machine=os.environ.get(
                         "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
                     ),
@@ -2902,20 +2908,22 @@ def _execute_provider_generation(
                     default_sandbox=os.environ.get(
                         "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
                     ),
-                    admit_threshold=min_admission_score,
-                    review_threshold=bounded_float(
+                    admit_threshold=params.min_admission_score,
+                    review_threshold=params.bounded_float(
                         "review_threshold", 58.0, 0.0, 100.0
                     ),
                     history=[],
                 ),
             )
-            ledger_result = store.record_research_facility_plans(
-                generated_plans, requested_by=requested_by, queue_admitted=False
+            ledger_result = params.store.record_research_facility_plans(
+                generated_plans,
+                requested_by=params.requested_by,
+                queue_admitted=False,
             )
             response["generated_count"] = len(generated_plans)
             response["provider_response_id"] = generated.get("provider_response_id", "")
             response["attempts_used"] = generated.get("attempts_used", 1)
-            response["generation_target_lane"] = generation_target_lane
+            response["generation_target_lane"] = params.generation_target_lane
             response["ledger_result"] = ledger_result
             response["stages"].append(
                 {
@@ -2924,7 +2932,8 @@ def _execute_provider_generation(
                     "candidate_count": len(generated_plans),
                     "ledger_result": ledger_result,
                     "generation_target_lane": str(
-                        (generation_target_lane or {}).get("machine_target") or ""
+                        (params.generation_target_lane or {}).get("machine_target")
+                        or ""
                     ),
                 }
             )
@@ -3650,25 +3659,27 @@ def _execute_live_research_cycle(
         research_row_lane_key=research_row_lane_key,
     )
     response = _execute_provider_generation(
-        max_provider_requests=max_provider_requests,
+        params=_ProviderGenerationParams(
+            max_provider_requests=max_provider_requests,
+            generation_target_lane=generation_target_lane,
+            provider_openai_base_url=provider_openai_base_url,
+            provider_model=provider_model,
+            max_candidates=max_candidates,
+            topic=topic,
+            temperature=temperature,
+            seed=seed,
+            generation_timeout=generation_timeout,
+            generation_max_tokens=generation_max_tokens,
+            generation_attempts=generation_attempts,
+            min_admission_score=min_admission_score,
+            bounded_float=bounded_float,
+            namespace_cls=namespace_cls,
+            research_provider_generate=research_provider_generate,
+            research_facility=research_facility,
+            store=store,
+            requested_by=requested_by,
+        ),
         response=response,
-        generation_target_lane=generation_target_lane,
-        provider_openai_base_url=provider_openai_base_url,
-        provider_model=provider_model,
-        max_candidates=max_candidates,
-        topic=topic,
-        temperature=temperature,
-        seed=seed,
-        generation_timeout=generation_timeout,
-        generation_max_tokens=generation_max_tokens,
-        generation_attempts=generation_attempts,
-        min_admission_score=min_admission_score,
-        bounded_float=bounded_float,
-        namespace_cls=namespace_cls,
-        research_provider_generate=research_provider_generate,
-        research_facility=research_facility,
-        store=store,
-        requested_by=requested_by,
     )
     response = _execute_promotion(
         promotable_rows=promotable_rows,
