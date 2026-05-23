@@ -414,7 +414,7 @@ def _janitor_llm_review_command(output: Path, timeout: int) -> list[str]:
         cmd.append("--apply")
     else:
         cmd.append("--dry-run")
-    if _truthy("ENOCH_RESEARCH_JANITOR_LLM_APPLY_STORED", default=True):
+    if _truthy("ENOCH_RESEARCH_JANITOR_LLM_APPLY_STORED", default="1"):
         cmd.append("--apply-stored-decisions")
         cmd.extend(
             [
