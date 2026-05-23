@@ -3131,70 +3131,71 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         except OSError:
             return {}
 
-    def prepare_paper_review_finalization_package(
+    def _replay_prepare_finalization_package(
         self,
         paper_id: str,
         request: PaperReviewPrepareFinalizationRequest,
-        *,
-        require_approval: bool = True,
-    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
-        row = self._require_paper_review(paper_id)
-        payload = self._mutation_payload(request, action="prepare_finalization_package")
-        payload.update(
-            {
-                "to_status": ReviewStatus.FINALIZED.value,
-                "require_approval": require_approval,
-            }
+        payload: dict[str, Any],
+    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]] | None:
+        if request.dry_run:
+            return None
+        replayed_event_id = self._replayed_event_id(
+            request.idempotency_key,
+            payload,
+            event_type="paper_review.finalization_package_prepared",
+            entity_type="paper_review",
+            entity_id=paper_id,
         )
-        if not request.dry_run:
-            replayed_event_id = self._replayed_event_id(
-                request.idempotency_key,
-                payload,
-                event_type="paper_review.finalization_package_prepared",
-                entity_type="paper_review",
-                entity_id=paper_id,
-            )
-            if replayed_event_id is not None:
-                item = self.paper_review_row(paper_id) or {}
-                return (
-                    replayed_event_id,
-                    False,
-                    item,
-                    _text(item.get("finalization_package_path")),
-                    self._load_manifest(_text(item.get("finalization_package_path"))),
-                )
-        current = _text(row.get("automation_status"))
-        if not request.dry_run and current == ReviewStatus.FINALIZED.value:
-            item = self.paper_review_row(paper_id) or {}
-            path = _text(item.get("finalization_package_path"))
-            return None, False, item, path, self._load_manifest(path)
-        if (
-            not request.dry_run
-            and require_approval
-            and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value
-        ):
+        if replayed_event_id is None:
+            return None
+        item = self.paper_review_row(paper_id) or {}
+        path = _text(item.get("finalization_package_path"))
+        return replayed_event_id, False, item, path, self._load_manifest(path)
+
+    def _existing_finalized_package_result(
+        self,
+        paper_id: str,
+        *,
+        dry_run: bool,
+        current: str,
+    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]] | None:
+        if dry_run or current != ReviewStatus.FINALIZED.value:
+            return None
+        item = self.paper_review_row(paper_id) or {}
+        path = _text(item.get("finalization_package_path"))
+        return None, False, item, path, self._load_manifest(path)
+
+    def _validate_prepare_finalization_status(
+        self,
+        *,
+        dry_run: bool,
+        require_approval: bool,
+        current: str,
+    ) -> None:
+        if dry_run:
+            return
+        if require_approval and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value:
             raise ValueError(
                 "legacy approval-gated finalization requires internal approved_for_finalization state"
             )
-        if (
-            not request.dry_run
-            and not require_approval
-            and current
-            in {
-                ReviewStatus.BLOCKED.value,
-                ReviewStatus.CHANGES_REQUESTED.value,
-                ReviewStatus.IN_REVIEW.value,
-                ReviewStatus.REJECTED.value,
-                ReviewStatus.UNREVIEWED.value,
-            }
-        ):
+        blocked = {
+            ReviewStatus.BLOCKED.value,
+            ReviewStatus.CHANGES_REQUESTED.value,
+            ReviewStatus.IN_REVIEW.value,
+            ReviewStatus.REJECTED.value,
+            ReviewStatus.UNREVIEWED.value,
+        }
+        if not require_approval and current in blocked:
             raise ValueError(
                 f"automated finalization cannot publish paper reviews with review_status={current}"
             )
-        paper = self.paper_row(paper_id)
-        if paper is None:
-            raise ValueError("paper row not found")
-        checklist = self.paper_review_checklist(paper_id)
+
+    def _collect_finalization_artifacts(
+        self,
+        paper: dict[str, Any],
+        *,
+        dry_run: bool,
+    ) -> list[dict[str, Any]]:
         artifacts = [
             self._resolved_artifact(paper, field)
             for field in (
@@ -3208,15 +3209,26 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         unreadable = [
             artifact["field"] for artifact in artifacts if not artifact["readable"]
         ]
-        if unreadable and not request.dry_run:
+        if unreadable and not dry_run:
             raise ValueError(
                 f"finalization package requires readable artifacts: {', '.join(unreadable)}"
             )
-        package_path = self._finalization_manifest_path(
-            paper_id, request.idempotency_key
-        )
-        now = utc_now()
-        manifest = {
+        return artifacts
+
+    def _build_finalization_package_manifest(
+        self,
+        *,
+        paper_id: str,
+        request: PaperReviewPrepareFinalizationRequest,
+        paper: dict[str, Any],
+        row: dict[str, Any],
+        current: str,
+        require_approval: bool,
+        artifacts: list[dict[str, Any]],
+        checklist: dict[str, Any],
+        now: str,
+    ) -> dict[str, Any]:
+        return {
             "schema": "paper_finalization_package_v1",
             "generated_at": now,
             "dry_run": request.dry_run,
@@ -3236,14 +3248,17 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "review_item": self.paper_review_row(paper_id) or {},
             "no_submission_side_effects": True,
         }
-        if request.dry_run:
-            return (
-                None,
-                False,
-                self.paper_review_row(paper_id) or {},
-                str(package_path),
-                manifest,
-            )
+
+    def _persist_prepare_finalization_package(
+        self,
+        paper_id: str,
+        request: PaperReviewPrepareFinalizationRequest,
+        *,
+        payload: dict[str, Any],
+        package_path: Path,
+        manifest: dict[str, Any],
+        now: str,
+    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
         previous_manifest_exists, previous_manifest_content = _existing_file_snapshot(
             package_path,
             label="finalization package manifest",
@@ -3280,6 +3295,72 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             raise
         item = self.paper_review_row(paper_id) or {}
         return event_id, inserted, item, str(package_path), manifest
+
+    def prepare_paper_review_finalization_package(
+        self,
+        paper_id: str,
+        request: PaperReviewPrepareFinalizationRequest,
+        *,
+        require_approval: bool = True,
+    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
+        row = self._require_paper_review(paper_id)
+        payload = self._mutation_payload(request, action="prepare_finalization_package")
+        payload.update(
+            {
+                "to_status": ReviewStatus.FINALIZED.value,
+                "require_approval": require_approval,
+            }
+        )
+        replayed = self._replay_prepare_finalization_package(paper_id, request, payload)
+        if replayed is not None:
+            return replayed
+        current = _text(row.get("automation_status"))
+        existing = self._existing_finalized_package_result(
+            paper_id, dry_run=request.dry_run, current=current
+        )
+        if existing is not None:
+            return existing
+        self._validate_prepare_finalization_status(
+            dry_run=request.dry_run,
+            require_approval=require_approval,
+            current=current,
+        )
+        paper = self.paper_row(paper_id)
+        if paper is None:
+            raise ValueError("paper row not found")
+        checklist = self.paper_review_checklist(paper_id)
+        artifacts = self._collect_finalization_artifacts(paper, dry_run=request.dry_run)
+        package_path = self._finalization_manifest_path(
+            paper_id, request.idempotency_key
+        )
+        now = utc_now()
+        manifest = self._build_finalization_package_manifest(
+            paper_id=paper_id,
+            request=request,
+            paper=paper,
+            row=row,
+            current=current,
+            require_approval=require_approval,
+            artifacts=artifacts,
+            checklist=checklist,
+            now=now,
+        )
+        if request.dry_run:
+            return (
+                None,
+                False,
+                self.paper_review_row(paper_id) or {},
+                str(package_path),
+                manifest,
+            )
+        return self._persist_prepare_finalization_package(
+            paper_id,
+            request,
+            payload=payload,
+            package_path=package_path,
+            manifest=manifest,
+            now=now,
+        )
 
     def ingest_notion_ideas(
         self, request: NotionIntakeRequest
