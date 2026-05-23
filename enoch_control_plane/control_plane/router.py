@@ -152,6 +152,25 @@ class PaperArtifactSnapshotReadError(ValueError):
     """A paper rewrite artifact snapshot could not be read."""
 
 
+class WritableControlPlaneStoreRequiredError(RuntimeError):
+    """A mutating control-plane action requires a writable store backend."""
+
+
+def _assert_writable_control_plane_store(action: str, *, backend: str) -> None:
+    if backend == "supabase_readonly":
+        raise WritableControlPlaneStoreRequiredError(
+            f"{action} requires a writable control-plane store; "
+            "supabase_readonly is read-only"
+        )
+
+
+def _require_writable_store_http(action: str, *, backend: str) -> None:
+    try:
+        _assert_writable_control_plane_store(action, backend=backend)
+    except WritableControlPlaneStoreRequiredError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+
+
 RequireBearer = Callable[[str | None], None]
 
 _RUN_NOTES_MD = "run_notes.md"
@@ -4000,11 +4019,7 @@ def create_control_plane_router(
         require_bearer(authorization)
 
     def _require_writable_store(action: str) -> None:
-        if config.control_plane_store_backend == "supabase_readonly":
-            raise HTTPException(
-                status_code=501,
-                detail=f"{action} requires a writable control-plane store; supabase_readonly is read-only",
-            )
+        _require_writable_store_http(action, backend=config.control_plane_store_backend)
 
     def _alert_paper_evidence_blocked(
         *, project_id: str, run_id: str = "", paper_id: str = "", reason: str = ""
