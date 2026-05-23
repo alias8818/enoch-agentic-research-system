@@ -1114,6 +1114,24 @@ def test_generate_state_vocabulary_plan_publication_automation_items_automation_
     )
 
 
+def test_generate_state_vocabulary_plan_state_historical_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top remaining S1192 in generate_state_vocabulary_plan.py (line 81).
+
+    "historical" target state (flagged in latest Sonar top duplication, 8x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "generate_state_vocabulary_plan.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "historical"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in vocabulary plan (count={count}); extract to const"
+    )
+
+
 def test_push_public_release_bundle_public_release_integrity_centralized_no_s1192_duplication() -> (
     None
 ):
