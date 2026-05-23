@@ -5276,6 +5276,15 @@ def _mount_control_plane_http_routes(
     store: Any,
     require_bearer: RequireBearer,
 ) -> None:
+    _register_control_plane_http_routes(router, config, store, require_bearer)
+
+
+def _register_control_plane_http_routes(
+    router: APIRouter,
+    config: GateConfig,
+    store: Any,
+    require_bearer: RequireBearer,
+) -> None:
     def authorize(authorization: str | None) -> None:
         require_bearer(authorization)
 
