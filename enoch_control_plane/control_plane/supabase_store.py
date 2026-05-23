@@ -273,6 +273,22 @@ def _research_candidate_rejection_reason(plan_json: dict[str, Any]) -> str:
     return str(plan_json.get("admission_reason") or "")
 
 
+def _research_candidate_text_value(
+    candidate: dict[str, Any], key: str, default: str = ""
+) -> str:
+    return str(candidate.get(key) or default)
+
+
+def _research_candidate_float_value(candidate: dict[str, Any], key: str) -> float:
+    return float(candidate.get(key) or 0)
+
+
+def _research_candidate_json_value(
+    candidate: dict[str, Any], key: str, default: Any
+) -> Any:
+    return candidate.get(key) or default
+
+
 def _plan_to_json(plan: Any) -> dict[str, Any]:
     if hasattr(plan, "to_json"):
         return plan.to_json()
@@ -4365,50 +4381,53 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         source_ids: list[str],
         source_urls: list[str],
     ) -> tuple[Any, ...]:
+        text = _research_candidate_text_value
+        score = _research_candidate_float_value
+        json_value = _research_candidate_json_value
         return (
             candidate_id,
-            str(candidate.get("generation_mode") or "manual_import"),
-            str(candidate.get("status") or "generated"),
-            str(candidate.get("title") or candidate_id),
-            str(candidate.get("category") or ""),
-            str(candidate.get("priority") or ""),
-            str(candidate.get("source_kind") or ""),
+            text(candidate, "generation_mode", "manual_import"),
+            text(candidate, "status", "generated"),
+            text(candidate, "title", candidate_id),
+            text(candidate, "category"),
+            text(candidate, "priority"),
+            text(candidate, "source_kind"),
             self._json_text(source_ids),
             self._json_text(source_urls),
-            str(candidate.get("parent_project_id") or ""),
-            str(candidate.get("parent_run_id") or ""),
-            str(candidate.get("hypothesis") or ""),
-            str(candidate.get("mechanism") or ""),
-            str(candidate.get("description") or ""),
-            str(candidate.get("implementation") or ""),
-            str(candidate.get("baseline_to_beat") or ""),
-            str(candidate.get("success_threshold") or ""),
-            str(candidate.get("kill_condition") or ""),
-            str(candidate.get("accessibility_delta") or ""),
-            self._json_text(candidate.get("expected_artifacts") or []),
-            self._json_text(candidate.get("required_evidence") or []),
-            self._json_text(candidate.get("likely_failure_modes") or []),
-            str(candidate.get("estimated_runtime_class") or ""),
-            str(candidate.get("expected_token_budget") or ""),
-            str(candidate.get("machine_target") or ""),
-            str(candidate.get("model") or ""),
-            str(candidate.get("sandbox") or ""),
-            float(candidate.get("novelty_score") or 0),
-            float(candidate.get("feasibility_score") or 0),
-            float(candidate.get("accessibility_score") or 0),
-            float(candidate.get("falsifiability_score") or 0),
-            float(candidate.get("total_score") or 0),
-            self._json_text(candidate.get("score_breakdown") or {}),
-            str(candidate.get("dedupe_key") or candidate_id),
-            self._json_text(candidate.get("similar_prior_projects") or []),
-            str(candidate.get("novelty_comparison") or ""),
-            str(candidate.get("risk_notes") or ""),
+            text(candidate, "parent_project_id"),
+            text(candidate, "parent_run_id"),
+            text(candidate, "hypothesis"),
+            text(candidate, "mechanism"),
+            text(candidate, "description"),
+            text(candidate, "implementation"),
+            text(candidate, "baseline_to_beat"),
+            text(candidate, "success_threshold"),
+            text(candidate, "kill_condition"),
+            text(candidate, "accessibility_delta"),
+            self._json_text(json_value(candidate, "expected_artifacts", [])),
+            self._json_text(json_value(candidate, "required_evidence", [])),
+            self._json_text(json_value(candidate, "likely_failure_modes", [])),
+            text(candidate, "estimated_runtime_class"),
+            text(candidate, "expected_token_budget"),
+            text(candidate, "machine_target"),
+            text(candidate, "model"),
+            text(candidate, "sandbox"),
+            score(candidate, "novelty_score"),
+            score(candidate, "feasibility_score"),
+            score(candidate, "accessibility_score"),
+            score(candidate, "falsifiability_score"),
+            score(candidate, "total_score"),
+            self._json_text(json_value(candidate, "score_breakdown", {})),
+            text(candidate, "dedupe_key", candidate_id),
+            self._json_text(json_value(candidate, "similar_prior_projects", [])),
+            text(candidate, "novelty_comparison"),
+            text(candidate, "risk_notes"),
             _research_candidate_rejection_reason(plan_json),
-            str(candidate.get("provider") or ""),
-            str(candidate.get("provider_model") or ""),
-            str(candidate.get("prompt_version") or ""),
-            str(candidate.get("generated_by") or ""),
-            self._json_text(candidate.get("raw_candidate_json") or candidate),
+            text(candidate, "provider"),
+            text(candidate, "provider_model"),
+            text(candidate, "prompt_version"),
+            text(candidate, "generated_by"),
+            self._json_text(json_value(candidate, "raw_candidate_json", candidate)),
         )
 
     def _upsert_research_candidate_row(
