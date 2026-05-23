@@ -734,6 +734,16 @@ _PAPER_REWRITE_PUBLICATION_POLICY = {
     ),
 }
 
+_PAPER_REWRITE_DRAFT_RESPONSES: dict[int, dict[str, str]] = {
+    400: {
+        "description": (
+            "Invalid rewrite request: blocked review status, project or "
+            "artifact root could not be resolved or inspected, unreadable "
+            "artifacts, or validation error"
+        ),
+    },
+}
+
 
 def _paper_record_from_store_row(row: dict[str, Any]) -> PaperRecord:
     data = dict(row)
@@ -7199,9 +7209,11 @@ def create_control_plane_router(
 
     @router.post(
         "/api/publication-automation/{paper_id}/rewrite-draft",
+        responses=_PAPER_REWRITE_DRAFT_RESPONSES,
     )
     @router.post(
         "/api/paper-reviews/{paper_id}/rewrite-draft",
+        responses=_PAPER_REWRITE_DRAFT_RESPONSES,
     )
     def dashboard_paper_review_rewrite_draft(
         paper_id: str,
