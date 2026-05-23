@@ -140,11 +140,14 @@ _HTTP_501_WRITABLE_STORE: dict[int, dict[str, str]] = {
     },
 }
 
+# Centralized description for S1192 duplication (501 ledger write paths).
+RESEARCH_FACILITY_LEDGER_REQUIRES_SUPABASE_STORE = (
+    "Research Facility ledger writes require the Supabase control-plane store"
+)
+
 _HTTP_501_SUPABASE_LEDGER: dict[int, dict[str, str]] = {
     501: {
-        "description": (
-            "Research Facility ledger writes require the Supabase control-plane store"
-        ),
+        "description": RESEARCH_FACILITY_LEDGER_REQUIRES_SUPABASE_STORE,
     },
 }
 
@@ -8468,7 +8471,7 @@ def _register_control_plane_routes(
         if not hasattr(store, "record_research_facility_plans"):
             raise HTTPException(
                 status_code=501,
-                detail="Research Facility ledger writes require the Supabase control-plane store",
+                detail=RESEARCH_FACILITY_LEDGER_REQUIRES_SUPABASE_STORE,
             )
         response["ledger_result"] = store.record_research_facility_plans(
             plans, requested_by=requested_by, queue_admitted=False
@@ -8611,7 +8614,7 @@ def _register_control_plane_routes(
         if not hasattr(store, "record_research_facility_plans"):
             raise HTTPException(
                 status_code=501,
-                detail="Research Facility ledger writes require the Supabase control-plane store",
+                detail=RESEARCH_FACILITY_LEDGER_REQUIRES_SUPABASE_STORE,
             )
         try:
             generated = research_provider_generate.generate_provider_candidates(

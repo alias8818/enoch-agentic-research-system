@@ -866,6 +866,25 @@ def test_router_worker_preflight_failed_centralized_no_s1192_duplication() -> No
     )
 
 
+def test_router_research_facility_ledger_supabase_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top S1192 (router.py:146).
+
+    "Research Facility ledger writes require the Supabase control-plane store"
+    (3x in _HTTP_501_SUPABASE_LEDGER and HTTPException detail paths) must appear
+    exactly once after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "control_plane" / "router.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "Research Facility ledger writes require the Supabase control-plane store"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in router (count={count}); extract to const"
+    )
+
+
 def test_router_paper_review_draft_rewritten_centralized_no_s1192_duplication() -> None:
     """AGENTS.md validator for current top remaining S1192 in router.py (line 5092).
 
