@@ -71,6 +71,12 @@ function themeSwitchButtonLabel(theme: DashboardTheme): string {
   return 'Dark theme'
 }
 
+function applyThemeToggle(theme: DashboardTheme, setTheme: (next: DashboardTheme) => void): void {
+  const next = toggleTheme(theme)
+  setTheme(next)
+  saveTheme(next)
+}
+
 function GlobalSearchForm({ inputRef }: Readonly<{ inputRef: RefObject<HTMLInputElement | null> }>) {
   const [query, setQuery] = useState('')
   return (
@@ -91,6 +97,72 @@ function GlobalSearchForm({ inputRef }: Readonly<{ inputRef: RefObject<HTMLInput
       />
       <button className="secondary-button" type="submit">Search projects</button>
     </form>
+  )
+}
+
+function DashboardNav({ route, onClearToken }: Readonly<{ route: DashboardRoute; onClearToken: () => void }>) {
+  return (
+    <nav className="app-nav" aria-label="Dashboard V2 navigation">
+      <a className={navClass(route, 'overview')} href={dashboardV2Href('#overview')}>Overview</a>
+      <a className={navClass(route, 'projects')} href={dashboardV2Href('#projects')}>Projects</a>
+      <a className={navClass(route, 'queue')} href={dashboardV2Href('#queue:queued')}>Queue</a>
+      <a className={navClass(route, 'runs')} href={dashboardV2Href('#runs')}>Runs</a>
+      <a className={navClass(route, 'papers')} href={dashboardV2Href('#papers')}>Papers</a>
+      <details className={moreNavClass(route)}>
+        <summary>More</summary>
+        <div className="nav-menu">
+          <a className={navClass(route, 'events')} href={dashboardV2Href('#events')}>Events</a>
+          <a className={navClass(route, 'observability')} href={dashboardV2Href('#observability')}>Observability</a>
+          <a className={navClass(route, 'corpus')} href={dashboardV2Href('#corpus')}>Corpus</a>
+          <a className={navClass(route, 'research')} href={dashboardV2Href('#research')}>Research</a>
+          <a className={navClass(route, 'intake')} href={dashboardV2Href('#intake')}>Intake</a>
+          <a className={navClass(route, 'automation')} href={dashboardV2Href('#automation')}>Automation</a>
+          <button className="nav-link" type="button" onClick={onClearToken}>Clear token</button>
+        </div>
+      </details>
+    </nav>
+  )
+}
+
+function ShellHeader({
+  route,
+  theme,
+  searchInputRef,
+  onOpenShortcuts,
+  onToggleTheme,
+  onClearToken,
+}: Readonly<{
+  route: DashboardRoute
+  theme: DashboardTheme
+  searchInputRef: RefObject<HTMLInputElement | null>
+  onOpenShortcuts: () => void
+  onToggleTheme: () => void
+  onClearToken: () => void
+}>) {
+  return (
+    <header className="app-header app-header--compact">
+      <div className="app-brand">
+        <a className="app-brand-link" href={dashboardV2Href('#overview')}>
+          <span className="eyebrow">Enoch Dashboard V2</span>
+        </a>
+        <p className="app-header-context">{dashboardRouteTitle(route)}</p>
+      </div>
+      <DashboardNav route={route} onClearToken={onClearToken} />
+      <div className="app-header-tools">
+        <GlobalSearchForm inputRef={searchInputRef} />
+        <button className="secondary-button" type="button" aria-label="Show keyboard shortcuts" onClick={onOpenShortcuts}>
+          Shortcuts
+        </button>
+        <button
+          className="secondary-button"
+          type="button"
+          aria-label={themeSwitchAriaLabel(theme)}
+          onClick={onToggleTheme}
+        >
+          {themeSwitchButtonLabel(theme)}
+        </button>
+      </div>
+    </header>
   )
 }
 
@@ -122,51 +194,17 @@ function Shell() {
   return (
     <main className="app-frame">
       <div className="app-shell">
-        <header className="app-header app-header--compact">
-          <div className="app-brand">
-            <a className="app-brand-link" href={dashboardV2Href('#overview')}>
-              <span className="eyebrow">Enoch Dashboard V2</span>
-            </a>
-            <p className="app-header-context">{dashboardRouteTitle(route)}</p>
-          </div>
-          <nav className="app-nav" aria-label="Dashboard V2 navigation">
-            <a className={navClass(route, 'overview')} href={dashboardV2Href('#overview')}>Overview</a>
-            <a className={navClass(route, 'projects')} href={dashboardV2Href('#projects')}>Projects</a>
-            <a className={navClass(route, 'queue')} href={dashboardV2Href('#queue:queued')}>Queue</a>
-            <a className={navClass(route, 'runs')} href={dashboardV2Href('#runs')}>Runs</a>
-            <a className={navClass(route, 'papers')} href={dashboardV2Href('#papers')}>Papers</a>
-            <details className={moreNavClass(route)}>
-              <summary>More</summary>
-              <div className="nav-menu">
-                <a className={navClass(route, 'events')} href={dashboardV2Href('#events')}>Events</a>
-                <a className={navClass(route, 'observability')} href={dashboardV2Href('#observability')}>Observability</a>
-                <a className={navClass(route, 'corpus')} href={dashboardV2Href('#corpus')}>Corpus</a>
-                <a className={navClass(route, 'research')} href={dashboardV2Href('#research')}>Research</a>
-                <a className={navClass(route, 'intake')} href={dashboardV2Href('#intake')}>Intake</a>
-                <a className={navClass(route, 'automation')} href={dashboardV2Href('#automation')}>Automation</a>
-                <button className="nav-link" type="button" onClick={() => { saveToken(''); setHasToken(false) }}>Clear token</button>
-              </div>
-            </details>
-          </nav>
-          <div className="app-header-tools">
-            <GlobalSearchForm inputRef={searchInputRef} />
-            <button className="secondary-button" type="button" aria-label="Show keyboard shortcuts" onClick={() => setShortcutHelpOpen(true)}>
-              Shortcuts
-            </button>
-            <button
-              className="secondary-button"
-              type="button"
-              aria-label={themeSwitchAriaLabel(theme)}
-              onClick={() => {
-                const next = toggleTheme(theme)
-                setTheme(next)
-                saveTheme(next)
-              }}
-            >
-              {themeSwitchButtonLabel(theme)}
-            </button>
-          </div>
-        </header>
+        <ShellHeader
+          route={route}
+          theme={theme}
+          searchInputRef={searchInputRef}
+          onOpenShortcuts={() => setShortcutHelpOpen(true)}
+          onToggleTheme={() => applyThemeToggle(theme, setTheme)}
+          onClearToken={() => {
+            saveToken('')
+            setHasToken(false)
+          }}
+        />
         <RoutedPage route={route} />
         <KeyboardShortcutHelp open={shortcutHelpOpen} onClose={() => setShortcutHelpOpen(false)} />
       </div>
