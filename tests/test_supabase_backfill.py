@@ -17,10 +17,24 @@ from scripts.backfill_control_plane_to_supabase import (
 )
 
 
+_BACKFILL_POSTGRES_INSERT_SOURCE_NAMES = (
+    "_upsert_backfill_control_flags",
+    "_import_backfill_projects",
+    "_import_backfill_queue_items",
+    "_import_backfill_runs",
+    "_import_backfill_papers",
+    "_import_backfill_project_decisions",
+    "_import_backfill_publication_automation_items",
+    "_import_backfill_control_events",
+    "_import_backfill_operator_observations",
+)
+
+
 def _backfill_postgres_insert_source() -> str:
     mod = backfill_control_plane_to_supabase
-    return inspect.getsource(mod._import_backfill_domain_tables) + inspect.getsource(
-        mod._upsert_backfill_control_flags
+    return "".join(
+        inspect.getsource(getattr(mod, name))
+        for name in _BACKFILL_POSTGRES_INSERT_SOURCE_NAMES
     )
 
 
@@ -172,7 +186,7 @@ def test_backfill_control_events_are_append_only_on_idempotency_conflict() -> No
     source = _backfill_postgres_insert_source().lower()
     event_insert = source[source.index("insert into control_events(idempotency_key") :]
     event_insert = event_insert[
-        : event_insert.index('imported["operator_observations"]')
+        : event_insert.index("def _import_backfill_operator_observations")
     ]
 
     assert "on conflict (idempotency_key) do nothing" in event_insert

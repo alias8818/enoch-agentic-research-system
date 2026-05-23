@@ -468,34 +468,8 @@ def _upsert_backfill_control_flags(cur: Any, flags: list[dict[str, Any]]) -> Non
     )
 
 
-def _import_backfill_domain_tables(
-    cur: Any,
-    *,
-    snapshot: dict[str, Any],
-    derived: dict[str, Any],
-) -> dict[str, int]:
-    run_ids = derived["run_ids"]
-    project_rows = snapshot["project_rows"]
-    queue_rows = snapshot["queue_rows"]
-    run_rows = snapshot["run_rows"]
-    paper_rows = snapshot["paper_rows"]
-    review_rows = snapshot["review_rows"]
-    event_rows = snapshot["event_rows"]
-    observation_rows = snapshot["observation_rows"]
-    decision_rows = derived["decision_rows"]
-
-    imported: dict[str, int] = {
-        "projects": 0,
-        "queue_items": 0,
-        "runs": 0,
-        "papers": 0,
-        "publication_automation_items": 0,
-        "project_decisions": 0,
-        "control_events": 0,
-        "operator_observations": 0,
-    }
-
-    imported["projects"] = execute_many(
+def _import_backfill_projects(cur: Any, project_rows: list[dict[str, Any]]) -> int:
+    return execute_many(
         cur,
         """
         insert into projects(project_id, project_name, project_dir, notion_page_url, notion_page_id,
@@ -526,7 +500,9 @@ def _import_backfill_domain_tables(
         ),
     )
 
-    imported["queue_items"] = execute_many(
+
+def _import_backfill_queue_items(cur: Any, queue_rows: list[dict[str, Any]]) -> int:
+    return execute_many(
         cur,
         """
         insert into queue_items(project_id, status, selection_rank, dispatch_priority, auto_continue,
@@ -582,7 +558,9 @@ def _import_backfill_domain_tables(
         ),
     )
 
-    imported["runs"] = execute_many(
+
+def _import_backfill_runs(cur: Any, run_rows: list[dict[str, Any]]) -> int:
+    return execute_many(
         cur,
         """
         insert into runs(run_id, project_id, session_id, state, dispatch_mode, started_at, ended_at,
@@ -615,7 +593,11 @@ def _import_backfill_domain_tables(
         ),
     )
 
-    imported["papers"] = execute_many(
+
+def _import_backfill_papers(
+    cur: Any, paper_rows: list[dict[str, Any]], run_ids: set[str]
+) -> int:
+    return execute_many(
         cur,
         """
         insert into papers(paper_id, project_id, run_id, paper_type, paper_status,
@@ -652,7 +634,11 @@ def _import_backfill_domain_tables(
         ),
     )
 
-    imported["project_decisions"] = execute_many(
+
+def _import_backfill_project_decisions(
+    cur: Any, decision_rows: list[dict[str, Any]], run_ids: set[str]
+) -> int:
+    return execute_many(
         cur,
         """
         insert into project_decisions(project_id, run_id, decision_type, decision_gate_state,
@@ -682,7 +668,11 @@ def _import_backfill_domain_tables(
         ),
     )
 
-    imported["publication_automation_items"] = execute_many(
+
+def _import_backfill_publication_automation_items(
+    cur: Any, review_rows: list[dict[str, Any]]
+) -> int:
+    return execute_many(
         cur,
         """
         insert into publication_automation_items(paper_id, automation_status, automation_actor, blocker,
@@ -723,7 +713,9 @@ def _import_backfill_domain_tables(
         ),
     )
 
-    imported["control_events"] = execute_many(
+
+def _import_backfill_control_events(cur: Any, event_rows: list[dict[str, Any]]) -> int:
+    return execute_many(
         cur,
         """
         insert into control_events(idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash, created_at)
@@ -744,7 +736,11 @@ def _import_backfill_domain_tables(
         ),
     )
 
-    imported["operator_observations"] = execute_many(
+
+def _import_backfill_operator_observations(
+    cur: Any, observation_rows: list[dict[str, Any]]
+) -> int:
+    return execute_many(
         cur,
         """
         insert into operator_observations(source, scope, observed_at, ttl_seconds, status, payload_json, payload_hash, created_at)
@@ -764,7 +760,31 @@ def _import_backfill_domain_tables(
             for row in observation_rows
         ),
     )
-    return imported
+
+
+def _import_backfill_domain_tables(
+    cur: Any,
+    *,
+    snapshot: dict[str, Any],
+    derived: dict[str, Any],
+) -> dict[str, int]:
+    run_ids = derived["run_ids"]
+    return {
+        "projects": _import_backfill_projects(cur, snapshot["project_rows"]),
+        "queue_items": _import_backfill_queue_items(cur, snapshot["queue_rows"]),
+        "runs": _import_backfill_runs(cur, snapshot["run_rows"]),
+        "papers": _import_backfill_papers(cur, snapshot["paper_rows"], run_ids),
+        "publication_automation_items": _import_backfill_publication_automation_items(
+            cur, snapshot["review_rows"]
+        ),
+        "project_decisions": _import_backfill_project_decisions(
+            cur, derived["decision_rows"], run_ids
+        ),
+        "control_events": _import_backfill_control_events(cur, snapshot["event_rows"]),
+        "operator_observations": _import_backfill_operator_observations(
+            cur, snapshot["observation_rows"]
+        ),
+    }
 
 
 def import_sqlite_to_postgres(
