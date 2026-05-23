@@ -250,6 +250,11 @@ _HTTP_WRITABLE_IDEMPOTENCY_RESPONSES: dict[int, dict[str, str]] = {
     **_HTTP_409_IDEMPOTENCY,
 }
 
+_HTTP_MARK_QUEUE_ITEM_PAUSED_RESPONSES: dict[int, dict[str, str]] = {
+    **_HTTP_501_WRITABLE_STORE,
+    **_HTTP_404_QUEUE_ITEM,
+}
+
 
 class UnresolvableArtifactRootsError(RuntimeError):
     """Configured project and state artifact roots could not be resolved."""
@@ -9120,7 +9125,7 @@ def _mount_control_plane_http_routes(
 
     @router.post(
         "/queue/mark-paused",
-        responses={**_HTTP_501_WRITABLE_STORE, **_HTTP_404_QUEUE_ITEM},
+        responses=_HTTP_MARK_QUEUE_ITEM_PAUSED_RESPONSES,
     )
     def mark_queue_item_paused(
         payload: MarkQueueItemPausedRequest,
