@@ -228,6 +228,57 @@ def _tar_regular_file_readable(
     return False
 
 
+def _extract_bounded_tar_member_with_limits(
+    archive: tarfile.TarFile,
+    member: tarfile.TarInfo,
+    *,
+    artifact_root: Path,
+    total_bytes: int,
+    compressed_len: int,
+    threshold_size: int,
+    threshold_ratio: int,
+    max_file_bytes: int,
+    written: list[str],
+    skipped: list[dict[str, Any]],
+) -> tuple[int, bool]:
+    """Extract one filtered member; return updated total_bytes and limit_exceeded."""
+    if _tar_archive_size_limit_reached(total_bytes, threshold_size, member, skipped):
+        return total_bytes, True
+    if _tar_archive_ratio_limit_reached(
+        total_bytes,
+        compressed_len,
+        threshold_ratio,
+        member,
+        skipped,
+        require_positive_total=True,
+    ):
+        return total_bytes, True
+    if not _tar_regular_file_readable(archive, member, skipped):
+        return total_bytes, False
+    total_bytes = _extract_tar_member(
+        archive,
+        member,
+        artifact_root,
+        max_file_bytes=max_file_bytes,
+        max_total_bytes=threshold_size,
+        written=written,
+        skipped=skipped,
+        total_bytes=total_bytes,
+    )
+    if _tar_archive_size_limit_reached(total_bytes, threshold_size, member, skipped):
+        return total_bytes, True
+    if _tar_archive_ratio_limit_reached(
+        total_bytes,
+        compressed_len,
+        threshold_ratio,
+        member,
+        skipped,
+        require_positive_total=False,
+    ):
+        return total_bytes, True
+    return total_bytes, False
+
+
 def _expand_bounded_tar_gz(
     payload: bytes,
     artifact_root: Path,
@@ -267,48 +318,19 @@ def _expand_bounded_tar_gz(
                     error="tar member rejected by data filter",
                 )
                 continue
-            member = filtered
-            if _tar_archive_size_limit_reached(
-                total_bytes, threshold_size, member, skipped
-            ):
-                limit_exceeded = True
-                break
-            if _tar_archive_ratio_limit_reached(
-                total_bytes,
-                compressed_len,
-                threshold_ratio,
-                member,
-                skipped,
-                require_positive_total=True,
-            ):
-                limit_exceeded = True
-                break
-            if not _tar_regular_file_readable(archive, member, skipped):
-                continue
-            total_bytes = _extract_tar_member(
+            total_bytes, limit_exceeded = _extract_bounded_tar_member_with_limits(
                 archive,
-                member,
-                artifact_root,
+                filtered,
+                artifact_root=artifact_root,
+                total_bytes=total_bytes,
+                compressed_len=compressed_len,
+                threshold_size=threshold_size,
+                threshold_ratio=threshold_ratio,
                 max_file_bytes=max_file_bytes,
-                max_total_bytes=threshold_size,
                 written=written,
                 skipped=skipped,
-                total_bytes=total_bytes,
             )
-            if _tar_archive_size_limit_reached(
-                total_bytes, threshold_size, member, skipped
-            ):
-                limit_exceeded = True
-                break
-            if _tar_archive_ratio_limit_reached(
-                total_bytes,
-                compressed_len,
-                threshold_ratio,
-                member,
-                skipped,
-                require_positive_total=False,
-            ):
-                limit_exceeded = True
+            if limit_exceeded:
                 break
     return total_bytes, limit_exceeded
 
