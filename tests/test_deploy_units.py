@@ -1022,3 +1022,21 @@ def test_push_public_release_bundle_public_release_integrity_centralized_no_s119
     assert count == 1, (
         f"{lit!r} still duplicated in push_public_release_bundle (count={count}); extract to const"
     )
+
+
+def test_validate_supabase_readonly_adapter_draft_md_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top S1192 (validate_supabase_readonly_adapter.py:228).
+
+    "draft.md" (flagged in latest Sonar top duplication, 3x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "validate_supabase_readonly_adapter.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "draft.md"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in validate_supabase_readonly_adapter (count={count}); extract to const"
+    )

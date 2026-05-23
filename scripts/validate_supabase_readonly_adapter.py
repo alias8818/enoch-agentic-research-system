@@ -43,6 +43,10 @@ NOW = "2026-05-05T23:55:00Z"
 HASH_0 = "0" * 64
 HASH_1 = "1" * 64
 
+# Centralized filename for the duplicated DRAFT_MD literal
+# (addresses top remaining S1192 in artifact name lists and path assignments).
+DRAFT_MD = "draft.md"
+
 
 def run(
     cmd: list[str], *, stdin: str | None = None, check: bool = True
@@ -225,7 +229,7 @@ def sqlite_fixture(store: ControlPlaneStore) -> None:
                 "run-1",
                 "arxiv_draft",
                 "publication_draft",
-                "draft.md",
+                DRAFT_MD,
                 "draft.tex",
                 "evidence.json",
                 "claims.json",
@@ -336,7 +340,7 @@ def postgres_fixture(database_url: str) -> None:
                   draft_markdown_path, draft_latex_path, evidence_bundle_path, claim_ledger_path,
                   manifest_path, generated_at, updated_at)
                 values ('paper-1', 'proj-1', 'run-1', 'arxiv_draft', 'publication_draft',
-                  'draft.md', 'draft.tex', 'evidence.json', 'claims.json', 'manifest.json', %s, %s)
+                  DRAFT_MD, 'draft.tex', 'evidence.json', 'claims.json', 'manifest.json', %s, %s)
                 """,
                 (NOW, NOW),
             )
@@ -746,7 +750,7 @@ def main() -> int:
                     project_id=notion_project_id,
                     run_id="",
                     paper_status=PaperStatus.DRAFT_REVIEW,
-                    draft_markdown_path="draft.md",
+                    draft_markdown_path=DRAFT_MD,
                     draft_latex_path="draft.tex",
                     evidence_bundle_path="evidence.json",
                     claim_ledger_path="claims.json",
@@ -812,7 +816,7 @@ def main() -> int:
             artifact_root = Path(tmp) / "artifact-root"
             artifact_root.mkdir()
             for rel_path in (
-                "draft.md",
+                DRAFT_MD,
                 "draft.tex",
                 "evidence.json",
                 "claims.json",
