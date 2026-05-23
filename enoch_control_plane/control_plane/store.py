@@ -2558,11 +2558,7 @@ class ControlPlaneStore:
             claimed_at=_text(row.get("claimed_at")),
             updated_at=updated_at,
             rank_score=score,
-            rank_bucket="blocked"
-            if score < 0
-            else "ready"
-            if score >= 100
-            else "review",
+            rank_bucket=_review_rank_bucket(score),
             rank_reasons=rank_reasons,
             missing_signals=missing_signals,
             rank_tiebreaker=_text(row.get("rank_tiebreaker")),
