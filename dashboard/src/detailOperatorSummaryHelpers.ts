@@ -38,6 +38,8 @@ export type IntakeIdeaOperatorSummary = {
   actionNeeded: string | null
 }
 
+export type ResearchCandidateOperatorSummary = IntakeIdeaOperatorSummary
+
 export function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
@@ -91,7 +93,7 @@ export function latestEventSummary(events: Record<string, unknown>[]): string | 
   const summary = text(firstValue(latest.summary, latest.event_type))
   const when = text(firstValue(latest.created_at, latest.updated_at))
   if (summary === '—') return null
-  return when !== '—' ? `${summary} (${when})` : summary
+  return when === '—' ? summary : `${summary} (${when})`
 }
 
 export function recentActivityFrom(events: Record<string, unknown>[], ...fallbacks: unknown[]): string | null {

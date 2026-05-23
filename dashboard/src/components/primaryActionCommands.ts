@@ -1,4 +1,5 @@
 import { apiPost } from '../api/client'
+import { displayText } from '../displayText'
 import { feedDryRunAllowsLiveCycle } from '../feedDryRun'
 import { dryRunCyclePayload, liveCyclePayload } from '../researchCyclePayloads'
 import type { TopAction } from '../types'
@@ -169,7 +170,7 @@ export async function postDryRunRequest(action: TopAction): Promise<Record<strin
 export function dryRunIndicatesReady(action: TopAction, payload: Record<string, unknown>): boolean {
   switch (action.kind) {
     case 'dispatch_next':
-      return String(payload.action || '').includes('dry_run')
+      return displayText(payload.action).includes('dry_run')
     case 'investigate_followup':
       return payload.action === 'dry_run_followup'
     case 'write_paper':

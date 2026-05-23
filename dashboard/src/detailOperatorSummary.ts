@@ -16,8 +16,8 @@ import {
   type DetailKind,
   type DetailOperatorSummary,
   type EntityLink,
-  type IntakeIdeaOperatorSummary,
   type OperatorAnswer,
+  type ResearchCandidateOperatorSummary,
 } from './detailOperatorSummaryHelpers'
 import { paperSummary } from './detailOperatorSummaryPaper'
 
@@ -30,6 +30,7 @@ export type {
   IntakeIdeaOperatorSummary,
   OperatorAnswer,
   OperatorSection,
+  ResearchCandidateOperatorSummary,
 } from './detailOperatorSummaryHelpers'
 
 function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary {
@@ -340,7 +341,7 @@ export function deriveDetailOperatorSummary(kind: DetailKind, payload: Record<st
   return eventSummary(payload)
 }
 
-export function deriveResearchCandidateOperatorSummary(row: Record<string, unknown>): IntakeIdeaOperatorSummary {
+export function deriveResearchCandidateOperatorSummary(row: Record<string, unknown>): ResearchCandidateOperatorSummary {
   const status = text(row.status)
   const admission = text(row.admission_decision)
   const target = text(row.machine_target)

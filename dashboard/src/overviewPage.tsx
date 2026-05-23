@@ -30,9 +30,14 @@ export function OverviewPage() {
     enabled: secondaryOpen || readinessRequested,
   })
   const refresh = () => {
-    void overview.refetch()
-    void status.refetch()
-    void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] !== 'overview' && query.queryKey[0] !== 'status' })
+    overview.refetch().catch(() => undefined)
+    status.refetch().catch(() => undefined)
+    queryClient
+      .invalidateQueries({
+        predicate: (query) =>
+          query.queryKey[0] !== 'overview' && query.queryKey[0] !== 'status',
+      })
+      .catch(() => undefined)
   }
 
   if (overview.isLoading) {

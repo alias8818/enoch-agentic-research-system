@@ -424,10 +424,12 @@ function useResearchPageController(route?: ResearchPageRoute) {
     onSuccess: (payload) => {
       if (payload.action !== 'promote_candidate') return
       setSelectedCandidate(null)
-      void queryClient.invalidateQueries({ queryKey: ['research-facility'] })
+      queryClient.invalidateQueries({ queryKey: ['research-facility'] }).catch(() => undefined)
     },
   })
-  const invalidateFacility = () => { void queryClient.invalidateQueries({ queryKey: ['research-facility'] }) }
+  const invalidateFacility = () => {
+    queryClient.invalidateQueries({ queryKey: ['research-facility'] }).catch(() => undefined)
+  }
   const generateBatch = useMutation({
     mutationFn: (payload: { dry_run: boolean; max_candidates: number; requested_by: string }) => apiPost<GenerateBatchResponse>('/control/api/research/generate-batch', payload),
     onSuccess: (payload, variables) => {
@@ -516,7 +518,7 @@ function useResearchPageController(route?: ResearchPageRoute) {
     promotion.reset()
     setBatchDryRunReady(false)
     setProviderBatchDryRunReady(false)
-    void facility.refetch()
+    facility.refetch().catch(() => undefined)
   }
 
   return {

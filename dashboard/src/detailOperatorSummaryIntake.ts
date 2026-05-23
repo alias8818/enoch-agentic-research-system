@@ -87,9 +87,9 @@ export function deriveIntakeIdeaOperatorSummary(row: Record<string, unknown>): I
   const attention = intakeNeedsAttention(row, queueStatus, ideaStatus)
   const whyNotQueued = intakeWhyNotQueued(blocked, queueStatus, ideaStatus)
   const entityLinks: EntityLink[] = []
-  pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, row.title))
-  pushLink(entityLinks, entityLink('run', runId !== '—' ? runId : null))
-  pushLink(entityLinks, entityLink('paper', paperId !== '—' ? paperId : null))
+  pushLink(entityLinks, entityLink('project', projectId === '—' ? null : projectId, row.title))
+  pushLink(entityLinks, entityLink('run', runId === '—' ? null : runId))
+  pushLink(entityLinks, entityLink('paper', paperId === '—' ? null : paperId))
 
   return {
     state: operatorStageLabel(row, ideaStatus),
