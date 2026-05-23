@@ -319,38 +319,48 @@ def is_supported_negative_nonblocking(
     return depth_capped and paper_limited and evidence_limited
 
 
+def _supported_negative_requires_review(row: DecisionRow) -> bool:
+    if row.decision != "finalize_negative" or row.hypothesis_status != "supported":
+        return False
+    bounded_followup = has_bounded_followup(row) and has_substantive_negative_rationale(
+        row
+    )
+    return not is_supported_negative_nonblocking(
+        decision=row.decision,
+        hypothesis_status=row.hypothesis_status,
+        followup_recommended=row.followup_recommended,
+        rationale=negative_rationale(row),
+        bounded_followup=bounded_followup,
+        research_outcome=row.research_outcome,
+        claim_scope=row.claim_scope,
+        scale_limits=row.scale_limits,
+        evidence_strength=row.evidence_strength,
+        bounded_paper_ready=row.bounded_paper_ready,
+    )
+
+
+def _append_followup_problems(row: DecisionRow, problems: list[str]) -> None:
+    if not row.followup_recommended:
+        return
+    if not row.followup_title:
+        problems.append("followup_missing_title")
+    if not row.followup_hypothesis:
+        problems.append("followup_missing_hypothesis")
+    if row.followup_required_evidence_count < 2:
+        problems.append("followup_thin_required_evidence")
+    if not row.followup_success_threshold:
+        problems.append("followup_missing_success_threshold")
+    if not row.followup_stop_condition:
+        problems.append("followup_missing_stop_condition")
+
+
 def classify_decision_quality(row: DecisionRow) -> tuple[float, list[str]]:
     problems: list[str] = []
     if row.decision == "unknown":
         problems.append("unknown_decision")
-    if row.decision == "finalize_negative" and row.hypothesis_status == "supported":
-        bounded_followup = has_bounded_followup(
-            row
-        ) and has_substantive_negative_rationale(row)
-        if not is_supported_negative_nonblocking(
-            decision=row.decision,
-            hypothesis_status=row.hypothesis_status,
-            followup_recommended=row.followup_recommended,
-            rationale=negative_rationale(row),
-            bounded_followup=bounded_followup,
-            research_outcome=row.research_outcome,
-            claim_scope=row.claim_scope,
-            scale_limits=row.scale_limits,
-            evidence_strength=row.evidence_strength,
-            bounded_paper_ready=row.bounded_paper_ready,
-        ):
-            problems.append("supported_but_negative_requires_review")
-    if row.followup_recommended:
-        if not row.followup_title:
-            problems.append("followup_missing_title")
-        if not row.followup_hypothesis:
-            problems.append("followup_missing_hypothesis")
-        if row.followup_required_evidence_count < 2:
-            problems.append("followup_thin_required_evidence")
-        if not row.followup_success_threshold:
-            problems.append("followup_missing_success_threshold")
-        if not row.followup_stop_condition:
-            problems.append("followup_missing_stop_condition")
+    if _supported_negative_requires_review(row):
+        problems.append("supported_but_negative_requires_review")
+    _append_followup_problems(row, problems)
     if len(row.stop_reason) < 40 and len(row.recommended_next_action) < 40:
         problems.append("thin_stop_rationale")
     if row.evidence_strength in {"", "unknown", "none", "weak"}:
