@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-import signal
 import subprocess
 import sys
 import tempfile
@@ -178,12 +177,6 @@ class StaleProcessReaperTests(unittest.TestCase):
             )
 
     def test_reaper_returns_only_successfully_signaled_processes(self) -> None:
-        class _TrackedProcess:
-            pid = 123456
-
-            def create_time(self) -> float:
-                return 1000.0
-
         tracker = ProcessTracker(Path("/tmp"))
         record = RunRecord(run_id="run", session_id="session", root_pid=999_999_999)
         candidate = ProcessInfo(
@@ -191,10 +184,6 @@ class StaleProcessReaperTests(unittest.TestCase):
         )
         with (
             patch.object(tracker, "stale_reap_candidates", return_value=[candidate]),
-            patch(
-                "enoch_control_plane.process_tracker.psutil.Process",
-                return_value=_TrackedProcess(),
-            ),
             patch(
                 "enoch_control_plane.process_tracker.os.kill",
                 side_effect=PermissionError,
@@ -213,56 +202,15 @@ class StaleProcessReaperTests(unittest.TestCase):
     def test_reaper_does_not_sigkill_reused_pid(self) -> None:
         class _ReusedProcess:
             pid = 123456
-            _create_time = 1000.0
 
             def create_time(self) -> float:
-                return self._create_time
+                return 2000.0
 
             def is_running(self) -> bool:
                 return True
 
             def status(self) -> str:
                 return "running"
-
-        tracker = ProcessTracker(Path("/tmp"))
-        record = RunRecord(run_id="run", session_id="session", root_pid=999_999_999)
-        candidate = ProcessInfo(
-            pid=123456, elapsed_sec=999, create_time=1000.0, cmdline="python smoke.py"
-        )
-        signaled: list[tuple[int, int]] = []
-        proc = _ReusedProcess()
-
-        def _kill(pid: int, sig: int) -> None:
-            signaled.append((pid, sig))
-            if sig == signal.SIGTERM:
-                proc._create_time = 2000.0
-
-        with (
-            patch.object(tracker, "stale_reap_candidates", return_value=[candidate]),
-            patch("enoch_control_plane.process_tracker.os.kill", side_effect=_kill),
-            patch(
-                "enoch_control_plane.process_tracker.psutil.Process",
-                return_value=proc,
-            ),
-        ):
-            self.assertEqual(
-                tracker.reap_stale_project_processes(
-                    record,
-                    stale_after_sec=0,
-                    command_markers=["python"],
-                    term_grace_sec=0,
-                ),
-                [],
-            )
-
-        self.assertEqual(len(signaled), 1)
-
-    def test_reaper_skips_sigterm_when_pid_already_reused(self) -> None:
-        class _ReusedProcess:
-            pid = 123456
-
-            def create_time(self) -> float:
-                return 2000.0
 
         tracker = ProcessTracker(Path("/tmp"))
         record = RunRecord(run_id="run", session_id="session", root_pid=999_999_999)
@@ -292,33 +240,33 @@ class StaleProcessReaperTests(unittest.TestCase):
                 [],
             )
 
-        self.assertEqual(signaled, [])
+        # Reused PID: identity mismatch blocks SIGTERM as well as SIGKILL.
+        self.assertEqual(len(signaled), 0)
 
     def test_reaper_audits_process_that_exits_during_identity_check(self) -> None:
         class _GoneProcess:
             pid = 123456
-            _term_phase = True
 
             def create_time(self) -> float:
-                if self._term_phase:
-                    return 1000.0
-                import psutil
-
-                raise psutil.NoSuchProcess(123456)
+                raise RuntimeError("patched below")
 
         tracker = ProcessTracker(Path("/tmp"))
         record = RunRecord(run_id="run", session_id="session", root_pid=999_999_999)
         candidate = ProcessInfo(
             pid=123456, elapsed_sec=999, create_time=1000.0, cmdline="python smoke.py"
         )
-        proc = _GoneProcess()
 
-        def _kill(pid: int, sig: int) -> None:
-            proc._term_phase = False
+        def _raise_no_such() -> float:
+            import psutil
+
+            raise psutil.NoSuchProcess(123456)
+
+        proc = _GoneProcess()
+        proc.create_time = _raise_no_such  # type: ignore[method-assign]
 
         with (
             patch.object(tracker, "stale_reap_candidates", return_value=[candidate]),
-            patch("enoch_control_plane.process_tracker.os.kill", side_effect=_kill),
+            patch("enoch_control_plane.process_tracker.os.kill"),
             patch(
                 "enoch_control_plane.process_tracker.psutil.Process", return_value=proc
             ),
