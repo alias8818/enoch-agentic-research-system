@@ -128,6 +128,10 @@ class UnresolvableArtifactRootsError(RuntimeError):
     """Configured project and state artifact roots could not be resolved."""
 
 
+class PaperArtifactRootNotInspectableError(RuntimeError):
+    """Paper rewrite project_dir exists but could not be inspected."""
+
+
 RequireBearer = Callable[[str | None], None]
 
 _RUN_NOTES_MD = "run_notes.md"
@@ -840,9 +844,8 @@ def _paper_rewrite_current_dir_resolution(
     try:
         return resolved.exists(), resolved
     except (OSError, RuntimeError) as exc:
-        raise HTTPException(
-            status_code=400,
-            detail="paper artifact root could not be inspected",
+        raise PaperArtifactRootNotInspectableError(
+            "paper artifact root could not be inspected"
         ) from exc
 
 
@@ -7002,9 +7005,12 @@ def create_control_plane_router(
         paper, item = _paper_rewrite_rows_or_404(store, paper_id)
         project_id = str(paper.get("project_id") or "")
         project = store.project_row(project_id) if project_id else None
-        artifact_root, use_current_dir = _resolve_paper_rewrite_artifact_root(
-            config, project_id=project_id, project=project
-        )
+        try:
+            artifact_root, use_current_dir = _resolve_paper_rewrite_artifact_root(
+                config, project_id=project_id, project=project
+            )
+        except PaperArtifactRootNotInspectableError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         replay = _paper_rewrite_idempotent_response(
             store,
             payload=payload,
