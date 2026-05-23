@@ -3640,6 +3640,16 @@ def open_lane_research_rows(
     return [row for row in rows if lane_key_func(row) not in active_lane_keys]
 
 
+def _research_lane_feed_pressure_label(machine_target: str, worker_role: Any) -> str:
+    machine_lower = machine_target.lower()
+    role_lower = str(worker_role or "").lower()
+    if "gb10" in machine_lower or "gpu" in role_lower:
+        return "GB10 lane"
+    if "cpu" in machine_lower or "cpu" in role_lower:
+        return "CPU lane"
+    return f"{machine_target or 'default'} lane"
+
+
 def _compute_research_lane_feed_pressure(
     *,
     active: list[dict[str, Any]],
@@ -3688,14 +3698,8 @@ def _compute_research_lane_feed_pressure(
     for lane in lane_rows:
         lane_key = str(lane.get("lane_key") or "")
         machine_target = str(lane.get("machine_target") or "")
-        label = (
-            "GB10 lane"
-            if "gb10" in machine_target.lower()
-            or "gpu" in str(lane.get("worker_role") or "").lower()
-            else "CPU lane"
-            if "cpu" in machine_target.lower()
-            or "cpu" in str(lane.get("worker_role") or "").lower()
-            else f"{machine_target or 'default'} lane"
+        label = _research_lane_feed_pressure_label(
+            machine_target, lane.get("worker_role")
         )
         queued_count = len(queued_by_lane.get(lane_key, []))
         promotable_count = len(promotable_by_lane.get(lane_key, []))
