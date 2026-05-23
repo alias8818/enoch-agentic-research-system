@@ -848,3 +848,19 @@ def test_router_synthetic_base_url_centralized_no_s1192_duplication() -> None:
     assert count == 1, (
         f"{lit!r} still duplicated in router (count={count}); extract to const"
     )
+
+
+def test_router_worker_preflight_failed_centralized_no_s1192_duplication() -> None:
+    """AGENTS.md validator for current top S1192 in router.py (line 2365).
+
+    "worker preflight failed" (flagged in latest Sonar top duplication, 3x in
+    error reasons and messages) must appear exactly once after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "control_plane" / "router.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "worker preflight failed"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in router (count={count}); extract to const"
+    )

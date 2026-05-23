@@ -334,6 +334,10 @@ DEFAULT_ALLOWED_RESEARCH_MODELS: list[str] = [
 # provider base URL used in getenv defaults and f-string fallbacks).
 DEFAULT_RESEARCH_PROVIDER_BASE_URL = "https://synthetic.int.exe.xyz"
 
+# Centralized reason constant for the top remaining S1192 duplication
+# (worker preflight error paths and messages in router.py).
+WORKER_PREFLIGHT_FAILED_REASON = "worker preflight failed"
+
 
 def _atomic_write_bytes(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -2355,14 +2359,14 @@ def create_control_plane_router(
                 store.flags(),
             )
         except Exception as exc:
-            reason = f"worker preflight failed: {type(exc).__name__}: {exc}"
+            reason = f"{WORKER_PREFLIGHT_FAILED_REASON}: {type(exc).__name__}: {exc}"
             store.release_dispatch_claim(
                 project_id=project_id, run_id=run_id, reason=reason
             )
             raise HTTPException(
                 status_code=409,
                 detail={
-                    "message": "worker preflight failed",
+                    "message": WORKER_PREFLIGHT_FAILED_REASON,
                     "preflight_error": reason,
                     "force_preflight_ignored": not force_preflight,
                 },
@@ -2370,12 +2374,14 @@ def create_control_plane_router(
         _record_preflight_observations(preflight)
         if not preflight.ok:
             store.release_dispatch_claim(
-                project_id=project_id, run_id=run_id, reason="worker preflight failed"
+                project_id=project_id,
+                run_id=run_id,
+                reason=WORKER_PREFLIGHT_FAILED_REASON,
             )
             raise HTTPException(
                 status_code=409,
                 detail={
-                    "message": "worker preflight failed",
+                    "message": WORKER_PREFLIGHT_FAILED_REASON,
                     "preflight": preflight.model_dump(mode="json"),
                     "force_preflight_ignored": not force_preflight,
                 },
