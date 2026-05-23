@@ -848,6 +848,81 @@ def _followup_escalation_payload(
     }
 
 
+def _followup_launch_noop_response() -> dict[str, Any]:
+    return {
+        "ok": True,
+        "action": "noop",
+        "reason": "no follow-up candidate",
+        "candidate": None,
+        "followup": None,
+    }
+
+
+def _followup_launch_dry_run_response(
+    candidate: dict[str, Any], followup_payload: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "action": "dry_run_followup",
+        "reason": "follow-up candidate selected; no row inserted",
+        "candidate": candidate,
+        "followup": followup_payload,
+    }
+
+
+def _followup_launch_success_response(
+    candidate: dict[str, Any], followup_payload: dict[str, Any], event_id: str
+) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "action": "followup_queued",
+        "reason": "bounded follow-up queued",
+        "candidate": candidate,
+        "followup": followup_payload,
+        "event_id": event_id,
+    }
+
+
+def _followup_launch_plan(candidate: dict[str, Any]) -> dict[str, Any]:
+    title = (
+        _text(candidate.get("followup_title"))
+        or f"Follow-up: {_text(candidate.get('project_name')) or _text(candidate.get('project_id'))}"
+    )
+    hypothesis = _text(candidate.get("followup_hypothesis")) or _text(
+        candidate.get("operator_explanation")
+    )
+    parent_id = _text(candidate.get("project_id"))
+    followup_id = _stable_followup_id(parent_id, title, hypothesis)
+    depth = _int(candidate.get("followup_depth"), 0) + 1
+    followup_payload = {
+        "idea_id": followup_id,
+        "title": title,
+        "parent_project_id": parent_id,
+        "parent_run_id": _text(candidate.get("current_run_id")),
+        "followup_depth": depth,
+        "followup_type": _text(candidate.get("followup_type"))
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_"),
+        "followup_hypothesis": hypothesis,
+        "followup_required_evidence": _followup_required_evidence_items(candidate),
+        "followup_success_threshold": _text(
+            candidate.get("followup_success_threshold")
+        ),
+        "followup_stop_condition": _text(candidate.get("followup_stop_condition")),
+        **_followup_escalation_payload(candidate, depth),
+    }
+    parent_source = _followup_parent_source_record(candidate, followup_payload)
+    return {
+        "title": title,
+        "hypothesis": hypothesis,
+        "parent_id": parent_id,
+        "followup_id": followup_id,
+        "followup_payload": followup_payload,
+        "parent_source": parent_source,
+    }
+
+
 _GATE_DECISION_VALUE_FIELDS = (
     "project_decision",
     "decision",
@@ -5050,6 +5125,196 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         candidates.sort(key=promising_followup_priority_key)
         return candidates[0] if candidates else None
 
+    def _assert_followup_launch_idempotency(
+        self,
+        cur: Any,
+        *,
+        followup_id: str,
+        title: str,
+        followup_payload: dict[str, Any],
+    ) -> None:
+        cur.execute(
+            "select idea_id, title, source_payload_json from ideas where idea_id = %s",
+            (followup_id,),
+        )
+        existing_idea = cur.fetchone()
+        if existing_idea and (
+            self._row_value(existing_idea, "title", 1) != title
+            or self._json_text(self._row_value(existing_idea, "source_payload_json", 2))
+            != self._json_text(followup_payload)
+        ):
+            raise IdempotencyConflict(
+                f"follow-up idea id {followup_id!r} was reused with different idea identity"
+            )
+        cur.execute(
+            "select project_id, project_name, project_dir, origin_idea_status from projects where project_id = %s",
+            (followup_id,),
+        )
+        existing_project = cur.fetchone()
+        if existing_project and (
+            self._row_value(existing_project, "project_name", 1) != title
+            or self._row_value(existing_project, "project_dir", 2) != followup_id
+            or self._row_value(existing_project, "origin_idea_status", 3) != "testing"
+        ):
+            raise IdempotencyConflict(
+                f"follow-up project id {followup_id!r} was reused with different project identity"
+            )
+        cur.execute(
+            "select project_id, status, current_run_id, next_action_hint from queue_items where project_id = %s",
+            (followup_id,),
+        )
+        existing_queue = cur.fetchone()
+        if existing_queue and (
+            self._row_value(existing_queue, "status", 1) != QueueStatus.QUEUED.value
+            or self._row_value(existing_queue, "current_run_id", 2)
+            or self._row_value(existing_queue, "next_action_hint", 3)
+            != "controller_review"
+        ):
+            raise IdempotencyConflict(
+                f"follow-up queue id {followup_id!r} was reused with different queue identity"
+            )
+
+    def _persist_followup_launch_rows(
+        self,
+        cur: Any,
+        *,
+        plan: dict[str, Any],
+        candidate: dict[str, Any],
+        requested_by: str,
+        now: Any,
+    ) -> str:
+        followup_id = str(plan["followup_id"])
+        title = str(plan["title"])
+        hypothesis = str(plan["hypothesis"])
+        parent_id = str(plan["parent_id"])
+        followup_payload = plan["followup_payload"]
+        parent_source = plan["parent_source"]
+        cur.execute(
+            """
+            insert into ideas(
+              idea_id, title, idea_status, category, priority, source_kind, source_external_url, description, implementation,
+              baseline_to_beat, kill_condition, expected_token_budget, confidence, feasibility, leverage,
+              machine_target, model, sandbox, selection_rank, dispatch_priority, source_payload_json, created_at, updated_at
+            ) values (%s,%s,'testing','follow-up','High','followup_branch',%s,%s,%s,%s,%s,'medium','medium','medium','high',%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
+            on conflict (idea_id) do nothing
+            """,
+            (
+                followup_id,
+                title,
+                parent_source["url"],
+                hypothesis,
+                "Bounded follow-up investigation generated from prior no-paper evidence; do not write a paper unless this run independently becomes paper-positive.",
+                _text(candidate.get("project_name")),
+                _text(candidate.get("followup_stop_condition")),
+                _text(candidate.get("machine_target")),
+                _text(candidate.get("model")),
+                _text(candidate.get("sandbox")),
+                _int(candidate.get("selection_rank"), 50),
+                _int(candidate.get("dispatch_priority"), 50),
+                _json(followup_payload),
+                now,
+                now,
+            ),
+        )
+        cur.execute(
+            """
+            insert into projects(project_id, project_name, project_dir, notion_page_url, notion_page_id, origin_idea_status, created_at, updated_at)
+            values (%s,%s,%s,'','','testing',%s,%s)
+            on conflict (project_id) do nothing
+            """,
+            (followup_id, title, followup_id, now, now),
+        )
+        cur.execute(
+            """
+            insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+            values (%s,'queued',%s,%s,true,0,0,0,2,'','','','','controller_review',false,'','','',%s,%s,%s,null,null,null,%s)
+            on conflict (project_id) do nothing
+            """,
+            (
+                followup_id,
+                _int(candidate.get("selection_rank"), 50),
+                _int(candidate.get("dispatch_priority"), 50),
+                _text(candidate.get("machine_target")),
+                _text(candidate.get("model")),
+                _text(candidate.get("sandbox")),
+                now,
+            ),
+        )
+        parent_payload_text = self._json_text(parent_source["payload_json"])
+        cur.execute(
+            """
+            insert into research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash)
+            values (%s,%s,%s,%s,%s,null,%s,%s::jsonb,%s)
+            on conflict (source_id) do update set
+              source_kind=excluded.source_kind,
+              title=excluded.title,
+              url=excluded.url,
+              external_id=excluded.external_id,
+              summary=excluded.summary,
+              payload_json=excluded.payload_json,
+              content_hash=excluded.content_hash,
+              updated_at=now()
+            """,
+            (
+                parent_source["source_id"],
+                parent_source["source_kind"],
+                parent_source["title"],
+                parent_source["url"],
+                parent_source["external_id"],
+                parent_source["summary"],
+                parent_payload_text,
+                hashlib.sha256(parent_payload_text.encode("utf-8")).hexdigest(),
+            ),
+        )
+        cur.execute(
+            """
+            insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
+            select source_type, source_id, target_type, target_id, relation_type, evidence_json::jsonb
+            from (values
+              ('source', %s, 'candidate', %s, 'generated_from', %s),
+              ('project', %s, 'project', %s, 'followup_parent', %s)
+            ) as v(source_type, source_id, target_type, target_id, relation_type, evidence_json)
+            where not exists (
+              select 1 from research_lineage rl
+              where rl.source_type=v.source_type and rl.source_id=v.source_id
+                and rl.target_type=v.target_type and rl.target_id=v.target_id
+                and rl.relation_type=v.relation_type
+            )
+            """,
+            (
+                parent_source["source_id"],
+                followup_id,
+                self._json_text(
+                    {
+                        "source_id": parent_source["source_id"],
+                        "source_url": parent_source["url"],
+                        "captured_by": "followup.launch",
+                    }
+                ),
+                parent_id,
+                followup_id,
+                self._json_text(
+                    {
+                        "parent_run_id": _text(candidate.get("current_run_id")),
+                        "followup_type": followup_payload["followup_type"],
+                    }
+                ),
+            ),
+        )
+        event_id, _inserted = self._append_event_in_cursor(
+            cur,
+            idempotency_key=f"followup.launch:{parent_id}:{followup_id}",
+            event_type="followup.launch",
+            entity_type="project",
+            entity_id=parent_id,
+            payload={
+                "requested_by": requested_by,
+                "candidate": {"project_id": parent_id},
+                "followup": followup_payload,
+            },
+        )
+        return str(event_id)
+
     def launch_followup_candidate(
         self,
         *,
@@ -5062,233 +5327,28 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             project_id=project_id, max_followup_depth=max_followup_depth
         )
         if not candidate:
-            return {
-                "ok": True,
-                "action": "noop",
-                "reason": "no follow-up candidate",
-                "candidate": None,
-                "followup": None,
-            }
-        title = (
-            _text(candidate.get("followup_title"))
-            or f"Follow-up: {_text(candidate.get('project_name')) or _text(candidate.get('project_id'))}"
-        )
-        hypothesis = _text(candidate.get("followup_hypothesis")) or _text(
-            candidate.get("operator_explanation")
-        )
-        parent_id = _text(candidate.get("project_id"))
-        followup_id = _stable_followup_id(parent_id, title, hypothesis)
-        depth = _int(candidate.get("followup_depth"), 0) + 1
-        followup_payload = {
-            "idea_id": followup_id,
-            "title": title,
-            "parent_project_id": parent_id,
-            "parent_run_id": _text(candidate.get("current_run_id")),
-            "followup_depth": depth,
-            "followup_type": _text(candidate.get("followup_type"))
-            .lower()
-            .replace("-", "_")
-            .replace(" ", "_"),
-            "followup_hypothesis": hypothesis,
-            "followup_required_evidence": _followup_required_evidence_items(candidate),
-            "followup_success_threshold": _text(
-                candidate.get("followup_success_threshold")
-            ),
-            "followup_stop_condition": _text(candidate.get("followup_stop_condition")),
-            **_followup_escalation_payload(candidate, depth),
-        }
-        parent_source = _followup_parent_source_record(candidate, followup_payload)
+            return _followup_launch_noop_response()
+        plan = _followup_launch_plan(candidate)
+        followup_payload = plan["followup_payload"]
         if dry_run:
-            return {
-                "ok": True,
-                "action": "dry_run_followup",
-                "reason": "follow-up candidate selected; no row inserted",
-                "candidate": candidate,
-                "followup": followup_payload,
-            }
+            return _followup_launch_dry_run_response(candidate, followup_payload)
         now = utc_now()
         with self._connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "select idea_id, title, source_payload_json from ideas where idea_id = %s",
-                    (followup_id,),
-                )
-                existing_idea = cur.fetchone()
-                if existing_idea and (
-                    self._row_value(existing_idea, "title", 1) != title
-                    or self._json_text(
-                        self._row_value(existing_idea, "source_payload_json", 2)
-                    )
-                    != self._json_text(followup_payload)
-                ):
-                    raise IdempotencyConflict(
-                        f"follow-up idea id {followup_id!r} was reused with different idea identity"
-                    )
-                cur.execute(
-                    """
-                    insert into ideas(
-                      idea_id, title, idea_status, category, priority, source_kind, source_external_url, description, implementation,
-                      baseline_to_beat, kill_condition, expected_token_budget, confidence, feasibility, leverage,
-                      machine_target, model, sandbox, selection_rank, dispatch_priority, source_payload_json, created_at, updated_at
-                    ) values (%s,%s,'testing','follow-up','High','followup_branch',%s,%s,%s,%s,%s,'medium','medium','medium','high',%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
-                    on conflict (idea_id) do nothing
-                    """,
-                    (
-                        followup_id,
-                        title,
-                        parent_source["url"],
-                        hypothesis,
-                        "Bounded follow-up investigation generated from prior no-paper evidence; do not write a paper unless this run independently becomes paper-positive.",
-                        _text(candidate.get("project_name")),
-                        _text(candidate.get("followup_stop_condition")),
-                        _text(candidate.get("machine_target")),
-                        _text(candidate.get("model")),
-                        _text(candidate.get("sandbox")),
-                        _int(candidate.get("selection_rank"), 50),
-                        _int(candidate.get("dispatch_priority"), 50),
-                        _json(followup_payload),
-                        now,
-                        now,
-                    ),
-                )
-                cur.execute(
-                    "select project_id, project_name, project_dir, origin_idea_status from projects where project_id = %s",
-                    (followup_id,),
-                )
-                existing_project = cur.fetchone()
-                if existing_project and (
-                    self._row_value(existing_project, "project_name", 1) != title
-                    or self._row_value(existing_project, "project_dir", 2)
-                    != followup_id
-                    or self._row_value(existing_project, "origin_idea_status", 3)
-                    != "testing"
-                ):
-                    raise IdempotencyConflict(
-                        f"follow-up project id {followup_id!r} was reused with different project identity"
-                    )
-                cur.execute(
-                    """
-                    insert into projects(project_id, project_name, project_dir, notion_page_url, notion_page_id, origin_idea_status, created_at, updated_at)
-                    values (%s,%s,%s,'','','testing',%s,%s)
-                    on conflict (project_id) do nothing
-                    """,
-                    (followup_id, title, followup_id, now, now),
-                )
-                cur.execute(
-                    "select project_id, status, current_run_id, next_action_hint from queue_items where project_id = %s",
-                    (followup_id,),
-                )
-                existing_queue = cur.fetchone()
-                if existing_queue and (
-                    self._row_value(existing_queue, "status", 1)
-                    != QueueStatus.QUEUED.value
-                    or self._row_value(existing_queue, "current_run_id", 2)
-                    or self._row_value(existing_queue, "next_action_hint", 3)
-                    != "controller_review"
-                ):
-                    raise IdempotencyConflict(
-                        f"follow-up queue id {followup_id!r} was reused with different queue identity"
-                    )
-                cur.execute(
-                    """
-                    insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
-                    values (%s,'queued',%s,%s,true,0,0,0,2,'','','','','controller_review',false,'','','',%s,%s,%s,null,null,null,%s)
-                    on conflict (project_id) do nothing
-                    """,
-                    (
-                        followup_id,
-                        _int(candidate.get("selection_rank"), 50),
-                        _int(candidate.get("dispatch_priority"), 50),
-                        _text(candidate.get("machine_target")),
-                        _text(candidate.get("model")),
-                        _text(candidate.get("sandbox")),
-                        now,
-                    ),
-                )
-                cur.execute(
-                    """
-                    insert into research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash)
-                    values (%s,%s,%s,%s,%s,null,%s,%s::jsonb,%s)
-                    on conflict (source_id) do update set
-                      source_kind=excluded.source_kind,
-                      title=excluded.title,
-                      url=excluded.url,
-                      external_id=excluded.external_id,
-                      summary=excluded.summary,
-                      payload_json=excluded.payload_json,
-                      content_hash=excluded.content_hash,
-                      updated_at=now()
-                    """,
-                    (
-                        parent_source["source_id"],
-                        parent_source["source_kind"],
-                        parent_source["title"],
-                        parent_source["url"],
-                        parent_source["external_id"],
-                        parent_source["summary"],
-                        self._json_text(parent_source["payload_json"]),
-                        hashlib.sha256(
-                            self._json_text(parent_source["payload_json"]).encode(
-                                "utf-8"
-                            )
-                        ).hexdigest(),
-                    ),
-                )
-                cur.execute(
-                    """
-                    insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
-                    select source_type, source_id, target_type, target_id, relation_type, evidence_json::jsonb
-                    from (values
-                      ('source', %s, 'candidate', %s, 'generated_from', %s),
-                      ('project', %s, 'project', %s, 'followup_parent', %s)
-                    ) as v(source_type, source_id, target_type, target_id, relation_type, evidence_json)
-                    where not exists (
-                      select 1 from research_lineage rl
-                      where rl.source_type=v.source_type and rl.source_id=v.source_id
-                        and rl.target_type=v.target_type and rl.target_id=v.target_id
-                        and rl.relation_type=v.relation_type
-                    )
-                    """,
-                    (
-                        parent_source["source_id"],
-                        followup_id,
-                        self._json_text(
-                            {
-                                "source_id": parent_source["source_id"],
-                                "source_url": parent_source["url"],
-                                "captured_by": "followup.launch",
-                            }
-                        ),
-                        parent_id,
-                        followup_id,
-                        self._json_text(
-                            {
-                                "parent_run_id": _text(candidate.get("current_run_id")),
-                                "followup_type": followup_payload["followup_type"],
-                            }
-                        ),
-                    ),
-                )
-                event_id, _inserted = self._append_event_in_cursor(
+                self._assert_followup_launch_idempotency(
                     cur,
-                    idempotency_key=f"followup.launch:{parent_id}:{followup_id}",
-                    event_type="followup.launch",
-                    entity_type="project",
-                    entity_id=parent_id,
-                    payload={
-                        "requested_by": requested_by,
-                        "candidate": {"project_id": parent_id},
-                        "followup": followup_payload,
-                    },
+                    followup_id=str(plan["followup_id"]),
+                    title=str(plan["title"]),
+                    followup_payload=followup_payload,
                 )
-        return {
-            "ok": True,
-            "action": "followup_queued",
-            "reason": "bounded follow-up queued",
-            "candidate": candidate,
-            "followup": followup_payload,
-            "event_id": event_id,
-        }
+                event_id = self._persist_followup_launch_rows(
+                    cur,
+                    plan=plan,
+                    candidate=candidate,
+                    requested_by=requested_by,
+                    now=now,
+                )
+        return _followup_launch_success_response(candidate, followup_payload, event_id)
 
     def mark_queue_item_paused(
         self, *, project_id: str, reason: str, updated_by: str = "operator"
