@@ -22,6 +22,10 @@ ACTION_BY_DISPOSITION = {
     "legacy_internal": "retire",
 }
 
+# Centralized surface name for the duplicated QUEUE_ITEMS_STATUS literal
+# (addresses top remaining S1192, 13x in DOMAIN_TARGETS and state reduction mappings).
+QUEUE_ITEMS_STATUS = "queue_items.status"
+
 DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
     {
         "Ideas": {
@@ -38,7 +42,7 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
         },
         "Projects": {
             "surfaces": [
-                "queue_items.status",
+                QUEUE_ITEMS_STATUS,
                 "project_decisions.decision_gate_state",
                 "projects.origin_idea_status",
             ],
@@ -100,18 +104,18 @@ FINAL_STATE_OVERRIDES: dict[tuple[str, str], str] = {
     ("ideas.idea_status", "parked"): "held",
     ("ideas.idea_status", "deprecated"): "discarded",
     # Project queue
-    ("queue_items.status", "queued"): "ready",
-    ("queue_items.status", "dispatching"): "running",
-    ("queue_items.status", "running"): "running",
-    ("queue_items.status", "awaiting_wake"): "running",
-    ("queue_items.status", "wake_received"): "running",
-    ("queue_items.status", "reconciling"): "running",
-    ("queue_items.status", "completed"): "done_no_paper",
-    ("queue_items.status", "paused"): "paused",
-    ("queue_items.status", "canceled"): "canceled",
-    ("queue_items.status", "dispatch_error"): "needs_attention",
-    ("queue_items.status", "blocked"): "needs_attention",
-    ("queue_items.status", "needs_review"): "needs_attention",
+    (QUEUE_ITEMS_STATUS, "queued"): "ready",
+    (QUEUE_ITEMS_STATUS, "dispatching"): "running",
+    (QUEUE_ITEMS_STATUS, "running"): "running",
+    (QUEUE_ITEMS_STATUS, "awaiting_wake"): "running",
+    (QUEUE_ITEMS_STATUS, "wake_received"): "running",
+    (QUEUE_ITEMS_STATUS, "reconciling"): "running",
+    (QUEUE_ITEMS_STATUS, "completed"): "done_no_paper",
+    (QUEUE_ITEMS_STATUS, "paused"): "paused",
+    (QUEUE_ITEMS_STATUS, "canceled"): "canceled",
+    (QUEUE_ITEMS_STATUS, "dispatch_error"): "needs_attention",
+    (QUEUE_ITEMS_STATUS, "blocked"): "needs_attention",
+    (QUEUE_ITEMS_STATUS, "needs_review"): "needs_attention",
     # Project decisions
     ("project_decisions.decision_gate_state", "positive"): "paper_positive",
     ("project_decisions.decision_gate_state", "negative"): "done_no_paper",
