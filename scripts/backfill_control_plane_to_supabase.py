@@ -261,48 +261,71 @@ def decision_gate_state(gate: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _decision_artifact_path(root: Path) -> str:
+    enoch_path = root / ".enoch" / PROJECT_DECISION_JSON
+    if enoch_path.exists():
+        return str(enoch_path)
+    omx_path = root / ".omx" / PROJECT_DECISION_JSON
+    if omx_path.exists():
+        return str(omx_path)
+    return str(root / PROJECT_DECISION_JSON)
+
+
+def _gate_has_usable_decision(gate: dict[str, Any]) -> bool:
+    return (
+        bool(gate.get("values"))
+        or gate.get("reason") != "missing project decision artifact"
+    )
+
+
+def _project_decision_row(
+    project_id: str,
+    queue_row: dict[str, Any],
+    project: dict[str, Any],
+    root: Path,
+    gate: dict[str, Any],
+) -> dict[str, Any]:
+    payload = {"gate": gate, "project_root": str(root)}
+    return {
+        "project_id": project_id,
+        "run_id": str(queue_row.get("current_run_id") or "") or None,
+        "decision_gate_state": decision_gate_state(gate),
+        "decision_summary": str(gate.get("decision") or gate.get("reason") or ""),
+        "artifact_path": _decision_artifact_path(root),
+        "payload_json": json_text(payload, {}),
+        "payload_hash": stable_hash(payload),
+        "decided_at": project.get("updated_at") or queue_row.get("updated_at"),
+    }
+
+
+def _find_project_decision(
+    project: dict[str, Any],
+    queue_by_project: dict[str, dict[str, Any]],
+    project_roots: Sequence[Path],
+) -> dict[str, Any] | None:
+    project_id = str(project.get("project_id") or "")
+    if not project_id:
+        return None
+    queue_row = queue_by_project.get(project_id, {})
+    for root in decision_file_candidates(project, project_roots):
+        gate = paper_draft_decision_gate(root)
+        if _gate_has_usable_decision(gate):
+            return _project_decision_row(project_id, queue_row, project, root, gate)
+    return None
+
+
 def load_project_decisions(
     projects: list[dict[str, Any]],
     queue_by_project: dict[str, dict[str, Any]],
     project_roots: Sequence[Path],
 ) -> list[dict[str, Any]]:
-    decisions: list[dict[str, Any]] = []
     if not project_roots:
-        return decisions
+        return []
+    decisions: list[dict[str, Any]] = []
     for project in projects:
-        project_id = str(project.get("project_id") or "")
-        if not project_id:
-            continue
-        queue_row = queue_by_project.get(project_id, {})
-        for root in decision_file_candidates(project, project_roots):
-            gate = paper_draft_decision_gate(root)
-            if (
-                gate.get("values")
-                or gate.get("reason") != "missing project decision artifact"
-            ):
-                payload = {"gate": gate, "project_root": str(root)}
-                decisions.append(
-                    {
-                        "project_id": project_id,
-                        "run_id": str(queue_row.get("current_run_id") or "") or None,
-                        "decision_gate_state": decision_gate_state(gate),
-                        "decision_summary": str(
-                            gate.get("decision") or gate.get("reason") or ""
-                        ),
-                        "artifact_path": str(root / ".enoch" / PROJECT_DECISION_JSON)
-                        if (root / ".enoch" / PROJECT_DECISION_JSON).exists()
-                        else (
-                            str(root / ".omx" / PROJECT_DECISION_JSON)
-                            if (root / ".omx" / PROJECT_DECISION_JSON).exists()
-                            else str(root / PROJECT_DECISION_JSON)
-                        ),
-                        "payload_json": json_text(payload, {}),
-                        "payload_hash": stable_hash(payload),
-                        "decided_at": project.get("updated_at")
-                        or queue_row.get("updated_at"),
-                    }
-                )
-                break
+        row = _find_project_decision(project, queue_by_project, project_roots)
+        if row is not None:
+            decisions.append(row)
     return decisions
 
 
