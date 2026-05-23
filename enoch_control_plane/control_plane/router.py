@@ -3510,13 +3510,12 @@ def _compute_research_lane_feed_pressure(
             summary = f"{label} needs queued depth {queued_count}/{min_queue_depth}; autopilot should promote {promotable_count} admitted candidate(s)."
         else:
             next_action = "generate_candidate"
-            target_label = (
-                "GB10"
-                if "gb10" in machine_target.lower()
-                else "CPU"
-                if "cpu" in machine_target.lower()
-                else machine_target or "default"
-            )
+            if "gb10" in machine_target.lower():
+                target_label = "GB10"
+            elif "cpu" in machine_target.lower():
+                target_label = "CPU"
+            else:
+                target_label = machine_target or "default"
             if queued_count:
                 summary = f"{label} active with queued depth {queued_count}/{min_queue_depth}; autopilot should generate {target_label}-targeted work to fill the remaining deficit."
             else:
