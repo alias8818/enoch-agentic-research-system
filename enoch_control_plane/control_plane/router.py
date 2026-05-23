@@ -1025,6 +1025,151 @@ def _restore_paper_rewrite_side_effects(
         raise RuntimeError("failed to restore paper rewrite side effects") from exc
 
 
+def _paper_rewrite_draft_event_payload(
+    *,
+    payload: PaperReviewRewriteDraftRequest,
+    candidate: dict[str, Any],
+    record: PaperRecord,
+    artifact_root: Path,
+    writer: dict[str, Any],
+    evidence_sync: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "action": "rewrite_draft",
+        "requested_by": payload.requested_by,
+        "force": payload.force,
+        "artifact_root": str(artifact_root),
+        "writer": writer,
+        "evidence_sync": evidence_sync,
+        "publication_policy": candidate["publication_policy"],
+        "paper_paths": {
+            "draft_markdown_path": record.draft_markdown_path,
+            "draft_latex_path": record.draft_latex_path,
+            "evidence_bundle_path": record.evidence_bundle_path,
+            "claim_ledger_path": record.claim_ledger_path,
+            "manifest_path": record.manifest_path,
+        },
+    }
+
+
+def _write_paper_rewrite_draft_and_finalize(
+    store: ControlPlaneStore,
+    config: GateConfig,
+    *,
+    payload: PaperReviewRewriteDraftRequest,
+    candidate: dict[str, Any],
+    record: PaperRecord,
+    artifact_root: Path,
+    use_current_dir: bool,
+    project_id: str,
+    evidence_sync: dict[str, Any],
+    draft_event_committed: dict[str, bool],
+) -> dict[str, Any]:
+    writer = write_paper_artifacts(config, candidate, record, force=payload.force)
+    if not use_current_dir:
+        store.update_project_dir(project_id, str(artifact_root))
+    store.upsert_paper(record)
+    event_id, inserted = store.append_event(
+        idempotency_key=payload.idempotency_key,
+        event_type=PAPER_REVIEW_DRAFT_REWRITTEN,
+        entity_type="paper_review",
+        entity_id=record.paper_id,
+        payload=_paper_rewrite_draft_event_payload(
+            payload=payload,
+            candidate=candidate,
+            record=record,
+            artifact_root=artifact_root,
+            writer=writer,
+            evidence_sync=evidence_sync,
+        ),
+    )
+    draft_event_committed["committed"] = True
+    (
+        finalization_event_id,
+        finalization_inserted,
+        finalized_item,
+        package_path,
+        _manifest,
+    ) = store.prepare_paper_review_finalization_package(
+        record.paper_id,
+        PaperReviewPrepareFinalizationRequest(
+            idempotency_key=f"{payload.idempotency_key}:automated-finalization",
+            requested_by=payload.requested_by,
+            target_label="automated-publication",
+            dry_run=False,
+        ),
+        require_approval=False,
+    )
+    return {
+        "writer": writer,
+        "event_id": event_id,
+        "inserted": inserted,
+        "finalization_event_id": finalization_event_id,
+        "finalization_inserted": finalization_inserted,
+        "finalized_item": finalized_item,
+        "package_path": package_path,
+    }
+
+
+def _handle_paper_rewrite_draft_commit_error(
+    exc: BaseException,
+    *,
+    draft_event_committed: bool,
+    store: ControlPlaneStore,
+    artifact_snapshots: Mapping[Path, tuple[bool, bytes]],
+    original_record: PaperRecord,
+    original_project_dir: str,
+    project_id: str,
+) -> None:
+    if not draft_event_committed:
+        _restore_paper_rewrite_side_effects(
+            store,
+            artifact_snapshots=artifact_snapshots,
+            original_record=original_record,
+            original_project_dir=original_project_dir,
+            project_id=project_id,
+        )
+    if isinstance(exc, IdempotencyConflict):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, ValueError):
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    raise exc
+
+
+def _paper_rewrite_draft_response_from_commit(
+    store: ControlPlaneStore,
+    *,
+    record: PaperRecord,
+    artifact_root: Path,
+    evidence_sync: dict[str, Any],
+    item: dict[str, Any],
+    commit: Mapping[str, Any],
+) -> PaperReviewRewriteDraftResponse:
+    refreshed = (
+        store.paper_review_row(record.paper_id, include_rank_reasons=True)
+        or commit["finalized_item"]
+        or item
+    )
+    writer_with_sync = {
+        **commit["writer"],
+        "evidence_sync": evidence_sync,
+        "automated_finalization": {
+            "inserted_event": commit["finalization_inserted"],
+            "event_id": commit["finalization_event_id"],
+            "package_path": commit["package_path"],
+            "review_status": str((refreshed or {}).get("review_status") or ""),
+        },
+    }
+    return PaperReviewRewriteDraftResponse(
+        inserted_event=commit["inserted"],
+        event_id=commit["event_id"],
+        item=refreshed,
+        paper=store.paper_row(record.paper_id),
+        writer=writer_with_sync,
+        artifact_root=str(artifact_root),
+    )
+
+
 def _commit_paper_rewrite_draft(
     store: ControlPlaneStore,
     config: GateConfig,
@@ -1041,104 +1186,37 @@ def _commit_paper_rewrite_draft(
     original_project_dir: str,
     item: dict[str, Any],
 ) -> PaperReviewRewriteDraftResponse:
-    draft_event_committed = False
+    draft_event_committed = {"committed": False}
     try:
-        writer = write_paper_artifacts(config, candidate, record, force=payload.force)
-        if not use_current_dir:
-            store.update_project_dir(project_id, str(artifact_root))
-        store.upsert_paper(record)
-        event_payload = {
-            "action": "rewrite_draft",
-            "requested_by": payload.requested_by,
-            "force": payload.force,
-            "artifact_root": str(artifact_root),
-            "writer": writer,
-            "evidence_sync": evidence_sync,
-            "publication_policy": candidate["publication_policy"],
-            "paper_paths": {
-                "draft_markdown_path": record.draft_markdown_path,
-                "draft_latex_path": record.draft_latex_path,
-                "evidence_bundle_path": record.evidence_bundle_path,
-                "claim_ledger_path": record.claim_ledger_path,
-                "manifest_path": record.manifest_path,
-            },
-        }
-        event_id, inserted = store.append_event(
-            idempotency_key=payload.idempotency_key,
-            event_type=PAPER_REVIEW_DRAFT_REWRITTEN,
-            entity_type="paper_review",
-            entity_id=record.paper_id,
-            payload=event_payload,
+        commit = _write_paper_rewrite_draft_and_finalize(
+            store,
+            config,
+            payload=payload,
+            candidate=candidate,
+            record=record,
+            artifact_root=artifact_root,
+            use_current_dir=use_current_dir,
+            project_id=project_id,
+            evidence_sync=evidence_sync,
+            draft_event_committed=draft_event_committed,
         )
-        draft_event_committed = True
-        (
-            finalization_event_id,
-            finalization_inserted,
-            finalized_item,
-            package_path,
-            _manifest,
-        ) = store.prepare_paper_review_finalization_package(
-            record.paper_id,
-            PaperReviewPrepareFinalizationRequest(
-                idempotency_key=f"{payload.idempotency_key}:automated-finalization",
-                requested_by=payload.requested_by,
-                target_label="automated-publication",
-                dry_run=False,
-            ),
-            require_approval=False,
+    except Exception as exc:
+        _handle_paper_rewrite_draft_commit_error(
+            exc,
+            draft_event_committed=draft_event_committed["committed"],
+            store=store,
+            artifact_snapshots=artifact_snapshots,
+            original_record=original_record,
+            original_project_dir=original_project_dir,
+            project_id=project_id,
         )
-    except IdempotencyConflict as exc:
-        if not draft_event_committed:
-            _restore_paper_rewrite_side_effects(
-                store,
-                artifact_snapshots=artifact_snapshots,
-                original_record=original_record,
-                original_project_dir=original_project_dir,
-                project_id=project_id,
-            )
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except ValueError:
-        if not draft_event_committed:
-            _restore_paper_rewrite_side_effects(
-                store,
-                artifact_snapshots=artifact_snapshots,
-                original_record=original_record,
-                original_project_dir=original_project_dir,
-                project_id=project_id,
-            )
-        raise
-    except Exception:
-        if not draft_event_committed:
-            _restore_paper_rewrite_side_effects(
-                store,
-                artifact_snapshots=artifact_snapshots,
-                original_record=original_record,
-                original_project_dir=original_project_dir,
-                project_id=project_id,
-            )
-        raise
-    refreshed = (
-        store.paper_review_row(record.paper_id, include_rank_reasons=True)
-        or finalized_item
-        or item
-    )
-    writer_with_sync = {
-        **writer,
-        "evidence_sync": evidence_sync,
-        "automated_finalization": {
-            "inserted_event": finalization_inserted,
-            "event_id": finalization_event_id,
-            "package_path": package_path,
-            "review_status": str((refreshed or {}).get("review_status") or ""),
-        },
-    }
-    return PaperReviewRewriteDraftResponse(
-        inserted_event=inserted,
-        event_id=event_id,
-        item=refreshed,
-        paper=store.paper_row(record.paper_id),
-        writer=writer_with_sync,
-        artifact_root=str(artifact_root),
+    return _paper_rewrite_draft_response_from_commit(
+        store,
+        record=record,
+        artifact_root=artifact_root,
+        evidence_sync=evidence_sync,
+        item=item,
+        commit=commit,
     )
 
 
