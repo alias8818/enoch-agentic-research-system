@@ -7943,14 +7943,8 @@ def _mount_control_plane_http_routes(
                 )
             except (
                 PublicationAutomationNotFoundError,
-                PaperRewriteBlockedReviewStatusError,
-                PaperRewriteIdempotencyReuseError,
                 PaperRewriteEvidenceRequiredError,
-                PaperArtifactRootError,
                 PaperArtifactRootNotInspectableError,
-                PaperArtifactSnapshotReadError,
-                UnresolvableConfiguredProjectRootError,
-                IdempotencyConflict,
                 ValueError,
             ) as exc:
                 failed += 1
