@@ -271,6 +271,121 @@ def _candidate_source_url_list(candidate: dict[str, Any]) -> list[str]:
     return [_text(url) for url in (candidate.get("source_urls") or []) if _text(url)]
 
 
+def _promote_research_candidate_action(*, dry_run: bool) -> str:
+    return "dry_run_promote_candidate" if dry_run else "promote_candidate"
+
+
+def _promote_research_candidate_ok_response(
+    *,
+    dry_run: bool,
+    candidate_id: str,
+    idea_id: str,
+    title: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "action": _promote_research_candidate_action(dry_run=dry_run),
+        "dry_run": dry_run,
+        "candidate_id": candidate_id,
+        "idea_id": idea_id,
+        "title": title,
+        **extra,
+    }
+
+
+def _promote_research_candidate_blocked(
+    candidate_id: str, reason: str, **extra: Any
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "ok": False,
+        "action": "promote_candidate_blocked",
+        "reason": reason,
+        **extra,
+    }
+    if candidate_id:
+        payload["candidate_id"] = candidate_id
+    return payload
+
+
+def _promote_research_workbench_gate(
+    wb: dict[str, Any],
+    *,
+    candidate_id: str,
+    dry_run: bool,
+) -> dict[str, Any] | None:
+    admitted_idea_id = _text(wb.get("admitted_idea_id"))
+    if admitted_idea_id:
+        return _promote_research_candidate_ok_response(
+            dry_run=dry_run,
+            candidate_id=candidate_id,
+            idea_id=admitted_idea_id,
+            title=_text(wb.get("title")),
+            already_promoted=True,
+            queued_count=0,
+            reason="candidate is already linked to an admitted idea",
+        )
+    current_status = _text(wb.get("status"))
+    admission_decision = _text(wb.get("admission_decision"))
+    if current_status != "admitted" or admission_decision != "admitted":
+        return _promote_research_candidate_blocked(
+            candidate_id,
+            "candidate is not admitted",
+            dry_run=dry_run,
+            title=_text(wb.get("title")),
+            status=current_status,
+            admission_decision=admission_decision,
+        )
+    return None
+
+
+def _promote_research_candidate_context(
+    candidate: dict[str, Any], candidate_id: str, requested_by: str
+) -> dict[str, Any]:
+    source_urls = candidate.get("source_urls")
+    if not isinstance(source_urls, list):
+        source_urls = []
+    raw_candidate = candidate.get("raw_candidate_json")
+    if not isinstance(raw_candidate, dict):
+        raw_candidate = {}
+    idea_id = candidate_id
+    title = _text(candidate.get("title")) or idea_id
+    return {
+        "idea_id": idea_id,
+        "title": title,
+        "source_external_url": _text(source_urls[0]) if source_urls else "",
+        "source_payload_json": {
+            **raw_candidate,
+            "research_candidate_id": candidate_id,
+            "promoted_by": requested_by,
+            "promotion_path": "research_facility_promote_candidate",
+        },
+    }
+
+
+def _promote_research_idea_row_params(
+    fields: dict[str, Any], candidate: dict[str, Any], json_text: Callable[[Any], str]
+) -> tuple[Any, ...]:
+    return (
+        fields["idea_id"],
+        fields["title"],
+        _text(candidate.get("category")),
+        _text(candidate.get("priority")),
+        fields["source_external_url"],
+        _text(candidate.get("description")) or _text(candidate.get("hypothesis")),
+        _text(candidate.get("implementation")),
+        _text(candidate.get("baseline_to_beat")),
+        _text(candidate.get("kill_condition")),
+        _text(candidate.get("accessibility_delta")),
+        _text(candidate.get("expected_token_budget")),
+        _text(candidate.get("novelty_score")),
+        _text(candidate.get("machine_target")),
+        _text(candidate.get("model")),
+        _text(candidate.get("sandbox")),
+        json_text(fields["source_payload_json"]),
+    )
+
+
 def _research_candidate_rejection_reason(plan_json: dict[str, Any]) -> str:
     if plan_json.get("admission_decision") != "rejected":
         return ""
@@ -3885,6 +4000,132 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             for row in rows
         }
 
+    def _write_promoted_research_candidate_rows(
+        self,
+        cur: Any,
+        *,
+        candidate_id: str,
+        candidate: dict[str, Any],
+        wb: dict[str, Any],
+        fields: dict[str, Any],
+        requested_by: str,
+    ) -> dict[str, int | bool]:
+        idea_id = str(fields["idea_id"])
+        title = str(fields["title"])
+        cur.execute(
+            """
+            insert into ideas(
+              idea_id, title, idea_status, category, priority, source_kind, source_external_url,
+              description, implementation, baseline_to_beat, kill_condition, accessibility_delta,
+              expected_token_budget, novelty_score, machine_target, model, sandbox, selection_rank,
+              dispatch_priority, source_payload_json
+            ) values (
+              %s,%s,'testing',%s,%s,'research_facility',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,50,50,%s::jsonb
+            )
+            on conflict (idea_id) do update set
+              title=excluded.title,
+              category=excluded.category,
+              priority=excluded.priority,
+              source_external_url=excluded.source_external_url,
+              description=excluded.description,
+              implementation=excluded.implementation,
+              baseline_to_beat=excluded.baseline_to_beat,
+              kill_condition=excluded.kill_condition,
+              accessibility_delta=excluded.accessibility_delta,
+              expected_token_budget=excluded.expected_token_budget,
+              novelty_score=excluded.novelty_score,
+              machine_target=excluded.machine_target,
+              model=excluded.model,
+              sandbox=excluded.sandbox,
+              source_payload_json=excluded.source_payload_json,
+              updated_at=now()
+            """,
+            _promote_research_idea_row_params(fields, candidate, self._json_text),
+        )
+        cur.execute(
+            """
+            insert into projects(project_id, project_name, project_dir, origin_idea_status)
+            values (%s,%s,%s,'testing')
+            on conflict (project_id) do update set
+              project_name=excluded.project_name,
+              project_dir=excluded.project_dir,
+              origin_idea_status=coalesce(nullif(projects.origin_idea_status,''), excluded.origin_idea_status),
+              updated_at=now()
+            """,
+            (idea_id, title, idea_id),
+        )
+        cur.execute(
+            """
+            insert into queue_items(
+              project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,
+              retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,
+              next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,
+              machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at
+            ) values (
+              %s,'queued',50,50,true,0,0,0,2,'','','','','controller_review',false,'','','',
+              %s,%s,%s,null,null,null,now()
+            )
+            on conflict (project_id) do update set
+              machine_target=excluded.machine_target,
+              model=excluded.model,
+              sandbox=excluded.sandbox,
+              updated_at=now()
+            where queue_items.status not in ('dispatching', 'running', 'awaiting_wake', 'wake_received', 'reconciling')
+            """,
+            (
+                idea_id,
+                _text(candidate.get("machine_target")),
+                _text(candidate.get("model")),
+                _text(candidate.get("sandbox")),
+            ),
+        )
+        queue_rowcount = int(cur.rowcount or 0)
+        promotion_key = f"research-promotion:{candidate_id}:{idea_id}"
+        admission_inserted = self._insert_research_admission(
+            cur,
+            candidate_id=candidate_id,
+            admission_decision="admitted",
+            admission_reason=f"promoted to queued idea/project rows by {requested_by}",
+            score_breakdown=candidate.get("score_breakdown") or {},
+            admitted_idea_id=idea_id,
+            operator=requested_by,
+            idempotency_key=promotion_key,
+        )
+        cur.execute(
+            """
+            insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
+            select source_type, source_id, target_type, target_id, relation_type, evidence_json::jsonb
+            from (values
+              ('candidate', %s, 'idea', %s, 'admitted_as', %s),
+              ('idea', %s, 'project', %s, 'queued_as', %s)
+            ) as v(source_type, source_id, target_type, target_id, relation_type, evidence_json)
+            where not exists (
+              select 1 from research_lineage rl
+              where rl.source_type=v.source_type and rl.source_id=v.source_id
+                and rl.target_type=v.target_type and rl.target_id=v.target_id
+                and rl.relation_type=v.relation_type
+            )
+            """,
+            (
+                candidate_id,
+                idea_id,
+                self._json_text(
+                    {
+                        "admission_reason": _text(wb.get("admission_reason")),
+                        "promoted_by": requested_by,
+                    }
+                ),
+                idea_id,
+                idea_id,
+                self._json_text({"queued_by": requested_by, "dispatch_started": False}),
+            ),
+        )
+        return {
+            "queue_rowcount": queue_rowcount,
+            "admission_inserted": admission_inserted,
+            "lineage_inserted": int(cur.rowcount or 0),
+        }
+
     def promote_research_candidate(
         self, candidate_id: str, *, requested_by: str, dry_run: bool = True
     ) -> dict[str, Any]:
@@ -3900,11 +4141,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         candidate_id = _text(candidate_id).strip()
         requested_by = (_text(requested_by) or "dashboard")[:80]
         if not candidate_id:
-            return {
-                "ok": False,
-                "action": "promote_candidate_blocked",
-                "reason": "candidate_id is required",
-            }
+            return _promote_research_candidate_blocked("", "candidate_id is required")
 
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -3918,41 +4155,15 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     (candidate_id,),
                 ).fetchone()
                 if not workbench:
-                    return {
-                        "ok": False,
-                        "action": "promote_candidate_blocked",
-                        "candidate_id": candidate_id,
-                        "reason": "candidate not found",
-                    }
+                    return _promote_research_candidate_blocked(
+                        candidate_id, "candidate not found"
+                    )
                 wb = dict(workbench)
-                current_status = _text(wb.get("status"))
-                admission_decision = _text(wb.get("admission_decision"))
-                admitted_idea_id = _text(wb.get("admitted_idea_id"))
-                if admitted_idea_id:
-                    return {
-                        "ok": True,
-                        "action": "dry_run_promote_candidate"
-                        if dry_run
-                        else "promote_candidate",
-                        "dry_run": dry_run,
-                        "candidate_id": candidate_id,
-                        "idea_id": admitted_idea_id,
-                        "title": _text(wb.get("title")),
-                        "already_promoted": True,
-                        "queued_count": 0,
-                        "reason": "candidate is already linked to an admitted idea",
-                    }
-                if current_status != "admitted" or admission_decision != "admitted":
-                    return {
-                        "ok": False,
-                        "action": "promote_candidate_blocked",
-                        "dry_run": dry_run,
-                        "candidate_id": candidate_id,
-                        "title": _text(wb.get("title")),
-                        "status": current_status,
-                        "admission_decision": admission_decision,
-                        "reason": "candidate is not admitted",
-                    }
+                gate_response = _promote_research_workbench_gate(
+                    wb, candidate_id=candidate_id, dry_run=dry_run
+                )
+                if gate_response is not None:
+                    return gate_response
 
                 row = cur.execute(
                     """
@@ -3966,179 +4177,36 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     (candidate_id,),
                 ).fetchone()
                 if not row:
-                    return {
-                        "ok": False,
-                        "action": "promote_candidate_blocked",
-                        "candidate_id": candidate_id,
-                        "reason": "candidate row not found",
-                    }
+                    return _promote_research_candidate_blocked(
+                        candidate_id, "candidate row not found"
+                    )
                 candidate = dict(row)
-                idea_id = candidate_id
-                title = _text(candidate.get("title")) or idea_id
-                source_urls = (
-                    candidate.get("source_urls")
-                    if isinstance(candidate.get("source_urls"), list)
-                    else []
+                fields = _promote_research_candidate_context(
+                    candidate, candidate_id, requested_by
                 )
-                source_external_url = _text(source_urls[0]) if source_urls else ""
-                raw_candidate = (
-                    candidate.get("raw_candidate_json")
-                    if isinstance(candidate.get("raw_candidate_json"), dict)
-                    else {}
+                response = _promote_research_candidate_ok_response(
+                    dry_run=dry_run,
+                    candidate_id=candidate_id,
+                    idea_id=str(fields["idea_id"]),
+                    title=str(fields["title"]),
+                    queued_count=0 if dry_run else 1,
+                    dispatch_started=False,
+                    reason="candidate is admitted and promotable",
                 )
-                source_payload_json = {
-                    **raw_candidate,
-                    "research_candidate_id": candidate_id,
-                    "promoted_by": requested_by,
-                    "promotion_path": "research_facility_promote_candidate",
-                }
-                response = {
-                    "ok": True,
-                    "action": "dry_run_promote_candidate"
-                    if dry_run
-                    else "promote_candidate",
-                    "dry_run": dry_run,
-                    "candidate_id": candidate_id,
-                    "idea_id": idea_id,
-                    "title": title,
-                    "queued_count": 0 if dry_run else 1,
-                    "dispatch_started": False,
-                    "reason": "candidate is admitted and promotable",
-                }
                 if dry_run:
                     return response
 
-                cur.execute(
-                    """
-                    insert into ideas(
-                      idea_id, title, idea_status, category, priority, source_kind, source_external_url,
-                      description, implementation, baseline_to_beat, kill_condition, accessibility_delta,
-                      expected_token_budget, novelty_score, machine_target, model, sandbox, selection_rank,
-                      dispatch_priority, source_payload_json
-                    ) values (
-                      %s,%s,'testing',%s,%s,'research_facility',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,50,50,%s::jsonb
-                    )
-                    on conflict (idea_id) do update set
-                      title=excluded.title,
-                      category=excluded.category,
-                      priority=excluded.priority,
-                      source_external_url=excluded.source_external_url,
-                      description=excluded.description,
-                      implementation=excluded.implementation,
-                      baseline_to_beat=excluded.baseline_to_beat,
-                      kill_condition=excluded.kill_condition,
-                      accessibility_delta=excluded.accessibility_delta,
-                      expected_token_budget=excluded.expected_token_budget,
-                      novelty_score=excluded.novelty_score,
-                      machine_target=excluded.machine_target,
-                      model=excluded.model,
-                      sandbox=excluded.sandbox,
-                      source_payload_json=excluded.source_payload_json,
-                      updated_at=now()
-                    """,
-                    (
-                        idea_id,
-                        title,
-                        _text(candidate.get("category")),
-                        _text(candidate.get("priority")),
-                        source_external_url,
-                        _text(candidate.get("description"))
-                        or _text(candidate.get("hypothesis")),
-                        _text(candidate.get("implementation")),
-                        _text(candidate.get("baseline_to_beat")),
-                        _text(candidate.get("kill_condition")),
-                        _text(candidate.get("accessibility_delta")),
-                        _text(candidate.get("expected_token_budget")),
-                        _text(candidate.get("novelty_score")),
-                        _text(candidate.get("machine_target")),
-                        _text(candidate.get("model")),
-                        _text(candidate.get("sandbox")),
-                        self._json_text(source_payload_json),
-                    ),
-                )
-                cur.execute(
-                    """
-                    insert into projects(project_id, project_name, project_dir, origin_idea_status)
-                    values (%s,%s,%s,'testing')
-                    on conflict (project_id) do update set
-                      project_name=excluded.project_name,
-                      project_dir=excluded.project_dir,
-                      origin_idea_status=coalesce(nullif(projects.origin_idea_status,''), excluded.origin_idea_status),
-                      updated_at=now()
-                    """,
-                    (idea_id, title, idea_id),
-                )
-                cur.execute(
-                    """
-                    insert into queue_items(
-                      project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,
-                      retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,
-                      next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,
-                      machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at
-                    ) values (
-                      %s,'queued',50,50,true,0,0,0,2,'','','','','controller_review',false,'','','',
-                      %s,%s,%s,null,null,null,now()
-                    )
-                    on conflict (project_id) do update set
-                      machine_target=excluded.machine_target,
-                      model=excluded.model,
-                      sandbox=excluded.sandbox,
-                      updated_at=now()
-                    where queue_items.status not in ('dispatching', 'running', 'awaiting_wake', 'wake_received', 'reconciling')
-                    """,
-                    (
-                        idea_id,
-                        _text(candidate.get("machine_target")),
-                        _text(candidate.get("model")),
-                        _text(candidate.get("sandbox")),
-                    ),
-                )
-                queue_rowcount = int(cur.rowcount or 0)
-                promotion_key = f"research-promotion:{candidate_id}:{idea_id}"
-                admission_inserted = self._insert_research_admission(
+                write_result = self._write_promoted_research_candidate_rows(
                     cur,
                     candidate_id=candidate_id,
-                    admission_decision="admitted",
-                    admission_reason=f"promoted to queued idea/project rows by {requested_by}",
-                    score_breakdown=candidate.get("score_breakdown") or {},
-                    admitted_idea_id=idea_id,
-                    operator=requested_by,
-                    idempotency_key=promotion_key,
+                    candidate=candidate,
+                    wb=wb,
+                    fields=fields,
+                    requested_by=requested_by,
                 )
-                cur.execute(
-                    """
-                    insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
-                    select source_type, source_id, target_type, target_id, relation_type, evidence_json::jsonb
-                    from (values
-                      ('candidate', %s, 'idea', %s, 'admitted_as', %s),
-                      ('idea', %s, 'project', %s, 'queued_as', %s)
-                    ) as v(source_type, source_id, target_type, target_id, relation_type, evidence_json)
-                    where not exists (
-                      select 1 from research_lineage rl
-                      where rl.source_type=v.source_type and rl.source_id=v.source_id
-                        and rl.target_type=v.target_type and rl.target_id=v.target_id
-                        and rl.relation_type=v.relation_type
-                    )
-                    """,
-                    (
-                        candidate_id,
-                        idea_id,
-                        self._json_text(
-                            {
-                                "admission_reason": _text(wb.get("admission_reason")),
-                                "promoted_by": requested_by,
-                            }
-                        ),
-                        idea_id,
-                        idea_id,
-                        self._json_text(
-                            {"queued_by": requested_by, "dispatch_started": False}
-                        ),
-                    ),
-                )
-                response["queue_upserted"] = queue_rowcount
-                response["admission_inserted"] = admission_inserted
-                response["lineage_inserted"] = int(cur.rowcount or 0)
+                response["queue_upserted"] = write_result["queue_rowcount"]
+                response["admission_inserted"] = write_result["admission_inserted"]
+                response["lineage_inserted"] = write_result["lineage_inserted"]
                 return response
 
     def _upsert_research_source_record(
