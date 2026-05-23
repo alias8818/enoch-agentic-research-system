@@ -230,13 +230,12 @@ def iter_mapping_rows() -> list[dict[str, str]]:
             disposition = decision["disposition"]
             action = cleanup_action(disposition)
             target = str(decision.get("replacement") or "")
-            safe = (
-                "yes"
-                if action in {"alias", "migrate"}
-                else "no"
-                if action == "retire"
-                else "n/a"
-            )
+            if action in {"alias", "migrate"}:
+                safe = "yes"
+            elif action == "retire":
+                safe = "no"
+            else:
+                safe = "n/a"
             rows.append(
                 {
                     "domain": domain,
