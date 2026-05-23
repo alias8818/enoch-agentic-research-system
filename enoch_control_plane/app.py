@@ -1469,14 +1469,8 @@ def _tail_lines(path: Path, limit: int = 30) -> list[str]:
     return [line for line in lines if line.strip()]
 
 
-def _recent_files(
-    project_dir: Path,
-    limit: int = 12,
-    *,
-    max_entries: int = 2_500,
-    max_seconds: float = 0.35,
-) -> list[str]:
-    ignore_dirs = {
+_RECENT_FILES_IGNORE_DIRS = frozenset(
+    {
         ".venv",
         ".git",
         "__pycache__",
@@ -1488,48 +1482,113 @@ def _recent_files(
         "build",
         ".tox",
     }
-    ignored_roots = {
-        ("results",),
-        ("artifacts",),
-        (".enoch", "state"),
-        (".enoch", "logs"),
-        (".omx", "state"),  # legacy compatibility
-        (".omx", "logs"),  # legacy compatibility
-    }
+)
+_RECENT_FILES_IGNORED_ROOTS: tuple[tuple[str, ...], ...] = (
+    ("results",),
+    ("artifacts",),
+    (".enoch", "state"),
+    (".enoch", "logs"),
+    (".omx", "state"),  # legacy compatibility
+    (".omx", "logs"),  # legacy compatibility
+)
+
+
+def _recent_files_rel_root(root_path: Path, project_dir: Path) -> Path | None:
+    try:
+        return root_path.relative_to(project_dir)
+    except ValueError:
+        return None
+
+
+def _recent_files_skip_directory(rel_root: Path) -> bool:
+    if any(part in _RECENT_FILES_IGNORE_DIRS for part in rel_root.parts):
+        return True
+    return any(
+        rel_root.parts[: len(parts)] == parts for parts in _RECENT_FILES_IGNORED_ROOTS
+    )
+
+
+def _recent_files_prune_dirs(dirs: list[str]) -> None:
+    dirs[:] = [
+        directory for directory in dirs if directory not in _RECENT_FILES_IGNORE_DIRS
+    ]
+
+
+def _recent_files_stat_mtime(
+    root_path: Path, filename: str, project_dir: Path
+) -> tuple[float, str] | None:
+    path = root_path / filename
+    try:
+        stat = path.stat()
+        rel_path = path.relative_to(project_dir)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return (stat.st_mtime, f"{rel_path}")
+
+
+def _recent_files_heap_add(
+    collected: list[tuple[float, str]],
+    *,
+    limit: int,
+    mtime: float,
+    rel_path: str,
+) -> None:
+    entry = (mtime, rel_path)
+    if len(collected) < limit:
+        heapq.heappush(collected, entry)
+    else:
+        heapq.heappushpop(collected, entry)
+
+
+def _recent_files_scan(
+    project_dir: Path,
+    *,
+    limit: int,
+    max_entries: int,
+    max_seconds: float,
+) -> list[tuple[float, str]]:
     collected: list[tuple[float, str]] = []
     scanned = 0
     deadline = time.monotonic() + max_seconds
-    try:
-        walker = os.walk(project_dir, onerror=lambda _exc: None)
-        for root, dirs, files in walker:
-            if scanned >= max_entries or time.monotonic() > deadline:
+    walker = os.walk(project_dir, onerror=lambda _exc: None)
+    for root, dirs, files in walker:
+        if scanned >= max_entries or time.monotonic() > deadline:
+            break
+        root_path = Path(root)
+        rel_root = _recent_files_rel_root(root_path, project_dir)
+        if rel_root is None:
+            continue
+        if _recent_files_skip_directory(rel_root):
+            dirs[:] = []
+            continue
+        _recent_files_prune_dirs(dirs)
+        for filename in files:
+            scanned += 1
+            if scanned > max_entries or time.monotonic() > deadline:
                 break
-            root_path = Path(root)
-            try:
-                rel_root = root_path.relative_to(project_dir)
-            except ValueError:
+            entry = _recent_files_stat_mtime(root_path, filename, project_dir)
+            if entry is None:
                 continue
-            if any(part in ignore_dirs for part in rel_root.parts) or any(
-                rel_root.parts[: len(parts)] == parts for parts in ignored_roots
-            ):
-                dirs[:] = []
-                continue
-            dirs[:] = [directory for directory in dirs if directory not in ignore_dirs]
-            for filename in files:
-                scanned += 1
-                if scanned > max_entries or time.monotonic() > deadline:
-                    break
-                path = root_path / filename
-                try:
-                    stat = path.stat()
-                    rel_path = Path(path).relative_to(project_dir)
-                except (OSError, RuntimeError, ValueError):
-                    continue
-                entry = (stat.st_mtime, f"{rel_path}")
-                if len(collected) < limit:
-                    heapq.heappush(collected, entry)
-                else:
-                    heapq.heappushpop(collected, entry)
+            _recent_files_heap_add(
+                collected, limit=limit, mtime=entry[0], rel_path=entry[1]
+            )
+    return collected
+
+
+def _recent_files(
+    project_dir: Path,
+    limit: int = 12,
+    *,
+    max_entries: int = 2_500,
+    max_seconds: float = 0.35,
+) -> list[str]:
+    try:
+        collected = _recent_files_scan(
+            project_dir,
+            limit=limit,
+            max_entries=max_entries,
+            max_seconds=max_seconds,
+        )
     except (OSError, RuntimeError, ValueError):
         return []
     return [
