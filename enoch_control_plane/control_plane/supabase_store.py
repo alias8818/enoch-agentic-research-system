@@ -225,6 +225,67 @@ def _source_id_for_url(url: str) -> str:
     return f"url-{hashlib.sha256(_text(url).encode('utf-8')).hexdigest()[:24]}"
 
 
+def _source_record_from_candidate_source(
+    source: dict[str, Any], candidate: dict[str, Any]
+) -> dict[str, Any] | None:
+    url = _text(source.get("url"))
+    source_id = _text(source.get("source_id")) or (
+        _source_id_for_url(url) if url else ""
+    )
+    if not source_id:
+        return None
+    return {
+        "source_id": source_id,
+        "source_kind": _text(
+            source.get("source_kind") or candidate.get("source_kind") or "other"
+        ),
+        "title": _text(source.get("title") or candidate.get("title")),
+        "url": url,
+        "external_id": _text(source.get("external_id")),
+        "retrieved_at": _text(source.get("retrieved_at")),
+        "summary": _text(source.get("summary")),
+        "payload_json": source.get("payload_json")
+        if isinstance(source.get("payload_json"), dict)
+        else {},
+        "content_hash": _text(source.get("content_hash")),
+    }
+
+
+def _source_record_from_candidate_url(
+    url: str, candidate: dict[str, Any]
+) -> dict[str, Any]:
+    source_id = _source_id_for_url(url)
+    return {
+        "source_id": source_id,
+        "source_kind": _text(candidate.get("source_kind") or "other"),
+        "title": _text(candidate.get("title")),
+        "url": url,
+        "external_id": "",
+        "retrieved_at": "",
+        "summary": "Candidate source URL materialized at Research Facility ledger write time.",
+        "payload_json": {"url": url},
+        "content_hash": hashlib.sha256(url.encode("utf-8")).hexdigest(),
+    }
+
+
+def _append_unique_source_record(
+    records: list[dict[str, Any]],
+    record: dict[str, Any],
+    seen_ids: set[str],
+    seen_urls: set[str],
+) -> None:
+    source_id = _text(record.get("source_id"))
+    if not source_id or source_id in seen_ids:
+        return
+    url = _text(record.get("url"))
+    if url and url in seen_urls:
+        return
+    records.append(record)
+    seen_ids.add(source_id)
+    if url:
+        seen_urls.add(url)
+
+
 def _candidate_source_records(candidate: dict[str, Any]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
@@ -232,52 +293,15 @@ def _candidate_source_records(candidate: dict[str, Any]) -> list[dict[str, Any]]
     for source in candidate.get("source_records") or []:
         if not isinstance(source, dict):
             continue
-        url = _text(source.get("url"))
-        source_id = _text(source.get("source_id")) or (
-            _source_id_for_url(url) if url else ""
-        )
-        if not source_id or source_id in seen_ids:
-            continue
-        record = {
-            "source_id": source_id,
-            "source_kind": _text(
-                source.get("source_kind") or candidate.get("source_kind") or "other"
-            ),
-            "title": _text(source.get("title") or candidate.get("title")),
-            "url": url,
-            "external_id": _text(source.get("external_id")),
-            "retrieved_at": _text(source.get("retrieved_at")),
-            "summary": _text(source.get("summary")),
-            "payload_json": source.get("payload_json")
-            if isinstance(source.get("payload_json"), dict)
-            else {},
-            "content_hash": _text(source.get("content_hash")),
-        }
-        records.append(record)
-        seen_ids.add(source_id)
-        if url:
-            seen_urls.add(url)
+        record = _source_record_from_candidate_source(source, candidate)
+        if record is not None:
+            _append_unique_source_record(records, record, seen_ids, seen_urls)
     for raw_url in candidate.get("source_urls") or []:
         url = _text(raw_url)
-        if not url or url in seen_urls:
+        if not url:
             continue
-        source_id = _source_id_for_url(url)
-        if source_id in seen_ids:
-            continue
-        record = {
-            "source_id": source_id,
-            "source_kind": _text(candidate.get("source_kind") or "other"),
-            "title": _text(candidate.get("title")),
-            "url": url,
-            "external_id": "",
-            "retrieved_at": "",
-            "summary": "Candidate source URL materialized at Research Facility ledger write time.",
-            "payload_json": {"url": url},
-            "content_hash": hashlib.sha256(url.encode("utf-8")).hexdigest(),
-        }
-        records.append(record)
-        seen_ids.add(source_id)
-        seen_urls.add(url)
+        record = _source_record_from_candidate_url(url, candidate)
+        _append_unique_source_record(records, record, seen_ids, seen_urls)
     return records
 
 
@@ -1547,6 +1571,49 @@ class SupabaseReadOnlyControlPlaneStore:
             ) from exc
         return psycopg.connect(self.database_url, row_factory=dict_row)
 
+    @staticmethod
+    def _invoke_connection_method(conn: Any, method_name: str) -> None:
+        method = getattr(conn, method_name, None)
+        if callable(method):
+            method()
+
+    def _discard_connection(self, conn: Any | None) -> None:
+        if conn is None:
+            return
+        self._invoke_connection_method(conn, "close")
+        if conn is self._conn:
+            self._conn = None
+
+    def _handle_connection_error(self, conn: Any | None, exc: Exception) -> None:
+        if conn is None:
+            return
+        self._invoke_connection_method(conn, "rollback")
+        if bool(getattr(conn, "closed", False)) or self._is_transient_connection_error(
+            exc
+        ):
+            self._discard_connection(conn)
+
+    def _checkout_persistent_connection(self) -> Any:
+        conn = self._conn
+        if conn is None or bool(getattr(conn, "closed", False)):
+            conn = self._connect_factory()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("set statement_timeout to '45s'")
+                    cur.execute("set idle_in_transaction_session_timeout to '30s'")
+            except Exception as exc:
+                self._handle_connection_error(conn, exc)
+                raise
+            self._conn = conn
+        try:
+            # Supabase pooler/transaction boundaries can reset session settings.
+            with conn.cursor() as cur:
+                cur.execute("set search_path to enoch, public")
+        except Exception as exc:
+            self._handle_connection_error(conn, exc)
+            raise
+        return conn
+
     @contextmanager
     def _connect(self) -> Iterator[Any]:
         if self._external_connect_factory:
@@ -1557,58 +1624,18 @@ class SupabaseReadOnlyControlPlaneStore:
                         cur.execute("set search_path to enoch, public")
                     yield conn
             finally:
-                close = getattr(conn, "close", None)
-                if callable(close):
-                    close()
+                self._invoke_connection_method(conn, "close")
             return
 
         self._conn_lock.acquire()
         conn = None
         try:
-            try:
-                conn = self._conn
-                if conn is None or bool(getattr(conn, "closed", False)):
-                    conn = self._connect_factory()
-                    with conn.cursor() as cur:
-                        cur.execute("set statement_timeout to '45s'")
-                        cur.execute("set idle_in_transaction_session_timeout to '30s'")
-                    self._conn = conn
-                # Supabase pooler/transaction boundaries can reset session settings.
-                # Keep the persistent server-side connection, but assert the private
-                # schema on every checkout so subsequent dashboard reads do not drift
-                # back to `public`. This pre-yield section must also release the
-                # mutex on failure; otherwise a DB restart can permanently wedge all
-                # dashboard worker threads behind _conn_lock.
-                with conn.cursor() as cur:
-                    cur.execute("set search_path to enoch, public")
-            except Exception as exc:
-                if conn is not None:
-                    rollback = getattr(conn, "rollback", None)
-                    if callable(rollback):
-                        rollback()
-                    if bool(
-                        getattr(conn, "closed", False)
-                    ) or self._is_transient_connection_error(exc):
-                        close = getattr(conn, "close", None)
-                        if callable(close):
-                            close()
-                        self._conn = None
-                raise
-            try:
-                yield conn
-                conn.commit()
-            except Exception as exc:
-                rollback = getattr(conn, "rollback", None)
-                if callable(rollback):
-                    rollback()
-                if bool(
-                    getattr(conn, "closed", False)
-                ) or self._is_transient_connection_error(exc):
-                    close = getattr(conn, "close", None)
-                    if callable(close):
-                        close()
-                    self._conn = None
-                raise
+            conn = self._checkout_persistent_connection()
+            yield conn
+            conn.commit()
+        except Exception as exc:
+            self._handle_connection_error(conn, exc)
+            raise
         finally:
             self._conn_lock.release()
 

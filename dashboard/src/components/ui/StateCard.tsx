@@ -10,6 +10,6 @@ export function StateCard({ children, variant = 'default', compact, ariaLive }: 
   return <div className={variantClass(variant, compact)} aria-live={ariaLive}>{children}</div>
 }
 export function LoadingStateCard({ label }: Readonly<{ label: string }>) { return <StateCard>Loading {label}…</StateCard> }
-export function InlineErrorStateCard({ prefix, message }: { prefix: string; message: string }) {
+export function InlineErrorStateCard({ prefix, message }: Readonly<{ prefix: string; message: string }>) {
   return <StateCard variant="error">{prefix}: {message}</StateCard>
 }

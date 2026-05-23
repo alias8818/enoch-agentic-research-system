@@ -55,9 +55,9 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=Path("site/ecosystem.json"))
     args = parser.parse_args()
 
-    system = require_repo_path("system", args.system)
+    require_repo_path("system", args.system)
     corpus = require_repo_path("corpus", args.corpus)
-    docs = require_repo_path("docs", args.docs)
+    require_repo_path("docs", args.docs)
     promising = (
         require_repo_path("promising", args.promising) if args.promising else None
     )

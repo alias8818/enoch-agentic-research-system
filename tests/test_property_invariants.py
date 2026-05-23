@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -121,7 +122,7 @@ def test_stale_worker_callback_cannot_complete_different_active_run(
     current_run_id: str, callback_run_id: str
 ) -> None:
     if current_run_id == callback_run_id:
-        return
+        raise unittest.SkipTest("hypothesis pre-filter: identical run ids")
     with TemporaryDirectory() as tmp:
         store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
         store.import_snapshot(

@@ -159,7 +159,7 @@ def restart_service(service: str, verify_url: str, token: str, timeout: float) -
             last_error = (
                 f"service state={active.stdout.strip() or active.stderr.strip()}"
             )
-        except (OSError, urllib.error.URLError, RuntimeError) as exc:
+        except (OSError, urllib.error.URLError) as exc:
             last_error = str(exc)
         time.sleep(2)
     raise RuntimeError(

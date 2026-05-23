@@ -38,7 +38,7 @@ export interface WorkerLane {
 export interface MovementBlocker {
   kind: string
   lane?: string
-  tone?: Tone | string
+  tone?: Tone
   title: string
   summary?: string
   action_label?: string

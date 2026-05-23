@@ -880,7 +880,9 @@ def load_candidates(path: Path) -> list[dict[str, Any]]:
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
-        match = re.search(r"```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```", text, flags=re.S)
+        match = re.search(
+            r"```(?:json)?\s*(\[[^\]]*\]|\{[^\}]*\})\s*```", text, flags=re.S
+        )
         if not match:
             match = re.search(r"(\[\s*\{.*\}\s*\])", text, flags=re.S)
         if not match:

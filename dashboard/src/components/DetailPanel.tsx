@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { apiGet } from '../api/client'
 import { deriveDetailOperatorSummary, type DetailKind, type DetailOperatorSummary } from '../detailOperatorSummary'
+export type { DetailKind } from '../detailOperatorSummary'
 import { displayText } from '../displayText'
 import { shortId } from '../format'
 import { detailBreadcrumb } from '../routePolicy'
@@ -17,8 +18,6 @@ import {
   RawJsonDetails,
   StateCard,
 } from './ui'
-
-export type { DetailKind }
 
 export type DetailSelection = {
   kind: DetailKind

@@ -71,7 +71,7 @@ function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary
   const attention = queue.operator_attention === true || state.includes('blocked') || state.includes('review')
   const entityLinks: EntityLink[] = []
   pushLink(entityLinks, entityLink('run', runId === '—' ? null : runId))
-  pushLink(entityLinks, entityLink('paper', paperId !== '—' ? paperId : null, papers[0]?.paper_title || papers[0]?.title))
+  pushLink(entityLinks, entityLink('paper', paperId === '—' ? null : paperId, papers[0]?.paper_title || papers[0]?.title))
 
   return {
     state: operatorStageLabel(stageSource, state),
@@ -130,7 +130,7 @@ function runOutcomeLabel(state: string, gate: string, endedAt: string): string {
   if (normalizedState === 'running' || normalizedState === 'dispatching' || normalizedState === 'reconciling') {
     return 'still running'
   }
-  return state !== '—' ? state : 'unknown'
+  return state === '—' ? 'unknown' : state
 }
 
 function runNextStepMessage(errorState: boolean, outcome: string, state: string): string {
@@ -166,7 +166,7 @@ function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const paperStatus = text(firstValue(run.related_paper_status, papers[0]?.paper_status, papers[0]?.status))
   const paperReview = text(firstValue(run.related_review_status, papers[0]?.review_status))
   const entityLinks: EntityLink[] = []
-  pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, projectName))
+  pushLink(entityLinks, entityLink('project', projectId === '—' ? null : projectId, projectName))
   pushLink(entityLinks, entityLink('paper', paperId === '—' ? null : paperId, papers[0]?.paper_title || papers[0]?.title))
   const errorState = state.includes('error') || gate.includes('error')
   const artifactFlags = record(run.related_artifact_paths_present)
@@ -383,8 +383,8 @@ function eventSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const stageSource = { ...payload, ...eventPayloadRecord(payload) }
 
   return {
-    state: operatorStageLabel(stageSource, headline !== eventType ? headline : eventType),
-    context: entityId !== '—' ? `${eventEntityLabel(entityType, entityId)} · logged ${createdAt}.` : `Logged ${createdAt}.`,
+    state: operatorStageLabel(stageSource, headline === eventType ? eventType : headline),
+    context: entityId === '—' ? `Logged ${createdAt}.` : `${eventEntityLabel(entityType, entityId)} · logged ${createdAt}.`,
     next: operatorNextStep(stageSource, eventNextStepMessage(actionNeeded, entityLinks)),
     entityLinks,
     sections: [

@@ -8697,7 +8697,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 decision_sync["evidence_sync"]["reason"], "worker_read_failed"
             )
             if "decision_record" in decision_sync:
-                self.assertEqual(decision_sync["decision_record"]["persisted"], False)
+                self.assertFalse(decision_sync["decision_record"]["persisted"])
             overview = client.get("/control/api/v1/overview", headers=headers).json()
             self.assertEqual(overview["paper_pipeline"]["write_needed"], 0)
             self.assertEqual(overview["operator_counts"]["write_paper"], 0)

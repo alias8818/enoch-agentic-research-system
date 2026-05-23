@@ -15,12 +15,12 @@ export function PageResourceErrorCard({
   error,
   onRetry,
   retryLabel = 'Retry',
-}: {
+}: Readonly<{
   copy: ResourceErrorCopy
   error: unknown
   onRetry: () => void
   retryLabel?: string
-}) {
+}>) {
   return (
     <section className="state-card state-card--error v2-error-card" aria-live="polite">
       <p className="eyebrow">{copy.eyebrow}</p>
@@ -42,7 +42,7 @@ export function PageResourceErrorCard({
   )
 }
 
-export function ComposedEmptyState({ state }: { state: ComposedEmptyStateCopy }) {
+export function ComposedEmptyState({ state }: Readonly<{ state: ComposedEmptyStateCopy }>) {
   return (
     <output className={`composed-empty-state composed-empty-state--${state.kind}`}>
       <p className="eyebrow">{emptyEyebrow(state.kind)}</p>

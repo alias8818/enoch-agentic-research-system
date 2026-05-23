@@ -24,7 +24,7 @@ def _live_counts(database_url: str) -> dict[str, dict[str, int]]:
     if not result["ok"]:
         raise SystemExit(f"state contract validation failed: {result['failures']}")
     return {
-        surface: {value: count for value, count in rows}
+        surface: dict(rows)
         for surface, rows in (result.get("live_distincts") or {}).items()
     }
 

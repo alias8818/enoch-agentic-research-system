@@ -33,14 +33,14 @@ MAX_PUBLIC_EVIDENCE_BYTES = 80_000
 MAX_METRIC_FILES = 40
 MAX_SECRET_TOKEN_LENGTH = 12_000
 SECRET_REDACTION_PATTERNS = [
-    re.compile(r"(?i)(Authorization\s*:\s*Bearer\s+)([A-Za-z0-9._-]{16,})"),
+    re.compile(r"(?i)(Authorization\s*:\s*Bearer\s+)([-\w.]{16,})"),
     re.compile(
         r"(?i)((?:OPENAI|ANTHROPIC|SYNTHETIC|GITHUB|HF|HUGGINGFACE|SUPABASE)[_-](?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[=:]\s*)([^\s'\"]{12,})"
     ),
     re.compile(r"(?i)((?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[=:]\s*)([^\s'\"]{12,})"),
     re.compile(r"\b(sk-(?:proj-)?[A-Za-z0-9_-]{20,})\b"),
     re.compile(r"\b(syn_[A-Za-z0-9]{20,})\b"),
-    re.compile(r"\b(gh[pousr]_[A-Za-z0-9_]{20,})\b"),
+    re.compile(r"\b(gh[pousr]_\w{20,})\b"),
 ]
 
 
@@ -1014,7 +1014,6 @@ def synthetic_glm_markdown(
     api_key = config.paper_writer_api_key or os.environ.get("SYNTHETIC_API_KEY", "")
     if not api_key:
         raise RuntimeError("Synthetic.new API key is not configured")
-    title = str(candidate.get("project_name") or paper.project_id).strip()
     prompt = f"""Write a publication-quality technical paper draft in Markdown for this research result.
 
 Requirements:

@@ -2022,7 +2022,7 @@ def _dashboard_truth(
         and age_seconds > stale_seconds
     )
 
-    if active_processes:
+    if active_processes or (state == GateState.RUNNING and not superseded):
         lifecycle = "active"
         status = "Active"
         detail = "Codex or project-owned processes are still running."
@@ -2033,12 +2033,6 @@ def _dashboard_truth(
         status = "Superseded"
         detail = "A newer run exists for this project; this older record is historical evidence, not current attention."
         is_live = False
-        needs_attention = False
-    elif state == GateState.RUNNING:
-        lifecycle = "active"
-        status = "Active"
-        detail = "Codex or project-owned processes are still running."
-        is_live = True
         needs_attention = False
     elif state == GateState.QUESTION_PENDING:
         lifecycle = "question_pending"
@@ -3313,36 +3307,33 @@ def _ensure_evaluator(run_id: str) -> None:
 
 
 async def _reconcile_missing_idle_loop() -> None:
-    try:
-        while True:
-            await _replay_callback_outbox_once()
-            for record in store.list_runs():
-                record = _assign_record_workload_profile(record)
-                if record.gate_state == GateState.RUNNING:
-                    await _reap_and_log_stale_project_processes(record)
-                    record, changed = gate.reconcile(record)
-                    if changed:
-                        store.append_event(
-                            {
-                                "kind": "reconciled_missing_idle",
-                                "run_id": record.run_id,
-                                "session_id": record.session_id,
-                                "timestamp": utc_now(),
-                            }
-                        )
-                        store.save_run(record)
-                if record.gate_state in {
-                    GateState.PENDING_IDLE_GATE,
-                    GateState.WAITING_FOR_PROCESS_EXIT,
-                    GateState.WAITING_FOR_QUIET_WINDOW,
-                    GateState.FINISHED_PENDING_GATE,
-                    GateState.WAKE_READY,
-                    GateState.FINISHED_READY,
-                }:
-                    _ensure_evaluator(record.run_id)
-            await asyncio.sleep(config.sample_interval_sec)
-    except asyncio.CancelledError:
-        raise
+    while True:
+        await _replay_callback_outbox_once()
+        for record in store.list_runs():
+            record = _assign_record_workload_profile(record)
+            if record.gate_state == GateState.RUNNING:
+                await _reap_and_log_stale_project_processes(record)
+                record, changed = gate.reconcile(record)
+                if changed:
+                    store.append_event(
+                        {
+                            "kind": "reconciled_missing_idle",
+                            "run_id": record.run_id,
+                            "session_id": record.session_id,
+                            "timestamp": utc_now(),
+                        }
+                    )
+                    store.save_run(record)
+            if record.gate_state in {
+                GateState.PENDING_IDLE_GATE,
+                GateState.WAITING_FOR_PROCESS_EXIT,
+                GateState.WAITING_FOR_QUIET_WINDOW,
+                GateState.FINISHED_PENDING_GATE,
+                GateState.WAKE_READY,
+                GateState.FINISHED_READY,
+            }:
+                _ensure_evaluator(record.run_id)
+        await asyncio.sleep(config.sample_interval_sec)
 
 
 # NOTE: startup/shutdown logic moved to the lifespan context manager above

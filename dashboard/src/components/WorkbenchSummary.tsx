@@ -15,10 +15,10 @@ export function WorkbenchOperatorSummary({ summary }: Readonly<{ summary?: strin
 export function WorkbenchCountsFold({
   counts,
   label = 'Ledger counts',
-}: {
+}: Readonly<{
   counts?: Record<string, unknown> | null
   label?: string
-}) {
+}>) {
   const entries = Object.entries(counts || {})
     .filter(([, value]) => Number(value || 0) > 0)
     .sort(([left], [right]) => left.localeCompare(right))

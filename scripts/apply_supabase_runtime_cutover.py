@@ -64,7 +64,7 @@ def _redact_url(url: str) -> str:
     if parsed.query:
         parts = []
         for item in parsed.query.split("&"):
-            key, sep, value = item.partition("=")
+            key, sep, _ = item.partition("=")
             if key.lower() in sensitive_query_keys:
                 parts.append(f"{key}{sep}***" if sep else key)
             else:
