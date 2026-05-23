@@ -2677,6 +2677,84 @@ def _execute_provider_generation(
     return response
 
 
+def _resolve_open_lane_promotion_candidates(
+    *,
+    promotable_rows: Callable[[], list[dict[str, Any]]],
+    open_lane_research_rows: Callable,
+    store: Any,
+    _worker_lane_key: Callable,
+) -> list[dict[str, Any]]:
+    """Open-lane filter for promotion candidates (extracted from _execute_promotion for S3776)."""
+    promotion_candidates = promotable_rows()
+    open_promotion_candidates = open_lane_research_rows(
+        promotion_candidates,
+        {_worker_lane_key(row) for row in store.active_items()},
+    )
+    if open_promotion_candidates:
+        return open_promotion_candidates
+    return promotion_candidates
+
+
+def _promote_research_rows(
+    *,
+    store: Any,
+    promotion_candidates: list[dict[str, Any]],
+    max_promotions: int,
+    requested_by: str,
+) -> list[dict[str, Any]]:
+    """Run store.promote_research_candidate for up to max_promotions rows."""
+    promoted: list[dict[str, Any]] = []
+    for row in promotion_candidates[:max_promotions]:
+        result = store.promote_research_candidate(
+            _validate_research_candidate_id(str(row.get("candidate_id"))),
+            requested_by=requested_by,
+            dry_run=False,
+        )
+        promoted.append(result)
+    return promoted
+
+
+def _promotion_success_count(promoted: list[dict[str, Any]]) -> int:
+    return sum(
+        1 for item in promoted if item.get("ok") and not item.get("already_promoted")
+    )
+
+
+def _record_promotion_stage(
+    response: dict[str, Any], *, promoted: list[dict[str, Any]]
+) -> None:
+    response["promotions"] = promoted
+    response["promoted_count"] = _promotion_success_count(promoted)
+    response["queued_count"] = sum(
+        int(item.get("queued_count") or 0) for item in promoted
+    )
+    response["stages"].append(
+        {
+            "stage": "promotion",
+            "ok": True,
+            "promoted_count": response["promoted_count"],
+            "queued_count": response["queued_count"],
+        }
+    )
+
+
+def _dispatch_promoted_until_cap(
+    *,
+    promoted: list[dict[str, Any]],
+    max_dispatches: int,
+    response: dict[str, Any],
+    dispatch_queued_project: Callable[[str], bool],
+) -> None:
+    if not max_dispatches or not promoted:
+        return
+    for item in promoted:
+        if int(response.get("dispatched_count") or 0) >= max_dispatches:
+            break
+        project_id = str(item.get("idea_id") or item.get("candidate_id") or "").strip()
+        if project_id:
+            dispatch_queued_project(project_id)
+
+
 def _execute_promotion(
     *,
     promotable_rows: Callable[[], list[dict[str, Any]]],
@@ -2697,51 +2775,29 @@ def _execute_promotion(
     """
     promoted: list[dict[str, Any]] = []
     if not response.get("fresh_promotion_skipped"):
-        promotion_candidates = promotable_rows()
-        open_promotion_candidates = open_lane_research_rows(
-            promotion_candidates,
-            {_worker_lane_key(row) for row in store.active_items()},
+        promotion_candidates = _resolve_open_lane_promotion_candidates(
+            promotable_rows=promotable_rows,
+            open_lane_research_rows=open_lane_research_rows,
+            store=store,
+            _worker_lane_key=_worker_lane_key,
         )
-        if open_promotion_candidates:
-            promotion_candidates = open_promotion_candidates
-        for row in promotion_candidates[:max_promotions]:
-            result = store.promote_research_candidate(
-                _validate_research_candidate_id(str(row.get("candidate_id"))),
-                requested_by=requested_by,
-                dry_run=False,
-            )
-            promoted.append(result)
-        response["promotions"] = promoted
-        response["promoted_count"] = sum(
-            1
-            for item in promoted
-            if item.get("ok") and not item.get("already_promoted")
+        promoted = _promote_research_rows(
+            store=store,
+            promotion_candidates=promotion_candidates,
+            max_promotions=max_promotions,
+            requested_by=requested_by,
         )
-        response["queued_count"] = sum(
-            int(item.get("queued_count") or 0) for item in promoted
-        )
-        response["stages"].append(
-            {
-                "stage": "promotion",
-                "ok": True,
-                "promoted_count": response["promoted_count"],
-                "queued_count": response["queued_count"],
-            }
-        )
+        _record_promotion_stage(response, promoted=promoted)
     else:
         response["promotions"] = promoted
         response["promoted_count"] = 0
 
-    if max_dispatches and promoted:
-        for item in promoted:
-            if int(response.get("dispatched_count") or 0) >= max_dispatches:
-                break
-            project_id = str(
-                item.get("idea_id") or item.get("candidate_id") or ""
-            ).strip()
-            if project_id:
-                dispatch_queued_project(project_id)
-
+    _dispatch_promoted_until_cap(
+        promoted=promoted,
+        max_dispatches=max_dispatches,
+        response=response,
+        dispatch_queued_project=dispatch_queued_project,
+    )
     return response
 
 

@@ -14228,6 +14228,38 @@ def test_promotion_execution_extracted_no_duplication_in_giant():
     assert callable(_execute_promotion)
 
 
+def test_promotion_subhelpers_extracted_for_s3776():
+    """AGENTS.md test-first for S3776 on _execute_promotion (e61aa097, router.py ~2711).
+
+    Promotion candidate resolution, row promotion, stage recording, and capped dispatch
+    are split into top-level helpers so _execute_promotion stays at or below complexity 15.
+    """
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
+    for name in (
+        "_resolve_open_lane_promotion_candidates",
+        "_promote_research_rows",
+        "_record_promotion_stage",
+        "_dispatch_promoted_until_cap",
+    ):
+        assert f"def {name}(" in src, f"{name} helper missing"
+
+    from enoch_control_plane.control_plane.router import (
+        _dispatch_promoted_until_cap,
+        _promote_research_rows,
+        _record_promotion_stage,
+        _resolve_open_lane_promotion_candidates,
+    )
+
+    assert callable(_resolve_open_lane_promotion_candidates)
+    assert callable(_promote_research_rows)
+    assert callable(_record_promotion_stage)
+    assert callable(_dispatch_promoted_until_cap)
+
+
 def test_dispatch_queued_project_extracted_no_duplication_in_giant():
     """AGENTS.md test-first for the next horrible-first S3776 inside the 1595
     create_control_plane_router / dashboard_research_run_cycle (after promotion extraction).
