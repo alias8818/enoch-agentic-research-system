@@ -14241,6 +14241,25 @@ def test_lane_helpers_extracted_no_duplication_in_giant():
     assert callable(open_lane_research_rows)
 
 
+def test_research_lane_feed_pressure_extracted_no_duplication_in_giant():
+    """AGENTS.md test-first for the next horrible-first S3776 inside the (now substantially smaller) 1595
+    create_control_plane_router / dashboard_research_run_cycle (after lane helpers extraction).
+
+    The large _research_lane_feed_pressure function (builds the pressure map with queue_deficit,
+    next_autopilot_action, operator_summary, using lane capacity, queued rows, promotable, etc.)
+    is extracted to a top-level helper to further reduce cognitive complexity of the giant.
+    """
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    assert "def _research_lane_feed_pressure(" in src, (
+        "_research_lane_feed_pressure helper missing (pressure computation logic still inline in the giant)"
+    )
+
+    from enoch_control_plane.control_plane.router import _research_lane_feed_pressure
+    assert callable(_research_lane_feed_pressure)
+
+
 def test_router_no_redundant_response_model_fastapi_style():
     """AGENTS.md test-first validator for top BLOCKERs (S8409/S8410, ~49 instances in router.py).
 
