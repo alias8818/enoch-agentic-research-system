@@ -10,9 +10,9 @@ from scripts.run_public_corpus_release import (
 def test_default_control_url_prefers_worker_host_env(monkeypatch) -> None:
     monkeypatch.delenv("ENOCH_CONTROL_URL", raising=False)
     monkeypatch.setenv("ENOCH_WORKER_HOST", "worker.example")
-    assert default_control_url() == "http://worker.example:8787"
+    assert default_control_url() == "https://worker.example:8787"
     args = parse_args(["--root", "/tmp", "--dry-run"])
-    assert args.control_url == "http://worker.example:8787"
+    assert args.control_url == "https://worker.example:8787"
 
 
 def test_default_control_url_honors_control_url_env(monkeypatch) -> None:
