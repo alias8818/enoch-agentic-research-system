@@ -479,55 +479,57 @@ def _readiness_resource_utilization_summary(
     }
 
 
-def _build_readiness_summary(
-    *,
-    queue_paused: bool,
-    maintenance_mode: bool,
-    queued: int,
-    active: int,
-    blocked: int,
-    needs_attention: int,
-    pipeline: dict[str, Any],
-    publish_ready: int,
-    write_needed: int,
-    research_active: bool,
-    research_result: str,
-    research_age: int | None,
-    research_max_age_seconds: int,
-    corpus_active: bool,
-    corpus_result: str,
-    corpus_age: int | None,
-    corpus_max_age_seconds: int,
-    quality: dict[str, Any],
-    quality_status: str,
-    lineage: dict[str, Any],
-    lineage_status: str,
-    resource: dict[str, Any],
-    resource_ok: bool,
-    resource_count: int,
-) -> dict[str, Any]:
+@dataclass
+class _ReadinessSummaryInput:
+    queue_paused: bool
+    maintenance_mode: bool
+    queued: int
+    active: int
+    blocked: int
+    needs_attention: int
+    pipeline: dict[str, Any]
+    publish_ready: int
+    write_needed: int
+    research_active: bool
+    research_result: str
+    research_age: int | None
+    research_max_age_seconds: int
+    corpus_active: bool
+    corpus_result: str
+    corpus_age: int | None
+    corpus_max_age_seconds: int
+    quality: dict[str, Any]
+    quality_status: str
+    lineage: dict[str, Any]
+    lineage_status: str
+    resource: dict[str, Any]
+    resource_ok: bool
+    resource_count: int
+
+
+def _build_readiness_summary(inp: _ReadinessSummaryInput) -> dict[str, Any]:
     return {
-        "queue_paused": queue_paused,
-        "maintenance_mode": maintenance_mode,
-        "queued": queued,
-        "active": active,
-        "blocked": blocked,
-        "needs_attention": needs_attention,
-        "publish_ready": publish_ready,
-        "published_imported": int(pipeline.get("published_imported") or 0),
-        "write_needed": write_needed,
-        "research_timer_active": research_active,
-        "research_last_result": research_result or "unknown",
-        "research_tick_age_seconds": research_age,
-        "research_tick_max_age_seconds": research_max_age_seconds,
-        "corpus_timer_active": corpus_active,
-        "corpus_last_result": corpus_result or "unknown",
-        "corpus_tick_age_seconds": corpus_age,
-        "corpus_tick_max_age_seconds": corpus_max_age_seconds,
-        **_readiness_research_quality_summary(quality, quality_status),
-        **_readiness_source_lineage_summary(lineage, lineage_status),
+        "queue_paused": inp.queue_paused,
+        "maintenance_mode": inp.maintenance_mode,
+        "queued": inp.queued,
+        "active": inp.active,
+        "blocked": inp.blocked,
+        "needs_attention": inp.needs_attention,
+        "publish_ready": inp.publish_ready,
+        "published_imported": int(inp.pipeline.get("published_imported") or 0),
+        "write_needed": inp.write_needed,
+        "research_timer_active": inp.research_active,
+        "research_last_result": inp.research_result or "unknown",
+        "research_tick_age_seconds": inp.research_age,
+        "research_tick_max_age_seconds": inp.research_max_age_seconds,
+        "corpus_timer_active": inp.corpus_active,
+        "corpus_last_result": inp.corpus_result or "unknown",
+        "corpus_tick_age_seconds": inp.corpus_age,
+        "corpus_tick_max_age_seconds": inp.corpus_max_age_seconds,
+        **_readiness_research_quality_summary(inp.quality, inp.quality_status),
+        **_readiness_source_lineage_summary(inp.lineage, inp.lineage_status),
         **_readiness_resource_utilization_summary(
-            resource, resource_ok, resource_count
+            inp.resource, inp.resource_ok, inp.resource_count
         ),
     }
 
@@ -601,29 +603,31 @@ def evaluate_longhaul_readiness(
         "checks": acc.checks,
         "generated_at": now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
         "summary": _build_readiness_summary(
-            queue_paused=queue_paused,
-            maintenance_mode=maintenance_mode,
-            queued=queued,
-            active=active,
-            blocked=blocked,
-            needs_attention=needs_attention,
-            pipeline=pipeline,
-            publish_ready=publish_ready,
-            write_needed=write_needed,
-            research_active=research_active,
-            research_result=research_result,
-            research_age=research_age,
-            research_max_age_seconds=research_max_age_seconds,
-            corpus_active=corpus_active,
-            corpus_result=corpus_result,
-            corpus_age=corpus_age,
-            corpus_max_age_seconds=corpus_max_age_seconds,
-            quality=quality,
-            quality_status=quality_status,
-            lineage=lineage,
-            lineage_status=lineage_status,
-            resource=resource,
-            resource_ok=resource_ok,
-            resource_count=resource_count,
+            _ReadinessSummaryInput(
+                queue_paused=queue_paused,
+                maintenance_mode=maintenance_mode,
+                queued=queued,
+                active=active,
+                blocked=blocked,
+                needs_attention=needs_attention,
+                pipeline=pipeline,
+                publish_ready=publish_ready,
+                write_needed=write_needed,
+                research_active=research_active,
+                research_result=research_result,
+                research_age=research_age,
+                research_max_age_seconds=research_max_age_seconds,
+                corpus_active=corpus_active,
+                corpus_result=corpus_result,
+                corpus_age=corpus_age,
+                corpus_max_age_seconds=corpus_max_age_seconds,
+                quality=quality,
+                quality_status=quality_status,
+                lineage=lineage,
+                lineage_status=lineage_status,
+                resource=resource,
+                resource_ok=resource_ok,
+                resource_count=resource_count,
+            )
         ),
     }
