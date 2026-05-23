@@ -501,6 +501,36 @@ def _import_backfill_projects(cur: Any, project_rows: list[dict[str, Any]]) -> i
     )
 
 
+def _backfill_queue_item_params(row: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        row.get("project_id"),
+        row.get("status") or "unknown",
+        int(row.get("selection_rank") or 0),
+        int(row.get("dispatch_priority") or 0),
+        bool(row.get("auto_continue")),
+        int(row.get("continue_count") or 0),
+        int(row.get("max_continues") or 0),
+        int(row.get("retry_count") or 0),
+        int(row.get("max_retries") or 0),
+        row.get("current_run_id") or "",
+        row.get("current_session_id") or "",
+        row.get("last_run_state") or "",
+        row.get("last_event_type") or "",
+        row.get("next_action_hint") or "",
+        bool(row.get("manual_review_required")),
+        row.get("blocked_reason") or "",
+        row.get("last_error") or "",
+        row.get("last_result_summary") or "",
+        row.get("machine_target") or "",
+        row.get("model") or "",
+        row.get("sandbox") or "",
+        row.get("last_dispatch_at"),
+        row.get("last_callback_at"),
+        row.get("stale_after"),
+        row.get("updated_at"),
+    )
+
+
 def _import_backfill_queue_items(cur: Any, queue_rows: list[dict[str, Any]]) -> int:
     return execute_many(
         cur,
@@ -526,36 +556,7 @@ def _import_backfill_queue_items(cur: Any, queue_rows: list[dict[str, Any]]) -> 
           updated_at=excluded.updated_at
         where queue_items.updated_at is null or excluded.updated_at >= queue_items.updated_at
         """,
-        (
-            (
-                row.get("project_id"),
-                row.get("status") or "unknown",
-                int(row.get("selection_rank") or 0),
-                int(row.get("dispatch_priority") or 0),
-                bool(row.get("auto_continue")),
-                int(row.get("continue_count") or 0),
-                int(row.get("max_continues") or 0),
-                int(row.get("retry_count") or 0),
-                int(row.get("max_retries") or 0),
-                row.get("current_run_id") or "",
-                row.get("current_session_id") or "",
-                row.get("last_run_state") or "",
-                row.get("last_event_type") or "",
-                row.get("next_action_hint") or "",
-                bool(row.get("manual_review_required")),
-                row.get("blocked_reason") or "",
-                row.get("last_error") or "",
-                row.get("last_result_summary") or "",
-                row.get("machine_target") or "",
-                row.get("model") or "",
-                row.get("sandbox") or "",
-                row.get("last_dispatch_at"),
-                row.get("last_callback_at"),
-                row.get("stale_after"),
-                row.get("updated_at"),
-            )
-            for row in queue_rows
-        ),
+        (_backfill_queue_item_params(row) for row in queue_rows),
     )
 
 
