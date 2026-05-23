@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -5,6 +6,14 @@ import pytest
 from enoch_control_plane.enoch_core.store import IdempotencyConflict
 from scripts import requeue_supabase_cutover_paused_items as requeue
 from scripts import supabase_controlled_resume_drill as drill
+
+
+def test_resume_drill_control_url_default_has_no_inline_http_magic_ip() -> None:
+    source = Path("scripts/supabase_controlled_resume_drill.py").read_text(
+        encoding="utf-8"
+    )
+    assert "192.168.1.166" not in source.split("def main", 1)[1]
+    assert '"http://' not in source.split("def main", 1)[1]
 
 
 def test_wait_for_active_uses_control_state_active_items(monkeypatch):

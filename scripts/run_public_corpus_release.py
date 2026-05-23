@@ -41,9 +41,10 @@ def _default_control_plane_host() -> str:
 
 
 def default_control_url() -> str:
-    explicit = os.environ.get("ENOCH_CONTROL_URL", "").strip()
-    if explicit:
-        return explicit
+    for env_name in ("ENOCH_CONTROL_URL", "ENOCH_CONTROL_PLANE_URL"):
+        explicit = os.environ.get(env_name, "").strip()
+        if explicit:
+            return explicit
     host = _default_control_plane_host()
     return secure_default_service_url(host, CONTROL_PLANE_PORT)
 
