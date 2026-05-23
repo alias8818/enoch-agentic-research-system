@@ -20,11 +20,9 @@ from enoch_control_plane.control_plane.store import (
 
 
 def test_record_project_decision_gate_is_decided_at_guarded() -> None:
-    source = inspect.getsource(s.SupabaseControlPlaneStore.record_project_decision_gate)
-
     assert (
         "where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at"
-        in source
+        in s._PROJECT_DECISION_UPSERT_SQL
     )
 
 

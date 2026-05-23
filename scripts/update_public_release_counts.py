@@ -21,7 +21,7 @@ from scripts.validate_public_release import (
     PERSONAL_SITE_FILES,
     PROFILE_FILES,
     PUBLIC_FILES,
-    STRICT_FAIL_PHRASE,
+    STRICT_FAIL_PHRASES,
 )
 
 DEDUPE_BASELINE = 376
@@ -252,12 +252,13 @@ def update_text(text: str, stats: dict[str, int]) -> str:
     for pattern, replacement in strict_patterns:
         text = pattern.sub(replacement, text)
 
-    text = STRICT_FAIL_PHRASE.sub(
-        lambda m: m.group(0)
-        .replace(m.group(1), str(sf), 1)
-        .replace(m.group(2), str(n), 1),
-        text,
-    )
+    for pattern in STRICT_FAIL_PHRASES:
+        text = pattern.sub(
+            lambda m: m.group(0)
+            .replace(m.group(1), str(sf), 1)
+            .replace(m.group(2), str(n), 1),
+            text,
+        )
     text = re.sub(
         r"\b(?:fails?|rejects)\s+\d{1,5}\s+of\s+them\b",
         lambda m: re.sub(r"\d{1,5}", str(sf), m.group(0), count=1),
