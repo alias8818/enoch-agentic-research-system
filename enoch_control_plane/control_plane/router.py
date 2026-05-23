@@ -4899,6 +4899,317 @@ def _auto_reconcile_stale_callback_ready(
     return reconciled
 
 
+def _dispatch_route_metadata(machine_target: str, target: Any) -> dict[str, Any]:
+    return {
+        "machine_target": machine_target,
+        "wake_gate_url": target.wake_gate_url,
+        "worker_role": target.role,
+        "token_configured": bool(target.bearer_token),
+    }
+
+
+def _cp_mount_annotate_dispatch_route(
+    candidate: dict[str, Any] | None, *, config: GateConfig
+) -> dict[str, Any] | None:
+    if not candidate:
+        return candidate
+    machine_target = str(candidate.get("machine_target") or "")
+    target = config.resolved_worker_target(machine_target)
+    return {
+        **candidate,
+        "dispatch_route": _dispatch_route_metadata(machine_target, target),
+    }
+
+
+def _cp_mount_worker_lane_key(
+    config: GateConfig, candidate: dict[str, Any] | None
+) -> str:
+    if not candidate:
+        return ""
+    target = config.resolved_worker_target(str(candidate.get("machine_target") or ""))
+    return (
+        (target.wake_gate_url or str(candidate.get("machine_target") or ""))
+        .strip()
+        .rstrip("/")
+    )
+
+
+def _cp_mount_preflight_observation_lane_key(
+    config: GateConfig, preflight: DashboardObservationRecord | None
+) -> str:
+    payload = preflight.payload if preflight else {}
+    target = (
+        str(payload.get("target") or "").strip() if isinstance(payload, dict) else ""
+    )
+    if not target:
+        return _cp_mount_worker_lane_key(config, {"machine_target": ""})
+    if "://" in target:
+        if (urlparse(target).hostname or "") == DEFAULT_MACHINE_TARGET:
+            return _cp_mount_worker_lane_key(config, {"machine_target": ""})
+        return target.rstrip("/")
+    return _cp_mount_worker_lane_key(config, {"machine_target": target})
+
+
+def _cp_mount_preflight_observation_applies_to_candidate(
+    config: GateConfig,
+    preflight: DashboardObservationRecord | None,
+    candidate: dict[str, Any] | None,
+) -> bool:
+    if not preflight or not candidate:
+        return True
+    preflight_lane = _cp_mount_preflight_observation_lane_key(config, preflight)
+    if not preflight_lane:
+        return True
+    return preflight_lane == _cp_mount_worker_lane_key(config, candidate)
+
+
+def _cp_mount_callback_acceptance_token_fingerprint(config: GateConfig) -> str:
+    # /control/api/worker-callback is mounted on the control-plane router
+    # and is protected by the same bearer dependency as other control APIs.
+    # Worker preflight therefore has to compare the worker's configured
+    # callback-delivery token against the token this endpoint will actually
+    # accept, not the local completion_callback_token used by worker-mode
+    # callback senders.
+    token = (config.control_api_bearer_token or "").strip()
+    if not token:
+        return ""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _dispatch_sort_key(row: dict[str, Any]) -> tuple[int, int, str]:
+    priority = _int_or_none(row.get("dispatch_priority"))
+    rank = _int_or_none(row.get("selection_rank"))
+    return (
+        priority if priority is not None else 9999,
+        rank if rank is not None else 9999,
+        str(row.get("updated_at") or ""),
+    )
+
+
+def _cp_active_items_fast(store: Any, *, limit: int = 50) -> list[dict[str, Any]]:
+    if hasattr(store, "active_items_sql"):
+        return store.active_items_sql(limit=limit)  # type: ignore[attr-defined]
+    return store.active_items()
+
+
+def _cp_queued_dispatch_candidates(
+    store: Any, rows: list[dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
+    candidates = [
+        row
+        for row in (rows if rows is not None else store.queue_rows())
+        if _normal_status(row.get("status")) == "queued"
+        and not _truthy_flag(row.get("manual_review_required"))
+    ]
+    candidates.sort(key=_dispatch_sort_key)
+    return candidates
+
+
+def _cp_queued_items_fast(store: Any, *, limit: int = 200) -> list[dict[str, Any]]:
+    if hasattr(store, "queued_items_sql"):
+        return store.queued_items_sql(limit=limit)  # type: ignore[attr-defined]
+    return _cp_queued_dispatch_candidates(store, store.queue_rows())[:limit]
+
+
+def _cp_recently_completed_items_fast(
+    store: Any, *, limit: int = 50
+) -> list[dict[str, Any]]:
+    if hasattr(store, "recently_completed_items_sql"):
+        return store.recently_completed_items_sql(limit=limit)  # type: ignore[attr-defined]
+    rows = [
+        row
+        for row in store.queue_rows()
+        if _normal_status(row.get("status")) == "completed"
+        or _normal_status(row.get("last_run_state"))
+        in {"wake_ready", "completed", "complete", "finished"}
+    ]
+    rows.sort(key=lambda row: str(row.get("updated_at") or ""), reverse=True)
+    return rows[:limit]
+
+
+def _cp_mount_open_worker_dispatch_candidate(
+    store: Any,
+    config: GateConfig,
+    *,
+    active: list[dict[str, Any]] | None = None,
+    queued: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    if store.flags().queue_paused:
+        return None
+    active_lane_keys = {
+        _cp_mount_worker_lane_key(config, row)
+        for row in (active if active is not None else _cp_active_items_fast(store))
+    }
+    for candidate in _cp_queued_dispatch_candidates(store, queued):
+        if _cp_mount_worker_lane_key(config, candidate) not in active_lane_keys:
+            return candidate
+    return None
+
+
+def _worker_lane_summary_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not row:
+        return None
+    return {
+        "project_id": str(row.get("project_id") or ""),
+        "project_name": str(row.get("project_name") or ""),
+        "project_dir": str(row.get("project_dir") or ""),
+        "status": str(row.get("status") or ""),
+        "machine_target": str(row.get("machine_target") or ""),
+        "current_run_id": str(row.get("current_run_id") or ""),
+        "updated_at": row.get("updated_at"),
+        "dispatch_priority": row.get("dispatch_priority"),
+        "selection_rank": row.get("selection_rank"),
+    }
+
+
+def _cp_mount_configured_worker_lanes(config: GateConfig) -> list[dict[str, Any]]:
+    lanes: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for machine_target in sorted(config.worker_targets):
+        target = config.resolved_worker_target(machine_target)
+        lane_key = (target.wake_gate_url or machine_target).strip().rstrip("/")
+        if not lane_key or lane_key in seen:
+            continue
+        seen.add(lane_key)
+        lanes.append(
+            {
+                "lane_key": lane_key,
+                "machine_target": machine_target,
+                "worker_role": target.role or "worker",
+                "wake_gate_url": target.wake_gate_url,
+                "configured": True,
+            }
+        )
+    default_target = config.resolved_worker_target("")
+    default_key = (default_target.wake_gate_url or "").strip().rstrip("/")
+    if default_key and default_key not in seen:
+        lanes.append(
+            {
+                "lane_key": default_key,
+                "machine_target": "",
+                "worker_role": default_target.role or "default",
+                "wake_gate_url": default_target.wake_gate_url,
+                "configured": True,
+            }
+        )
+    return lanes
+
+
+def _cp_mount_worker_lane_capacity(
+    config: GateConfig,
+    store: Any,
+    *,
+    active: list[dict[str, Any]] | None = None,
+    rows: list[dict[str, Any]] | None = None,
+    global_blockers: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    active_rows = list(active if active is not None else store.active_items())
+    queue_rows = list(rows if rows is not None else store.queue_rows())
+    active_by_lane: dict[str, list[dict[str, Any]]] = {}
+    queued_by_lane: dict[str, list[dict[str, Any]]] = {}
+    for row in active_rows:
+        active_by_lane.setdefault(_cp_mount_worker_lane_key(config, row), []).append(
+            row
+        )
+    queued_candidates = _cp_queued_dispatch_candidates(store, queue_rows)
+    for row in queued_candidates:
+        queued_by_lane.setdefault(_cp_mount_worker_lane_key(config, row), []).append(
+            row
+        )
+
+    lanes_by_key = {
+        lane["lane_key"]: lane for lane in _cp_mount_configured_worker_lanes(config)
+    }
+    for row in [*active_rows, *queued_candidates]:
+        lane_key = _cp_mount_worker_lane_key(config, row)
+        if lane_key and lane_key not in lanes_by_key:
+            target = config.resolved_worker_target(str(row.get("machine_target") or ""))
+            lanes_by_key[lane_key] = {
+                "lane_key": lane_key,
+                "machine_target": str(row.get("machine_target") or ""),
+                "worker_role": target.role or "worker",
+                "wake_gate_url": target.wake_gate_url,
+                "configured": False,
+            }
+
+    global_blockers = [str(item) for item in (global_blockers or []) if str(item)]
+    output: list[dict[str, Any]] = []
+    for lane in sorted(
+        lanes_by_key.values(),
+        key=lambda item: (
+            str(item.get("worker_role") or ""),
+            str(item.get("machine_target") or ""),
+            str(item.get("lane_key") or ""),
+        ),
+    ):
+        lane_key = str(lane["lane_key"])
+        lane_active = sorted(
+            active_by_lane.get(lane_key, []),
+            key=lambda row: str(row.get("updated_at") or ""),
+            reverse=True,
+        )
+        lane_queued = queued_by_lane.get(lane_key, [])
+        next_candidate = lane_queued[0] if lane_queued else None
+        dispatch_available = False
+        dispatch_reason = ""
+        dispatch_blocker = ""
+        if lane_active:
+            dispatch_blocker = "lane active"
+        elif next_candidate and global_blockers:
+            dispatch_blocker = global_blockers[0]
+        elif next_candidate:
+            dispatch_available = True
+            dispatch_reason = "lane open with queued candidate"
+        else:
+            dispatch_blocker = "no queued candidate for lane"
+        output.append(
+            {
+                **lane,
+                "status": "active" if lane_active else "idle",
+                "active_count": len(lane_active),
+                "active_item": _worker_lane_summary_row(
+                    lane_active[0] if lane_active else None
+                ),
+                "queued_count": len(lane_queued),
+                "next_candidate": _worker_lane_summary_row(next_candidate),
+                "dispatch_available": dispatch_available,
+                "dispatch_reason": dispatch_reason,
+                "dispatch_blocker": dispatch_blocker,
+            }
+        )
+    return output
+
+
+def _cp_mount_candidate_machine_target_conflict_set(
+    config: GateConfig, candidate: dict[str, Any]
+) -> set[str]:
+    candidate_lane_key = _cp_mount_worker_lane_key(config, candidate)
+    if not candidate_lane_key:
+        machine_target = _normal_status(candidate.get("machine_target"))
+        return {machine_target} if machine_target else {""}
+    conflict_targets: set[str] = set()
+    configured_targets = {
+        "",
+        *[str(target) for target in config.worker_targets.keys()],
+    }
+    for machine_target in configured_targets:
+        normalized_target = _normal_status(machine_target)
+        lane_key = _cp_mount_worker_lane_key(config, {"machine_target": machine_target})
+        if lane_key == candidate_lane_key:
+            conflict_targets.add(normalized_target)
+    return conflict_targets or {_normal_status(candidate.get("machine_target")) or ""}
+
+
+def _cp_mount_has_conflicting_active_lane(
+    config: GateConfig, store: Any, candidate: dict[str, Any]
+) -> bool:
+    candidate_lane_key = _cp_mount_worker_lane_key(config, candidate)
+    return any(
+        _cp_mount_worker_lane_key(config, row) == candidate_lane_key
+        for row in store.active_items()
+    )
+
+
 def create_control_plane_router(
     config: GateConfig, require_bearer: RequireBearer
 ) -> APIRouter:
@@ -4930,263 +5241,32 @@ def _mount_control_plane_http_routes(
         _require_writable_store_http, backend=config.control_plane_store_backend
     )
 
-    def _dispatch_route_metadata(machine_target: str, target: Any) -> dict[str, Any]:
-        return {
-            "machine_target": machine_target,
-            "wake_gate_url": target.wake_gate_url,
-            "worker_role": target.role,
-            "token_configured": bool(target.bearer_token),
-        }
-
-    def _annotate_dispatch_route(
-        candidate: dict[str, Any] | None,
-    ) -> dict[str, Any] | None:
-        if not candidate:
-            return candidate
-        machine_target = str(candidate.get("machine_target") or "")
-        target = config.resolved_worker_target(machine_target)
-        return {
-            **candidate,
-            "dispatch_route": _dispatch_route_metadata(machine_target, target),
-        }
-
-    def _worker_lane_key(candidate: dict[str, Any] | None) -> str:
-        if not candidate:
-            return ""
-        target = config.resolved_worker_target(
-            str(candidate.get("machine_target") or "")
-        )
-        return (
-            (target.wake_gate_url or str(candidate.get("machine_target") or ""))
-            .strip()
-            .rstrip("/")
-        )
-
-    def _preflight_observation_lane_key(
-        preflight: DashboardObservationRecord | None,
-    ) -> str:
-        payload = preflight.payload if preflight else {}
-        target = (
-            str(payload.get("target") or "").strip()
-            if isinstance(payload, dict)
-            else ""
-        )
-        if not target:
-            return _worker_lane_key({"machine_target": ""})
-        if "://" in target:
-            if (urlparse(target).hostname or "") == DEFAULT_MACHINE_TARGET:
-                return _worker_lane_key({"machine_target": ""})
-            return target.rstrip("/")
-        return _worker_lane_key({"machine_target": target})
-
-    def _preflight_observation_applies_to_candidate(
-        preflight: DashboardObservationRecord | None, candidate: dict[str, Any] | None
-    ) -> bool:
-        if not preflight or not candidate:
-            return True
-        preflight_lane = _preflight_observation_lane_key(preflight)
-        if not preflight_lane:
-            return True
-        return preflight_lane == _worker_lane_key(candidate)
-
-    def _callback_acceptance_token_fingerprint() -> str:
-        # /control/api/worker-callback is mounted on the control-plane router
-        # and is protected by the same bearer dependency as other control APIs.
-        # Worker preflight therefore has to compare the worker's configured
-        # callback-delivery token against the token this endpoint will actually
-        # accept, not the local completion_callback_token used by worker-mode
-        # callback senders.
-        token = (config.control_api_bearer_token or "").strip()
-        if not token:
-            return ""
-        return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-    def _dispatch_sort_key(row: dict[str, Any]) -> tuple[int, int, str]:
-        priority = _int_or_none(row.get("dispatch_priority"))
-        rank = _int_or_none(row.get("selection_rank"))
-        return (
-            priority if priority is not None else 9999,
-            rank if rank is not None else 9999,
-            str(row.get("updated_at") or ""),
-        )
-
-    def _active_items_fast(*, limit: int = 50) -> list[dict[str, Any]]:
-        if hasattr(store, "active_items_sql"):
-            return store.active_items_sql(limit=limit)  # type: ignore[attr-defined]
-        return store.active_items()
-
-    def _queued_items_fast(*, limit: int = 200) -> list[dict[str, Any]]:
-        if hasattr(store, "queued_items_sql"):
-            return store.queued_items_sql(limit=limit)  # type: ignore[attr-defined]
-        return _queued_dispatch_candidates(store.queue_rows())[:limit]
-
-    def _recently_completed_items_fast(*, limit: int = 50) -> list[dict[str, Any]]:
-        if hasattr(store, "recently_completed_items_sql"):
-            return store.recently_completed_items_sql(limit=limit)  # type: ignore[attr-defined]
-        rows = [
-            row
-            for row in store.queue_rows()
-            if _normal_status(row.get("status")) == "completed"
-            or _normal_status(row.get("last_run_state"))
-            in {"wake_ready", "completed", "complete", "finished"}
-        ]
-        rows.sort(key=lambda row: str(row.get("updated_at") or ""), reverse=True)
-        return rows[:limit]
-
-    def _queued_dispatch_candidates(
-        rows: list[dict[str, Any]] | None = None,
-    ) -> list[dict[str, Any]]:
-        candidates = [
-            row
-            for row in (rows if rows is not None else store.queue_rows())
-            if _normal_status(row.get("status")) == "queued"
-            and not _truthy_flag(row.get("manual_review_required"))
-        ]
-        candidates.sort(key=_dispatch_sort_key)
-        return candidates
-
-    def _open_worker_dispatch_candidate(
-        *,
-        active: list[dict[str, Any]] | None = None,
-        queued: list[dict[str, Any]] | None = None,
-    ) -> dict[str, Any] | None:
-        if store.flags().queue_paused:
-            return None
-        active_lane_keys = {
-            _worker_lane_key(row)
-            for row in (active if active is not None else _active_items_fast())
-        }
-        # Keep dashboard/status reads bounded when a queued window is provided, but for
-        # authoritative dispatch selection always evaluate the full queued candidate set.
-        for candidate in _queued_dispatch_candidates(queued):
-            if _worker_lane_key(candidate) not in active_lane_keys:
-                return candidate
-        return None
-
-    def _worker_lane_summary_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
-        if not row:
-            return None
-        return {
-            "project_id": str(row.get("project_id") or ""),
-            "project_name": str(row.get("project_name") or ""),
-            "project_dir": str(row.get("project_dir") or ""),
-            "status": str(row.get("status") or ""),
-            "machine_target": str(row.get("machine_target") or ""),
-            "current_run_id": str(row.get("current_run_id") or ""),
-            "updated_at": row.get("updated_at"),
-            "dispatch_priority": row.get("dispatch_priority"),
-            "selection_rank": row.get("selection_rank"),
-        }
-
-    def _configured_worker_lanes() -> list[dict[str, Any]]:
-        lanes: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for machine_target in sorted(config.worker_targets):
-            target = config.resolved_worker_target(machine_target)
-            lane_key = (target.wake_gate_url or machine_target).strip().rstrip("/")
-            if not lane_key or lane_key in seen:
-                continue
-            seen.add(lane_key)
-            lanes.append(
-                {
-                    "lane_key": lane_key,
-                    "machine_target": machine_target,
-                    "worker_role": target.role or "worker",
-                    "wake_gate_url": target.wake_gate_url,
-                    "configured": True,
-                }
-            )
-        default_target = config.resolved_worker_target("")
-        default_key = (default_target.wake_gate_url or "").strip().rstrip("/")
-        if default_key and default_key not in seen:
-            lanes.append(
-                {
-                    "lane_key": default_key,
-                    "machine_target": "",
-                    "worker_role": default_target.role or "default",
-                    "wake_gate_url": default_target.wake_gate_url,
-                    "configured": True,
-                }
-            )
-        return lanes
-
-    def _worker_lane_capacity(
-        *,
-        active: list[dict[str, Any]] | None = None,
-        rows: list[dict[str, Any]] | None = None,
-        global_blockers: list[str] | None = None,
-    ) -> list[dict[str, Any]]:
-        active_rows = list(active if active is not None else store.active_items())
-        queue_rows = list(rows if rows is not None else store.queue_rows())
-        active_by_lane: dict[str, list[dict[str, Any]]] = {}
-        queued_by_lane: dict[str, list[dict[str, Any]]] = {}
-        for row in active_rows:
-            active_by_lane.setdefault(_worker_lane_key(row), []).append(row)
-        queued_candidates = _queued_dispatch_candidates(queue_rows)
-        for row in queued_candidates:
-            queued_by_lane.setdefault(_worker_lane_key(row), []).append(row)
-
-        lanes_by_key = {lane["lane_key"]: lane for lane in _configured_worker_lanes()}
-        for row in [*active_rows, *queued_candidates]:
-            lane_key = _worker_lane_key(row)
-            if lane_key and lane_key not in lanes_by_key:
-                target = config.resolved_worker_target(
-                    str(row.get("machine_target") or "")
-                )
-                lanes_by_key[lane_key] = {
-                    "lane_key": lane_key,
-                    "machine_target": str(row.get("machine_target") or ""),
-                    "worker_role": target.role or "worker",
-                    "wake_gate_url": target.wake_gate_url,
-                    "configured": False,
-                }
-
-        global_blockers = [str(item) for item in (global_blockers or []) if str(item)]
-        output: list[dict[str, Any]] = []
-        for lane in sorted(
-            lanes_by_key.values(),
-            key=lambda item: (
-                str(item.get("worker_role") or ""),
-                str(item.get("machine_target") or ""),
-                str(item.get("lane_key") or ""),
-            ),
-        ):
-            lane_key = str(lane["lane_key"])
-            lane_active = sorted(
-                active_by_lane.get(lane_key, []),
-                key=lambda row: str(row.get("updated_at") or ""),
-                reverse=True,
-            )
-            lane_queued = queued_by_lane.get(lane_key, [])
-            next_candidate = lane_queued[0] if lane_queued else None
-            dispatch_available = False
-            dispatch_reason = ""
-            dispatch_blocker = ""
-            if lane_active:
-                dispatch_blocker = "lane active"
-            elif next_candidate and global_blockers:
-                dispatch_blocker = global_blockers[0]
-            elif next_candidate:
-                dispatch_available = True
-                dispatch_reason = "lane open with queued candidate"
-            else:
-                dispatch_blocker = "no queued candidate for lane"
-            output.append(
-                {
-                    **lane,
-                    "status": "active" if lane_active else "idle",
-                    "active_count": len(lane_active),
-                    "active_item": _worker_lane_summary_row(
-                        lane_active[0] if lane_active else None
-                    ),
-                    "queued_count": len(lane_queued),
-                    "next_candidate": _worker_lane_summary_row(next_candidate),
-                    "dispatch_available": dispatch_available,
-                    "dispatch_reason": dispatch_reason,
-                    "dispatch_blocker": dispatch_blocker,
-                }
-            )
-        return output
+    _worker_lane_key = partial(_cp_mount_worker_lane_key, config)
+    _annotate_dispatch_route = partial(_cp_mount_annotate_dispatch_route, config=config)
+    _preflight_observation_lane_key = partial(
+        _cp_mount_preflight_observation_lane_key, config
+    )
+    _preflight_observation_applies_to_candidate = partial(
+        _cp_mount_preflight_observation_applies_to_candidate, config
+    )
+    _callback_acceptance_token_fingerprint = partial(
+        _cp_mount_callback_acceptance_token_fingerprint, config
+    )
+    _active_items_fast = partial(_cp_active_items_fast, store)
+    _queued_items_fast = partial(_cp_queued_items_fast, store)
+    _recently_completed_items_fast = partial(_cp_recently_completed_items_fast, store)
+    _queued_dispatch_candidates = partial(_cp_queued_dispatch_candidates, store)
+    _open_worker_dispatch_candidate = partial(
+        _cp_mount_open_worker_dispatch_candidate, store, config
+    )
+    _configured_worker_lanes = partial(_cp_mount_configured_worker_lanes, config)
+    _worker_lane_capacity = partial(_cp_mount_worker_lane_capacity, config, store)
+    _candidate_machine_target_conflict_set = partial(
+        _cp_mount_candidate_machine_target_conflict_set, config
+    )
+    _has_conflicting_active_lane = partial(
+        _cp_mount_has_conflicting_active_lane, config, store
+    )
 
     def _queue_rows_for_lane_feed() -> list[dict[str, Any]]:
         if hasattr(store, "queued_items_sql"):
@@ -5220,31 +5300,6 @@ def _mount_control_plane_http_routes(
             _queued_dispatch_candidates=_queued_dispatch_candidates,
             _worker_lane_key=_worker_lane_key,
             store=store,
-        )
-
-    def _candidate_machine_target_conflict_set(candidate: dict[str, Any]) -> set[str]:
-        candidate_lane_key = _worker_lane_key(candidate)
-        if not candidate_lane_key:
-            machine_target = _normal_status(candidate.get("machine_target"))
-            return {machine_target} if machine_target else {""}
-        conflict_targets: set[str] = set()
-        configured_targets = {
-            "",
-            *[str(target) for target in config.worker_targets.keys()],
-        }
-        for machine_target in configured_targets:
-            normalized_target = _normal_status(machine_target)
-            lane_key = _worker_lane_key({"machine_target": machine_target})
-            if lane_key == candidate_lane_key:
-                conflict_targets.add(normalized_target)
-        return conflict_targets or {
-            _normal_status(candidate.get("machine_target")) or ""
-        }
-
-    def _has_conflicting_active_lane(candidate: dict[str, Any]) -> bool:
-        candidate_lane_key = _worker_lane_key(candidate)
-        return any(
-            _worker_lane_key(row) == candidate_lane_key for row in store.active_items()
         )
 
     def state_response() -> ControlStateResponse:
