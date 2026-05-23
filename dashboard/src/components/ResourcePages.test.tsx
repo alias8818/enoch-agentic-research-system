@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
+import { SAVED_TABLE_FILTERS_STORAGE_KEY } from '../savedTableFilters'
 import { CorpusPage, EventsPage, IntakePage, ObservabilityPage, PapersPage, ProjectsPage, QueuePage, RunsPage } from './ResourcePages'
 
 function renderWithClient(ui: React.ReactElement) {
@@ -23,6 +24,7 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   saveToken('')
+  window.localStorage.removeItem(SAVED_TABLE_FILTERS_STORAGE_KEY)
 })
 
 it('loads queue rows from the V1 queue endpoint with the route status', async () => {
@@ -323,6 +325,48 @@ it('applies queue filters and follows the backend cursor without inventing pagin
   expectParam(url, 'status', 'active')
 })
 
+it('loads saved queue filter presets from localStorage and applies them to the queue read model', async () => {
+  window.localStorage.setItem(SAVED_TABLE_FILTERS_STORAGE_KEY, JSON.stringify({
+    queue: [{ id: 'preset-1', name: 'Queued watch', search: 'oracle', status: 'queued', pageSize: '25' }],
+  }))
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'p1', status: 'queued', title: 'First item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'p2', status: 'queued', title: 'Saved filter item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+
+  renderWithClient(<QueuePage route={{ page: 'queue', status: '', search: '', hash: '#queue' }} />)
+  await screen.findByText('First item')
+
+  fireEvent.change(screen.getByLabelText(/Saved filters/i), { target: { value: 'preset-1' } })
+  await screen.findByText('Saved filter item')
+
+  const url = requestUrl(fetchMock.mock.calls[1])
+  expectParam(url, 'search', 'oracle')
+  expectParam(url, 'status', 'queued')
+  expectParam(url, 'page_size', '25')
+})
+
+it('saves the current queue filter draft as a local preset', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'p1', status: 'queued', title: 'First item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+
+  renderWithClient(<QueuePage route={{ page: 'queue', status: '', search: '', hash: '#queue' }} />)
+  await screen.findByText('First item')
+
+  fireEvent.change(screen.getByLabelText(/Search/i), { target: { value: 'oracle' } })
+  fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: 'queued' } })
+  fireEvent.click(screen.getByRole('button', { name: /Save current/i }))
+  fireEvent.change(screen.getByLabelText(/Preset name/i), { target: { value: 'Queued watch' } })
+  fireEvent.click(screen.getByRole('button', { name: /Save preset/i }))
+
+  const stored = JSON.parse(window.localStorage.getItem(SAVED_TABLE_FILTERS_STORAGE_KEY) || '{}')
+  expect(stored.queue).toEqual([expect.objectContaining({
+    name: 'Queued watch',
+    search: 'oracle',
+    status: 'queued',
+    pageSize: '50',
+  })])
+})
+
 
 
 it('keeps visible filter controls synced after reset defaults are applied', async () => {
@@ -522,12 +566,14 @@ it('refreshes intake workbench rows explicitly from the V2 page', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({
       generated_at: '2026-05-21T10:00:00Z',
+      operator_summary: '1 idea(s) queued for operator review; promote or dispatch from the table below.',
       latest_sync: { source: 'supabase', status: 'ok', observed_at: '2026-05-21T09:59:00Z', authority: 'ideas' },
       projection_counts: { queued_projection: 1 },
       queued_projection: [{ idea_id: 'idea-old', title: 'Old intake idea', idea_status: 'admitted', queue_status: 'queued' }],
     }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({
       generated_at: '2026-05-21T10:05:00Z',
+      operator_summary: '1 idea(s) queued for operator review; promote or dispatch from the table below.',
       latest_sync: { source: 'supabase', status: 'ok', observed_at: '2026-05-21T10:04:00Z', authority: 'ideas' },
       projection_counts: { queued_projection: 1 },
       queued_projection: [{ idea_id: 'idea-fresh', title: 'Fresh intake idea', idea_status: 'admitted', queue_status: 'queued' }],
@@ -539,6 +585,7 @@ it('refreshes intake workbench rows explicitly from the V2 page', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Refresh intake' }))
 
   await screen.findByText('Fresh intake idea')
+  expect(screen.getByText(/queued for operator review/i)).toBeInTheDocument()
   expect(screen.getByText('Last loaded 2026-05-21T10:05:00Z')).toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
@@ -555,6 +602,10 @@ it('opens intake idea details from selected rows without a legacy fallback', asy
       queue_status: 'queued',
       next_action_hint: 'dispatch',
       source_kind: 'chatgpt_pro',
+      source_external_url: 'https://example.invalid/source',
+      machine_target: 'gb10',
+      operator_stage_label: 'Ready queue',
+      operator_next_step: 'Dispatch when the lane is available.',
     }],
   }), { status: 200 }))
 
@@ -566,9 +617,12 @@ it('opens intake idea details from selected rows without a legacy fallback', asy
   expect(detail).toHaveTextContent('idea-detail')
   expect(detail).toHaveTextContent('admitted')
   expect(detail).toHaveTextContent('queued')
-  expect(detail).toHaveTextContent('dispatch')
+  expect(detail).toHaveTextContent('gb10')
+  expect(detail).toHaveTextContent('Ready queue')
   expect(detail).toHaveTextContent('Current state')
   expect(detail).toHaveTextContent('Next safe action')
-  expect(detail).toHaveTextContent('Open the matching project and run a dispatch dry-run before starting work.')
+  expect(detail).toHaveTextContent('Dispatch when the lane is available.')
+  expect(detail).toHaveTextContent('Source and lineage')
+  expect(detail).toHaveTextContent('Admission and promote')
   expect(screen.queryByRole('link', { name: /legacy/i })).not.toBeInTheDocument()
 })

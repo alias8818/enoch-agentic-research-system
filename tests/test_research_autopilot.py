@@ -8,7 +8,9 @@ from urllib import error
 from unittest.mock import Mock, patch
 
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "deploy" / "enoch_research_autopilot.py"
+MODULE_PATH = (
+    Path(__file__).resolve().parents[1] / "deploy" / "enoch_research_autopilot.py"
+)
 spec = importlib.util.spec_from_file_location("enoch_research_autopilot", MODULE_PATH)
 assert spec and spec.loader
 autopilot = importlib.util.module_from_spec(spec)
@@ -30,20 +32,40 @@ def test_topic_rotation_uses_time_window(monkeypatch):
 
 
 def test_active_worker_lane_is_benign_timer_backpressure():
-    assert autopilot._is_benign_skip_result({"ok": False, "reason": "active worker lane already exists"}) is True
-    assert autopilot._is_benign_skip_result({"ok": False, "reason": "provider budget unavailable"}) is False
+    assert (
+        autopilot._is_benign_skip_result(
+            {"ok": False, "reason": "active worker lane already exists"}
+        )
+        is True
+    )
+    assert (
+        autopilot._is_benign_skip_result(
+            {"ok": False, "reason": "provider budget unavailable"}
+        )
+        is False
+    )
 
 
-def test_remote_disconnect_is_success_when_control_plane_recovers(tmp_path, capsys, monkeypatch):
+def test_remote_disconnect_is_success_when_control_plane_recovers(
+    tmp_path, capsys, monkeypatch
+):
     config = tmp_path / "config.json"
-    config.write_text(json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8")
+    config.write_text(
+        json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8"
+    )
     monkeypatch.setenv("ENOCH_CONFIG", str(config))
     monkeypatch.setenv("ENOCH_ENABLE_RESEARCH_AUTOPILOT", "1")
     monkeypatch.setattr(autopilot.time, "sleep", lambda _seconds: None)
 
     with (
-        patch.object(autopilot, "_post_json", side_effect=RemoteDisconnected("restart")),
-        patch.object(autopilot, "_get_json", return_value={"ok": True, "service": "enoch_worker_gate"}),
+        patch.object(
+            autopilot, "_post_json", side_effect=RemoteDisconnected("restart")
+        ),
+        patch.object(
+            autopilot,
+            "_get_json",
+            return_value={"ok": True, "service": "enoch_worker_gate"},
+        ),
     ):
         assert autopilot.main() == 0
 
@@ -52,9 +74,13 @@ def test_remote_disconnect_is_success_when_control_plane_recovers(tmp_path, caps
     assert result["action"] == "transient_disconnect"
 
 
-def test_connection_refused_is_success_when_control_plane_recovers(tmp_path, capsys, monkeypatch):
+def test_connection_refused_is_success_when_control_plane_recovers(
+    tmp_path, capsys, monkeypatch
+):
     config = tmp_path / "config.json"
-    config.write_text(json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8")
+    config.write_text(
+        json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8"
+    )
     monkeypatch.setenv("ENOCH_CONFIG", str(config))
     monkeypatch.setenv("ENOCH_ENABLE_RESEARCH_AUTOPILOT", "1")
     monkeypatch.setattr(autopilot.time, "sleep", lambda _seconds: None)
@@ -62,7 +88,11 @@ def test_connection_refused_is_success_when_control_plane_recovers(tmp_path, cap
     refused = error.URLError(ConnectionRefusedError(111, "Connection refused"))
     with (
         patch.object(autopilot, "_post_json", side_effect=refused),
-        patch.object(autopilot, "_get_json", return_value={"ok": True, "service": "enoch_worker_gate"}),
+        patch.object(
+            autopilot,
+            "_get_json",
+            return_value={"ok": True, "service": "enoch_worker_gate"},
+        ),
     ):
         assert autopilot.main() == 0
 
@@ -73,7 +103,9 @@ def test_connection_refused_is_success_when_control_plane_recovers(tmp_path, cap
 
 def test_http_error_is_not_masked_by_recovery_probe(tmp_path, capsys, monkeypatch):
     config = tmp_path / "config.json"
-    config.write_text(json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8")
+    config.write_text(
+        json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8"
+    )
     monkeypatch.setenv("ENOCH_CONFIG", str(config))
     monkeypatch.setenv("ENOCH_ENABLE_RESEARCH_AUTOPILOT", "1")
 
@@ -86,7 +118,11 @@ def test_http_error_is_not_masked_by_recovery_probe(tmp_path, capsys, monkeypatc
     )
     with (
         patch.object(autopilot, "_post_json", side_effect=http_error),
-        patch.object(autopilot, "_get_json", return_value={"ok": True, "service": "enoch_worker_gate"}) as recovery_probe,
+        patch.object(
+            autopilot,
+            "_get_json",
+            return_value={"ok": True, "service": "enoch_worker_gate"},
+        ) as recovery_probe,
     ):
         assert autopilot.main() == 1
 
@@ -97,16 +133,22 @@ def test_http_error_is_not_masked_by_recovery_probe(tmp_path, capsys, monkeypatc
     assert "HTTPError" in result["reason"]
 
 
-def test_research_quality_refresh_only_runs_read_only_report(tmp_path, capsys, monkeypatch):
+def test_research_quality_refresh_only_runs_read_only_report(
+    tmp_path, capsys, monkeypatch
+):
     output = tmp_path / "reports" / "latest-report.json"
     calls: list[dict] = []
 
     def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check, env):
-        calls.append({"cmd": cmd, "cwd": cwd, "timeout": timeout, "check": check, "env": env})
+        calls.append(
+            {"cmd": cmd, "cwd": cwd, "timeout": timeout, "check": check, "env": env}
+        )
         return Mock(returncode=0, stdout='{"ok": true}', stderr="")
 
     monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_REFRESH_ONLY", "1")
-    monkeypatch.setenv("ENOCH_SUPABASE_DATABASE_URL", "postgresql://user:secret@host/db")
+    monkeypatch.setenv(
+        "ENOCH_SUPABASE_DATABASE_URL", "postgresql://user:secret@host/db"
+    )
     monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_REPORT_PATH", str(output))
     monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_LIMIT", "7")
     monkeypatch.setattr(autopilot.subprocess, "run", fake_run)
@@ -131,7 +173,6 @@ def test_research_quality_refresh_only_runs_read_only_report(tmp_path, capsys, m
     assert "--database-url" not in result["command"]
 
 
-
 def test_research_quality_refresh_timeout_does_not_report_secret(tmp_path, monkeypatch):
     secret = "postgresql://user:timeout-secret@host/db"
 
@@ -139,7 +180,9 @@ def test_research_quality_refresh_timeout_does_not_report_secret(tmp_path, monke
         raise autopilot.subprocess.TimeoutExpired(cmd=cmd + [secret], timeout=timeout)
 
     monkeypatch.setenv("ENOCH_SUPABASE_DATABASE_URL", secret)
-    monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_REPORT_PATH", str(tmp_path / "latest-report.json"))
+    monkeypatch.setenv(
+        "ENOCH_RESEARCH_QUALITY_REPORT_PATH", str(tmp_path / "latest-report.json")
+    )
     monkeypatch.setattr(autopilot.subprocess, "run", fake_run)
 
     result = autopilot.refresh_research_quality_report()
@@ -150,17 +193,36 @@ def test_research_quality_refresh_timeout_does_not_report_secret(tmp_path, monke
     assert secret not in encoded
     assert "--database-url" not in result["command"]
 
-def test_research_autopilot_includes_quality_refresh_result(tmp_path, capsys, monkeypatch):
+
+def test_research_autopilot_includes_quality_refresh_result(
+    tmp_path, capsys, monkeypatch
+):
     config = tmp_path / "config.json"
-    config.write_text(json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8")
+    config.write_text(
+        json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8"
+    )
     monkeypatch.setenv("ENOCH_CONFIG", str(config))
     monkeypatch.setenv("ENOCH_ENABLE_RESEARCH_AUTOPILOT", "1")
-    monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_HISTORY_PATH", str(tmp_path / "history.jsonl"))
+    monkeypatch.setenv(
+        "ENOCH_RESEARCH_AUTOPILOT_HISTORY_PATH", str(tmp_path / "history.jsonl")
+    )
 
     with (
-        patch.object(autopilot, "_post_json", return_value={"ok": True, "action": "research_cycle"}),
-        patch.object(autopilot, "refresh_research_quality_report", return_value={"ok": True, "action": "research_quality_refresh"}) as refresh,
-        patch.object(autopilot, "refresh_research_quality_window_comparison", return_value={"ok": True, "action": "research_quality_window_comparison"}) as window,
+        patch.object(
+            autopilot,
+            "_post_json",
+            return_value={"ok": True, "action": "research_cycle"},
+        ),
+        patch.object(
+            autopilot,
+            "refresh_research_quality_report",
+            return_value={"ok": True, "action": "research_quality_refresh"},
+        ) as refresh,
+        patch.object(
+            autopilot,
+            "refresh_research_quality_window_comparison",
+            return_value={"ok": True, "action": "research_quality_window_comparison"},
+        ) as window,
     ):
         assert autopilot.main() == 0
 
@@ -168,8 +230,14 @@ def test_research_autopilot_includes_quality_refresh_result(tmp_path, capsys, mo
     window.assert_called_once_with()
     result = json.loads(capsys.readouterr().out)
     assert result["ok"] is True
-    assert result["research_quality_refresh"] == {"ok": True, "action": "research_quality_refresh"}
-    assert result["research_quality_window_comparison"] == {"ok": True, "action": "research_quality_window_comparison"}
+    assert result["research_quality_refresh"] == {
+        "ok": True,
+        "action": "research_quality_refresh",
+    }
+    assert result["research_quality_window_comparison"] == {
+        "ok": True,
+        "action": "research_quality_window_comparison",
+    }
     assert result["research_autopilot_history"]["ok"] is True
 
 
@@ -184,11 +252,13 @@ def test_autopilot_history_counts_malformed_provider_responses(tmp_path, monkeyp
         "promoted_count": 1,
         "dispatched_count": 1,
         "initial_promotable_count": 8,
-        "stages": [{
-            "stage": "provider_generation",
-            "ok": False,
-            "reason": "provider generation skipped: provider returned no usable candidate JSON after 2 attempt(s): Unterminated string",
-        }],
+        "stages": [
+            {
+                "stage": "provider_generation",
+                "ok": False,
+                "reason": "provider generation skipped: provider returned no usable candidate JSON after 2 attempt(s): Unterminated string",
+            }
+        ],
     }
 
     append = autopilot.append_research_autopilot_history(result)
@@ -200,15 +270,21 @@ def test_autopilot_history_counts_malformed_provider_responses(tmp_path, monkeyp
     assert row["generated_count"] == 0
 
 
-def test_research_quality_window_comparison_runs_read_only_script(tmp_path, monkeypatch):
+def test_research_quality_window_comparison_runs_read_only_script(
+    tmp_path, monkeypatch
+):
     output = tmp_path / "window.json"
     calls: list[dict] = []
 
     def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check, env):
-        calls.append({"cmd": cmd, "cwd": cwd, "timeout": timeout, "check": check, "env": env})
+        calls.append(
+            {"cmd": cmd, "cwd": cwd, "timeout": timeout, "check": check, "env": env}
+        )
         return Mock(returncode=0, stdout='{"ok": true}', stderr="")
 
-    monkeypatch.setenv("ENOCH_SUPABASE_DATABASE_URL", "postgresql://user:secret@host/db")
+    monkeypatch.setenv(
+        "ENOCH_SUPABASE_DATABASE_URL", "postgresql://user:secret@host/db"
+    )
     monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_WINDOW_CUTOFF", "2026-05-11T09:58:00Z")
     monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_WINDOW_REPORT_PATH", str(output))
     monkeypatch.setattr(autopilot.subprocess, "run", fake_run)
@@ -220,7 +296,10 @@ def test_research_quality_window_comparison_runs_read_only_script(tmp_path, monk
     assert result["output"] == str(output)
     assert calls
     cmd = calls[0]["cmd"]
-    assert str(MODULE_PATH.parents[1] / "scripts" / "compare_research_quality_windows.py") in cmd
+    assert (
+        str(MODULE_PATH.parents[1] / "scripts" / "compare_research_quality_windows.py")
+        in cmd
+    )
     assert "--cutoff" in cmd
     assert "2026-05-11T09:58:00Z" in cmd
     assert "postgresql://user:secret@host/db" not in json.dumps(result["command"])
@@ -235,7 +314,11 @@ def test_research_quality_refresh_missing_database_url_is_fail_soft(monkeypatch)
     monkeypatch.delenv("ENOCH_CONTROL_DATABASE_URL", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
     result = autopilot.refresh_research_quality_report()
-    assert result == {"ok": False, "action": "research_quality_refresh_skipped", "reason": "missing database URL"}
+    assert result == {
+        "ok": False,
+        "action": "research_quality_refresh_skipped",
+        "reason": "missing database URL",
+    }
 
 
 def test_janitor_llm_review_disabled_by_default(monkeypatch):
@@ -252,7 +335,9 @@ def test_janitor_llm_review_runs_quota_gated_script(tmp_path, monkeypatch):
     calls: list[dict] = []
 
     def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check, env):
-        calls.append({"cmd": cmd, "cwd": cwd, "timeout": timeout, "check": check, "env": env})
+        calls.append(
+            {"cmd": cmd, "cwd": cwd, "timeout": timeout, "check": check, "env": env}
+        )
         output.write_text(
             json.dumps(
                 {
@@ -261,7 +346,11 @@ def test_janitor_llm_review_runs_quota_gated_script(tmp_path, monkeypatch):
                     "batch_count": 3,
                     "decision_count": 3,
                     "decision_counts": {"rewrite_contract": 2, "keep_for_later": 1},
-                    "budget": {"ok": True, "rolling_remaining": 1000, "weekly_percent_remaining": 90.0},
+                    "budget": {
+                        "ok": True,
+                        "rolling_remaining": 1000,
+                        "weekly_percent_remaining": 90.0,
+                    },
                     "apply_result": {"dry_run": True},
                 }
             ),
@@ -270,7 +359,9 @@ def test_janitor_llm_review_runs_quota_gated_script(tmp_path, monkeypatch):
         return Mock(returncode=0, stdout="", stderr="")
 
     monkeypatch.setenv("ENOCH_RESEARCH_JANITOR_LLM_REVIEW_ENABLED", "1")
-    monkeypatch.setenv("ENOCH_SUPABASE_DATABASE_URL", "postgresql://user:secret@host/db")
+    monkeypatch.setenv(
+        "ENOCH_SUPABASE_DATABASE_URL", "postgresql://user:secret@host/db"
+    )
     monkeypatch.setenv("ENOCH_RESEARCH_JANITOR_LLM_REPORT_PATH", str(output))
     monkeypatch.setenv("ENOCH_RESEARCH_JANITOR_LLM_BATCH_SIZE", "3")
     monkeypatch.setenv("ENOCH_RESEARCH_JANITOR_LLM_MIN_ROLLING", "150")
@@ -280,10 +371,16 @@ def test_janitor_llm_review_runs_quota_gated_script(tmp_path, monkeypatch):
 
     assert result["ok"] is True
     assert result["action"] == "reviewed"
-    assert result["summary"]["decision_counts"] == {"rewrite_contract": 2, "keep_for_later": 1}
+    assert result["summary"]["decision_counts"] == {
+        "rewrite_contract": 2,
+        "keep_for_later": 1,
+    }
     assert calls
     cmd = calls[0]["cmd"]
-    assert str(MODULE_PATH.parents[1] / "scripts" / "research_facility_llm_review.py") in cmd
+    assert (
+        str(MODULE_PATH.parents[1] / "scripts" / "research_facility_llm_review.py")
+        in cmd
+    )
     assert "--min-rolling-remaining" in cmd
     assert "150" in cmd
     assert "postgresql://user:secret@host/db" not in json.dumps(result["command"])

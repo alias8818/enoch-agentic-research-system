@@ -4,6 +4,7 @@ These helpers intentionally derive priority only from persisted control-plane
 fields. They do not read the public promising-signals repo and they do not ask
 an LLM to classify rows at dispatch time.
 """
+
 from __future__ import annotations
 
 import json
@@ -101,13 +102,24 @@ def _sources_present(row: dict[str, Any]) -> tuple[bool, bool]:
     source_url = _text(row.get("source_url") or payload.get("source_url"))
     source_id = _text(row.get("source_id") or payload.get("source_id"))
     has_source = bool(records or source_ids or source_urls or source_url or source_id)
-    candidates = [_text(source_url), _text(source_id), *[_text(v) for v in source_urls], *[_text(v) for v in source_ids]]
+    candidates = [
+        _text(source_url),
+        _text(source_id),
+        *[_text(v) for v in source_urls],
+        *[_text(v) for v in source_ids],
+    ]
     for record in records:
         if isinstance(record, dict):
-            candidates.extend([_text(record.get("url")), _text(record.get("source_id"))])
+            candidates.extend(
+                [_text(record.get("url")), _text(record.get("source_id"))]
+            )
         else:
             candidates.append(_text(record))
-    has_external = any(item.lower().startswith(("http://", "https://", "arxiv:", "doi:")) for item in candidates if item)
+    has_external = any(
+        item.lower().startswith(("http://", "https://", "arxiv:", "doi:"))
+        for item in candidates
+        if item
+    )
     return has_source, has_external
 
 
@@ -136,7 +148,11 @@ def _hypothesis_score(value: Any) -> int:
 
 
 def _followup_evidence(row: dict[str, Any]) -> list[str]:
-    return [_text(item) for item in _listish(row.get("followup_required_evidence")) if _text(item)]
+    return [
+        _text(item)
+        for item in _listish(row.get("followup_required_evidence"))
+        if _text(item)
+    ]
 
 
 def _followup_score(row: dict[str, Any]) -> int:
@@ -154,7 +170,9 @@ def _followup_score(row: dict[str, Any]) -> int:
 
 
 def _bounded_evidence_score(row: dict[str, Any]) -> int:
-    artifact_paths = [_text(item) for item in _listish(row.get("artifact_paths")) if _text(item)]
+    artifact_paths = [
+        _text(item) for item in _listish(row.get("artifact_paths")) if _text(item)
+    ]
     score = min(10, len(artifact_paths) * 2)
     joined_paths = " ".join(path.lower() for path in artifact_paths)
     if "metrics" in joined_paths:
@@ -166,9 +184,19 @@ def _bounded_evidence_score(row: dict[str, Any]) -> int:
     return score
 
 
-
 def _has_promising_signal_fields(row: dict[str, Any]) -> bool:
-    return any(_text(row.get(key)) for key in ("research_outcome", "hypothesis_status", "evidence_strength", "claim_scope", "scale_limits", "useful_signal_summary"))
+    return any(
+        _text(row.get(key))
+        for key in (
+            "research_outcome",
+            "hypothesis_status",
+            "evidence_strength",
+            "claim_scope",
+            "scale_limits",
+            "useful_signal_summary",
+        )
+    )
+
 
 def promising_signal_score(row: dict[str, Any]) -> int:
     """Return the deterministic 0-100 promising-signal score for a queue row."""
@@ -181,7 +209,13 @@ def promising_signal_score(row: dict[str, Any]) -> int:
         source_score -= 20
     if external_present:
         source_score += 4
-    raw = _strength_score(row.get("evidence_strength")) + _hypothesis_score(row.get("hypothesis_status")) + source_score + _followup_score(row) + _bounded_evidence_score(row)
+    raw = (
+        _strength_score(row.get("evidence_strength"))
+        + _hypothesis_score(row.get("hypothesis_status"))
+        + source_score
+        + _followup_score(row)
+        + _bounded_evidence_score(row)
+    )
     return max(0, min(100, raw))
 
 
@@ -196,7 +230,12 @@ def promising_signal_bucket(row: dict[str, Any]) -> str:
         return LIKELY_STALE_LOW_VALUE_ARCHIVE
     if _has_promising_signal_fields(row) and score < 35:
         return LIKELY_STALE_LOW_VALUE_ARCHIVE
-    if score >= 85 and _normal(row.get("evidence_strength")) in {"strong", "high", "moderate", "medium"}:
+    if score >= 85 and _normal(row.get("evidence_strength")) in {
+        "strong",
+        "high",
+        "moderate",
+        "medium",
+    }:
         return TOP_EXTERNAL_RESEARCHER_CANDIDATES
     if _truthy(row.get("followup_recommended")) and score >= 45:
         return FOLLOWUP_RECOMMENDED
@@ -225,36 +264,106 @@ def _followup_depth(row: dict[str, Any]) -> int:
     return max(values or [0])
 
 
-def ranked_followup_readiness(row: dict[str, Any], *, max_followup_depth: int = 4, explicit_project: bool = False) -> dict[str, Any]:
+def ranked_followup_readiness(
+    row: dict[str, Any], *, max_followup_depth: int = 4, explicit_project: bool = False
+) -> dict[str, Any]:
     """Return deterministic readiness metadata for auto follow-up selection."""
 
     bucket = promising_signal_bucket(row)
     if not _truthy(row.get("followup_recommended")):
-        return {"ready": False, "reason": "followup_not_recommended", "bucket": bucket, "score": promising_signal_score(row)}
+        return {
+            "ready": False,
+            "reason": "followup_not_recommended",
+            "bucket": bucket,
+            "score": promising_signal_score(row),
+        }
     if _normal(row.get("status") or row.get("queue_status")) != "completed":
-        return {"ready": False, "reason": "not_completed", "bucket": bucket, "score": promising_signal_score(row)}
+        return {
+            "ready": False,
+            "reason": "not_completed",
+            "bucket": bucket,
+            "score": promising_signal_score(row),
+        }
     if _truthy(row.get("manual_review_required")):
-        return {"ready": False, "reason": "manual_review_required", "bucket": bucket, "score": promising_signal_score(row)}
+        return {
+            "ready": False,
+            "reason": "manual_review_required",
+            "bucket": bucket,
+            "score": promising_signal_score(row),
+        }
     if _truthy(row.get("followup_launched")):
-        return {"ready": False, "reason": "followup_already_launched", "bucket": bucket, "score": promising_signal_score(row)}
+        return {
+            "ready": False,
+            "reason": "followup_already_launched",
+            "bucket": bucket,
+            "score": promising_signal_score(row),
+        }
     if _truthy(row.get("compute_scale_blocked")):
-        return {"ready": False, "reason": "compute_scale_blocked", "bucket": bucket, "score": promising_signal_score(row)}
+        return {
+            "ready": False,
+            "reason": "compute_scale_blocked",
+            "bucket": bucket,
+            "score": promising_signal_score(row),
+        }
     if _followup_depth(row) >= max_followup_depth:
-        return {"ready": False, "reason": "max_followup_depth", "bucket": bucket, "score": promising_signal_score(row)}
+        return {
+            "ready": False,
+            "reason": "max_followup_depth",
+            "bucket": bucket,
+            "score": promising_signal_score(row),
+        }
     if _normal(row.get("followup_type")) not in {"deepen", "branch", "retry"}:
-        return {"ready": False, "reason": "unsupported_followup_type", "bucket": bucket, "score": promising_signal_score(row)}
-    if not _text(row.get("followup_title")) or not _text(row.get("followup_hypothesis")):
-        return {"ready": False, "reason": "missing_followup_identity", "bucket": bucket, "score": promising_signal_score(row)}
+        return {
+            "ready": False,
+            "reason": "unsupported_followup_type",
+            "bucket": bucket,
+            "score": promising_signal_score(row),
+        }
+    if not _text(row.get("followup_title")) or not _text(
+        row.get("followup_hypothesis")
+    ):
+        return {
+            "ready": False,
+            "reason": "missing_followup_identity",
+            "bucket": bucket,
+            "score": promising_signal_score(row),
+        }
     if len(_followup_evidence(row)) < MIN_FOLLOWUP_REQUIRED_EVIDENCE:
-        return {"ready": False, "reason": "required_evidence_too_sparse", "bucket": bucket, "score": promising_signal_score(row)}
-    if not _text(row.get("followup_success_threshold")) or not _text(row.get("followup_stop_condition")):
-        return {"ready": False, "reason": "missing_followup_bounds", "bucket": bucket, "score": promising_signal_score(row)}
+        return {
+            "ready": False,
+            "reason": "required_evidence_too_sparse",
+            "bucket": bucket,
+            "score": promising_signal_score(row),
+        }
+    if not _text(row.get("followup_success_threshold")) or not _text(
+        row.get("followup_stop_condition")
+    ):
+        return {
+            "ready": False,
+            "reason": "missing_followup_bounds",
+            "bucket": bucket,
+            "score": promising_signal_score(row),
+        }
     if _followup_exceeds_local_compute(row):
-        return {"ready": False, "reason": "followup_exceeds_local_compute", "bucket": bucket, "score": promising_signal_score(row)}
+        return {
+            "ready": False,
+            "reason": "followup_exceeds_local_compute",
+            "bucket": bucket,
+            "score": promising_signal_score(row),
+        }
     if bucket == LIKELY_STALE_LOW_VALUE_ARCHIVE and not explicit_project:
-        return {"ready": False, "reason": LIKELY_STALE_LOW_VALUE_ARCHIVE, "bucket": bucket, "score": promising_signal_score(row)}
-    return {"ready": True, "reason": "ranked_bounded_followup_ready", "bucket": bucket, "score": promising_signal_score(row)}
-
+        return {
+            "ready": False,
+            "reason": LIKELY_STALE_LOW_VALUE_ARCHIVE,
+            "bucket": bucket,
+            "score": promising_signal_score(row),
+        }
+    return {
+        "ready": True,
+        "reason": "ranked_bounded_followup_ready",
+        "bucket": bucket,
+        "score": promising_signal_score(row),
+    }
 
 
 def _timestamp_sort_value(value: Any) -> float:
@@ -263,6 +372,7 @@ def _timestamp_sort_value(value: Any) -> float:
         return 0.0
     parsed = parse_utc_datetime(text)
     return parsed.timestamp() if parsed is not None else 0.0
+
 
 def promising_followup_priority_key(row: dict[str, Any]) -> tuple[int, int, float]:
     """Sort key for bounded follow-ups. Lower is higher priority."""
@@ -275,4 +385,8 @@ def promising_followup_priority_key(row: dict[str, Any]) -> tuple[int, int, floa
         WEAK_LOCAL_ONLY_PRESERVED: 3,
         LIKELY_STALE_LOW_VALUE_ARCHIVE: 9,
     }.get(bucket, 8)
-    return (bucket_rank, -promising_signal_score(row), -_timestamp_sort_value(row.get("updated_at")))
+    return (
+        bucket_rank,
+        -promising_signal_score(row),
+        -_timestamp_sort_value(row.get("updated_at")),
+    )

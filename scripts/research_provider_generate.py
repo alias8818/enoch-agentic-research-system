@@ -39,7 +39,12 @@ TOPIC_SPREAD = [
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def _clean_text(value: Any) -> str:
@@ -145,7 +150,12 @@ def _extract_chat_content(payload: dict[str, Any]) -> str:
         if isinstance(content, str):
             return content
         if isinstance(content, list):
-            return "".join(str(part.get("text") or part.get("content") or "") if isinstance(part, dict) else str(part) for part in content)
+            return "".join(
+                str(part.get("text") or part.get("content") or "")
+                if isinstance(part, dict)
+                else str(part)
+                for part in content
+            )
     if isinstance(payload.get("output_text"), str):
         return payload["output_text"]
     return json.dumps(payload)
@@ -186,17 +196,25 @@ def call_openai_compatible_chat(
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "You generate rigorous, falsifiable AI systems research ideas as strict JSON."},
+            {
+                "role": "system",
+                "content": "You generate rigorous, falsifiable AI systems research ideas as strict JSON.",
+            },
             {"role": "user", "content": prompt},
         ],
         "temperature": temperature,
         "max_tokens": max_tokens,
         "response_format": {"type": "json_object"},
     }
-    headers = {"Content-Type": "application/json", "User-Agent": "EnochResearchFacility/0.1"}
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "EnochResearchFacility/0.1",
+    }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    safe_url = validate_http_url(base_url.rstrip("/") + "/chat/completions", field_name="provider url")
+    safe_url = validate_http_url(
+        base_url.rstrip("/") + "/chat/completions", field_name="provider url"
+    )
     req = urllib.request.Request(
         safe_url,
         data=json.dumps(payload).encode("utf-8"),
@@ -251,8 +269,24 @@ def candidates_from_provider_response(
         row.setdefault("source_ids", [source.source_id])
         row.setdefault("source_urls", [source.url])
         row.setdefault("source_records", [source.__dict__])
-        row.setdefault("expected_artifacts", ["run_notes.md", "metrics.json", "failure_cases.json", ".enoch/project_decision.json"])
-        row.setdefault("required_evidence", ["baseline comparison", "metrics table", "failure cases", "decision artifact"])
+        row.setdefault(
+            "expected_artifacts",
+            [
+                "run_notes.md",
+                "metrics.json",
+                "failure_cases.json",
+                ".enoch/project_decision.json",
+            ],
+        )
+        row.setdefault(
+            "required_evidence",
+            [
+                "baseline comparison",
+                "metrics table",
+                "failure cases",
+                "decision artifact",
+            ],
+        )
         row.setdefault("machine_target", default_machine)
         row.setdefault("model", default_model)
         row.setdefault("sandbox", default_sandbox)
@@ -340,7 +374,9 @@ def generate_provider_candidates(
         except Exception as exc:
             last_error = exc
             if attempt == attempts:
-                raise ValueError(f"provider returned no usable candidate JSON after {attempts} attempt(s): {exc}") from exc
+                raise ValueError(
+                    f"provider returned no usable candidate JSON after {attempts} attempt(s): {exc}"
+                ) from exc
 
     return {
         "ok": True,
@@ -359,8 +395,17 @@ def generate_provider_candidates(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-url", default=os.environ.get("ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL", os.environ.get("SYNTHETIC_OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL)))
-    parser.add_argument("--model", default=os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL", DEFAULT_MODEL))
+    parser.add_argument(
+        "--base-url",
+        default=os.environ.get(
+            "ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL",
+            os.environ.get("SYNTHETIC_OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL),
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL", DEFAULT_MODEL),
+    )
     parser.add_argument("--api-key-env", default="SYNTHETIC_API_KEY")
     parser.add_argument("--no-auth", action="store_true")
     parser.add_argument("--max-candidates", type=int, default=3)
@@ -368,8 +413,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--seed", default="")
     parser.add_argument("--timeout", type=int, default=120)
-    parser.add_argument("--max-tokens", type=int, default=int(os.environ.get("ENOCH_RESEARCH_PROVIDER_MAX_TOKENS", DEFAULT_MAX_TOKENS)))
-    parser.add_argument("--attempts", type=int, default=int(os.environ.get("ENOCH_RESEARCH_PROVIDER_ATTEMPTS", "1")))
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=int(
+            os.environ.get("ENOCH_RESEARCH_PROVIDER_MAX_TOKENS", DEFAULT_MAX_TOKENS)
+        ),
+    )
+    parser.add_argument(
+        "--attempts",
+        type=int,
+        default=int(os.environ.get("ENOCH_RESEARCH_PROVIDER_ATTEMPTS", "1")),
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
 

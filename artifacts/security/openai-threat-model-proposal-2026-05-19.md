@@ -1,7 +1,7 @@
 # Enoch threat model proposal and review notes
 
-Date: 2026-05-19  
-Repository: `alias8818/enoch-agentic-research-system`  
+Date: 2026-05-19
+Repository: `alias8818/enoch-agentic-research-system`
 Prepared for: Codex Security threat model feedback
 
 ## Short verdict
@@ -240,4 +240,3 @@ The generated model is good, but future scans should explicitly prioritize these
 8. Authenticated SSRF to internal services.
 9. Dashboard XSS that can steal or replay operator bearer tokens.
 10. Automation loops that spend provider budget or drain work without bounded caps.
-

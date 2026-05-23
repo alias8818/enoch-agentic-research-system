@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deriveDetailOperatorSummary, deriveIntakeIdeaOperatorSummary } from './detailOperatorSummary'
+import { deriveDetailOperatorSummary, deriveIntakeIdeaOperatorSummary, deriveResearchCandidateOperatorSummary } from './detailOperatorSummary'
 
 describe('deriveDetailOperatorSummary', () => {
   it('answers project operator questions from queue_item and related rows', () => {
@@ -133,6 +133,25 @@ describe('deriveDetailOperatorSummary', () => {
     expect(laneSection?.answers.find((answer) => answer.label === 'operator lane')?.value).toBe('write_paper')
   })
 
+  it('labels queue alert entity ids as alert fingerprints instead of project links', () => {
+    const summary = deriveDetailOperatorSummary('event', {
+      event_id: 8275,
+      event_type: 'queue_alert.detected',
+      entity_type: 'queue_alert',
+      entity_id: '16a0c1751e3c6e9c',
+      created_at: '2026-05-22T08:55:41Z',
+      payload: {
+        fingerprint: '16a0c1751e3c6e9c',
+        findings: [{ message: 'worker_dashboard_api status is unavailable' }],
+      },
+    })
+
+    expect(summary.context).toContain('Alert fingerprint 16a0c1751e3c6e9c')
+    expect(summary.context).not.toContain('queue_alert 16a0c1751e3c6e9c')
+    expect(summary.entityLinks).toEqual([])
+    expect(summary.next).toContain('worker_dashboard_api status is unavailable')
+  })
+
   it('labels finished runs from ended_at even when gate is still awaiting_wake', () => {
     const summary = deriveDetailOperatorSummary('run', {
       run_id: 'run-1',
@@ -254,7 +273,7 @@ describe('deriveDetailOperatorSummary', () => {
 })
 
 describe('deriveIntakeIdeaOperatorSummary', () => {
-  it('answers intake admission and queue questions', () => {
+  it('answers intake admission and queue questions from read-model fields', () => {
     const summary = deriveIntakeIdeaOperatorSummary({
       idea_id: 'idea-1',
       project_id: 'project-1',
@@ -263,12 +282,125 @@ describe('deriveIntakeIdeaOperatorSummary', () => {
       queue_status: 'queued',
       paper_status: 'none',
       source_kind: 'supabase_idea',
+      source_external_id: 'ext-42',
+      source_external_url: 'https://example.invalid/idea',
+      machine_target: 'gb10',
+      current_run_id: 'run-1',
       next_action_hint: 'Dispatch dry-run recommended',
+      operator_stage_label: 'Ready queue',
+      operator_next_step: 'Dispatch when the lane is available.',
     })
 
-    expect(summary.state).toBe('admitted')
+    expect(summary.state).toBe('Ready queue')
+    expect(summary.next).toBe('Dispatch when the lane is available.')
+    expect(summary.context).toContain('gb10')
+    expect(summary.entityLinks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'project', id: 'project-1' }),
+      expect.objectContaining({ kind: 'run', id: 'run-1' }),
+    ]))
+    expect(summary.sections.some((section) => section.title === 'Admission and promote')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'Queue and lane')).toBe(true)
+    const lineage = summary.sections.find((section) => section.title === 'Source and lineage')
+    expect(lineage?.answers.find((answer) => answer.label === 'source external id')?.value).toBe('ext-42')
+    const queue = summary.sections.find((section) => section.title === 'Queue and lane')
+    expect(queue?.answers.find((answer) => answer.label === 'why not queued')?.value).toBe('currently queued')
+  })
+
+  it('explains rejected and candidate ideas that are not queued', () => {
+    const rejected = deriveIntakeIdeaOperatorSummary({
+      idea_id: 'idea-reject',
+      idea_status: 'rejected',
+      queue_status: '',
+      source_kind: 'research_facility',
+    })
+    expect(rejected.next).toContain('Do not queue')
+    expect(rejected.actionNeeded).toContain('rejected')
+    const queue = rejected.sections.find((section) => section.title === 'Queue and lane')
+    expect(queue?.answers.find((answer) => answer.label === 'why not queued')?.value).toContain('rejected')
+
+    const candidate = deriveIntakeIdeaOperatorSummary({
+      idea_id: 'idea-candidate',
+      idea_status: 'candidate',
+      queue_status: '',
+      source_kind: 'internal_generated',
+    })
+    expect(candidate.next).toContain('Admit or promote')
+    expect(candidate.sections.find((section) => section.title === 'Admission and promote')?.answers.find((answer) => answer.label === 'promoted project')?.value).toBe('not promoted yet')
+  })
+
+  it('marks promoted ideas with related project context', () => {
+    const summary = deriveIntakeIdeaOperatorSummary({
+      idea_id: 'idea-src',
+      project_id: 'project-promoted',
+      title: 'Promoted trace',
+      idea_status: 'admitted',
+      queue_status: 'queued',
+      source_kind: 'chatgpt_pro',
+      machine_target: 'cpu',
+    })
+    expect(summary.context).toContain('Promoted to project')
+    expect(summary.sections.find((section) => section.title === 'Admission and promote')?.answers.find((answer) => answer.label === 'promoted project')?.value).toBe('project-promoted')
+  })
+})
+
+describe('deriveResearchCandidateOperatorSummary', () => {
+  it('answers admission, promote path, and lane questions for admitted candidates', () => {
+    const summary = deriveResearchCandidateOperatorSummary({
+      candidate_id: 'cand-1',
+      title: 'Routed candidate',
+      status: 'admitted',
+      admission_decision: 'admitted',
+      machine_target: 'gb10',
+      admitted_idea_id: 'idea-9',
+      operator_stage_label: 'Ready to promote',
+      operator_next_step: 'Dry-run promote before queueing.',
+      updated_at: '2026-05-21T08:20:00Z',
+    })
+
+    expect(summary.state).toBe('Ready to promote')
+    expect(summary.next).toBe('Dry-run promote before queueing.')
+    expect(summary.sections.some((section) => section.title === 'Source and lineage')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'Admission and promote')).toBe(true)
+    expect(summary.sections.some((section) => section.title === 'Lane and dispatch')).toBe(true)
+    const promote = summary.sections.find((section) => section.title === 'Admission and promote')
+    expect(promote?.answers.find((answer) => answer.label === 'promote path')?.value).toContain('idea-9')
+  })
+
+  it('explains rejected candidates without promote action', () => {
+    const summary = deriveResearchCandidateOperatorSummary({
+      candidate_id: 'cand-reject',
+      status: 'rejected',
+      admission_decision: 'reject',
+      machine_target: 'cpu',
+    })
+
+    expect(summary.next).toContain('negative evidence')
+    expect(summary.actionNeeded).toContain('rejected')
+    expect(summary.sections.find((section) => section.title === 'Admission and promote')?.answers.find((answer) => answer.label === 'promote path')?.value).toContain('rejected')
+  })
+
+  it('uses idea_id when admitted_idea_id is absent', () => {
+    const summary = deriveResearchCandidateOperatorSummary({
+      candidate_id: 'cand-fallback',
+      status: 'admitted',
+      admission_decision: 'admitted',
+      idea_id: 'idea-fallback',
+    })
+    const promote = summary.sections.find((section) => section.title === 'Admission and promote')
+    expect(promote?.answers.find((answer) => answer.label === 'admitted idea')?.value).toBe('idea-fallback')
+    expect(promote?.answers.find((answer) => answer.label === 'promote path')?.value).toContain('idea-fallback')
+  })
+
+  it('describes admitted candidates not yet promoted', () => {
+    const summary = deriveResearchCandidateOperatorSummary({
+      candidate_id: 'cand-pending',
+      status: 'admitted',
+      admission_decision: 'admitted',
+      machine_target: 'gb10',
+    })
+    expect(summary.sections.find((section) => section.title === 'Admission and promote')?.answers.find((answer) => answer.label === 'promote path')?.value).toBe(
+      'admitted but not yet promoted to intake/queue',
+    )
     expect(summary.next).toContain('dry-run')
-    expect(summary.entityLinks[0]).toMatchObject({ kind: 'project', id: 'project-1' })
-    expect(summary.sections.some((section) => section.title === 'Admission and queue')).toBe(true)
   })
 })

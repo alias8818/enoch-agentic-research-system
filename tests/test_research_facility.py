@@ -36,7 +36,11 @@ def _strong_candidate(**overrides: object) -> dict[str, object]:
         "success_threshold": "Beat vector RAG by 10 points at 256k context under a 2 percent memory budget.",
         "kill_condition": "Stop if anchors alone explain all gains or accuracy is below baseline.",
         "accessibility_delta": "Could make million-token style workflows viable for home GPUs.",
-        "expected_artifacts": ["run_notes.md", "metrics.json", ".omx/project_decision.json"],
+        "expected_artifacts": [
+            "run_notes.md",
+            "metrics.json",
+            ".omx/project_decision.json",
+        ],
         "required_evidence": ["baseline comparison", "memory budget", "failure cases"],
         "likely_failure_modes": ["anchor overfit", "state smearing"],
         "novelty_score": 9,
@@ -59,7 +63,9 @@ def test_research_facility_admits_only_contract_complete_grounded_candidates() -
 
 
 def test_research_facility_rejects_fresh_grounded_without_source() -> None:
-    plan = research_facility.plan_candidates([_strong_candidate(source_urls=[])], _args())[0]
+    plan = research_facility.plan_candidates(
+        [_strong_candidate(source_urls=[])], _args()
+    )[0]
 
     assert plan.admission_decision == "rejected"
     assert "fresh_grounded requires source_ids or source_urls" in plan.hard_failures
@@ -72,12 +78,21 @@ def test_research_facility_rejects_followup_without_parent_lineage() -> None:
     )[0]
 
     assert plan.admission_decision == "rejected"
-    assert "followup_from_negative requires parent_project_id or parent_run_id" in plan.hard_failures
+    assert (
+        "followup_from_negative requires parent_project_id or parent_run_id"
+        in plan.hard_failures
+    )
 
 
-def test_research_facility_requires_novelty_comparison_for_similar_prior_projects() -> None:
+def test_research_facility_requires_novelty_comparison_for_similar_prior_projects() -> (
+    None
+):
     plan = research_facility.plan_candidates(
-        [_strong_candidate(similar_prior_projects=["old-negative"], novelty_comparison="")],
+        [
+            _strong_candidate(
+                similar_prior_projects=["old-negative"], novelty_comparison=""
+            )
+        ],
         _args(),
     )[0]
 
@@ -85,7 +100,9 @@ def test_research_facility_requires_novelty_comparison_for_similar_prior_project
     assert "similar_prior_projects requires novelty_comparison" in plan.hard_failures
 
 
-def test_research_facility_normalizes_provider_runtime_and_token_budget_labels() -> None:
+def test_research_facility_normalizes_provider_runtime_and_token_budget_labels() -> (
+    None
+):
     row = research_facility.normalize_candidate(
         _strong_candidate(estimated_runtime_class="days", expected_token_budget="50k"),
         default_machine="gb10",
@@ -97,9 +114,13 @@ def test_research_facility_normalizes_provider_runtime_and_token_budget_labels()
     assert row["expected_token_budget"] == "small"
 
 
-def test_research_facility_does_not_use_provider_model_as_codex_dispatch_model() -> None:
+def test_research_facility_does_not_use_provider_model_as_codex_dispatch_model() -> (
+    None
+):
     row = research_facility.normalize_candidate(
-        _strong_candidate(model="hf:zai-org/GLM-5.1", provider_model="hf:zai-org/GLM-5.1"),
+        _strong_candidate(
+            model="hf:zai-org/GLM-5.1", provider_model="hf:zai-org/GLM-5.1"
+        ),
         default_machine="cpu-proxmox-1",
         default_model="gpt-5.5",
         default_sandbox="danger-full-access",
@@ -189,7 +210,9 @@ def test_research_facility_emits_auditable_ledgers_and_optional_queue_sql() -> N
     assert "on conflict (project_id) do update" in sql
 
 
-def test_research_facility_emit_sql_guards_candidate_and_admission_identity_conflicts() -> None:
+def test_research_facility_emit_sql_guards_candidate_and_admission_identity_conflicts() -> (
+    None
+):
     plan = research_facility.plan_candidates([_strong_candidate()], _args())[0]
 
     sql = research_facility.emit_sql([plan], requested_by="pytest", queue_admitted=True)
@@ -197,19 +220,27 @@ def test_research_facility_emit_sql_guards_candidate_and_admission_identity_conf
     assert "conflicting research candidate identity" in sql
     assert "conflicting research admission idempotency key" in sql
     assert "where candidate_id = 'ssm-anchor-memory-test'" in sql
-    assert "where idempotency_key = 'research-admission:ssm-anchor-memory-test:admitted'" in sql
+    assert (
+        "where idempotency_key = 'research-admission:ssm-anchor-memory-test:admitted'"
+        in sql
+    )
     assert "score_breakdown is distinct from" in sql
     assert "raise exception" in sql.lower()
 
 
-def test_research_facility_emit_sql_does_not_overwrite_terminal_candidate_statuses() -> None:
+def test_research_facility_emit_sql_does_not_overwrite_terminal_candidate_statuses() -> (
+    None
+):
     plan = research_facility.plan_candidates([_strong_candidate()], _args())[0]
 
     sql = research_facility.emit_sql([plan], requested_by="pytest", queue_admitted=True)
     normalized = " ".join(sql.lower().split())
 
     assert "status = excluded.status" not in normalized
-    assert "where enoch.research_candidates.status not in ('admitted', 'rejected', 'merged')" in normalized
+    assert (
+        "where enoch.research_candidates.status not in ('admitted', 'rejected', 'merged')"
+        in normalized
+    )
 
 
 def test_research_facility_emit_sql_guards_source_identity_conflicts() -> None:
@@ -232,7 +263,9 @@ def test_research_facility_emit_sql_guards_source_identity_conflicts() -> None:
         _args(),
     )[0]
 
-    sql = research_facility.emit_sql([plan], requested_by="pytest", queue_admitted=False)
+    sql = research_facility.emit_sql(
+        [plan], requested_by="pytest", queue_admitted=False
+    )
 
     assert "conflicting research source identity" in sql
     assert "where source_id = 'arxiv-abc'" in sql
@@ -251,7 +284,9 @@ def test_research_facility_url_source_identity_is_url_based_not_kind_based() -> 
         _args(),
     )[0]
 
-    sql = research_facility.emit_sql([plan], requested_by="pytest", queue_admitted=False)
+    sql = research_facility.emit_sql(
+        [plan], requested_by="pytest", queue_admitted=False
+    )
     url_guard = sql.split("where source_id = 'url-")[1].split(")", 1)[0]
 
     assert "source_kind is distinct from" not in url_guard
@@ -274,7 +309,10 @@ def test_research_facility_emit_sql_guards_admitted_queue_identity_conflicts() -
 def test_research_facility_cli_extracts_json_from_markdown(tmp_path: Path) -> None:
     source = tmp_path / "ideas.md"
     output = tmp_path / "plan.json"
-    source.write_text("Here is the batch:\n```json\n" + json.dumps([_strong_candidate()]) + "\n```\n", encoding="utf-8")
+    source.write_text(
+        "Here is the batch:\n```json\n" + json.dumps([_strong_candidate()]) + "\n```\n",
+        encoding="utf-8",
+    )
 
     assert research_facility.main([str(source), "--output", str(output)]) == 0
 
@@ -310,11 +348,30 @@ def test_research_facility_cli_keeps_empty_scanner_batch_empty(tmp_path: Path) -
 
 def test_research_facility_runtime_methods_are_present() -> None:
     from enoch_control_plane.control_plane.store import ControlPlaneStore
-    from enoch_control_plane.control_plane.supabase_store import SupabaseControlPlaneStore
+    from enoch_control_plane.control_plane.supabase_store import (
+        SupabaseControlPlaneStore,
+    )
 
-    assert ControlPlaneStore(Path(":memory:")).research_facility_workbench_projection() == []
-    assert callable(getattr(SupabaseControlPlaneStore("postgresql://example.invalid/postgres", connect=lambda: None), "research_facility_workbench_projection"))
-    assert callable(getattr(SupabaseControlPlaneStore("postgresql://example.invalid/postgres", connect=lambda: None), "promote_research_candidate"))
+    assert (
+        ControlPlaneStore(Path(":memory:")).research_facility_workbench_projection()
+        == []
+    )
+    assert callable(
+        getattr(
+            SupabaseControlPlaneStore(
+                "postgresql://example.invalid/postgres", connect=lambda: None
+            ),
+            "research_facility_workbench_projection",
+        )
+    )
+    assert callable(
+        getattr(
+            SupabaseControlPlaneStore(
+                "postgresql://example.invalid/postgres", connect=lambda: None
+            ),
+            "promote_research_candidate",
+        )
+    )
 
 
 def test_research_facility_emits_full_source_records_when_present() -> None:
@@ -336,7 +393,9 @@ def test_research_facility_emits_full_source_records_when_present() -> None:
     )
     plan = research_facility.plan_candidates([candidate], _args())[0]
 
-    sql = research_facility.emit_sql([plan], requested_by="pytest", queue_admitted=False)
+    sql = research_facility.emit_sql(
+        [plan], requested_by="pytest", queue_admitted=False
+    )
 
     assert "external_id, retrieved_at, summary" in sql
     assert "Source summary" in sql
@@ -346,8 +405,22 @@ def test_research_facility_emits_full_source_records_when_present() -> None:
 
 def test_research_facility_merges_exact_history_duplicates() -> None:
     candidate = _strong_candidate()
-    row = research_facility.normalize_candidate(candidate, default_machine="gb10", default_model="gpt-5.5", default_sandbox="danger-full-access")
-    args = _args(history=[{"project_id": "prior-project", "title": row["title"], "dedupe_key": row["dedupe_key"], "decision_gate_state": "negative"}])
+    row = research_facility.normalize_candidate(
+        candidate,
+        default_machine="gb10",
+        default_model="gpt-5.5",
+        default_sandbox="danger-full-access",
+    )
+    args = _args(
+        history=[
+            {
+                "project_id": "prior-project",
+                "title": row["title"],
+                "dedupe_key": row["dedupe_key"],
+                "decision_gate_state": "negative",
+            }
+        ]
+    )
 
     plan = research_facility.plan_candidates([candidate], args)[0]
 
@@ -383,11 +456,38 @@ def test_research_facility_cli_loads_history_json(tmp_path: Path) -> None:
     history_path = tmp_path / "history.json"
     output = tmp_path / "plan.json"
     candidate = _strong_candidate()
-    row = research_facility.normalize_candidate(candidate, default_machine="gb10", default_model="gpt-5.5", default_sandbox="danger-full-access")
+    row = research_facility.normalize_candidate(
+        candidate,
+        default_machine="gb10",
+        default_model="gpt-5.5",
+        default_sandbox="danger-full-access",
+    )
     candidate_path.write_text(json.dumps([candidate]), encoding="utf-8")
-    history_path.write_text(json.dumps([{"project_id": "prior-project", "title": row["title"], "dedupe_key": row["dedupe_key"]}]), encoding="utf-8")
+    history_path.write_text(
+        json.dumps(
+            [
+                {
+                    "project_id": "prior-project",
+                    "title": row["title"],
+                    "dedupe_key": row["dedupe_key"],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
 
-    assert research_facility.main([str(candidate_path), "--history-json", str(history_path), "--output", str(output)]) == 0
+    assert (
+        research_facility.main(
+            [
+                str(candidate_path),
+                "--history-json",
+                str(history_path),
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
 
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["history_count"] == 1

@@ -11,11 +11,14 @@ import { useOperatorDialog } from './OperatorDialog'
 import type { CommandPresentationContext } from '../commandResultPresentation'
 import { CommandResultSummary } from './CommandResultSummary'
 import { PageHeader } from './PageHeader'
-import { Eyebrow, InlineErrorStateCard, LoadingStateCard, OperatorDetailSummary, RawJsonDetails } from './ui'
+import { deriveResearchCandidateOperatorSummary } from '../detailOperatorSummary'
+import { EntityLinkChips, InlineErrorStateCard, LoadingStateCard, OperatorDetailSummary, OperatorQuestionSections, RawJsonDetails } from './ui'
+import { WorkbenchCountsFold, WorkbenchOperatorSummary } from './WorkbenchSummary'
 
 type ResearchFacilityResponse = {
   rows?: Record<string, unknown>[]
   counts?: Record<string, unknown>
+  operator_summary?: string
   authority?: string
   generated_at?: string
 }
@@ -138,37 +141,25 @@ function CandidateDetail({ row, candidateId }: { row: Record<string, unknown> | 
     )
   }
   if (!row) return null
-  const status = String(row.status || '—')
-  const admission = String(row.admission_decision || '—')
-  const target = String(row.machine_target || '—')
-  const nextAction = status === 'admitted'
-    ? 'Promote only after dry-run confirms this exact candidate still maps to a queue item.'
-    : status === 'rejected' || admission.includes('reject')
-      ? 'No launch action is needed; keep this as negative evidence unless a new follow-up is warranted.'
-      : 'Review admission, source lineage, and machine target before promoting or queuing work.'
+  const operatorSummary = deriveResearchCandidateOperatorSummary(row)
   return (
     <section className="detail-panel" aria-label="Research candidate detail">
       <div className="detail-panel-head">
         <div>
           <p className="eyebrow">Research candidate detail</p>
           <h2>{String(row.title || row.candidate_id || 'Selected candidate')}</h2>
+          <span className="detail-id-chip" title={String(row.candidate_id || '')}>{shortId(String(row.candidate_id || ''))}</span>
         </div>
       </div>
       <section className="detail-summary">
-        <Eyebrow>Deterministic facility row</Eyebrow>
-        <dl className="detail-field-grid">
-          <div className="detail-field"><dt>candidate id</dt><dd>{String(row.candidate_id || '—')}</dd></div>
-          <div className="detail-field"><dt>status</dt><dd>{String(row.status || '—')}</dd></div>
-          <div className="detail-field"><dt>admission</dt><dd>{String(row.admission_decision || '—')}</dd></div>
-          <div className="detail-field"><dt>machine target</dt><dd>{String(row.machine_target || '—')}</dd></div>
-          <div className="detail-field"><dt>updated</dt><dd>{String(row.updated_at || '—')}</dd></div>
-        </dl>
+        <EntityLinkChips links={operatorSummary.entityLinks} />
         <OperatorDetailSummary
-          state={status}
-          context={`Admission ${admission}; target ${target}.`}
-          next={nextAction}
+          state={operatorSummary.state}
+          context={operatorSummary.context}
+          next={operatorSummary.next}
           ariaLabel="Research candidate operator summary"
         />
+        <OperatorQuestionSections sections={operatorSummary.sections} recentActivity={null} actionNeeded={operatorSummary.actionNeeded} />
         <RawJsonDetails summary="Raw candidate row" payload={row} />
       </section>
     </section>
@@ -353,14 +344,7 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
       {generateBatchDisabledReason ? <p className="primary-action-disabled-reason">{generateBatchDisabledReason}</p> : null}
       {providerBatchDisabledReason ? <p className="primary-action-disabled-reason">{providerBatchDisabledReason}</p> : null}
 
-      <section className="count-grid">
-        {Object.entries(counts).slice(0, 8).map(([key, value]) => (
-          <div key={key} className="count-card">
-            <div>{String(value)}</div>
-            <div>{key.replaceAll('_', ' ')}</div>
-          </div>
-        ))}
-      </section>
+      <WorkbenchOperatorSummary summary={facility.data?.operator_summary} />
 
       <ResultCard result={budget.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} />
       <ResultCard result={cycle.data as Record<string, unknown> | undefined} context={{ commandFamily: 'research' }} stale={staleCycleDryRun} />
@@ -393,6 +377,7 @@ export function ResearchPage({ route }: { route?: Extract<DashboardRoute, { page
       {!facility.isLoading && !facility.isError ? (
         <>
           <DataTable rows={rows} columns={simpleTableColumns(['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at'], { title: { kind: 'primary' }, candidate_id: { kind: 'id' } })} empty="No research candidates returned." cellHref={candidateCellHref} onSelectRow={setSelectedCandidate} />
+          <WorkbenchCountsFold counts={counts as Record<string, number>} label="Research facility counts" />
           <CandidateDetail row={activeCandidate} candidateId={routeCandidateId} />
         </>
       ) : null}

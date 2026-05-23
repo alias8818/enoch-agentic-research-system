@@ -5,14 +5,23 @@ import json
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from enoch_control_plane.observability import RouteObservationMiddleware, current_rss_mib, peak_rss_mib
+from enoch_control_plane.observability import (
+    RouteObservationMiddleware,
+    current_rss_mib,
+    peak_rss_mib,
+)
 from scripts.dashboard_memory_smoke import Sample, summarize
 
 
 def test_route_observability_middleware_adds_headers_and_jsonl(tmp_path) -> None:
     observation_path = tmp_path / "route_observations.jsonl"
     app = FastAPI()
-    app.add_middleware(RouteObservationMiddleware, observation_path=observation_path, slow_ms=0, memory_warn_rss_mib=1)
+    app.add_middleware(
+        RouteObservationMiddleware,
+        observation_path=observation_path,
+        slow_ms=0,
+        memory_warn_rss_mib=1,
+    )
 
     @app.get("/hello")
     def hello() -> dict[str, str]:
@@ -44,8 +53,20 @@ def test_dashboard_memory_smoke_summary_tracks_rss_delta() -> None:
     rows = [
         Sample("/healthz", True, 200, 10.0, 12, 8.0, 100.0, 101.0),
         Sample("/healthz", True, 200, 20.0, 12, 9.0, 102.5, 103.0),
-        Sample("/control/api/status", False, 500, 30.0, 100, None, None, None, "HTTPError: 500"),
-        Sample("/control/api/status", False, None, 40.0, 0, None, None, None, "URLError"),
+        Sample(
+            "/control/api/status",
+            False,
+            500,
+            30.0,
+            100,
+            None,
+            None,
+            None,
+            "HTTPError: 500",
+        ),
+        Sample(
+            "/control/api/status", False, None, 40.0, 0, None, None, None, "URLError"
+        ),
     ]
     summary = summarize(rows)
     assert summary["/healthz"]["requests"] == 2

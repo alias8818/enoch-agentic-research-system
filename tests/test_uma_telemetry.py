@@ -57,6 +57,5 @@ class UmaTelemetryTests(unittest.TestCase):
         self.assertEqual(sample["uma_allocatable_mib"], sample["memory_available_mib"])
 
 
-
 if __name__ == "__main__":
     unittest.main()

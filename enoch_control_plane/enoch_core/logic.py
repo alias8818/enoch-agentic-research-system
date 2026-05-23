@@ -6,7 +6,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-ACTIVE_QUEUE_STATUSES = {"dispatching", "awaiting_wake", "running", "wake_received", "reconciling"}
+ACTIVE_QUEUE_STATUSES = {
+    "dispatching",
+    "awaiting_wake",
+    "running",
+    "wake_received",
+    "reconciling",
+}
 WAKE_GATE_PAPER_STATES = {"wake_ready", "session_finished_ready"}
 PAPER_DRAFT_NEXT_ACTION = "draft_paper_or_select_next_project"
 EXCLUDED_DRAFT_NAME_FRAGMENT = (
@@ -20,9 +26,7 @@ EXCLUDED_DRAFT_NAME_FRAGMENT = (
 # ``partial_viable`` or ``promising_synthetic_positive`` are useful research
 # notes, but they are not canonical paper-positive decisions. They must not
 # create operator-visible ``write_needed`` work.
-PAPER_DRAFT_POSITIVE_DECISION_TOKENS = (
-    "finalize_positive",
-)
+PAPER_DRAFT_POSITIVE_DECISION_TOKENS = ("finalize_positive",)
 PAPER_DRAFT_BLOCKED_DECISION_TOKENS = (
     "negative",
     "non_positive",
@@ -36,7 +40,11 @@ PAPER_DRAFT_BLOCKED_DECISION_TOKENS = (
     "proceed_with_caveats",
     "conditional_go_pilot",
 )
-PAPER_DECISION_FILES = (".enoch/project_decision.json", ".omx/project_decision.json", "project_decision.json")
+PAPER_DECISION_FILES = (
+    ".enoch/project_decision.json",
+    ".omx/project_decision.json",
+    "project_decision.json",
+)
 PAPER_PRIMARY_DECISION_FIELDS = (
     "project_decision",
     "decision",
@@ -131,7 +139,9 @@ def _read_decision_json(path: Path) -> dict[str, Any] | None:
     return payload
 
 
-def _paper_decision_json_values(artifact_root: str | Path) -> list[tuple[str, str, str]]:
+def _paper_decision_json_values(
+    artifact_root: str | Path,
+) -> list[tuple[str, str, str]]:
     root = Path(artifact_root)
     values: list[tuple[str, str, str]] = []
     for relative in PAPER_DECISION_FILES:
@@ -139,13 +149,19 @@ def _paper_decision_json_values(artifact_root: str | Path) -> list[tuple[str, st
         payload = _read_decision_json(path)
         if payload is None:
             continue
-        for field in (*PAPER_PRIMARY_DECISION_FIELDS, *PAPER_SUPPORTING_DECISION_FIELDS, *PAPER_USEFUL_SIGNAL_FIELDS):
+        for field in (
+            *PAPER_PRIMARY_DECISION_FIELDS,
+            *PAPER_SUPPORTING_DECISION_FIELDS,
+            *PAPER_USEFUL_SIGNAL_FIELDS,
+        ):
             if field in payload:
                 values.append((relative, field, text(payload.get(field))))
     return values
 
 
-def _paper_decision_json_payloads(artifact_root: str | Path) -> list[tuple[str, dict[str, Any]]]:
+def _paper_decision_json_payloads(
+    artifact_root: str | Path,
+) -> list[tuple[str, dict[str, Any]]]:
     root = Path(artifact_root)
     payloads: list[tuple[str, dict[str, Any]]] = []
     for relative in PAPER_DECISION_FILES:
@@ -192,7 +208,9 @@ def bounded_useful_signal_row_gate(row: dict[str, Any]) -> dict[str, Any]:
     """
 
     payload = {
-        "project_decision": row.get("project_decision") or row.get("decision_gate_state") or row.get("last_run_state"),
+        "project_decision": row.get("project_decision")
+        or row.get("decision_gate_state")
+        or row.get("last_run_state"),
         "research_outcome": row.get("research_outcome"),
         "bounded_paper_ready": row.get("bounded_paper_ready"),
         "hypothesis_status": row.get("hypothesis_status"),
@@ -219,7 +237,6 @@ def bounded_useful_signal_row_gate(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-
 def project_decision_payload(artifact_root: str | Path) -> dict[str, Any]:
     """Return the first parseable project decision JSON payload for follow-up metadata."""
 
@@ -243,7 +260,12 @@ def followup_candidate_from_decision_payload(payload: dict[str, Any]) -> dict[st
     if isinstance(required, str):
         required_evidence = split_numbered_list_text(required)
     elif isinstance(required, list):
-        required_evidence = [part for item in required for part in split_numbered_list_text(text(item)) if part]
+        required_evidence = [
+            part
+            for item in required
+            for part in split_numbered_list_text(text(item))
+            if part
+        ]
     else:
         required_evidence = []
     return {
@@ -256,6 +278,7 @@ def followup_candidate_from_decision_payload(payload: dict[str, Any]) -> dict[st
         "followup_stop_condition": text(payload.get("followup_stop_condition")),
     }
 
+
 def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
     """Return whether local project decision artifacts support paper drafting.
 
@@ -267,11 +290,23 @@ def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
     """
     values = _paper_decision_json_values(artifact_root)
     if not values:
-        return {"eligible": False, "reason": "missing project decision artifact", "values": []}
+        return {
+            "eligible": False,
+            "reason": "missing project decision artifact",
+            "values": [],
+        }
 
     payload_by_source = dict(_paper_decision_json_payloads(artifact_root))
-    primary = [(source, field, _normal(value)) for source, field, value in values if field in PAPER_PRIMARY_DECISION_FIELDS]
-    supporting = [(source, field, _normal(value)) for source, field, value in values if field in PAPER_SUPPORTING_DECISION_FIELDS]
+    primary = [
+        (source, field, _normal(value))
+        for source, field, value in values
+        if field in PAPER_PRIMARY_DECISION_FIELDS
+    ]
+    supporting = [
+        (source, field, _normal(value))
+        for source, field, value in values
+        if field in PAPER_SUPPORTING_DECISION_FIELDS
+    ]
 
     for source, field, value in primary:
         if _has_decision_token(value, PAPER_DRAFT_BLOCKED_DECISION_TOKENS):
@@ -288,12 +323,21 @@ def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
                     "claim_scope": text(payload.get("claim_scope")),
                     "scale_limits": text(payload.get("scale_limits")),
                 }
-            return {"eligible": False, "reason": "project decision is not positive", "source": source, "field": field, "decision": value, "values": values}
+            return {
+                "eligible": False,
+                "reason": "project decision is not positive",
+                "source": source,
+                "field": field,
+                "decision": value,
+                "values": values,
+            }
 
     for source, field, value in primary:
         if _has_decision_token(value, PAPER_DRAFT_POSITIVE_DECISION_TOKENS):
             payload = payload_by_source.get(source) or {}
-            if _normal(payload.get("research_outcome")) == "useful_signal" and not _bounded_useful_signal_ready(payload):
+            if _normal(
+                payload.get("research_outcome")
+            ) == "useful_signal" and not _bounded_useful_signal_ready(payload):
                 return {
                     "eligible": False,
                     "reason": "useful signal is not bounded paper-ready",
@@ -304,13 +348,33 @@ def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
                     "research_outcome": text(payload.get("research_outcome")),
                     "bounded_paper_ready": truthy(payload.get("bounded_paper_ready")),
                 }
-            return {"eligible": True, "reason": "project decision is positive", "source": source, "field": field, "decision": value, "values": values}
+            return {
+                "eligible": True,
+                "reason": "project decision is positive",
+                "source": source,
+                "field": field,
+                "decision": value,
+                "values": values,
+            }
 
     if any(value == "continue" for _, _, value in primary):
-        source, field, value = next((item for item in primary if item[2] == "continue"), primary[0])
-        return {"eligible": False, "reason": "continue decision is not paper-positive", "source": source, "field": field, "decision": value, "values": values}
+        source, field, value = next(
+            (item for item in primary if item[2] == "continue"), primary[0]
+        )
+        return {
+            "eligible": False,
+            "reason": "continue decision is not paper-positive",
+            "source": source,
+            "field": field,
+            "decision": value,
+            "values": values,
+        }
 
-    return {"eligible": False, "reason": "project decision lacks positive draft signal", "values": values}
+    return {
+        "eligible": False,
+        "reason": "project decision lacks positive draft signal",
+        "values": values,
+    }
 
 
 def queue_status_counts(queue_rows: list[dict[str, Any]]) -> dict[str, int]:
@@ -318,18 +382,25 @@ def queue_status_counts(queue_rows: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def run_state_counts(queue_rows: list[dict[str, Any]]) -> dict[str, int]:
-    return dict(Counter(text(row.get("last_run_state")) or "unknown" for row in queue_rows))
+    return dict(
+        Counter(text(row.get("last_run_state")) or "unknown" for row in queue_rows)
+    )
 
 
 def active_queue_rows(queue_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [row for row in queue_rows if text(row.get("status")) in ACTIVE_QUEUE_STATUSES]
+    return [
+        row for row in queue_rows if text(row.get("status")) in ACTIVE_QUEUE_STATUSES
+    ]
 
 
 def assert_single_active_lane(queue_rows: list[dict[str, Any]]) -> tuple[bool, str]:
     active = active_queue_rows(queue_rows)
     if len(active) <= 1:
         return True, "zero or one active GB10 lane row"
-    names = ", ".join(text(row.get("project_name")) or text(row.get("project_id")) for row in active[:5])
+    names = ", ".join(
+        text(row.get("project_name")) or text(row.get("project_id"))
+        for row in active[:5]
+    )
     return False, f"multiple active GB10 lane rows: {names}"
 
 
@@ -341,16 +412,24 @@ def validate_branch_queued(row: dict[str, Any]) -> tuple[bool, str]:
         return True, "not a branch_queued row"
     summary = text(row.get("last_result_summary"))
     has_successor_id = bool(
-        text(row.get("successor_project_id")) or re.search(r"\bidea-[0-9a-f]{8,}\b", summary)
+        text(row.get("successor_project_id"))
+        or re.search(r"\bidea-[0-9a-f]{8,}\b", summary)
     )
-    has_successor_url = bool(text(row.get("successor_notion_url")) or "https://www.notion.so/" in summary)
+    has_successor_url = bool(
+        text(row.get("successor_notion_url")) or "https://www.notion.so/" in summary
+    )
     if has_successor_id and has_successor_url:
         return True, "branch_queued has concrete successor evidence"
-    return False, "branch_queued requires successor project_id and notion_page_url evidence"
+    return (
+        False,
+        "branch_queued requires successor project_id and notion_page_url evidence",
+    )
 
 
 def _drafted_sets(paper_rows: list[dict[str, Any]]) -> tuple[set[str], set[str]]:
-    project_ids = {text(row.get("project_id")) for row in paper_rows if text(row.get("project_id"))}
+    project_ids = {
+        text(row.get("project_id")) for row in paper_rows if text(row.get("project_id"))
+    }
     run_ids = {text(row.get("run_id")) for row in paper_rows if text(row.get("run_id"))}
     return project_ids, run_ids
 
@@ -363,11 +442,15 @@ def eligible_paper_draft_candidates(
 
     def excluded(row: dict[str, Any]) -> bool:
         haystack = "\n".join(
-            [text(row.get("project_name")), text(row.get("last_result_summary")), text(row.get("blocked_reason"))]
+            [
+                text(row.get("project_name")),
+                text(row.get("last_result_summary")),
+                text(row.get("blocked_reason")),
+            ]
         ).lower()
-        return any(fragment in haystack for fragment in EXCLUDED_DRAFT_NAME_FRAGMENT) or (
-            "benchmark" in haystack and "human" in haystack
-        )
+        return any(
+            fragment in haystack for fragment in EXCLUDED_DRAFT_NAME_FRAGMENT
+        ) or ("benchmark" in haystack and "human" in haystack)
 
     def draft_ready(row: dict[str, Any]) -> bool:
         last_run_state = text(row.get("last_run_state"))
@@ -377,7 +460,11 @@ def eligible_paper_draft_candidates(
             last_run_state in WAKE_GATE_PAPER_STATES
             and text(row.get("next_action_hint")) == PAPER_DRAFT_NEXT_ACTION
             and bool(text(row.get("current_run_id")) or text(row.get("run_id")))
-            and bool(text(row.get("project_dir")) or text(row.get("notion_page_url")) or text(row.get("last_result_summary")))
+            and bool(
+                text(row.get("project_dir"))
+                or text(row.get("notion_page_url"))
+                or text(row.get("last_result_summary"))
+            )
         )
 
     candidates = [
@@ -395,7 +482,9 @@ def eligible_paper_draft_candidates(
         candidates,
         key=lambda row: (
             1 if truthy(row.get("bounded_paper_ready")) else 0,
-            text(row.get("updatedAt")) or text(row.get("last_callback_at")) or text(row.get("last_dispatch_at")),
+            text(row.get("updatedAt"))
+            or text(row.get("last_callback_at"))
+            or text(row.get("last_dispatch_at")),
             -integer(row.get("dispatch_priority"), 9999),
         ),
         reverse=True,
@@ -406,7 +495,8 @@ def draft_candidate_payload(candidate: dict[str, Any]) -> dict[str, Any]:
     run_id = text(candidate.get("current_run_id") or candidate.get("run_id"))
     return {
         "project_id": text(candidate.get("project_id")),
-        "project_name": text(candidate.get("project_name")) or text(candidate.get("project_id")),
+        "project_name": text(candidate.get("project_name"))
+        or text(candidate.get("project_id")),
         "run_id": run_id,
         "notion_page_url": text(candidate.get("notion_page_url")),
         "project_dir": text(candidate.get("project_dir")),
@@ -428,7 +518,9 @@ def _publication_ids(paper_rows: list[dict[str, Any]]) -> set[str]:
     }
 
 
-def eligible_paper_polish_candidates(paper_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def eligible_paper_polish_candidates(
+    paper_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     publication_ids = _publication_ids(paper_rows)
     candidates = [
         row
@@ -453,7 +545,8 @@ def polish_candidate_payload(candidate: dict[str, Any]) -> dict[str, Any]:
     return {
         "paper_id": text(candidate.get("paper_id")),
         "project_id": text(candidate.get("project_id")),
-        "project_name": text(candidate.get("project_name")) or text(candidate.get("project_id")),
+        "project_name": text(candidate.get("project_name"))
+        or text(candidate.get("project_id")),
         "run_id": text(candidate.get("run_id")),
         "draft_markdown_path": text(candidate.get("draft_markdown_path")),
         "polish_payload": {
@@ -477,7 +570,9 @@ def queue_projection(snapshot: dict[str, Any]) -> dict[str, Any]:
         "status_counts": queue_status_counts(queue_rows),
         "run_state_counts": run_state_counts(queue_rows),
         "active_rows": active_queue_rows(queue_rows),
-        "draft_candidate_count": len(eligible_paper_draft_candidates(queue_rows, paper_rows)),
+        "draft_candidate_count": len(
+            eligible_paper_draft_candidates(queue_rows, paper_rows)
+        ),
         "polish_candidate_count": len(eligible_paper_polish_candidates(paper_rows)),
         "warnings": warnings,
     }

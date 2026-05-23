@@ -38,25 +38,30 @@ class EnochCoreLogicTests(unittest.TestCase):
                 "updatedAt": "2026-04-23T00:01:00Z",
             },
         ]
-        paper_rows = [{"project_id": "p1", "run_id": "r1", "paper_id": "p1:r1:arxiv_draft"}]
+        paper_rows = [
+            {"project_id": "p1", "run_id": "r1", "paper_id": "p1:r1:arxiv_draft"}
+        ]
         candidates = eligible_paper_draft_candidates(queue_rows, paper_rows)
         self.assertEqual([row["project_id"] for row in candidates], ["p2"])
 
-
     def test_wake_ready_completion_is_paper_draft_candidate(self) -> None:
-        queue_rows = [{
-            "project_id": "idea-wake",
-            "project_name": "Wake Ready",
-            "project_dir": "idea-wake",
-            "status": "completed",
-            "last_run_state": "wake_ready",
-            "next_action_hint": "draft_paper_or_select_next_project",
-            "current_run_id": "run-wake",
-        }]
+        queue_rows = [
+            {
+                "project_id": "idea-wake",
+                "project_name": "Wake Ready",
+                "project_dir": "idea-wake",
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-wake",
+            }
+        ]
         candidates = eligible_paper_draft_candidates(queue_rows, [])
         self.assertEqual([row["project_id"] for row in candidates], ["idea-wake"])
 
-    def test_bounded_paper_ready_candidate_sorts_before_raw_recent_no_paper(self) -> None:
+    def test_bounded_paper_ready_candidate_sorts_before_raw_recent_no_paper(
+        self,
+    ) -> None:
         queue_rows = [
             {
                 "project_id": "raw-recent",
@@ -81,7 +86,9 @@ class EnochCoreLogicTests(unittest.TestCase):
             },
         ]
         candidates = eligible_paper_draft_candidates(queue_rows, [])
-        self.assertEqual([row["project_id"] for row in candidates], ["scout-ready", "raw-recent"])
+        self.assertEqual(
+            [row["project_id"] for row in candidates], ["scout-ready", "raw-recent"]
+        )
 
     def test_draft_candidate_payload_preserves_legacy_run_id_fallback(self) -> None:
         candidate = {
@@ -95,11 +102,15 @@ class EnochCoreLogicTests(unittest.TestCase):
         self.assertEqual(payload["run_id"], "run-legacy")
         self.assertEqual(payload["draft_payload"]["run_id"], "run-legacy")
 
-    def test_wake_ready_canonical_positive_decision_artifacts_pass_paper_gate(self) -> None:
+    def test_wake_ready_canonical_positive_decision_artifacts_pass_paper_gate(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".enoch").mkdir()
-            (root / ".enoch" / "project_decision.json").write_text('{"decision":"finalize_positive"}\n', encoding="utf-8")
+            (root / ".enoch" / "project_decision.json").write_text(
+                '{"decision":"finalize_positive"}\n', encoding="utf-8"
+            )
             gate = paper_draft_decision_gate(root)
             self.assertTrue(gate["eligible"])
 
@@ -107,7 +118,9 @@ class EnochCoreLogicTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".omx").mkdir()
-            (root / ".omx" / "project_decision.json").write_text('{"decision":"finalize_positive"}\n', encoding="utf-8")
+            (root / ".omx" / "project_decision.json").write_text(
+                '{"decision":"finalize_positive"}\n', encoding="utf-8"
+            )
             gate = paper_draft_decision_gate(root)
             self.assertTrue(gate["eligible"])
 
@@ -115,8 +128,15 @@ class EnochCoreLogicTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".omx").mkdir()
-            for decision in ("promising_continue", "partial_viable", "promising_synthetic_positive", "proceed"):
-                (root / ".omx" / "project_decision.json").write_text(json.dumps({"decision": decision}) + "\n", encoding="utf-8")
+            for decision in (
+                "promising_continue",
+                "partial_viable",
+                "promising_synthetic_positive",
+                "proceed",
+            ):
+                (root / ".omx" / "project_decision.json").write_text(
+                    json.dumps({"decision": decision}) + "\n", encoding="utf-8"
+                )
                 gate = paper_draft_decision_gate(root)
                 self.assertFalse(gate["eligible"], decision)
 
@@ -130,7 +150,9 @@ class EnochCoreLogicTests(unittest.TestCase):
                 json.dumps({"project_decision": "finalize_positive"}) + "\n",
                 encoding="utf-8",
             )
-            (root / ".enoch" / "project_decision.json").symlink_to(external / "project_decision.json")
+            (root / ".enoch" / "project_decision.json").symlink_to(
+                external / "project_decision.json"
+            )
 
             self.assertEqual(project_decision_payload(root), {})
             gate = paper_draft_decision_gate(root)
@@ -153,7 +175,10 @@ class EnochCoreLogicTests(unittest.TestCase):
             root = Path(tmp)
             (root / ".enoch").mkdir()
             (root / ".enoch" / "project_decision.json").write_text(
-                json.dumps({"decision": "finalize_positive", "padding": "x" * (64 * 1024)}) + "\n",
+                json.dumps(
+                    {"decision": "finalize_positive", "padding": "x" * (64 * 1024)}
+                )
+                + "\n",
                 encoding="utf-8",
             )
 
@@ -162,7 +187,9 @@ class EnochCoreLogicTests(unittest.TestCase):
             self.assertFalse(gate["eligible"])
             self.assertEqual(gate["reason"], "missing project decision artifact")
 
-    def test_project_decision_payload_and_followup_metadata_are_separate_from_paper_gate(self) -> None:
+    def test_project_decision_payload_and_followup_metadata_are_separate_from_paper_gate(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".omx").mkdir()
@@ -177,13 +204,22 @@ class EnochCoreLogicTests(unittest.TestCase):
                 "followup_success_threshold": "beats baseline on two seeds",
                 "followup_stop_condition": "stop if runtime trace reproduces the same failure",
             }
-            (root / ".omx" / "project_decision.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
+            (root / ".omx" / "project_decision.json").write_text(
+                json.dumps(payload) + "\n", encoding="utf-8"
+            )
 
-            self.assertEqual(project_decision_payload(root)["project_decision"], "finalize_negative")
-            followup = followup_candidate_from_decision_payload(project_decision_payload(root))
+            self.assertEqual(
+                project_decision_payload(root)["project_decision"], "finalize_negative"
+            )
+            followup = followup_candidate_from_decision_payload(
+                project_decision_payload(root)
+            )
             self.assertTrue(followup["followup_recommended"])
             self.assertEqual(followup["followup_type"], "branch")
-            self.assertEqual(followup["followup_required_evidence"], ["runtime trace", "baseline comparison"])
+            self.assertEqual(
+                followup["followup_required_evidence"],
+                ["runtime trace", "baseline comparison"],
+            )
             self.assertFalse(paper_draft_decision_gate(root)["eligible"])
 
     def test_followup_metadata_splits_numbered_required_evidence_string(self) -> None:
@@ -217,33 +253,39 @@ class EnochCoreLogicTests(unittest.TestCase):
                 "claim_scope": "GPT-2-small-class toy validation with a dense baseline.",
                 "scale_limits": "No 7B or multi-node training was run.",
             }
-            (root / ".enoch" / "project_decision.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
+            (root / ".enoch" / "project_decision.json").write_text(
+                json.dumps(payload) + "\n", encoding="utf-8"
+            )
             gate = paper_draft_decision_gate(root)
             self.assertTrue(gate["eligible"])
             self.assertEqual(gate["reason"], "bounded useful signal is paper-scoped")
 
     def test_bounded_useful_signal_row_gate_accepts_paper_scout_db_state(self) -> None:
-        gate = bounded_useful_signal_row_gate({
-            "project_decision": "finalize_negative",
-            "research_outcome": "useful_signal",
-            "bounded_paper_ready": True,
-            "hypothesis_status": "supported",
-            "evidence_strength": "moderate",
-            "claim_scope": "GPT-2-small-class direct local result with baseline comparison.",
-            "scale_limits": "No datacenter-scale or long-horizon training was run.",
-        })
+        gate = bounded_useful_signal_row_gate(
+            {
+                "project_decision": "finalize_negative",
+                "research_outcome": "useful_signal",
+                "bounded_paper_ready": True,
+                "hypothesis_status": "supported",
+                "evidence_strength": "moderate",
+                "claim_scope": "GPT-2-small-class direct local result with baseline comparison.",
+                "scale_limits": "No datacenter-scale or long-horizon training was run.",
+            }
+        )
         self.assertTrue(gate["eligible"])
         self.assertEqual(gate["source"], "control_plane_row")
 
     def test_bounded_useful_signal_row_gate_requires_explicit_ready_flag(self) -> None:
-        gate = bounded_useful_signal_row_gate({
-            "research_outcome": "useful_signal",
-            "bounded_paper_ready": False,
-            "hypothesis_status": "supported",
-            "evidence_strength": "moderate",
-            "claim_scope": "Scoped claim.",
-            "scale_limits": "Scale limit.",
-        })
+        gate = bounded_useful_signal_row_gate(
+            {
+                "research_outcome": "useful_signal",
+                "bounded_paper_ready": False,
+                "hypothesis_status": "supported",
+                "evidence_strength": "moderate",
+                "claim_scope": "Scoped claim.",
+                "scale_limits": "Scale limit.",
+            }
+        )
         self.assertFalse(gate["eligible"])
 
     def test_useful_signal_without_scope_remains_no_paper(self) -> None:
@@ -258,7 +300,9 @@ class EnochCoreLogicTests(unittest.TestCase):
                 "evidence_strength": "moderate",
                 "scale_limits": "No large-scale training was run.",
             }
-            (root / ".enoch" / "project_decision.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
+            (root / ".enoch" / "project_decision.json").write_text(
+                json.dumps(payload) + "\n", encoding="utf-8"
+            )
             gate = paper_draft_decision_gate(root)
             self.assertFalse(gate["eligible"])
 
@@ -266,17 +310,20 @@ class EnochCoreLogicTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".omx").mkdir()
-            (root / ".omx" / "project_decision.json").write_text('{"decision":"negative_result"}\n', encoding="utf-8")
+            (root / ".omx" / "project_decision.json").write_text(
+                '{"decision":"negative_result"}\n', encoding="utf-8"
+            )
             gate = paper_draft_decision_gate(root)
             self.assertFalse(gate["eligible"])
-
 
     def test_paper_draft_gate_rejects_negated_positive_words(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".omx").mkdir()
             for decision in ("not_positive", "nonpositive", "non-positive"):
-                (root / ".omx" / "project_decision.json").write_text(f'{{"decision":"{decision}"}}\n', encoding="utf-8")
+                (root / ".omx" / "project_decision.json").write_text(
+                    f'{{"decision":"{decision}"}}\n', encoding="utf-8"
+                )
                 gate = paper_draft_decision_gate(root)
                 self.assertFalse(gate["eligible"], decision)
 
@@ -284,10 +331,14 @@ class EnochCoreLogicTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".omx").mkdir()
-            (root / ".omx" / "project_decision.json").write_text('{"decision":"continue","status":"unsupported"}\n', encoding="utf-8")
+            (root / ".omx" / "project_decision.json").write_text(
+                '{"decision":"continue","status":"unsupported"}\n', encoding="utf-8"
+            )
             gate = paper_draft_decision_gate(root)
             self.assertFalse(gate["eligible"])
-            (root / ".omx" / "project_decision.json").write_text('{"decision":"continue","status":"not_supported"}\n', encoding="utf-8")
+            (root / ".omx" / "project_decision.json").write_text(
+                '{"decision":"continue","status":"not_supported"}\n', encoding="utf-8"
+            )
             gate = paper_draft_decision_gate(root)
             self.assertFalse(gate["eligible"])
 
@@ -302,22 +353,34 @@ class EnochCoreLogicTests(unittest.TestCase):
                 "evidence_strength": "moderate",
                 "recommended_next_action": "Run a direct target-stack validation before any paper.",
             }
-            (root / ".enoch" / "project_decision.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
+            (root / ".enoch" / "project_decision.json").write_text(
+                json.dumps(payload) + "\n", encoding="utf-8"
+            )
             gate = paper_draft_decision_gate(root)
             self.assertFalse(gate["eligible"])
             self.assertEqual(gate["reason"], "continue decision is not paper-positive")
 
-    def test_paper_draft_candidate_excludes_existing_run_even_for_new_project(self) -> None:
-        queue_rows = [{
-            "project_id": "p-new",
-            "project_name": "Duplicate Run",
-            "project_dir": "p-new",
-            "status": "completed",
-            "last_run_state": "wake_ready",
-            "next_action_hint": "draft_paper_or_select_next_project",
-            "current_run_id": "r-existing",
-        }]
-        paper_rows = [{"project_id": "p-old", "run_id": "r-existing", "paper_id": "p-old:r-existing:arxiv_draft"}]
+    def test_paper_draft_candidate_excludes_existing_run_even_for_new_project(
+        self,
+    ) -> None:
+        queue_rows = [
+            {
+                "project_id": "p-new",
+                "project_name": "Duplicate Run",
+                "project_dir": "p-new",
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "r-existing",
+            }
+        ]
+        paper_rows = [
+            {
+                "project_id": "p-old",
+                "run_id": "r-existing",
+                "paper_id": "p-old:r-existing:arxiv_draft",
+            }
+        ]
         self.assertEqual(eligible_paper_draft_candidates(queue_rows, paper_rows), [])
 
     def test_paper_draft_candidate_noops_when_manual_review_required(self) -> None:
@@ -370,17 +433,23 @@ class EnochCoreLogicTests(unittest.TestCase):
     def test_single_active_lane_invariant(self) -> None:
         ok, _ = assert_single_active_lane([{"status": "awaiting_wake"}])
         self.assertTrue(ok)
-        ok, message = assert_single_active_lane([{"status": "awaiting_wake"}, {"status": "running"}])
+        ok, message = assert_single_active_lane(
+            [{"status": "awaiting_wake"}, {"status": "running"}]
+        )
         self.assertFalse(ok)
         self.assertIn("multiple active", message)
 
     def test_reconciling_states_count_as_active_lane(self) -> None:
-        ok, message = assert_single_active_lane([{"status": "wake_received"}, {"status": "reconciling"}])
+        ok, message = assert_single_active_lane(
+            [{"status": "wake_received"}, {"status": "reconciling"}]
+        )
         self.assertFalse(ok)
         self.assertIn("multiple active", message)
 
     def test_branch_queued_requires_concrete_successor_evidence(self) -> None:
-        ok, _ = validate_branch_queued({"next_action_hint": "branch_queued", "last_result_summary": ""})
+        ok, _ = validate_branch_queued(
+            {"next_action_hint": "branch_queued", "last_result_summary": ""}
+        )
         self.assertFalse(ok)
         ok, _ = validate_branch_queued(
             {
@@ -427,7 +496,9 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def test_finalize_positive_proxy_useful_signal_without_bounded_ready_is_not_paper_ready() -> None:
+def test_finalize_positive_proxy_useful_signal_without_bounded_ready_is_not_paper_ready() -> (
+    None
+):
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         (root / ".enoch").mkdir()
@@ -440,10 +511,16 @@ def test_finalize_positive_proxy_useful_signal_without_bounded_ready_is_not_pape
             "claim_scope": "short proxy smoke only",
             "scale_limits": "no direct medium or full validation",
         }
-        (root / ".enoch" / "project_decision.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        (root / ".enoch" / "project_decision.json").write_text(
+            json.dumps(payload) + "\n", encoding="utf-8"
+        )
         gate = paper_draft_decision_gate(root)
         assert gate["eligible"] is False
-        assert "bounded" in gate["reason"] or "proxy" in gate["reason"] or "useful" in gate["reason"]
+        assert (
+            "bounded" in gate["reason"]
+            or "proxy" in gate["reason"]
+            or "useful" in gate["reason"]
+        )
 
 
 def test_enoch_core_store_closes_sqlite_connections_after_context(monkeypatch) -> None:
@@ -454,21 +531,30 @@ def test_enoch_core_store_closes_sqlite_connections_after_context(monkeypatch) -
 
     class FakeConnection:
         row_factory = None
+
         def execute(self, *_args, **_kwargs):
             return self
+
         def executescript(self, *_args, **_kwargs):
             return self
+
         def fetchall(self):
             return []
+
         def __enter__(self):
             return self
+
         def __exit__(self, *_args):
             return None
+
         def close(self):
             nonlocal closed
             closed += 1
 
-    monkeypatch.setattr("enoch_control_plane.enoch_core.store.sqlite3.connect", lambda *_args, **_kwargs: FakeConnection())
+    monkeypatch.setattr(
+        "enoch_control_plane.enoch_core.store.sqlite3.connect",
+        lambda *_args, **_kwargs: FakeConnection(),
+    )
     EnochCoreStore(Path("/tmp/fake-enoch-core.sqlite3"))
 
     assert closed == 1

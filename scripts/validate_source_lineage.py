@@ -7,6 +7,7 @@ candidates and follow-up projects have deterministic ``research_sources`` and
 rows, titles, or fuzzy matches; missing source truth must be repaired by the
 creation path that owns the row.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -108,10 +109,14 @@ def source_id_for_url(url: str) -> str:
 
 def followup_parent_source_id(parent_project_id: str, parent_run_id: str) -> str:
     seed = f"followup-parent-run:{_text(parent_project_id)}:{_text(parent_run_id) or 'latest'}"
-    return f"followup-parent-run-{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:16]}"
+    return (
+        f"followup-parent-run-{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:16]}"
+    )
 
 
-def _source_indexes(sources: Sequence[dict[str, Any]]) -> tuple[set[str], dict[str, str]]:
+def _source_indexes(
+    sources: Sequence[dict[str, Any]],
+) -> tuple[set[str], dict[str, str]]:
     ids: set[str] = set()
     urls: dict[str, str] = {}
     for source in sources:
@@ -124,7 +129,9 @@ def _source_indexes(sources: Sequence[dict[str, Any]]) -> tuple[set[str], dict[s
     return ids, urls
 
 
-def _lineage_keys(lineages: Sequence[dict[str, Any]]) -> set[tuple[str, str, str, str, str]]:
+def _lineage_keys(
+    lineages: Sequence[dict[str, Any]],
+) -> set[tuple[str, str, str, str, str]]:
     return {
         (
             _text(row.get("source_type")),
@@ -137,7 +144,9 @@ def _lineage_keys(lineages: Sequence[dict[str, Any]]) -> set[tuple[str, str, str
     }
 
 
-def _source_id_candidates_for_url(url: str, source_by_url: Mapping[str, str]) -> list[str]:
+def _source_id_candidates_for_url(
+    url: str, source_by_url: Mapping[str, str]
+) -> list[str]:
     candidates = []
     clean = _text(url)
     if source_by_url.get(clean):
@@ -158,12 +167,25 @@ def validate_snapshot(snapshot: SourceLineageSnapshot) -> list[dict[str, Any]]:
     for candidate in snapshot.candidates:
         candidate_id = _text(candidate.get("candidate_id"))
         title = _text(candidate.get("title"))
-        explicit_source_ids = [_text(item) for item in _json_list(candidate.get("source_ids")) if _text(item)]
-        source_urls = [_text(item) for item in _json_list(candidate.get("source_urls")) if _text(item)]
-        expected_ids: list[tuple[str, str]] = [(source_id, "source_ids") for source_id in explicit_source_ids]
+        explicit_source_ids = [
+            _text(item)
+            for item in _json_list(candidate.get("source_ids"))
+            if _text(item)
+        ]
+        source_urls = [
+            _text(item)
+            for item in _json_list(candidate.get("source_urls"))
+            if _text(item)
+        ]
+        expected_ids: list[tuple[str, str]] = [
+            (source_id, "source_ids") for source_id in explicit_source_ids
+        ]
         for url in source_urls:
             url_candidates = _source_id_candidates_for_url(url, source_by_url)
-            existing = next((source_id for source_id in url_candidates if source_id in source_ids), "")
+            existing = next(
+                (source_id for source_id in url_candidates if source_id in source_ids),
+                "",
+            )
             if not existing:
                 problems.append(
                     {
@@ -189,7 +211,13 @@ def validate_snapshot(snapshot: SourceLineageSnapshot) -> list[dict[str, Any]]:
                     }
                 )
                 continue
-            if ("source", source_id, "candidate", candidate_id, "generated_from") not in lineage:
+            if (
+                "source",
+                source_id,
+                "candidate",
+                candidate_id,
+                "generated_from",
+            ) not in lineage:
                 problems.append(
                     {
                         "kind": "candidate_source_missing_lineage",
@@ -201,9 +229,25 @@ def validate_snapshot(snapshot: SourceLineageSnapshot) -> list[dict[str, Any]]:
                 )
 
         raw_payload = _json_dict(candidate.get("raw_candidate_json"))
-        synthesized_from = [_text(item) for item in _json_list(raw_payload.get("synthesized_from")) if _text(item)]
+        synthesized_from = [
+            _text(item)
+            for item in _json_list(raw_payload.get("synthesized_from"))
+            if _text(item)
+        ]
         for branch_id in synthesized_from:
-            if ("candidate", branch_id, "candidate", candidate_id, "synthesized_from") not in lineage or ("candidate", branch_id, "candidate", candidate_id, "superseded_by") not in lineage:
+            if (
+                "candidate",
+                branch_id,
+                "candidate",
+                candidate_id,
+                "synthesized_from",
+            ) not in lineage or (
+                "candidate",
+                branch_id,
+                "candidate",
+                candidate_id,
+                "superseded_by",
+            ) not in lineage:
                 problems.append(
                     {
                         "kind": "synthesized_candidate_missing_branch_lineage",
@@ -212,9 +256,19 @@ def validate_snapshot(snapshot: SourceLineageSnapshot) -> list[dict[str, Any]]:
                         "source_candidate_id": branch_id,
                     }
                 )
-        reflection_source_ids = [_text(item) for item in _json_list(raw_payload.get("reflection_source_ids")) if _text(item)]
+        reflection_source_ids = [
+            _text(item)
+            for item in _json_list(raw_payload.get("reflection_source_ids"))
+            if _text(item)
+        ]
         for project_id in reflection_source_ids:
-            if ("project", project_id, "candidate", candidate_id, "inspired_by_success") not in lineage:
+            if (
+                "project",
+                project_id,
+                "candidate",
+                candidate_id,
+                "inspired_by_success",
+            ) not in lineage:
                 problems.append(
                     {
                         "kind": "synthesized_candidate_missing_reflection_lineage",
@@ -253,7 +307,13 @@ def validate_snapshot(snapshot: SourceLineageSnapshot) -> list[dict[str, Any]]:
                     "source_url": source_url,
                 }
             )
-        elif ("source", parent_source_id, "candidate", project_id, "generated_from") not in lineage:
+        elif (
+            "source",
+            parent_source_id,
+            "candidate",
+            project_id,
+            "generated_from",
+        ) not in lineage:
             problems.append(
                 {
                     "kind": "followup_missing_parent_run_lineage",
@@ -264,7 +324,11 @@ def validate_snapshot(snapshot: SourceLineageSnapshot) -> list[dict[str, Any]]:
                     "source_id": parent_source_id,
                 }
             )
-        if parent_project_id and ("project", parent_project_id, "project", project_id, "followup_parent") not in lineage:
+        if (
+            parent_project_id
+            and ("project", parent_project_id, "project", project_id, "followup_parent")
+            not in lineage
+        ):
             problems.append(
                 {
                     "kind": "followup_missing_parent_project_lineage",
@@ -277,7 +341,9 @@ def validate_snapshot(snapshot: SourceLineageSnapshot) -> list[dict[str, Any]]:
     return problems
 
 
-def build_report(snapshot: SourceLineageSnapshot, *, created_after: str = "") -> dict[str, Any]:
+def build_report(
+    snapshot: SourceLineageSnapshot, *, created_after: str = ""
+) -> dict[str, Any]:
     problems = validate_snapshot(snapshot)
     by_kind: dict[str, int] = {}
     for problem in problems:
@@ -301,14 +367,19 @@ def build_report(snapshot: SourceLineageSnapshot, *, created_after: str = "") ->
     }
 
 
-def fetch_snapshot(database_url: str, *, created_after: str = "") -> SourceLineageSnapshot:
+def fetch_snapshot(
+    database_url: str, *, created_after: str = ""
+) -> SourceLineageSnapshot:
     try:
         import psycopg
         from psycopg.rows import dict_row
     except ImportError as exc:  # pragma: no cover - environment problem
-        raise SystemExit("psycopg is required; install project dependencies first") from exc
+        raise SystemExit(
+            "psycopg is required; install project dependencies first"
+        ) from exc
 
     params = {"created_after": created_after or None}
+
     def run_query(conn: Any, sql: str) -> list[dict[str, Any]]:
         query_params = params if "%(created_after)s" in sql else None
         return _dict_rows(conn.execute(sql, query_params).fetchall())
@@ -326,7 +397,10 @@ def write_report(report: Mapping[str, Any], path: str | Path) -> Path:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.tmp")
-    tmp.write_text(json.dumps(report, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    tmp.write_text(
+        json.dumps(report, indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
     tmp.replace(target)
     return target
 
@@ -349,17 +423,47 @@ def _print_human(report: Mapping[str, Any], *, max_rows: int) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Validate Research Facility source/lineage provenance in Postgres.")
-    parser.add_argument("--database-url", default=os.environ.get("ENOCH_SOURCE_LINEAGE_DATABASE_URL") or os.environ.get("ENOCH_CONTROL_DATABASE_URL") or os.environ.get("ENOCH_SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL") or "", help="Postgres URL. Defaults to ENOCH_SOURCE_LINEAGE_DATABASE_URL, ENOCH_CONTROL_DATABASE_URL, ENOCH_SUPABASE_DATABASE_URL, or DATABASE_URL.")
-    parser.add_argument("--created-after", default=os.environ.get("ENOCH_SOURCE_LINEAGE_CREATED_AFTER", ""), help="Only require rows created at or after this timestamptz. Useful while historical gaps remain documented.")
-    parser.add_argument("--json", action="store_true", help="Print the full report as JSON.")
-    parser.add_argument("--output", default="", help="Optional path to write the JSON report.")
-    parser.add_argument("--max-problems", type=int, default=0, help="Allowed problem count before failing. Defaults to 0.")
-    parser.add_argument("--show-problems", type=int, default=25, help="Max problem rows to print in human output.")
+    parser = argparse.ArgumentParser(
+        description="Validate Research Facility source/lineage provenance in Postgres."
+    )
+    parser.add_argument(
+        "--database-url",
+        default=os.environ.get("ENOCH_SOURCE_LINEAGE_DATABASE_URL")
+        or os.environ.get("ENOCH_CONTROL_DATABASE_URL")
+        or os.environ.get("ENOCH_SUPABASE_DATABASE_URL")
+        or os.environ.get("DATABASE_URL")
+        or "",
+        help="Postgres URL. Defaults to ENOCH_SOURCE_LINEAGE_DATABASE_URL, ENOCH_CONTROL_DATABASE_URL, ENOCH_SUPABASE_DATABASE_URL, or DATABASE_URL.",
+    )
+    parser.add_argument(
+        "--created-after",
+        default=os.environ.get("ENOCH_SOURCE_LINEAGE_CREATED_AFTER", ""),
+        help="Only require rows created at or after this timestamptz. Useful while historical gaps remain documented.",
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="Print the full report as JSON."
+    )
+    parser.add_argument(
+        "--output", default="", help="Optional path to write the JSON report."
+    )
+    parser.add_argument(
+        "--max-problems",
+        type=int,
+        default=0,
+        help="Allowed problem count before failing. Defaults to 0.",
+    )
+    parser.add_argument(
+        "--show-problems",
+        type=int,
+        default=25,
+        help="Max problem rows to print in human output.",
+    )
     args = parser.parse_args(argv)
 
     if not args.database_url:
-        raise SystemExit("database URL required via --database-url or ENOCH_SOURCE_LINEAGE_DATABASE_URL/ENOCH_CONTROL_DATABASE_URL/ENOCH_SUPABASE_DATABASE_URL/DATABASE_URL")
+        raise SystemExit(
+            "database URL required via --database-url or ENOCH_SOURCE_LINEAGE_DATABASE_URL/ENOCH_CONTROL_DATABASE_URL/ENOCH_SUPABASE_DATABASE_URL/DATABASE_URL"
+        )
     snapshot = fetch_snapshot(args.database_url, created_after=args.created_after)
     report = build_report(snapshot, created_after=args.created_after)
     if args.output:

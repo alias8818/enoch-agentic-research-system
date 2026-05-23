@@ -46,8 +46,14 @@ def test_extract_asset_paths_finds_js_and_css() -> None:
 
 
 def test_extract_asset_paths_deduplicates() -> None:
-    html = SAMPLE_INDEX_HTML + '\n<script src="/control/dashboard-v2/assets/index-abc123.js"></script>'
-    assert extract_asset_paths(html).count("/control/dashboard-v2/assets/index-abc123.js") == 1
+    html = (
+        SAMPLE_INDEX_HTML
+        + '\n<script src="/control/dashboard-v2/assets/index-abc123.js"></script>'
+    )
+    assert (
+        extract_asset_paths(html).count("/control/dashboard-v2/assets/index-abc123.js")
+        == 1
+    )
 
 
 def test_api_auth_status_requires_token_by_default() -> None:
@@ -105,7 +111,10 @@ def test_redirect_target_is_dashboard_v2_accepts_absolute_and_relative() -> None
 
 def test_normalize_redirect_location_resolves_relative() -> None:
     base = "http://127.0.0.1:8787"
-    assert normalize_redirect_location(V2_DASHBOARD_PATH, base) == f"{base}{V2_DASHBOARD_PATH}"
+    assert (
+        normalize_redirect_location(V2_DASHBOARD_PATH, base)
+        == f"{base}{V2_DASHBOARD_PATH}"
+    )
 
 
 def test_check_legacy_dashboard_redirect_passes_on_v2_location(
@@ -153,7 +162,9 @@ def test_check_legacy_dashboard_redirect_fails_when_not_redirect(
     assert "expected redirect" in result.detail
 
 
-def test_run_smoke_hits_expanded_api_endpoints_with_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_smoke_hits_expanded_api_endpoints_with_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     called: list[str] = []
 
     def fake_health(*_args, **_kwargs):
@@ -177,13 +188,17 @@ def test_run_smoke_hits_expanded_api_endpoints_with_token(monkeypatch: pytest.Mo
     monkeypatch.setattr("scripts.dashboard_v2_smoke.check_api_endpoint", fake_api)
     monkeypatch.setattr("scripts.dashboard_v2_smoke._http_get", fake_http_get)
 
-    report = run_smoke("http://example.test", token="secret", timeout=1.0, shell_only=False)
+    report = run_smoke(
+        "http://example.test", token="secret", timeout=1.0, shell_only=False
+    )
     assert report.ok is True
     for _, path in API_READ_CHECKS:
         assert path in called
 
 
-def test_run_smoke_optional_legacy_redirect_check(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_smoke_optional_legacy_redirect_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def fake_health(*_args, **_kwargs):
         return CheckResult("healthz", True, "pass", "ok", 1.0)
 
@@ -218,12 +233,16 @@ def test_run_smoke_optional_legacy_redirect_check(monkeypatch: pytest.MonkeyPatc
     assert any(check.name == "legacy_dashboard_redirect" for check in report.checks)
 
 
-def test_run_smoke_fails_without_token_unless_shell_only(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_smoke_fails_without_token_unless_shell_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def fake_health(*_args, **_kwargs):
         return CheckResult("healthz", True, "pass", "ok", 1.0)
 
     def fake_shell(*_args, **_kwargs):
-        return CheckResult("dashboard_v2_shell", True, "pass", "ok", 1.0), SAMPLE_INDEX_HTML
+        return CheckResult(
+            "dashboard_v2_shell", True, "pass", "ok", 1.0
+        ), SAMPLE_INDEX_HTML
 
     def fake_assets(*_args, **_kwargs):
         return [CheckResult("asset:index-abc123.js", True, "pass", "ok", 1.0)]
@@ -234,18 +253,24 @@ def test_run_smoke_fails_without_token_unless_shell_only(monkeypatch: pytest.Mon
 
     report = run_smoke("http://example.test", token="", timeout=1.0, shell_only=False)
     assert report.ok is False
-    api_checks = [check for check in report.checks if check.name in SKIPPED_API_CHECK_NAMES]
+    api_checks = [
+        check for check in report.checks if check.name in SKIPPED_API_CHECK_NAMES
+    ]
     assert len(api_checks) == len(SKIPPED_API_CHECK_NAMES)
     assert all(check.status == "skipped" for check in api_checks)
     assert any("missing bearer token" in check.detail for check in api_checks)
 
 
-def test_run_smoke_shell_only_skips_api_without_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_smoke_shell_only_skips_api_without_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def fake_health(*_args, **_kwargs):
         return CheckResult("healthz", True, "pass", "ok", 1.0)
 
     def fake_shell(*_args, **_kwargs):
-        return CheckResult("dashboard_v2_shell", True, "pass", "ok", 1.0), SAMPLE_INDEX_HTML
+        return CheckResult(
+            "dashboard_v2_shell", True, "pass", "ok", 1.0
+        ), SAMPLE_INDEX_HTML
 
     def fake_assets(*_args, **_kwargs):
         return [

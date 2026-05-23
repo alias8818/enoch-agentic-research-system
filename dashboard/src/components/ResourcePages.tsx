@@ -51,6 +51,7 @@ import {
   PageShell,
   RawJsonDetails,
 } from './ui'
+import { WorkbenchCountsFold, WorkbenchOperatorSummary } from './WorkbenchSummary'
 
 type PageMeta = { next_cursor?: string; has_more?: boolean; returned?: number; page_size?: number }
 type ObservabilityHealth = { generated_at?: string; route_observability_enabled?: boolean; route_observability_log_configured?: boolean; latest_route_observation?: string | null }
@@ -258,7 +259,7 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
   return (
     <>
       <PageShell title="Queue" subtitle="Review queue rows, dry-run dispatch, and start selected work safely." dataSource="/control/api/v1/queue" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
-        <ListFilterBar state={filters} statusOptions={[{ label: 'all statuses', value: '' }, { label: 'queued', value: 'queued' }, { label: 'active', value: 'active' }, { label: 'blocked', value: 'blocked' }, { label: 'completed', value: 'completed' }]} onApply={(next) => { setFilters(next); replaceRouteHash(queueHash(next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(queueHash(next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
+        <ListFilterBar savedFiltersTableId="queue" state={filters} statusOptions={[{ label: 'all statuses', value: '' }, { label: 'queued', value: 'queued' }, { label: 'active', value: 'active' }, { label: 'blocked', value: 'blocked' }, { label: 'completed', value: 'completed' }]} onApply={(next) => { setFilters(next); replaceRouteHash(queueHash(next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(queueHash(next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
         <section className="queue-command-card queue-command-card--compact">
           <div>
             <p className="eyebrow">Selected queue row</p>
@@ -404,6 +405,7 @@ export function CorpusPage({ route }: { route?: Extract<DashboardRoute, { page: 
 
 type IntakeResponse = {
   generated_at?: string
+  operator_summary?: string
   latest_sync?: Record<string, unknown> | null
   projection_counts?: Record<string, number>
   queued_projection?: Record<string, unknown>[]
@@ -471,14 +473,7 @@ export function IntakePage({ route }: { route?: Extract<DashboardRoute, { page: 
   const selectedRow = selection || rows.find((row) => String(row.idea_id || '') === routeIdeaId) || null
   return (
     <PageShell title="Ideas intake" subtitle="Review admitted ideas, queue state, and next operator actions." dataSource="/control/api/intake/ideas" action={<PageRefreshAction generatedAt={data.generated_at} isFetching={query.isFetching} onRefresh={() => { setSelection(null); void query.refetch() }} refreshLabel="Refresh intake" />}>
-      <section className="count-grid">
-        {Object.entries(counts).slice(0, 8).map(([key, value]) => (
-          <div key={key} className="count-card">
-            <div>{String(value)}</div>
-            <div>{key.replaceAll('_', ' ')}</div>
-          </div>
-        ))}
-      </section>
+      <WorkbenchOperatorSummary summary={data.operator_summary} />
       <section className="result-card">
         <h2>Latest intake sync</h2>
         <DataTable rows={latestSync} columns={simpleTableColumns(['source', 'status', 'observed_at', 'authority'])} empty={deriveSimpleTableEmpty('intake sync observation')} />
@@ -488,6 +483,7 @@ export function IntakePage({ route }: { route?: Extract<DashboardRoute, { page: 
         <DataTable rows={skipped} columns={simpleTableColumns(['reason', 'count'])} empty={deriveSimpleTableEmpty('skipped intake row')} />
       </section>
       <DataTable rows={rows} columns={simpleTableColumns(['idea_id', 'title', 'idea_status', 'queue_status', 'next_action_hint', 'paper_status', 'source_kind', 'updated_at'], { title: { kind: 'primary' }, idea_id: { kind: 'id' } })} empty={deriveIntakeEmpty()} cellHref={intakeCellHref} onSelectRow={setSelection} />
+      <WorkbenchCountsFold counts={counts} label="Intake projection counts" />
       <IntakeIdeaDetail row={selectedRow} ideaId={routeIdeaId} onClose={() => setSelection(null)} />
     </PageShell>
   )

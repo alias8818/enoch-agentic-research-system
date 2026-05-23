@@ -2,12 +2,26 @@ from __future__ import annotations
 
 import unittest
 
-from enoch_control_plane.control_plane.models import ControlFlags, WorkerPreflightRequest
-from enoch_control_plane.control_plane.worker_adapter import HttpResult, post_worker_json, run_worker_preflight
+from enoch_control_plane.control_plane.models import (
+    ControlFlags,
+    WorkerPreflightRequest,
+)
+from enoch_control_plane.control_plane.worker_adapter import (
+    HttpResult,
+    post_worker_json,
+    run_worker_preflight,
+)
 
 
 class FakeWorkerTransport:
-    def __init__(self, *, health_ok: bool = True, gpu_pct: float = 0.0, active: int = 0, memory: int = 120_000) -> None:
+    def __init__(
+        self,
+        *,
+        health_ok: bool = True,
+        gpu_pct: float = 0.0,
+        active: int = 0,
+        memory: int = 120_000,
+    ) -> None:
         self.health_ok = health_ok
         self.gpu_pct = gpu_pct
         self.active = active
@@ -17,20 +31,37 @@ class FakeWorkerTransport:
     def __call__(self, url: str, headers: dict[str, str]) -> HttpResult:
         self.calls.append((url, headers))
         if url.endswith("/healthz"):
-            return HttpResult(ok=self.health_ok, status=200 if self.health_ok else 503, body={"ok": self.health_ok}, error="down" if not self.health_ok else "")
+            return HttpResult(
+                ok=self.health_ok,
+                status=200 if self.health_ok else 503,
+                body={"ok": self.health_ok},
+                error="down" if not self.health_ok else "",
+            )
         if "/dashboard/api" in url:
-            return HttpResult(ok=True, status=200, body={
-                "service": {"completion_callback_token_fingerprint": "expected-fingerprint"},
-                "telemetry": {
-                    "gpu_pct": self.gpu_pct,
-                    "gpu_compute_pids": [],
-                    "memory_available_mib": self.memory,
-                    "swap_free_mib": 0,
+            return HttpResult(
+                ok=True,
+                status=200,
+                body={
+                    "service": {
+                        "completion_callback_token_fingerprint": "expected-fingerprint"
+                    },
+                    "telemetry": {
+                        "gpu_pct": self.gpu_pct,
+                        "gpu_compute_pids": [],
+                        "memory_available_mib": self.memory,
+                        "swap_free_mib": 0,
+                    },
+                    "totals": {"active_or_waiting": self.active, "live": self.active},
+                    "queue": {"active_count": self.active},
+                    "runs": [
+                        {
+                            "run_id": "run-1",
+                            "project_id": "project-1",
+                            "gate_state": "running",
+                        }
+                    ],
                 },
-                "totals": {"active_or_waiting": self.active, "live": self.active},
-                "queue": {"active_count": self.active},
-                "runs": [{"run_id": "run-1", "project_id": "project-1", "gate_state": "running"}],
-            })
+            )
         raise AssertionError(f"unexpected url {url}")
 
 
@@ -38,7 +69,9 @@ class WorkerPreflightTests(unittest.TestCase):
     def test_preflight_passes_with_paused_control_and_idle_worker(self) -> None:
         transport = FakeWorkerTransport()
         response = run_worker_preflight(
-            WorkerPreflightRequest(wake_gate_url="http://worker:8787", bearer_token="secret"),
+            WorkerPreflightRequest(
+                wake_gate_url="http://worker:8787", bearer_token="secret"
+            ),
             ControlFlags(queue_paused=True, maintenance_mode=True),
             transport=transport,
         )
@@ -48,8 +81,12 @@ class WorkerPreflightTests(unittest.TestCase):
         checks = {check.name: check for check in response.checks}
         self.assertTrue(checks["worker_swapless_allowed"].ok)
         self.assertEqual(checks["worker_memory_available"].data["swap_free_mib"], 0)
-        self.assertEqual(checks["wake_gate_dashboard_api"].data["body"]["runs"][0]["run_id"], "run-1")
-        self.assertTrue(checks["wake_gate_dashboard_api"].data["body"]["body_compacted"])
+        self.assertEqual(
+            checks["wake_gate_dashboard_api"].data["body"]["runs"][0]["run_id"], "run-1"
+        )
+        self.assertTrue(
+            checks["wake_gate_dashboard_api"].data["body"]["body_compacted"]
+        )
 
     def test_preflight_bounds_large_dashboard_payloads(self) -> None:
         large_note = "x" * 50_000
@@ -85,7 +122,9 @@ class WorkerPreflightTests(unittest.TestCase):
             raise AssertionError(f"unexpected url {url}")
 
         response = run_worker_preflight(
-            WorkerPreflightRequest(wake_gate_url="http://worker:8787", bearer_token="secret"),
+            WorkerPreflightRequest(
+                wake_gate_url="http://worker:8787", bearer_token="secret"
+            ),
             ControlFlags(queue_paused=True, maintenance_mode=True),
             transport=transport,
         )
@@ -102,10 +141,13 @@ class WorkerPreflightTests(unittest.TestCase):
         self.assertNotIn(large_note, str(payload))
         self.assertNotIn("long_internal_notes", str(payload))
 
-
     def test_preflight_marks_disabled_maintenance_mode_as_safe(self) -> None:
         response = run_worker_preflight(
-            WorkerPreflightRequest(wake_gate_url="http://worker:8787", bearer_token="secret", require_paused=False),
+            WorkerPreflightRequest(
+                wake_gate_url="http://worker:8787",
+                bearer_token="secret",
+                require_paused=False,
+            ),
             ControlFlags(queue_paused=False, maintenance_mode=False),
             transport=FakeWorkerTransport(),
         )
@@ -113,20 +155,28 @@ class WorkerPreflightTests(unittest.TestCase):
         checks = {check.name: check for check in response.checks}
         self.assertTrue(response.ok)
         self.assertTrue(checks["control_maintenance_mode"].ok)
-        self.assertEqual(checks["control_maintenance_mode"].detail, "maintenance mode is disabled")
+        self.assertEqual(
+            checks["control_maintenance_mode"].detail, "maintenance mode is disabled"
+        )
 
     def test_preflight_fails_when_control_is_unpaused_but_pause_required(self) -> None:
         response = run_worker_preflight(
-            WorkerPreflightRequest(wake_gate_url="http://worker:8787", bearer_token="secret"),
+            WorkerPreflightRequest(
+                wake_gate_url="http://worker:8787", bearer_token="secret"
+            ),
             ControlFlags(queue_paused=False, maintenance_mode=False),
             transport=FakeWorkerTransport(),
         )
         self.assertFalse(response.ok)
-        self.assertFalse({check.name: check for check in response.checks}["control_queue_paused"].ok)
+        self.assertFalse(
+            {check.name: check for check in response.checks}["control_queue_paused"].ok
+        )
 
     def test_preflight_fails_on_active_worker(self) -> None:
         response = run_worker_preflight(
-            WorkerPreflightRequest(wake_gate_url="http://worker:8787", bearer_token="secret"),
+            WorkerPreflightRequest(
+                wake_gate_url="http://worker:8787", bearer_token="secret"
+            ),
             ControlFlags(queue_paused=True, maintenance_mode=True),
             transport=FakeWorkerTransport(active=1),
         )
@@ -135,7 +185,9 @@ class WorkerPreflightTests(unittest.TestCase):
         self.assertFalse(checks["worker_no_live_runs"].ok)
         self.assertFalse(checks["worker_queue_snapshot_no_active"].ok)
 
-    def test_preflight_requires_callback_token_fingerprint_match_when_expected(self) -> None:
+    def test_preflight_requires_callback_token_fingerprint_match_when_expected(
+        self,
+    ) -> None:
         response = run_worker_preflight(
             WorkerPreflightRequest(
                 wake_gate_url="http://worker:8787",
@@ -175,7 +227,9 @@ class WorkerPreflightTests(unittest.TestCase):
         checks = {check.name: check for check in response.checks}
         self.assertTrue(checks["wake_gate_dashboard_api"].data["skipped"])
 
-    def test_preflight_malformed_worker_numbers_fail_closed_without_exception(self) -> None:
+    def test_preflight_malformed_worker_numbers_fail_closed_without_exception(
+        self,
+    ) -> None:
         def transport(url: str, headers: dict[str, str]) -> HttpResult:
             if url.endswith("/healthz"):
                 return HttpResult(ok=True, status=200, body={"ok": True})
@@ -197,7 +251,9 @@ class WorkerPreflightTests(unittest.TestCase):
             raise AssertionError(f"unexpected url {url}")
 
         response = run_worker_preflight(
-            WorkerPreflightRequest(wake_gate_url="http://worker:8787", bearer_token="secret"),
+            WorkerPreflightRequest(
+                wake_gate_url="http://worker:8787", bearer_token="secret"
+            ),
             ControlFlags(queue_paused=True, maintenance_mode=True),
             transport=transport,
         )
@@ -210,12 +266,15 @@ class WorkerPreflightTests(unittest.TestCase):
         self.assertFalse(checks["worker_no_live_runs"].ok)
         self.assertFalse(checks["worker_queue_snapshot_no_active"].ok)
 
-
-    def test_preflight_malformed_health_body_fails_closed_without_exception(self) -> None:
+    def test_preflight_malformed_health_body_fails_closed_without_exception(
+        self,
+    ) -> None:
         def transport(url: str, headers: dict[str, str]) -> HttpResult:
             if url.endswith("/healthz"):
                 return HttpResult(ok=True, status=200, body=[{"ok": True}])  # type: ignore[arg-type]
-            raise AssertionError("dashboard API should not be required to prove malformed health handling")
+            raise AssertionError(
+                "dashboard API should not be required to prove malformed health handling"
+            )
 
         response = run_worker_preflight(
             WorkerPreflightRequest(wake_gate_url="http://worker:8787", bearer_token=""),
@@ -228,8 +287,9 @@ class WorkerPreflightTests(unittest.TestCase):
         self.assertFalse(checks["wake_gate_healthz"].ok)
         self.assertIn("malformed", checks["wake_gate_healthz"].detail)
 
-
-    def test_preflight_malformed_dashboard_body_fails_closed_without_exception(self) -> None:
+    def test_preflight_malformed_dashboard_body_fails_closed_without_exception(
+        self,
+    ) -> None:
         bodies = [[{"not": "an-object"}]]
 
         def transport(url: str, headers: dict[str, str]) -> HttpResult:
@@ -240,7 +300,9 @@ class WorkerPreflightTests(unittest.TestCase):
             raise AssertionError(f"unexpected url {url}")
 
         response = run_worker_preflight(
-            WorkerPreflightRequest(wake_gate_url="http://worker:8787", bearer_token="secret"),
+            WorkerPreflightRequest(
+                wake_gate_url="http://worker:8787", bearer_token="secret"
+            ),
             ControlFlags(queue_paused=True, maintenance_mode=True),
             transport=transport,
         )
@@ -250,7 +312,6 @@ class WorkerPreflightTests(unittest.TestCase):
         self.assertFalse(checks["wake_gate_dashboard_api"].ok)
         self.assertIn("malformed", checks["wake_gate_dashboard_api"].detail)
 
-
     def test_post_worker_json_uses_bearer_and_json_transport(self) -> None:
         calls = []
 
@@ -258,7 +319,13 @@ class WorkerPreflightTests(unittest.TestCase):
             calls.append((method, url, headers, payload))
             return HttpResult(ok=True, status=200, body={"accepted": True})
 
-        response = post_worker_json("http://worker:8787/", "/prepare-project", "secret", {"x": 1}, transport=transport)
+        response = post_worker_json(
+            "http://worker:8787/",
+            "/prepare-project",
+            "secret",
+            {"x": 1},
+            transport=transport,
+        )
         self.assertTrue(response.ok)
         self.assertEqual(calls[0][0], "POST")
         self.assertEqual(calls[0][1], "http://worker:8787/prepare-project")
@@ -266,9 +333,9 @@ class WorkerPreflightTests(unittest.TestCase):
         self.assertEqual(calls[0][3], {"x": 1})
 
 
-
 if __name__ == "__main__":
     unittest.main()
+
 
 def test_http_request_json_rejects_file_scheme_before_urlopen(monkeypatch) -> None:
     from enoch_control_plane.control_plane import worker_adapter
@@ -298,9 +365,13 @@ def test_http_request_json_rejects_non_object_json(monkeypatch) -> None:
         def read(self):
             return b'[{"ok": true}]'
 
-    monkeypatch.setattr(worker_adapter.request, "urlopen", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr(
+        worker_adapter.request, "urlopen", lambda *_args, **_kwargs: Response()
+    )
 
-    result = worker_adapter._http_request_json("GET", "http://worker.example/healthz", {}, None)
+    result = worker_adapter._http_request_json(
+        "GET", "http://worker.example/healthz", {}, None
+    )
 
     assert result.ok is False
     assert result.status == 200

@@ -15,7 +15,9 @@ def repo(tmp_path: Path, key: str) -> push_public_release_bundle.Repo:
     return push_public_release_bundle.Repo(key, path)
 
 
-def test_local_release_checks_run_docs_validators_before_manifest(monkeypatch, tmp_path: Path) -> None:
+def test_local_release_checks_run_docs_validators_before_manifest(
+    monkeypatch, tmp_path: Path
+) -> None:
     system = repo(tmp_path, "enoch-agentic-research-system")
     corpus = repo(tmp_path, "enoch-ai-research-corpus")
     docs = repo(tmp_path, "enoch-docs")
@@ -49,11 +51,16 @@ def test_local_release_checks_run_docs_validators_before_manifest(monkeypatch, t
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setattr(push_public_release_bundle, "run", fake_run)
 
-    push_public_release_bundle.run_local_release_checks(system, corpus, docs, profile, owner, personal, promising)
+    push_public_release_bundle.run_local_release_checks(
+        system, corpus, docs, profile, owner, personal, promising
+    )
 
     commands = [cmd for cmd, _cwd in calls]
     assert commands[:2] == [
-        [push_public_release_bundle.sys.executable, "scripts/validate_runtime_snapshot_links.py"],
+        [
+            push_public_release_bundle.sys.executable,
+            "scripts/validate_runtime_snapshot_links.py",
+        ],
         ["node", "scripts/validate-docs.mjs"],
     ]
     assert calls[0][1] == system.path
@@ -66,7 +73,9 @@ def test_local_release_checks_run_docs_validators_before_manifest(monkeypatch, t
     assert str(promising.path) in commands[3]
 
 
-def test_local_release_checks_runs_source_lineage_validator_when_database_url_is_set(monkeypatch, tmp_path: Path) -> None:
+def test_local_release_checks_runs_source_lineage_validator_when_database_url_is_set(
+    monkeypatch, tmp_path: Path
+) -> None:
     system = repo(tmp_path, "enoch-agentic-research-system")
     corpus = repo(tmp_path, "enoch-ai-research-corpus")
     docs = repo(tmp_path, "enoch-docs")
@@ -99,11 +108,16 @@ def test_local_release_checks_runs_source_lineage_validator_when_database_url_is
     monkeypatch.setenv("ENOCH_SOURCE_LINEAGE_CREATED_AFTER", "2026-05-19T00:00:00Z")
     monkeypatch.setattr(push_public_release_bundle, "run", fake_run)
 
-    push_public_release_bundle.run_local_release_checks(system, corpus, docs, profile, owner, personal, promising)
+    push_public_release_bundle.run_local_release_checks(
+        system, corpus, docs, profile, owner, personal, promising
+    )
 
     commands = [cmd for cmd, _env in calls]
     assert commands[:3] == [
-        [push_public_release_bundle.sys.executable, "scripts/validate_runtime_snapshot_links.py"],
+        [
+            push_public_release_bundle.sys.executable,
+            "scripts/validate_runtime_snapshot_links.py",
+        ],
         [
             *push_public_release_bundle.PROJECT_PYTHON,
             "scripts/validate_source_lineage.py",
@@ -115,7 +129,9 @@ def test_local_release_checks_runs_source_lineage_validator_when_database_url_is
     assert calls[1][1] == {"ENOCH_SOURCE_LINEAGE_DATABASE_URL": "postgres://validator"}
 
 
-def test_source_lineage_check_defaults_to_post_cutover_window(monkeypatch, tmp_path: Path) -> None:
+def test_source_lineage_check_defaults_to_post_cutover_window(
+    monkeypatch, tmp_path: Path
+) -> None:
     system = repo(tmp_path, "enoch-agentic-research-system")
     calls: list[list[str]] = []
 
@@ -140,9 +156,9 @@ def test_source_lineage_check_defaults_to_post_cutover_window(monkeypatch, tmp_p
     ]
 
 
-
-
-def test_source_lineage_check_uses_control_database_url_when_primary_unset(monkeypatch, tmp_path: Path) -> None:
+def test_source_lineage_check_uses_control_database_url_when_primary_unset(
+    monkeypatch, tmp_path: Path
+) -> None:
     system = repo(tmp_path, "enoch-agentic-research-system")
     calls: list[tuple[list[str], dict[str, str] | None]] = []
 
@@ -171,7 +187,11 @@ def test_source_lineage_check_uses_control_database_url_when_primary_unset(monke
             {"ENOCH_SOURCE_LINEAGE_DATABASE_URL": "postgres://control"},
         )
     ]
-def test_local_release_checks_runs_promising_signals_validation_when_database_url_is_set(monkeypatch, tmp_path: Path) -> None:
+
+
+def test_local_release_checks_runs_promising_signals_validation_when_database_url_is_set(
+    monkeypatch, tmp_path: Path
+) -> None:
     system = repo(tmp_path, "enoch-agentic-research-system")
     corpus = repo(tmp_path, "enoch-ai-research-corpus")
     docs = repo(tmp_path, "enoch-docs")
@@ -206,9 +226,13 @@ def test_local_release_checks_runs_promising_signals_validation_when_database_ur
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setattr(push_public_release_bundle, "run", fake_run)
 
-    push_public_release_bundle.run_local_release_checks(system, corpus, docs, profile, owner, personal, promising)
+    push_public_release_bundle.run_local_release_checks(
+        system, corpus, docs, profile, owner, personal, promising
+    )
 
-    command = next(cmd for cmd, _cwd, _env in calls if "scripts/export_promising_signals.py" in cmd)
+    command = next(
+        cmd for cmd, _cwd, _env in calls if "scripts/export_promising_signals.py" in cmd
+    )
     assert command == [
         *push_public_release_bundle.PROJECT_PYTHON,
         "scripts/export_promising_signals.py",
@@ -216,12 +240,19 @@ def test_local_release_checks_runs_promising_signals_validation_when_database_ur
         str(promising.path),
         "--validate-output-repo",
     ]
-    promising_call = next(item for item in calls if "scripts/export_promising_signals.py" in item[0])
+    promising_call = next(
+        item for item in calls if "scripts/export_promising_signals.py" in item[0]
+    )
     assert promising_call[1] == system.path
-    assert promising_call[2] == {"ENOCH_SUPABASE_DATABASE_URL": "postgres://promising", "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF": push_public_release_bundle.DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF}
+    assert promising_call[2] == {
+        "ENOCH_SUPABASE_DATABASE_URL": "postgres://promising",
+        "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF": push_public_release_bundle.DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF,
+    }
 
 
-def test_local_release_checks_stop_when_promising_signals_validation_fails(monkeypatch, tmp_path: Path) -> None:
+def test_local_release_checks_stop_when_promising_signals_validation_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
     system = repo(tmp_path, "enoch-agentic-research-system")
     corpus = repo(tmp_path, "enoch-ai-research-corpus")
     docs = repo(tmp_path, "enoch-docs")
@@ -245,13 +276,17 @@ def test_local_release_checks_stop_when_promising_signals_validation_fails(monke
     monkeypatch.setattr(push_public_release_bundle, "run", fake_run)
 
     with pytest.raises(subprocess.CalledProcessError):
-        push_public_release_bundle.run_local_release_checks(system, corpus, docs, profile, owner, personal, promising)
+        push_public_release_bundle.run_local_release_checks(
+            system, corpus, docs, profile, owner, personal, promising
+        )
 
     assert any("scripts/export_promising_signals.py" in cmd for cmd in calls)
     assert not any("scripts/generate_ecosystem_manifest.py" in cmd for cmd in calls)
 
 
-def test_local_release_checks_skips_promising_signals_live_validation_without_database_url(monkeypatch, tmp_path: Path, capsys) -> None:
+def test_local_release_checks_skips_promising_signals_live_validation_without_database_url(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
     system = repo(tmp_path, "enoch-agentic-research-system")
     corpus = repo(tmp_path, "enoch-ai-research-corpus")
     docs = repo(tmp_path, "enoch-docs")
@@ -286,13 +321,20 @@ def test_local_release_checks_skips_promising_signals_live_validation_without_da
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setattr(push_public_release_bundle, "run", fake_run)
 
-    push_public_release_bundle.run_local_release_checks(system, corpus, docs, profile, owner, personal, promising)
+    push_public_release_bundle.run_local_release_checks(
+        system, corpus, docs, profile, owner, personal, promising
+    )
 
     assert not any("scripts/export_promising_signals.py" in cmd for cmd in calls)
-    assert "promising signals live export validation: skipped; no Postgres URL configured" in capsys.readouterr().out
+    assert (
+        "promising signals live export validation: skipped; no Postgres URL configured"
+        in capsys.readouterr().out
+    )
 
 
-def test_local_release_checks_stop_when_docs_validator_fails(monkeypatch, tmp_path: Path) -> None:
+def test_local_release_checks_stop_when_docs_validator_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
     system = repo(tmp_path, "enoch-agentic-research-system")
     corpus = repo(tmp_path, "enoch-ai-research-corpus")
     docs = repo(tmp_path, "enoch-docs")
@@ -315,15 +357,22 @@ def test_local_release_checks_stop_when_docs_validator_fails(monkeypatch, tmp_pa
     monkeypatch.setattr(push_public_release_bundle, "run", fake_run)
 
     with pytest.raises(subprocess.CalledProcessError):
-        push_public_release_bundle.run_local_release_checks(system, corpus, docs, profile, owner, personal, promising)
+        push_public_release_bundle.run_local_release_checks(
+            system, corpus, docs, profile, owner, personal, promising
+        )
 
     assert calls == [
-        [push_public_release_bundle.sys.executable, "scripts/validate_runtime_snapshot_links.py"],
+        [
+            push_public_release_bundle.sys.executable,
+            "scripts/validate_runtime_snapshot_links.py",
+        ],
         ["node", "scripts/validate-docs.mjs"],
     ]
 
 
-def test_sync_corpus_import_ledger_passes_database_url_via_env_not_argv(monkeypatch, tmp_path: Path) -> None:
+def test_sync_corpus_import_ledger_passes_database_url_via_env_not_argv(
+    monkeypatch, tmp_path: Path
+) -> None:
     system = repo(tmp_path, "enoch-agentic-research-system")
     corpus = repo(tmp_path, "enoch-ai-research-corpus")
     calls: list[tuple[list[str], dict[str, str] | None]] = []
@@ -345,8 +394,16 @@ def test_sync_corpus_import_ledger_passes_database_url_via_env_not_argv(monkeypa
     assert len(calls) == 2
     for cmd, env in calls:
         assert "postgresql://user:secret@example/db" not in " ".join(cmd)
-        assert env == {"ENOCH_SUPABASE_DATABASE_URL": "postgresql://user:secret@example/db", "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF": push_public_release_bundle.DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF}
+        assert env == {
+            "ENOCH_SUPABASE_DATABASE_URL": "postgresql://user:secret@example/db",
+            "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF": push_public_release_bundle.DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF,
+        }
 
 
 def test_printable_cmd_redacts_secret_args() -> None:
-    assert push_public_release_bundle.printable_cmd(["cmd", "--db-url", "postgres://secret", "--ok"]) == "cmd --db-url <redacted> --ok"
+    assert (
+        push_public_release_bundle.printable_cmd(
+            ["cmd", "--db-url", "postgres://secret", "--ok"]
+        )
+        == "cmd --db-url <redacted> --ok"
+    )

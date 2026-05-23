@@ -7,7 +7,11 @@ from scripts import research_provider_budget
 
 
 SYNTHETIC_QUOTA = {
-    "subscription": {"limit": 2500, "requests": 0, "renewsAt": "2026-05-09T19:24:53.192Z"},
+    "subscription": {
+        "limit": 2500,
+        "requests": 0,
+        "renewsAt": "2026-05-09T19:24:53.192Z",
+    },
     "weeklyTokenLimit": {
         "remainingCredits": "$119.77",
         "maxCredits": "$120.00",
@@ -68,8 +72,13 @@ def test_synthetic_budget_fails_closed_on_malformed_numeric_values() -> None:
     )
 
     assert result["ok"] is False
-    assert any("malformed rollingFiveHourLimit.remaining" in failure for failure in result["failures"])
-    assert any("malformed subscription.limit" in failure for failure in result["failures"])
+    assert any(
+        "malformed rollingFiveHourLimit.remaining" in failure
+        for failure in result["failures"]
+    )
+    assert any(
+        "malformed subscription.limit" in failure for failure in result["failures"]
+    )
 
 
 def test_synthetic_budget_fails_closed_when_low_or_limited() -> None:
@@ -92,7 +101,6 @@ def test_synthetic_budget_fails_closed_when_low_or_limited() -> None:
     assert any("rolling remaining" in failure for failure in result["failures"])
 
 
-
 def test_synthetic_budget_fails_when_subscription_allowance_exhausted() -> None:
     payload = json.loads(json.dumps(SYNTHETIC_QUOTA))
     payload["subscription"]["limit"] = 100
@@ -107,21 +115,31 @@ def test_synthetic_budget_fails_when_subscription_allowance_exhausted() -> None:
     )
 
     assert result["ok"] is False
-    assert any("subscription request allowance" in failure for failure in result["failures"])
+    assert any(
+        "subscription request allowance" in failure for failure in result["failures"]
+    )
+
 
 def test_budget_cli_uses_offline_payload(tmp_path: Path) -> None:
     payload = tmp_path / "quota.json"
     output = tmp_path / "budget.json"
     payload.write_text(json.dumps(SYNTHETIC_QUOTA), encoding="utf-8")
 
-    assert research_provider_budget.main(["--input-json", str(payload), "--output", str(output)]) == 0
+    assert (
+        research_provider_budget.main(
+            ["--input-json", str(payload), "--output", str(output)]
+        )
+        == 0
+    )
 
     result = json.loads(output.read_text(encoding="utf-8"))
     assert result["ok"] is True
     assert result["provider"] == "synthetic"
 
 
-def test_budget_cli_missing_key_can_emit_json_without_secret(monkeypatch, capsys) -> None:
+def test_budget_cli_missing_key_can_emit_json_without_secret(
+    monkeypatch, capsys
+) -> None:
     monkeypatch.delenv("SYNTHETIC_API_KEY", raising=False)
 
     assert research_provider_budget.main(["--allow-missing-key"]) == 0
@@ -131,7 +149,9 @@ def test_budget_cli_missing_key_can_emit_json_without_secret(monkeypatch, capsys
     assert "syn_" not in output
 
 
-def test_budget_cli_can_use_exedev_proxy_without_local_api_key(monkeypatch, tmp_path: Path) -> None:
+def test_budget_cli_can_use_exedev_proxy_without_local_api_key(
+    monkeypatch, tmp_path: Path
+) -> None:
     output = tmp_path / "budget.json"
     calls: list[tuple[str, str]] = []
 
@@ -142,13 +162,18 @@ def test_budget_cli_can_use_exedev_proxy_without_local_api_key(monkeypatch, tmp_
     monkeypatch.delenv("SYNTHETIC_API_KEY", raising=False)
     monkeypatch.setattr(research_provider_budget, "fetch_json", fake_fetch)
 
-    assert research_provider_budget.main([
-        "--base-url",
-        "https://synthetic.int.exe.xyz",
-        "--no-auth",
-        "--output",
-        str(output),
-    ]) == 0
+    assert (
+        research_provider_budget.main(
+            [
+                "--base-url",
+                "https://synthetic.int.exe.xyz",
+                "--no-auth",
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
 
     result = json.loads(output.read_text(encoding="utf-8"))
     assert calls == [("https://synthetic.int.exe.xyz/v2/quotas", "")]
@@ -161,7 +186,9 @@ def test_fetch_json_rejects_non_http_url_before_urlopen(monkeypatch) -> None:
     def fake_urlopen(*_args, **_kwargs):
         raise AssertionError("urlopen should not run for unsafe provider URL")
 
-    monkeypatch.setattr(research_provider_budget.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        research_provider_budget.urllib.request, "urlopen", fake_urlopen
+    )
     try:
         research_provider_budget.fetch_json("file:///etc/passwd", timeout=1)
     except ValueError as exc:

@@ -47,8 +47,12 @@ def test_dispatch_priority_spreads_close_admission_scores() -> None:
     )
     followup = _row(candidate_id="followup", total_score=71.6)
 
-    fresh_priority = research_facility.dispatch_priority_score(fresh, category_counts={"long-context": 2}, now=now)
-    followup_priority = research_facility.dispatch_priority_score(followup, category_counts={"long-context": 2}, now=now)
+    fresh_priority = research_facility.dispatch_priority_score(
+        fresh, category_counts={"long-context": 2}, now=now
+    )
+    followup_priority = research_facility.dispatch_priority_score(
+        followup, category_counts={"long-context": 2}, now=now
+    )
 
     assert followup_priority > fresh_priority
     assert followup_priority - fresh_priority >= 8
@@ -86,13 +90,24 @@ def test_janitor_rejects_stale_weak_rows_without_auto_applying() -> None:
     )
 
     assert actions[0]["action"] == "reject"
-    report = research_facility_maintenance.build_report([], actions, applied=False, apply_result=None)
+    report = research_facility_maintenance.build_report(
+        [], actions, applied=False, apply_result=None
+    )
     assert report["dry_run"] is True
     assert report["action_counts"] == {"reject": 1}
 
 
 def test_janitor_keeps_saturated_fresh_rows_out_of_promote_lane() -> None:
-    rows = [_row(candidate_id=f"candidate-{idx}", generation_mode="fresh_grounded", parent_project_id="", source_urls=["https://example.com"], total_score=71.8) for idx in range(20)]
+    rows = [
+        _row(
+            candidate_id=f"candidate-{idx}",
+            generation_mode="fresh_grounded",
+            parent_project_id="",
+            source_urls=["https://example.com"],
+            total_score=71.8,
+        )
+        for idx in range(20)
+    ]
 
     actions = research_facility_maintenance.classify_rows(
         rows,
@@ -121,19 +136,29 @@ def test_janitor_does_not_promote_borderline_fresh_without_priority_signal() -> 
     assert actions[0]["action"] == "rewrite_suggested"
 
 
-def test_janitor_apply_skips_admission_when_promote_update_matches_no_rows(monkeypatch) -> None:
+def test_janitor_apply_skips_admission_when_promote_update_matches_no_rows(
+    monkeypatch,
+) -> None:
     admissions: list[tuple] = []
     events: list[tuple] = []
 
     class Cursor:
         rowcount = 0
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
         def execute(self, sql, params=()):
             normalized = " ".join(sql.lower().split())
             if normalized.startswith("set search_path"):
                 self.rowcount = 0
-            elif normalized.startswith("update research_candidates") and "status = 'admitted'" in normalized:
+            elif (
+                normalized.startswith("update research_candidates")
+                and "status = 'admitted'" in normalized
+            ):
                 self.rowcount = 0
             elif normalized.startswith("insert into research_admissions"):
                 admissions.append(params)
@@ -144,19 +169,36 @@ def test_janitor_apply_skips_admission_when_promote_update_matches_no_rows(monke
             elif normalized.startswith("insert into control_events"):
                 events.append(params)
                 self.rowcount = 1
+
         def fetchone(self):
             return getattr(self, "_fetchone", None)
 
     class Conn:
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
-        def cursor(self): return Cursor()
+        def __enter__(self):
+            return self
 
-    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()))
+        def __exit__(self, *args):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "psycopg",
+        SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()),
+    )
 
     result = research_facility_maintenance.apply_actions(
         "postgres://example",
-        [{"candidate_id": "already-moved", "action": "promote", "reason": "race", "dispatch_priority": {}}],
+        [
+            {
+                "candidate_id": "already-moved",
+                "action": "promote",
+                "reason": "race",
+                "dispatch_priority": {},
+            }
+        ],
         requested_by="unit",
         apply_rejections=False,
     )
@@ -168,8 +210,15 @@ def test_janitor_apply_skips_admission_when_promote_update_matches_no_rows(monke
     assert events == []
 
 
-def test_janitor_non_mutating_events_allow_changed_observation_payloads(monkeypatch) -> None:
-    action = {"candidate_id": "candidate-1", "action": "keep", "reason": "still reviewable", "dispatch_priority": {"age_days": 3.0}}
+def test_janitor_non_mutating_events_allow_changed_observation_payloads(
+    monkeypatch,
+) -> None:
+    action = {
+        "candidate_id": "candidate-1",
+        "action": "keep",
+        "reason": "still reviewable",
+        "dispatch_priority": {"age_days": 3.0},
+    }
     old_payload = {
         "requested_by": "unit",
         "janitor_action": {**action, "dispatch_priority": {"age_days": 2.0}},
@@ -180,8 +229,13 @@ def test_janitor_non_mutating_events_allow_changed_observation_payloads(monkeypa
 
     class Cursor:
         rowcount = 0
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
         def execute(self, sql, params=()):
             normalized = " ".join(sql.lower().split())
             if normalized.startswith("set search_path"):
@@ -204,15 +258,25 @@ def test_janitor_non_mutating_events_allow_changed_observation_payloads(monkeypa
                 self.rowcount = 1
                 return self
             raise AssertionError(normalized)
+
         def fetchone(self):
             return getattr(self, "_fetchone", None)
 
     class Conn:
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
-        def cursor(self): return Cursor()
+        def __enter__(self):
+            return self
 
-    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()))
+        def __exit__(self, *args):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "psycopg",
+        SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()),
+    )
 
     result = research_facility_maintenance.apply_actions(
         "postgres://example",
@@ -226,20 +290,35 @@ def test_janitor_non_mutating_events_allow_changed_observation_payloads(monkeypa
     assert inserted_keys[0].startswith("research-janitor:keep:candidate-1:")
 
 
-def test_janitor_apply_conflicts_on_reused_event_key_with_different_identity(monkeypatch) -> None:
-    action = {"candidate_id": "candidate-1", "action": "promote", "reason": "admit now", "dispatch_priority": {"score": 90}}
+def test_janitor_apply_conflicts_on_reused_event_key_with_different_identity(
+    monkeypatch,
+) -> None:
+    action = {
+        "candidate_id": "candidate-1",
+        "action": "promote",
+        "reason": "admit now",
+        "dispatch_priority": {"score": 90},
+    }
     payload = {"requested_by": "unit", "janitor_action": action}
     existing_payload_hash = research_facility_maintenance._payload_hash(payload)
 
     class Cursor:
         rowcount = 0
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
         def execute(self, sql, params=()):
             normalized = " ".join(sql.lower().split())
             if normalized.startswith("set search_path"):
                 return self
-            if normalized.startswith("update research_candidates") and "status = 'admitted'" in normalized:
+            if (
+                normalized.startswith("update research_candidates")
+                and "status = 'admitted'" in normalized
+            ):
                 self.rowcount = 1
                 return self
             if normalized.startswith("select admission_id"):
@@ -261,15 +340,25 @@ def test_janitor_apply_conflicts_on_reused_event_key_with_different_identity(mon
             if normalized.startswith("insert into control_events"):
                 raise AssertionError("conflicting replay must not insert a new event")
             raise AssertionError(normalized)
+
         def fetchone(self):
             return getattr(self, "_fetchone", None)
 
     class Conn:
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
-        def cursor(self): return Cursor()
+        def __enter__(self):
+            return self
 
-    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()))
+        def __exit__(self, *args):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "psycopg",
+        SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()),
+    )
 
     with pytest.raises(IdempotencyConflict):
         research_facility_maintenance.apply_actions(
@@ -280,18 +369,33 @@ def test_janitor_apply_conflicts_on_reused_event_key_with_different_identity(mon
         )
 
 
-def test_janitor_apply_conflicts_on_reused_admission_key_with_different_identity(monkeypatch) -> None:
-    action = {"candidate_id": "candidate-1", "action": "promote", "reason": "admit now", "dispatch_priority": {"score": 90}}
+def test_janitor_apply_conflicts_on_reused_admission_key_with_different_identity(
+    monkeypatch,
+) -> None:
+    action = {
+        "candidate_id": "candidate-1",
+        "action": "promote",
+        "reason": "admit now",
+        "dispatch_priority": {"score": 90},
+    }
 
     class Cursor:
         rowcount = 0
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
         def execute(self, sql, params=()):
             normalized = " ".join(sql.lower().split())
             if normalized.startswith("set search_path"):
                 return self
-            if normalized.startswith("update research_candidates") and "status = 'admitted'" in normalized:
+            if (
+                normalized.startswith("update research_candidates")
+                and "status = 'admitted'" in normalized
+            ):
                 self.rowcount = 1
                 return self
             if normalized.startswith("select admission_id"):
@@ -315,15 +419,25 @@ def test_janitor_apply_conflicts_on_reused_admission_key_with_different_identity
                 self.rowcount = 1
                 return self
             raise AssertionError(normalized)
+
         def fetchone(self):
             return getattr(self, "_fetchone", None)
 
     class Conn:
-        def __enter__(self): return self
-        def __exit__(self, *args): return None
-        def cursor(self): return Cursor()
+        def __enter__(self):
+            return self
 
-    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()))
+        def __exit__(self, *args):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "psycopg",
+        SimpleNamespace(connect=lambda *_args, **_kwargs: Conn()),
+    )
 
     with pytest.raises(IdempotencyConflict):
         research_facility_maintenance.apply_actions(

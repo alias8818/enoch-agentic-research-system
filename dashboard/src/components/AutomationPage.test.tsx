@@ -17,11 +17,12 @@ afterEach(() => {
 
 it('loads publication automation rows from the bounded API', async () => {
   saveToken('test-token')
-  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ counts: { triage_ready: 1 }, rows: [{ paper_id: 'paper-1', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Paper project' }] }), { status: 200 }))
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ counts: { triage_ready: 1 }, operator_summary: '1 paper(s) ready for automation triage; select a row and dry-run rewrite or finalization.', rows: [{ paper_id: 'paper-1', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Paper project' }] }), { status: 200 }))
 
   renderWithClient(<AutomationPage />)
 
   await screen.findByText('Paper project')
+  expect(screen.getByText(/ready for automation triage/i)).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /paper-1/ })).toHaveAttribute('href', '/control/dashboard-v2#automation:paper-1')
   expect(fetchMock).toHaveBeenCalledWith(
     expect.stringContaining('/control/api/publication-automation?'),

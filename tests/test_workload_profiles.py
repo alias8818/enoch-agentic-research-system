@@ -14,7 +14,12 @@ from enoch_control_plane.app import (
 )
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.gate import WakeGate
-from enoch_control_plane.models import GateState, ProcessSnapshot, RunRecord, TelemetrySample
+from enoch_control_plane.models import (
+    GateState,
+    ProcessSnapshot,
+    RunRecord,
+    TelemetrySample,
+)
 
 
 class _StaticTelemetry:
@@ -26,7 +31,9 @@ class _StaticTelemetry:
 
 
 class _NoopProcessTracker:
-    def snapshot(self, record: RunRecord, gpu_compute_pids: list[int] | None = None) -> ProcessSnapshot:
+    def snapshot(
+        self, record: RunRecord, gpu_compute_pids: list[int] | None = None
+    ) -> ProcessSnapshot:
         return ProcessSnapshot()
 
 
@@ -51,7 +58,9 @@ class WorkloadProfileTests(unittest.TestCase):
         )
 
         self.assertEqual(config.resolve_workload_profile("cpu-only")[0], "cpu_only")
-        self.assertEqual(config.resolve_workload_profile("gpu_required")[0], "gpu_required")
+        self.assertEqual(
+            config.resolve_workload_profile("gpu_required")[0], "gpu_required"
+        )
 
     def test_config_example_declares_cpu_and_gpu_worker_targets(self) -> None:
         config_path = Path(__file__).resolve().parents[1] / "config.example.json"
@@ -60,16 +69,27 @@ class WorkloadProfileTests(unittest.TestCase):
 
         self.assertEqual(config.workload_machine_targets["cpu_only"], "cpu-proxmox-1")
         self.assertEqual(config.workload_machine_targets["gpu_required"], "gb10")
-        self.assertEqual(config.resolved_worker_target("cpu-proxmox-1").role, "cpu_worker")
+        self.assertEqual(
+            config.resolved_worker_target("cpu-proxmox-1").role, "cpu_worker"
+        )
         self.assertEqual(config.resolved_worker_target("gb10").role, "gpu_worker")
-        self.assertEqual(config.resolved_worker_target("cpu-proxmox-1").min_memory_available_mib, 16384)
-        self.assertEqual(config.workload_class_for_machine_target("cpu-proxmox-1"), "cpu_only")
-        self.assertEqual(config.workload_class_for_machine_target("gb10"), "gpu_required")
+        self.assertEqual(
+            config.resolved_worker_target("cpu-proxmox-1").min_memory_available_mib,
+            16384,
+        )
+        self.assertEqual(
+            config.workload_class_for_machine_target("cpu-proxmox-1"), "cpu_only"
+        )
+        self.assertEqual(
+            config.workload_class_for_machine_target("gb10"), "gpu_required"
+        )
 
     def test_project_metadata_resolution_defaults_to_inference_eval(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp)
-            workload_class, workload_profile = _resolve_workload_profile_for_project_dir(project_dir)
+            workload_class, workload_profile = (
+                _resolve_workload_profile_for_project_dir(project_dir)
+            )
             self.assertEqual(workload_class, "inference_eval")
             self.assertEqual(workload_profile.idle_sustain_sec, 300)
             self.assertEqual(workload_profile.cpu_idle_threshold_pct, 20.0)
@@ -83,7 +103,9 @@ class WorkloadProfileTests(unittest.TestCase):
                 json.dumps({"metadata": {"workload_class": "training"}}),
                 encoding="utf-8",
             )
-            workload_class, workload_profile = _resolve_workload_profile_for_project_dir(project_dir)
+            workload_class, workload_profile = (
+                _resolve_workload_profile_for_project_dir(project_dir)
+            )
             self.assertEqual(workload_class, "training")
             self.assertEqual(workload_profile.idle_sustain_sec, 180)
             self.assertEqual(workload_profile.cpu_idle_threshold_pct, 35.0)
@@ -123,11 +145,19 @@ class WorkloadProfileTests(unittest.TestCase):
         self.assertIsNotNone(training_callback)
         self.assertEqual(training_record.gate_state, GateState.WAKE_READY)
         self.assertEqual(training_callback.telemetry["workload_class"], "training")
-        self.assertEqual(training_callback.telemetry["workload_profile_name"], "training")
-        self.assertEqual(training_callback.telemetry["thresholds"]["idle_sustain_sec"], 180)
-        self.assertEqual(training_callback.telemetry["thresholds"]["cpu_idle_threshold_pct"], 35.0)
+        self.assertEqual(
+            training_callback.telemetry["workload_profile_name"], "training"
+        )
+        self.assertEqual(
+            training_callback.telemetry["thresholds"]["idle_sustain_sec"], 180
+        )
+        self.assertEqual(
+            training_callback.telemetry["thresholds"]["cpu_idle_threshold_pct"], 35.0
+        )
 
-        inference_class, inference_profile = config.resolve_workload_profile("inference_eval")
+        inference_class, inference_profile = config.resolve_workload_profile(
+            "inference_eval"
+        )
         inference_record = RunRecord(
             run_id="run-inference",
             session_id="session-inference",
@@ -141,7 +171,9 @@ class WorkloadProfileTests(unittest.TestCase):
         for _ in range(5):
             inference_record, inference_callback = gate.evaluate(inference_record)
         self.assertIsNone(inference_callback)
-        self.assertEqual(inference_record.gate_state, GateState.WAITING_FOR_QUIET_WINDOW)
+        self.assertEqual(
+            inference_record.gate_state, GateState.WAITING_FOR_QUIET_WINDOW
+        )
 
     def test_wake_decision_profile_evidence_contains_resolved_thresholds(self) -> None:
         config = GateConfig(
@@ -152,7 +184,9 @@ class WorkloadProfileTests(unittest.TestCase):
             completion_callback_url="http://127.0.0.1/callback",
             completion_callback_token="callback-token",
         )
-        workload_class, workload_profile = config.resolve_workload_profile("inference_eval")
+        workload_class, workload_profile = config.resolve_workload_profile(
+            "inference_eval"
+        )
         evidence = _wake_decision_profile_evidence(
             RunRecord(
                 run_id="run-evidence",
@@ -165,10 +199,18 @@ class WorkloadProfileTests(unittest.TestCase):
         self.assertEqual(evidence["workload_class"], "inference_eval")
         self.assertEqual(evidence["workload_profile_name"], "inference_eval")
         self.assertEqual(evidence["workload_thresholds"]["idle_sustain_sec"], 300)
-        self.assertEqual(evidence["workload_thresholds"]["cpu_idle_threshold_pct"], 20.0)
-        self.assertEqual(evidence["workload_thresholds"]["gpu_idle_avg_threshold_pct"], 10.0)
-        self.assertEqual(evidence["workload_thresholds"]["gpu_idle_peak_threshold_pct"], 20.0)
-        self.assertEqual(evidence["workload_thresholds"]["vram_delta_threshold_mib"], 1024)
+        self.assertEqual(
+            evidence["workload_thresholds"]["cpu_idle_threshold_pct"], 20.0
+        )
+        self.assertEqual(
+            evidence["workload_thresholds"]["gpu_idle_avg_threshold_pct"], 10.0
+        )
+        self.assertEqual(
+            evidence["workload_thresholds"]["gpu_idle_peak_threshold_pct"], 20.0
+        )
+        self.assertEqual(
+            evidence["workload_thresholds"]["vram_delta_threshold_mib"], 1024
+        )
 
     def test_uma_pressure_above_baseline_does_not_wedge_quiet_gate(self) -> None:
         config = GateConfig(
@@ -180,7 +222,9 @@ class WorkloadProfileTests(unittest.TestCase):
             completion_callback_url="http://127.0.0.1/callback",
             completion_callback_token="callback-token",
         )
-        workload_class, workload_profile = config.resolve_workload_profile("inference_eval")
+        workload_class, workload_profile = config.resolve_workload_profile(
+            "inference_eval"
+        )
         sample = TelemetrySample(
             cpu_pct=0.4,
             gpu_pct=0.0,

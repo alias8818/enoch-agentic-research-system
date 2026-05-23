@@ -6,9 +6,26 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 STOPWORDS = {
-    "the", "and", "with", "for", "from", "into", "using", "that", "this",
-    "local", "agent", "agents", "model", "models", "research", "test",
-    "probe", "validation", "system", "systems",
+    "the",
+    "and",
+    "with",
+    "for",
+    "from",
+    "into",
+    "using",
+    "that",
+    "this",
+    "local",
+    "agent",
+    "agents",
+    "model",
+    "models",
+    "research",
+    "test",
+    "probe",
+    "validation",
+    "system",
+    "systems",
 }
 
 
@@ -102,9 +119,14 @@ def top_category_counts(candidates: Iterable[CandidateRow]) -> list[dict[str, An
     return [{"category": key, "count": value} for key, value in counts.most_common()]
 
 
-def pairwise_similarity(rows: list[CandidateRow], *, threshold: float = 0.55, limit: int = 25) -> list[dict[str, Any]]:
+def pairwise_similarity(
+    rows: list[CandidateRow], *, threshold: float = 0.55, limit: int = 25
+) -> list[dict[str, Any]]:
     pairs: list[dict[str, Any]] = []
-    tokens = [token_set(" ".join([row.title, row.mechanism, row.baseline_to_beat])) for row in rows]
+    tokens = [
+        token_set(" ".join([row.title, row.mechanism, row.baseline_to_beat]))
+        for row in rows
+    ]
     for i, left in enumerate(rows):
         for j in range(i + 1, len(rows)):
             score = jaccard(tokens[i], tokens[j])
@@ -216,11 +238,15 @@ DEPTH_CAP_MARKERS = (
 
 def negative_rationale(row_or_item: Any) -> str:
     if isinstance(row_or_item, dict):
-        return " ".join([
-            as_text(row_or_item.get("stop_reason")),
-            as_text(row_or_item.get("recommended_next_action")),
-        ]).lower()
-    return " ".join([row_or_item.stop_reason, row_or_item.recommended_next_action]).lower()
+        return " ".join(
+            [
+                as_text(row_or_item.get("stop_reason")),
+                as_text(row_or_item.get("recommended_next_action")),
+            ]
+        ).lower()
+    return " ".join(
+        [row_or_item.stop_reason, row_or_item.recommended_next_action]
+    ).lower()
 
 
 def has_marker(value: str, markers: tuple[str, ...]) -> bool:
@@ -243,7 +269,9 @@ def has_substantive_negative_rationale(row: DecisionRow) -> bool:
     if len(row.stop_reason) < 40 or len(row.recommended_next_action) < 40:
         return False
     combined = negative_rationale(row)
-    return has_paper_limit_rationale(combined) and has_evidence_limit_rationale(combined)
+    return has_paper_limit_rationale(combined) and has_evidence_limit_rationale(
+        combined
+    )
 
 
 def is_supported_negative_nonblocking(
@@ -276,7 +304,10 @@ def is_supported_negative_nonblocking(
         and evidence_strength in {"moderate", "strong"}
         and len(claim_scope.strip()) >= 40
         and len(scale_limits.strip()) >= 40
-        and (has_paper_limit_rationale(rationale) or has_evidence_limit_rationale(rationale))
+        and (
+            has_paper_limit_rationale(rationale)
+            or has_evidence_limit_rationale(rationale)
+        )
     )
     if scoped_useful_signal:
         return True
@@ -293,7 +324,9 @@ def classify_decision_quality(row: DecisionRow) -> tuple[float, list[str]]:
     if row.decision == "unknown":
         problems.append("unknown_decision")
     if row.decision == "finalize_negative" and row.hypothesis_status == "supported":
-        bounded_followup = has_bounded_followup(row) and has_substantive_negative_rationale(row)
+        bounded_followup = has_bounded_followup(
+            row
+        ) and has_substantive_negative_rationale(row)
         if not is_supported_negative_nonblocking(
             decision=row.decision,
             hypothesis_status=row.hypothesis_status,

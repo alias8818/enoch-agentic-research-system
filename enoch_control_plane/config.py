@@ -103,23 +103,33 @@ class GateConfig(BaseModel):
     supabase_database_url: str = ""
     legacy_notion_api_enabled: bool = False
 
-
     @model_validator(mode="after")
     def _normalize_callback_config(self) -> "GateConfig":
         if not self.completion_callback_url and self.n8n_callback_url:
             self.completion_callback_url = self.n8n_callback_url
         if not self.completion_callback_token and self.n8n_bearer_token:
             self.completion_callback_token = self.n8n_bearer_token
-        if self.completion_callback_timeout_sec == 120 and self.n8n_callback_timeout_sec != 120:
+        if (
+            self.completion_callback_timeout_sec == 120
+            and self.n8n_callback_timeout_sec != 120
+        ):
             self.completion_callback_timeout_sec = self.n8n_callback_timeout_sec
         if not self.control_api_bearer_token and self.omx_inbound_bearer_token:
             self.control_api_bearer_token = self.omx_inbound_bearer_token
         if not self.omx_inbound_bearer_token and self.control_api_bearer_token:
             self.omx_inbound_bearer_token = self.control_api_bearer_token
-        if self.control_plane_store_backend not in {"sqlite", "supabase_readonly", "supabase"}:
-            raise ValueError("control_plane_store_backend must be sqlite, supabase_readonly, or supabase")
+        if self.control_plane_store_backend not in {
+            "sqlite",
+            "supabase_readonly",
+            "supabase",
+        }:
+            raise ValueError(
+                "control_plane_store_backend must be sqlite, supabase_readonly, or supabase"
+            )
         if self.enoch_core_store_backend not in {"control_plane", "sqlite", "supabase"}:
-            raise ValueError("enoch_core_store_backend must be control_plane, sqlite, or supabase")
+            raise ValueError(
+                "enoch_core_store_backend must be control_plane, sqlite, or supabase"
+            )
         if not self.completion_callback_url:
             raise ValueError("completion_callback_url is required")
         if not self.completion_callback_token:
@@ -213,11 +223,16 @@ class GateConfig(BaseModel):
             role="default",
         )
 
-    def workload_class_for_machine_target(self, machine_target: str | None, raw: str | None = None) -> str:
+    def workload_class_for_machine_target(
+        self, machine_target: str | None, raw: str | None = None
+    ) -> str:
         if (raw or "").strip():
             return self.normalize_workload_class(raw)
         target = (machine_target or "").strip()
-        for mapped_workload_class, mapped_target in self.workload_machine_targets.items():
+        for (
+            mapped_workload_class,
+            mapped_target,
+        ) in self.workload_machine_targets.items():
             if str(mapped_target).strip() == target:
                 return self.normalize_workload_class(str(mapped_workload_class))
         return self.default_workload_class.value

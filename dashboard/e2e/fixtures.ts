@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test'
 import { TOKEN_STORAGE_KEY } from '../src/api/client'
+import { SAVED_TABLE_FILTERS_STORAGE_KEY } from '../src/savedTableFilters'
 
 const overviewPayload = {
   generated_at: '2026-05-21T12:00:00Z',
@@ -39,7 +40,30 @@ const overviewPayload = {
 
 const statusPayload = {
   generated_at: '2026-05-21T12:00:00Z',
-  worker_lanes: [],
+  worker_lanes: [
+    {
+      lane_key: 'cpu',
+      machine_target: 'cpu-proxmox-1',
+      label: 'CPU lane',
+      status: 'active',
+      queued_count: 14,
+      dispatch_available: false,
+      dispatch_blocker: 'lane active',
+      active_item: { project_id: 'project-alpha', project_name: 'Alpha study' },
+      feed_pressure: { desired_queue_depth: 25, queue_deficit: 11 },
+    },
+    {
+      lane_key: 'gb10',
+      machine_target: 'gb10-worker-1',
+      label: 'GB10 lane',
+      status: 'idle',
+      queued_count: 14,
+      dispatch_available: true,
+      dispatch_blocker: null,
+      next_candidate: { project_id: 'project-beta', project_name: 'Beta follow-up' },
+      feed_pressure: { desired_queue_depth: 25, queue_deficit: 11 },
+    },
+  ],
   flags: { queue_paused: false, maintenance_mode: false },
 }
 
@@ -60,6 +84,31 @@ const dispatchDryRunPayload = {
   candidate: { project_id: 'project-alpha', lane: 'cpu', machine_target: 'cpu-proxmox-1' },
 }
 
+const queueListPayload = {
+  generated_at: '2026-05-21T12:00:00Z',
+  rows: [
+    {
+      project_id: 'project-beta',
+      project_name: 'Beta follow-up',
+      title: 'Beta follow-up',
+      status: 'queued',
+      machine_target: 'gb10-worker-1',
+      age_seconds: 1800,
+      next_action_hint: 'Dry-run before dispatch',
+    },
+    {
+      project_id: 'project-gamma',
+      project_name: 'Gamma calibration',
+      title: 'Gamma calibration',
+      status: 'queued',
+      machine_target: 'cpu-proxmox-1',
+      age_seconds: 7200,
+      blocked_reason: 'lane busy',
+    },
+  ],
+  page: { returned: 2, has_more: false },
+}
+
 export async function installDashboardApiMocks(page: Page): Promise<void> {
   await page.route('**/control/api/v1/**', async (route) => {
     const url = new URL(route.request().url())
@@ -70,7 +119,7 @@ export async function installDashboardApiMocks(page: Page): Promise<void> {
       return
     }
     if (path.endsWith('/queue')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rows: [], page: { returned: 0, has_more: false } }) })
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(queueListPayload) })
       return
     }
     if (path.endsWith('/runs')) {
@@ -117,8 +166,9 @@ export async function openDashboardWithToken(
 ): Promise<void> {
   await installDashboardApiMocks(page)
   if (options?.afterMocks) await options.afterMocks(page)
-  await page.addInitScript((storageKey) => {
+  await page.addInitScript((storageKey, savedFiltersKey) => {
     window.localStorage.setItem(storageKey, 'playwright-token')
-  }, TOKEN_STORAGE_KEY)
+    window.localStorage.removeItem(savedFiltersKey)
+  }, TOKEN_STORAGE_KEY, SAVED_TABLE_FILTERS_STORAGE_KEY)
   await page.goto(`/control/dashboard-v2/${hash}`)
 }

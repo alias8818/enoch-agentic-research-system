@@ -6,6 +6,7 @@ operator dashboard. It matches public corpus rows to live paper rows by the
 same source-record fingerprint used by the public corpus index. By default the
 transaction rolls back; pass --apply to persist ledger rows.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,7 +20,9 @@ from typing import Any
 
 
 DEFAULT_CORPUS_REPO = "enoch-ai-research-corpus"
-DEFAULT_HF_DATASET_URL = "https://huggingface.co/datasets/aliasocracy/enoch-ai-research-corpus"
+DEFAULT_HF_DATASET_URL = (
+    "https://huggingface.co/datasets/aliasocracy/enoch-ai-research-corpus"
+)
 
 
 @dataclass(frozen=True)
@@ -58,7 +61,9 @@ def load_public_records(corpus: Path) -> list[PublicCorpusRecord]:
         if not fp or fp in seen:
             continue
         slug = _text(row.get("slug"))
-        manifest = _text(row.get("manifest_path")) or (f"papers/{slug}/paper_manifest.json" if slug else "")
+        manifest = _text(row.get("manifest_path")) or (
+            f"papers/{slug}/paper_manifest.json" if slug else ""
+        )
         records.append(
             PublicCorpusRecord(
                 source_record_fingerprint=fp,
@@ -79,8 +84,12 @@ def _connect(database_url: str) -> Any:
     return psycopg.connect(database_url, row_factory=dict_row)
 
 
-def match_public_records_to_live_papers(paper_ids: list[str], records: list[PublicCorpusRecord]) -> list[MatchedCorpusRecord]:
-    records_by_fingerprint = {record.source_record_fingerprint: record for record in records}
+def match_public_records_to_live_papers(
+    paper_ids: list[str], records: list[PublicCorpusRecord]
+) -> list[MatchedCorpusRecord]:
+    records_by_fingerprint = {
+        record.source_record_fingerprint: record for record in records
+    }
     matched: list[MatchedCorpusRecord] = []
     seen: set[str] = set()
     for paper_id in paper_ids:
@@ -111,7 +120,9 @@ def sync_records(
     prune_stale: bool = False,
 ) -> dict[str, Any]:
     if not records:
-        raise ValueError("no public corpus records with source_record_fingerprint found")
+        raise ValueError(
+            "no public corpus records with source_record_fingerprint found"
+        )
     with _connect(database_url) as conn:
         try:
             with conn.cursor() as cur:
@@ -201,10 +212,14 @@ def sync_records(
                       )
                     """
                 )
-                cur.execute("select count(*) as count from tmp_conflicting_public_projects")
+                cur.execute(
+                    "select count(*) as count from tmp_conflicting_public_projects"
+                )
                 project_conflicts = int((cur.fetchone() or {}).get("count") or 0)
                 if project_conflicts:
-                    raise RuntimeError(f"conflicting public-corpus project identity rows: {project_conflicts}")
+                    raise RuntimeError(
+                        f"conflicting public-corpus project identity rows: {project_conflicts}"
+                    )
                 cur.execute(
                     """
                     create temp table tmp_conflicting_public_papers as
@@ -225,10 +240,14 @@ def sync_records(
                       )
                     """
                 )
-                cur.execute("select count(*) as count from tmp_conflicting_public_papers")
+                cur.execute(
+                    "select count(*) as count from tmp_conflicting_public_papers"
+                )
                 paper_conflicts = int((cur.fetchone() or {}).get("count") or 0)
                 if paper_conflicts:
-                    raise RuntimeError(f"conflicting public-corpus paper identity rows: {paper_conflicts}")
+                    raise RuntimeError(
+                        f"conflicting public-corpus paper identity rows: {paper_conflicts}"
+                    )
                 cur.execute(
                     """
                     insert into enoch.projects(project_id, project_name, project_dir, origin_idea_status)
@@ -403,7 +422,9 @@ def render_supabase_cli_sql(
     """Render the same sync as SQL for `supabase db query --linked -f`."""
 
     if not records:
-        raise ValueError("no public corpus records with source_record_fingerprint found")
+        raise ValueError(
+            "no public corpus records with source_record_fingerprint found"
+        )
     values = ",\n    ".join(
         "("
         + ",".join(
@@ -419,7 +440,8 @@ def render_supabase_cli_sql(
         + ")"
         for record in records
     )
-    stale_delete_sql = f"""
+    stale_delete_sql = (
+        f"""
 create temp table tmp_stale_imports as
 select ci.paper_id
 from enoch.corpus_imports ci
@@ -438,10 +460,13 @@ with pruned as (
 )
 insert into tmp_pruned_rows(pruned_rows)
 select count(*) from pruned;
-""" if prune_stale else """
+"""
+        if prune_stale
+        else """
 create temp table tmp_stale_imports(paper_id text) on commit drop;
 insert into tmp_pruned_rows(pruned_rows) values (0);
 """
+    )
     transaction_prefix = "begin;\n" if rollback else ""
     transaction_suffix = "\nrollback;\n" if rollback else ""
     return f"""{transaction_prefix}set search_path to enoch, public;
@@ -608,14 +633,34 @@ from enoch.operator_dashboard_counts odc;
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--corpus", type=Path, default=Path("../enoch-ai-research-corpus"))
-    parser.add_argument("--database-url", default=os.environ.get("ENOCH_SUPABASE_DATABASE_URL", ""))
+    parser.add_argument(
+        "--corpus", type=Path, default=Path("../enoch-ai-research-corpus")
+    )
+    parser.add_argument(
+        "--database-url", default=os.environ.get("ENOCH_SUPABASE_DATABASE_URL", "")
+    )
     parser.add_argument("--corpus-repo", default=DEFAULT_CORPUS_REPO)
     parser.add_argument("--hf-dataset-url", default=DEFAULT_HF_DATASET_URL)
-    parser.add_argument("--apply", action="store_true", help="commit the ledger sync; default is rollback/dry-run")
-    parser.add_argument("--prune-stale", action="store_true", help="delete corpus_imports rows for this corpus repo that are absent from the public corpus index")
-    parser.add_argument("--sql-rollback", action="store_true", help="when rendering SQL, wrap it in a transaction that rolls back for linked dry-runs")
-    parser.add_argument("--sql-output", type=Path, help="write SQL for `supabase db query --linked -f` instead of connecting directly")
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="commit the ledger sync; default is rollback/dry-run",
+    )
+    parser.add_argument(
+        "--prune-stale",
+        action="store_true",
+        help="delete corpus_imports rows for this corpus repo that are absent from the public corpus index",
+    )
+    parser.add_argument(
+        "--sql-rollback",
+        action="store_true",
+        help="when rendering SQL, wrap it in a transaction that rolls back for linked dry-runs",
+    )
+    parser.add_argument(
+        "--sql-output",
+        type=Path,
+        help="write SQL for `supabase db query --linked -f` instead of connecting directly",
+    )
     parser.add_argument("--output", type=Path, help="optional JSON report path")
     return parser.parse_args(argv)
 
@@ -625,13 +670,32 @@ def main(argv: list[str] | None = None) -> int:
     records = load_public_records(args.corpus)
     if args.sql_output:
         args.sql_output.write_text(
-            render_supabase_cli_sql(records, corpus_repo=args.corpus_repo, hf_dataset_url=args.hf_dataset_url, prune_stale=bool(args.prune_stale), rollback=bool(args.sql_rollback)),
+            render_supabase_cli_sql(
+                records,
+                corpus_repo=args.corpus_repo,
+                hf_dataset_url=args.hf_dataset_url,
+                prune_stale=bool(args.prune_stale),
+                rollback=bool(args.sql_rollback),
+            ),
             encoding="utf-8",
         )
-        print(json.dumps({"ok": True, "public_records": len(records), "sql_output": str(args.sql_output)}, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "public_records": len(records),
+                    "sql_output": str(args.sql_output),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
     if not args.database_url.strip():
-        print("error: --database-url or ENOCH_SUPABASE_DATABASE_URL is required unless --sql-output is used", file=sys.stderr)
+        print(
+            "error: --database-url or ENOCH_SUPABASE_DATABASE_URL is required unless --sql-output is used",
+            file=sys.stderr,
+        )
         return 2
     report = sync_records(
         database_url=args.database_url,

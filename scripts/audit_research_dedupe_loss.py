@@ -13,6 +13,7 @@ The audit can only see rows that reached Research Facility ledgers. If a provide
 candidate was rejected before ledger persistence or collided on a unique key
 without an audit row, this script cannot recover it.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,16 +29,71 @@ from psycopg.rows import dict_row
 
 TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9_+.-]{2,}", re.I)
 STOPWORDS = {
-    "the", "and", "for", "with", "that", "this", "from", "into", "using", "use",
-    "can", "will", "would", "could", "should", "than", "then", "when", "where",
-    "while", "model", "models", "test", "tests", "run", "runs", "local", "data",
-    "evidence", "mechanism", "baseline", "compare", "against", "candidate",
+    "the",
+    "and",
+    "for",
+    "with",
+    "that",
+    "this",
+    "from",
+    "into",
+    "using",
+    "use",
+    "can",
+    "will",
+    "would",
+    "could",
+    "should",
+    "than",
+    "then",
+    "when",
+    "where",
+    "while",
+    "model",
+    "models",
+    "test",
+    "tests",
+    "run",
+    "runs",
+    "local",
+    "data",
+    "evidence",
+    "mechanism",
+    "baseline",
+    "compare",
+    "against",
+    "candidate",
 }
 BRANCH_TERMS = {
-    "failure", "fails", "failed", "negative", "collapse", "addresses", "address",
-    "instead", "alternative", "control", "ablation", "scale", "scaled", "medium",
-    "full", "direct", "gpt", "gpt2", "gpt-2", "followup", "follow-up", "diagnostic",
-    "diagnosis", "capacity", "dataset", "seed", "robustness", "replicate", "replication",
+    "failure",
+    "fails",
+    "failed",
+    "negative",
+    "collapse",
+    "addresses",
+    "address",
+    "instead",
+    "alternative",
+    "control",
+    "ablation",
+    "scale",
+    "scaled",
+    "medium",
+    "full",
+    "direct",
+    "gpt",
+    "gpt2",
+    "gpt-2",
+    "followup",
+    "follow-up",
+    "diagnostic",
+    "diagnosis",
+    "capacity",
+    "dataset",
+    "seed",
+    "robustness",
+    "replicate",
+    "replication",
 }
 DELTA_FIELDS = [
     "mechanism",
@@ -78,7 +134,11 @@ def _text(value: Any) -> str:
 
 
 def tokens(text: str) -> set[str]:
-    return {m.group(0).lower() for m in TOKEN_RE.finditer(text) if m.group(0).lower() not in STOPWORDS}
+    return {
+        m.group(0).lower()
+        for m in TOKEN_RE.finditer(text)
+        if m.group(0).lower() not in STOPWORDS
+    }
 
 
 def token_similarity(left_tokens: set[str], right_tokens: set[str]) -> float:
@@ -107,34 +167,48 @@ def material_deltas(candidate: dict[str, Any], prior: dict[str, Any]) -> list[st
     enriched = dict(candidate)
     enriched["required_evidence_text"] = required_evidence_text(candidate)
     prior_enriched = dict(prior)
-    prior_enriched["required_evidence_text"] = _text(prior.get("prior_required_evidence"))
+    prior_enriched["required_evidence_text"] = _text(
+        prior.get("prior_required_evidence")
+    )
     deltas: list[str] = []
     for field in DELTA_FIELDS:
-        sim = _field_similarity(_text(enriched.get(field)), _text(prior_enriched.get(field)))
+        sim = _field_similarity(
+            _text(enriched.get(field)), _text(prior_enriched.get(field))
+        )
         if sim < 0.55:
             deltas.append(field)
     return deltas
 
 
-def looks_like_branch(candidate: dict[str, Any], prior: dict[str, Any], deltas: list[str]) -> bool:
-    haystack = "\n".join([
-        _text(candidate.get("title")),
-        _text(candidate.get("hypothesis")),
-        _text(candidate.get("mechanism")),
-        _text(candidate.get("implementation")),
-        _text(candidate.get("novelty_comparison")),
-        _text(candidate.get("risk_notes")),
-        _text(candidate.get("kill_condition")),
-        _text(prior.get("stop_reason")),
-        _text(prior.get("recommended_next_action")),
-    ]).lower()
+def looks_like_branch(
+    candidate: dict[str, Any], prior: dict[str, Any], deltas: list[str]
+) -> bool:
+    haystack = "\n".join(
+        [
+            _text(candidate.get("title")),
+            _text(candidate.get("hypothesis")),
+            _text(candidate.get("mechanism")),
+            _text(candidate.get("implementation")),
+            _text(candidate.get("novelty_comparison")),
+            _text(candidate.get("risk_notes")),
+            _text(candidate.get("kill_condition")),
+            _text(prior.get("stop_reason")),
+            _text(prior.get("recommended_next_action")),
+        ]
+    ).lower()
     has_branch_language = bool(tokens(haystack) & BRANCH_TERMS)
-    prior_negative = _text(prior.get("decision_gate_state")) in {"negative", "unknown", "needs_review"}
+    prior_negative = _text(prior.get("decision_gate_state")) in {
+        "negative",
+        "unknown",
+        "needs_review",
+    }
     has_material_delta = len(deltas) >= 2
     return bool(prior_negative and has_material_delta and has_branch_language)
 
 
-def classify(candidate: dict[str, Any], prior: dict[str, Any], similarity: float) -> tuple[str, bool, list[str], str, str]:
+def classify(
+    candidate: dict[str, Any], prior: dict[str, Any], similarity: float
+) -> tuple[str, bool, list[str], str, str]:
     deltas = material_deltas(candidate, prior)
     decision = _text(candidate.get("admission_decision") or candidate.get("status"))
     if similarity >= 0.82 and len(deltas) <= 1:
@@ -166,20 +240,44 @@ def classify(candidate: dict[str, Any], prior: dict[str, Any], similarity: float
 
 
 def candidate_text(row: dict[str, Any]) -> str:
-    return "\n".join(_text(row.get(k)) for k in [
-        "title", "category", "hypothesis", "mechanism", "description", "implementation",
-        "baseline_to_beat", "success_threshold", "kill_condition", "novelty_comparison", "risk_notes",
-    ])
+    return "\n".join(
+        _text(row.get(k))
+        for k in [
+            "title",
+            "category",
+            "hypothesis",
+            "mechanism",
+            "description",
+            "implementation",
+            "baseline_to_beat",
+            "success_threshold",
+            "kill_condition",
+            "novelty_comparison",
+            "risk_notes",
+        ]
+    )
 
 
 def prior_text(row: dict[str, Any]) -> str:
-    return "\n".join(_text(row.get(k)) for k in [
-        "project_name", "idea_title", "category", "description", "implementation", "baseline_to_beat",
-        "kill_condition", "stop_reason", "recommended_next_action",
-    ])
+    return "\n".join(
+        _text(row.get(k))
+        for k in [
+            "project_name",
+            "idea_title",
+            "category",
+            "description",
+            "implementation",
+            "baseline_to_beat",
+            "kill_condition",
+            "stop_reason",
+            "recommended_next_action",
+        ]
+    )
 
 
-def fetch_rows(dsn: str, *, candidate_limit: int, prior_limit: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def fetch_rows(
+    dsn: str, *, candidate_limit: int, prior_limit: int
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     with psycopg.connect(dsn, row_factory=dict_row) as conn:
         candidates = conn.execute(
             """
@@ -224,12 +322,19 @@ def fetch_rows(dsn: str, *, candidate_limit: int, prior_limit: int) -> tuple[lis
     return [dict(r) for r in candidates], [dict(r) for r in priors]
 
 
-def audit(candidates: Iterable[dict[str, Any]], priors: Iterable[dict[str, Any]], *, threshold: float) -> dict[str, Any]:
+def audit(
+    candidates: Iterable[dict[str, Any]],
+    priors: Iterable[dict[str, Any]],
+    *,
+    threshold: float,
+) -> dict[str, Any]:
     findings: list[AuditFinding] = []
     prior_list = list(priors)
     prior_index = []
     for prior in prior_list:
-        prior_index.append((prior, tokens(prior_text(prior)), _text(prior.get("category")).lower()))
+        prior_index.append(
+            (prior, tokens(prior_text(prior)), _text(prior.get("category")).lower())
+        )
     for candidate in candidates:
         # Already-promoted admitted candidates are represented in the queue; this audit is about lost/held variants.
         if _text(candidate.get("admitted_idea_id")):
@@ -247,34 +352,51 @@ def audit(candidates: Iterable[dict[str, Any]], priors: Iterable[dict[str, Any]]
         if not best or best[0] < threshold:
             continue
         similarity, prior = best
-        variant_type, could_branch, deltas, reason, action = classify(candidate, prior, similarity)
+        variant_type, could_branch, deltas, reason, action = classify(
+            candidate, prior, similarity
+        )
         cluster_id = f"{_text(candidate.get('category')) or 'uncategorized'}:{_text(prior.get('project_id'))}"
-        findings.append(AuditFinding(
-            cluster_id=cluster_id,
-            candidate_id=_text(candidate.get("candidate_id")),
-            candidate_title=_text(candidate.get("title")),
-            candidate_status=_text(candidate.get("status")),
-            admission_decision=_text(candidate.get("admission_decision")),
-            candidate_score=float(candidate.get("total_score") or 0),
-            canonical_project=_text(prior.get("project_id")),
-            canonical_title=_text(prior.get("project_name") or prior.get("idea_title")),
-            prior_decision=_text(prior.get("project_decision") or prior.get("decision_gate_state")),
-            prior_hypothesis_status=_text(prior.get("hypothesis_status")),
-            similarity=similarity,
-            variant_type=variant_type,
-            could_have_been_good_branch=could_branch,
-            material_deltas=deltas,
-            dedupe_reason=reason,
-            recommended_action=action,
-        ))
+        findings.append(
+            AuditFinding(
+                cluster_id=cluster_id,
+                candidate_id=_text(candidate.get("candidate_id")),
+                candidate_title=_text(candidate.get("title")),
+                candidate_status=_text(candidate.get("status")),
+                admission_decision=_text(candidate.get("admission_decision")),
+                candidate_score=float(candidate.get("total_score") or 0),
+                canonical_project=_text(prior.get("project_id")),
+                canonical_title=_text(
+                    prior.get("project_name") or prior.get("idea_title")
+                ),
+                prior_decision=_text(
+                    prior.get("project_decision") or prior.get("decision_gate_state")
+                ),
+                prior_hypothesis_status=_text(prior.get("hypothesis_status")),
+                similarity=similarity,
+                variant_type=variant_type,
+                could_have_been_good_branch=could_branch,
+                material_deltas=deltas,
+                dedupe_reason=reason,
+                recommended_action=action,
+            )
+        )
     order = {"branch_candidate": 0, "variant_hold": 1, "duplicate_suppress": 2}
-    findings.sort(key=lambda f: (order.get(f.variant_type, 9), -f.candidate_score, -f.similarity, f.candidate_id))
+    findings.sort(
+        key=lambda f: (
+            order.get(f.variant_type, 9),
+            -f.candidate_score,
+            -f.similarity,
+            f.candidate_id,
+        )
+    )
     counts: dict[str, int] = {}
     for finding in findings:
         counts[finding.variant_type] = counts.get(finding.variant_type, 0) + 1
     return {
         "summary": {
-            "candidate_rows_checked": len(list(candidates)) if not isinstance(candidates, list) else len(candidates),
+            "candidate_rows_checked": len(list(candidates))
+            if not isinstance(candidates, list)
+            else len(candidates),
             "prior_decisions_checked": len(prior_list),
             "similarity_threshold": threshold,
             "finding_count": len(findings),
@@ -302,28 +424,36 @@ def write_markdown(report: dict[str, Any]) -> str:
         lines.append(f"- {key}: {value}")
     lines.extend(["", "## Ranked findings", ""])
     for idx, row in enumerate(report["findings"], 1):
-        lines.extend([
-            f"### {idx}. {row['variant_type']} — {row['candidate_title']}",
-            "",
-            f"- candidate_id: `{row['candidate_id']}`",
-            f"- candidate_status/admission: `{row['candidate_status']}` / `{row['admission_decision']}`",
-            f"- candidate_score: `{row['candidate_score']}`",
-            f"- canonical_project: `{row['canonical_project']}` — {row['canonical_title']}",
-            f"- prior_decision: `{row['prior_decision']}` / hypothesis `{row['prior_hypothesis_status']}`",
-            f"- similarity: `{row['similarity']}`",
-            f"- material_deltas: {', '.join(row['material_deltas']) or 'none'}",
-            f"- could_have_been_good_branch: `{str(row['could_have_been_good_branch']).lower()}`",
-            f"- dedupe_reason: {row['dedupe_reason']}",
-            f"- recommended_action: {row['recommended_action']}",
-            "",
-        ])
+        lines.extend(
+            [
+                f"### {idx}. {row['variant_type']} — {row['candidate_title']}",
+                "",
+                f"- candidate_id: `{row['candidate_id']}`",
+                f"- candidate_status/admission: `{row['candidate_status']}` / `{row['admission_decision']}`",
+                f"- candidate_score: `{row['candidate_score']}`",
+                f"- canonical_project: `{row['canonical_project']}` — {row['canonical_title']}",
+                f"- prior_decision: `{row['prior_decision']}` / hypothesis `{row['prior_hypothesis_status']}`",
+                f"- similarity: `{row['similarity']}`",
+                f"- material_deltas: {', '.join(row['material_deltas']) or 'none'}",
+                f"- could_have_been_good_branch: `{str(row['could_have_been_good_branch']).lower()}`",
+                f"- dedupe_reason: {row['dedupe_reason']}",
+                f"- recommended_action: {row['recommended_action']}",
+                "",
+            ]
+        )
     lines.extend(["## Limitation", "", summary["limitation"], ""])
     return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--database-url", default=os.environ.get("ENOCH_DATABASE_URL") or os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL") or "")
+    parser.add_argument(
+        "--database-url",
+        default=os.environ.get("ENOCH_DATABASE_URL")
+        or os.environ.get("SUPABASE_DATABASE_URL")
+        or os.environ.get("DATABASE_URL")
+        or "",
+    )
     parser.add_argument("--candidate-limit", type=int, default=500)
     parser.add_argument("--prior-limit", type=int, default=1000)
     parser.add_argument("--similarity-threshold", type=float, default=0.14)
@@ -331,8 +461,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-md", type=Path)
     args = parser.parse_args(argv)
     if not args.database_url:
-        raise SystemExit("database URL required via --database-url or ENOCH_DATABASE_URL/SUPABASE_DATABASE_URL/DATABASE_URL")
-    candidates, priors = fetch_rows(args.database_url, candidate_limit=args.candidate_limit, prior_limit=args.prior_limit)
+        raise SystemExit(
+            "database URL required via --database-url or ENOCH_DATABASE_URL/SUPABASE_DATABASE_URL/DATABASE_URL"
+        )
+    candidates, priors = fetch_rows(
+        args.database_url,
+        candidate_limit=args.candidate_limit,
+        prior_limit=args.prior_limit,
+    )
     report = audit(candidates, priors, threshold=args.similarity_threshold)
     text = json.dumps(report, indent=2, sort_keys=True)
     if args.output_json:

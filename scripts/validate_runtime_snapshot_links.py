@@ -22,9 +22,7 @@ EXCLUDED_FILES = {
     Path("docs/state-reduction-audit.md"),
     Path("docs/featured-paper-selection.md"),
 }
-EXCLUDED_PREFIXES = (
-    "docs/launch-",
-)
+EXCLUDED_PREFIXES = ("docs/launch-",)
 HISTORICAL_MARKERS = (
     "Status: historical",
     "retained only as historical",
@@ -93,7 +91,9 @@ def validate(root: Path) -> list[str]:
         terms = find_terms(text)
         if terms and SNAPSHOT_LINK not in text:
             detail = ", ".join(f"{term} at line {line}" for term, line in terms)
-            failures.append(f"{rel}: mentions current runtime topology without linking to {SNAPSHOT_LINK}: {detail}")
+            failures.append(
+                f"{rel}: mentions current runtime topology without linking to {SNAPSHOT_LINK}: {detail}"
+            )
     return failures
 
 
@@ -101,7 +101,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Ensure current runtime topology claims link to docs/current-runtime-snapshot.md."
     )
-    parser.add_argument("--root", type=Path, default=Path.cwd(), help="Repository root to scan.")
+    parser.add_argument(
+        "--root", type=Path, default=Path.cwd(), help="Repository root to scan."
+    )
     args = parser.parse_args()
 
     root = args.root.resolve()

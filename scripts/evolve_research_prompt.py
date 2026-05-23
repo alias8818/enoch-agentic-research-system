@@ -46,7 +46,9 @@ def _module_available(name: str) -> bool:
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
         if not line.strip():
             continue
         try:
@@ -113,9 +115,18 @@ Additional Research Quality policy:
     return source_text.replace(INSERT_ANCHOR, block, 1)
 
 
-def _write_outputs(*, source_path: Path, output_dir: Path, target: str, evalset_path: Path, cases: list[dict[str, Any]]) -> dict[str, Any]:
+def _write_outputs(
+    *,
+    source_path: Path,
+    output_dir: Path,
+    target: str,
+    evalset_path: Path,
+    cases: list[dict[str, Any]],
+) -> dict[str, Any]:
     if target != DEFAULT_TARGET:
-        raise SystemExit(f"unsupported target {target!r}; supported target: {DEFAULT_TARGET}")
+        raise SystemExit(
+            f"unsupported target {target!r}; supported target: {DEFAULT_TARGET}"
+        )
     source_text = source_path.read_text(encoding="utf-8")
     counts = _case_counts(cases)
     addendum = _addendum(counts)
@@ -167,24 +178,61 @@ def _write_outputs(*, source_path: Path, output_dir: Path, target: str, evalset_
         ],
         "proposed_addendum": addendum,
     }
-    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    report_path.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return report
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--evalset", type=Path, required=True, help="JSONL eval set from build_research_quality_evalset.py")
-    parser.add_argument("--target", default=DEFAULT_TARGET, help=f"evolution target; currently only {DEFAULT_TARGET}")
-    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE, help="source file to diff against")
-    parser.add_argument("--output-dir", type=Path, required=True, help="directory for prompt candidate, patch, and report artifacts")
+    parser.add_argument(
+        "--evalset",
+        type=Path,
+        required=True,
+        help="JSONL eval set from build_research_quality_evalset.py",
+    )
+    parser.add_argument(
+        "--target",
+        default=DEFAULT_TARGET,
+        help=f"evolution target; currently only {DEFAULT_TARGET}",
+    )
+    parser.add_argument(
+        "--source",
+        type=Path,
+        default=DEFAULT_SOURCE,
+        help="source file to diff against",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="directory for prompt candidate, patch, and report artifacts",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     cases = _load_jsonl(args.evalset)
-    report = _write_outputs(source_path=args.source, output_dir=args.output_dir, target=args.target, evalset_path=args.evalset, cases=cases)
-    print(json.dumps({"ok": True, "output_dir": str(args.output_dir), "case_count": report["case_count"], "artifacts": report["artifacts"]}, sort_keys=True))
+    report = _write_outputs(
+        source_path=args.source,
+        output_dir=args.output_dir,
+        target=args.target,
+        evalset_path=args.evalset,
+        cases=cases,
+    )
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "output_dir": str(args.output_dir),
+                "case_count": report["case_count"],
+                "artifacts": report["artifacts"],
+            },
+            sort_keys=True,
+        )
+    )
     return 0
 
 

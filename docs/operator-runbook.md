@@ -59,7 +59,7 @@ Open the **canonical** console at `/control/dashboard-v2`. On `enoch-core.exe.xy
 http://127.0.0.1:8787/control/dashboard-v2
 ```
 
-Legacy `/control/dashboard` remains available until Phase 2 cutover redirects it to V2 with hash preserved. Prefer V2 for all operator workflows; bounded read models live under `/control/api/v1/*`.
+Legacy `/control/dashboard` **307-redirects** to `/control/dashboard-v2` (hash preserved). Use V2 for all operator workflows; bounded read models live under `/control/api/v1/*`.
 
 Build, rsync excludes, and full smoke details: [`dashboard-v2-deploy.md`](dashboard-v2-deploy.md). Product checklist: [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md).
 

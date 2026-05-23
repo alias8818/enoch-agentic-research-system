@@ -1,6 +1,6 @@
 # Dashboard V2 TODO checklist
 
-Status: **P0–P7 and Phase 2 cutover merged to `main`** (2026-05-21). Dashboard V2 is the canonical operator console on the reference control VM ([`current-runtime-snapshot.md`](current-runtime-snapshot.md), SSH `enoch-core.exe.xyz`); parking-lot items below are optional follow-ups.
+Status: **P0–P7, Phase 2, and Phase 3 complete on `main`** (2026-05-21). Command-center semantics (#84–#96, #99–#101), detail-route audits (#87, #100, #104–#106, #108), Phase 3 polish (#110–#113, #109 visual baselines), infra/docs fixes (#114–#117), and the post-deploy `top_actions.target` schema hotfix (`cd676fa0`) are merged/deployed. Dashboard V2 at `/control/dashboard-v2` is the canonical operator console on the reference control VM ([`current-runtime-snapshot.md`](current-runtime-snapshot.md), SSH `enoch-core.exe.xyz`). Only ongoing read-model DTO discipline remains below (not a blocking checklist item).
 
 Screenshot evidence reviewed from:
 
@@ -19,9 +19,9 @@ What is already live as of 2026-05-21:
   - detail page headers use cleaner title/subtitle/short ID structure;
   - project/run/paper/event detail views include current-state and next-safe-action summaries;
   - `/control/api/v1/events?page_size=50&sort=recent` and event detail queries return 200 in live smoke tests.
-- Live smoke after deploy (current bundle on `main`):
+- Live smoke after deploy (current bundle on `main`, commit `cd676fa0`):
   - `/healthz` returned OK;
-  - V2 static asset `index-BX2lBAxQ.js` was present (see `enoch_control_plane/control_plane/dashboard_v2/index.html`);
+  - V2 static assets `index-BOXkLIfJ.js` and `index-EpwtfwsL.css` were present (see `enoch_control_plane/control_plane/dashboard_v2/index.html`);
   - events index returned 200;
   - event detail by `event_id` returned 200.
 
@@ -219,12 +219,12 @@ Lower priority than operator usefulness.
 - [x] Decide whether Vite remains sufficient or whether a future Next.js app is justified. — [`dashboard-v2-framework-decision.md`](dashboard-v2-framework-decision.md); guarded by [`test_dashboard_v2_framework_decision.py`](../tests/test_dashboard_v2_framework_decision.py).
 - [x] If staying with Vite, define a small component system instead of one-off page components. See [`dashboard-v2-component-system.md`](dashboard-v2-component-system.md) and [`components/ui/`](../dashboard/src/components/ui/).
 - [x] Consider a dedicated `/dashboard-smoke` Playwright suite using captured fixtures (wired in CI via `npm run test:e2e`).
-- [ ] Consider screenshot/visual regression only after the information architecture stabilizes.
+- [x] Consider screenshot/visual regression only after the information architecture stabilizes. — **Decision (2026-05-21):** IA is stable (P0–P7 + Phase 2 detail audits merged). Implemented a **narrow foundation** only: fixture-driven Playwright `toHaveScreenshot` for token gate + command center overview (`dashboard/e2e/visual.spec.ts`), deterministic locale/timezone/viewport in `playwright.config.ts`. **Deferred:** full route screenshot matrix until hero/movement copy polish settles; detail/list pages remain covered by Vitest + behavioral e2e.
 - [x] Consider extracting API DTO schemas so frontend rendering cannot drift from backend read models.
 
-## Resume order
+## Completed — P0–P7 resume order
 
-When work resumes, do this sequence:
+All items below merged to `main` before Phase 2:
 
 1. ~~Add/verify dashboard smoke script and route policy tests.~~ (P0)
 2. ~~Make command results decisive and less generic.~~ (P1)
@@ -234,20 +234,49 @@ When work resumes, do this sequence:
 6. ~~Audit routes, canonicalize aliases, and add detail breadcrumbs.~~ (P6 — [`routePolicy.ts`](../dashboard/src/routePolicy.ts))
 7. ~~Polish table density, panel overflow, title wrapping, and focus rings.~~ (P7 — [`style.css`](../dashboard/src/style.css), [`styleGuards.test.ts`](../dashboard/src/styleGuards.test.ts))
 
-## Phase 2 — command center operator semantics (post-P7)
+## Phase 2 — command center operator semantics (complete)
 
-Follow [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md) suggested PR sequence after the P0–P7 checklist.
+Merged per [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md) PR sequence (2026-05-21).
 
 - [x] PR A — Hero semantics and copy ([`CommandHero.tsx`](../dashboard/src/components/CommandHero.tsx), #84)
 - [x] PR B — Movement panel dynamic title ([`movementPanelCopy.ts`](../dashboard/src/components/movementPanelCopy.ts), #85)
 - [x] PR C — Lane backlog depth clarity ([`WorkerLanes.tsx`](../dashboard/src/components/WorkerLanes.tsx), #86)
-- [x] PR D — Single primary operator action ([`PrimaryAction.tsx`](../dashboard/src/components/PrimaryAction.tsx), #88)
+- [x] PR D — Single primary operator action ([`PrimaryAction.tsx`](../dashboard/src/components/PrimaryAction.tsx), #88, #94)
 - [x] PR E — Project detail route audit (#87)
-- [x] PR F — Lane cards own dispatch/feed; collapse global bulk lane commands behind disclosure ([`WorkerLanes.tsx`](../dashboard/src/components/WorkerLanes.tsx))
-- [x] Remove static movement `reason-strip` chip row from [`MovementDiagnosis.tsx`](../dashboard/src/components/MovementDiagnosis.tsx) (decorative, not backend-driven)
-- [x] Filter hero state strip to active/queued only; keep paper counts in [`PaperMiniStrip`](../dashboard/src/components/PaperMiniStrip.tsx)
+- [x] PR F — Lane cards own dispatch/feed; collapse global bulk lane commands behind disclosure ([`WorkerLanes.tsx`](../dashboard/src/components/WorkerLanes.tsx), #96)
+- [x] Remove static movement `reason-strip` chip row from [`MovementDiagnosis.tsx`](../dashboard/src/components/MovementDiagnosis.tsx) (decorative, not backend-driven; #99)
+- [x] Filter hero state strip to active/queued only; keep paper counts in [`PaperMiniStrip`](../dashboard/src/components/PaperMiniStrip.tsx) (#101)
 - [x] Detail route audit follow-up: run detail page (#100)
 - [x] Detail route audit follow-up: paper detail page (worker-4b-retry, #104)
-- [x] Detail route audit follow-up: event detail page (worker-4c)
-- [ ] Detail route audit follow-up: idea detail page (worker-idea-detail-audit)
+- [x] Detail route audit follow-up: event detail page (worker-4c, #105)
+- [x] Detail route audit follow-up: idea detail page (worker-idea-detail-audit, #106)
+- [x] Detail route audit follow-up: research facility candidate panel ([`deriveResearchCandidateOperatorSummary`](../dashboard/src/detailOperatorSummary.ts), #108)
 
+## Phase 3 — optional follow-ups (complete)
+
+No blocking gate. Pick one narrow PR at a time; keep [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md) product rules.
+
+### Visual regression
+
+- [x] Narrow foundation: fixture-driven Playwright `toHaveScreenshot` for token gate + command center overview (#109, [`visual.spec.ts`](../dashboard/e2e/visual.spec.ts)).
+- [x] One list-page baseline — `#queue:queued` fixture-driven screenshot in [`visual.spec.ts`](../dashboard/e2e/visual.spec.ts) (#112); defer full route matrix until hero/movement copy settles.
+
+### Workbench and corpus UX
+
+- [x] Corpus import drill-down — public corpus index, per-paper URLs, and release-validator links on `#corpus` ([`corpusLinks.ts`](../dashboard/src/corpusLinks.ts), [`ResourcePages.tsx`](../dashboard/src/components/ResourcePages.tsx); tests in [`corpusLinks.test.ts`](../dashboard/src/corpusLinks.test.ts)).
+- [x] **Workbench KPI noise (narrow PR)** — Replace decorative `count-grid` / `count-card` rows on [`IntakePage`](../dashboard/src/components/ResourcePages.tsx), [`ResearchPage`](../dashboard/src/components/ResearchPage.tsx), and [`AutomationPage`](../dashboard/src/components/AutomationPage.tsx) with one backend-driven operator sentence or collapse counts below the table fold (anti-pattern: decorative KPI cards in [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md) § Visual design). — [`WorkbenchSummary.tsx`](../dashboard/src/components/WorkbenchSummary.tsx), backend `summarize_*_workbench` read models (#113).
+
+### Cutover audit and legacy parity
+
+- [x] B7 pause semantics in UI — [`SafetyBar.tsx`](../dashboard/src/components/SafetyBar.tsx) sends `maintenance_mode: true` on pause (verify on live VM during doc closure).
+- [x] B8 read-model dashboard links — backend emits `/control/dashboard-v2#…` ([`router.py`](../enoch_control_plane/control_plane/router.py)); legacy `/control/dashboard` 307-redirects to V2.
+- [x] Automation parity (soft, B1–B3) — per-paper live rewrite, finalization package, and reject on [`AutomationPage.tsx`](../dashboard/src/components/AutomationPage.tsx) (dry-run first).
+- [x] Research generate-batch UI (B5) — dry-run + live generate/provider batch on [`ResearchPage.tsx`](../dashboard/src/components/ResearchPage.tsx).
+- [x] Global search + theme toggle (B6) — [`GlobalSearchForm`](../dashboard/src/App.tsx), light/dark theme in [`theme.ts`](../dashboard/src/theme.ts); no legacy escape hatch.
+- [x] **Cutover audit doc sync** — update [`dashboard-v2-cutover-audit.md`](dashboard-v2-cutover-audit.md) gate table (B1–B8) to reflect landed V2 behavior; note VM verification for B7.
+
+### Operator chrome and discipline
+
+- [x] Keyboard shortcut help and saved table filters — `?` / header **Shortcuts** panel ([`KeyboardShortcutHelp.tsx`](../dashboard/src/components/KeyboardShortcutHelp.tsx), [`keyboardShortcuts.ts`](../dashboard/src/keyboardShortcuts.ts)); queue saved filter presets in localStorage ([`savedTableFilters.ts`](../dashboard/src/savedTableFilters.ts), [`ListFilterBar.tsx`](../dashboard/src/components/ListFilterBar.tsx)).
+- [ ] Read-model hardening (ongoing) — extend DTO boundary tests ([#97](../dashboard/src/api/readModelSchemas.ts)) when adding overview/lane/intake fields; fix semantics in backend first per cursor instructions.
+  - [x] `top_actions.target` schema hotfix (`cd676fa0`) — backend now omits `target` when no object target exists; `test_overview_top_actions_contract` asserts any present target is an object.

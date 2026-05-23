@@ -28,9 +28,23 @@ def _provider_payload() -> dict:
                                     "success_threshold": "Perplexity is at least 20% better than ternary while effective bits stay below 2.25.",
                                     "kill_condition": "Stop if residuals approach int4 size or gains vanish on held-out prompts.",
                                     "accessibility_delta": "If successful, useful local models fit in less VRAM.",
-                                    "expected_artifacts": ["run_notes.md", "metrics.json", "failure_cases.json", ".enoch/project_decision.json"],
-                                    "required_evidence": ["baseline comparison", "metrics table", "failure cases", "decision artifact"],
-                                    "likely_failure_modes": ["residuals too large", "calibration overfit", "int4 remains better"],
+                                    "expected_artifacts": [
+                                        "run_notes.md",
+                                        "metrics.json",
+                                        "failure_cases.json",
+                                        ".enoch/project_decision.json",
+                                    ],
+                                    "required_evidence": [
+                                        "baseline comparison",
+                                        "metrics table",
+                                        "failure cases",
+                                        "decision artifact",
+                                    ],
+                                    "likely_failure_modes": [
+                                        "residuals too large",
+                                        "calibration overfit",
+                                        "int4 remains better",
+                                    ],
                                     "estimated_runtime_class": "medium",
                                     "expected_token_budget": "medium",
                                     "machine_target": "gb10",
@@ -103,7 +117,9 @@ def test_provider_response_with_zero_usable_candidates_fails_closed() -> None:
         raise AssertionError("expected zero-candidate provider response to fail closed")
 
 
-def test_provider_generate_calls_openai_compatible_endpoint_without_local_auth_when_empty_key() -> None:
+def test_provider_generate_calls_openai_compatible_endpoint_without_local_auth_when_empty_key() -> (
+    None
+):
     class FakeResponse:
         def __enter__(self):
             return self
@@ -114,7 +130,10 @@ def test_provider_generate_calls_openai_compatible_endpoint_without_local_auth_w
         def read(self):
             return json.dumps(_provider_payload()).encode("utf-8")
 
-    with patch("scripts.research_provider_generate.urllib.request.urlopen", return_value=FakeResponse()) as urlopen:
+    with patch(
+        "scripts.research_provider_generate.urllib.request.urlopen",
+        return_value=FakeResponse(),
+    ) as urlopen:
         result = research_provider_generate.generate_provider_candidates(
             base_url="https://synthetic.int.exe.xyz/openai/v1",
             model="hf:zai-org/GLM-5.1",
@@ -142,7 +161,9 @@ def test_provider_generate_calls_openai_compatible_endpoint_without_local_auth_w
     assert "Pure simulations" in prompt
 
 
-def test_provider_generate_retries_provider_call_error_before_succeeding(monkeypatch) -> None:
+def test_provider_generate_retries_provider_call_error_before_succeeding(
+    monkeypatch,
+) -> None:
     calls = {"count": 0}
 
     def fake_call(**kwargs):  # noqa: ANN003 - mirrors provider call kwargs
@@ -151,7 +172,9 @@ def test_provider_generate_retries_provider_call_error_before_succeeding(monkeyp
             raise TimeoutError("temporary provider timeout")
         return _provider_payload()
 
-    monkeypatch.setattr(research_provider_generate, "call_openai_compatible_chat", fake_call)
+    monkeypatch.setattr(
+        research_provider_generate, "call_openai_compatible_chat", fake_call
+    )
 
     result = research_provider_generate.generate_provider_candidates(
         base_url="https://synthetic.int.exe.xyz/openai/v1",
@@ -183,13 +206,18 @@ def test_provider_generate_retries_malformed_json_before_succeeding() -> None:
             if FakeResponse.calls == 1:
                 payload = {
                     "id": "cmpl-bad",
-                    "choices": [{"message": {"content": '{"candidates":[{"title":"broken"'}}],
+                    "choices": [
+                        {"message": {"content": '{"candidates":[{"title":"broken"'}}
+                    ],
                 }
             else:
                 payload = _provider_payload()
             return json.dumps(payload).encode("utf-8")
 
-    with patch("scripts.research_provider_generate.urllib.request.urlopen", return_value=FakeResponse()):
+    with patch(
+        "scripts.research_provider_generate.urllib.request.urlopen",
+        return_value=FakeResponse(),
+    ):
         result = research_provider_generate.generate_provider_candidates(
             base_url="https://synthetic.int.exe.xyz/openai/v1",
             model="hf:moonshotai/Kimi-K2.6",
@@ -243,11 +271,15 @@ def test_generation_prompt_uses_requested_machine_target_contract() -> None:
     assert 'machine_target="gb10"' not in prompt
 
 
-def test_provider_generate_rejects_non_http_base_url_before_urlopen(monkeypatch) -> None:
+def test_provider_generate_rejects_non_http_base_url_before_urlopen(
+    monkeypatch,
+) -> None:
     def fake_urlopen(*_args, **_kwargs):
         raise AssertionError("urlopen should not run for unsafe provider URL")
 
-    monkeypatch.setattr(research_provider_generate.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        research_provider_generate.urllib.request, "urlopen", fake_urlopen
+    )
     try:
         research_provider_generate.generate_provider_candidates(
             base_url="file:///etc/passwd",
@@ -263,6 +295,7 @@ def test_provider_generate_rejects_non_http_base_url_before_urlopen(monkeypatch)
     else:  # pragma: no cover
         raise AssertionError("expected unsafe provider URL rejection")
 
+
 def test_provider_generate_caps_excess_provider_candidates(monkeypatch) -> None:
     payload = _provider_payload()
     first = payload["choices"][0]["message"]["content"]
@@ -272,7 +305,11 @@ def test_provider_generate_caps_excess_provider_candidates(monkeypatch) -> None:
     data["candidates"].append(second)
     payload["choices"][0]["message"]["content"] = json.dumps(data)
 
-    monkeypatch.setattr(research_provider_generate, "call_openai_compatible_chat", lambda **_kwargs: payload)
+    monkeypatch.setattr(
+        research_provider_generate,
+        "call_openai_compatible_chat",
+        lambda **_kwargs: payload,
+    )
 
     result = research_provider_generate.generate_provider_candidates(
         base_url="https://synthetic.int.exe.xyz/openai/v1",

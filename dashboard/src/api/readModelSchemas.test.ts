@@ -89,3 +89,19 @@ it('accepts explicit nulls from SQL joins on project and paper list rows', () =>
     rows: [{ paper_id: 'paper-1', title: 'Untriaged draft', review_status: null }],
   }).rows?.[0]?.review_status).toBeNull()
 })
+
+it('accepts explicit null text fields on queue rows from legacy read models', () => {
+  const parsed = parseQueueListResponse({
+    rows: [{
+      project_id: 'queued-1',
+      project_name: null,
+      status: 'queued',
+      decision_summary: null,
+      blocked_reason: null,
+      next_action_hint: null,
+    }],
+  })
+
+  expect(parsed.rows?.[0]?.project_id).toBe('queued-1')
+  expect(parsed.rows?.[0]?.decision_summary).toBeNull()
+})

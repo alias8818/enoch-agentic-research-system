@@ -12,6 +12,7 @@ import { OperatorResultCard } from './operator/OperatorResultCard'
 import { SelectedEntityActions } from './operator/SelectedEntityActions'
 import { automationTableColumns, simpleTableColumns } from '../tablePresentation'
 import { PageHeader } from './PageHeader'
+import { WorkbenchCountsFold, WorkbenchOperatorSummary } from './WorkbenchSummary'
 
 type MutationResult = Record<string, unknown>
 type ChecklistUpdateInput = { paperId: string; itemId: string; status: 'pass' | 'fail' | 'accepted_risk' }
@@ -387,6 +388,8 @@ export function AutomationPage({
         }}
       />
 
+      <WorkbenchOperatorSummary summary={automation.data?.operator_summary} />
+
       {!automation.isLoading && !automation.isError ? (
         <DataTable
           rows={rows}
@@ -399,6 +402,10 @@ export function AutomationPage({
             replaceRouteHash(automationHash(filters, nextPaperId))
           }}
         />
+      ) : null}
+
+      {!automation.isLoading && !automation.isError ? (
+        <WorkbenchCountsFold counts={counts} label="Publication automation counts" />
       ) : null}
 
       {activePaperId ? (
@@ -444,15 +451,6 @@ export function AutomationPage({
       {automation.isLoading ? <div className="state-card">Loading publication automation…</div> : null}
       {automation.isError ? <div className="state-card state-card--error">Publication automation unavailable: {String(automation.error.message)}</div> : null}
       {dialog}
-
-      <section className="count-grid">
-        {Object.entries(counts).slice(0, 8).map(([key, value]) => (
-          <div key={key} className="count-card">
-            <div>{String(value)}</div>
-            <div>{key.replaceAll('_', ' ')}</div>
-          </div>
-        ))}
-      </section>
     </section>
   )
 }

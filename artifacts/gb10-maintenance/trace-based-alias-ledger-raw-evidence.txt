@@ -258,4 +258,3 @@ completed_configs=30 rows=150 elapsed_sec=27.2
 completed_configs=40 rows=200 elapsed_sec=43.9
 completed_configs=50 rows=250 elapsed_sec=69.0
 completed_configs=60 rows=300 elapsed_sec=90.3
-

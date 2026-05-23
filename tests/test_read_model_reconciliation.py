@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from hypothesis import given, settings, strategies as st
 
-from enoch_control_plane.control_plane.read_models import operator_counts_from_rows, operator_detail_counts_from_rows
+from enoch_control_plane.control_plane.read_models import (
+    operator_counts_from_rows,
+    operator_detail_counts_from_rows,
+)
 from enoch_control_plane.control_plane.state_contract import OperatorLane
 
 safe_id = st.text(
-    alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd"), whitelist_characters="-_"),
+    alphabet=st.characters(
+        whitelist_categories=("Ll", "Lu", "Nd"), whitelist_characters="-_"
+    ),
     min_size=1,
     max_size=40,
 ).filter(lambda value: value.strip("-_"))
@@ -24,7 +29,9 @@ def _active_queue(project_id: str, run_id: str, **extra: object) -> dict[str, ob
     }
 
 
-def _completed_draft_ready(project_id: str, run_id: str, **extra: object) -> dict[str, object]:
+def _completed_draft_ready(
+    project_id: str, run_id: str, **extra: object
+) -> dict[str, object]:
     return {
         "project_id": project_id,
         "project_name": project_id,
@@ -37,7 +44,9 @@ def _completed_draft_ready(project_id: str, run_id: str, **extra: object) -> dic
     }
 
 
-def _paper(project_id: str, run_id: str, paper_id: str, **extra: object) -> dict[str, object]:
+def _paper(
+    project_id: str, run_id: str, paper_id: str, **extra: object
+) -> dict[str, object]:
     return {
         "paper_id": paper_id,
         "project_id": project_id,
@@ -62,7 +71,9 @@ def _paper(project_id: str, run_id: str, paper_id: str, **extra: object) -> dict
 
 @given(project_id=safe_id, run_id=safe_id, stale_paper_id=safe_id)
 @settings(max_examples=80)
-def test_active_queue_row_survives_stale_related_paper_reference(project_id: str, run_id: str, stale_paper_id: str) -> None:
+def test_active_queue_row_survives_stale_related_paper_reference(
+    project_id: str, run_id: str, stale_paper_id: str
+) -> None:
     row = _active_queue(project_id, run_id, related_paper_id=f"stale-{stale_paper_id}")
 
     counts = operator_counts_from_rows([row])
@@ -75,7 +86,9 @@ def test_active_queue_row_survives_stale_related_paper_reference(project_id: str
 
 @given(project_id=safe_id, run_id=safe_id, paper_id=safe_id)
 @settings(max_examples=80)
-def test_completed_queue_with_matching_live_related_paper_counts_as_paper_only(project_id: str, run_id: str, paper_id: str) -> None:
+def test_completed_queue_with_matching_live_related_paper_counts_as_paper_only(
+    project_id: str, run_id: str, paper_id: str
+) -> None:
     paper_id = f"paper-{paper_id}"
     rows = [
         _completed_draft_ready(project_id, run_id, related_paper_id=paper_id),
@@ -92,11 +105,20 @@ def test_completed_queue_with_matching_live_related_paper_counts_as_paper_only(p
     assert "run_complete_draft_needed" not in detail
 
 
-@given(project_id=safe_id, active_run_id=safe_id, completed_run_id=safe_id, paper_id=safe_id)
+@given(
+    project_id=safe_id,
+    active_run_id=safe_id,
+    completed_run_id=safe_id,
+    paper_id=safe_id,
+)
 @settings(max_examples=80)
-def test_active_queue_precedence_over_completed_duplicate_rows(project_id: str, active_run_id: str, completed_run_id: str, paper_id: str) -> None:
+def test_active_queue_precedence_over_completed_duplicate_rows(
+    project_id: str, active_run_id: str, completed_run_id: str, paper_id: str
+) -> None:
     rows = [
-        _completed_draft_ready(project_id, completed_run_id, related_paper_id=f"paper-{paper_id}"),
+        _completed_draft_ready(
+            project_id, completed_run_id, related_paper_id=f"paper-{paper_id}"
+        ),
         _active_queue(project_id, active_run_id),
     ]
 
@@ -137,26 +159,36 @@ def test_active_queue_does_not_hide_same_project_attention_row() -> None:
 def test_operator_counts_match_detail_counts_for_mixed_lifecycle_rows() -> None:
     rows = [
         _active_queue("active-project", "active-run"),
-        _completed_draft_ready("paper-project", "paper-run", related_paper_id="paper-1"),
+        _completed_draft_ready(
+            "paper-project", "paper-run", related_paper_id="paper-1"
+        ),
         _paper("paper-project", "paper-run", "paper-1"),
         {"project_id": "queued-project", "status": "queued"},
         {"project_id": "blocked-project", "status": "blocked"},
-        {"paper_id": "imported-paper", "project_id": "imported-project", "paper_status": "publication_draft", "corpus_imported": True},
+        {
+            "paper_id": "imported-paper",
+            "project_id": "imported-project",
+            "paper_status": "publication_draft",
+            "corpus_imported": True,
+        },
     ]
 
     counts = operator_counts_from_rows(rows)
     detail = operator_detail_counts_from_rows(rows)
 
     assert counts[OperatorLane.RUNNING.value] == detail["running"] == 1
-    assert counts[OperatorLane.READY_TO_PUBLISH.value] == detail["ready_to_publish"] == 1
+    assert (
+        counts[OperatorLane.READY_TO_PUBLISH.value] == detail["ready_to_publish"] == 1
+    )
     assert counts[OperatorLane.READY_QUEUE.value] == detail["idea_queued"] == 1
-    assert counts[OperatorLane.NEEDS_OPERATOR.value] == detail["blocked_needs_operator"] == 1
+    assert (
+        counts[OperatorLane.NEEDS_OPERATOR.value]
+        == detail["blocked_needs_operator"]
+        == 1
+    )
     assert counts[OperatorLane.PUBLISHED.value] == detail["published"] == 1
     assert counts["needs_attention"] == 1
     assert counts["total_operator_items"] == 5
-
-
-
 
 
 def test_useful_signal_precedence_over_duplicate_no_paper_rows() -> None:
@@ -190,12 +222,6 @@ def test_useful_signal_precedence_over_duplicate_no_paper_rows() -> None:
         assert "run_complete_no_paper" not in detail
 
 
-
-
-
-
-
-
 def test_followup_candidate_normalizes_followup_type() -> None:
     row = {
         "project_id": "followup-normalized",
@@ -222,6 +248,7 @@ def test_followup_candidate_normalizes_followup_type() -> None:
     assert counts["total_operator_items"] == 1
     assert detail["followup_candidate"] == 1
 
+
 def test_bounded_useful_signal_row_gate_normalizes_status_fields() -> None:
     row = {
         "project_id": "bounded-signal",
@@ -246,6 +273,7 @@ def test_bounded_useful_signal_row_gate_normalizes_status_fields() -> None:
     assert counts[OperatorLane.WRITE_PAPER.value] == 1
     assert counts["total_operator_items"] == 1
     assert detail["run_complete_draft_needed"] == 1
+
 
 def test_compute_scale_blocked_precedence_over_duplicate_no_paper_rows() -> None:
     no_paper = {
@@ -311,11 +339,16 @@ def test_active_queue_summary_ignores_stale_related_paper_projection() -> None:
 
     assert summary["operator_lane"] == OperatorLane.RUNNING.value
     assert summary["operator_detail_stage"] == "running"
-    assert summary["operator_next_step"] == "Wait for worker callback or gate completion."
+    assert (
+        summary["operator_next_step"] == "Wait for worker callback or gate completion."
+    )
 
 
 def test_summarize_queue_list_row_omits_followup_and_related_artifact_paths() -> None:
-    from enoch_control_plane.control_plane.read_models import summarize_queue_list_row, summarize_queue_row
+    from enoch_control_plane.control_plane.read_models import (
+        summarize_queue_list_row,
+        summarize_queue_row,
+    )
 
     row = _active_queue(
         "list-project",
@@ -340,15 +373,45 @@ def test_summarize_queue_list_row_omits_followup_and_related_artifact_paths() ->
     assert summary["operator_lane"] == full["operator_lane"]
 
 
+def test_summarize_queue_list_row_normalizes_nullable_text_fields() -> None:
+    from enoch_control_plane.control_plane.read_models import summarize_queue_list_row
+
+    summary = summarize_queue_list_row(
+        {
+            "project_id": "nullable-queue-row",
+            "project_name": None,
+            "status": "queued",
+            "machine_target": None,
+            "current_run_id": None,
+            "next_action_hint": None,
+            "blocked_reason": None,
+            "decision_gate_state": None,
+            "decision_summary": None,
+            "updated_at": None,
+        }
+    )
+
+    assert summary["project_name"] == ""
+    assert summary["machine_target"] == ""
+    assert summary["current_run_id"] == ""
+    assert summary["next_action_hint"] == ""
+    assert summary["blocked_reason"] == ""
+    assert summary["decision_gate_state"] == ""
+    assert summary["decision_summary"] == ""
+    assert summary["updated_at"] == ""
+
+
 def test_queue_summary_normalizes_manual_review_flag() -> None:
     from enoch_control_plane.control_plane.read_models import summarize_queue_row
 
-    summary = summarize_queue_row({
-        "project_id": "queued-false-review",
-        "project_name": "Queued False Review",
-        "status": "queued",
-        "manual_review_required": "false",
-    })
+    summary = summarize_queue_row(
+        {
+            "project_id": "queued-false-review",
+            "project_name": "Queued False Review",
+            "status": "queued",
+            "manual_review_required": "false",
+        }
+    )
 
     assert summary["manual_review_required"] is False
     assert summary["operator_lane"] == OperatorLane.READY_QUEUE.value
@@ -356,7 +419,9 @@ def test_queue_summary_normalizes_manual_review_flag() -> None:
 
 
 class _OverviewStore:
-    def __init__(self, queue_rows: list[dict[str, object]], paper_rows: list[dict[str, object]]) -> None:
+    def __init__(
+        self, queue_rows: list[dict[str, object]], paper_rows: list[dict[str, object]]
+    ) -> None:
         self._queue_rows = queue_rows
         self._paper_rows = paper_rows
 
@@ -372,7 +437,18 @@ class _OverviewStore:
 
     def active_items_sql(self, *, limit: int) -> list[dict[str, object]]:
         del limit
-        return [row for row in self._queue_rows if row.get("status") in {"dispatching", "awaiting_wake", "running", "wake_received", "reconciling"}]
+        return [
+            row
+            for row in self._queue_rows
+            if row.get("status")
+            in {
+                "dispatching",
+                "awaiting_wake",
+                "running",
+                "wake_received",
+                "reconciling",
+            }
+        ]
 
     def next_candidate_sql(self) -> dict[str, object] | None:
         for row in self._queue_rows:
@@ -386,7 +462,9 @@ class _OverviewStore:
     def operator_paper_rows_sql(self) -> list[dict[str, object]]:
         return self._paper_rows
 
-    def event_page(self, **kwargs: object) -> tuple[list[dict[str, object]], None, bool]:
+    def event_page(
+        self, **kwargs: object
+    ) -> tuple[list[dict[str, object]], None, bool]:
         del kwargs
         return [], None, False
 
@@ -396,11 +474,17 @@ def test_overview_operator_cards_match_reconciled_pipeline_counts(tmp_path) -> N
 
     project_dir = tmp_path / "write-project"
     (project_dir / ".enoch").mkdir(parents=True)
-    (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+    (project_dir / ".enoch" / "project_decision.json").write_text(
+        '{"project_decision":"finalize_positive"}\n', encoding="utf-8"
+    )
     queue_rows = [
         _active_queue("active-project", "active-run", related_paper_id="stale-paper"),
-        _completed_draft_ready("write-project", "write-run", project_dir=str(project_dir)),
-        _completed_draft_ready("paper-project", "paper-run", related_paper_id="paper-1"),
+        _completed_draft_ready(
+            "write-project", "write-run", project_dir=str(project_dir)
+        ),
+        _completed_draft_ready(
+            "paper-project", "paper-run", related_paper_id="paper-1"
+        ),
     ]
     paper_rows = [_paper("paper-project", "paper-run", "paper-1")]
     store = _OverviewStore(queue_rows, paper_rows)
@@ -408,14 +492,27 @@ def test_overview_operator_cards_match_reconciled_pipeline_counts(tmp_path) -> N
     overview = read_models.overview(store)  # type: ignore[arg-type]
 
     assert overview["operator_counts"][OperatorLane.RUNNING.value] == 1
-    assert overview["operator_counts"][OperatorLane.WRITE_PAPER.value] == overview["paper_pipeline"]["write_needed"] == 1
-    assert overview["operator_counts"][OperatorLane.READY_TO_PUBLISH.value] == overview["paper_pipeline"]["publish_ready"] == 1
+    assert (
+        overview["operator_counts"][OperatorLane.WRITE_PAPER.value]
+        == overview["paper_pipeline"]["write_needed"]
+        == 1
+    )
+    assert (
+        overview["operator_counts"][OperatorLane.READY_TO_PUBLISH.value]
+        == overview["paper_pipeline"]["publish_ready"]
+        == 1
+    )
     assert overview["operator_counts"]["total_operator_items"] == 3
     assert overview["paper_pipeline"]["raw_completed_no_paper_candidates"] == 1
-    assert overview["paper_pipeline"]["next_write_candidate"]["project_id"] == "write-project"
+    assert (
+        overview["paper_pipeline"]["next_write_candidate"]["project_id"]
+        == "write-project"
+    )
 
 
-def test_overview_treats_unexpandable_project_dir_as_missing_decision_artifact() -> None:
+def test_overview_treats_unexpandable_project_dir_as_missing_decision_artifact() -> (
+    None
+):
     from enoch_control_plane.control_plane import read_models
 
     queue_rows = [
@@ -436,7 +533,9 @@ def test_overview_treats_unexpandable_project_dir_as_missing_decision_artifact()
     assert rejected[0]["project_id"] == "unexpandable-project-dir"
 
 
-def test_overview_last_import_result_uses_same_import_predicate_as_published_count() -> None:
+def test_overview_last_import_result_uses_same_import_predicate_as_published_count() -> (
+    None
+):
     from enoch_control_plane.control_plane import read_models
 
     paper_rows = [
@@ -459,7 +558,10 @@ def test_overview_last_import_result_uses_same_import_predicate_as_published_cou
 
     assert overview["operator_counts"][OperatorLane.PUBLISHED.value] == 1
     assert overview["paper_pipeline"]["published_imported"] == 1
-    assert overview["paper_pipeline"]["last_import_result"]["paper_id"] == "ledger-imported-paper"
+    assert (
+        overview["paper_pipeline"]["last_import_result"]["paper_id"]
+        == "ledger-imported-paper"
+    )
 
 
 def test_overview_investigation_pipeline_uses_reconciled_rows() -> None:
@@ -493,7 +595,9 @@ def test_overview_investigation_pipeline_uses_reconciled_rows() -> None:
     assert overview["investigation_pipeline"]["useful_signals"] == 1
 
 
-def test_useful_signal_with_unlaunched_bounded_followup_is_actionable_followup() -> None:
+def test_useful_signal_with_unlaunched_bounded_followup_is_actionable_followup() -> (
+    None
+):
     from enoch_control_plane.control_plane import read_models
 
     row = {
@@ -561,7 +665,9 @@ def test_compute_scale_blocked_followup_remains_scale_blocked() -> None:
     assert summary["operator_detail_stage"] == "compute_scale_blocked"
 
 
-def test_completed_queue_with_same_run_paper_without_related_pointer_counts_as_paper_only() -> None:
+def test_completed_queue_with_same_run_paper_without_related_pointer_counts_as_paper_only() -> (
+    None
+):
     rows = [
         {
             "project_id": "paper-project",
@@ -599,7 +705,9 @@ def test_unrelated_paper_with_same_run_id_does_not_supersede_queue_row() -> None
     assert detail["ready_to_publish"] == 1
 
 
-def test_prior_paper_for_same_project_different_run_does_not_supersede_new_write_row() -> None:
+def test_prior_paper_for_same_project_different_run_does_not_supersede_new_write_row() -> (
+    None
+):
     rows = [
         _completed_draft_ready("write-project", "new-run"),
         _paper("write-project", "old-run", "paper-1"),
@@ -640,8 +748,11 @@ def test_blocked_queue_row_with_same_run_paper_still_needs_attention() -> None:
     assert detail["blocked_needs_operator"] == 1
     assert detail["ready_to_publish"] == 1
 
+
 class _BatchedOverviewStore(_OverviewStore):
-    def overview_read_model_parts(self, *, active_limit: int, event_limit: int) -> dict[str, object]:
+    def overview_read_model_parts(
+        self, *, active_limit: int, event_limit: int
+    ) -> dict[str, object]:
         del active_limit, event_limit
         return {
             "counts": self.queue_counts_sql(),
@@ -655,7 +766,9 @@ class _BatchedOverviewStore(_OverviewStore):
 
 
 class _MalformedBatchedOverviewStore(_OverviewStore):
-    def overview_read_model_parts(self, *, active_limit: int, event_limit: int) -> dict[str, object]:
+    def overview_read_model_parts(
+        self, *, active_limit: int, event_limit: int
+    ) -> dict[str, object]:
         del active_limit, event_limit
         return {
             "counts": self.queue_counts_sql(),
@@ -669,7 +782,9 @@ class _MalformedBatchedOverviewStore(_OverviewStore):
 def test_overview_falls_back_when_batched_parts_are_incomplete() -> None:
     from enoch_control_plane.control_plane import read_models
 
-    store = _MalformedBatchedOverviewStore([_active_queue("active-project", "active-run")], [])
+    store = _MalformedBatchedOverviewStore(
+        [_active_queue("active-project", "active-run")], []
+    )
 
     overview = read_models.overview(store)  # type: ignore[arg-type]
 
@@ -678,7 +793,9 @@ def test_overview_falls_back_when_batched_parts_are_incomplete() -> None:
     assert overview["operator_counts"]["total_operator_items"] == 1
 
 
-def test_overview_batched_parts_count_active_items_even_when_raw_queue_is_trimmed() -> None:
+def test_overview_batched_parts_count_active_items_even_when_raw_queue_is_trimmed() -> (
+    None
+):
     from enoch_control_plane.control_plane import read_models
 
     store = _BatchedOverviewStore([_active_queue("active-project", "active-run")], [])
@@ -691,24 +808,28 @@ def test_overview_batched_parts_count_active_items_even_when_raw_queue_is_trimme
     assert overview["operator_detail_counts"]["running"] == 1
 
 
-def test_queue_summary_hides_unverified_related_artifact_paths_without_publish_promotion() -> None:
+def test_queue_summary_hides_unverified_related_artifact_paths_without_publish_promotion() -> (
+    None
+):
     from enoch_control_plane.control_plane.read_models import summarize_queue_row
 
-    summary = summarize_queue_row({
-        "project_id": "ready-project",
-        "project_name": "Ready Project",
-        "status": "completed",
-        "last_run_state": "wake_ready",
-        "current_run_id": "ready-run",
-        "related_paper_id": "paper-ready",
-        "related_paper_status": "publication_draft",
-        "related_review_status": "finalized",
-        "related_finalization_package_path": "package.json",
-        "related_draft_markdown_path": "/private/projects/ready/paper.md",
-        "related_evidence_bundle_path": "/private/projects/ready/evidence_bundle.json",
-        "related_claim_ledger_path": "/private/projects/ready/claim_ledger.json",
-        "related_manifest_path": "/private/projects/ready/paper_manifest.json",
-    })
+    summary = summarize_queue_row(
+        {
+            "project_id": "ready-project",
+            "project_name": "Ready Project",
+            "status": "completed",
+            "last_run_state": "wake_ready",
+            "current_run_id": "ready-run",
+            "related_paper_id": "paper-ready",
+            "related_paper_status": "publication_draft",
+            "related_review_status": "finalized",
+            "related_finalization_package_path": "package.json",
+            "related_draft_markdown_path": "/private/projects/ready/paper.md",
+            "related_evidence_bundle_path": "/private/projects/ready/evidence_bundle.json",
+            "related_claim_ledger_path": "/private/projects/ready/claim_ledger.json",
+            "related_manifest_path": "/private/projects/ready/paper_manifest.json",
+        }
+    )
 
     assert summary["operator_lane"] == OperatorLane.AUTOMATE_PUBLICATION.value
     assert summary["operator_detail_stage"] == "finalization_needed"
@@ -729,23 +850,27 @@ def test_queue_summary_hides_unverified_related_artifact_paths_without_publish_p
         assert field not in summary
 
 
-def test_run_summary_hides_unverified_related_artifact_paths_without_publish_promotion() -> None:
+def test_run_summary_hides_unverified_related_artifact_paths_without_publish_promotion() -> (
+    None
+):
     from enoch_control_plane.control_plane.read_models import summarize_run_row
 
-    summary = summarize_run_row({
-        "run_id": "ready-run",
-        "project_id": "ready-project",
-        "state": "wake_ready",
-        "gate_state": "wake_ready",
-        "related_paper_id": "paper-ready",
-        "related_paper_status": "publication_draft",
-        "related_review_status": "finalized",
-        "related_finalization_package_path": "package.json",
-        "related_draft_markdown_path": "/private/projects/ready/paper.md",
-        "related_evidence_bundle_path": "/private/projects/ready/evidence_bundle.json",
-        "related_claim_ledger_path": "/private/projects/ready/claim_ledger.json",
-        "related_manifest_path": "/private/projects/ready/paper_manifest.json",
-    })
+    summary = summarize_run_row(
+        {
+            "run_id": "ready-run",
+            "project_id": "ready-project",
+            "state": "wake_ready",
+            "gate_state": "wake_ready",
+            "related_paper_id": "paper-ready",
+            "related_paper_status": "publication_draft",
+            "related_review_status": "finalized",
+            "related_finalization_package_path": "package.json",
+            "related_draft_markdown_path": "/private/projects/ready/paper.md",
+            "related_evidence_bundle_path": "/private/projects/ready/evidence_bundle.json",
+            "related_claim_ledger_path": "/private/projects/ready/claim_ledger.json",
+            "related_manifest_path": "/private/projects/ready/paper_manifest.json",
+        }
+    )
 
     assert summary["operator_lane"] == OperatorLane.AUTOMATE_PUBLICATION.value
     assert summary["operator_detail_stage"] == "finalization_needed"
@@ -766,7 +891,9 @@ def test_run_summary_hides_unverified_related_artifact_paths_without_publish_pro
         assert field not in summary
 
 
-def test_operator_counts_recompute_stale_operator_stage_fields_from_raw_lifecycle() -> None:
+def test_operator_counts_recompute_stale_operator_stage_fields_from_raw_lifecycle() -> (
+    None
+):
     row = {
         "project_id": "stale-stage-project",
         "project_name": "stale-stage-project",
@@ -791,24 +918,31 @@ def test_operator_counts_recompute_stale_operator_stage_fields_from_raw_lifecycl
 
 
 def test_reconciliation_preserves_sanitized_ready_to_publish_queue_summary() -> None:
-    from enoch_control_plane.control_plane.read_models import operator_stage_for_record, summarize_queue_row
+    from enoch_control_plane.control_plane.read_models import (
+        operator_stage_for_record,
+        summarize_queue_row,
+    )
 
-    summary = summarize_queue_row({
-        "project_id": "sanitized-ready-project",
-        "project_name": "Sanitized Ready Project",
-        "status": "completed",
-        "last_run_state": "wake_ready",
-        "current_run_id": "sanitized-ready-run",
-        "related_paper_id": "paper-ready",
-        "related_paper_status": "publication_draft",
-        "related_review_status": "finalized",
-        "related_finalization_package_path": "package.json",
-        "related_draft_markdown_path": "/private/projects/ready/paper.md",
-        "related_evidence_bundle_path": "/private/projects/ready/evidence_bundle.json",
-        "related_claim_ledger_path": "/private/projects/ready/claim_ledger.json",
-        "related_manifest_path": "/private/projects/ready/paper_manifest.json",
-    })
-    paper_summary = _paper("sanitized-ready-project", "sanitized-ready-run", "paper-ready")
+    summary = summarize_queue_row(
+        {
+            "project_id": "sanitized-ready-project",
+            "project_name": "Sanitized Ready Project",
+            "status": "completed",
+            "last_run_state": "wake_ready",
+            "current_run_id": "sanitized-ready-run",
+            "related_paper_id": "paper-ready",
+            "related_paper_status": "publication_draft",
+            "related_review_status": "finalized",
+            "related_finalization_package_path": "package.json",
+            "related_draft_markdown_path": "/private/projects/ready/paper.md",
+            "related_evidence_bundle_path": "/private/projects/ready/evidence_bundle.json",
+            "related_claim_ledger_path": "/private/projects/ready/claim_ledger.json",
+            "related_manifest_path": "/private/projects/ready/paper_manifest.json",
+        }
+    )
+    paper_summary = _paper(
+        "sanitized-ready-project", "sanitized-ready-run", "paper-ready"
+    )
 
     recomputed_stage = operator_stage_for_record(summary)
     counts = operator_counts_from_rows([summary, paper_summary])
@@ -857,7 +991,10 @@ def test_investigation_pipeline_exposes_ranked_followup_readiness_counts() -> No
             "followup_type": "branch",
             "followup_title": "Bounded branch",
             "followup_hypothesis": "The signal survives a bounded local test.",
-            "followup_required_evidence": ["small local metric", "ablation vs baseline"],
+            "followup_required_evidence": [
+                "small local metric",
+                "ablation vs baseline",
+            ],
             "followup_success_threshold": "beat the local baseline",
             "followup_stop_condition": "stop after one bounded miss",
         }
@@ -867,7 +1004,12 @@ def test_investigation_pipeline_exposes_ranked_followup_readiness_counts() -> No
     rows = [
         row("top"),
         row("scale", compute_scale_blocked=True, evidence_strength="moderate"),
-        row("regular", evidence_strength="weak", hypothesis_status="mixed", source_url=""),
+        row(
+            "regular",
+            evidence_strength="weak",
+            hypothesis_status="mixed",
+            source_url="",
+        ),
         row("stale", hypothesis_status="unsupported", evidence_strength="weak"),
     ]
 

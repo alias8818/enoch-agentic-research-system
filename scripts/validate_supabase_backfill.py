@@ -24,24 +24,57 @@ HASH_0 = "0" * 64
 HASH_1 = "1" * 64
 
 
-def run(cmd: list[str], *, stdin: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, input=stdin, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=check)
+def run(
+    cmd: list[str], *, stdin: str | None = None, check: bool = True
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        cmd,
+        input=stdin,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=check,
+    )
 
 
 def wait_for_postgres(container: str) -> None:
     for _ in range(60):
-        if run(["docker", "exec", container, "pg_isready", "-U", "postgres"], check=False).returncode == 0:
+        if (
+            run(
+                ["docker", "exec", container, "pg_isready", "-U", "postgres"],
+                check=False,
+            ).returncode
+            == 0
+        ):
             return
         time.sleep(1)
     raise RuntimeError("Postgres container did not become ready")
 
 
 def psql(container: str, sql: str) -> None:
-    run(["docker", "exec", "-i", container, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1"], stdin=sql)
+    run(
+        [
+            "docker",
+            "exec",
+            "-i",
+            container,
+            "psql",
+            "-U",
+            "postgres",
+            "-d",
+            "postgres",
+            "-v",
+            "ON_ERROR_STOP=1",
+        ],
+        stdin=sql,
+    )
 
 
 def apply_migrations(container: str) -> None:
-    psql(container, "create role anon; create role authenticated; create role service_role;")
+    psql(
+        container,
+        "create role anon; create role authenticated; create role service_role;",
+    )
     for migration in sorted((ROOT / "supabase" / "migrations").glob("*.sql")):
         psql(container, migration.read_text())
 
@@ -83,7 +116,9 @@ def sqlite_fixture(path: Path, project_root: Path) -> None:
         for project_id, name, decision in projects:
             decision_dir = project_root / project_id / ".omx"
             decision_dir.mkdir(parents=True, exist_ok=True)
-            (decision_dir / "project_decision.json").write_text(json.dumps({"decision": decision}) + "\n", encoding="utf-8")
+            (decision_dir / "project_decision.json").write_text(
+                json.dumps({"decision": decision}) + "\n", encoding="utf-8"
+            )
             conn.execute(
                 """
                 insert into projects(project_id, project_name, project_dir, notion_page_url, notion_page_id,
@@ -111,14 +146,40 @@ def sqlite_fixture(path: Path, project_root: Path) -> None:
                   last_callback_at, gate_state, current_activity, idempotency_key, updated_at)
                 values (?, ?, 'session', 'wake_ready', 'live', ?, ?, ?, '', 'worker_callback', ?, ?)
                 """,
-                (f"run-{project_id}", project_id, NOW, NOW, NOW, f"run-key-{project_id}", NOW),
+                (
+                    f"run-{project_id}",
+                    project_id,
+                    NOW,
+                    NOW,
+                    NOW,
+                    f"run-key-{project_id}",
+                    NOW,
+                ),
             )
         paper_specs = [
-            ("paper-final", "proj-final", "publication_draft", "finalized", "package.json"),
-            ("paper-approved", "proj-approved", "publication_draft", "approved_for_finalization", ""),
+            (
+                "paper-final",
+                "proj-final",
+                "publication_draft",
+                "finalized",
+                "package.json",
+            ),
+            (
+                "paper-approved",
+                "proj-approved",
+                "publication_draft",
+                "approved_for_finalization",
+                "",
+            ),
             ("paper-rejected", "proj-rejected", "draft_review", "rejected", ""),
         ]
-        for paper_id, project_id, paper_status, review_status, package_path in paper_specs:
+        for (
+            paper_id,
+            project_id,
+            paper_status,
+            review_status,
+            package_path,
+        ) in paper_specs:
             conn.execute(
                 """
                 insert into papers(paper_id, project_id, run_id, paper_type, paper_status,
@@ -135,7 +196,15 @@ def sqlite_fixture(path: Path, project_root: Path) -> None:
                   source_audit_path, finalization_package_path, finalized_at, decision_summary, created_at, updated_at)
                 values (?, ?, '', '', '', '{}', 100, '[]', '[]', ?, 'audit.json', ?, ?, 'fixture', ?, ?)
                 """,
-                (paper_id, review_status, paper_id, package_path, NOW if review_status == "finalized" else "", NOW, NOW),
+                (
+                    paper_id,
+                    review_status,
+                    paper_id,
+                    package_path,
+                    NOW if review_status == "finalized" else "",
+                    NOW,
+                    NOW,
+                ),
             )
         conn.execute(
             """
@@ -160,24 +229,55 @@ def main() -> int:
         project_root = Path(tmp) / "projects"
         sqlite_fixture(sqlite_path, project_root)
         try:
-            run([
-                "docker", "run", "--name", container, "-e", "POSTGRES_PASSWORD=postgres",
-                "-e", "POSTGRES_DB=postgres", "-p", "127.0.0.1::5432", "-d", IMAGE,
-            ])
+            run(
+                [
+                    "docker",
+                    "run",
+                    "--name",
+                    container,
+                    "-e",
+                    "POSTGRES_PASSWORD=postgres",  # NOSONAR(S2068) - ephemeral test-only Postgres container using official image default
+                    "-e",
+                    "POSTGRES_DB=postgres",
+                    "-p",
+                    "127.0.0.1::5432",
+                    "-d",
+                    IMAGE,
+                ]
+            )
             wait_for_postgres(container)
             apply_migrations(container)
             url = pg_url(container)
 
-            dry = import_sqlite_to_postgres(sqlite_path=sqlite_path, database_url=url, apply=False, reset_target=False, observation_limit=-1, project_roots=[project_root])
+            dry = import_sqlite_to_postgres(
+                sqlite_path=sqlite_path,
+                database_url=url,
+                apply=False,
+                reset_target=False,
+                observation_limit=-1,
+                project_roots=[project_root],
+            )
             import psycopg
+
             with psycopg.connect(url) as conn:
                 with conn.cursor() as cur:
                     cur.execute("set search_path to enoch, public")
-                    persisted = cur.execute("select count(*) from projects").fetchone()[0]
+                    persisted = cur.execute("select count(*) from projects").fetchone()[
+                        0
+                    ]
             if persisted != 0:
-                raise AssertionError(f"dry-run persisted target rows: projects={persisted}")
+                raise AssertionError(
+                    f"dry-run persisted target rows: projects={persisted}"
+                )
 
-            applied = import_sqlite_to_postgres(sqlite_path=sqlite_path, database_url=url, apply=True, reset_target=True, observation_limit=-1, project_roots=[project_root])
+            applied = import_sqlite_to_postgres(
+                sqlite_path=sqlite_path,
+                database_url=url,
+                apply=True,
+                reset_target=True,
+                observation_limit=-1,
+                project_roots=[project_root],
+            )
             counts = applied["target_counts_in_transaction"]
             expected = {
                 "projects": 4,
@@ -191,14 +291,22 @@ def main() -> int:
             }
             for key, value in expected.items():
                 if counts.get(key) != value:
-                    raise AssertionError(f"{key} count mismatch: {counts.get(key)} != {value}")
+                    raise AssertionError(
+                        f"{key} count mismatch: {counts.get(key)} != {value}"
+                    )
             dashboard = applied["operator_dashboard_counts"]
             if dashboard.get("write_needed") != 0:
-                raise AssertionError(f"write_needed should remain 0, got {dashboard.get('write_needed')}")
+                raise AssertionError(
+                    f"write_needed should remain 0, got {dashboard.get('write_needed')}"
+                )
             if dashboard.get("publication_ready") != 1:
-                raise AssertionError(f"publication_ready should be 1, got {dashboard.get('publication_ready')}")
+                raise AssertionError(
+                    f"publication_ready should be 1, got {dashboard.get('publication_ready')}"
+                )
             if dashboard.get("corpus_imported") != 0:
-                raise AssertionError(f"corpus_imported should be 0, got {dashboard.get('corpus_imported')}")
+                raise AssertionError(
+                    f"corpus_imported should be 0, got {dashboard.get('corpus_imported')}"
+                )
             if dashboard.get("raw_completed_no_paper_candidates") != 1:
                 raise AssertionError(
                     f"raw_completed_no_paper_candidates should be 1, got {dashboard.get('raw_completed_no_paper_candidates')}"
@@ -207,7 +315,18 @@ def main() -> int:
                 raise AssertionError(
                     f"not_writable_by_decision_gate should be 1, got {dashboard.get('not_writable_by_decision_gate')}"
                 )
-            print(json.dumps({"ok": True, "dry_run_committed": dry["committed"], "applied_counts": counts, "dashboard": dashboard}, indent=2, sort_keys=True))
+            print(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "dry_run_committed": dry["committed"],
+                        "applied_counts": counts,
+                        "dashboard": dashboard,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
             return 0
         finally:
             run(["docker", "rm", "-f", container], check=False)

@@ -27,7 +27,9 @@ class HttpResponse:
 Transport = Callable[[str, str, dict[str, str], dict[str, Any] | None], HttpResponse]
 
 
-def _json_request(method: str, url: str, headers: dict[str, str], payload: dict[str, Any] | None) -> HttpResponse:
+def _json_request(
+    method: str, url: str, headers: dict[str, str], payload: dict[str, Any] | None
+) -> HttpResponse:
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     req = request.Request(url, data=data, method=method, headers=headers)
     timeout_seconds = float(os.environ.get("ENOCH_NOTION_HTTP_TIMEOUT_SEC", "60"))
@@ -37,19 +39,33 @@ def _json_request(method: str, url: str, headers: dict[str, str], payload: dict[
         try:
             with request.urlopen(req, timeout=timeout_seconds) as resp:
                 raw = resp.read().decode("utf-8")
-                return HttpResponse(status=resp.status, body=json.loads(raw) if raw else {})
-        except error.HTTPError as exc:  # pragma: no cover - exercised by integration use
+                return HttpResponse(
+                    status=resp.status, body=json.loads(raw) if raw else {}
+                )
+        except (
+            error.HTTPError
+        ) as exc:  # pragma: no cover - exercised by integration use
             raw = exc.read().decode("utf-8")
             detail = raw or exc.reason
             if exc.code < 500 or attempt >= max_attempts:
-                raise NotionSyncError(f"{method} {url} failed with {exc.code}: {detail}") from exc
+                raise NotionSyncError(
+                    f"{method} {url} failed with {exc.code}: {detail}"
+                ) from exc
             last_exc = exc
-        except (TimeoutError, SocketTimeout, error.URLError) as exc:  # pragma: no cover - exercised by integration use
+        except (
+            TimeoutError,
+            SocketTimeout,
+            error.URLError,
+        ) as exc:  # pragma: no cover - exercised by integration use
             if attempt >= max_attempts:
-                raise NotionSyncError(f"{method} {url} failed after {attempt} attempts: {exc}") from exc
+                raise NotionSyncError(
+                    f"{method} {url} failed after {attempt} attempts: {exc}"
+                ) from exc
             last_exc = exc
         time.sleep(min(2 ** (attempt - 1), 5))
-    raise NotionSyncError(f"{method} {url} failed after {max_attempts} attempts: {last_exc}")
+    raise NotionSyncError(
+        f"{method} {url} failed after {max_attempts} attempts: {last_exc}"
+    )
 
 
 def notion_headers(token: str) -> dict[str, str]:
@@ -68,9 +84,14 @@ def extract_plain_text(prop: dict[str, Any]) -> str:
     kind = prop.get("type")
     values = prop.get(kind) if kind else None
     if isinstance(values, list):
-        return "".join(str(item.get("plain_text") or item.get("text", {}).get("content") or "") for item in values).strip()
+        return "".join(
+            str(item.get("plain_text") or item.get("text", {}).get("content") or "")
+            for item in values
+        ).strip()
     if isinstance(values, dict):
-        return str(values.get("name") or values.get("start") or values.get("content") or "").strip()
+        return str(
+            values.get("name") or values.get("start") or values.get("content") or ""
+        ).strip()
     if isinstance(values, (str, int, float)):
         return str(values)
     return ""
@@ -84,7 +105,9 @@ def normalize_notion_page(page: dict[str, Any]) -> dict[str, Any]:
     }
     for name, prop in props.items():
         safe = name.lower().replace(" ", "_")
-        row[f"property_{safe}"] = extract_plain_text(prop) if isinstance(prop, dict) else ""
+        row[f"property_{safe}"] = (
+            extract_plain_text(prop) if isinstance(prop, dict) else ""
+        )
     if "property_idea" not in row:
         for candidate in ("property_name", "property_title"):
             if row.get(candidate):
@@ -93,7 +116,9 @@ def normalize_notion_page(page: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def resolve_data_source_id(database_or_data_source_id: str, token: str, *, transport: Transport = _json_request) -> str:
+def resolve_data_source_id(
+    database_or_data_source_id: str, token: str, *, transport: Transport = _json_request
+) -> str:
     """Return a Notion data source ID for current Notion API versions.
 
     Notion split databases and data sources in API versions >= 2025-09-03.
@@ -113,10 +138,19 @@ def resolve_data_source_id(database_or_data_source_id: str, token: str, *, trans
     return database_or_data_source_id
 
 
-def query_notion_database(database_id: str, token: str, *, transport: Transport = _json_request, page_size: int = 100, data_source_id: str = "") -> list[dict[str, Any]]:
+def query_notion_database(
+    database_id: str,
+    token: str,
+    *,
+    transport: Transport = _json_request,
+    page_size: int = 100,
+    data_source_id: str = "",
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     cursor: str | None = None
-    source_id = data_source_id or resolve_data_source_id(database_id, token, transport=transport)
+    source_id = data_source_id or resolve_data_source_id(
+        database_id, token, transport=transport
+    )
     url = f"{NOTION_API_BASE}/data_sources/{source_id}/query"
     headers = notion_headers(token)
     while True:
@@ -125,7 +159,11 @@ def query_notion_database(database_id: str, token: str, *, transport: Transport 
             payload["start_cursor"] = cursor
         resp = transport("POST", url, headers, payload)
         body = resp.body
-        rows.extend(normalize_notion_page(page) for page in body.get("results", []) if isinstance(page, dict))
+        rows.extend(
+            normalize_notion_page(page)
+            for page in body.get("results", [])
+            if isinstance(page, dict)
+        )
         if not body.get("has_more"):
             break
         cursor = body.get("next_cursor")
@@ -171,31 +209,58 @@ def notion_update_properties(row: dict[str, Any]) -> dict[str, Any]:
         "Execution Summary": _rich_text(str(props.get("Execution Summary") or "")),
     }
     text_fields = [
-        "Enoch Project ID", "Enoch Queue Status", "Enoch Last Run State", "Enoch Last Event Type",
-        "Enoch Next Action Hint", "Enoch Project Dir", "Enoch Current Session ID",
-        "Enoch Last Result Summary", "Enoch Last Error", "Enoch Paper ID", "Enoch Paper Status",
-        "Enoch Paper Type", "Enoch Paper Markdown Path", "Enoch Paper Updated At ISO",
+        "Enoch Project ID",
+        "Enoch Queue Status",
+        "Enoch Last Run State",
+        "Enoch Last Event Type",
+        "Enoch Next Action Hint",
+        "Enoch Project Dir",
+        "Enoch Current Session ID",
+        "Enoch Last Result Summary",
+        "Enoch Last Error",
+        "Enoch Paper ID",
+        "Enoch Paper Status",
+        "Enoch Paper Type",
+        "Enoch Paper Markdown Path",
+        "Enoch Paper Updated At ISO",
     ]
     for field in text_fields:
         payload[field] = _rich_text(str(props.get(field) or ""))
     for field in ("Enoch Dispatch Priority", "Enoch Selection Rank"):
         payload[field] = _number(props.get(field))
-    payload["Enoch Manual Review Required"] = _checkbox(props.get("Enoch Manual Review Required"))
-    payload["Enoch Paper Updated At"] = _date(str(props.get("Enoch Paper Updated At") or ""))
+    payload["Enoch Manual Review Required"] = _checkbox(
+        props.get("Enoch Manual Review Required")
+    )
+    payload["Enoch Paper Updated At"] = _date(
+        str(props.get("Enoch Paper Updated At") or "")
+    )
     return payload
 
 
-def control_post(base_url: str, token: str, path: str, payload: dict[str, Any], *, transport: Transport = _json_request) -> dict[str, Any]:
-    resp = transport("POST", base_url.rstrip("/") + path, control_headers(token), payload)
+def control_post(
+    base_url: str,
+    token: str,
+    path: str,
+    payload: dict[str, Any],
+    *,
+    transport: Transport = _json_request,
+) -> dict[str, Any]:
+    resp = transport(
+        "POST", base_url.rstrip("/") + path, control_headers(token), payload
+    )
     return resp.body
 
 
-def control_get(base_url: str, token: str, path: str, *, transport: Transport = _json_request) -> dict[str, Any]:
+def control_get(
+    base_url: str, token: str, path: str, *, transport: Transport = _json_request
+) -> dict[str, Any]:
     resp = transport("GET", base_url.rstrip("/") + path, control_headers(token), None)
     return resp.body
 
 
-def _existing_page_property_names(page_id: str, headers: dict[str, str], *, transport: Transport) -> set[str] | None:
+def _existing_page_property_names(
+    page_id: str, headers: dict[str, str], *, transport: Transport
+) -> set[str] | None:
     try:
         resp = transport("GET", f"{NOTION_API_BASE}/pages/{page_id}", headers, None)
     except NotionSyncError:
@@ -214,43 +279,97 @@ def apply_execution_updates(
 ) -> list[dict[str, Any]]:
     applied: list[dict[str, Any]] = []
     headers = notion_headers(token)
-    for row in rows[:max_updates or len(rows)]:
+    for row in rows[: max_updates or len(rows)]:
         page_id = str(row.get("page_id") or "").strip()
         if not page_id:
             # We intentionally do not parse page IDs from URLs here; the Notion
             # adapter should provide explicit IDs to avoid updating the wrong page.
-            applied.append({"ok": False, "reason": "missing page_id", "project_id": row.get("project_id")})
+            applied.append(
+                {
+                    "ok": False,
+                    "reason": "missing page_id",
+                    "project_id": row.get("project_id"),
+                }
+            )
             continue
         properties = notion_update_properties(row)
         skipped_properties: list[str] = []
         if filter_to_existing_properties:
-            existing = _existing_page_property_names(page_id, headers, transport=transport)
+            existing = _existing_page_property_names(
+                page_id, headers, transport=transport
+            )
             if existing is None:
-                applied.append({"ok": False, "reason": "page property probe failed", "page_id": page_id, "project_id": row.get("project_id")})
+                applied.append(
+                    {
+                        "ok": False,
+                        "reason": "page property probe failed",
+                        "page_id": page_id,
+                        "project_id": row.get("project_id"),
+                    }
+                )
                 continue
-            skipped_properties = sorted(name for name in properties if name not in existing)
-            properties = {name: value for name, value in properties.items() if name in existing}
+            skipped_properties = sorted(
+                name for name in properties if name not in existing
+            )
+            properties = {
+                name: value for name, value in properties.items() if name in existing
+            }
         if not properties:
-            applied.append({"ok": False, "reason": "no supported properties", "page_id": page_id, "project_id": row.get("project_id"), "skipped_properties": skipped_properties})
+            applied.append(
+                {
+                    "ok": False,
+                    "reason": "no supported properties",
+                    "page_id": page_id,
+                    "project_id": row.get("project_id"),
+                    "skipped_properties": skipped_properties,
+                }
+            )
             continue
         payload = {"properties": properties}
-        resp = transport("PATCH", f"{NOTION_API_BASE}/pages/{page_id}", headers, payload)
-        applied.append({"ok": True, "page_id": page_id, "status": resp.status, "properties_patched": sorted(properties), "skipped_properties": skipped_properties})
+        resp = transport(
+            "PATCH", f"{NOTION_API_BASE}/pages/{page_id}", headers, payload
+        )
+        applied.append(
+            {
+                "ok": True,
+                "page_id": page_id,
+                "status": resp.status,
+                "properties_patched": sorted(properties),
+                "skipped_properties": skipped_properties,
+            }
+        )
     return applied
 
 
-def run_sync(args: argparse.Namespace, *, transport: Transport = _json_request) -> dict[str, Any]:
+def run_sync(
+    args: argparse.Namespace, *, transport: Transport = _json_request
+) -> dict[str, Any]:
     control_token = args.control_token or os.environ.get("ENOCH_CONTROL_TOKEN", "")
-    notion_token = args.notion_token or os.environ.get("NOTION_TOKEN") or os.environ.get("NOTION_API_KEY", "")
+    notion_token = (
+        args.notion_token
+        or os.environ.get("NOTION_TOKEN")
+        or os.environ.get("NOTION_API_KEY", "")
+    )
     if not control_token:
-        raise NotionSyncError("missing control token; pass --control-token or ENOCH_CONTROL_TOKEN")
+        raise NotionSyncError(
+            "missing control token; pass --control-token or ENOCH_CONTROL_TOKEN"
+        )
     rows: list[dict[str, Any]]
     if args.rows_json:
         rows = json.loads(args.rows_json)
     else:
-        if not notion_token or not (args.notion_database_id or args.notion_data_source_id):
-            raise NotionSyncError("missing Notion token and database/data-source for live read; pass --rows-json for offline dry runs")
-        rows = query_notion_database(args.notion_database_id or args.notion_data_source_id, notion_token, transport=transport, data_source_id=args.notion_data_source_id)
+        if not notion_token or not (
+            args.notion_database_id or args.notion_data_source_id
+        ):
+            raise NotionSyncError(
+                "missing Notion token and database/data-source for live read; pass --rows-json for offline dry runs"
+            )
+        rows = query_notion_database(
+            args.notion_database_id or args.notion_data_source_id,
+            notion_token,
+            transport=transport,
+            data_source_id=args.notion_data_source_id,
+        )
     intake = control_post(
         args.control_url,
         control_token,
@@ -261,61 +380,127 @@ def run_sync(args: argparse.Namespace, *, transport: Transport = _json_request) 
             "notion_rows": rows,
             "dry_run": not args.apply_intake,
             "include_statuses": args.include_status,
-            "default_machine_target": getattr(args, "default_machine_target", "worker.example"),
+            "default_machine_target": getattr(
+                args, "default_machine_target", "worker.example"
+            ),
             "default_model": getattr(args, "default_model", "gpt-5.5"),
             "default_sandbox": getattr(args, "default_sandbox", "danger-full-access"),
-            "override_existing_dispatch_metadata": getattr(args, "override_existing_dispatch_metadata", False),
+            "override_existing_dispatch_metadata": getattr(
+                args, "override_existing_dispatch_metadata", False
+            ),
         },
         transport=transport,
     )
-    projection = control_get(args.control_url, control_token, "/control/projections/notion/execution-updates", transport=transport)
+    projection = control_get(
+        args.control_url,
+        control_token,
+        "/control/projections/notion/execution-updates",
+        transport=transport,
+    )
     applied: list[dict[str, Any]] = []
     if args.apply_notion_updates:
         if not notion_token:
             raise NotionSyncError("missing Notion token for apply updates")
-        applied = apply_execution_updates(projection.get("rows", []), notion_token, transport=transport, max_updates=args.max_updates)
+        applied = apply_execution_updates(
+            projection.get("rows", []),
+            notion_token,
+            transport=transport,
+            max_updates=args.max_updates,
+        )
     applied_ok = sum(1 for item in applied if item.get("ok"))
     applied_skipped = sum(1 for item in applied if not item.get("ok"))
     return {
         "ok": True,
-        "mode": {"apply_intake": args.apply_intake, "apply_notion_updates": args.apply_notion_updates},
+        "mode": {
+            "apply_intake": args.apply_intake,
+            "apply_notion_updates": args.apply_notion_updates,
+        },
         "notion_rows_read": len(rows),
         "intake": intake,
         "execution_projection_count": len(projection.get("rows", [])),
         "notion_updates_applied": applied,
         "notion_updates_applied_count": applied_ok,
         "notion_updates_skipped_count": applied_skipped,
-        "notion_updates_missing_page_id_count": sum(1 for item in applied if item.get("reason") == "missing page_id"),
+        "notion_updates_missing_page_id_count": sum(
+            1 for item in applied if item.get("reason") == "missing page_id"
+        ),
     }
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Sync Notion intake/projections with the Enoch LangGraph control plane.")
-    parser.add_argument("--control-url", default=os.environ.get("ENOCH_CONTROL_URL", "http://127.0.0.1:8787"))
+    parser = argparse.ArgumentParser(
+        description="Sync Notion intake/projections with the Enoch LangGraph control plane."
+    )
+    parser.add_argument(
+        "--control-url",
+        default=os.environ.get("ENOCH_CONTROL_URL", "http://127.0.0.1:8787"),
+    )
     parser.add_argument("--control-token", default="")
     parser.add_argument("--notion-token", default="")
-    parser.add_argument("--notion-database-id", default=os.environ.get("NOTION_DATABASE_ID", ""))
-    parser.add_argument("--notion-data-source-id", default=os.environ.get("NOTION_DATA_SOURCE_ID", ""))
-    parser.add_argument("--rows-json", default="", help="Offline JSON array of normalized Notion rows; bypasses live Notion read.")
+    parser.add_argument(
+        "--notion-database-id", default=os.environ.get("NOTION_DATABASE_ID", "")
+    )
+    parser.add_argument(
+        "--notion-data-source-id", default=os.environ.get("NOTION_DATA_SOURCE_ID", "")
+    )
+    parser.add_argument(
+        "--rows-json",
+        default="",
+        help="Offline JSON array of normalized Notion rows; bypasses live Notion read.",
+    )
     parser.add_argument("--idempotency-key", default="notion-sync-manual")
-    parser.add_argument("--include-status", action="append", default=["exploring", "testing"])
-    parser.add_argument("--default-machine-target", default=os.environ.get("ENOCH_NOTION_DEFAULT_MACHINE_TARGET", "worker.example"))
-    parser.add_argument("--default-model", default=os.environ.get("ENOCH_NOTION_DEFAULT_MODEL", "gpt-5.5"))
-    parser.add_argument("--default-sandbox", default=os.environ.get("ENOCH_NOTION_DEFAULT_SANDBOX", "danger-full-access"))
-    parser.add_argument("--apply-intake", action="store_true", help="Commit eligible Notion ideas into canonical queue. Default is dry-run.")
+    parser.add_argument(
+        "--include-status", action="append", default=["exploring", "testing"]
+    )
+    parser.add_argument(
+        "--default-machine-target",
+        default=os.environ.get("ENOCH_NOTION_DEFAULT_MACHINE_TARGET", "worker.example"),
+    )
+    parser.add_argument(
+        "--default-model",
+        default=os.environ.get("ENOCH_NOTION_DEFAULT_MODEL", "gpt-5.5"),
+    )
+    parser.add_argument(
+        "--default-sandbox",
+        default=os.environ.get("ENOCH_NOTION_DEFAULT_SANDBOX", "danger-full-access"),
+    )
+    parser.add_argument(
+        "--apply-intake",
+        action="store_true",
+        help="Commit eligible Notion ideas into canonical queue. Default is dry-run.",
+    )
     parser.add_argument(
         "--override-existing-dispatch-metadata",
         action="store_true",
         help="Allow Notion intake defaults to overwrite existing queue machine/model/sandbox metadata. Default preserves existing dispatch metadata.",
     )
-    parser.add_argument("--apply-notion-updates", action="store_true", help="PATCH Notion execution overlay fields. Default is read-only.")
+    parser.add_argument(
+        "--apply-notion-updates",
+        action="store_true",
+        help="PATCH Notion execution overlay fields. Default is read-only.",
+    )
     parser.add_argument("--max-updates", type=int, default=None)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    if os.environ.get("ENOCH_ENABLE_LEGACY_NOTION_SYNC", "0").lower() not in {"1", "true", "yes", "on"}:
-        print(json.dumps({"ok": True, "action": "disabled", "reason": "legacy Notion sync has been removed from the runtime path; use Supabase-native ideas via /control/intake/ideas"}, indent=2, sort_keys=True))
+    if os.environ.get("ENOCH_ENABLE_LEGACY_NOTION_SYNC", "0").lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "action": "disabled",
+                    "reason": "legacy Notion sync has been removed from the runtime path; use Supabase-native ideas via /control/intake/ideas",
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
     parser = build_parser()
     args = parser.parse_args(argv)

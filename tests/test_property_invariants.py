@@ -10,7 +10,13 @@ from unittest.mock import patch
 
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane import read_models
-from enoch_control_plane.control_plane.router import _local_artifact_root, _local_paper_evidence_present, _remote_evidence_dir, _sync_worker_http_evidence, create_control_plane_router
+from enoch_control_plane.control_plane.router import (
+    _local_artifact_root,
+    _local_paper_evidence_present,
+    _remote_evidence_dir,
+    _sync_worker_http_evidence,
+    create_control_plane_router,
+)
 from enoch_control_plane.control_plane.store import ControlPlaneStore
 from enoch_control_plane.control_plane.models import ImportSnapshotRequest
 from enoch_control_plane.control_plane.worker_adapter import HttpResult
@@ -52,11 +58,15 @@ unsafe_text = st.text(
 @example(project_id="../evil", project_dir="")
 @given(project_id=unsafe_text, project_dir=unsafe_text)
 @settings(max_examples=80, deadline=None)
-def test_local_artifact_root_stays_under_project_root(project_id: str, project_dir: str) -> None:
+def test_local_artifact_root_stays_under_project_root(
+    project_id: str, project_dir: str
+) -> None:
     with TemporaryDirectory() as tmp:
         config = _config(Path(tmp))
 
-        artifact_root = _local_artifact_root(config, project_id=project_id, project_dir_text=project_dir)
+        artifact_root = _local_artifact_root(
+            config, project_id=project_id, project_dir_text=project_dir
+        )
 
         artifact_root.resolve().relative_to(config.expanded_project_root.resolve())
 
@@ -65,7 +75,9 @@ def test_local_artifact_root_stays_under_project_root(project_id: str, project_d
 @example(project_id="../evil", project_dir="")
 @given(project_id=unsafe_text, project_dir=unsafe_text)
 @settings(max_examples=80, deadline=None)
-def test_process_tracker_project_dir_stays_under_project_root_or_none(project_id: str, project_dir: str) -> None:
+def test_process_tracker_project_dir_stays_under_project_root_or_none(
+    project_id: str, project_dir: str
+) -> None:
     with TemporaryDirectory() as tmp:
         config = _config(Path(tmp))
         tracker = ProcessTracker(config.expanded_project_root)
@@ -87,11 +99,15 @@ def test_process_tracker_project_dir_stays_under_project_root_or_none(project_id
 @example(project_id="project", source_project_dir="~unknown-user/project")
 @given(project_id=unsafe_text, source_project_dir=unsafe_text)
 @settings(max_examples=80, deadline=None)
-def test_remote_evidence_dir_never_contains_parent_traversal(project_id: str, source_project_dir: str) -> None:
+def test_remote_evidence_dir_never_contains_parent_traversal(
+    project_id: str, source_project_dir: str
+) -> None:
     with TemporaryDirectory() as tmp:
         config = _config(Path(tmp))
 
-        remote = _remote_evidence_dir(config, project_id=project_id, source_project_dir=source_project_dir)
+        remote = _remote_evidence_dir(
+            config, project_id=project_id, source_project_dir=source_project_dir
+        )
 
         assert ".." not in Path(remote).parts
 
@@ -101,7 +117,9 @@ run_id_text = st.from_regex(r"[A-Za-z0-9][A-Za-z0-9._-]{0,31}", fullmatch=True)
 
 @given(current_run_id=run_id_text, callback_run_id=run_id_text)
 @settings(max_examples=80, deadline=None)
-def test_stale_worker_callback_cannot_complete_different_active_run(current_run_id: str, callback_run_id: str) -> None:
+def test_stale_worker_callback_cannot_complete_different_active_run(
+    current_run_id: str, callback_run_id: str
+) -> None:
     if current_run_id == callback_run_id:
         return
     with TemporaryDirectory() as tmp:
@@ -109,29 +127,33 @@ def test_stale_worker_callback_cannot_complete_different_active_run(current_run_
         store.import_snapshot(
             ImportSnapshotRequest(
                 idempotency_key="callback-mismatch-import",
-                queue_rows=[{
-                    "project_id": "idea-callback-mismatch",
-                    "project_name": "Callback Mismatch",
-                    "project_dir": "idea-callback-mismatch",
-                    "status": "running",
-                    "current_run_id": current_run_id,
-                    "current_session_id": "session-current",
-                    "last_run_state": "running",
-                    "next_action_hint": "await_callback",
-                }],
+                queue_rows=[
+                    {
+                        "project_id": "idea-callback-mismatch",
+                        "project_name": "Callback Mismatch",
+                        "project_dir": "idea-callback-mismatch",
+                        "status": "running",
+                        "current_run_id": current_run_id,
+                        "current_session_id": "session-current",
+                        "last_run_state": "running",
+                        "next_action_hint": "await_callback",
+                    }
+                ],
                 paper_rows=[],
             )
         )
 
-        _event_id, inserted, row = store.record_worker_callback({
-            "event_type": "wake_ready",
-            "run_id": callback_run_id,
-            "session_id": "session-stale",
-            "project_id": "idea-callback-mismatch",
-            "gate_state": "wake_ready",
-            "reason": "stale callback from an older run",
-            "idempotency_key": f"stale:{current_run_id}:{callback_run_id}",
-        })
+        _event_id, inserted, row = store.record_worker_callback(
+            {
+                "event_type": "wake_ready",
+                "run_id": callback_run_id,
+                "session_id": "session-stale",
+                "project_id": "idea-callback-mismatch",
+                "gate_state": "wake_ready",
+                "reason": "stale callback from an older run",
+                "idempotency_key": f"stale:{current_run_id}:{callback_run_id}",
+            }
+        )
 
         assert inserted is True
         assert row["status"] == "running"
@@ -144,7 +166,11 @@ def test_stale_worker_callback_cannot_complete_different_active_run(current_run_
         assert events[0]["payload"]["current_run_id"] == current_run_id
 
 
-@given(evidence_kind=st.sampled_from(["high_enoch", "high_omx", "paper_bundle", "paper_ledger", "result_json"]))
+@given(
+    evidence_kind=st.sampled_from(
+        ["high_enoch", "high_omx", "paper_bundle", "paper_ledger", "result_json"]
+    )
+)
 @settings(max_examples=20, deadline=None)
 def test_local_paper_evidence_never_counts_symlinked_files(evidence_kind: str) -> None:
     with TemporaryDirectory() as tmp:
@@ -158,14 +184,22 @@ def test_local_paper_evidence_never_counts_symlinked_files(evidence_kind: str) -
             (project_dir / ".enoch").mkdir()
             (project_dir / ".omx").mkdir()
             (external / "run_notes.md").write_text("outside notes", encoding="utf-8")
-            (external / "decision.json").write_text('{"project_decision":"finalize_positive"}', encoding="utf-8")
+            (external / "decision.json").write_text(
+                '{"project_decision":"finalize_positive"}', encoding="utf-8"
+            )
             (project_dir / "run_notes.md").symlink_to(external / "run_notes.md")
             decision_dir = ".enoch" if evidence_kind == "high_enoch" else ".omx"
-            (project_dir / decision_dir / "project_decision.json").symlink_to(external / "decision.json")
+            (project_dir / decision_dir / "project_decision.json").symlink_to(
+                external / "decision.json"
+            )
         elif evidence_kind in {"paper_bundle", "paper_ledger"}:
             paper_dir = project_dir / "papers" / "run-1"
             paper_dir.mkdir(parents=True)
-            name = "evidence_bundle.json" if evidence_kind == "paper_bundle" else "claim_ledger.json"
+            name = (
+                "evidence_bundle.json"
+                if evidence_kind == "paper_bundle"
+                else "claim_ledger.json"
+            )
             (external / name).write_text("{}", encoding="utf-8")
             (paper_dir / name).symlink_to(external / name)
         else:
@@ -177,35 +211,41 @@ def test_local_paper_evidence_never_counts_symlinked_files(evidence_kind: str) -
         assert _local_paper_evidence_present(project_dir) is False
 
 
-callback_event_type = st.sampled_from([
-    "session_started",
-    "wake_ready",
-    "session_finished_ready",
-    "gate_timeout",
-    "gate_error",
-    "question_pending",
-])
+callback_event_type = st.sampled_from(
+    [
+        "session_started",
+        "wake_ready",
+        "session_finished_ready",
+        "gate_timeout",
+        "gate_error",
+        "question_pending",
+    ]
+)
 
 
 @given(run_id=run_id_text, event_type=callback_event_type)
 @settings(max_examples=80, deadline=None)
-def test_worker_callback_idempotency_replay_preserves_queue_state(run_id: str, event_type: str) -> None:
+def test_worker_callback_idempotency_replay_preserves_queue_state(
+    run_id: str, event_type: str
+) -> None:
     project_id = "idea-callback-idempotency"
     with TemporaryDirectory() as tmp:
         store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
         store.import_snapshot(
             ImportSnapshotRequest(
                 idempotency_key=f"idempotency-import:{run_id}",
-                queue_rows=[{
-                    "project_id": project_id,
-                    "project_name": "Callback Idempotency",
-                    "project_dir": project_id,
-                    "status": "running",
-                    "current_run_id": run_id,
-                    "current_session_id": "session-current",
-                    "last_run_state": "running",
-                    "next_action_hint": "await_callback",
-                }],
+                queue_rows=[
+                    {
+                        "project_id": project_id,
+                        "project_name": "Callback Idempotency",
+                        "project_dir": project_id,
+                        "status": "running",
+                        "current_run_id": run_id,
+                        "current_session_id": "session-current",
+                        "last_run_state": "running",
+                        "next_action_hint": "await_callback",
+                    }
+                ],
                 paper_rows=[],
             )
         )
@@ -219,8 +259,12 @@ def test_worker_callback_idempotency_replay_preserves_queue_state(run_id: str, e
             "reason": "idempotency replay",
             "idempotency_key": f"callback-idempotency:{run_id}:{event_type}",
         }
-        first_event_id, first_inserted, first_row = store.record_worker_callback(callback)
-        second_event_id, second_inserted, second_row = store.record_worker_callback(callback)
+        first_event_id, first_inserted, first_row = store.record_worker_callback(
+            callback
+        )
+        second_event_id, second_inserted, second_row = store.record_worker_callback(
+            callback
+        )
 
         assert first_event_id == second_event_id
         assert first_inserted is True
@@ -230,55 +274,65 @@ def test_worker_callback_idempotency_replay_preserves_queue_state(run_id: str, e
         assert [event["event_id"] for event in events].count(first_event_id) == 1
 
 
-late_callback_event_type = st.sampled_from([
-    "session_started",
-    "gate_timeout",
-    "gate_error",
-    "question_pending",
-])
+late_callback_event_type = st.sampled_from(
+    [
+        "session_started",
+        "gate_timeout",
+        "gate_error",
+        "question_pending",
+    ]
+)
 
 
 @given(run_id=run_id_text, late_event_type=late_callback_event_type)
 @settings(max_examples=80, deadline=None)
-def test_late_worker_callbacks_cannot_downgrade_completed_success(run_id: str, late_event_type: str) -> None:
+def test_late_worker_callbacks_cannot_downgrade_completed_success(
+    run_id: str, late_event_type: str
+) -> None:
     project_id = "idea-callback-terminal-precedence"
     with TemporaryDirectory() as tmp:
         store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
         store.import_snapshot(
             ImportSnapshotRequest(
                 idempotency_key=f"terminal-precedence-import:{run_id}",
-                queue_rows=[{
-                    "project_id": project_id,
-                    "project_name": "Callback Terminal Precedence",
-                    "project_dir": project_id,
-                    "status": "running",
-                    "current_run_id": run_id,
-                    "current_session_id": "session-current",
-                    "last_run_state": "running",
-                    "next_action_hint": "await_callback",
-                }],
+                queue_rows=[
+                    {
+                        "project_id": project_id,
+                        "project_name": "Callback Terminal Precedence",
+                        "project_dir": project_id,
+                        "status": "running",
+                        "current_run_id": run_id,
+                        "current_session_id": "session-current",
+                        "last_run_state": "running",
+                        "next_action_hint": "await_callback",
+                    }
+                ],
                 paper_rows=[],
             )
         )
-        store.record_worker_callback({
-            "event_type": "wake_ready",
-            "run_id": run_id,
-            "session_id": "session-current",
-            "project_id": project_id,
-            "gate_state": "wake_ready",
-            "reason": "terminal success",
-            "idempotency_key": f"terminal-precedence-success:{run_id}",
-        })
+        store.record_worker_callback(
+            {
+                "event_type": "wake_ready",
+                "run_id": run_id,
+                "session_id": "session-current",
+                "project_id": project_id,
+                "gate_state": "wake_ready",
+                "reason": "terminal success",
+                "idempotency_key": f"terminal-precedence-success:{run_id}",
+            }
+        )
 
-        _event_id, _inserted, row = store.record_worker_callback({
-            "event_type": late_event_type,
-            "run_id": run_id,
-            "session_id": "session-current",
-            "project_id": project_id,
-            "gate_state": late_event_type,
-            "reason": "late lower-precedence callback",
-            "idempotency_key": f"terminal-precedence-late:{run_id}:{late_event_type}",
-        })
+        _event_id, _inserted, row = store.record_worker_callback(
+            {
+                "event_type": late_event_type,
+                "run_id": run_id,
+                "session_id": "session-current",
+                "project_id": project_id,
+                "gate_state": late_event_type,
+                "reason": "late lower-precedence callback",
+                "idempotency_key": f"terminal-precedence-late:{run_id}:{late_event_type}",
+            }
+        )
 
         assert row["status"] == "completed"
         assert row["last_run_state"] == "wake_ready"
@@ -291,39 +345,45 @@ def test_late_worker_callbacks_cannot_downgrade_completed_success(run_id: str, l
 
 @given(current_run_id=run_id_text, imported_run_id=st.one_of(st.just(""), run_id_text))
 @settings(max_examples=80, deadline=None)
-def test_import_snapshot_does_not_blank_active_queue_run_fields(current_run_id: str, imported_run_id: str) -> None:
+def test_import_snapshot_does_not_blank_active_queue_run_fields(
+    current_run_id: str, imported_run_id: str
+) -> None:
     project_id = "idea-import-active-preserve"
     with TemporaryDirectory() as tmp:
         store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
         store.import_snapshot(
             ImportSnapshotRequest(
                 idempotency_key=f"active-import-current:{current_run_id}",
-                queue_rows=[{
-                    "project_id": project_id,
-                    "project_name": "Import Active Preserve",
-                    "project_dir": project_id,
-                    "status": "running",
-                    "current_run_id": current_run_id,
-                    "current_session_id": "session-current",
-                    "last_run_state": "running",
-                    "next_action_hint": "await_callback",
-                }],
+                queue_rows=[
+                    {
+                        "project_id": project_id,
+                        "project_name": "Import Active Preserve",
+                        "project_dir": project_id,
+                        "status": "running",
+                        "current_run_id": current_run_id,
+                        "current_session_id": "session-current",
+                        "last_run_state": "running",
+                        "next_action_hint": "await_callback",
+                    }
+                ],
                 paper_rows=[],
             )
         )
         store.import_snapshot(
             ImportSnapshotRequest(
                 idempotency_key=f"active-import-stale:{current_run_id}:{imported_run_id}",
-                queue_rows=[{
-                    "project_id": project_id,
-                    "project_name": "Import Active Preserve",
-                    "project_dir": project_id,
-                    "status": "queued",
-                    "current_run_id": imported_run_id,
-                    "current_session_id": "",
-                    "last_run_state": "",
-                    "next_action_hint": "",
-                }],
+                queue_rows=[
+                    {
+                        "project_id": project_id,
+                        "project_name": "Import Active Preserve",
+                        "project_dir": project_id,
+                        "status": "queued",
+                        "current_run_id": imported_run_id,
+                        "current_session_id": "",
+                        "last_run_state": "",
+                        "next_action_hint": "",
+                    }
+                ],
                 paper_rows=[],
             )
         )
@@ -350,7 +410,9 @@ worker_returned_path = st.text(
 @example(rel_path="safe/result.json")
 @given(rel_path=worker_returned_path)
 @settings(max_examples=80, deadline=None)
-def test_worker_http_evidence_sync_never_writes_outside_artifact_root(rel_path: str) -> None:
+def test_worker_http_evidence_sync_never_writes_outside_artifact_root(
+    rel_path: str,
+) -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         artifact_root = root / "artifact"
@@ -360,28 +422,41 @@ def test_worker_http_evidence_sync_never_writes_outside_artifact_root(rel_path: 
 
         def fake_post_worker_json(base_url, path, token, payload):  # noqa: ANN001 - patched transport-compatible fake
             del base_url, path, token, payload
-            return HttpResult(ok=True, status=200, body={"files": [{"path": rel_path, "content": "evidence"}]})
+            return HttpResult(
+                ok=True,
+                status=200,
+                body={"files": [{"path": rel_path, "content": "evidence"}]},
+            )
 
-        with patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post_worker_json):
-            _sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+        with patch(
+            "enoch_control_plane.control_plane.router.post_worker_json",
+            side_effect=fake_post_worker_json,
+        ):
+            _sync_worker_http_evidence(
+                config, project_id="project", artifact_root=artifact_root
+            )
 
         for path in root.rglob("*"):
             if path.is_file():
                 path.resolve().relative_to(artifact_root.resolve())
 
 
-stale_related_paper_status = st.sampled_from([
-    "publication_draft",
-    "draft_review",
-    "finalized",
-    "approved_for_corpus",
-])
+stale_related_paper_status = st.sampled_from(
+    [
+        "publication_draft",
+        "draft_review",
+        "finalized",
+        "approved_for_corpus",
+    ]
+)
 
 
 @given(
     related_paper_id=st.one_of(st.just(""), run_id_text),
     related_paper_status=stale_related_paper_status,
-    related_review_status=st.sampled_from(["", "finalized", "approved_for_finalization"]),
+    related_review_status=st.sampled_from(
+        ["", "finalized", "approved_for_finalization"]
+    ),
     has_finalization_package=st.booleans(),
 )
 @settings(max_examples=40, deadline=None)
@@ -391,17 +466,21 @@ def test_operator_counts_ignore_stale_related_paper_references_without_matching_
     related_review_status: str,
     has_finalization_package: bool,
 ) -> None:
-    queue_row = read_models.summarize_queue_row({
-        "project_id": "stale-related-paper",
-        "project_name": "Stale Related Paper",
-        "status": "completed",
-        "last_run_state": "wake_ready",
-        "next_action_hint": "select_next_project",
-        "related_paper_id": related_paper_id,
-        "related_paper_status": related_paper_status,
-        "related_review_status": related_review_status,
-        "related_finalization_package_path": "package.json" if has_finalization_package else "",
-    })
+    queue_row = read_models.summarize_queue_row(
+        {
+            "project_id": "stale-related-paper",
+            "project_name": "Stale Related Paper",
+            "status": "completed",
+            "last_run_state": "wake_ready",
+            "next_action_hint": "select_next_project",
+            "related_paper_id": related_paper_id,
+            "related_paper_status": related_paper_status,
+            "related_review_status": related_review_status,
+            "related_finalization_package_path": "package.json"
+            if has_finalization_package
+            else "",
+        }
+    )
 
     operator_counts = read_models.operator_counts_from_rows([queue_row])
     detail_counts = read_models.operator_detail_counts_from_rows([queue_row])
@@ -414,30 +493,40 @@ def test_operator_counts_ignore_stale_related_paper_references_without_matching_
     assert detail_counts.get("draft_created", 0) == 0
 
 
-active_queue_status = st.sampled_from(["dispatching", "running", "awaiting_wake", "wake_received", "reconciling"])
+active_queue_status = st.sampled_from(
+    ["dispatching", "running", "awaiting_wake", "wake_received", "reconciling"]
+)
 
 
 @given(active_status=active_queue_status)
 @settings(max_examples=25, deadline=None)
-def test_operator_reconciler_prefers_active_duplicate_queue_row(active_status: str) -> None:
-    completed_row = read_models.summarize_queue_row({
-        "project_id": "duplicate-project",
-        "project_name": "Duplicate Project",
-        "status": "completed",
-        "last_run_state": "wake_ready",
-        "next_action_hint": "select_next_project",
-    })
-    active_row = read_models.summarize_queue_row({
-        "project_id": "duplicate-project",
-        "project_name": "Duplicate Project",
-        "status": active_status,
-        "last_run_state": active_status,
-        "current_run_id": "active-run",
-        "next_action_hint": "await_callback",
-    })
+def test_operator_reconciler_prefers_active_duplicate_queue_row(
+    active_status: str,
+) -> None:
+    completed_row = read_models.summarize_queue_row(
+        {
+            "project_id": "duplicate-project",
+            "project_name": "Duplicate Project",
+            "status": "completed",
+            "last_run_state": "wake_ready",
+            "next_action_hint": "select_next_project",
+        }
+    )
+    active_row = read_models.summarize_queue_row(
+        {
+            "project_id": "duplicate-project",
+            "project_name": "Duplicate Project",
+            "status": active_status,
+            "last_run_state": active_status,
+            "current_run_id": "active-run",
+            "next_action_hint": "await_callback",
+        }
+    )
 
     counts = read_models.operator_counts_from_rows([completed_row, active_row])
-    detail_counts = read_models.operator_detail_counts_from_rows([completed_row, active_row])
+    detail_counts = read_models.operator_detail_counts_from_rows(
+        [completed_row, active_row]
+    )
 
     assert counts["total_operator_items"] == 1
     assert counts.get("running", 0) == 1
@@ -448,25 +537,31 @@ def test_operator_reconciler_prefers_active_duplicate_queue_row(active_status: s
 
 @given(paper_status=st.sampled_from(["publication_draft", "draft_review"]))
 @settings(max_examples=10, deadline=None)
-def test_operator_reconciler_drops_completed_queue_row_superseded_by_paper_identity(paper_status: str) -> None:
-    queue_row = read_models.summarize_queue_row({
-        "project_id": "paper-backed-project",
-        "project_name": "Paper Backed Project",
-        "status": "completed",
-        "last_run_state": "wake_ready",
-        "current_run_id": "paper-run",
-        "next_action_hint": "draft_paper_or_select_next_project",
-        "decision_gate_state": "positive",
-        "decision_summary": "positive",
-    })
-    paper_row = read_models.summarize_paper_row({
-        "paper_id": "paper-backed-project:paper-run:arxiv_draft",
-        "project_id": "paper-backed-project",
-        "project_name": "Paper Backed Project",
-        "run_id": "paper-run",
-        "paper_type": "arxiv_draft",
-        "paper_status": paper_status,
-    })
+def test_operator_reconciler_drops_completed_queue_row_superseded_by_paper_identity(
+    paper_status: str,
+) -> None:
+    queue_row = read_models.summarize_queue_row(
+        {
+            "project_id": "paper-backed-project",
+            "project_name": "Paper Backed Project",
+            "status": "completed",
+            "last_run_state": "wake_ready",
+            "current_run_id": "paper-run",
+            "next_action_hint": "draft_paper_or_select_next_project",
+            "decision_gate_state": "positive",
+            "decision_summary": "positive",
+        }
+    )
+    paper_row = read_models.summarize_paper_row(
+        {
+            "paper_id": "paper-backed-project:paper-run:arxiv_draft",
+            "project_id": "paper-backed-project",
+            "project_name": "Paper Backed Project",
+            "run_id": "paper-run",
+            "paper_type": "arxiv_draft",
+            "paper_status": paper_status,
+        }
+    )
 
     counts = read_models.operator_counts_from_rows([queue_row, paper_row])
     detail_counts = read_models.operator_detail_counts_from_rows([queue_row, paper_row])
@@ -476,40 +571,62 @@ def test_operator_reconciler_drops_completed_queue_row_superseded_by_paper_ident
     assert counts.get("complete_no_paper", 0) == 0
     assert counts.get("automate_publication", 0) == 1
     assert detail_counts.get("run_complete_draft_needed", 0) == 0
-    assert detail_counts.get("finalization_needed", 0) + detail_counts.get("draft_created", 0) == 1
+    assert (
+        detail_counts.get("finalization_needed", 0)
+        + detail_counts.get("draft_created", 0)
+        == 1
+    )
 
 
-partial_evidence_kind = st.sampled_from([
-    "none",
-    "run_notes_only",
-    "decision_only",
-    "result_only",
-    "paper_bundle_only",
-    "paper_ledger_only",
-])
+partial_evidence_kind = st.sampled_from(
+    [
+        "none",
+        "run_notes_only",
+        "decision_only",
+        "result_only",
+        "paper_bundle_only",
+        "paper_ledger_only",
+    ]
+)
 
 
 def _write_partial_evidence(project_dir: Path, kind: str) -> None:
     if kind == "run_notes_only":
         project_dir.mkdir(parents=True, exist_ok=True)
-        (project_dir / "run_notes.md").write_text("notes without decision or result artifacts\n", encoding="utf-8")
+        (project_dir / "run_notes.md").write_text(
+            "notes without decision or result artifacts\n", encoding="utf-8"
+        )
     elif kind == "decision_only":
         (project_dir / ".enoch").mkdir(parents=True, exist_ok=True)
-        (project_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+        (project_dir / ".enoch" / "project_decision.json").write_text(
+            '{"project_decision":"finalize_positive"}\n', encoding="utf-8"
+        )
     elif kind == "result_only":
         (project_dir / "results").mkdir(parents=True, exist_ok=True)
-        (project_dir / "results" / "smoke.json").write_text('{"ok":true}\n', encoding="utf-8")
+        (project_dir / "results" / "smoke.json").write_text(
+            '{"ok":true}\n', encoding="utf-8"
+        )
     elif kind == "paper_bundle_only":
-        (project_dir / "papers" / "run-missing-evidence").mkdir(parents=True, exist_ok=True)
-        (project_dir / "papers" / "run-missing-evidence" / "evidence_bundle.json").write_text("{}\n", encoding="utf-8")
+        (project_dir / "papers" / "run-missing-evidence").mkdir(
+            parents=True, exist_ok=True
+        )
+        (
+            project_dir / "papers" / "run-missing-evidence" / "evidence_bundle.json"
+        ).write_text("{}\n", encoding="utf-8")
     elif kind == "paper_ledger_only":
-        (project_dir / "papers" / "run-missing-evidence").mkdir(parents=True, exist_ok=True)
-        (project_dir / "papers" / "run-missing-evidence" / "claim_ledger.json").write_text("{}\n", encoding="utf-8")
+        (project_dir / "papers" / "run-missing-evidence").mkdir(
+            parents=True, exist_ok=True
+        )
+        (
+            project_dir / "papers" / "run-missing-evidence" / "claim_ledger.json"
+        ).write_text("{}\n", encoding="utf-8")
 
 
 @given(kind=partial_evidence_kind, existing_paper=st.booleans())
 @settings(max_examples=24, deadline=None)
-def test_draft_next_partial_evidence_never_creates_or_advances_paper(kind: str, existing_paper: bool) -> None:
+def test_draft_next_partial_evidence_never_creates_or_advances_paper(
+    kind: str, existing_paper: bool
+) -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         config = _config(root).model_copy(update={"paper_evidence_sync_enabled": False})
@@ -518,42 +635,57 @@ def test_draft_next_partial_evidence_never_creates_or_advances_paper(kind: str, 
         _write_partial_evidence(project_dir, kind)
         paper_rows = []
         if existing_paper:
-            paper_rows.append({
-                "paper_id": "existing:other-run:arxiv_draft",
-                "project_id": "other-project",
-                "run_id": "other-run",
-                "paper_status": "publication_draft",
-                "draft_markdown_path": "papers/other/paper.md",
-                "draft_latex_path": "papers/other/paper.tex",
-                "evidence_bundle_path": "papers/other/evidence_bundle.json",
-                "claim_ledger_path": "papers/other/claim_ledger.json",
-                "manifest_path": "papers/other/manifest.json",
-            })
-        imported = client.post("/control/import/legacy-snapshot", json={
-            "idempotency_key": f"partial-evidence:{kind}:{existing_paper}",
-            "queue_rows": [{
-                "project_id": "missing-evidence",
-                "project_name": "Missing Evidence",
-                "project_dir": "missing-evidence",
-                "status": "completed",
-                "last_run_state": "wake_ready",
-                "next_action_hint": "draft_paper_or_select_next_project",
-                "current_run_id": "run-missing-evidence",
-                "manual_review_required": False,
-                "bounded_paper_ready": True,
-                "evidence_strength": "strong",
-                "claim_scope": "local",
-                "hypothesis_status": "supported",
-            }],
-            "paper_rows": paper_rows,
-        })
+            paper_rows.append(
+                {
+                    "paper_id": "existing:other-run:arxiv_draft",
+                    "project_id": "other-project",
+                    "run_id": "other-run",
+                    "paper_status": "publication_draft",
+                    "draft_markdown_path": "papers/other/paper.md",
+                    "draft_latex_path": "papers/other/paper.tex",
+                    "evidence_bundle_path": "papers/other/evidence_bundle.json",
+                    "claim_ledger_path": "papers/other/claim_ledger.json",
+                    "manifest_path": "papers/other/manifest.json",
+                }
+            )
+        imported = client.post(
+            "/control/import/legacy-snapshot",
+            json={
+                "idempotency_key": f"partial-evidence:{kind}:{existing_paper}",
+                "queue_rows": [
+                    {
+                        "project_id": "missing-evidence",
+                        "project_name": "Missing Evidence",
+                        "project_dir": "missing-evidence",
+                        "status": "completed",
+                        "last_run_state": "wake_ready",
+                        "next_action_hint": "draft_paper_or_select_next_project",
+                        "current_run_id": "run-missing-evidence",
+                        "manual_review_required": False,
+                        "bounded_paper_ready": True,
+                        "evidence_strength": "strong",
+                        "claim_scope": "local",
+                        "hypothesis_status": "supported",
+                    }
+                ],
+                "paper_rows": paper_rows,
+            },
+        )
         assert imported.status_code == 200
         before = client.get("/control/export/snapshot").json()
-        before_files = sorted(str(path.relative_to(project_dir)) for path in project_dir.rglob("*") if path.is_file())
+        before_files = sorted(
+            str(path.relative_to(project_dir))
+            for path in project_dir.rglob("*")
+            if path.is_file()
+        )
 
         response = client.post("/control/papers/draft-next", json={"force": True})
         after = client.get("/control/export/snapshot").json()
-        after_files = sorted(str(path.relative_to(project_dir)) for path in project_dir.rglob("*") if path.is_file())
+        after_files = sorted(
+            str(path.relative_to(project_dir))
+            for path in project_dir.rglob("*")
+            if path.is_file()
+        )
 
         assert response.status_code == 200
         assert response.json()["action"] == "noop"
@@ -561,7 +693,9 @@ def test_draft_next_partial_evidence_never_creates_or_advances_paper(kind: str, 
         assert after_files == before_files
 
 
-def test_draft_next_skips_partial_evidence_candidate_and_drafts_later_valid_candidate() -> None:
+def test_draft_next_skips_partial_evidence_candidate_and_drafts_later_valid_candidate() -> (
+    None
+):
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         config = _config(root).model_copy(update={"paper_evidence_sync_enabled": False})
@@ -570,43 +704,50 @@ def test_draft_next_skips_partial_evidence_candidate_and_drafts_later_valid_cand
         valid_dir = config.expanded_project_root / "valid-candidate"
         _write_partial_evidence(partial_dir, "run_notes_only")
         (valid_dir / ".enoch").mkdir(parents=True)
-        (valid_dir / "run_notes.md").write_text("measured positive result with local baseline evidence\n", encoding="utf-8")
-        (valid_dir / ".enoch" / "project_decision.json").write_text('{"project_decision":"finalize_positive"}\n', encoding="utf-8")
+        (valid_dir / "run_notes.md").write_text(
+            "measured positive result with local baseline evidence\n", encoding="utf-8"
+        )
+        (valid_dir / ".enoch" / "project_decision.json").write_text(
+            '{"project_decision":"finalize_positive"}\n', encoding="utf-8"
+        )
 
-        imported = client.post("/control/import/legacy-snapshot", json={
-            "idempotency_key": "mixed-partial-valid-evidence",
-            "queue_rows": [
-                {
-                    "project_id": "partial-candidate",
-                    "project_name": "Partial Candidate",
-                    "project_dir": "partial-candidate",
-                    "status": "completed",
-                    "last_run_state": "wake_ready",
-                    "next_action_hint": "draft_paper_or_select_next_project",
-                    "current_run_id": "run-partial",
-                    "bounded_paper_ready": True,
-                    "evidence_strength": "strong",
-                    "claim_scope": "local",
-                    "hypothesis_status": "supported",
-                    "updated_at": "2026-05-17T00:00:00Z",
-                },
-                {
-                    "project_id": "valid-candidate",
-                    "project_name": "Valid Candidate",
-                    "project_dir": "valid-candidate",
-                    "status": "completed",
-                    "last_run_state": "wake_ready",
-                    "next_action_hint": "draft_paper_or_select_next_project",
-                    "current_run_id": "run-valid",
-                    "bounded_paper_ready": True,
-                    "evidence_strength": "strong",
-                    "claim_scope": "local",
-                    "hypothesis_status": "supported",
-                    "updated_at": "2026-05-17T00:01:00Z",
-                },
-            ],
-            "paper_rows": [],
-        })
+        imported = client.post(
+            "/control/import/legacy-snapshot",
+            json={
+                "idempotency_key": "mixed-partial-valid-evidence",
+                "queue_rows": [
+                    {
+                        "project_id": "partial-candidate",
+                        "project_name": "Partial Candidate",
+                        "project_dir": "partial-candidate",
+                        "status": "completed",
+                        "last_run_state": "wake_ready",
+                        "next_action_hint": "draft_paper_or_select_next_project",
+                        "current_run_id": "run-partial",
+                        "bounded_paper_ready": True,
+                        "evidence_strength": "strong",
+                        "claim_scope": "local",
+                        "hypothesis_status": "supported",
+                        "updated_at": "2026-05-17T00:00:00Z",
+                    },
+                    {
+                        "project_id": "valid-candidate",
+                        "project_name": "Valid Candidate",
+                        "project_dir": "valid-candidate",
+                        "status": "completed",
+                        "last_run_state": "wake_ready",
+                        "next_action_hint": "draft_paper_or_select_next_project",
+                        "current_run_id": "run-valid",
+                        "bounded_paper_ready": True,
+                        "evidence_strength": "strong",
+                        "claim_scope": "local",
+                        "hypothesis_status": "supported",
+                        "updated_at": "2026-05-17T00:01:00Z",
+                    },
+                ],
+                "paper_rows": [],
+            },
+        )
         assert imported.status_code == 200
 
         response = client.post("/control/papers/draft-next", json={"force": True})
@@ -616,5 +757,7 @@ def test_draft_next_skips_partial_evidence_candidate_and_drafts_later_valid_cand
         body = response.json()
         assert body["action"] == "drafted"
         assert body["candidate"]["project_id"] == "valid-candidate"
-        assert [row["project_id"] for row in snapshot["paper_rows"]] == ["valid-candidate"]
+        assert [row["project_id"] for row in snapshot["paper_rows"]] == [
+            "valid-candidate"
+        ]
         assert not list(partial_dir.glob("papers/run-partial/*"))

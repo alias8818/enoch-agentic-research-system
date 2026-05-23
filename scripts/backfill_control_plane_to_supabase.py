@@ -95,26 +95,47 @@ def valid_hash(value: Any, payload: Any) -> str:
     return text if HASH_RE.fullmatch(text) else stable_hash(payload)
 
 
-def rows(conn: sqlite3.Connection, table: str, *, order_by: str = "") -> list[dict[str, Any]]:
-    quoted_table = sqlite_identifier(table, allowed=set(SQLITE_TABLE_ORDER_COLUMNS), kind="table")
+def rows(
+    conn: sqlite3.Connection, table: str, *, order_by: str = ""
+) -> list[dict[str, Any]]:
+    quoted_table = sqlite_identifier(
+        table, allowed=set(SQLITE_TABLE_ORDER_COLUMNS), kind="table"
+    )
     if order_by:
-        quoted_order_by = sqlite_identifier(order_by, allowed=SQLITE_TABLE_ORDER_COLUMNS[table], kind="order_by")
+        quoted_order_by = sqlite_identifier(
+            order_by, allowed=SQLITE_TABLE_ORDER_COLUMNS[table], kind="order_by"
+        )
         suffix = f" order by {quoted_order_by}"
     else:
         suffix = ""
     try:
-        return [dict(row) for row in conn.execute(f"select * from {quoted_table}{suffix}").fetchall()]
+        return [
+            dict(row)
+            for row in conn.execute(f"select * from {quoted_table}{suffix}").fetchall()
+        ]
     except sqlite3.OperationalError:
         return []
 
 
 def table_counts_sqlite(conn: sqlite3.Connection) -> dict[str, int]:
-    tables = ("projects", "queue_items", "runs", "papers", "paper_review_items", "events", "dashboard_observations")
+    tables = (
+        "projects",
+        "queue_items",
+        "runs",
+        "papers",
+        "paper_review_items",
+        "events",
+        "dashboard_observations",
+    )
     counts: dict[str, int] = {}
     for table in tables:
         try:
-            quoted_table = sqlite_identifier(table, allowed=set(SQLITE_TABLE_ORDER_COLUMNS), kind="table")
-            counts[table] = int(conn.execute(f"select count(*) from {quoted_table}").fetchone()[0])
+            quoted_table = sqlite_identifier(
+                table, allowed=set(SQLITE_TABLE_ORDER_COLUMNS), kind="table"
+            )
+            counts[table] = int(
+                conn.execute(f"select count(*) from {quoted_table}").fetchone()[0]
+            )
         except sqlite3.OperationalError:
             counts[table] = 0
     return counts
@@ -141,7 +162,9 @@ def reject_target_identity_conflicts(
     allowed_columns = POSTGRES_TABLE_COLUMNS.get(table)
     if allowed_columns is None:
         raise ValueError(f"unsupported postgres table: {table}")
-    table_sql = postgres_identifier(table, allowed=set(POSTGRES_TABLE_COLUMNS), kind="table")
+    table_sql = postgres_identifier(
+        table, allowed=set(POSTGRES_TABLE_COLUMNS), kind="table"
+    )
     key_sql = [
         postgres_identifier(column, allowed=allowed_columns, kind="column")
         for column in key_columns
@@ -162,14 +185,19 @@ def reject_target_identity_conflicts(
             continue
         for column in identity_columns:
             if existing.get(column) != row.get(column):
-                key_text = ", ".join(f"{name}={value!r}" for name, value in zip(key_columns, key_values, strict=True))
+                key_text = ", ".join(
+                    f"{name}={value!r}"
+                    for name, value in zip(key_columns, key_values, strict=True)
+                )
                 raise ValueError(
                     f"conflicting target {table} identity for {key_text}: "
                     f"{column} target={existing.get(column)!r} source={row.get(column)!r}"
                 )
 
 
-def decision_file_candidates(project: dict[str, Any], project_roots: Sequence[Path]) -> list[Path]:
+def decision_file_candidates(
+    project: dict[str, Any], project_roots: Sequence[Path]
+) -> list[Path]:
     candidates: list[Path] = []
     project_dir = str(project.get("project_dir") or "").strip()
     project_id = str(project.get("project_id") or "").strip()
@@ -184,7 +212,9 @@ def decision_file_candidates(project: dict[str, Any], project_roots: Sequence[Pa
         for name in names:
             try:
                 path = Path(name).expanduser()
-                candidate = path.resolve() if path.is_absolute() else (root / path).resolve()
+                candidate = (
+                    path.resolve() if path.is_absolute() else (root / path).resolve()
+                )
                 candidate.relative_to(root)
             except (OSError, RuntimeError, ValueError):
                 continue
@@ -208,14 +238,30 @@ def decision_gate_state(gate: dict[str, Any]) -> str:
         return "missing"
     if "could not" in reason or "malformed" in reason:
         return "malformed"
-    if any(token in decision or token in reason for token in ("needs_review", "inconclusive", "caveat", "conditional")):
+    if any(
+        token in decision or token in reason
+        for token in ("needs_review", "inconclusive", "caveat", "conditional")
+    ):
         return "unknown"
-    if any(token in decision or token in reason for token in ("negative", "reject", "not positive", "nonpositive", "non_positive")):
+    if any(
+        token in decision or token in reason
+        for token in (
+            "negative",
+            "reject",
+            "not positive",
+            "nonpositive",
+            "non_positive",
+        )
+    ):
         return "negative"
     return "unknown"
 
 
-def load_project_decisions(projects: list[dict[str, Any]], queue_by_project: dict[str, dict[str, Any]], project_roots: Sequence[Path]) -> list[dict[str, Any]]:
+def load_project_decisions(
+    projects: list[dict[str, Any]],
+    queue_by_project: dict[str, dict[str, Any]],
+    project_roots: Sequence[Path],
+) -> list[dict[str, Any]]:
     decisions: list[dict[str, Any]] = []
     if not project_roots:
         return decisions
@@ -226,18 +272,32 @@ def load_project_decisions(projects: list[dict[str, Any]], queue_by_project: dic
         queue_row = queue_by_project.get(project_id, {})
         for root in decision_file_candidates(project, project_roots):
             gate = paper_draft_decision_gate(root)
-            if gate.get("values") or gate.get("reason") != "missing project decision artifact":
+            if (
+                gate.get("values")
+                or gate.get("reason") != "missing project decision artifact"
+            ):
                 payload = {"gate": gate, "project_root": str(root)}
-                decisions.append({
-                    "project_id": project_id,
-                    "run_id": str(queue_row.get("current_run_id") or "") or None,
-                    "decision_gate_state": decision_gate_state(gate),
-                    "decision_summary": str(gate.get("decision") or gate.get("reason") or ""),
-                    "artifact_path": str(root / ".enoch" / "project_decision.json") if (root / ".enoch" / "project_decision.json").exists() else (str(root / ".omx" / "project_decision.json") if (root / ".omx" / "project_decision.json").exists() else str(root / "project_decision.json")),
-                    "payload_json": json_text(payload, {}),
-                    "payload_hash": stable_hash(payload),
-                    "decided_at": project.get("updated_at") or queue_row.get("updated_at"),
-                })
+                decisions.append(
+                    {
+                        "project_id": project_id,
+                        "run_id": str(queue_row.get("current_run_id") or "") or None,
+                        "decision_gate_state": decision_gate_state(gate),
+                        "decision_summary": str(
+                            gate.get("decision") or gate.get("reason") or ""
+                        ),
+                        "artifact_path": str(root / ".enoch" / "project_decision.json")
+                        if (root / ".enoch" / "project_decision.json").exists()
+                        else (
+                            str(root / ".omx" / "project_decision.json")
+                            if (root / ".omx" / "project_decision.json").exists()
+                            else str(root / "project_decision.json")
+                        ),
+                        "payload_json": json_text(payload, {}),
+                        "payload_hash": stable_hash(payload),
+                        "decided_at": project.get("updated_at")
+                        or queue_row.get("updated_at"),
+                    }
+                )
                 break
     return decisions
 
@@ -252,13 +312,17 @@ def import_sqlite_to_postgres(
     project_roots: Sequence[Path] = (),
 ) -> dict[str, Any]:
     if reset_target and not apply:
-        raise ValueError("--reset-target requires --apply so dry-run cannot erase then roll back misleadingly")
+        raise ValueError(
+            "--reset-target requires --apply so dry-run cannot erase then roll back misleadingly"
+        )
 
     try:
         import psycopg
         from psycopg.rows import dict_row
     except ImportError as exc:  # pragma: no cover - dependency declared in pyproject.
-        raise RuntimeError("psycopg is required; run via uv or install project dependencies") from exc
+        raise RuntimeError(
+            "psycopg is required; run via uv or install project dependencies"
+        ) from exc
 
     sqlite_path = sqlite_path.expanduser().resolve()
     if not sqlite_path.exists():
@@ -275,7 +339,9 @@ def import_sqlite_to_postgres(
         review_rows = rows(sqlite_conn, "paper_review_items", order_by="paper_id")
         event_rows = rows(sqlite_conn, "events", order_by="event_id")
         if observation_limit < 0:
-            observation_rows = rows(sqlite_conn, "dashboard_observations", order_by="observation_id")
+            observation_rows = rows(
+                sqlite_conn, "dashboard_observations", order_by="observation_id"
+            )
         elif observation_limit == 0:
             observation_rows = []
         else:
@@ -292,7 +358,9 @@ def import_sqlite_to_postgres(
 
     run_ids = {str(row.get("run_id") or "") for row in run_rows if row.get("run_id")}
     queue_by_project = {str(row.get("project_id") or ""): row for row in queue_rows}
-    decision_rows = load_project_decisions(project_rows, queue_by_project, project_roots)
+    decision_rows = load_project_decisions(
+        project_rows, queue_by_project, project_roots
+    )
     run_identity_rows = [
         {"run_id": row.get("run_id"), "project_id": row.get("project_id")}
         for row in run_rows
@@ -308,11 +376,14 @@ def import_sqlite_to_postgres(
     ]
     event_identity_rows = [
         {
-            "idempotency_key": row.get("idempotency_key") or f"sqlite-event:{row.get('event_id')}",
+            "idempotency_key": row.get("idempotency_key")
+            or f"sqlite-event:{row.get('event_id')}",
             "event_type": row.get("event_type") or "unknown",
             "entity_type": row.get("entity_type") or "unknown",
             "entity_id": row.get("entity_id") or "",
-            "payload_hash": valid_hash(row.get("payload_hash"), row.get("payload_json") or "{}"),
+            "payload_hash": valid_hash(
+                row.get("payload_hash"), row.get("payload_json") or "{}"
+            ),
         }
         for row in event_rows
     ]
@@ -332,7 +403,11 @@ def import_sqlite_to_postgres(
         with pg_conn.cursor() as cur:
             cur.execute("set search_path to enoch, public")
             if reset_target:
-                cur.execute("truncate table " + ", ".join(f"enoch.{table}" for table in DOMAIN_TABLES) + " restart identity cascade")
+                cur.execute(
+                    "truncate table "
+                    + ", ".join(f"enoch.{table}" for table in DOMAIN_TABLES)
+                    + " restart identity cascade"
+                )
                 cur.execute("delete from enoch.control_flags where singleton = true")
 
             reject_target_identity_conflicts(
@@ -353,7 +428,12 @@ def import_sqlite_to_postgres(
                 cur,
                 table="control_events",
                 key_columns=("idempotency_key",),
-                identity_columns=("event_type", "entity_type", "entity_id", "payload_hash"),
+                identity_columns=(
+                    "event_type",
+                    "entity_type",
+                    "entity_id",
+                    "payload_hash",
+                ),
                 source_rows=event_identity_rows,
             )
 
@@ -439,14 +519,31 @@ def import_sqlite_to_postgres(
                 """,
                 (
                     (
-                        row.get("project_id"), row.get("status") or "unknown", int(row.get("selection_rank") or 0),
-                        int(row.get("dispatch_priority") or 0), bool(row.get("auto_continue")), int(row.get("continue_count") or 0),
-                        int(row.get("max_continues") or 0), int(row.get("retry_count") or 0), int(row.get("max_retries") or 0),
-                        row.get("current_run_id") or "", row.get("current_session_id") or "", row.get("last_run_state") or "",
-                        row.get("last_event_type") or "", row.get("next_action_hint") or "", bool(row.get("manual_review_required")),
-                        row.get("blocked_reason") or "", row.get("last_error") or "", row.get("last_result_summary") or "",
-                        row.get("machine_target") or "", row.get("model") or "", row.get("sandbox") or "",
-                        row.get("last_dispatch_at"), row.get("last_callback_at"), row.get("stale_after"), row.get("updated_at"),
+                        row.get("project_id"),
+                        row.get("status") or "unknown",
+                        int(row.get("selection_rank") or 0),
+                        int(row.get("dispatch_priority") or 0),
+                        bool(row.get("auto_continue")),
+                        int(row.get("continue_count") or 0),
+                        int(row.get("max_continues") or 0),
+                        int(row.get("retry_count") or 0),
+                        int(row.get("max_retries") or 0),
+                        row.get("current_run_id") or "",
+                        row.get("current_session_id") or "",
+                        row.get("last_run_state") or "",
+                        row.get("last_event_type") or "",
+                        row.get("next_action_hint") or "",
+                        bool(row.get("manual_review_required")),
+                        row.get("blocked_reason") or "",
+                        row.get("last_error") or "",
+                        row.get("last_result_summary") or "",
+                        row.get("machine_target") or "",
+                        row.get("model") or "",
+                        row.get("sandbox") or "",
+                        row.get("last_dispatch_at"),
+                        row.get("last_callback_at"),
+                        row.get("stale_after"),
+                        row.get("updated_at"),
                     )
                     for row in queue_rows
                 ),
@@ -468,10 +565,18 @@ def import_sqlite_to_postgres(
                 """,
                 (
                     (
-                        row.get("run_id"), row.get("project_id"), row.get("session_id") or "", row.get("state") or "unknown",
-                        row.get("dispatch_mode") or "", row.get("started_at"), row.get("ended_at"), row.get("last_callback_at"),
-                        row.get("gate_state") or "", row.get("current_activity") or "",
-                        row.get("idempotency_key") or f"sqlite-run:{row.get('run_id')}", row.get("updated_at"),
+                        row.get("run_id"),
+                        row.get("project_id"),
+                        row.get("session_id") or "",
+                        row.get("state") or "unknown",
+                        row.get("dispatch_mode") or "",
+                        row.get("started_at"),
+                        row.get("ended_at"),
+                        row.get("last_callback_at"),
+                        row.get("gate_state") or "",
+                        row.get("current_activity") or "",
+                        row.get("idempotency_key") or f"sqlite-run:{row.get('run_id')}",
+                        row.get("updated_at"),
                     )
                     for row in run_rows
                 ),
@@ -495,12 +600,20 @@ def import_sqlite_to_postgres(
                 """,
                 (
                     (
-                        row.get("paper_id"), row.get("project_id"), row.get("run_id") if row.get("run_id") in run_ids else None,
-                        row.get("paper_type") or "arxiv_draft", row.get("paper_status") or "unknown",
-                        row.get("draft_markdown_path") or "", row.get("draft_latex_path") or "",
-                        row.get("evidence_bundle_path") or "", row.get("claim_ledger_path") or "",
-                        row.get("manifest_path") or "", row.get("artifact_root") or "", row.get("artifact_payload_hash") or "",
-                        row.get("generated_at"), row.get("updated_at"),
+                        row.get("paper_id"),
+                        row.get("project_id"),
+                        row.get("run_id") if row.get("run_id") in run_ids else None,
+                        row.get("paper_type") or "arxiv_draft",
+                        row.get("paper_status") or "unknown",
+                        row.get("draft_markdown_path") or "",
+                        row.get("draft_latex_path") or "",
+                        row.get("evidence_bundle_path") or "",
+                        row.get("claim_ledger_path") or "",
+                        row.get("manifest_path") or "",
+                        row.get("artifact_root") or "",
+                        row.get("artifact_payload_hash") or "",
+                        row.get("generated_at"),
+                        row.get("updated_at"),
                     )
                     for row in paper_rows
                 ),
@@ -523,9 +636,14 @@ def import_sqlite_to_postgres(
                 """,
                 (
                     (
-                        row["project_id"], row["run_id"] if row["run_id"] in run_ids else None,
-                        row["decision_gate_state"], row["decision_summary"], row["artifact_path"],
-                        row["payload_json"], row["payload_hash"], row["decided_at"],
+                        row["project_id"],
+                        row["run_id"] if row["run_id"] in run_ids else None,
+                        row["decision_gate_state"],
+                        row["decision_summary"],
+                        row["artifact_path"],
+                        row["payload_json"],
+                        row["payload_hash"],
+                        row["decided_at"],
                     )
                     for row in decision_rows
                 ),
@@ -551,13 +669,22 @@ def import_sqlite_to_postgres(
                 """,
                 (
                     (
-                        row.get("paper_id"), row.get("review_status") or "unreviewed", row.get("reviewer") or "",
-                        row.get("blocker") or "", row.get("claimed_at") or None, json_text(row.get("checklist_json"), {}),
-                        int(row.get("rank_score") or 0), json_text(row.get("rank_reasons_json"), []),
-                        json_text(row.get("missing_signals_json"), []), row.get("rank_tiebreaker") or "",
-                        row.get("source_audit_path") or "", row.get("finalization_package_path") or "",
-                        row.get("finalized_at") or None, row.get("decision_summary") or "",
-                        row.get("created_at"), row.get("updated_at"),
+                        row.get("paper_id"),
+                        row.get("review_status") or "unreviewed",
+                        row.get("reviewer") or "",
+                        row.get("blocker") or "",
+                        row.get("claimed_at") or None,
+                        json_text(row.get("checklist_json"), {}),
+                        int(row.get("rank_score") or 0),
+                        json_text(row.get("rank_reasons_json"), []),
+                        json_text(row.get("missing_signals_json"), []),
+                        row.get("rank_tiebreaker") or "",
+                        row.get("source_audit_path") or "",
+                        row.get("finalization_package_path") or "",
+                        row.get("finalized_at") or None,
+                        row.get("decision_summary") or "",
+                        row.get("created_at"),
+                        row.get("updated_at"),
                     )
                     for row in review_rows
                 ),
@@ -572,9 +699,15 @@ def import_sqlite_to_postgres(
                 """,
                 (
                     (
-                        row.get("idempotency_key") or f"sqlite-event:{row.get('event_id')}", row.get("event_type") or "unknown",
-                        row.get("entity_type") or "unknown", row.get("entity_id") or "",
-                        json_text(row.get("payload_json"), {}), valid_hash(row.get("payload_hash"), row.get("payload_json") or "{}"),
+                        row.get("idempotency_key")
+                        or f"sqlite-event:{row.get('event_id')}",
+                        row.get("event_type") or "unknown",
+                        row.get("entity_type") or "unknown",
+                        row.get("entity_id") or "",
+                        json_text(row.get("payload_json"), {}),
+                        valid_hash(
+                            row.get("payload_hash"), row.get("payload_json") or "{}"
+                        ),
                         row.get("created_at"),
                     )
                     for row in event_rows
@@ -589,9 +722,15 @@ def import_sqlite_to_postgres(
                 """,
                 (
                     (
-                        row.get("source") or "unknown", row.get("scope") or "", row.get("observed_at"),
-                        int(row.get("ttl_seconds") or 0), row.get("status") or "unknown",
-                        json_text(row.get("payload_json"), {}), valid_hash(row.get("payload_hash"), row.get("payload_json") or "{}"),
+                        row.get("source") or "unknown",
+                        row.get("scope") or "",
+                        row.get("observed_at"),
+                        int(row.get("ttl_seconds") or 0),
+                        row.get("status") or "unknown",
+                        json_text(row.get("payload_json"), {}),
+                        valid_hash(
+                            row.get("payload_hash"), row.get("payload_json") or "{}"
+                        ),
                         row.get("created_at"),
                     )
                     for row in observation_rows
@@ -613,7 +752,9 @@ def import_sqlite_to_postgres(
                     """
                 ).fetchall()
             }
-            dashboard_counts = cur.execute("select * from operator_dashboard_counts").fetchone()
+            dashboard_counts = cur.execute(
+                "select * from operator_dashboard_counts"
+            ).fetchone()
             result = {
                 "ok": True,
                 "mode": "apply" if apply else "dry-run",
@@ -635,13 +776,45 @@ def import_sqlite_to_postgres(
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sqlite", required=True, type=Path, help="Path to control_plane.sqlite3 source DB")
-    parser.add_argument("--database-url", default=os.environ.get("ENOCH_SUPABASE_DATABASE_URL", ""), help="Postgres/Supabase database URL; defaults to ENOCH_SUPABASE_DATABASE_URL")
-    parser.add_argument("--database-url-file", type=Path, help="Root-readable file containing the Postgres/Supabase database URL; avoids argv exposure")
-    parser.add_argument("--apply", action="store_true", help="Commit the backfill transaction. Default is dry-run rollback.")
-    parser.add_argument("--reset-target", action="store_true", help="Truncate target domain tables before import. Requires --apply.")
-    parser.add_argument("--observation-limit", type=int, default=5000, help="Latest observations to import; 0 skips, -1 imports all. Default: 5000")
-    parser.add_argument("--project-root", action="append", type=Path, default=[], help="Base directory used to resolve project_dir/project_id decision artifacts; may be repeated")
+    parser.add_argument(
+        "--sqlite",
+        required=True,
+        type=Path,
+        help="Path to control_plane.sqlite3 source DB",
+    )
+    parser.add_argument(
+        "--database-url",
+        default=os.environ.get("ENOCH_SUPABASE_DATABASE_URL", ""),
+        help="Postgres/Supabase database URL; defaults to ENOCH_SUPABASE_DATABASE_URL",
+    )
+    parser.add_argument(
+        "--database-url-file",
+        type=Path,
+        help="Root-readable file containing the Postgres/Supabase database URL; avoids argv exposure",
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Commit the backfill transaction. Default is dry-run rollback.",
+    )
+    parser.add_argument(
+        "--reset-target",
+        action="store_true",
+        help="Truncate target domain tables before import. Requires --apply.",
+    )
+    parser.add_argument(
+        "--observation-limit",
+        type=int,
+        default=5000,
+        help="Latest observations to import; 0 skips, -1 imports all. Default: 5000",
+    )
+    parser.add_argument(
+        "--project-root",
+        action="append",
+        type=Path,
+        default=[],
+        help="Base directory used to resolve project_dir/project_id decision artifacts; may be repeated",
+    )
     parser.add_argument("--output", type=Path, help="Optional JSON report path")
     return parser.parse_args(argv)
 
@@ -652,7 +825,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.database_url_file and not database_url.strip():
         database_url = args.database_url_file.read_text(encoding="utf-8").strip()
     if not database_url.strip():
-        print("error: --database-url or ENOCH_SUPABASE_DATABASE_URL is required", file=sys.stderr)
+        print(
+            "error: --database-url or ENOCH_SUPABASE_DATABASE_URL is required",
+            file=sys.stderr,
+        )
         return 2
     result = import_sqlite_to_postgres(
         sqlite_path=args.sqlite,

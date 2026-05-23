@@ -33,12 +33,16 @@ class ProcessTracker:
         self.project_root = project_root.expanduser().resolve()
 
     def _project_dir(self, record: RunRecord) -> Path | None:
-        raw = (record.project_dir or '').strip()
+        raw = (record.project_dir or "").strip()
         root = self.project_root
         if raw:
             try:
                 candidate = Path(raw).expanduser()
-                resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+                resolved = (
+                    candidate.resolve()
+                    if candidate.is_absolute()
+                    else (root / candidate).resolve()
+                )
             except (OSError, RuntimeError):
                 return None
             try:
@@ -61,7 +65,12 @@ class ProcessTracker:
     def _process_in_project_dir(self, proc: object, project_dir: Path) -> bool:
         try:
             cwd = Path(proc.cwd()).resolve()
-        except (FileNotFoundError, PermissionError, psutil.NoSuchProcess, psutil.AccessDenied):
+        except (
+            FileNotFoundError,
+            PermissionError,
+            psutil.NoSuchProcess,
+            psutil.AccessDenied,
+        ):
             return False
         try:
             cwd.relative_to(project_dir)
@@ -78,7 +87,7 @@ class ProcessTracker:
             return {}
 
         owned: dict[int, object] = {}
-        for proc in psutil.process_iter(['pid']):
+        for proc in psutil.process_iter(["pid"]):
             try:
                 if self._process_in_project_dir(proc, project_dir):
                     owned[proc.pid] = proc
@@ -105,7 +114,12 @@ class ProcessTracker:
                 try:
                     if os.getpgid(proc.pid) == record.process_group_id:
                         tracked[proc.pid] = proc
-                except (ProcessLookupError, PermissionError, psutil.NoSuchProcess, psutil.AccessDenied):
+                except (
+                    ProcessLookupError,
+                    PermissionError,
+                    psutil.NoSuchProcess,
+                    psutil.AccessDenied,
+                ):
                     continue
 
         tracked.update(self._project_owned_processes(record))
@@ -139,7 +153,9 @@ class ProcessTracker:
             elapsed_sec = int(max(0, time.time() - create_time))
             cpu_times = proc.cpu_times()
             cpu_time_sec = float(cpu_times.user + cpu_times.system)
-            avg_cpu_pct = (cpu_time_sec / elapsed_sec * 100.0) if elapsed_sec > 0 else 0.0
+            avg_cpu_pct = (
+                (cpu_time_sec / elapsed_sec * 100.0) if elapsed_sec > 0 else 0.0
+            )
             return ProcessInfo(
                 pid=proc.pid,
                 ppid=proc.ppid(),
@@ -154,7 +170,9 @@ class ProcessTracker:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return None
 
-    def snapshot(self, record: RunRecord, gpu_compute_pids: list[int] | None = None) -> ProcessSnapshot:
+    def snapshot(
+        self, record: RunRecord, gpu_compute_pids: list[int] | None = None
+    ) -> ProcessSnapshot:
         if psutil is None:
             return ProcessSnapshot(
                 tracked=record.root_pid is not None,
@@ -180,7 +198,9 @@ class ProcessTracker:
                         process_alive = True
                     else:
                         descendants_alive = True
-                    if project_dir is not None and self._process_in_project_dir(proc, project_dir):
+                    if project_dir is not None and self._process_in_project_dir(
+                        proc, project_dir
+                    ):
                         cmdline = " ".join(proc.cmdline()).strip() or proc.name()
                         if not _is_benign_project_process(cmdline):
                             project_cwd_processes_alive = True

@@ -46,9 +46,9 @@ Rationale in one sentence: the dashboard is a hash-guarded static operator conso
 
 ## What to do instead of a framework migration
 
-1. **Component system (Vite-native):** small shared primitives and layout patterns under `dashboard/src/components/` — see parking-lot follow-up in [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md).
-2. **DTO alignment:** optional schema extraction from backend read models — separate parking-lot item.
-3. **Operator PRs:** hero/movement/lane/backlog semantics per [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md).
+1. **Component system (Vite-native):** merged (#98) — [`dashboard-v2-component-system.md`](dashboard-v2-component-system.md).
+2. **DTO alignment:** merged (#97) — read-model DTO validation at API boundaries.
+3. **Operator semantics:** Phase 2 complete (2026-05-21) — command center + detail audits per [`dashboard-v2-cursor-instructions.md`](dashboard-v2-cursor-instructions.md); optional Phase 3 in [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md).
 
 ## Revisit triggers (explicit)
 
@@ -66,5 +66,5 @@ Examples that **would** justify reconsideration:
 
 ## Verification
 
-- Deterministic doc guard: [`tests/test_dashboard_v2_framework_decision.py`](../tests/test_dashboard_v2_framework_decision.py)
+- Deterministic doc guards: [`tests/test_dashboard_v2_framework_decision.py`](../tests/test_dashboard_v2_framework_decision.py), [`tests/test_dashboard_v2_phase2_complete.py`](../tests/test_dashboard_v2_phase2_complete.py)
 - Linked from [`dashboard-redesign-plan.md`](dashboard-redesign-plan.md) follow-up slices.

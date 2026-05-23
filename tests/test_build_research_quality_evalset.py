@@ -28,7 +28,11 @@ def test_build_evalset_script_emits_required_case_types(tmp_path: Path) -> None:
                 "success_threshold": "beat recency by 10 points",
                 "kill_condition": "stop if no lift",
                 "required_evidence": ["baseline", "metrics", "failure cases"],
-                "expected_artifacts": ["run_notes.md", "metrics.json", "failure_cases.json"],
+                "expected_artifacts": [
+                    "run_notes.md",
+                    "metrics.json",
+                    "failure_cases.json",
+                ],
                 "similar_prior_projects": [{"project_id": "old-anchor"}],
                 "novelty_comparison": "",
             },
@@ -43,7 +47,11 @@ def test_build_evalset_script_emits_required_case_types(tmp_path: Path) -> None:
                 "success_threshold": "beat recency by 10 points",
                 "kill_condition": "stop if no lift",
                 "required_evidence": ["baseline", "metrics", "failure cases"],
-                "expected_artifacts": ["run_notes.md", "metrics.json", "failure_cases.json"],
+                "expected_artifacts": [
+                    "run_notes.md",
+                    "metrics.json",
+                    "failure_cases.json",
+                ],
             },
         ],
     )
@@ -106,15 +114,31 @@ def test_build_evalset_script_emits_required_case_types(tmp_path: Path) -> None:
         ],
     )
 
-    assert evalset.main(["--candidate-json", str(candidates), "--decision-json", str(decisions), "--output", str(output)]) == 0
-    rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    assert (
+        evalset.main(
+            [
+                "--candidate-json",
+                str(candidates),
+                "--decision-json",
+                str(decisions),
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+    rows = [
+        json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()
+    ]
     case_types = {row["case_type"] for row in rows}
     assert "duplicateish_candidate" in case_types
     assert "proxy_only_positive" in case_types
     assert "supported_but_negative_warning" in case_types
     assert "max_depth_followup_ending" in case_types
     assert "useful_adjacent_followup" in case_types
-    assert all(row["schema_version"] == "enoch_research_quality_evalcase_v1" for row in rows)
+    assert all(
+        row["schema_version"] == "enoch_research_quality_evalcase_v1" for row in rows
+    )
     assert all("expected_behavior" in row and row["expected_behavior"] for row in rows)
 
 
@@ -127,7 +151,19 @@ def test_build_evalset_is_read_only_for_fixture_inputs(tmp_path: Path) -> None:
     before_candidates = candidates.read_text(encoding="utf-8")
     before_decisions = decisions.read_text(encoding="utf-8")
 
-    assert evalset.main(["--candidate-json", str(candidates), "--decision-json", str(decisions), "--output", str(output)]) == 0
+    assert (
+        evalset.main(
+            [
+                "--candidate-json",
+                str(candidates),
+                "--decision-json",
+                str(decisions),
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
 
     assert candidates.read_text(encoding="utf-8") == before_candidates
     assert decisions.read_text(encoding="utf-8") == before_decisions

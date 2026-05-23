@@ -70,17 +70,41 @@ def fetch(base_url: str, endpoint: str, token: str, timeout: float) -> Sample:
                 status=resp.status,
                 elapsed_ms=elapsed_ms,
                 bytes_read=len(data),
-                route_duration_ms=_float_header(resp.headers, "X-Enoch-Route-Duration-Ms"),
+                route_duration_ms=_float_header(
+                    resp.headers, "X-Enoch-Route-Duration-Ms"
+                ),
                 route_rss_mib=_float_header(resp.headers, "X-Enoch-Route-RSS-MiB"),
-                route_peak_rss_mib=_float_header(resp.headers, "X-Enoch-Route-Peak-RSS-MiB"),
+                route_peak_rss_mib=_float_header(
+                    resp.headers, "X-Enoch-Route-Peak-RSS-MiB"
+                ),
             )
     except error.HTTPError as exc:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         body = exc.read()
-        return Sample(endpoint, False, exc.code, elapsed_ms, len(body), None, None, None, f"HTTPError: {exc.code}")
+        return Sample(
+            endpoint,
+            False,
+            exc.code,
+            elapsed_ms,
+            len(body),
+            None,
+            None,
+            None,
+            f"HTTPError: {exc.code}",
+        )
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
-        return Sample(endpoint, False, None, elapsed_ms, 0, None, None, None, f"{type(exc).__name__}: {exc}")
+        return Sample(
+            endpoint,
+            False,
+            None,
+            elapsed_ms,
+            0,
+            None,
+            None,
+            None,
+            f"{type(exc).__name__}: {exc}",
+        )
 
 
 def summarize(samples: list[Sample]) -> dict[str, Any]:
@@ -90,35 +114,53 @@ def summarize(samples: list[Sample]) -> dict[str, Any]:
     endpoint_summaries = {}
     for endpoint, rows in by_endpoint.items():
         elapsed = [row.elapsed_ms for row in rows]
-        rss_values = [row.route_rss_mib for row in rows if row.route_rss_mib is not None]
+        rss_values = [
+            row.route_rss_mib for row in rows if row.route_rss_mib is not None
+        ]
         endpoint_summaries[endpoint] = {
             "requests": len(rows),
             "ok": sum(1 for row in rows if row.ok),
             "failed": sum(1 for row in rows if not row.ok),
-            "status_codes": sorted({row.status for row in rows if row.status is not None}),
+            "status_codes": sorted(
+                {row.status for row in rows if row.status is not None}
+            ),
             "transport_errors": sum(1 for row in rows if row.status is None),
             "bytes_total": sum(row.bytes_read for row in rows),
             "elapsed_ms_avg": statistics.fmean(elapsed) if elapsed else 0.0,
             "elapsed_ms_max": max(elapsed) if elapsed else 0.0,
             "route_rss_mib_first": rss_values[0] if rss_values else None,
             "route_rss_mib_last": rss_values[-1] if rss_values else None,
-            "route_rss_mib_delta": None if len(rss_values) < 2 else rss_values[-1] - rss_values[0],
+            "route_rss_mib_delta": None
+            if len(rss_values) < 2
+            else rss_values[-1] - rss_values[0],
         }
     return endpoint_summaries
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-url", default=os.environ.get("ENOCH_CONTROL_URL", "http://127.0.0.1:8787"))
+    parser.add_argument(
+        "--base-url",
+        default=os.environ.get("ENOCH_CONTROL_URL", "http://127.0.0.1:8787"),
+    )
     parser.add_argument("--token-env", default="ENOCH_CONTROL_TOKEN")
-    parser.add_argument("--endpoint", action="append", dest="endpoints", help="Endpoint path to poll; repeatable")
+    parser.add_argument(
+        "--endpoint",
+        action="append",
+        dest="endpoints",
+        help="Endpoint path to poll; repeatable",
+    )
     parser.add_argument("--iterations", type=int, default=3)
     parser.add_argument("--sleep-sec", type=float, default=0.0)
     parser.add_argument("--timeout-sec", type=float, default=10.0)
     parser.add_argument("--output", default="")
     args = parser.parse_args()
 
-    token = os.environ.get(args.token_env) or os.environ.get("ENOCH_CONTROL_PLANE_TOKEN", "") or os.environ.get("OMX_INBOUND_BEARER_TOKEN", "")
+    token = (
+        os.environ.get(args.token_env)
+        or os.environ.get("ENOCH_CONTROL_PLANE_TOKEN", "")
+        or os.environ.get("OMX_INBOUND_BEARER_TOKEN", "")
+    )
     endpoints = args.endpoints or DEFAULT_ENDPOINTS
     samples: list[Sample] = []
     for _ in range(max(1, args.iterations)):
@@ -132,7 +174,9 @@ def main() -> int:
         "base_url": args.base_url,
         "iterations": max(1, args.iterations),
         "sample_count": len(samples),
-        "server_rss_headers_present": any(sample.route_rss_mib is not None for sample in samples),
+        "server_rss_headers_present": any(
+            sample.route_rss_mib is not None for sample in samples
+        ),
         "summary": summarize(samples),
         "samples": [sample.__dict__ for sample in samples],
     }

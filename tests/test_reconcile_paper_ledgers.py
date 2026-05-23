@@ -1,4 +1,8 @@
-from scripts.reconcile_paper_ledgers import DEFAULT_PAPER_STATUS, classify_finalized_rows, source_fingerprint
+from scripts.reconcile_paper_ledgers import (
+    DEFAULT_PAPER_STATUS,
+    classify_finalized_rows,
+    source_fingerprint,
+)
 
 
 def test_classify_finalized_rows_matches_default_import_behavior() -> None:
@@ -27,7 +31,9 @@ def test_classify_finalized_rows_matches_default_import_behavior() -> None:
     classified = classify_finalized_rows(rows, public)
 
     assert [row["paper_id"] for row in classified["exact_existing"]] == [exact_paper_id]
-    assert [row["paper_id"] for row in classified["importable"]] == [importable_paper_id]
+    assert [row["paper_id"] for row in classified["importable"]] == [
+        importable_paper_id
+    ]
 
 
 def test_default_reconciliation_scope_is_publication_draft_lane() -> None:

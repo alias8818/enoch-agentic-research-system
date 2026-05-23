@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from collections import Counter
 from collections import deque
 from datetime import datetime, timezone
@@ -46,7 +47,9 @@ from .telemetry import TelemetryCollector
 
 
 def load_config(path: Path | None = None) -> GateConfig:
-    env_path = os.environ.get("ENOCH_CONFIG") or os.environ.get("ENOCH_CONTROL_PLANE_CONFIG")
+    env_path = os.environ.get("ENOCH_CONFIG") or os.environ.get(
+        "ENOCH_CONTROL_PLANE_CONFIG"
+    )
     config_path = path or (
         Path(env_path).expanduser()
         if env_path
@@ -61,7 +64,26 @@ store = StateStore(config.expanded_state_dir)
 telemetry = TelemetryCollector()
 gate = WakeGate(config, ProcessTracker(config.expanded_project_root), telemetry)
 sender = CallbackSender(config)
-app = FastAPI(title="enoch_worker_gate", version="0.1.0")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global reconcile_task
+    # startup logic (replaces deprecated @app.on_event("startup"))
+    if reconcile_task is None or reconcile_task.done():
+        reconcile_task = asyncio.create_task(_reconcile_missing_idle_loop())
+    yield
+    # shutdown logic (replaces deprecated @app.on_event("shutdown"))
+    if reconcile_task is not None:
+        reconcile_task.cancel()
+        try:
+            await reconcile_task
+        except asyncio.CancelledError:
+            raise
+        reconcile_task = None
+
+
+app = FastAPI(title="enoch_worker_gate", version="0.1.0", lifespan=lifespan)
 if config.route_observability_enabled:
     route_observation_path = (
         Path(config.route_observability_log_path).expanduser()
@@ -872,7 +894,9 @@ def _require_local_bearer(authorization: str | None) -> None:
         raise HTTPException(status_code=401, detail="invalid bearer token")
 
 
-def _require_dashboard_bearer(authorization: str | None, token: str | None = None) -> None:
+def _require_dashboard_bearer(
+    authorization: str | None, token: str | None = None
+) -> None:
     if authorization is None and token:
         authorization = f"Bearer {token}"
     _require_local_bearer(authorization)
@@ -886,24 +910,34 @@ def _resolve_under_root(path_str: str, root: Path) -> Path:
     try:
         raw = Path(path_str).expanduser()
     except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=f"path contains an unexpandable user home: {path_str}") from exc
+        raise HTTPException(
+            status_code=400,
+            detail=f"path contains an unexpandable user home: {path_str}",
+        ) from exc
     candidate = raw if raw.is_absolute() else root / raw
     try:
         resolved = candidate.resolve()
         root_resolved = root.expanduser().resolve()
     except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=f"path could not be resolved under configured project root: {path_str}") from exc
+        raise HTTPException(
+            status_code=400,
+            detail=f"path could not be resolved under configured project root: {path_str}",
+        ) from exc
     try:
         resolved.relative_to(root_resolved)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"path escapes configured project root: {path_str}") from exc
+        raise HTTPException(
+            status_code=400, detail=f"path escapes configured project root: {path_str}"
+        ) from exc
     return resolved
 
 
 def _write_text(path: Path, text: str, overwrite: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if _checked_exists(path, label="file target") and not overwrite:
-        raise HTTPException(status_code=409, detail=f"refusing to overwrite existing file: {path}")
+        raise HTTPException(
+            status_code=409, detail=f"refusing to overwrite existing file: {path}"
+        )
     tmp_path = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
     existing_mode: int | None = None
     try:
@@ -928,20 +962,26 @@ def _checked_exists(path: Path, *, label: str, status_code: int = 500) -> bool:
     try:
         return path.exists()
     except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(status_code=status_code, detail=f"{label} could not be inspected: {path}") from exc
+        raise HTTPException(
+            status_code=status_code, detail=f"{label} could not be inspected: {path}"
+        ) from exc
 
 
 def _checked_is_dir(path: Path, *, label: str, status_code: int = 500) -> bool:
     try:
         return path.is_dir()
     except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(status_code=status_code, detail=f"{label} could not be inspected: {path}") from exc
+        raise HTTPException(
+            status_code=status_code, detail=f"{label} could not be inspected: {path}"
+        ) from exc
 
 
 def _normalize_prepare_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(metadata or {})
     try:
-        workload_class, _ = config.resolve_workload_profile(normalized.get("workload_class"))
+        workload_class, _ = config.resolve_workload_profile(
+            normalized.get("workload_class")
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     normalized["workload_class"] = workload_class
@@ -958,11 +998,17 @@ def _load_project_metadata(project_dir: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, RuntimeError) as exc:
-        raise HTTPException(status_code=500, detail=f"project metadata could not be read: {path}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"project metadata could not be read: {path}"
+        ) from exc
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=500, detail=f"invalid project metadata JSON: {path}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"invalid project metadata JSON: {path}"
+        ) from exc
     if not isinstance(payload, dict):
-        raise HTTPException(status_code=500, detail=f"project metadata must be a JSON object: {path}")
+        raise HTTPException(
+            status_code=500, detail=f"project metadata must be a JSON object: {path}"
+        )
     return payload
 
 
@@ -987,20 +1033,28 @@ def _assign_record_workload_profile(record: RunRecord) -> RunRecord:
     project_dir: Path | None = None
     if record.project_dir:
         try:
-            project_dir = _resolve_under_root(record.project_dir, config.expanded_project_root)
+            project_dir = _resolve_under_root(
+                record.project_dir, config.expanded_project_root
+            )
         except HTTPException:
             project_dir = None
     elif record.project_id:
         try:
-            project_dir = _resolve_under_root(record.project_id, config.expanded_project_root)
+            project_dir = _resolve_under_root(
+                record.project_id, config.expanded_project_root
+            )
         except HTTPException:
             project_dir = None
 
     if project_dir is not None:
-        workload_class, workload_profile = _resolve_workload_profile_for_project_dir(project_dir)
+        workload_class, workload_profile = _resolve_workload_profile_for_project_dir(
+            project_dir
+        )
         record.project_dir = str(project_dir)
     else:
-        workload_class, workload_profile = config.resolve_workload_profile(record.workload_class)
+        workload_class, workload_profile = config.resolve_workload_profile(
+            record.workload_class
+        )
     record.workload_class = workload_class
     record.workload_profile = workload_profile
     return record
@@ -1010,7 +1064,9 @@ def _wake_decision_profile_evidence(record: RunRecord) -> dict[str, Any]:
     workload_class = record.workload_class or config.normalize_workload_class(None)
     workload_profile = record.workload_profile
     if workload_profile is None:
-        workload_class, workload_profile = config.resolve_workload_profile(workload_class)
+        workload_class, workload_profile = config.resolve_workload_profile(
+            workload_class
+        )
     return {
         "workload_class": workload_class,
         "workload_profile_name": workload_class,
@@ -1021,21 +1077,35 @@ def _wake_decision_profile_evidence(record: RunRecord) -> dict[str, Any]:
 def _resolve_project_relative_path(project_dir: Path, relative_path: str) -> Path:
     raw = Path(relative_path)
     if raw.is_absolute():
-        raise HTTPException(status_code=400, detail=f"paper artifact path must be relative: {relative_path}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"paper artifact path must be relative: {relative_path}",
+        )
     if not relative_path.strip():
-        raise HTTPException(status_code=400, detail="paper artifact path cannot be empty")
+        raise HTTPException(
+            status_code=400, detail="paper artifact path cannot be empty"
+        )
     if any(part in {"", ".", ".."} for part in raw.parts):
-        raise HTTPException(status_code=400, detail=f"paper artifact path contains unsafe segment: {relative_path}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"paper artifact path contains unsafe segment: {relative_path}",
+        )
 
     try:
         resolved = (project_dir / raw).resolve()
         project_root = project_dir.resolve()
     except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=f"paper artifact path could not be resolved: {relative_path}") from exc
+        raise HTTPException(
+            status_code=400,
+            detail=f"paper artifact path could not be resolved: {relative_path}",
+        ) from exc
     try:
         resolved.relative_to(project_root)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"paper artifact path escapes project directory: {relative_path}") from exc
+        raise HTTPException(
+            status_code=400,
+            detail=f"paper artifact path escapes project directory: {relative_path}",
+        ) from exc
     return resolved
 
 
@@ -1045,10 +1115,19 @@ def _find_run_record(project_id: str, run_id: str | None = None) -> RunRecord | 
         if record is not None:
             return record
 
-    candidates = [record for record in store.list_runs() if record.project_id == project_id]
+    candidates = [
+        record for record in store.list_runs() if record.project_id == project_id
+    ]
     if not candidates:
         return None
-    candidates.sort(key=lambda record: (record.updated_at or "", record.last_event_at or "", record.created_at or ""), reverse=True)
+    candidates.sort(
+        key=lambda record: (
+            record.updated_at or "",
+            record.last_event_at or "",
+            record.created_at or "",
+        ),
+        reverse=True,
+    )
     return candidates[0]
 
 
@@ -1069,12 +1148,23 @@ def _safe_read_json(path: Path) -> dict[str, Any]:
         raise ValueError(f"invalid JSON in decision file: {path}") from exc
 
 
-def _coerce_project_decision(raw: dict[str, Any], source: str, source_path: Path | None = None) -> ProjectDecision:
+def _coerce_project_decision(
+    raw: dict[str, Any], source: str, source_path: Path | None = None
+) -> ProjectDecision:
     action = str(raw.get("project_decision") or raw.get("decision") or "").strip()
-    if action not in {"continue", "finalize_negative", "finalize_positive", "branch_new_project", "blocked", "needs_review"}:
+    if action not in {
+        "continue",
+        "finalize_negative",
+        "finalize_positive",
+        "branch_new_project",
+        "blocked",
+        "needs_review",
+    }:
         raise ValueError(f"unsupported project decision: {action or '<missing>'}")
 
-    hypothesis_status = str(raw.get("hypothesis_status") or "inconclusive").strip() or "inconclusive"
+    hypothesis_status = (
+        str(raw.get("hypothesis_status") or "inconclusive").strip() or "inconclusive"
+    )
     if hypothesis_status not in {"supported", "unsupported", "mixed", "inconclusive"}:
         hypothesis_status = "inconclusive"
 
@@ -1082,16 +1172,25 @@ def _coerce_project_decision(raw: dict[str, Any], source: str, source_path: Path
     if confidence not in {"low", "medium", "high"}:
         confidence = "medium"
 
-    evidence_strength = str(raw.get("evidence_strength") or "moderate").strip() or "moderate"
+    evidence_strength = (
+        str(raw.get("evidence_strength") or "moderate").strip() or "moderate"
+    )
     if evidence_strength not in {"weak", "moderate", "strong"}:
         evidence_strength = "moderate"
 
-    raw_followup_type = str(raw.get("followup_type") or "").strip().lower().replace("-", "_")
+    raw_followup_type = (
+        str(raw.get("followup_type") or "").strip().lower().replace("-", "_")
+    )
     if raw_followup_type not in {"", "deepen", "branch", "retry"}:
         raw_followup_type = ""
     raw_required = raw.get("followup_required_evidence")
     if isinstance(raw_required, list):
-        followup_required_evidence = [part for item in raw_required for part in split_numbered_list_text(str(item)) if part]
+        followup_required_evidence = [
+            part
+            for item in raw_required
+            for part in split_numbered_list_text(str(item))
+            if part
+        ]
     elif isinstance(raw_required, str):
         followup_required_evidence = split_numbered_list_text(raw_required)
     else:
@@ -1113,17 +1212,34 @@ def _coerce_project_decision(raw: dict[str, Any], source: str, source_path: Path
         followup_title=str(raw.get("followup_title") or "").strip(),
         followup_hypothesis=str(raw.get("followup_hypothesis") or "").strip(),
         followup_required_evidence=followup_required_evidence,
-        followup_success_threshold=str(raw.get("followup_success_threshold") or "").strip(),
+        followup_success_threshold=str(
+            raw.get("followup_success_threshold") or ""
+        ).strip(),
         followup_stop_condition=str(raw.get("followup_stop_condition") or "").strip(),
         decision_source=source,
         source_path=source_path.as_posix() if source_path else None,
-        updated_at=str(raw.get("updated_at") or raw.get("generated_at") or raw.get("prepared_at") or utc_now()),
+        updated_at=str(
+            raw.get("updated_at")
+            or raw.get("generated_at")
+            or raw.get("prepared_at")
+            or utc_now()
+        ),
     )
 
 
-def _project_decision_from_summary(summary: dict[str, Any], source_path: Path) -> ProjectDecision:
-    native = summary.get("native_phase") if isinstance(summary.get("native_phase"), dict) else {}
-    alternative = summary.get("alternative_deployment_branch") if isinstance(summary.get("alternative_deployment_branch"), dict) else {}
+def _project_decision_from_summary(
+    summary: dict[str, Any], source_path: Path
+) -> ProjectDecision:
+    native = (
+        summary.get("native_phase")
+        if isinstance(summary.get("native_phase"), dict)
+        else {}
+    )
+    alternative = (
+        summary.get("alternative_deployment_branch")
+        if isinstance(summary.get("alternative_deployment_branch"), dict)
+        else {}
+    )
     recommendation = str(summary.get("recommendation") or "").strip()
     native_kill = str(native.get("kill_condition_status") or "").strip()
     alternative_status = str(alternative.get("status") or "").strip()
@@ -1176,14 +1292,22 @@ def _load_project_decision(
     *,
     include_summary_fallback: bool = True,
 ) -> tuple[ProjectDecision | None, str | None]:
-    for explicit_path in (project_dir / ".enoch" / "project_decision.json", project_dir / ".omx" / "project_decision.json"):
+    for explicit_path in (
+        project_dir / ".enoch" / "project_decision.json",
+        project_dir / ".omx" / "project_decision.json",
+    ):
         try:
             explicit_exists = explicit_path.exists()
         except (OSError, RuntimeError, ValueError):
-            return None, f"project decision file could not be inspected: {explicit_path}"
+            return (
+                None,
+                f"project decision file could not be inspected: {explicit_path}",
+            )
         if explicit_exists:
             try:
-                return _coerce_project_decision(_safe_read_json(explicit_path), "codex_turn", explicit_path), None
+                return _coerce_project_decision(
+                    _safe_read_json(explicit_path), "codex_turn", explicit_path
+                ), None
             except ValueError as exc:
                 return None, str(exc)
 
@@ -1191,12 +1315,16 @@ def _load_project_decision(
         return None, None
 
     try:
-        summary_candidates = sorted(project_dir.glob("results/**/project_decision_summary/summary.json"))
+        summary_candidates = sorted(
+            project_dir.glob("results/**/project_decision_summary/summary.json")
+        )
     except (OSError, RuntimeError, ValueError) as exc:
         return None, f"project decision summary files could not be listed: {exc}"
     for candidate in summary_candidates:
         try:
-            return _project_decision_from_summary(_safe_read_json(candidate), candidate), None
+            return _project_decision_from_summary(
+                _safe_read_json(candidate), candidate
+            ), None
         except ValueError as exc:
             return None, str(exc)
 
@@ -1308,7 +1436,8 @@ def _result_files(
                 dirs[:] = [
                     directory
                     for directory in dirs
-                    if directory not in {".git", "__pycache__", ".mypy_cache", ".pytest_cache"}
+                    if directory
+                    not in {".git", "__pycache__", ".mypy_cache", ".pytest_cache"}
                 ]
                 for filename in files:
                     scanned += 1
@@ -1331,7 +1460,9 @@ def _result_files(
             continue
         if scanned >= max_entries or time.monotonic() > deadline:
             break
-    return [path for _, path in sorted(collected, key=lambda item: item[0], reverse=True)]
+    return [
+        path for _, path in sorted(collected, key=lambda item: item[0], reverse=True)
+    ]
 
 
 def _path_exists(path: Path) -> bool:
@@ -1362,7 +1493,9 @@ def _latest_session(project_dir: Path) -> SessionHistoryEntry | None:
         history_path = legacy_history_path
     latest: dict[str, Any] | None = None
     try:
-        for line in history_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        for line in history_path.read_text(
+            encoding="utf-8", errors="ignore"
+        ).splitlines():
             line = line.strip()
             if not line:
                 continue
@@ -1374,16 +1507,36 @@ def _latest_session(project_dir: Path) -> SessionHistoryEntry | None:
     return SessionHistoryEntry.model_validate(latest)
 
 
-def _activity_from_processes(processes: list[ProcessInfo], gate_state: str | None) -> str:
+def _activity_from_processes(
+    processes: list[ProcessInfo], gate_state: str | None
+) -> str:
     if not processes:
         return gate_state or "idle"
 
     preferred: ProcessInfo | None = None
     for process in processes:
         cmd = process.cmdline
-        if any(marker in cmd for marker in ("notify-fallback", "notify-hook", "/bin/codex exec", "/usr/bin/codex exec")):
+        if any(
+            marker in cmd
+            for marker in (
+                "notify-fallback",
+                "notify-hook",
+                "/bin/codex exec",
+                "/usr/bin/codex exec",
+            )
+        ):
             continue
-        if cmd.strip() in {"-bash", "bash", "-sh", "sh", "-zsh", "zsh", "fish", "-fish", "jq"} or cmd.startswith("tail -f "):
+        if cmd.strip() in {
+            "-bash",
+            "bash",
+            "-sh",
+            "sh",
+            "-zsh",
+            "zsh",
+            "fish",
+            "-fish",
+            "jq",
+        } or cmd.startswith("tail -f "):
             continue
         preferred = process
         break
@@ -1426,7 +1579,16 @@ def _trim_event(event: dict[str, Any], max_chars: int = 1600) -> dict[str, Any]:
         return event
     trimmed = {
         key: event.get(key)
-        for key in ("kind", "event", "event_type", "run_id", "session_id", "project_id", "ok", "timestamp")
+        for key in (
+            "kind",
+            "event",
+            "event_type",
+            "run_id",
+            "session_id",
+            "project_id",
+            "ok",
+            "timestamp",
+        )
         if key in event
     }
     trimmed["truncated"] = True
@@ -1439,7 +1601,9 @@ def _parse_timestamp(value: str | None) -> datetime | None:
 
 
 def _record_age_seconds(record: RunRecord) -> float | None:
-    parsed = _parse_timestamp(record.updated_at or record.last_event_at or record.created_at)
+    parsed = _parse_timestamp(
+        record.updated_at or record.last_event_at or record.created_at
+    )
     if parsed is None:
         return None
     return (datetime.now(timezone.utc) - parsed).total_seconds()
@@ -1452,7 +1616,9 @@ def _callback_delivered(record: RunRecord) -> bool:
         return False
     delivered_events = {"wake_ready", "session_finished_ready"}
     parts = record.last_idempotency_key.split(":")
-    return len(parts) >= 3 and parts[0] == record.run_id and parts[1] in delivered_events
+    return (
+        len(parts) >= 3 and parts[0] == record.run_id and parts[1] in delivered_events
+    )
 
 
 def _ready_callback_for_retry(record: RunRecord) -> GateCallback | None:
@@ -1466,7 +1632,9 @@ def _ready_callback_for_retry(record: RunRecord) -> GateCallback | None:
         reason = "retry_session_ended_and_system_quiet"
     else:
         return None
-    idempotency_key = f"{record.run_id}:{event_type}:{record.idle_seen_at or record.last_event_at}"
+    idempotency_key = (
+        f"{record.run_id}:{event_type}:{record.idle_seen_at or record.last_event_at}"
+    )
     return GateCallback(
         event_type=event_type,
         run_id=record.run_id,
@@ -1492,7 +1660,9 @@ def _dashboard_truth(
     state = record.gate_state
     delivered = _callback_delivered(record)
     age_seconds = _record_age_seconds(record)
-    stale_seconds = max(config.idle_sustain_sec * 2, config.sample_interval_sec * 12, 300)
+    stale_seconds = max(
+        config.idle_sustain_sec * 2, config.sample_interval_sec * 12, 300
+    )
     stale_callback = (
         state in {GateState.WAKE_READY, GateState.FINISHED_READY}
         and not delivered
@@ -1543,7 +1713,11 @@ def _dashboard_truth(
         is_live = True
         needs_attention = False
     elif delivered:
-        lifecycle = "callback_delivered" if state == GateState.WAKE_READY else "finished_delivered"
+        lifecycle = (
+            "callback_delivered"
+            if state == GateState.WAKE_READY
+            else "finished_delivered"
+        )
         status = "Delivered"
         detail = "The configured completion callback accepted the wake/finish event; this is historical evidence, not live work."
         is_live = False
@@ -1597,7 +1771,9 @@ def _latest_runs_by_project(records: list[RunRecord]) -> dict[str, RunRecord]:
     return latest_by_project
 
 
-def _is_superseded_record(record: RunRecord, latest_by_project: dict[str, RunRecord]) -> bool:
+def _is_superseded_record(
+    record: RunRecord, latest_by_project: dict[str, RunRecord]
+) -> bool:
     if not record.project_id:
         return False
     latest = latest_by_project.get(record.project_id)
@@ -1625,28 +1801,40 @@ def _run_dashboard_item(
     project_dir: Path | None = None
     if record.project_dir:
         try:
-            project_dir = _resolve_under_root(record.project_dir, config.expanded_project_root)
+            project_dir = _resolve_under_root(
+                record.project_dir, config.expanded_project_root
+            )
         except HTTPException:
             project_dir = None
 
-    latest_session = _latest_session(project_dir) if detail and project_dir is not None else None
+    latest_session = (
+        _latest_session(project_dir) if detail and project_dir is not None else None
+    )
     project_decision: ProjectDecision | None = None
     decision_error: str | None = None
     run_notes_tail: list[str] = []
     recent_files: list[str] = []
     result_files: list[str] = []
     if project_dir is not None and project_dir.exists():
-        run_notes_tail = _tail_lines(project_dir / "run_notes.md", limit=30 if detail else 8)
+        run_notes_tail = _tail_lines(
+            project_dir / "run_notes.md", limit=30 if detail else 8
+        )
         if detail:
-            recent_files = _recent_files(project_dir, limit=30, max_entries=6_000, max_seconds=0.9)
-            result_files = _result_files(project_dir, limit=50, max_entries=6_000, max_seconds=0.9)
+            recent_files = _recent_files(
+                project_dir, limit=30, max_entries=6_000, max_seconds=0.9
+            )
+            result_files = _result_files(
+                project_dir, limit=50, max_entries=6_000, max_seconds=0.9
+            )
         project_decision, decision_error = _load_project_decision(
             project_dir,
             include_summary_fallback=detail,
         )
 
     truth = _dashboard_truth(record, active_processes, superseded=superseded)
-    current_activity = _activity_from_processes(active_processes, record.gate_state.value)
+    current_activity = _activity_from_processes(
+        active_processes, record.gate_state.value
+    )
     if not active_processes:
         current_activity = truth["operator_status_detail"]
 
@@ -1674,14 +1862,16 @@ def _run_dashboard_item(
         "last_idempotency_key": record.last_idempotency_key,
         "quiet_samples": [
             sample.model_dump()
-            for sample in record.quiet_samples[-(24 if detail else 6):]
+            for sample in record.quiet_samples[-(24 if detail else 6) :]
         ],
         "created_at": record.created_at,
         "updated_at": record.updated_at,
         "latest_session": latest_session.model_dump() if latest_session else None,
         "project_decision": project_decision.model_dump() if project_decision else None,
         "decision_error": decision_error,
-        "run_notes_tail": [_truncate(line, 900 if detail else 360) for line in run_notes_tail],
+        "run_notes_tail": [
+            _truncate(line, 900 if detail else 360) for line in run_notes_tail
+        ],
         "recent_files": recent_files,
         "result_files": result_files,
     }
@@ -1739,7 +1929,9 @@ def _queue_row_summary(row: dict[str, Any]) -> dict[str, Any]:
         "updated_at",
     )
     summarized = {key: _truncate(str(row.get(key) or ""), 2000) for key in keys}
-    summarized["queue_status"] = summarized.get("queue_status") or summarized.get("status") or "unknown"
+    summarized["queue_status"] = (
+        summarized.get("queue_status") or summarized.get("status") or "unknown"
+    )
     summarized["last_run_state"] = (
         summarized.get("last_run_state")
         or summarized.get("run_state")
@@ -1758,9 +1950,20 @@ def _count_queue_field(rows: list[dict[str, Any]], field: str) -> dict[str, int]
 
 
 def _build_queue_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
-    raw_rows = payload.get("rows") if isinstance(payload.get("rows"), list) else payload.get("queue_rows")
-    rows = [_queue_row_summary(row) for row in raw_rows[:250] if isinstance(row, dict)] if isinstance(raw_rows, list) else []
-    rows.sort(key=lambda row: row.get("updated_at") or row.get("created_at") or "", reverse=True)
+    raw_rows = (
+        payload.get("rows")
+        if isinstance(payload.get("rows"), list)
+        else payload.get("queue_rows")
+    )
+    rows = (
+        [_queue_row_summary(row) for row in raw_rows[:250] if isinstance(row, dict)]
+        if isinstance(raw_rows, list)
+        else []
+    )
+    rows.sort(
+        key=lambda row: row.get("updated_at") or row.get("created_at") or "",
+        reverse=True,
+    )
 
     status_counts = (
         payload.get("status_counts")
@@ -1773,15 +1976,32 @@ def _build_queue_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
         else _count_queue_field(rows, "last_run_state")
     )
 
-    active_statuses = {"dispatching", "awaiting_wake", "running", "wake_received", "reconciling"}
-    active_rows = payload.get("active_rows") if isinstance(payload.get("active_rows"), list) else [
-        row for row in rows if (row.get("queue_status") or row.get("status")) in active_statuses
-    ]
-    blocked_rows = payload.get("blocked_rows") if isinstance(payload.get("blocked_rows"), list) else [
-        row
-        for row in rows
-        if row.get("queue_status") == "blocked" or row.get("last_run_state") in {"blocked", "needs_review"}
-    ]
+    active_statuses = {
+        "dispatching",
+        "awaiting_wake",
+        "running",
+        "wake_received",
+        "reconciling",
+    }
+    active_rows = (
+        payload.get("active_rows")
+        if isinstance(payload.get("active_rows"), list)
+        else [
+            row
+            for row in rows
+            if (row.get("queue_status") or row.get("status")) in active_statuses
+        ]
+    )
+    blocked_rows = (
+        payload.get("blocked_rows")
+        if isinstance(payload.get("blocked_rows"), list)
+        else [
+            row
+            for row in rows
+            if row.get("queue_status") == "blocked"
+            or row.get("last_run_state") in {"blocked", "needs_review"}
+        ]
+    )
     total = _snapshot_int(payload.get("total"), len(rows))
     valid_projects = _snapshot_int(payload.get("valid_projects"), total)
 
@@ -1794,7 +2014,10 @@ def _build_queue_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
         "run_state_counts": run_state_counts,
         "blocked_rows": blocked_rows,
         "active_rows": active_rows,
-        "active_count": sum(_snapshot_int(status_counts.get(status)) for status in active_statuses) or len(active_rows),
+        "active_count": sum(
+            _snapshot_int(status_counts.get(status)) for status in active_statuses
+        )
+        or len(active_rows),
         "blocked_count": _snapshot_int(status_counts.get("blocked"), len(blocked_rows)),
         "queued_count": _snapshot_int(status_counts.get("queued")),
         "completed_count": _snapshot_int(status_counts.get("completed")),
@@ -1804,7 +2027,9 @@ def _build_queue_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
         + _snapshot_int(run_state_counts.get("branch_queued")),
         "draft_candidate_count": _snapshot_int(payload.get("draft_candidate_count")),
         "polish_candidate_count": _snapshot_int(payload.get("polish_candidate_count")),
-        "warnings": payload.get("warnings") if isinstance(payload.get("warnings"), list) else [],
+        "warnings": payload.get("warnings")
+        if isinstance(payload.get("warnings"), list)
+        else [],
         "rows": rows,
     }
 
@@ -1817,9 +2042,10 @@ def dashboard_queue_snapshot(
     _require_local_bearer(authorization)
     snapshot = _build_queue_snapshot(payload)
     path = _queue_snapshot_path()
-    _write_text(path, json.dumps(snapshot, indent=2, sort_keys=True) + "\n", overwrite=True)
+    _write_text(
+        path, json.dumps(snapshot, indent=2, sort_keys=True) + "\n", overwrite=True
+    )
     return {"ok": True, "queue_snapshot": snapshot}
-
 
 
 def _paper_snapshot_path() -> Path:
@@ -1872,7 +2098,9 @@ def _paper_row_summary(row: dict[str, Any]) -> dict[str, Any]:
     summarized = {key: _clean_snapshot_text(row.get(key), 2000) for key in keys}
     summarized["reviewable"] = bool(
         summarized.get("project_id")
-        and (summarized.get("draft_markdown_path") or summarized.get("draft_latex_path"))
+        and (
+            summarized.get("draft_markdown_path") or summarized.get("draft_latex_path")
+        )
     )
     return summarized
 
@@ -1886,13 +2114,34 @@ def _count_by(rows: list[dict[str, Any]], field: str) -> dict[str, int]:
 
 
 def _build_paper_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
-    raw_rows = payload.get("latest_rows") if isinstance(payload.get("latest_rows"), list) else payload.get("rows")
-    rows = [_paper_row_summary(row) for row in raw_rows[:120]] if isinstance(raw_rows, list) else []
-    rows.sort(key=lambda row: row.get("updated_at") or row.get("generated_at") or "", reverse=True)
-    status_counts = payload.get("status_counts") if isinstance(payload.get("status_counts"), dict) else _count_by(rows, "paper_status")
-    type_counts = payload.get("type_counts") if isinstance(payload.get("type_counts"), dict) else _count_by(rows, "paper_type")
+    raw_rows = (
+        payload.get("latest_rows")
+        if isinstance(payload.get("latest_rows"), list)
+        else payload.get("rows")
+    )
+    rows = (
+        [_paper_row_summary(row) for row in raw_rows[:120]]
+        if isinstance(raw_rows, list)
+        else []
+    )
+    rows.sort(
+        key=lambda row: row.get("updated_at") or row.get("generated_at") or "",
+        reverse=True,
+    )
+    status_counts = (
+        payload.get("status_counts")
+        if isinstance(payload.get("status_counts"), dict)
+        else _count_by(rows, "paper_status")
+    )
+    type_counts = (
+        payload.get("type_counts")
+        if isinstance(payload.get("type_counts"), dict)
+        else _count_by(rows, "paper_type")
+    )
     reviewable_count = sum(1 for row in rows if row.get("reviewable"))
-    publication_count = sum(1 for row in rows if row.get("paper_status") == "publication_draft")
+    publication_count = sum(
+        1 for row in rows if row.get("paper_status") == "publication_draft"
+    )
     return {
         "updated_at": utc_now(),
         "source": str(payload.get("source") or "unknown"),
@@ -1913,7 +2162,9 @@ def dashboard_paper_snapshot(
     _require_local_bearer(authorization)
     snapshot = _build_paper_snapshot(payload)
     path = _paper_snapshot_path()
-    _write_text(path, json.dumps(snapshot, indent=2, sort_keys=True) + "\n", overwrite=True)
+    _write_text(
+        path, json.dumps(snapshot, indent=2, sort_keys=True) + "\n", overwrite=True
+    )
     return {"ok": True, "paper_snapshot": snapshot}
 
 
@@ -1927,27 +2178,42 @@ def dashboard_api_paper_artifact(
 ) -> dict[str, Any]:
     _require_dashboard_bearer(authorization, token)
     project_dir = _resolve_project_dir(project_id, None)
-    if not _checked_exists(project_dir, label="project directory", status_code=403) or not _checked_is_dir(project_dir, label="project directory", status_code=403):
-        raise HTTPException(status_code=404, detail=f"project directory not found: {project_id}")
+    if not _checked_exists(
+        project_dir, label="project directory", status_code=403
+    ) or not _checked_is_dir(project_dir, label="project directory", status_code=403):
+        raise HTTPException(
+            status_code=404, detail=f"project directory not found: {project_id}"
+        )
     artifact_path = _resolve_project_relative_path(project_dir, path)
     try:
         artifact_exists = artifact_path.exists() and artifact_path.is_file()
     except OSError as exc:
-        raise HTTPException(status_code=403, detail=f"paper artifact is not readable: {path}") from exc
+        raise HTTPException(
+            status_code=403, detail=f"paper artifact is not readable: {path}"
+        ) from exc
     if not artifact_exists:
         raise HTTPException(status_code=404, detail=f"paper artifact not found: {path}")
     try:
         size = artifact_path.stat().st_size
     except OSError as exc:
-        raise HTTPException(status_code=403, detail=f"paper artifact is not readable: {path}") from exc
+        raise HTTPException(
+            status_code=403, detail=f"paper artifact is not readable: {path}"
+        ) from exc
     if size > max_bytes:
-        raise HTTPException(status_code=413, detail=f"paper artifact too large for dashboard preview: {path}")
+        raise HTTPException(
+            status_code=413,
+            detail=f"paper artifact too large for dashboard preview: {path}",
+        )
     try:
         content = artifact_path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise HTTPException(status_code=403, detail=f"paper artifact is not readable: {path}") from exc
+        raise HTTPException(
+            status_code=403, detail=f"paper artifact is not readable: {path}"
+        ) from exc
     except UnicodeDecodeError as exc:
-        raise HTTPException(status_code=415, detail=f"paper artifact is not UTF-8 text: {path}") from exc
+        raise HTTPException(
+            status_code=415, detail=f"paper artifact is not UTF-8 text: {path}"
+        ) from exc
     return {
         "ok": True,
         "project_id": project_id,
@@ -1966,7 +2232,9 @@ def dashboard_paper_artifact(
     authorization: str | None = Header(default=None),
     token: str | None = Query(default=None),
 ) -> HTMLResponse:
-    data = dashboard_api_paper_artifact(project_id, path, authorization=authorization, token=token, max_bytes=2_000_000)
+    data = dashboard_api_paper_artifact(
+        project_id, path, authorization=authorization, token=token, max_bytes=2_000_000
+    )
     title = html.escape(f"{project_id} · {data['path']}")
     content = html.escape(data["content"])
     return HTMLResponse(
@@ -1974,7 +2242,7 @@ def dashboard_paper_artifact(
 <!doctype html>
 <html lang=\"en\"><head><meta charset=\"utf-8\"><title>{title}</title>
 <style>body{{margin:0;background:#05070b;color:#eef6ff;font-family:ui-sans-serif,system-ui}}header{{position:sticky;top:0;background:#0b1320;border-bottom:1px solid rgba(148,163,184,.3);padding:14px 18px}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;padding:18px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.45}}.small{{color:#9fb0c3;font-size:.9rem}}</style>
-</head><body><header><strong>{title}</strong><div class=\"small\">{data['bytes']} bytes · {html.escape(data['timestamp'])}</div></header><pre>{content}</pre></body></html>
+</head><body><header><strong>{title}</strong><div class=\"small\">{data["bytes"]} bytes · {html.escape(data["timestamp"])}</div></header><pre>{content}</pre></body></html>
 """
     )
 
@@ -2000,7 +2268,14 @@ def dashboard_api(
         )
         for record in records
     }
-    records.sort(key=lambda record: (record.updated_at or "", record.last_event_at or "", record.created_at or ""), reverse=True)
+    records.sort(
+        key=lambda record: (
+            record.updated_at or "",
+            record.last_event_at or "",
+            record.created_at or "",
+        ),
+        reverse=True,
+    )
     records.sort(
         key=lambda record: (
             0
@@ -2020,15 +2295,23 @@ def dashboard_api(
         )
         for record in visible_records
     ]
-    lifecycle_counts = Counter(item["lifecycle_state"] for item in truth_by_run.values())
+    lifecycle_counts = Counter(
+        item["lifecycle_state"] for item in truth_by_run.values()
+    )
     live_count = sum(1 for item in truth_by_run.values() if item["is_live"])
-    attention_count = sum(1 for item in truth_by_run.values() if item["needs_attention"])
+    attention_count = sum(
+        1 for item in truth_by_run.values() if item["needs_attention"]
+    )
     callback_pending_count = lifecycle_counts.get("callback_pending", 0)
     stale_callback_count = lifecycle_counts.get("stale_callback_ready", 0)
-    callback_delivered_count = lifecycle_counts.get("callback_delivered", 0) + lifecycle_counts.get("finished_delivered", 0)
+    callback_delivered_count = lifecycle_counts.get(
+        "callback_delivered", 0
+    ) + lifecycle_counts.get("finished_delivered", 0)
     telemetry_sample = telemetry.sample()
 
-    callback_token_fingerprint = hashlib.sha256(config.completion_callback_token.encode("utf-8")).hexdigest()
+    callback_token_fingerprint = hashlib.sha256(
+        config.completion_callback_token.encode("utf-8")
+    ).hexdigest()
 
     return {
         "timestamp": utc_now(),
@@ -2117,14 +2400,17 @@ async def project_status(
     if record is not None:
         active_processes = gate.process_tracker.describe_processes(record)
 
-    project_available = _checked_exists(resolved_project_dir, label="project directory", status_code=403)
+    project_available = _checked_exists(
+        resolved_project_dir, label="project directory", status_code=403
+    )
     response = ProjectStatusResponse(
         project_id=project_id,
         project_dir=resolved_project_dir.as_posix(),
         available=project_available,
         run_id=record.run_id if record is not None else run_id,
         session_id=record.session_id if record is not None else None,
-        project_name=(record.project_name if record is not None else None) or project_id,
+        project_name=(record.project_name if record is not None else None)
+        or project_id,
         gate_state=gate_state,
         current_activity=_activity_from_processes(active_processes, gate_state),
         run_notes_tail=run_notes_tail,
@@ -2178,7 +2464,11 @@ async def prepare_project(
         "prepared_at": utc_now(),
         "metadata": metadata,
     }
-    _write_text(metadata_path, json.dumps(metadata_payload, indent=2, sort_keys=True), overwrite=True)
+    _write_text(
+        metadata_path,
+        json.dumps(metadata_payload, indent=2, sort_keys=True),
+        overwrite=True,
+    )
 
     return {
         "accepted": True,
@@ -2200,13 +2490,21 @@ async def read_project_paper(
 ) -> dict[str, Any]:
     _require_local_bearer(authorization)
     if len(request.paths) > 20:
-        raise HTTPException(status_code=400, detail="too many paper artifact paths; max 20")
+        raise HTTPException(
+            status_code=400, detail="too many paper artifact paths; max 20"
+        )
     if request.max_bytes_per_file < 1 or request.max_bytes_per_file > 2_000_000:
-        raise HTTPException(status_code=400, detail="max_bytes_per_file must be between 1 and 2000000")
+        raise HTTPException(
+            status_code=400, detail="max_bytes_per_file must be between 1 and 2000000"
+        )
 
     project_dir = _resolve_project_dir(project_id, None)
-    if not _checked_exists(project_dir, label="project directory", status_code=403) or not _checked_is_dir(project_dir, label="project directory", status_code=403):
-        raise HTTPException(status_code=404, detail=f"project directory not found: {project_id}")
+    if not _checked_exists(
+        project_dir, label="project directory", status_code=403
+    ) or not _checked_is_dir(project_dir, label="project directory", status_code=403):
+        raise HTTPException(
+            status_code=404, detail=f"project directory not found: {project_id}"
+        )
 
     files: list[dict[str, Any]] = []
     for relative in request.paths:
@@ -2214,24 +2512,48 @@ async def read_project_paper(
         try:
             artifact_exists = path.exists() and path.is_file()
         except OSError as exc:
-            raise HTTPException(status_code=403, detail=f"paper artifact is not readable: {relative}") from exc
+            raise HTTPException(
+                status_code=403, detail=f"paper artifact is not readable: {relative}"
+            ) from exc
         if not artifact_exists:
-            raise HTTPException(status_code=404, detail=f"paper artifact not found: {relative}")
+            raise HTTPException(
+                status_code=404, detail=f"paper artifact not found: {relative}"
+            )
         try:
             size = path.stat().st_size
         except OSError as exc:
-            raise HTTPException(status_code=403, detail=f"paper artifact is not readable: {relative}") from exc
+            raise HTTPException(
+                status_code=403, detail=f"paper artifact is not readable: {relative}"
+            ) from exc
         if size > request.max_bytes_per_file:
-            raise HTTPException(status_code=413, detail=f"paper artifact too large to read: {relative}")
+            raise HTTPException(
+                status_code=413, detail=f"paper artifact too large to read: {relative}"
+            )
         try:
             content = path.read_text(encoding="utf-8")
         except OSError as exc:
-            raise HTTPException(status_code=403, detail=f"paper artifact is not readable: {relative}") from exc
+            raise HTTPException(
+                status_code=403, detail=f"paper artifact is not readable: {relative}"
+            ) from exc
         except UnicodeDecodeError as exc:
-            raise HTTPException(status_code=415, detail=f"paper artifact is not UTF-8 text: {relative}") from exc
-        files.append({"path": path.relative_to(project_dir).as_posix(), "bytes": size, "content": content})
+            raise HTTPException(
+                status_code=415, detail=f"paper artifact is not UTF-8 text: {relative}"
+            ) from exc
+        files.append(
+            {
+                "path": path.relative_to(project_dir).as_posix(),
+                "bytes": size,
+                "content": content,
+            }
+        )
 
-    return {"ok": True, "project_id": project_id, "project_dir": project_dir.as_posix(), "files": files, "timestamp": utc_now()}
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "project_dir": project_dir.as_posix(),
+        "files": files,
+        "timestamp": utc_now(),
+    }
 
 
 @app.post("/project-paper/{project_id}")
@@ -2242,16 +2564,24 @@ async def write_project_paper(
 ) -> dict[str, Any]:
     _require_local_bearer(authorization)
     if len(request.files) > 20:
-        raise HTTPException(status_code=400, detail="too many paper artifact files; max 20")
+        raise HTTPException(
+            status_code=400, detail="too many paper artifact files; max 20"
+        )
 
     project_dir = _resolve_project_dir(project_id, None)
-    if not _checked_exists(project_dir, label="project directory", status_code=403) or not _checked_is_dir(project_dir, label="project directory", status_code=403):
-        raise HTTPException(status_code=404, detail=f"project directory not found: {project_id}")
+    if not _checked_exists(
+        project_dir, label="project directory", status_code=403
+    ) or not _checked_is_dir(project_dir, label="project directory", status_code=403):
+        raise HTTPException(
+            status_code=404, detail=f"project directory not found: {project_id}"
+        )
 
     written: list[dict[str, Any]] = []
     for artifact in request.files:
         if len(artifact.content.encode("utf-8")) > 2_000_000:
-            raise HTTPException(status_code=413, detail=f"paper artifact too large: {artifact.path}")
+            raise HTTPException(
+                status_code=413, detail=f"paper artifact too large: {artifact.path}"
+            )
         path = _resolve_project_relative_path(project_dir, artifact.path)
         _write_text(path, artifact.content, request.overwrite)
         written.append(
@@ -2261,7 +2591,9 @@ async def write_project_paper(
             }
         )
 
-    manifest_path = _resolve_project_relative_path(project_dir, f"papers/{request.run_id}/paper_manifest.json")
+    manifest_path = _resolve_project_relative_path(
+        project_dir, f"papers/{request.run_id}/paper_manifest.json"
+    )
     manifest = {
         "project_id": project_id,
         "run_id": request.run_id,
@@ -2269,7 +2601,9 @@ async def write_project_paper(
         "written": written,
         "updated_at": utc_now(),
     }
-    _write_text(manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n", True)
+    _write_text(
+        manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n", True
+    )
     return {
         "ok": True,
         "project_id": project_id,
@@ -2290,11 +2624,15 @@ async def dispatch_run(
     _require_local_bearer(authorization)
     project_dir = _resolve_under_root(request.project_dir, config.expanded_project_root)
     prompt_file = _resolve_under_root(request.prompt_file, config.expanded_project_root)
-    workload_class, workload_profile = _resolve_workload_profile_for_project_dir(project_dir)
+    workload_class, workload_profile = _resolve_workload_profile_for_project_dir(
+        project_dir
+    )
 
     script_path = Path(config.dispatch_script_path).expanduser()
     if not script_path.exists():
-        raise HTTPException(status_code=500, detail=f"dispatch script not found: {script_path}")
+        raise HTTPException(
+            status_code=500, detail=f"dispatch script not found: {script_path}"
+        )
 
     cmd = [
         str(script_path),
@@ -2325,12 +2663,16 @@ async def dispatch_run(
 
     try:
         env = os.environ.copy()
-        env.update({
-            "ENOCH_COMPLETION_CALLBACK_URL": config.completion_callback_url,
-            "ENOCH_COMPLETION_CALLBACK_TOKEN": config.completion_callback_token,
-            "ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC": str(config.completion_callback_timeout_sec),
-            "ENOCH_WORKER_STATE_DIR": str(config.expanded_state_dir),
-        })
+        env.update(
+            {
+                "ENOCH_COMPLETION_CALLBACK_URL": config.completion_callback_url,
+                "ENOCH_COMPLETION_CALLBACK_TOKEN": config.completion_callback_token,
+                "ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC": str(
+                    config.completion_callback_timeout_sec
+                ),
+                "ENOCH_WORKER_STATE_DIR": str(config.expanded_state_dir),
+            }
+        )
         result = await asyncio.to_thread(
             subprocess.run,
             cmd,
@@ -2341,7 +2683,10 @@ async def dispatch_run(
             env=env,
         )
     except subprocess.TimeoutExpired as exc:
-        raise HTTPException(status_code=504, detail=f"dispatch timed out after {config.dispatch_timeout_sec}s") from exc
+        raise HTTPException(
+            status_code=504,
+            detail=f"dispatch timed out after {config.dispatch_timeout_sec}s",
+        ) from exc
 
     if result.returncode != 0:
         raise HTTPException(
@@ -2387,7 +2732,9 @@ async def dispatch_run(
     record.quiet_samples = []
     record.updated_at = utc_now()
     baseline_sample = telemetry.sample()
-    if record.baseline_vram_mib is None or (baseline_sample.memory_source == "uma_meminfo" and record.baseline_vram_mib == 0):
+    if record.baseline_vram_mib is None or (
+        baseline_sample.memory_source == "uma_meminfo" and record.baseline_vram_mib == 0
+    ):
         record.baseline_vram_mib = baseline_sample.vram_used_mib
     store.save_run(record)
 
@@ -2432,7 +2779,9 @@ async def _replay_callback_outbox_once() -> None:
 
 
 async def _reap_and_log_stale_project_processes(record: RunRecord) -> None:
-    reaped_processes = await asyncio.to_thread(gate.reap_stale_project_processes, record)
+    reaped_processes = await asyncio.to_thread(
+        gate.reap_stale_project_processes, record
+    )
     if not reaped_processes:
         return
     store.append_event(
@@ -2490,13 +2839,17 @@ async def _evaluate_until_ready(run_id: str) -> None:
                     session_id=record.session_id,
                     project_id=record.project_id,
                     project_name=record.project_name,
-                    source_event=(record.last_event.value if record.last_event else "unknown"),
+                    source_event=(
+                        record.last_event.value if record.last_event else "unknown"
+                    ),
                     gate_state=record.gate_state.value,
                     idle_seen_at=record.idle_seen_at,
                     process_tracking=gate.process_tracker.snapshot(record, []),
                     telemetry={
                         "workload_class": profile_evidence["workload_class"],
-                        "workload_profile_name": profile_evidence["workload_profile_name"],
+                        "workload_profile_name": profile_evidence[
+                            "workload_profile_name"
+                        ],
                         "thresholds": profile_evidence["workload_thresholds"],
                     },
                     reason="idle_gate_timeout",
@@ -2589,20 +2942,5 @@ async def _reconcile_missing_idle_loop() -> None:
         raise
 
 
-@app.on_event("startup")
-async def _startup_tasks() -> None:
-    global reconcile_task
-    if reconcile_task is None or reconcile_task.done():
-        reconcile_task = asyncio.create_task(_reconcile_missing_idle_loop())
-
-
-@app.on_event("shutdown")
-async def _shutdown_tasks() -> None:
-    global reconcile_task
-    if reconcile_task is not None:
-        reconcile_task.cancel()
-        try:
-            await reconcile_task
-        except asyncio.CancelledError:
-            pass
-        reconcile_task = None
+# NOTE: startup/shutdown logic moved to the lifespan context manager above
+# (modern FastAPI pattern, removes on_event deprecation warnings).

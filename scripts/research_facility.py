@@ -35,7 +35,17 @@ GENERATION_MODES = {
     "manual_import",
 }
 
-CANDIDATE_STATUSES = {"generated", "rejected", "admitted", "merged", "needs_review", "rewrite_needed", "deferred", "deferred_pending_oracle", "superseded"}
+CANDIDATE_STATUSES = {
+    "generated",
+    "rejected",
+    "admitted",
+    "merged",
+    "needs_review",
+    "rewrite_needed",
+    "deferred",
+    "deferred_pending_oracle",
+    "superseded",
+}
 REQUIRED_TEXT_FIELDS = (
     "title",
     "hypothesis",
@@ -45,15 +55,29 @@ REQUIRED_TEXT_FIELDS = (
     "kill_condition",
     "accessibility_delta",
 )
-REQUIRED_ARRAY_FIELDS = ("expected_artifacts", "required_evidence", "likely_failure_modes")
+REQUIRED_ARRAY_FIELDS = (
+    "expected_artifacts",
+    "required_evidence",
+    "likely_failure_modes",
+)
 SHALLOW_INCREMENT_PATTERNS = (
     r"\+\s*0\.0?5\s*%",
     r"tiny\s+parameter\s+tweak",
     r"just\s+try\s+different\s+(?:batch|learning rate|temperature|rank)",
     r"minor\s+hyperparameter",
 )
-DEFAULT_ARTIFACTS = ["run_notes.md", "metrics.json", "failure_cases.json", ".enoch/project_decision.json"]
-DEFAULT_EVIDENCE = ["baseline comparison", "metrics table", "failure cases", "decision artifact"]
+DEFAULT_ARTIFACTS = [
+    "run_notes.md",
+    "metrics.json",
+    "failure_cases.json",
+    ".enoch/project_decision.json",
+]
+DEFAULT_EVIDENCE = [
+    "baseline comparison",
+    "metrics table",
+    "failure cases",
+    "decision artifact",
+]
 RUNTIME_CLASSES = {"", "small", "medium", "large", "overnight"}
 TOKEN_BUDGETS = {"", "small", "medium", "large"}
 
@@ -128,7 +152,9 @@ def _bounded_score(value: Any) -> float:
         else:
             from_fraction = True
             if denominator > 0:
-                score = numerator if denominator == 10 else (numerator / denominator) * 10.0
+                score = (
+                    numerator if denominator == 10 else (numerator / denominator) * 10.0
+                )
             else:
                 score = 0.0
     else:
@@ -211,7 +237,11 @@ def dispatch_priority_breakdown(
     targeted_source_bonus = 0.0
     if source_kind == "arxiv" or any("arxiv.org/abs/" in url for url in source_urls):
         targeted_source_bonus += 4.0
-    if any(host in url for url in source_urls for host in ("github.com/", "dspy.ai/", "docs.vllm.ai/")):
+    if any(
+        host in url
+        for url in source_urls
+        for host in ("github.com/", "dspy.ai/", "docs.vllm.ai/")
+    ):
         targeted_source_bonus += 1.5
 
     created = _parse_datetime(row.get("created_at") or row.get("updated_at"))
@@ -288,7 +318,11 @@ def dispatch_priority_score(
     category_counts: dict[str, int] | None = None,
     now: datetime | None = None,
 ) -> float:
-    return float(dispatch_priority_breakdown(row, category_counts=category_counts, now=now)["dispatch_priority_score"])
+    return float(
+        dispatch_priority_breakdown(row, category_counts=category_counts, now=now)[
+            "dispatch_priority_score"
+        ]
+    )
 
 
 def slugify(value: str) -> str:
@@ -339,8 +373,24 @@ def _json_obj(row: dict[str, Any], key: str, default: Any) -> Any:
 
 
 def token_set(value: str) -> set[str]:
-    stop = {"the", "and", "with", "for", "from", "into", "using", "that", "this", "local", "probe"}
-    return {token for token in re.findall(r"[a-z0-9]+", value.lower()) if token not in stop and len(token) > 2}
+    stop = {
+        "the",
+        "and",
+        "with",
+        "for",
+        "from",
+        "into",
+        "using",
+        "that",
+        "this",
+        "local",
+        "probe",
+    }
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", value.lower())
+        if token not in stop and len(token) > 2
+    }
 
 
 def jaccard(left: set[str], right: set[str]) -> float:
@@ -358,7 +408,9 @@ def load_history(path: Path | None) -> list[dict[str, Any]]:
     return [row for row in data if isinstance(row, dict)]
 
 
-def fetch_history_from_database(database_url: str, *, limit: int = 1000) -> list[dict[str, Any]]:
+def fetch_history_from_database(
+    database_url: str, *, limit: int = 1000
+) -> list[dict[str, Any]]:
     if not database_url:
         return []
     import psycopg
@@ -392,22 +444,63 @@ def fetch_history_from_database(database_url: str, *, limit: int = 1000) -> list
             return [dict(row) for row in cur.fetchall()]
 
 
-def compare_history(row: dict[str, Any], history: Sequence[dict[str, Any]], *, similarity_threshold: float = 0.52) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def compare_history(
+    row: dict[str, Any],
+    history: Sequence[dict[str, Any]],
+    *,
+    similarity_threshold: float = 0.52,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     exact: list[dict[str, Any]] = []
     similar: list[dict[str, Any]] = []
-    candidate_tokens = token_set(" ".join([row.get("title", ""), row.get("mechanism", ""), row.get("baseline_to_beat", "")]))
+    candidate_tokens = token_set(
+        " ".join(
+            [
+                row.get("title", ""),
+                row.get("mechanism", ""),
+                row.get("baseline_to_beat", ""),
+            ]
+        )
+    )
     for prior in history:
-        prior_id = _as_text(prior.get("project_id") or prior.get("idea_id") or prior.get("candidate_id"))
+        prior_id = _as_text(
+            prior.get("project_id") or prior.get("idea_id") or prior.get("candidate_id")
+        )
         if not prior_id or prior_id == row.get("candidate_id"):
             continue
         prior_dedupe = _as_text(prior.get("dedupe_key"))
         prior_title = _as_text(prior.get("title") or prior.get("project_name"))
-        prior_tokens = token_set(" ".join([prior_title, _as_text(prior.get("mechanism")), _as_text(prior.get("baseline_to_beat"))]))
-        similarity = 1.0 if prior_dedupe and prior_dedupe == row.get("dedupe_key") else jaccard(candidate_tokens, prior_tokens)
+        prior_tokens = token_set(
+            " ".join(
+                [
+                    prior_title,
+                    _as_text(prior.get("mechanism")),
+                    _as_text(prior.get("baseline_to_beat")),
+                ]
+            )
+        )
+        similarity = (
+            1.0
+            if prior_dedupe and prior_dedupe == row.get("dedupe_key")
+            else jaccard(candidate_tokens, prior_tokens)
+        )
         if similarity >= 0.98 or slugify(prior_title) == slugify(row.get("title", "")):
-            exact.append({"project_id": prior_id, "title": prior_title, "decision_gate_state": _as_text(prior.get("decision_gate_state")), "similarity": round(similarity, 3)})
+            exact.append(
+                {
+                    "project_id": prior_id,
+                    "title": prior_title,
+                    "decision_gate_state": _as_text(prior.get("decision_gate_state")),
+                    "similarity": round(similarity, 3),
+                }
+            )
         elif similarity >= similarity_threshold:
-            similar.append({"project_id": prior_id, "title": prior_title, "decision_gate_state": _as_text(prior.get("decision_gate_state")), "similarity": round(similarity, 3)})
+            similar.append(
+                {
+                    "project_id": prior_id,
+                    "title": prior_title,
+                    "decision_gate_state": _as_text(prior.get("decision_gate_state")),
+                    "similarity": round(similarity, 3),
+                }
+            )
     similar.sort(key=lambda item: item["similarity"], reverse=True)
     return exact, similar[:5]
 
@@ -434,24 +527,54 @@ class CandidatePlan:
         }
 
 
-def normalize_candidate(raw: dict[str, Any], *, default_machine: str, default_model: str, default_sandbox: str) -> dict[str, Any]:
+def normalize_candidate(
+    raw: dict[str, Any],
+    *,
+    default_machine: str,
+    default_model: str,
+    default_sandbox: str,
+) -> dict[str, Any]:
     row = dict(raw)
     row["candidate_id"] = stable_candidate_id(row)
-    row["generation_mode"] = _as_text(row.get("generation_mode") or row.get("idea_type") or "manual_import")
+    row["generation_mode"] = _as_text(
+        row.get("generation_mode") or row.get("idea_type") or "manual_import"
+    )
     row["status"] = _as_text(row.get("status") or "generated")
     row["title"] = _as_text(row.get("title"))
     row["category"] = _as_text(row.get("category"))
     row["priority"] = _as_text(row.get("priority"))
     row["source_kind"] = _as_text(row.get("source_kind"))
     row["source_ids"] = _as_list(row.get("source_ids"))
-    row["source_urls"] = _as_list(row.get("source_urls") or ([row.get("source_external_url")] if row.get("source_external_url") else []))
+    row["source_urls"] = _as_list(
+        row.get("source_urls")
+        or ([row.get("source_external_url")] if row.get("source_external_url") else [])
+    )
     row["source_records"] = _as_list(row.get("source_records"))
     row["parent_project_id"] = _as_text(row.get("parent_project_id"))
     row["parent_run_id"] = _as_text(row.get("parent_run_id"))
-    for key in ("hypothesis", "mechanism", "description", "implementation", "baseline_to_beat", "success_threshold", "kill_condition", "accessibility_delta", "novelty_comparison", "risk_notes"):
+    for key in (
+        "hypothesis",
+        "mechanism",
+        "description",
+        "implementation",
+        "baseline_to_beat",
+        "success_threshold",
+        "kill_condition",
+        "accessibility_delta",
+        "novelty_comparison",
+        "risk_notes",
+    ):
         row[key] = _as_text(row.get(key))
-    row["expected_artifacts"] = _as_list(row.get("expected_artifacts")) if "expected_artifacts" in row else DEFAULT_ARTIFACTS
-    row["required_evidence"] = _as_list(row.get("required_evidence")) if "required_evidence" in row else DEFAULT_EVIDENCE
+    row["expected_artifacts"] = (
+        _as_list(row.get("expected_artifacts"))
+        if "expected_artifacts" in row
+        else DEFAULT_ARTIFACTS
+    )
+    row["required_evidence"] = (
+        _as_list(row.get("required_evidence"))
+        if "required_evidence" in row
+        else DEFAULT_EVIDENCE
+    )
     row["likely_failure_modes"] = _as_list(row.get("likely_failure_modes"))
     row["estimated_runtime_class"] = _runtime_class(row.get("estimated_runtime_class"))
     row["expected_token_budget"] = _token_budget(row.get("expected_token_budget"))
@@ -460,11 +583,19 @@ def normalize_candidate(raw: dict[str, Any], *, default_machine: str, default_mo
     # Provider model IDs describe the candidate generator. They are not valid
     # Codex execution models, and dispatching them would fail the worker run
     # before any experiment starts.
-    row["model"] = default_model if (not candidate_model or candidate_model.startswith("hf:")) else candidate_model
+    row["model"] = (
+        default_model
+        if (not candidate_model or candidate_model.startswith("hf:"))
+        else candidate_model
+    )
     row["sandbox"] = _as_text(row.get("sandbox") or default_sandbox)
     row["novelty_score"] = _bounded_score(row.get("novelty_score"))
-    row["feasibility_score"] = _bounded_score(row.get("feasibility_score") or row.get("feasibility"))
-    row["accessibility_score"] = _bounded_score(row.get("accessibility_score") or row.get("accessibility_delta_score"))
+    row["feasibility_score"] = _bounded_score(
+        row.get("feasibility_score") or row.get("feasibility")
+    )
+    row["accessibility_score"] = _bounded_score(
+        row.get("accessibility_score") or row.get("accessibility_delta_score")
+    )
     row["falsifiability_score"] = _bounded_score(row.get("falsifiability_score"))
     row["dedupe_key"] = stable_dedupe_key(row)
     row["similar_prior_projects"] = _as_list(row.get("similar_prior_projects"))
@@ -476,7 +607,12 @@ def normalize_candidate(raw: dict[str, Any], *, default_machine: str, default_mo
     return row
 
 
-def evaluate_candidate(row: dict[str, Any], *, admit_threshold: float = 72.0, review_threshold: float = 58.0) -> CandidatePlan:
+def evaluate_candidate(
+    row: dict[str, Any],
+    *,
+    admit_threshold: float = 72.0,
+    review_threshold: float = 58.0,
+) -> CandidatePlan:
     plan = CandidatePlan(candidate=row)
     mode = row["generation_mode"]
     if mode not in GENERATION_MODES:
@@ -491,11 +627,25 @@ def evaluate_candidate(row: dict[str, Any], *, admit_threshold: float = 72.0, re
             plan.hard_failures.append(f"missing {key}")
     if mode == "fresh_grounded" and not row["source_ids"] and not row["source_urls"]:
         plan.hard_failures.append("fresh_grounded requires source_ids or source_urls")
-    if mode == "followup_from_negative" and not row["parent_project_id"] and not row["parent_run_id"]:
-        plan.hard_failures.append("followup_from_negative requires parent_project_id or parent_run_id")
+    if (
+        mode == "followup_from_negative"
+        and not row["parent_project_id"]
+        and not row["parent_run_id"]
+    ):
+        plan.hard_failures.append(
+            "followup_from_negative requires parent_project_id or parent_run_id"
+        )
     if row["similar_prior_projects"] and not row["novelty_comparison"]:
         plan.hard_failures.append("similar_prior_projects requires novelty_comparison")
-    text = "\n".join([row["title"], row["hypothesis"], row["mechanism"], row["implementation"], row["risk_notes"]]).lower()
+    text = "\n".join(
+        [
+            row["title"],
+            row["hypothesis"],
+            row["mechanism"],
+            row["implementation"],
+            row["risk_notes"],
+        ]
+    ).lower()
     if any(re.search(pattern, text) for pattern in SHALLOW_INCREMENT_PATTERNS):
         plan.hard_failures.append("candidate looks like shallow incremental sludge")
 
@@ -517,7 +667,14 @@ def evaluate_candidate(row: dict[str, Any], *, admit_threshold: float = 72.0, re
         "manual_import": 0.0,
     }.get(mode, 0.0)
     missing_field_penalty = 6.0 * len(plan.hard_failures)
-    total = (novelty * 2.6) + (feasibility * 1.7) + (accessibility * 2.5) + (falsifiability * 2.2) + mode_bonus - missing_field_penalty
+    total = (
+        (novelty * 2.6)
+        + (feasibility * 1.7)
+        + (accessibility * 2.5)
+        + (falsifiability * 2.2)
+        + mode_bonus
+        - missing_field_penalty
+    )
     total = max(0.0, min(100.0, round(total, 2)))
     row["accessibility_score"] = accessibility
     row["falsifiability_score"] = falsifiability
@@ -546,8 +703,16 @@ def evaluate_candidate(row: dict[str, Any], *, admit_threshold: float = 72.0, re
         plan.admission_reason = f"score {total} below admit threshold {admit_threshold} but above review threshold {review_threshold}"
     else:
         plan.admission_decision = "rejected"
-        plan.admission_reason = f"score {total} below review threshold {review_threshold}"
-    row["status"] = "admitted" if plan.admission_decision == "admitted" else ("needs_review" if plan.admission_decision == "needs_review" else "rejected")
+        plan.admission_reason = (
+            f"score {total} below review threshold {review_threshold}"
+        )
+    row["status"] = (
+        "admitted"
+        if plan.admission_decision == "admitted"
+        else (
+            "needs_review" if plan.admission_decision == "needs_review" else "rejected"
+        )
+    )
     return plan
 
 
@@ -579,7 +744,10 @@ def sql_literal(value: str) -> str:
 
 
 def sql_json(value: Any) -> str:
-    return sql_literal(json.dumps(value, sort_keys=True, separators=(",", ":"))) + "::jsonb"
+    return (
+        sql_literal(json.dumps(value, sort_keys=True, separators=(",", ":")))
+        + "::jsonb"
+    )
 
 
 def sql_raise_if_exists(query: str, message: str) -> str:
@@ -597,7 +765,9 @@ def sql_raise_if_exists(query: str, message: str) -> str:
     )
 
 
-def emit_sql(plans: list[CandidatePlan], *, requested_by: str, queue_admitted: bool) -> str:
+def emit_sql(
+    plans: list[CandidatePlan], *, requested_by: str, queue_admitted: bool
+) -> str:
     lines = [
         "-- Generated by scripts/research_facility.py",
         "-- Inserts Research Facility ledger rows. Candidate admission is idempotent by idempotency_key.",
@@ -609,8 +779,12 @@ def emit_sql(plans: list[CandidatePlan], *, requested_by: str, queue_admitted: b
         for source in c.get("source_records", []):
             if not isinstance(source, dict):
                 continue
-            source_id = _as_text(source.get("source_id")) or "source-" + stable_hash(_as_text(source.get("url") or source.get("title")), 24)
-            source_kind = _as_text(source.get("source_kind") or c.get("source_kind") or "other")
+            source_id = _as_text(source.get("source_id")) or "source-" + stable_hash(
+                _as_text(source.get("url") or source.get("title")), 24
+            )
+            source_kind = _as_text(
+                source.get("source_kind") or c.get("source_kind") or "other"
+            )
             lines.append(
                 sql_raise_if_exists(
                     "\n".join(
@@ -696,7 +870,9 @@ def emit_sql(plans: list[CandidatePlan], *, requested_by: str, queue_admitted: b
             "total_score = excluded.total_score, score_breakdown = excluded.score_breakdown, updated_at = now() "
             "where enoch.research_candidates.status not in ('admitted', 'rejected', 'merged');"
         )
-        idempotency_key = f"research-admission:{c['candidate_id']}:{plan.admission_decision}"
+        idempotency_key = (
+            f"research-admission:{c['candidate_id']}:{plan.admission_decision}"
+        )
         for source_id in c["source_ids"]:
             lines.append(
                 "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
@@ -779,7 +955,11 @@ def emit_sql(plans: list[CandidatePlan], *, requested_by: str, queue_admitted: b
                 f"('candidate', {sql_literal(c['candidate_id'])}, 'idea', {sql_literal(idea_id)}, 'admitted_as', {sql_json({'admission_reason': plan.admission_reason})}), "
                 f"('idea', {sql_literal(idea_id)}, 'project', {sql_literal(idea_id)}, 'queued_as', {sql_json({'queued_by': requested_by})});"
             )
-        admitted_idea_sql = sql_literal(plan.admitted_idea_id) if (queue_admitted and plan.admitted_idea_id) else "null"
+        admitted_idea_sql = (
+            sql_literal(plan.admitted_idea_id)
+            if (queue_admitted and plan.admitted_idea_id)
+            else "null"
+        )
         lines.append(
             sql_raise_if_exists(
                 "\n".join(
@@ -810,7 +990,9 @@ def emit_sql(plans: list[CandidatePlan], *, requested_by: str, queue_admitted: b
     return "\n".join(lines) + "\n"
 
 
-def plan_candidates(candidates: list[dict[str, Any]], args: argparse.Namespace) -> list[CandidatePlan]:
+def plan_candidates(
+    candidates: list[dict[str, Any]], args: argparse.Namespace
+) -> list[CandidatePlan]:
     seen: dict[str, str] = {}
     plans: list[CandidatePlan] = []
     history = list(getattr(args, "history", []) or [])
@@ -821,10 +1003,16 @@ def plan_candidates(candidates: list[dict[str, Any]], args: argparse.Namespace) 
             default_model=args.default_model,
             default_sandbox=args.default_sandbox,
         )
-        exact_history, similar_history = compare_history(row, history) if history else ([], [])
+        exact_history, similar_history = (
+            compare_history(row, history) if history else ([], [])
+        )
         if similar_history and not row["similar_prior_projects"]:
             row["similar_prior_projects"] = similar_history
-        plan = evaluate_candidate(row, admit_threshold=args.admit_threshold, review_threshold=args.review_threshold)
+        plan = evaluate_candidate(
+            row,
+            admit_threshold=args.admit_threshold,
+            review_threshold=args.review_threshold,
+        )
         previous = seen.get(row["dedupe_key"])
         if previous:
             plan.admission_decision = "rejected"
@@ -834,7 +1022,9 @@ def plan_candidates(candidates: list[dict[str, Any]], args: argparse.Namespace) 
             row["status"] = "rejected"
         elif exact_history:
             plan.admission_decision = "merged"
-            plan.admission_reason = f"merged with historical duplicate {exact_history[0]['project_id']}"
+            plan.admission_reason = (
+                f"merged with historical duplicate {exact_history[0]['project_id']}"
+            )
             plan.admitted_idea_id = ""
             row["status"] = "merged"
             row["similar_prior_projects"] = exact_history
@@ -846,23 +1036,43 @@ def plan_candidates(candidates: list[dict[str, Any]], args: argparse.Namespace) 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("input", type=Path, help="JSON/markdown file containing candidate objects")
-    parser.add_argument("--output", type=Path, help="write JSON admission plan here; default stdout")
-    parser.add_argument("--emit-sql", type=Path, help="write idempotent SQL ledger plan here")
-    parser.add_argument("--queue-admitted", action="store_true", help="when emitting SQL, also upsert admitted ideas/projects/queue_items")
+    parser.add_argument(
+        "input", type=Path, help="JSON/markdown file containing candidate objects"
+    )
+    parser.add_argument(
+        "--output", type=Path, help="write JSON admission plan here; default stdout"
+    )
+    parser.add_argument(
+        "--emit-sql", type=Path, help="write idempotent SQL ledger plan here"
+    )
+    parser.add_argument(
+        "--queue-admitted",
+        action="store_true",
+        help="when emitting SQL, also upsert admitted ideas/projects/queue_items",
+    )
     parser.add_argument("--admit-threshold", type=float, default=72.0)
     parser.add_argument("--review-threshold", type=float, default=58.0)
     parser.add_argument("--requested-by", default="research_facility")
     parser.add_argument("--default-machine", default="gb10")
     parser.add_argument("--default-model", default="gpt-5.5")
     parser.add_argument("--default-sandbox", default="danger-full-access")
-    parser.add_argument("--history-json", type=Path, help="optional prior idea/project/run history JSON for dedupe and novelty comparison")
-    parser.add_argument("--database-url", default="", help="optional Postgres URL to query prior Enoch ideas/projects/decisions for dedupe")
+    parser.add_argument(
+        "--history-json",
+        type=Path,
+        help="optional prior idea/project/run history JSON for dedupe and novelty comparison",
+    )
+    parser.add_argument(
+        "--database-url",
+        default="",
+        help="optional Postgres URL to query prior Enoch ideas/projects/decisions for dedupe",
+    )
     parser.add_argument("--history-limit", type=int, default=1000)
     args = parser.parse_args(argv)
     history = load_history(args.history_json)
     if args.database_url:
-        history.extend(fetch_history_from_database(args.database_url, limit=args.history_limit))
+        history.extend(
+            fetch_history_from_database(args.database_url, limit=args.history_limit)
+        )
     args.history = history
 
     candidates = load_candidates(args.input)
@@ -872,9 +1082,15 @@ def main(argv: list[str] | None = None) -> int:
         "input": str(args.input),
         "candidate_count": len(plans),
         "history_count": len(history),
-        "admitted_count": sum(1 for plan in plans if plan.admission_decision == "admitted"),
-        "needs_review_count": sum(1 for plan in plans if plan.admission_decision == "needs_review"),
-        "rejected_count": sum(1 for plan in plans if plan.admission_decision == "rejected"),
+        "admitted_count": sum(
+            1 for plan in plans if plan.admission_decision == "admitted"
+        ),
+        "needs_review_count": sum(
+            1 for plan in plans if plan.admission_decision == "needs_review"
+        ),
+        "rejected_count": sum(
+            1 for plan in plans if plan.admission_decision == "rejected"
+        ),
         "plans": [plan.to_json() for plan in plans],
     }
     text = json.dumps(payload, indent=2, sort_keys=True)
@@ -883,7 +1099,14 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(text)
     if args.emit_sql:
-        args.emit_sql.write_text(emit_sql(plans, requested_by=args.requested_by, queue_admitted=args.queue_admitted), encoding="utf-8")
+        args.emit_sql.write_text(
+            emit_sql(
+                plans,
+                requested_by=args.requested_by,
+                queue_admitted=args.queue_admitted,
+            ),
+            encoding="utf-8",
+        )
     return 0
 
 

@@ -12,6 +12,7 @@ See docs/dashboard-v2-asset-clca.md.
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import PurePosixPath
@@ -72,13 +73,71 @@ def affects_build_output(path: str) -> bool:
     return any(normalized.startswith(prefix) for prefix in BUILD_AFFECTING_PREFIXES)
 
 
+def _load_package_json_from_ref(ref: str) -> dict[str, object] | None:
+    result = subprocess.run(
+        ["git", "show", f"{ref}:dashboard/package.json"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _merge_base_ref(base_ref: str) -> str | None:
+    result = subprocess.run(
+        ["git", "merge-base", base_ref, "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.strip()
+
+
+def package_json_change_affects_build(base_ref: str) -> bool:
+    """Return True when package.json diff touches deps/version, not scripts-only."""
+    compare_ref = _merge_base_ref(base_ref) or base_ref
+    base_data = _load_package_json_from_ref(compare_ref)
+    head_data = _load_package_json_from_ref("HEAD")
+
+    if base_data is None or head_data is None:
+        return True
+
+    if base_data.get("version") != head_data.get("version"):
+        return True
+    for key in ("dependencies", "devDependencies"):
+        if (base_data.get(key) or {}) != (head_data.get(key) or {}):
+            return True
+    return False
+
+
 def affects_committed_assets(path: str) -> bool:
     return PurePosixPath(path.replace("\\", "/")).as_posix().startswith(ASSET_PREFIX)
 
 
-def evaluate_pairing(changed_files: list[str]) -> dict[str, object]:
-    source_changed = sorted({path for path in changed_files if affects_build_output(path)})
-    asset_changed = sorted({path for path in changed_files if affects_committed_assets(path)})
+def evaluate_pairing(
+    changed_files: list[str], base_ref: str | None = None
+) -> dict[str, object]:
+    source_changed: list[str] = []
+    for path in changed_files:
+        if not affects_build_output(path):
+            continue
+        if (
+            path == "dashboard/package.json"
+            and base_ref
+            and not package_json_change_affects_build(base_ref)
+        ):
+            continue
+        source_changed.append(path)
+    source_changed = sorted(set(source_changed))
+    asset_changed = sorted(
+        {path for path in changed_files if affects_committed_assets(path)}
+    )
     ok = not source_changed or bool(asset_changed)
     return {
         "ok": ok,
@@ -103,7 +162,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     changed = args.changed_file or _git_changed_files(args.base)
-    report = evaluate_pairing(changed)
+    report = evaluate_pairing(
+        changed, base_ref=None if args.changed_file else args.base
+    )
 
     if report["ok"]:
         if report["source_changed"]:
@@ -113,7 +174,9 @@ def main(argv: list[str] | None = None) -> int:
                 f"{len(report['asset_changed'])} asset file(s) changed)."
             )
         else:
-            print("Dashboard V2 source/asset pairing OK (no build-affecting dashboard source changes).")
+            print(
+                "Dashboard V2 source/asset pairing OK (no build-affecting dashboard source changes)."
+            )
         return 0
 
     print("Dashboard V2 source/asset pairing FAILED:", file=sys.stderr)

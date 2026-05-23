@@ -13,7 +13,9 @@ class PaperArtifactPathTests(unittest.TestCase):
     def test_resolves_safe_relative_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp).resolve()
-            resolved = _resolve_project_relative_path(project_dir, "papers/run-1/paper.md")
+            resolved = _resolve_project_relative_path(
+                project_dir, "papers/run-1/paper.md"
+            )
             self.assertEqual(resolved, project_dir / "papers" / "run-1" / "paper.md")
 
     def test_rejects_absolute_and_parent_paths(self) -> None:
@@ -36,11 +38,15 @@ class PaperArtifactPathTests(unittest.TestCase):
     def test_read_endpoint_uses_same_safe_relative_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp).resolve()
-            safe = _resolve_project_relative_path(project_dir, "papers/run-1/evidence_bundle.json")
+            safe = _resolve_project_relative_path(
+                project_dir, "papers/run-1/evidence_bundle.json"
+            )
             _write_text(safe, "{}", overwrite=False)
             self.assertEqual(safe.read_text(), "{}")
             with self.assertRaises(HTTPException):
-                _resolve_project_relative_path(project_dir, "papers/run-1/../../secret.txt")
+                _resolve_project_relative_path(
+                    project_dir, "papers/run-1/../../secret.txt"
+                )
 
 
 if __name__ == "__main__":

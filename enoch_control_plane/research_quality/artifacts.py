@@ -65,8 +65,14 @@ def build_quality_report(
             }
         )
 
-    decision_counts = Counter((row.decision, row.hypothesis_status) for row in decisions)
-    problem_counts = Counter(problem for item in candidate_scores + decision_scores for problem in item["problems"])
+    decision_counts = Counter(
+        (row.decision, row.hypothesis_status) for row in decisions
+    )
+    problem_counts = Counter(
+        problem
+        for item in candidate_scores + decision_scores
+        for problem in item["problems"]
+    )
 
     return {
         "schema_version": "enoch_research_quality_report_v1",
@@ -84,7 +90,9 @@ def build_quality_report(
             ],
             "top_candidate_categories": top_category_counts(candidates),
             "problem_counts": dict(problem_counts.most_common()),
-            "high_similarity_pair_count": len(pairwise_similarity(candidates, threshold=0.55, limit=10_000)),
+            "high_similarity_pair_count": len(
+                pairwise_similarity(candidates, threshold=0.55, limit=10_000)
+            ),
         },
         "candidate_scores": candidate_scores,
         "decision_scores": decision_scores,
@@ -93,14 +101,33 @@ def build_quality_report(
     }
 
 
-def recommendation_list(candidate_scores: list[dict[str, Any]], decision_scores: list[dict[str, Any]]) -> list[str]:
+def recommendation_list(
+    candidate_scores: list[dict[str, Any]], decision_scores: list[dict[str, Any]]
+) -> list[str]:
     recommendations: list[str] = []
-    if any("supported_but_negative_requires_review" in item["problems"] for item in decision_scores):
-        recommendations.append("Inspect supported-but-negative decisions; they may indicate overly strict paper gating or weak evidence despite partial support.")
-    if any("followup_thin_required_evidence" in item["problems"] for item in decision_scores):
-        recommendations.append("Strengthen follow-up required-evidence lists before allowing auto-branching from those decisions.")
-    if any("similar_prior_without_novelty_comparison" in item["problems"] for item in candidate_scores):
-        recommendations.append("Require explicit novelty comparison when Research Facility candidates resemble prior work.")
+    if any(
+        "supported_but_negative_requires_review" in item["problems"]
+        for item in decision_scores
+    ):
+        recommendations.append(
+            "Inspect supported-but-negative decisions; they may indicate overly strict paper gating or weak evidence despite partial support."
+        )
+    if any(
+        "followup_thin_required_evidence" in item["problems"]
+        for item in decision_scores
+    ):
+        recommendations.append(
+            "Strengthen follow-up required-evidence lists before allowing auto-branching from those decisions."
+        )
+    if any(
+        "similar_prior_without_novelty_comparison" in item["problems"]
+        for item in candidate_scores
+    ):
+        recommendations.append(
+            "Require explicit novelty comparison when Research Facility candidates resemble prior work."
+        )
     if not recommendations:
-        recommendations.append("No critical quality-layer warnings from the read-only audit heuristics.")
+        recommendations.append(
+            "No critical quality-layer warnings from the read-only audit heuristics."
+        )
     return recommendations

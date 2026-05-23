@@ -14,7 +14,13 @@ import pytest
 from fastapi import HTTPException
 
 from enoch_control_plane.config import GateConfig
-from enoch_control_plane.control_plane.router import _extract_safe_tar_bytes, _local_artifact_root, _local_paper_evidence_present, _remote_evidence_dir, _sync_remote_project_evidence
+from enoch_control_plane.control_plane.router import (
+    _extract_safe_tar_bytes,
+    _local_artifact_root,
+    _local_paper_evidence_present,
+    _remote_evidence_dir,
+    _sync_remote_project_evidence,
+)
 
 
 def _config(tmp_path) -> GateConfig:
@@ -30,9 +36,9 @@ def _config(tmp_path) -> GateConfig:
     )
 
 
-
-
-def _tar_bytes(entries: dict[str, bytes], *, symlinks: dict[str, str] | None = None) -> bytes:
+def _tar_bytes(
+    entries: dict[str, bytes], *, symlinks: dict[str, str] | None = None
+) -> bytes:
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as tf:
         for name, content in entries.items():
@@ -67,36 +73,65 @@ def test_safe_tar_extract_rejects_traversal_and_symlinks(tmp_path) -> None:
     assert any(item["status"] == "unsupported_member" for item in result["skipped"])
 
 
-def test_remote_evidence_dir_uses_relative_project_dir_over_project_id(tmp_path) -> None:
+def test_remote_evidence_dir_uses_relative_project_dir_over_project_id(
+    tmp_path,
+) -> None:
     config = _config(tmp_path)
 
-    assert _remote_evidence_dir(
-        config,
-        project_id="very-long-project-id-with-extra-hash",
-        source_project_dir="very-long-project-id-with-extra",
-    ) == "/remote/projects/very-long-project-id-with-extra"
+    assert (
+        _remote_evidence_dir(
+            config,
+            project_id="very-long-project-id-with-extra-hash",
+            source_project_dir="very-long-project-id-with-extra",
+        )
+        == "/remote/projects/very-long-project-id-with-extra"
+    )
 
 
-def test_remote_evidence_dir_preserves_worker_absolute_and_ignores_local_absolute(tmp_path) -> None:
+def test_remote_evidence_dir_preserves_worker_absolute_and_ignores_local_absolute(
+    tmp_path,
+) -> None:
     config = _config(tmp_path)
     local_project = config.expanded_project_root / "local-artifact"
     local_project.mkdir(parents=True)
 
-    assert _remote_evidence_dir(config, project_id="project", source_project_dir="/home/jeremy/projects/project") == "/home/jeremy/projects/project"
-    assert _remote_evidence_dir(config, project_id="project", source_project_dir=str(local_project)) == "/remote/projects/project"
-    assert _remote_evidence_dir(config, project_id="project", source_project_dir="") == "/remote/projects/project"
+    assert (
+        _remote_evidence_dir(
+            config,
+            project_id="project",
+            source_project_dir="/home/jeremy/projects/project",
+        )
+        == "/home/jeremy/projects/project"
+    )
+    assert (
+        _remote_evidence_dir(
+            config, project_id="project", source_project_dir=str(local_project)
+        )
+        == "/remote/projects/project"
+    )
+    assert (
+        _remote_evidence_dir(config, project_id="project", source_project_dir="")
+        == "/remote/projects/project"
+    )
 
 
 def test_remote_evidence_dir_rejects_relative_escape(tmp_path) -> None:
     config = _config(tmp_path)
 
-    assert _remote_evidence_dir(config, project_id="project", source_project_dir="../outside") == "/remote/projects/project"
+    assert (
+        _remote_evidence_dir(
+            config, project_id="project", source_project_dir="../outside"
+        )
+        == "/remote/projects/project"
+    )
 
 
 def test_local_artifact_root_rejects_relative_project_dir_escape(tmp_path) -> None:
     config = _config(tmp_path)
 
-    resolved = _local_artifact_root(config, project_id="project", project_dir_text="../outside")
+    resolved = _local_artifact_root(
+        config, project_id="project", project_dir_text="../outside"
+    )
 
     assert resolved == (config.expanded_project_root / "project").resolve()
     resolved.relative_to(config.expanded_project_root.resolve())
@@ -105,7 +140,9 @@ def test_local_artifact_root_rejects_relative_project_dir_escape(tmp_path) -> No
 def test_local_artifact_root_rejects_unsafe_project_id_fallback(tmp_path) -> None:
     config = _config(tmp_path)
 
-    resolved = _local_artifact_root(config, project_id="../evil project", project_dir_text="")
+    resolved = _local_artifact_root(
+        config, project_id="../evil project", project_dir_text=""
+    )
 
     assert resolved == (config.expanded_project_root / "evil-project").resolve()
     resolved.relative_to(config.expanded_project_root.resolve())
@@ -116,13 +153,18 @@ def test_local_artifact_root_rejects_symlinked_project_id_fallback(tmp_path) -> 
     outside = tmp_path / "outside"
     outside.mkdir()
     config.expanded_project_root.mkdir(parents=True)
-    (config.expanded_project_root / "project").symlink_to(outside, target_is_directory=True)
+    (config.expanded_project_root / "project").symlink_to(
+        outside, target_is_directory=True
+    )
 
     resolved = _local_artifact_root(config, project_id="project", project_dir_text="")
 
     resolved.relative_to(config.expanded_project_root.resolve())
     assert resolved != outside.resolve()
-    assert not (config.expanded_project_root / resolved.relative_to(config.expanded_project_root.resolve()).parts[0]).is_symlink()
+    assert not (
+        config.expanded_project_root
+        / resolved.relative_to(config.expanded_project_root.resolve()).parts[0]
+    ).is_symlink()
 
 
 def test_local_artifact_root_rejects_symlinked_project_dir(tmp_path) -> None:
@@ -130,15 +172,21 @@ def test_local_artifact_root_rejects_symlinked_project_dir(tmp_path) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
     config.expanded_project_root.mkdir(parents=True)
-    (config.expanded_project_root / "runtime-link").symlink_to(outside, target_is_directory=True)
+    (config.expanded_project_root / "runtime-link").symlink_to(
+        outside, target_is_directory=True
+    )
 
-    resolved = _local_artifact_root(config, project_id="project", project_dir_text="runtime-link")
+    resolved = _local_artifact_root(
+        config, project_id="project", project_dir_text="runtime-link"
+    )
 
     resolved.relative_to(config.expanded_project_root.resolve())
     assert resolved != outside.resolve()
 
 
-def test_local_artifact_root_fails_closed_when_project_and_state_roots_unresolvable(tmp_path, monkeypatch) -> None:
+def test_local_artifact_root_fails_closed_when_project_and_state_roots_unresolvable(
+    tmp_path, monkeypatch
+) -> None:
     config = _config(tmp_path)
 
     def fail_resolve(self):  # noqa: ANN001 - monkeypatch Path boundary
@@ -152,22 +200,26 @@ def test_local_artifact_root_fails_closed_when_project_and_state_roots_unresolva
     assert "artifact roots" in str(exc.value.detail)
 
 
-
-
 def test_local_paper_evidence_rejects_symlinked_high_signal_files(tmp_path) -> None:
     project_dir = tmp_path / "project"
     external = tmp_path / "external"
     (project_dir / ".enoch").mkdir(parents=True)
     external.mkdir()
     (external / "run_notes.md").write_text("external notes", encoding="utf-8")
-    (external / "project_decision.json").write_text('{"project_decision":"finalize_positive"}', encoding="utf-8")
+    (external / "project_decision.json").write_text(
+        '{"project_decision":"finalize_positive"}', encoding="utf-8"
+    )
     (project_dir / "run_notes.md").symlink_to(external / "run_notes.md")
-    (project_dir / ".enoch" / "project_decision.json").symlink_to(external / "project_decision.json")
+    (project_dir / ".enoch" / "project_decision.json").symlink_to(
+        external / "project_decision.json"
+    )
 
     assert _local_paper_evidence_present(project_dir) is False
 
 
-def test_local_paper_evidence_rejects_symlinked_paper_and_result_files(tmp_path) -> None:
+def test_local_paper_evidence_rejects_symlinked_paper_and_result_files(
+    tmp_path,
+) -> None:
     project_dir = tmp_path / "project"
     external = tmp_path / "external"
     (project_dir / "papers" / "run-1").mkdir(parents=True)
@@ -175,13 +227,17 @@ def test_local_paper_evidence_rejects_symlinked_paper_and_result_files(tmp_path)
     external.mkdir()
     (external / "evidence_bundle.json").write_text("{}", encoding="utf-8")
     (external / "smoke.json").write_text("{}", encoding="utf-8")
-    (project_dir / "papers" / "run-1" / "evidence_bundle.json").symlink_to(external / "evidence_bundle.json")
+    (project_dir / "papers" / "run-1" / "evidence_bundle.json").symlink_to(
+        external / "evidence_bundle.json"
+    )
     (project_dir / "results" / "smoke.json").symlink_to(external / "smoke.json")
 
     assert _local_paper_evidence_present(project_dir) is False
 
 
-def test_local_paper_evidence_treats_uninspectable_paper_dir_as_absent(tmp_path, monkeypatch) -> None:
+def test_local_paper_evidence_treats_uninspectable_paper_dir_as_absent(
+    tmp_path, monkeypatch
+) -> None:
     project_dir = tmp_path / "project"
     papers_dir = project_dir / "papers"
     papers_dir.mkdir(parents=True)
@@ -197,7 +253,9 @@ def test_local_paper_evidence_treats_uninspectable_paper_dir_as_absent(tmp_path,
     assert _local_paper_evidence_present(project_dir) is False
 
 
-def test_local_paper_evidence_treats_uninspectable_results_dir_as_absent(tmp_path, monkeypatch) -> None:
+def test_local_paper_evidence_treats_uninspectable_results_dir_as_absent(
+    tmp_path, monkeypatch
+) -> None:
     project_dir = tmp_path / "project"
     (project_dir / "run_notes.md").parent.mkdir(parents=True)
     (project_dir / "run_notes.md").write_text("measured notes", encoding="utf-8")
@@ -213,6 +271,7 @@ def test_local_paper_evidence_treats_uninspectable_results_dir_as_absent(tmp_pat
     monkeypatch.setattr(Path, "exists", blocked_exists)
 
     assert _local_paper_evidence_present(project_dir) is False
+
 
 def test_local_paper_evidence_rejects_empty_high_signal_files(tmp_path) -> None:
     project_dir = tmp_path / "project"
@@ -235,20 +294,38 @@ def test_local_paper_evidence_requires_notes_with_result_files(tmp_path) -> None
     assert _local_paper_evidence_present(project_dir) is True
 
 
-def test_sync_remote_evidence_skips_ssh_after_http_sync_has_required_local_evidence(tmp_path) -> None:
+def test_sync_remote_evidence_skips_ssh_after_http_sync_has_required_local_evidence(
+    tmp_path,
+) -> None:
     config = _config(tmp_path)
     artifact_root = tmp_path / "artifact"
 
-    def fake_http_sync(config, *, project_id: str, artifact_root, source_run_id: str = ""):
+    def fake_http_sync(
+        config, *, project_id: str, artifact_root, source_run_id: str = "", **_kwargs
+    ):
         del config, project_id, source_run_id
         (artifact_root / ".enoch").mkdir(parents=True)
-        (artifact_root / "run_notes.md").write_text("measured evidence\n", encoding="utf-8")
-        (artifact_root / ".enoch" / "project_decision.json").write_text('{"decision":"positive"}', encoding="utf-8")
+        (artifact_root / "run_notes.md").write_text(
+            "measured evidence\n", encoding="utf-8"
+        )
+        (artifact_root / ".enoch" / "project_decision.json").write_text(
+            '{"decision":"positive"}', encoding="utf-8"
+        )
         return {"ok": True, "reason": "worker_http_synced", "files": 2}
 
-    with patch("enoch_control_plane.control_plane.router._sync_worker_http_evidence", side_effect=fake_http_sync):
-        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", side_effect=AssertionError("ssh should not run after complete HTTP evidence sync")):
-            result = _sync_remote_project_evidence(config, project_id="project", artifact_root=artifact_root)
+    with patch(
+        "enoch_control_plane.control_plane.router._sync_worker_http_evidence",
+        side_effect=fake_http_sync,
+    ):
+        with patch(
+            "enoch_control_plane.control_plane.router.subprocess.Popen",
+            side_effect=AssertionError(
+                "ssh should not run after complete HTTP evidence sync"
+            ),
+        ):
+            result = _sync_remote_project_evidence(
+                config, project_id="project", artifact_root=artifact_root
+            )
 
     assert result["synced"] is True
     assert result["reason"] == "worker_http_synced"
@@ -284,9 +361,17 @@ def test_sync_remote_evidence_kills_started_ssh_on_timeout(tmp_path) -> None:
 
     ssh_proc = TimeoutSshProcess()
 
-    with patch("enoch_control_plane.control_plane.router._sync_worker_http_evidence", return_value={"ok": False, "reason": "worker_read_failed"}):
-        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", return_value=ssh_proc):
-            result = _sync_remote_project_evidence(config, project_id="project", artifact_root=artifact_root)
+    with patch(
+        "enoch_control_plane.control_plane.router._sync_worker_http_evidence",
+        return_value={"ok": False, "reason": "worker_read_failed"},
+    ):
+        with patch(
+            "enoch_control_plane.control_plane.router.subprocess.Popen",
+            return_value=ssh_proc,
+        ):
+            result = _sync_remote_project_evidence(
+                config, project_id="project", artifact_root=artifact_root
+            )
 
     assert result["reason"] == "timeout"
     assert ssh_proc.killed is True
@@ -315,10 +400,20 @@ def test_sync_remote_evidence_timeout_bounds_stalled_real_stdout_pipe(tmp_path) 
         return child
 
     def run_sync() -> None:
-        result.update(_sync_remote_project_evidence(config, project_id="project", artifact_root=artifact_root))
+        result.update(
+            _sync_remote_project_evidence(
+                config, project_id="project", artifact_root=artifact_root
+            )
+        )
 
-    with patch("enoch_control_plane.control_plane.router._sync_worker_http_evidence", return_value={"ok": False, "reason": "worker_read_failed"}):
-        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", side_effect=fake_popen):
+    with patch(
+        "enoch_control_plane.control_plane.router._sync_worker_http_evidence",
+        return_value={"ok": False, "reason": "worker_read_failed"},
+    ):
+        with patch(
+            "enoch_control_plane.control_plane.router.subprocess.Popen",
+            side_effect=fake_popen,
+        ):
             start = time.monotonic()
             thread = threading.Thread(target=run_sync, daemon=True)
             thread.start()
@@ -328,7 +423,9 @@ def test_sync_remote_evidence_timeout_bounds_stalled_real_stdout_pipe(tmp_path) 
                 if child is not None:
                     child.kill()
                 thread.join(timeout=2)
-            assert not thread.is_alive(), "SSH evidence sync must not block past configured timeout"
+            assert not thread.is_alive(), (
+                "SSH evidence sync must not block past configured timeout"
+            )
 
     assert elapsed < 3
     assert result["reason"] == "timeout"
@@ -356,27 +453,48 @@ def test_sync_remote_evidence_extracts_successful_real_stdout_pipe(tmp_path) -> 
             stderr=stderr,
         )
 
-    with patch("enoch_control_plane.control_plane.router._sync_worker_http_evidence", return_value={"ok": False, "reason": "worker_read_failed"}):
-        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", side_effect=fake_popen):
-            result = _sync_remote_project_evidence(config, project_id="project", artifact_root=artifact_root)
+    with patch(
+        "enoch_control_plane.control_plane.router._sync_worker_http_evidence",
+        return_value={"ok": False, "reason": "worker_read_failed"},
+    ):
+        with patch(
+            "enoch_control_plane.control_plane.router.subprocess.Popen",
+            side_effect=fake_popen,
+        ):
+            result = _sync_remote_project_evidence(
+                config, project_id="project", artifact_root=artifact_root
+            )
 
     assert result["reason"] == "synced"
     assert result["local_evidence_present"] is True
-    assert (artifact_root / "run_notes.md").read_text(encoding="utf-8") == "measured evidence\n"
+    assert (artifact_root / "run_notes.md").read_text(
+        encoding="utf-8"
+    ) == "measured evidence\n"
 
 
-def test_sync_remote_evidence_reports_unusable_artifact_root_before_ssh(tmp_path) -> None:
+def test_sync_remote_evidence_reports_unusable_artifact_root_before_ssh(
+    tmp_path,
+) -> None:
     config = _config(tmp_path)
     artifact_root = tmp_path / "artifact"
     artifact_root.write_text("not a directory", encoding="utf-8")
 
-    with patch("enoch_control_plane.control_plane.router._sync_worker_http_evidence", return_value={"ok": False, "reason": "artifact_root_unusable"}):
-        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", side_effect=AssertionError("ssh must not run for unusable artifact root")):
-            result = _sync_remote_project_evidence(config, project_id="project", artifact_root=artifact_root)
+    with patch(
+        "enoch_control_plane.control_plane.router._sync_worker_http_evidence",
+        return_value={"ok": False, "reason": "artifact_root_unusable"},
+    ):
+        with patch(
+            "enoch_control_plane.control_plane.router.subprocess.Popen",
+            side_effect=AssertionError("ssh must not run for unusable artifact root"),
+        ):
+            result = _sync_remote_project_evidence(
+                config, project_id="project", artifact_root=artifact_root
+            )
 
     assert result["enabled"] is True
     assert result["synced"] is False
     assert result["reason"] == "artifact_root_unusable"
+
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -403,30 +521,99 @@ def test_draft_next_dry_run_does_not_sync_evidence() -> None:
             paper_evidence_sync_remote_root="/remote/projects",
         )
         fastapi_app = FastAPI()
-        fastapi_app.include_router(create_control_plane_router(config, lambda authorization: None))
+        fastapi_app.include_router(
+            create_control_plane_router(config, lambda authorization: None)
+        )
         app = TestClient(fastapi_app)
-        app.post("/control/import/legacy-snapshot", json={
-            "idempotency_key": "dry-run-no-sync",
-            "queue_rows": [{
-                "project_id": "paper-positive",
-                "project_name": "Paper Positive",
-                "project_dir": str(project_dir),
-                "status": "completed",
-                "last_run_state": "finalize_positive",
-                "current_run_id": "run-1",
-                "manual_review_required": False,
-            }],
-            "paper_rows": [],
-        })
-        with patch("enoch_control_plane.control_plane.router._sync_remote_project_evidence", side_effect=AssertionError("dry run must not sync evidence")):
-            response = app.post("/control/papers/draft-next", json={"dry_run": True, "force": True})
+        app.post(
+            "/control/import/legacy-snapshot",
+            json={
+                "idempotency_key": "dry-run-no-sync",
+                "queue_rows": [
+                    {
+                        "project_id": "paper-positive",
+                        "project_name": "Paper Positive",
+                        "project_dir": str(project_dir),
+                        "status": "completed",
+                        "last_run_state": "finalize_positive",
+                        "current_run_id": "run-1",
+                        "manual_review_required": False,
+                    }
+                ],
+                "paper_rows": [],
+            },
+        )
+        with patch(
+            "enoch_control_plane.control_plane.router._sync_remote_project_evidence",
+            side_effect=AssertionError("dry run must not sync evidence"),
+        ):
+            response = app.post(
+                "/control/papers/draft-next", json={"dry_run": True, "force": True}
+            )
         assert response.status_code == 200
         body = response.json()
         assert body["action"] == "dry_run_draft"
-        assert body["candidate"]["evidence_sync"] == {"enabled": True, "skipped": True, "reason": "dry_run"}
+        assert body["candidate"]["evidence_sync"] == {
+            "enabled": True,
+            "skipped": True,
+            "reason": "dry_run",
+        }
 
 
-def test_sync_worker_http_evidence_rejects_worker_returned_escape_paths(tmp_path) -> None:
+def test_sync_worker_http_evidence_can_use_routed_worker_credentials(
+    tmp_path, monkeypatch
+) -> None:
+    from enoch_control_plane.control_plane import router
+
+    calls = []
+
+    def fake_worker_json(base_url, path, token, payload, *, timeout_seconds):  # noqa: ANN001 - patched request boundary
+        calls.append(
+            {
+                "base_url": base_url,
+                "path": path,
+                "token": token,
+                "payload": payload,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+        requested_path = payload["paths"][0]
+        return router.HttpResult(
+            ok=True,
+            status=200,
+            body={"files": [{"path": requested_path, "content": "content"}]},
+            error=None,
+        )
+
+    monkeypatch.setattr(router, "_worker_json_request", fake_worker_json)
+    config = GateConfig(
+        state_dir=str(tmp_path / "state"),
+        project_root=str(tmp_path / "projects"),
+        dispatch_script_path=str(tmp_path / "dispatch.sh"),
+        control_api_bearer_token="token",
+        completion_callback_url="http://example.invalid/callback",
+        completion_callback_token="unused",
+        worker_wake_gate_url="http://gb10.example:8787",
+        worker_wake_gate_bearer_token="gb10-token",
+    )
+
+    result = router._sync_worker_http_evidence(
+        config,
+        project_id="cpu-project",
+        artifact_root=tmp_path / "artifact",
+        worker_wake_gate_url="http://cpu.example:8787",
+        worker_bearer_token="cpu-token",
+    )
+
+    assert result["ok"] is True
+    assert calls
+    assert {call["base_url"] for call in calls} == {"http://cpu.example:8787"}
+    assert {call["token"] for call in calls} == {"cpu-token"}
+
+
+def test_sync_worker_http_evidence_rejects_worker_returned_escape_paths(
+    tmp_path,
+) -> None:
     from enoch_control_plane.control_plane.router import _sync_worker_http_evidence
     from enoch_control_plane.control_plane.worker_adapter import HttpResult
 
@@ -438,10 +625,19 @@ def test_sync_worker_http_evidence_rejects_worker_returned_escape_paths(tmp_path
 
     def fake_post_worker_json(base_url, path, token, payload):  # noqa: ANN001 - matches patched function
         del base_url, path, token, payload
-        return HttpResult(ok=True, status=200, body={"files": [{"path": "../outside.txt", "content": "escape"}]})
+        return HttpResult(
+            ok=True,
+            status=200,
+            body={"files": [{"path": "../outside.txt", "content": "escape"}]},
+        )
 
-    with patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post_worker_json):
-        result = _sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+    with patch(
+        "enoch_control_plane.control_plane.router.post_worker_json",
+        side_effect=fake_post_worker_json,
+    ):
+        result = _sync_worker_http_evidence(
+            config, project_id="project", artifact_root=artifact_root
+        )
 
     assert result["ok"] is False
     assert result["reason"] == "worker_read_failed"
@@ -449,7 +645,9 @@ def test_sync_worker_http_evidence_rejects_worker_returned_escape_paths(tmp_path
     assert any(item["status"] == "unsafe_path" for item in result["skipped"])
 
 
-def test_sync_remote_evidence_reports_failed_when_successful_tar_has_no_required_evidence(tmp_path) -> None:
+def test_sync_remote_evidence_reports_failed_when_successful_tar_has_no_required_evidence(
+    tmp_path,
+) -> None:
     config = _config(tmp_path)
     artifact_root = tmp_path / "artifact"
 
@@ -468,9 +666,17 @@ def test_sync_remote_evidence_reports_failed_when_successful_tar_has_no_required
         def poll(self):
             return 0
 
-    with patch("enoch_control_plane.control_plane.router._sync_worker_http_evidence", return_value={"ok": False, "reason": "worker_read_failed"}):
-        with patch("enoch_control_plane.control_plane.router.subprocess.Popen", return_value=FakeSshProcess()):
-            result = _sync_remote_project_evidence(config, project_id="project", artifact_root=artifact_root)
+    with patch(
+        "enoch_control_plane.control_plane.router._sync_worker_http_evidence",
+        return_value={"ok": False, "reason": "worker_read_failed"},
+    ):
+        with patch(
+            "enoch_control_plane.control_plane.router.subprocess.Popen",
+            return_value=FakeSshProcess(),
+        ):
+            result = _sync_remote_project_evidence(
+                config, project_id="project", artifact_root=artifact_root
+            )
 
     assert result["method"] == "worker_http+ssh"
     assert result["synced"] is False
@@ -489,10 +695,24 @@ def test_sync_worker_http_evidence_skips_empty_worker_paths(tmp_path) -> None:
 
     def fake_post_worker_json(base_url, path, token, payload):  # noqa: ANN001 - matches patched function
         del base_url, path, token, payload
-        return HttpResult(ok=True, status=200, body={"files": [{"path": "", "content": "bad"}, {"path": ".", "content": "bad"}]})
+        return HttpResult(
+            ok=True,
+            status=200,
+            body={
+                "files": [
+                    {"path": "", "content": "bad"},
+                    {"path": ".", "content": "bad"},
+                ]
+            },
+        )
 
-    with patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post_worker_json):
-        result = _sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+    with patch(
+        "enoch_control_plane.control_plane.router.post_worker_json",
+        side_effect=fake_post_worker_json,
+    ):
+        result = _sync_worker_http_evidence(
+            config, project_id="project", artifact_root=artifact_root
+        )
 
     assert result["ok"] is False
     assert result["reason"] == "worker_read_failed"
@@ -509,10 +729,19 @@ def test_sync_worker_http_evidence_skips_invalid_worker_path_bytes(tmp_path) -> 
 
     def fake_post_worker_json(base_url, path, token, payload):  # noqa: ANN001 - matches patched function
         del base_url, path, token, payload
-        return HttpResult(ok=True, status=200, body={"files": [{"path": "bad\x00file.json", "content": "bad"}]})
+        return HttpResult(
+            ok=True,
+            status=200,
+            body={"files": [{"path": "bad\x00file.json", "content": "bad"}]},
+        )
 
-    with patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post_worker_json):
-        result = _sync_worker_http_evidence(config, project_id="project", artifact_root=tmp_path / "artifact")
+    with patch(
+        "enoch_control_plane.control_plane.router.post_worker_json",
+        side_effect=fake_post_worker_json,
+    ):
+        result = _sync_worker_http_evidence(
+            config, project_id="project", artifact_root=tmp_path / "artifact"
+        )
 
     assert result["ok"] is False
     assert any(item["status"] == "unsafe_path" for item in result["skipped"])
@@ -527,7 +756,9 @@ def test_sync_worker_http_evidence_reports_unusable_artifact_root(tmp_path) -> N
     artifact_root = tmp_path / "artifact"
     artifact_root.write_text("not a directory", encoding="utf-8")
 
-    result = _sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+    result = _sync_worker_http_evidence(
+        config, project_id="project", artifact_root=artifact_root
+    )
 
     assert result["ok"] is False
     assert result["reason"] == "artifact_root_unusable"
@@ -540,7 +771,9 @@ def test_sync_worker_http_evidence_reports_unresolvable_artifact_root(tmp_path) 
     config.worker_wake_gate_bearer_token = "worker-token"
     config.worker_wake_gate_url = "http://worker"
 
-    result = _sync_worker_http_evidence(config, project_id="project", artifact_root=tmp_path / "bad\0artifact")
+    result = _sync_worker_http_evidence(
+        config, project_id="project", artifact_root=tmp_path / "bad\0artifact"
+    )
 
     assert result["ok"] is False
     assert result["reason"] == "artifact_root_unusable"
@@ -555,7 +788,9 @@ def test_extract_safe_tar_reports_unresolvable_artifact_root(tmp_path) -> None:
     assert result["reason"] == "artifact_root_unusable"
 
 
-def test_sync_worker_http_evidence_removes_existing_file_when_worker_returns_empty_content(tmp_path) -> None:
+def test_sync_worker_http_evidence_removes_existing_file_when_worker_returns_empty_content(
+    tmp_path,
+) -> None:
     from enoch_control_plane.control_plane.router import _sync_worker_http_evidence
     from enoch_control_plane.control_plane.worker_adapter import HttpResult
 
@@ -569,10 +804,19 @@ def test_sync_worker_http_evidence_removes_existing_file_when_worker_returns_emp
 
     def fake_post_worker_json(base_url, path, token, payload):  # noqa: ANN001 - matches patched function
         del base_url, path, token, payload
-        return HttpResult(ok=True, status=200, body={"files": [{"path": "run_notes.md", "content": ""}]})
+        return HttpResult(
+            ok=True,
+            status=200,
+            body={"files": [{"path": "run_notes.md", "content": ""}]},
+        )
 
-    with patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post_worker_json):
-        result = _sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+    with patch(
+        "enoch_control_plane.control_plane.router.post_worker_json",
+        side_effect=fake_post_worker_json,
+    ):
+        result = _sync_worker_http_evidence(
+            config, project_id="project", artifact_root=artifact_root
+        )
 
     assert result["ok"] is False
     assert result["reason"] == "worker_read_failed"
@@ -580,8 +824,9 @@ def test_sync_worker_http_evidence_removes_existing_file_when_worker_returns_emp
     assert not target.exists()
 
 
-
-def test_sync_worker_http_evidence_skips_uninspectable_worker_target(tmp_path, monkeypatch) -> None:
+def test_sync_worker_http_evidence_skips_uninspectable_worker_target(
+    tmp_path, monkeypatch
+) -> None:
     from enoch_control_plane.control_plane import router
 
     config = _config(tmp_path)
@@ -606,14 +851,22 @@ def test_sync_worker_http_evidence_skips_uninspectable_worker_target(tmp_path, m
     monkeypatch.setattr(router, "post_worker_json", lambda *args, **kwargs: Result())
     monkeypatch.setattr(Path, "exists", blocked_exists)
 
-    result = router._sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+    result = router._sync_worker_http_evidence(
+        config, project_id="project", artifact_root=artifact_root
+    )
 
     assert result["ok"] is False
     assert result["reason"] == "worker_read_failed"
-    assert any(item["status"] == "unsafe_path" and "could not be inspected" in item["error"] for item in result["skipped"])
+    assert any(
+        item["status"] == "unsafe_path" and "could not be inspected" in item["error"]
+        for item in result["skipped"]
+    )
     assert not real_exists(target)
 
-def test_sync_worker_http_evidence_preserves_existing_file_when_write_fails(tmp_path, monkeypatch) -> None:
+
+def test_sync_worker_http_evidence_preserves_existing_file_when_write_fails(
+    tmp_path, monkeypatch
+) -> None:
     config = _config(tmp_path)
     config.worker_wake_gate_bearer_token = "worker-token"
     artifact_root = tmp_path / "artifact"
@@ -630,15 +883,22 @@ def test_sync_worker_http_evidence_preserves_existing_file_when_write_fails(tmp_
     import enoch_control_plane.control_plane.router as router
 
     monkeypatch.setattr(router, "post_worker_json", lambda *args, **kwargs: Result())
-    monkeypatch.setattr(router, "_atomic_write_text", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("simulated evidence write failure")))
+    monkeypatch.setattr(
+        router,
+        "_atomic_write_text",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            OSError("simulated evidence write failure")
+        ),
+    )
 
-    result = router._sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+    result = router._sync_worker_http_evidence(
+        config, project_id="project", artifact_root=artifact_root
+    )
 
     assert result["ok"] is False
     assert result["reason"] == "worker_read_failed"
     assert any(item["status"] == "write_failed" for item in result["skipped"])
     assert target.read_text(encoding="utf-8") == "old evidence"
-
 
 
 def test_sync_worker_http_evidence_skips_malformed_success_bodies(tmp_path) -> None:
@@ -657,16 +917,26 @@ def test_sync_worker_http_evidence_skips_malformed_success_bodies(tmp_path) -> N
 
     def fake_post_worker_json(base_url, path, token, payload):  # noqa: ANN001 - matches patched function
         del base_url, path, token, payload
-        return responses.pop(0) if responses else HttpResult(ok=False, status=404, body=None, error="missing")
+        return (
+            responses.pop(0)
+            if responses
+            else HttpResult(ok=False, status=404, body=None, error="missing")
+        )
 
-    with patch("enoch_control_plane.control_plane.router.post_worker_json", side_effect=fake_post_worker_json):
-        result = _sync_worker_http_evidence(config, project_id="project", artifact_root=artifact_root)
+    with patch(
+        "enoch_control_plane.control_plane.router.post_worker_json",
+        side_effect=fake_post_worker_json,
+    ):
+        result = _sync_worker_http_evidence(
+            config, project_id="project", artifact_root=artifact_root
+        )
 
     assert result["ok"] is False
     assert result["reason"] == "worker_read_failed"
     statuses = [item.get("status") for item in result["skipped"]]
     assert "malformed_response" in statuses
     assert "malformed_file" in statuses
+
 
 def test_worker_http_evidence_sync_times_out_slow_worker_reads(tmp_path, monkeypatch):
     from enoch_control_plane.config import GateConfig
@@ -677,7 +947,12 @@ def test_worker_http_evidence_sync_times_out_slow_worker_reads(tmp_path, monkeyp
 
     def timed_out_worker_json(*args, **kwargs):  # noqa: ANN001 - patched worker transport
         calls.append((args, kwargs))
-        return HttpResult(ok=False, status=None, body=None, error="TimeoutError: worker request exceeded 0.010s")
+        return HttpResult(
+            ok=False,
+            status=None,
+            body=None,
+            error="TimeoutError: worker request exceeded 0.010s",
+        )
 
     monkeypatch.setattr(router, "_worker_json_request", timed_out_worker_json)
     config = GateConfig(

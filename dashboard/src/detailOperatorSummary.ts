@@ -37,6 +37,8 @@ export type IntakeIdeaOperatorSummary = {
   actionNeeded: string | null
 }
 
+export type ResearchCandidateOperatorSummary = IntakeIdeaOperatorSummary
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
@@ -451,10 +453,18 @@ function eventEntityLinks(payload: Record<string, unknown>): EntityLink[] {
     pushLink(entityLinks, entityLink('paper', source.paper_id))
   }
   if (!entityLinks.length && entityId !== '—') {
+    if (entityType === 'queue_alert') return entityLinks
     const kind: DetailKind = entityType.includes('run') ? 'run' : entityType.includes('paper') || entityType.includes('paper_review') ? 'paper' : 'project'
     pushLink(entityLinks, entityLink(kind, entityId))
   }
   return entityLinks
+}
+
+function eventEntityLabel(entityType: string, entityId: string): string {
+  if (entityId === '—') return ''
+  const normalized = entityType.toLowerCase()
+  if (normalized === 'queue_alert') return `Alert fingerprint ${shortId(entityId)}`
+  return `${entityType} ${shortId(entityId)}`
 }
 
 function payloadProofAnswers(payload: Record<string, unknown>): OperatorAnswer[] {
@@ -467,6 +477,25 @@ function payloadProofAnswers(payload: Record<string, unknown>): OperatorAnswer[]
     seen.add(label)
     answers.push({ label, value: normalized })
   }
+  const findings = recordArray(nested.findings)
+  if (findings.length) {
+    answers.push({ label: 'findings', value: `${findings.length} recorded` })
+    const topFinding = findings[0]
+    const topFindingMessage = text(firstValue(topFinding.message, topFinding.source))
+    if (topFindingMessage !== '—') {
+      answers.push({ label: 'top finding', value: topFindingMessage })
+    }
+  }
+  if (Array.isArray(nested.dispatch_blockers)) {
+    const blockers = nested.dispatch_blockers.map((item) => text(item)).filter((item) => item !== '—')
+    answers.push({ label: 'dispatch blockers', value: blockers.length ? blockers.join('; ') : 'none' })
+  }
+  if (Array.isArray(nested.transient_suppressed_findings)) {
+    answers.push({ label: 'suppressed transient findings', value: String(nested.transient_suppressed_findings.length) })
+  }
+  if (nested.dispatch_safe !== null && nested.dispatch_safe !== undefined) {
+    answers.push({ label: 'dispatch safe at event time', value: text(nested.dispatch_safe) })
+  }
   if (!answers.length) {
     answers.push({ label: 'payload', value: nested && Object.keys(nested).length ? 'present — expand Raw payload for full evidence' : 'empty' })
   }
@@ -476,7 +505,12 @@ function payloadProofAnswers(payload: Record<string, unknown>): OperatorAnswer[]
 function eventActionNeeded(payload: Record<string, unknown>): string | null {
   const nested = eventPayloadRecord(payload)
   const reason = text(firstValue(nested.reason, nested.blocked_reason, nested.error, payload.blocked_reason))
-  if (reason === '—') return null
+  if (reason === '—') {
+    const findings = recordArray(nested.findings)
+    const topFinding = findings[0]
+    const findingReason = text(firstValue(topFinding?.message, topFinding?.source))
+    return findingReason === '—' ? null : findingReason
+  }
   const eventType = text(payload.event_type).toLowerCase()
   if (eventType.includes('blocked') || eventType.includes('alert') || eventType.includes('error') || eventType.includes('conflict') || reason.toLowerCase().includes('block') || reason.toLowerCase().includes('fail')) return reason
   return null
@@ -495,7 +529,7 @@ function eventSummary(payload: Record<string, unknown>): DetailOperatorSummary {
 
   return {
     state: operatorStageLabel(stageSource, headline !== eventType ? headline : eventType),
-    context: entityId !== '—' ? `${entityType} ${shortId(entityId)} · logged ${createdAt}.` : `Logged ${createdAt}.`,
+    context: entityId !== '—' ? `${eventEntityLabel(entityType, entityId)} · logged ${createdAt}.` : `Logged ${createdAt}.`,
     next: operatorNextStep(stageSource, actionNeeded ? `Resolve the recorded blocker: ${actionNeeded}` : entityLinks.length ? 'Open the related project, run, or paper if this event requires action.' : 'Use the payload only as supporting detail; do not treat it as a command.'),
     entityLinks,
     sections: [
@@ -521,42 +555,85 @@ export function deriveIntakeIdeaOperatorSummary(row: Record<string, unknown>): I
   const queueStatus = text(row.queue_status)
   const paperStatus = text(row.paper_status)
   const nextHint = text(row.next_action_hint)
+  const ideaId = text(row.idea_id)
   const projectId = text(firstValue(row.project_id, row.idea_id))
   const sourceKind = text(row.source_kind)
+  const sourceExternalId = text(row.source_external_id)
+  const sourceExternalUrl = text(row.source_external_url)
+  const machineTarget = text(row.machine_target)
+  const runId = text(row.current_run_id)
+  const runState = text(row.last_run_state)
+  const paperId = text(row.paper_id)
   const blocked = text(firstValue(row.blocked_reason, row.last_error))
-  const attention = row.manual_review_required === true || queueStatus.includes('blocked') || queueStatus.includes('review')
+  const promoted = projectId !== '—' && projectId !== ideaId
+  const attention = row.manual_review_required === true || row.operator_attention === true || queueStatus.includes('blocked') || queueStatus.includes('review') || ideaStatus === 'rejected'
+  const whyNotQueued = blocked !== '—'
+    ? blocked
+    : queueStatus === 'queued'
+      ? 'currently queued'
+      : ideaStatus === 'rejected'
+        ? 'idea rejected at admission'
+        : ideaStatus === 'candidate'
+          ? 'not admitted yet — promote or admit before queuing'
+          : ideaStatus === 'stale'
+            ? 'idea marked stale — refresh or re-admit'
+            : !queueStatus || queueStatus === '—'
+              ? 'no queue row yet'
+              : `queue status is ${queueStatus}`
   const entityLinks: EntityLink[] = []
   pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, row.title))
+  pushLink(entityLinks, entityLink('run', runId !== '—' ? runId : null))
+  pushLink(entityLinks, entityLink('paper', paperId !== '—' ? paperId : null))
 
   return {
-    state: ideaStatus,
-    context: `Source ${sourceKind}; queue ${queueStatus}; paper ${paperStatus}.`,
-    next: attention && blocked !== '—'
+    state: operatorStageLabel(row, ideaStatus),
+    context: promoted
+      ? `Promoted to project ${shortId(projectId)}; source ${sourceKind}; queue ${queueStatus}; lane ${machineTarget}.`
+      : `Source ${sourceKind}; admission ${ideaStatus}; queue ${queueStatus}; paper ${paperStatus}.`,
+    next: operatorNextStep(row, attention && blocked !== '—'
       ? `Resolve blocker first: ${blocked}.`
       : queueStatus === 'queued'
         ? 'Open the matching project and run a dispatch dry-run before starting work.'
         : queueStatus === 'active' || queueStatus === 'running'
           ? 'Open the current project/run detail and verify the lane is still moving.'
-          : nextHint !== '—'
-            ? `Follow backend hint: ${nextHint}.`
-            : 'Review source lineage and admission state before creating more queue work.',
+          : ideaStatus === 'rejected'
+            ? 'Do not queue this idea; review admission rejection and source lineage.'
+            : ideaStatus === 'candidate'
+              ? 'Admit or promote this candidate before expecting queue work.'
+              : nextHint !== '—'
+                ? `Follow backend hint: ${nextHint}.`
+                : 'Review source lineage and admission state before creating more queue work.'),
     entityLinks,
     sections: [
       {
         title: 'Source and lineage',
         answers: [
           { label: 'source kind', value: sourceKind },
+          { label: 'source external id', value: sourceExternalId },
+          { label: 'source url', value: sourceExternalUrl },
           { label: 'idea status', value: ideaStatus },
-          { label: 'updated', value: text(row.updated_at) },
+          { label: 'updated', value: text(firstValue(row.queue_updated_at, row.updated_at)) },
         ],
       },
       {
-        title: 'Admission and queue',
+        title: 'Admission and promote',
+        answers: [
+          { label: 'admission state', value: ideaStatus },
+          { label: 'promoted project', value: promoted ? projectId : 'not promoted yet' },
+          { label: 'manual review', value: text(row.manual_review_required) },
+          { label: 'selection rank', value: text(row.selection_rank) },
+        ],
+      },
+      {
+        title: 'Queue and lane',
         answers: [
           { label: 'queue status', value: queueStatus },
+          { label: 'lane / machine target', value: machineTarget },
+          { label: 'current run', value: runId },
+          { label: 'last run state', value: runState },
           { label: 'paper status', value: paperStatus },
           { label: 'next action hint', value: nextHint },
-          { label: 'why not queued', value: blocked !== '—' ? blocked : queueStatus === 'queued' ? 'currently queued' : 'see queue status above' },
+          { label: 'why not queued', value: whyNotQueued },
         ],
       },
       {
@@ -567,6 +644,72 @@ export function deriveIntakeIdeaOperatorSummary(row: Record<string, unknown>): I
         ],
       },
     ],
-    actionNeeded: attention ? (blocked !== '—' ? blocked : 'Admission or queue state needs operator review.') : null,
+    actionNeeded: attention ? (blocked !== '—' ? blocked : ideaStatus === 'rejected' ? 'Idea rejected at admission.' : 'Admission or queue state needs operator review.') : null,
+  }
+}
+
+export function deriveResearchCandidateOperatorSummary(row: Record<string, unknown>): ResearchCandidateOperatorSummary {
+  const status = text(row.status)
+  const admission = text(row.admission_decision)
+  const target = text(row.machine_target)
+  const candidateId = text(row.candidate_id)
+  const ideaId = text(firstValue(row.admitted_idea_id, row.idea_id))
+  const projectId = text(row.project_id)
+  const promoted = ideaId !== '—' || projectId !== '—'
+  const rejected = status === 'rejected' || admission.toLowerCase().includes('reject')
+  const admitted = status === 'admitted' || admission.toLowerCase().includes('admit')
+  const attention = rejected || row.manual_review_required === true || row.operator_attention === true
+  const whyNotPromoted = rejected
+    ? 'admission rejected — keep as negative evidence'
+    : !admitted
+      ? 'not admitted — review facility scoring before promote'
+      : promoted
+        ? ideaId !== '—'
+          ? `promoted to idea ${shortId(ideaId)}`
+          : `linked project ${shortId(projectId)}`
+        : 'admitted but not yet promoted to intake/queue'
+  const entityLinks: EntityLink[] = []
+  pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, row.title))
+
+  return {
+    state: operatorStageLabel(row, status),
+    context: `Admission ${admission}; target ${target}; facility status ${status}.`,
+    next: operatorNextStep(row, rejected
+      ? 'No launch action is needed; keep this as negative evidence unless a new follow-up is warranted.'
+      : admitted
+        ? 'Promote only after dry-run confirms this exact candidate still maps to a queue item.'
+        : 'Review admission, source lineage, and machine target before promoting or queuing work.'),
+    entityLinks,
+    sections: [
+      {
+        title: 'Source and lineage',
+        answers: [
+          { label: 'candidate id', value: candidateId },
+          { label: 'source kind', value: text(row.source_kind) },
+          { label: 'source external id', value: text(row.source_external_id) },
+          { label: 'facility status', value: status },
+          { label: 'updated', value: text(row.updated_at) },
+        ],
+      },
+      {
+        title: 'Admission and promote',
+        answers: [
+          { label: 'admission decision', value: admission },
+          { label: 'admitted idea', value: ideaId },
+          { label: 'linked project', value: projectId },
+          { label: 'promote path', value: whyNotPromoted },
+          { label: 'selection rank', value: text(row.selection_rank) },
+        ],
+      },
+      {
+        title: 'Lane and dispatch',
+        answers: [
+          { label: 'machine target', value: target },
+          { label: 'total score', value: text(row.total_score) },
+          { label: 'title', value: text(row.title) },
+        ],
+      },
+    ],
+    actionNeeded: attention ? (rejected ? 'Candidate rejected at admission.' : 'Admission needs operator review before promote.') : null,
   }
 }

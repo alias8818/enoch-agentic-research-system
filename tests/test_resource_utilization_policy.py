@@ -3,8 +3,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from enoch_control_plane.control_plane.alerts import queue_alert_findings
-from enoch_control_plane.control_plane.longhaul_readiness import evaluate_longhaul_readiness
-from enoch_control_plane.control_plane.resource_utilization import classify_low_utilization_runs
+from enoch_control_plane.control_plane.longhaul_readiness import (
+    evaluate_longhaul_readiness,
+)
+from enoch_control_plane.control_plane.resource_utilization import (
+    classify_low_utilization_runs,
+)
 from enoch_control_plane.control_plane.router import _project_prompt
 
 from tests.test_longhaul_readiness import NOW, _ready_payload
@@ -38,7 +42,9 @@ def _cpu_only_worker_body() -> dict:
 
 
 def test_classifies_long_single_thread_cpu_only_gb10_run() -> None:
-    findings = classify_low_utilization_runs(_cpu_only_worker_body(), min_elapsed_sec=900)
+    findings = classify_low_utilization_runs(
+        _cpu_only_worker_body(), min_elapsed_sec=900
+    )
 
     assert len(findings) == 1
     assert findings[0].source == "worker_resource_policy"
@@ -55,7 +61,9 @@ def test_does_not_classify_short_smoke_cpu_probe() -> None:
 
 
 def test_queue_alerts_surface_low_utilization_even_when_worker_is_live() -> None:
-    finding = classify_low_utilization_runs(_cpu_only_worker_body(), min_elapsed_sec=900)[0]
+    finding = classify_low_utilization_runs(
+        _cpu_only_worker_body(), min_elapsed_sec=900
+    )[0]
     status = SimpleNamespace(
         flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
         config=SimpleNamespace(live_dispatch_enabled=True),
@@ -95,9 +103,15 @@ def test_queue_alerts_surface_low_utilization_even_when_worker_is_live() -> None
 
 def test_longhaul_readiness_blocks_on_low_utilization_policy_finding() -> None:
     payload = _ready_payload()
-    finding = classify_low_utilization_runs(_cpu_only_worker_body(), min_elapsed_sec=900)[0]
+    finding = classify_low_utilization_runs(
+        _cpu_only_worker_body(), min_elapsed_sec=900
+    )[0]
 
-    result = evaluate_longhaul_readiness(now=NOW, resource_utilization={"ok": False, "findings": [finding.model_dump()]}, **payload)
+    result = evaluate_longhaul_readiness(
+        now=NOW,
+        resource_utilization={"ok": False, "findings": [finding.model_dump()]},
+        **payload,
+    )
 
     assert result["ok"] is False
     assert "worker resource policy has active findings" in result["blockers"]

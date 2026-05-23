@@ -5,6 +5,7 @@ This is intentionally a planning/verification artifact, not a live migration.
 The control plane still accepts historical compatibility values while the
 operator UI derives simple lanes from read models.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,7 +37,11 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
             ),
         },
         "Projects": {
-            "surfaces": ["queue_items.status", "project_decisions.decision_gate_state", "projects.origin_idea_status"],
+            "surfaces": [
+                "queue_items.status",
+                "project_decisions.decision_gate_state",
+                "projects.origin_idea_status",
+            ],
             "states": OrderedDict(
                 {
                     "ready": "Queued project work that can dispatch when policy allows.",
@@ -66,7 +71,10 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
             ),
         },
         "Papers": {
-            "surfaces": ["papers.paper_status", "publication_automation_items.automation_status"],
+            "surfaces": [
+                "papers.paper_status",
+                "publication_automation_items.automation_status",
+            ],
             "states": OrderedDict(
                 {
                     "needed": "Paper-positive work has no draft yet.",
@@ -154,7 +162,10 @@ FINAL_STATE_OVERRIDES: dict[tuple[str, str], str] = {
     ("publication_automation_items.automation_status", "unreviewed"): "finalizing",
     ("publication_automation_items.automation_status", "in_review"): "finalizing",
     ("publication_automation_items.automation_status", "changes_requested"): "blocked",
-    ("publication_automation_items.automation_status", "approved_for_finalization"): "finalizing",
+    (
+        "publication_automation_items.automation_status",
+        "approved_for_finalization",
+    ): "finalizing",
     ("publication_automation_items.automation_status", "rejected"): "archived",
 }
 
@@ -164,7 +175,10 @@ def final_state_for(surface: str, raw_value: str) -> str:
         return FINAL_STATE_OVERRIDES[(surface, raw_value)]
     if surface in {"projects.origin_idea_status"}:
         return "historical"
-    if surface in {"queue_items.last_run_state", "runs.gate_state"} and ("runs.state", raw_value) in FINAL_STATE_OVERRIDES:
+    if (
+        surface in {"queue_items.last_run_state", "runs.gate_state"}
+        and ("runs.state", raw_value) in FINAL_STATE_OVERRIDES
+    ):
         return FINAL_STATE_OVERRIDES[("runs.state", raw_value)]
     raise KeyError(f"missing final state mapping for {surface}.{raw_value!r}")
 
@@ -186,7 +200,13 @@ def iter_mapping_rows() -> list[dict[str, str]]:
             disposition = decision["disposition"]
             action = cleanup_action(disposition)
             target = str(decision.get("replacement") or "")
-            safe = "yes" if action in {"alias", "migrate"} else "no" if action == "retire" else "n/a"
+            safe = (
+                "yes"
+                if action in {"alias", "migrate"}
+                else "no"
+                if action == "retire"
+                else "n/a"
+            )
             rows.append(
                 {
                     "domain": domain,
@@ -224,7 +244,9 @@ def render() -> str:
         "",
     ]
     for domain, config in DOMAIN_TARGETS.items():
-        lines.extend([f"### {domain}", "", "| Final state | Meaning |", "| --- | --- |"])
+        lines.extend(
+            [f"### {domain}", "", "| Final state | Meaning |", "| --- | --- |"]
+        )
         for state, meaning in config["states"].items():
             lines.append(f"| `{state}` | {meaning} |")
         lines.append("")
@@ -257,8 +279,12 @@ def render() -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Render the Enoch state vocabulary reduction plan.")
-    parser.add_argument("--output", type=Path, default=Path("docs/state-vocabulary-reduction-plan.md"))
+    parser = argparse.ArgumentParser(
+        description="Render the Enoch state vocabulary reduction plan."
+    )
+    parser.add_argument(
+        "--output", type=Path, default=Path("docs/state-vocabulary-reduction-plan.md")
+    )
     args = parser.parse_args()
     text = render()
     args.output.parent.mkdir(parents=True, exist_ok=True)

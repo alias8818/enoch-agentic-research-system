@@ -11,6 +11,8 @@ node_modules/
 dashboard/node_modules/
 dashboard/.vite/
 dashboard/*.tsbuildinfo
+dashboard/test-results/
+dashboard/playwright-report/
 *.egg-info/
 .env
 .env.*

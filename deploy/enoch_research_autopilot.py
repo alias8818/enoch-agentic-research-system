@@ -5,6 +5,7 @@ The service is inert unless ENOCH_ENABLE_RESEARCH_AUTOPILOT=1 is set.  A live
 tick is intentionally small: at most one provider request, one promotion, one
 dispatch, one positive-gated paper draft, and one automated finalization.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,7 +19,12 @@ from urllib import error, request
 
 
 def _load_config() -> dict:
-    path = Path(os.environ.get("ENOCH_CONFIG") or os.environ.get("ENOCH_CONTROL_PLANE_CONFIG", "/etc/enoch-control-plane/config.json"))
+    path = Path(
+        os.environ.get("ENOCH_CONFIG")
+        or os.environ.get(
+            "ENOCH_CONTROL_PLANE_CONFIG", "/etc/enoch-control-plane/config.json"
+        )
+    )
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -26,16 +32,24 @@ def _base_url(config: dict) -> str:
     host = str(config.get("listen_host") or "127.0.0.1")
     if host in {"0.0.0.0", "::"}:
         host = "127.0.0.1"
-    return os.environ.get("ENOCH_CONTROL_URL") or f"http://{host}:{int(config.get('listen_port') or 8787)}"
+    return (
+        os.environ.get("ENOCH_CONTROL_URL")
+        or f"http://{host}:{int(config.get('listen_port') or 8787)}"
+    )
 
 
-def _post_json(base_url: str, path: str, token: str, payload: dict, *, timeout: int) -> dict:
+def _post_json(
+    base_url: str, path: str, token: str, payload: dict, *, timeout: int
+) -> dict:
     data = json.dumps(payload).encode("utf-8")
     req = request.Request(
         f"{base_url}{path}",
         data=data,
         method="POST",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
     )
     with request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - local/operator-configured control URL
         return json.loads(resp.read().decode("utf-8"))
@@ -69,7 +83,12 @@ def _control_plane_recovered(base_url: str, token: str) -> bool:
 
 
 def _truthy(name: str, default: str = "0") -> bool:
-    return str(os.environ.get(name, default)).strip().lower() in {"1", "true", "yes", "on"}
+    return str(os.environ.get(name, default)).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _bounded_int(name: str, default: int, lower: int, upper: int) -> int:
@@ -86,12 +105,17 @@ def _provider_model() -> str:
         return explicit
     rotation = [
         item.strip()
-        for item in os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL_ROTATION", "hf:zai-org/GLM-5.1,hf:moonshotai/Kimi-K2.6").split(",")
+        for item in os.environ.get(
+            "ENOCH_RESEARCH_PROVIDER_MODEL_ROTATION",
+            "hf:zai-org/GLM-5.1,hf:moonshotai/Kimi-K2.6",
+        ).split(",")
         if item.strip()
     ]
     if not rotation:
         return "hf:zai-org/GLM-5.1"
-    window_seconds = _bounded_int("ENOCH_RESEARCH_PROVIDER_MODEL_ROTATION_SECONDS", 1200, 60, 86400)
+    window_seconds = _bounded_int(
+        "ENOCH_RESEARCH_PROVIDER_MODEL_ROTATION_SECONDS", 1200, 60, 86400
+    )
     return rotation[int(time.time() // window_seconds) % len(rotation)]
 
 
@@ -118,10 +142,10 @@ def _topic() -> str:
     ]
     if not rotation:
         return ""
-    window_seconds = _bounded_int("ENOCH_RESEARCH_TOPIC_ROTATION_SECONDS", 1800, 60, 86400)
+    window_seconds = _bounded_int(
+        "ENOCH_RESEARCH_TOPIC_ROTATION_SECONDS", 1800, 60, 86400
+    )
     return rotation[int(time.time() // window_seconds) % len(rotation)]
-
-
 
 
 def _repo_root() -> Path:
@@ -166,11 +190,19 @@ def refresh_research_quality_report() -> dict:
     """
 
     if _truthy("ENOCH_RESEARCH_QUALITY_REFRESH_DISABLED"):
-        return {"ok": True, "action": "research_quality_refresh_skipped", "reason": "disabled"}
+        return {
+            "ok": True,
+            "action": "research_quality_refresh_skipped",
+            "reason": "disabled",
+        }
 
     database_url = _database_url()
     if not database_url:
-        return {"ok": False, "action": "research_quality_refresh_skipped", "reason": "missing database URL"}
+        return {
+            "ok": False,
+            "action": "research_quality_refresh_skipped",
+            "reason": "missing database URL",
+        }
 
     output = Path(
         os.environ.get(
@@ -240,11 +272,19 @@ def refresh_research_quality_window_comparison() -> dict:
 
     cutoff = os.environ.get("ENOCH_RESEARCH_QUALITY_WINDOW_CUTOFF", "").strip()
     if not cutoff:
-        return {"ok": True, "action": "research_quality_window_comparison_skipped", "reason": "missing cutoff"}
+        return {
+            "ok": True,
+            "action": "research_quality_window_comparison_skipped",
+            "reason": "missing cutoff",
+        }
 
     database_url = _database_url()
     if not database_url:
-        return {"ok": False, "action": "research_quality_window_comparison_skipped", "reason": "missing database URL"}
+        return {
+            "ok": False,
+            "action": "research_quality_window_comparison_skipped",
+            "reason": "missing database URL",
+        }
 
     output = Path(
         os.environ.get(
@@ -318,11 +358,19 @@ def run_quota_gated_janitor_llm_review() -> dict:
     """
 
     if not _truthy("ENOCH_RESEARCH_JANITOR_LLM_REVIEW_ENABLED"):
-        return {"ok": True, "action": "research_janitor_llm_review_skipped", "reason": "disabled"}
+        return {
+            "ok": True,
+            "action": "research_janitor_llm_review_skipped",
+            "reason": "disabled",
+        }
 
     database_url = _database_url()
     if not database_url:
-        return {"ok": False, "action": "research_janitor_llm_review_skipped", "reason": "missing database URL"}
+        return {
+            "ok": False,
+            "action": "research_janitor_llm_review_skipped",
+            "reason": "missing database URL",
+        }
 
     output = Path(
         os.environ.get(
@@ -337,9 +385,14 @@ def run_quota_gated_janitor_llm_review() -> dict:
         sys.executable,
         str(script),
         "--provider-base-url",
-        os.environ.get("ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"),
+        os.environ.get(
+            "ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"
+        ),
         "--openai-base-url",
-        os.environ.get("ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL", "https://synthetic.int.exe.xyz/openai/v1"),
+        os.environ.get(
+            "ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL",
+            "https://synthetic.int.exe.xyz/openai/v1",
+        ),
         "--model",
         _provider_model(),
         "--batch-size",
@@ -365,7 +418,10 @@ def run_quota_gated_janitor_llm_review() -> dict:
         "--temperature",
         os.environ.get("ENOCH_RESEARCH_JANITOR_LLM_TEMPERATURE", "0.1"),
         "--requested-by",
-        os.environ.get("ENOCH_RESEARCH_JANITOR_LLM_REQUESTED_BY", "systemd:enoch-research-autopilot"),
+        os.environ.get(
+            "ENOCH_RESEARCH_JANITOR_LLM_REQUESTED_BY",
+            "systemd:enoch-research-autopilot",
+        ),
         "--output",
         str(output),
     ]
@@ -375,10 +431,16 @@ def run_quota_gated_janitor_llm_review() -> dict:
         cmd.append("--dry-run")
     if _truthy("ENOCH_RESEARCH_JANITOR_LLM_APPLY_STORED", default=True):
         cmd.append("--apply-stored-decisions")
-        cmd.extend([
-            "--stored-decision-limit",
-            str(_bounded_int("ENOCH_RESEARCH_JANITOR_LLM_STORED_LIMIT", 500, 1, 2000)),
-        ])
+        cmd.extend(
+            [
+                "--stored-decision-limit",
+                str(
+                    _bounded_int(
+                        "ENOCH_RESEARCH_JANITOR_LLM_STORED_LIMIT", 500, 1, 2000
+                    )
+                ),
+            ]
+        )
     display_cmd = [*cmd]
     try:
         proc = subprocess.run(
@@ -392,9 +454,21 @@ def run_quota_gated_janitor_llm_review() -> dict:
             env=_database_url_env(database_url),
         )
     except subprocess.TimeoutExpired:
-        return {"ok": False, "action": "research_janitor_llm_review_failed", "reason": _timeout_reason(timeout + 30), "command": display_cmd, "output": str(output)}
+        return {
+            "ok": False,
+            "action": "research_janitor_llm_review_failed",
+            "reason": _timeout_reason(timeout + 30),
+            "command": display_cmd,
+            "output": str(output),
+        }
     except OSError as exc:
-        return {"ok": False, "action": "research_janitor_llm_review_failed", "reason": f"{type(exc).__name__}: {exc}", "command": display_cmd, "output": str(output)}
+        return {
+            "ok": False,
+            "action": "research_janitor_llm_review_failed",
+            "reason": f"{type(exc).__name__}: {exc}",
+            "command": display_cmd,
+            "output": str(output),
+        }
     payload: dict = {}
     if output.exists():
         try:
@@ -430,7 +504,8 @@ def _provider_malformed_count(result: dict) -> int:
     return sum(
         1
         for text in texts
-        if "provider returned no usable candidate JSON" in text or "Unterminated string" in text
+        if "provider returned no usable candidate JSON" in text
+        or "Unterminated string" in text
     )
 
 
@@ -460,8 +535,18 @@ def append_research_autopilot_history(result: dict) -> dict:
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, sort_keys=True) + "\n")
     except OSError as exc:
-        return {"ok": False, "action": "research_autopilot_history_append_failed", "reason": f"{type(exc).__name__}: {exc}", "path": str(path)}
-    return {"ok": True, "action": "research_autopilot_history_append", "path": str(path), "entry": entry}
+        return {
+            "ok": False,
+            "action": "research_autopilot_history_append_failed",
+            "reason": f"{type(exc).__name__}: {exc}",
+            "path": str(path),
+        }
+    return {
+        "ok": True,
+        "action": "research_autopilot_history_append",
+        "path": str(path),
+        "entry": entry,
+    }
 
 
 def _is_benign_skip_result(result: dict) -> bool:
@@ -474,10 +559,10 @@ def _is_benign_skip_result(result: dict) -> bool:
 
     reason = str(result.get("reason") or "").lower()
     action = str(result.get("action") or "").lower()
-    return (
-        "active worker lane already exists" in reason
-        or action in {"skipped", "noop"}
-    )
+    return "active worker lane already exists" in reason or action in {
+        "skipped",
+        "noop",
+    }
 
 
 def main() -> int:
@@ -487,39 +572,96 @@ def main() -> int:
         return 0 if result.get("ok") else 1
 
     if not _truthy("ENOCH_ENABLE_RESEARCH_AUTOPILOT"):
-        print(json.dumps({"ok": True, "action": "skipped", "reason": "research autopilot disabled; set ENOCH_ENABLE_RESEARCH_AUTOPILOT=1"}, sort_keys=True))
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "action": "skipped",
+                    "reason": "research autopilot disabled; set ENOCH_ENABLE_RESEARCH_AUTOPILOT=1",
+                },
+                sort_keys=True,
+            )
+        )
         return 0
 
     config = _load_config()
-    token = os.environ.get("ENOCH_CONTROL_TOKEN") or str(config.get("control_api_bearer_token") or config.get("omx_inbound_bearer_token") or "")
+    token = os.environ.get("ENOCH_CONTROL_TOKEN") or str(
+        config.get("control_api_bearer_token")
+        or config.get("omx_inbound_bearer_token")
+        or ""
+    )
     if not token:
-        print(json.dumps({"ok": False, "action": "skipped", "reason": "missing control-plane token"}, sort_keys=True), file=sys.stderr)
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "action": "skipped",
+                    "reason": "missing control-plane token",
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
         return 2
 
     wait_for_completion = _truthy("ENOCH_RESEARCH_AUTOPILOT_WAIT", "1")
-    max_wait_seconds = _bounded_int("ENOCH_RESEARCH_AUTOPILOT_MAX_WAIT_SECONDS", 900, 0, 1800)
+    max_wait_seconds = _bounded_int(
+        "ENOCH_RESEARCH_AUTOPILOT_MAX_WAIT_SECONDS", 900, 0, 1800
+    )
     payload = {
         "enabled": True,
         "dry_run": False,
-        "requested_by": os.environ.get("ENOCH_RESEARCH_AUTOPILOT_REQUESTED_BY", "systemd:enoch-research-autopilot"),
+        "requested_by": os.environ.get(
+            "ENOCH_RESEARCH_AUTOPILOT_REQUESTED_BY", "systemd:enoch-research-autopilot"
+        ),
         "model": _provider_model(),
         "topic": _topic(),
-        "temperature": float(os.environ.get("ENOCH_RESEARCH_AUTOPILOT_TEMPERATURE", "0.6")),
-        "generation_max_tokens": _bounded_int("ENOCH_RESEARCH_PROVIDER_MAX_TOKENS", 8000, 1000, 16000),
-        "generation_attempts": _bounded_int("ENOCH_RESEARCH_PROVIDER_ATTEMPTS", 2, 1, 3),
-        "max_provider_requests_per_run": _bounded_int("ENOCH_RESEARCH_AUTOPILOT_PROVIDER_REQUESTS", 1, 0, 1),
-        "max_candidates": _bounded_int("ENOCH_RESEARCH_AUTOPILOT_MAX_CANDIDATES", 5, 1, 10),
-        "max_promotions_per_run": _bounded_int("ENOCH_RESEARCH_AUTOPILOT_PROMOTIONS", 10, 0, 25),
-        "min_queue_depth_per_lane": _bounded_int("ENOCH_RESEARCH_MIN_QUEUE_DEPTH_PER_LANE", 25, 0, 100),
-        "max_dispatches_per_run": _bounded_int("ENOCH_RESEARCH_AUTOPILOT_DISPATCHES", 2, 0, 4) if _truthy("ENOCH_RESEARCH_AUTOPILOT_DISPATCH", "1") else 0,
+        "temperature": float(
+            os.environ.get("ENOCH_RESEARCH_AUTOPILOT_TEMPERATURE", "0.6")
+        ),
+        "generation_max_tokens": _bounded_int(
+            "ENOCH_RESEARCH_PROVIDER_MAX_TOKENS", 8000, 1000, 16000
+        ),
+        "generation_attempts": _bounded_int(
+            "ENOCH_RESEARCH_PROVIDER_ATTEMPTS", 2, 1, 3
+        ),
+        "max_provider_requests_per_run": _bounded_int(
+            "ENOCH_RESEARCH_AUTOPILOT_PROVIDER_REQUESTS", 1, 0, 1
+        ),
+        "max_candidates": _bounded_int(
+            "ENOCH_RESEARCH_AUTOPILOT_MAX_CANDIDATES", 5, 1, 10
+        ),
+        "max_promotions_per_run": _bounded_int(
+            "ENOCH_RESEARCH_AUTOPILOT_PROMOTIONS", 10, 0, 25
+        ),
+        "min_queue_depth_per_lane": _bounded_int(
+            "ENOCH_RESEARCH_MIN_QUEUE_DEPTH_PER_LANE", 25, 0, 100
+        ),
+        "max_dispatches_per_run": _bounded_int(
+            "ENOCH_RESEARCH_AUTOPILOT_DISPATCHES", 2, 0, 4
+        )
+        if _truthy("ENOCH_RESEARCH_AUTOPILOT_DISPATCH", "1")
+        else 0,
         "wait_for_completion": wait_for_completion,
         "max_wait_seconds": max_wait_seconds if wait_for_completion else 0,
-        "poll_interval_seconds": _bounded_int("ENOCH_RESEARCH_AUTOPILOT_POLL_SECONDS", 10, 2, 60),
-        "max_paper_drafts_per_run": 1 if _truthy("ENOCH_RESEARCH_AUTOPILOT_PAPERS", "1") else 0,
-        "max_publication_rewrites_per_run": 1 if _truthy("ENOCH_RESEARCH_AUTOPILOT_PAPERS", "1") else 0,
-        "min_remaining_credits": float(os.environ.get("ENOCH_RESEARCH_AUTOPILOT_MIN_CREDITS", "5.0")),
-        "min_rolling_remaining": _bounded_int("ENOCH_RESEARCH_AUTOPILOT_MIN_ROLLING", 10, 0, 2500),
-        "reserve_requests": _bounded_int("ENOCH_RESEARCH_AUTOPILOT_RESERVE_REQUESTS", 2, 0, 100),
+        "poll_interval_seconds": _bounded_int(
+            "ENOCH_RESEARCH_AUTOPILOT_POLL_SECONDS", 10, 2, 60
+        ),
+        "max_paper_drafts_per_run": 1
+        if _truthy("ENOCH_RESEARCH_AUTOPILOT_PAPERS", "1")
+        else 0,
+        "max_publication_rewrites_per_run": 1
+        if _truthy("ENOCH_RESEARCH_AUTOPILOT_PAPERS", "1")
+        else 0,
+        "min_remaining_credits": float(
+            os.environ.get("ENOCH_RESEARCH_AUTOPILOT_MIN_CREDITS", "5.0")
+        ),
+        "min_rolling_remaining": _bounded_int(
+            "ENOCH_RESEARCH_AUTOPILOT_MIN_ROLLING", 10, 0, 2500
+        ),
+        "reserve_requests": _bounded_int(
+            "ENOCH_RESEARCH_AUTOPILOT_RESERVE_REQUESTS", 2, 0, 100
+        ),
     }
     base_url = _base_url(config)
     try:
@@ -532,32 +674,86 @@ def main() -> int:
         )
     except RemoteDisconnected as exc:
         if _control_plane_recovered(base_url, token):
-            print(json.dumps({
-                "ok": True,
-                "action": "transient_disconnect",
-                "reason": f"control plane disconnected during bounded research tick and recovered: {type(exc).__name__}: {exc}",
-            }, sort_keys=True))
+            print(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "action": "transient_disconnect",
+                        "reason": f"control plane disconnected during bounded research tick and recovered: {type(exc).__name__}: {exc}",
+                    },
+                    sort_keys=True,
+                )
+            )
             return 0
-        print(json.dumps({"ok": False, "action": "failed", "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}"}, sort_keys=True), file=sys.stderr)
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "action": "failed",
+                    "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}",
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
         return 1
     except error.HTTPError as exc:
-        print(json.dumps({"ok": False, "action": "failed", "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}"}, sort_keys=True), file=sys.stderr)
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "action": "failed",
+                    "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}",
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
         return 1
     except error.URLError as exc:
         if _control_plane_recovered(base_url, token):
-            print(json.dumps({
-                "ok": True,
-                "action": "transient_disconnect",
-                "reason": f"control plane unavailable during bounded research tick and recovered: {type(exc).__name__}: {exc}",
-            }, sort_keys=True))
+            print(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "action": "transient_disconnect",
+                        "reason": f"control plane unavailable during bounded research tick and recovered: {type(exc).__name__}: {exc}",
+                    },
+                    sort_keys=True,
+                )
+            )
             return 0
-        print(json.dumps({"ok": False, "action": "failed", "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}"}, sort_keys=True), file=sys.stderr)
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "action": "failed",
+                    "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}",
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
         return 1
     except (TimeoutError, json.JSONDecodeError) as exc:
-        print(json.dumps({"ok": False, "action": "failed", "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}"}, sort_keys=True), file=sys.stderr)
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "action": "failed",
+                    "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}",
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
         return 1
 
-    history_result = append_research_autopilot_history(result) if isinstance(result, dict) else {"ok": False, "action": "research_autopilot_history_append_skipped"}
+    history_result = (
+        append_research_autopilot_history(result)
+        if isinstance(result, dict)
+        else {"ok": False, "action": "research_autopilot_history_append_skipped"}
+    )
     quality_result = refresh_research_quality_report()
     window_result = refresh_research_quality_window_comparison()
     janitor_llm_result = run_quota_gated_janitor_llm_review()

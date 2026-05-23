@@ -140,7 +140,9 @@ SAFE_DISPATCH_ID_PATTERN = r"^[A-Za-z0-9._+-]+$"
 
 class DispatchRequest(BaseModel):
     run_id: str = Field(min_length=1, max_length=180, pattern=SAFE_DISPATCH_ID_PATTERN)
-    project_id: str | None = Field(default=None, max_length=220, pattern=SAFE_DISPATCH_ID_PATTERN)
+    project_id: str | None = Field(
+        default=None, max_length=220, pattern=SAFE_DISPATCH_ID_PATTERN
+    )
     project_dir: str
     prompt_file: str
     mode: Literal["exec", "resume"] = "exec"
@@ -200,7 +202,9 @@ class ProjectDecision(BaseModel):
         "blocked",
         "needs_review",
     ]
-    hypothesis_status: Literal["supported", "unsupported", "mixed", "inconclusive"] = "inconclusive"
+    hypothesis_status: Literal["supported", "unsupported", "mixed", "inconclusive"] = (
+        "inconclusive"
+    )
     confidence: Literal["low", "medium", "high"] = "medium"
     evidence_strength: Literal["weak", "moderate", "strong"] = "moderate"
     novelty_progress: bool = False

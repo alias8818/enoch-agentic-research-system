@@ -25,6 +25,8 @@ jobs:
         run: uv sync --all-extras --dev
       - name: Run Ruff correctness checks
         run: uv run ruff check .
+      - name: Run Ruff format check
+        run: uv run ruff format --check .
       - name: Run Pyright report-only type check
         continue-on-error: true
         run: uv run pyright --level error

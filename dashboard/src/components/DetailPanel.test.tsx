@@ -350,3 +350,45 @@ it('renders event detail entity link from nested payload when top-level ids are 
   expect(screen.getByRole('link', { name: /run: run-9/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-9')
   expect(screen.queryByRole('link', { name: /project:/ })).not.toBeInTheDocument()
 })
+
+it('renders queue alert findings, blockers, and current resolution from event detail', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      rows: [{
+        event_id: 7714,
+        event_type: 'queue_alert.detected',
+        entity_type: 'queue_alert',
+        entity_id: '21bb7dff4bfc277c',
+        created_at: '2026-05-21T20:46:02Z',
+        payload: {
+          fingerprint: '21bb7dff4bfc277c',
+          dispatch_safe: false,
+          dispatch_blockers: ['worker_preflight not ok', 'GB10/VM active-lane conflict'],
+          transient_suppressed_findings: [],
+          findings: [
+            {
+              severity: 'critical',
+              source: 'control_plane_db+worker_preflight',
+              message: 'GB10 reports live/active work but VM control plane has no active row',
+              suggested_action: 'pause dispatch to the affected worker lane and reconcile before starting another job',
+            },
+          ],
+        },
+      }],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      dispatch_safe: true,
+      dispatch_blockers: [],
+    }), { status: 200 }))
+
+  renderWithClient(<DetailPage selection={{ kind: 'event', id: '7714' }} />)
+
+  expect(await screen.findByText('Queue alert detail')).toBeInTheDocument()
+  expect(await screen.findByText('Resolved now')).toBeInTheDocument()
+  expect(screen.getByText('Alert findings')).toBeInTheDocument()
+  expect(screen.getAllByText('GB10 reports live/active work but VM control plane has no active row').length).toBeGreaterThan(0)
+  expect(screen.getAllByText(/worker_preflight not ok; GB10\/VM active-lane conflict/).length).toBeGreaterThan(0)
+  expect(screen.getByText('dispatch safe at event time')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/events?event_id=7714&include_payload=true&page_size=1&sort=recent', expect.any(Object))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/status', expect.any(Object))
+})

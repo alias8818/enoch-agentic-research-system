@@ -117,18 +117,26 @@ def _related_test_excerpt(repo_root: Path, target: Path, *, max_chars: int) -> s
     chunks: list[str] = []
     for candidate in sorted(tests_dir.glob("test_*.py")):
         if stem in candidate.stem or target.parent.name in candidate.stem:
-            chunks.append(f"# {candidate.relative_to(repo_root)}\n{_read_excerpt(candidate, max_chars=max_chars // 2)}")
+            chunks.append(
+                f"# {candidate.relative_to(repo_root)}\n{_read_excerpt(candidate, max_chars=max_chars // 2)}"
+            )
         if sum(len(chunk) for chunk in chunks) >= max_chars:
             break
     return "\n\n".join(chunks)[:max_chars]
 
 
-def write_prompt(repo_root: Path, target: Path, output: Path, *, max_chars: int) -> None:
+def write_prompt(
+    repo_root: Path, target: Path, output: Path, *, max_chars: int
+) -> None:
     target = target.resolve()
     source_excerpt = _read_excerpt(target, max_chars=max_chars)
     test_excerpt = _related_test_excerpt(repo_root, target, max_chars=max_chars)
     prompt = PROMPT_TEMPLATE.format(
-        target_path=str(target.relative_to(repo_root) if target.is_relative_to(repo_root) else target),
+        target_path=str(
+            target.relative_to(repo_root)
+            if target.is_relative_to(repo_root)
+            else target
+        ),
         source_excerpt=source_excerpt,
         test_excerpt=test_excerpt,
     )
@@ -182,7 +190,9 @@ def _execution_status(returncode: int, output: str) -> str:
         "unrecognized arguments:",
         "pytest: error:",
     )
-    if returncode in {3, 4, 5} or any(marker in output for marker in execution_error_markers):
+    if returncode in {3, 4, 5} or any(
+        marker in output for marker in execution_error_markers
+    ):
         return "execution_error"
     proposal_error_markers = (
         "ERROR collecting",
@@ -193,8 +203,14 @@ def _execution_status(returncode: int, output: str) -> str:
         "ModuleNotFoundError:",
         "AttributeError: module 'hypothesis.strategies'",
     )
-    fixture_lookup_error = re.search(r"(?m)^E\s+fixture ['\"][^'\"]+['\"] not found", output) is not None
-    if returncode == 2 or fixture_lookup_error or any(marker in output for marker in proposal_error_markers):
+    fixture_lookup_error = (
+        re.search(r"(?m)^E\s+fixture ['\"][^'\"]+['\"] not found", output) is not None
+    )
+    if (
+        returncode == 2
+        or fixture_lookup_error
+        or any(marker in output for marker in proposal_error_markers)
+    ):
         return "proposal_error"
     return "counterexample_found"
 
@@ -213,7 +229,13 @@ def _agentic_next_action(status: str) -> str:
     return "agent_route_unknown_status_to_quarantine"
 
 
-def execute_proposals(repo_root: Path, proposal_file: Path, report_dir: Path, *, pytest_args: list[str] | None = None) -> dict[str, Any]:
+def execute_proposals(
+    repo_root: Path,
+    proposal_file: Path,
+    report_dir: Path,
+    *,
+    pytest_args: list[str] | None = None,
+) -> dict[str, Any]:
     proposals = load_proposals(proposal_file)
     report_dir.mkdir(parents=True, exist_ok=True)
     timestamp = _artifact_timestamp()
@@ -222,8 +244,22 @@ def execute_proposals(repo_root: Path, proposal_file: Path, report_dir: Path, *,
         test_path = Path(tmp) / "test_agentic_property_proposals.py"
         module_text = _proposal_module(proposals, repo_root)
         test_path.write_text(module_text, encoding="utf-8")
-        cmd = [sys.executable, "-m", "pytest", "-q", str(test_path), *(pytest_args or [])]
-        proc = subprocess.run(cmd, cwd=repo_root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
+        cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            str(test_path),
+            *(pytest_args or []),
+        ]
+        proc = subprocess.run(
+            cmd,
+            cwd=repo_root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=120,
+        )
     status = _execution_status(proc.returncode, proc.stdout)
     next_action = _agentic_next_action(status)
     report_path = report_dir / f"agentic-pbt-{timestamp}.md"
@@ -267,7 +303,9 @@ def execute_proposals(repo_root: Path, proposal_file: Path, report_dir: Path, *,
     }
 
 
-def _write_loop_report(report_dir: Path, timestamp: str, result: dict[str, Any]) -> Path:
+def _write_loop_report(
+    report_dir: Path, timestamp: str, result: dict[str, Any]
+) -> Path:
     path = report_dir / f"agentic-pbt-loop-{timestamp}.md"
     path.write_text(
         "\n".join(
@@ -313,7 +351,9 @@ def run_autonomous_loop(
     timestamp = _artifact_timestamp()
     bounded_attempts = max(1, int(max_attempts))
     for proposal_file in proposal_files[:bounded_attempts]:
-        attempt = execute_proposals(repo_root, proposal_file.resolve(), report_dir, pytest_args=pytest_args)
+        attempt = execute_proposals(
+            repo_root, proposal_file.resolve(), report_dir, pytest_args=pytest_args
+        )
         attempt["proposal_file"] = str(proposal_file)
         attempts.append(attempt)
         if attempt["status"] == "proposal_error":
@@ -353,7 +393,9 @@ def synthetic_budget_preflight(
     min_rolling_remaining: int,
 ) -> dict[str, Any]:
     quotas_url = f"{base_url.rstrip('/')}/v2/quotas"
-    payload = research_provider_budget.fetch_json(quotas_url, api_key="" if no_auth else api_key, timeout=timeout)
+    payload = research_provider_budget.fetch_json(
+        quotas_url, api_key="" if no_auth else api_key, timeout=timeout
+    )
     result = research_provider_budget.synthetic_budget_status(
         payload,
         min_remaining_credits=min_remaining_credits,
@@ -384,13 +426,19 @@ def generate_provider_proposal(
     body = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "Return only valid JSON. No markdown fences. No prose."},
+            {
+                "role": "system",
+                "content": "Return only valid JSON. No markdown fences. No prose.",
+            },
             {"role": "user", "content": prompt_text},
         ],
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
-    safe_url = validate_http_url(openai_base_url.rstrip("/") + "/chat/completions", field_name="agentic pbt provider url")
+    safe_url = validate_http_url(
+        openai_base_url.rstrip("/") + "/chat/completions",
+        field_name="agentic pbt provider url",
+    )
     req = urllib.request.Request(
         safe_url,
         data=json.dumps(body).encode("utf-8"),
@@ -399,31 +447,76 @@ def generate_provider_proposal(
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read().decode("utf-8"))
-    content = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+    content = ((data.get("choices") or [{}])[0].get("message") or {}).get(
+        "content"
+    ) or ""
     proposal = json.loads(content)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(proposal, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return {"ok": True, "proposal_file": str(output), "model": model, "response_id": data.get("id", "")}
+    output.write_text(
+        json.dumps(proposal, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return {
+        "ok": True,
+        "proposal_file": str(output),
+        "model": model,
+        "response_id": data.get("id", ""),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-    parser.add_argument("--target", type=Path, required=True, help="Python module or script to analyze")
-    parser.add_argument("--prompt-output", type=Path, default=Path("artifacts/agentic-pbt-prompt.md"))
+    parser.add_argument(
+        "--target", type=Path, required=True, help="Python module or script to analyze"
+    )
+    parser.add_argument(
+        "--prompt-output", type=Path, default=Path("artifacts/agentic-pbt-prompt.md")
+    )
     parser.add_argument("--proposal-file", type=Path)
     parser.add_argument("--loop-proposal-file", type=Path, action="append", default=[])
-    parser.add_argument("--report-dir", type=Path, default=Path("artifacts/agentic-pbt"))
+    parser.add_argument(
+        "--report-dir", type=Path, default=Path("artifacts/agentic-pbt")
+    )
     parser.add_argument("--max-chars", type=int, default=12000)
-    parser.add_argument("--execute-proposals", action="store_true", help="Run Python test code from --proposal-file")
-    parser.add_argument("--autonomous-loop", action="store_true", help="run bounded operator-free proposal execution loop")
+    parser.add_argument(
+        "--execute-proposals",
+        action="store_true",
+        help="Run Python test code from --proposal-file",
+    )
+    parser.add_argument(
+        "--autonomous-loop",
+        action="store_true",
+        help="run bounded operator-free proposal execution loop",
+    )
     parser.add_argument("--max-attempts", type=int, default=3)
-    parser.add_argument("--generate-provider-proposal", action="store_true", help="generate one proposal via an OpenAI-compatible provider")
-    parser.add_argument("--provider-base-url", default=os.environ.get("ENOCH_AGENTIC_PBT_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"))
-    parser.add_argument("--openai-base-url", default=os.environ.get("ENOCH_AGENTIC_PBT_OPENAI_BASE_URL", "https://synthetic.int.exe.xyz/openai/v1"))
-    parser.add_argument("--provider-no-auth", action="store_true", help="use exe.dev HTTP proxy auth injection instead of local API key")
+    parser.add_argument(
+        "--generate-provider-proposal",
+        action="store_true",
+        help="generate one proposal via an OpenAI-compatible provider",
+    )
+    parser.add_argument(
+        "--provider-base-url",
+        default=os.environ.get(
+            "ENOCH_AGENTIC_PBT_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"
+        ),
+    )
+    parser.add_argument(
+        "--openai-base-url",
+        default=os.environ.get(
+            "ENOCH_AGENTIC_PBT_OPENAI_BASE_URL",
+            "https://synthetic.int.exe.xyz/openai/v1",
+        ),
+    )
+    parser.add_argument(
+        "--provider-no-auth",
+        action="store_true",
+        help="use exe.dev HTTP proxy auth injection instead of local API key",
+    )
     parser.add_argument("--provider-api-key-env", default="SYNTHETIC_API_KEY")
-    parser.add_argument("--provider-model", default=os.environ.get("ENOCH_AGENTIC_PBT_MODEL", "hf:zai-org/GLM-5.1"))
+    parser.add_argument(
+        "--provider-model",
+        default=os.environ.get("ENOCH_AGENTIC_PBT_MODEL", "hf:zai-org/GLM-5.1"),
+    )
     parser.add_argument("--provider-temperature", type=float, default=0.2)
     parser.add_argument("--provider-max-tokens", type=int, default=6000)
     parser.add_argument("--provider-timeout", type=int, default=180)
@@ -435,13 +528,21 @@ def main(argv: list[str] | None = None) -> int:
         passthrough = passthrough[1:]
 
     repo_root = args.repo_root.resolve()
-    target = (repo_root / args.target).resolve() if not args.target.is_absolute() else args.target.resolve()
+    target = (
+        (repo_root / args.target).resolve()
+        if not args.target.is_absolute()
+        else args.target.resolve()
+    )
     if not target.exists() or target.suffix != ".py":
         raise SystemExit(f"target must be an existing Python file: {target}")
 
     report_dir = (repo_root / args.report_dir).resolve()
     if args.generate_provider_proposal:
-        api_key = "" if args.provider_no_auth else os.environ.get(args.provider_api_key_env, "")
+        api_key = (
+            ""
+            if args.provider_no_auth
+            else os.environ.get(args.provider_api_key_env, "")
+        )
         if not api_key and not args.provider_no_auth:
             result = {
                 "ok": False,
@@ -520,14 +621,22 @@ def main(argv: list[str] | None = None) -> int:
             }
             print(json.dumps(result, indent=2, sort_keys=True))
             return 1
-        print(json.dumps({"status": "provider_proposal_written", "budget": budget, **generated}, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {"status": "provider_proposal_written", "budget": budget, **generated},
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
 
     if args.autonomous_loop:
         if not args.loop_proposal_file and args.proposal_file:
             args.loop_proposal_file.append(args.proposal_file)
         if not args.loop_proposal_file:
-            raise SystemExit("--autonomous-loop requires --loop-proposal-file, --proposal-file, or --generate-provider-proposal")
+            raise SystemExit(
+                "--autonomous-loop requires --loop-proposal-file, --proposal-file, or --generate-provider-proposal"
+            )
         result = run_autonomous_loop(
             repo_root,
             target,
@@ -537,16 +646,35 @@ def main(argv: list[str] | None = None) -> int:
             pytest_args=passthrough,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
-        return 1 if result["status"] in {"counterexample_found", "execution_error", "max_attempts_exhausted"} else 0
+        return (
+            1
+            if result["status"]
+            in {"counterexample_found", "execution_error", "max_attempts_exhausted"}
+            else 0
+        )
 
     if args.proposal_file and args.execute_proposals:
-        result = execute_proposals(repo_root, args.proposal_file.resolve(), report_dir, pytest_args=passthrough)
+        result = execute_proposals(
+            repo_root, args.proposal_file.resolve(), report_dir, pytest_args=passthrough
+        )
         print(json.dumps(result, indent=2, sort_keys=True))
-        return 1 if result["status"] in {"counterexample_found", "execution_error"} else 0
+        return (
+            1 if result["status"] in {"counterexample_found", "execution_error"} else 0
+        )
 
-    output = (repo_root / args.prompt_output).resolve() if not args.prompt_output.is_absolute() else args.prompt_output.resolve()
+    output = (
+        (repo_root / args.prompt_output).resolve()
+        if not args.prompt_output.is_absolute()
+        else args.prompt_output.resolve()
+    )
     write_prompt(repo_root, target, output, max_chars=args.max_chars)
-    print(json.dumps({"status": "prompt_written", "prompt_path": str(output)}, indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            {"status": "prompt_written", "prompt_path": str(output)},
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0
 
 

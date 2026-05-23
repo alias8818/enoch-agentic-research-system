@@ -278,6 +278,72 @@ function RecordFields({ kind, id, payload, presentation }: { kind: DetailKind; i
   return <FieldGrid fields={fields} />
 }
 
+function isQueueAlertEvent(payload: Record<string, unknown>): boolean {
+  return stringifyValue(payload.event_type).toLowerCase() === 'queue_alert.detected'
+}
+
+function listValues(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => stringifyValue(item)).filter((item) => item !== '—')
+}
+
+function QueueAlertDetails({ payload }: { payload: Record<string, unknown> }) {
+  const isQueueAlert = isQueueAlertEvent(payload)
+  const nested = record(payload.payload)
+  const findings = recordArray(nested.findings)
+  const blockers = listValues(nested.dispatch_blockers)
+  const suppressed = recordArray(nested.transient_suppressed_findings)
+  const status = useQuery({
+    queryKey: ['queue-alert-current-status', stringifyValue(firstValue(payload.event_id, payload.id, nested.fingerprint))],
+    queryFn: () => apiGet<Record<string, unknown>>('/control/api/status'),
+    enabled: isQueueAlert,
+    retry: false,
+  })
+  if (!isQueueAlert) return null
+  const currentBlockers = listValues(status.data?.dispatch_blockers)
+  const resolvedNow = status.isSuccess && Boolean(status.data?.dispatch_safe) && currentBlockers.length === 0
+  const currentState = status.isLoading ? 'Checking current status…' : status.isError ? 'Current status unavailable' : resolvedNow ? 'Resolved now' : 'Still blocking now'
+  return (
+    <section className="detail-related queue-alert-detail" aria-label="Queue alert detail">
+      <h4>Queue alert detail</h4>
+      <dl className="detail-field-grid">
+        <div className="detail-field">
+          <dt>current alert state</dt>
+          <dd>{currentState}</dd>
+        </div>
+        <div className="detail-field">
+          <dt>event-time dispatch safe</dt>
+          <dd>{stringifyValue(nested.dispatch_safe)}</dd>
+        </div>
+        <div className="detail-field">
+          <dt>event-time blockers</dt>
+          <dd>{blockers.length ? blockers.join('; ') : 'none'}</dd>
+        </div>
+        <div className="detail-field">
+          <dt>current blockers</dt>
+          <dd>{status.isSuccess ? (currentBlockers.length ? currentBlockers.join('; ') : 'none') : '—'}</dd>
+        </div>
+        <div className="detail-field">
+          <dt>suppressed transient findings</dt>
+          <dd>{suppressed.length}</dd>
+        </div>
+      </dl>
+      {findings.length ? (
+        <div className="detail-related-list">
+          <strong>Alert findings</strong>
+          {findings.slice(0, 5).map((finding, index) => (
+            <div key={`queue-alert-finding-${index}`} className="detail-related-row">
+              <strong>{stringifyValue(firstValue(finding.message, finding.source, `finding ${index + 1}`))}</strong>
+              <span>{stringifyValue(firstValue(finding.severity, 'unknown'))} · {stringifyValue(firstValue(finding.source, 'unknown source'))}</span>
+              {stringifyValue(finding.suggested_action) !== '—' ? <span>{stringifyValue(finding.suggested_action)}</span> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 function StructuredDetail({ kind, id, payload, presentation = 'panel', operatorSummary: operatorSummaryProp }: { kind: DetailKind; id: string; payload: Record<string, unknown>; presentation?: 'panel' | 'page'; operatorSummary?: DetailOperatorSummary }) {
   const title = detailTitle(kind, payload, id)
   const summary = stringifyValue(firstValue(payload.summary, record(payload.project).abstract, record(payload.paper).summary, record(payload.paper).abstract))
@@ -297,6 +363,7 @@ function StructuredDetail({ kind, id, payload, presentation = 'panel', operatorS
       </section>
       <OperatorDetailSummary state={operatorSummary.state} context={operatorSummary.context} next={operatorSummary.next} />
       <OperatorQuestionSections sections={operatorSummary.sections} recentActivity={operatorSummary.recentActivity} actionNeeded={operatorSummary.actionNeeded} />
+      {kind === 'event' ? <QueueAlertDetails payload={payload} /> : null}
       {kind === 'paper' ? <PaperArtifacts id={id} payload={payload} /> : null}
       <RelatedDetails payload={payload} />
       {presentation === 'page' ? <RecordFields kind={kind} id={id} payload={payload} presentation={presentation} /> : null}

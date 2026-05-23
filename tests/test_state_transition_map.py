@@ -1,6 +1,9 @@
 from pathlib import Path
 
-from enoch_control_plane.control_plane.read_models import operator_counts_from_rows, operator_stage_for_record
+from enoch_control_plane.control_plane.read_models import (
+    operator_counts_from_rows,
+    operator_stage_for_record,
+)
 
 DOC = Path("docs/state-transition-map.md")
 
@@ -74,11 +77,15 @@ def test_transition_map_matches_decision_gate_operator_invariants() -> None:
         "followup_success_threshold": "beat baseline",
         "followup_stop_condition": "stop on miss",
     }
-    launched_followup = operator_stage_for_record({**followup_row, "followup_launched": True})
+    launched_followup = operator_stage_for_record(
+        {**followup_row, "followup_launched": True}
+    )
     assert launched_followup["operator_stage"] == "complete_no_paper"
     assert launched_followup["operator_detail_stage"] == "run_complete_no_paper"
 
-    unbounded_followup = operator_stage_for_record({**followup_row, "followup_required_evidence": ["baseline"]})
+    unbounded_followup = operator_stage_for_record(
+        {**followup_row, "followup_required_evidence": ["baseline"]}
+    )
     assert unbounded_followup["operator_stage"] == "complete_no_paper"
     assert unbounded_followup["operator_detail_stage"] == "run_complete_no_paper"
 
@@ -86,13 +93,17 @@ def test_transition_map_matches_decision_gate_operator_invariants() -> None:
     assert capped_followup["operator_stage"] == "complete_no_paper"
     assert capped_followup["operator_detail_stage"] == "run_complete_no_paper"
 
-    source_capped_followup = operator_stage_for_record({**followup_row, "followup_depth": 1, "source_followup_depth": 4})
+    source_capped_followup = operator_stage_for_record(
+        {**followup_row, "followup_depth": 1, "source_followup_depth": 4}
+    )
     assert source_capped_followup["operator_stage"] == "complete_no_paper"
     assert source_capped_followup["operator_detail_stage"] == "run_complete_no_paper"
 
 
 def test_transition_map_matches_publication_readiness_invariants() -> None:
-    draft_only = operator_stage_for_record({"paper_id": "p1", "paper_status": "publication_draft"})
+    draft_only = operator_stage_for_record(
+        {"paper_id": "p1", "paper_status": "publication_draft"}
+    )
     assert draft_only["operator_stage"] == "automate_publication"
     assert draft_only["operator_detail_stage"] == "finalization_needed"
 

@@ -28,13 +28,24 @@ def build_dispatch_graph(store: ControlPlaneStore):
 
     def load_control_flags(state: DispatchGraphState) -> DispatchGraphState:
         flags = store.flags()
-        return {**state, "queue_paused": flags.queue_paused, "reason": flags.pause_reason}
+        return {
+            **state,
+            "queue_paused": flags.queue_paused,
+            "reason": flags.pause_reason,
+        }
 
     def paused(state: DispatchGraphState) -> DispatchGraphState:
         action, candidate, event_id, reason = store.dispatch_next_dry_run(
             requested_by=state.get("requested_by") or "operator"
         )
-        return {**state, "action": action, "candidate": candidate, "event_id": event_id, "reason": reason, "active_count": len(store.active_items())}
+        return {
+            **state,
+            "action": action,
+            "candidate": candidate,
+            "event_id": event_id,
+            "reason": reason,
+            "active_count": len(store.active_items()),
+        }
 
     def assert_open_lane(state: DispatchGraphState) -> DispatchGraphState:
         return {**state, "active_count": len(store.active_items())}
@@ -44,7 +55,13 @@ def build_dispatch_graph(store: ControlPlaneStore):
             return state
         candidate = store.next_dispatch_candidate()
         if not candidate:
-            return {**state, "action": "noop", "reason": "no queued candidate", "candidate": None, "event_id": None}
+            return {
+                **state,
+                "action": "noop",
+                "reason": "no queued candidate",
+                "candidate": None,
+                "event_id": None,
+            }
         return {**state, "candidate": candidate}
 
     def record_dry_run_dispatch(state: DispatchGraphState) -> DispatchGraphState:
@@ -53,9 +70,18 @@ def build_dispatch_graph(store: ControlPlaneStore):
         action, candidate, event_id, reason = store.dispatch_next_dry_run(
             requested_by=state.get("requested_by") or "operator"
         )
-        return {**state, "action": action, "candidate": candidate, "event_id": event_id, "reason": reason, "active_count": len(store.active_items())}
+        return {
+            **state,
+            "action": action,
+            "candidate": candidate,
+            "event_id": event_id,
+            "reason": reason,
+            "active_count": len(store.active_items()),
+        }
 
-    def route_after_flags(state: DispatchGraphState) -> Literal["paused", "assert_open_lane"]:
+    def route_after_flags(
+        state: DispatchGraphState,
+    ) -> Literal["paused", "assert_open_lane"]:
         return "paused" if state.get("queue_paused") else "assert_open_lane"
 
     graph = StateGraph(DispatchGraphState)

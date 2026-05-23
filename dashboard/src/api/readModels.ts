@@ -10,6 +10,7 @@ export type PagedRows<T> = {
   }
   generated_at?: string
   counts?: Record<string, unknown>
+  operator_summary?: string
 }
 
 export type QueueListRow = {
