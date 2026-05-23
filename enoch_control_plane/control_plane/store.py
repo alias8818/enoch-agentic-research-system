@@ -4163,6 +4163,7 @@ class ControlPlaneStore:
     def dispatch_next_dry_run(
         self, *, requested_by: str
     ) -> tuple[str, dict[str, Any] | None, int | None, str]:
+        # requested_by is unused: SQLite dry-run does not append dispatch events.
         flags = self.flags()
         if flags.queue_paused:
             return "paused", None, None, flags.pause_reason or "queue paused"
