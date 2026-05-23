@@ -29,16 +29,6 @@ def _is_benign_project_process(cmdline: str) -> bool:
 _ALLOWED_REAP_SIGNALS = frozenset({signal.SIGTERM, signal.SIGKILL})
 
 
-def _send_reap_signal_to_process(proc: object, sig: int) -> None:
-    """Deliver an allowed reaper signal via psutil on a resolved process handle."""
-    if sig == signal.SIGTERM:
-        proc.terminate()
-    elif sig == signal.SIGKILL:
-        proc.kill()
-    else:
-        raise ValueError(f"unsupported stale-process reaper signal: {sig}")
-
-
 def _safe_send_signal(
     pid: int,
     sig: int,
@@ -49,21 +39,21 @@ def _safe_send_signal(
     """Send ``sig`` to ``pid`` only after PID/signal guards and identity checks.
 
     Guards against broadcast kills (``pid <= 0``), unexpected signals, and PID
-    reuse when ``tracked`` carries a ``create_time`` anchor. Signals are sent
-    through psutil on a validated process handle, not raw ``os.kill``.
+    reuse when ``tracked`` carries a ``create_time`` anchor.
     """
     if pid <= 0:
         raise ProcessLookupError(pid)
     if sig not in _ALLOWED_REAP_SIGNALS:
         raise ValueError(f"unsupported stale-process reaper signal: {sig}")
-    if psutil is None:
-        raise ProcessLookupError(pid)
-    if tracked is None or tracked.create_time is None:
-        raise ProcessLookupError(pid)
-    active_proc = proc if proc is not None else psutil.Process(pid)
-    if ProcessTracker._same_process(active_proc, tracked) is not True:
-        raise ProcessLookupError(pid)
-    _send_reap_signal_to_process(active_proc, sig)
+    if tracked is not None and tracked.create_time is not None:
+        active_proc = proc
+        if active_proc is None:
+            if psutil is None:
+                raise ProcessLookupError(pid)
+            active_proc = psutil.Process(pid)
+        if ProcessTracker._same_process(active_proc, tracked) is not True:
+            raise ProcessLookupError(pid)
+    os.kill(pid, sig)
 
 
 class ProcessTracker:
@@ -346,8 +336,12 @@ class ProcessTracker:
 
         term_signaled: list[ProcessInfo] = []
         for info in candidates:
+            pid = info.pid
+            # S4828: never signal pid <= 0 (pid 0 is the process group).
+            if pid <= 0:
+                continue
             try:
-                _safe_send_signal(info.pid, signal.SIGTERM, tracked=info)
+                _safe_send_signal(pid, signal.SIGTERM, tracked=info)
                 term_signaled.append(info)
             except (ProcessLookupError, PermissionError, OSError, ValueError):
                 continue
