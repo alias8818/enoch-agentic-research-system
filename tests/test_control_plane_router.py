@@ -14499,6 +14499,50 @@ def test_paper_evidence_and_auto_reconcile_extracted_from_giant():
     assert callable(_auto_reconcile_stale_callback_ready)
 
 
+def test_create_control_plane_router_delegates_route_registration():
+    """AGENTS.md test-first for 4th-lowest OPEN S3776 (create_control_plane_router).
+
+    The factory only builds the router and store; nested handlers live in
+    _register_control_plane_routes so Sonar cognitive complexity stays on the
+    registrar, not the public entrypoint.
+    """
+    import ast
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def _register_control_plane_routes(" in src
+
+    module = ast.parse(src)
+    factory = next(
+        node
+        for node in module.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "create_control_plane_router"
+    )
+    body_lines = {stmt.lineno for stmt in factory.body}
+    assert body_lines, "create_control_plane_router must have a body"
+    assert max(body_lines) - min(body_lines) <= 8, (
+        "create_control_plane_router should remain a thin orchestrator"
+    )
+    assert any(
+        isinstance(stmt, ast.Expr)
+        and isinstance(stmt.value, ast.Call)
+        and isinstance(stmt.value.func, ast.Name)
+        and stmt.value.func.id == "_register_control_plane_routes"
+        for stmt in factory.body
+    )
+
+    from enoch_control_plane.control_plane.router import (
+        _register_control_plane_routes,
+        create_control_plane_router,
+    )
+
+    assert callable(create_control_plane_router)
+    assert callable(_register_control_plane_routes)
+
+
 def test_router_no_redundant_response_model_fastapi_style():
     """AGENTS.md test-first validator for top BLOCKERs (S8409/S8410, ~49 instances in router.py).
 
