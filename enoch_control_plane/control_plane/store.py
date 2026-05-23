@@ -1058,6 +1058,22 @@ REVIEW_CHECKLIST_ITEMS = tuple(
     item_id for item_id, _label, _required in REVIEW_CHECKLIST_DEFINITION
 )
 CHECKLIST_ITEM_STATUSES = {"pending", "pass", "fail", "accepted_risk", "not_applicable"}
+_FINALIZATION_PACKAGE_ARTIFACT_FIELDS = (
+    "draft_markdown_path",
+    "draft_latex_path",
+    "evidence_bundle_path",
+    "claim_ledger_path",
+    "manifest_path",
+)
+_AUTOMATED_FINALIZATION_BLOCKED_STATUSES = frozenset(
+    {
+        ReviewStatus.BLOCKED.value,
+        ReviewStatus.CHANGES_REQUESTED.value,
+        ReviewStatus.IN_REVIEW.value,
+        ReviewStatus.REJECTED.value,
+        ReviewStatus.UNREVIEWED.value,
+    }
+)
 SYSTEM_REVIEW_STATUSES = {
     ReviewStatus.QUEUED.value,
     ReviewStatus.UNREVIEWED.value,
@@ -3159,80 +3175,60 @@ class ControlPlaneStore:
         except OSError:
             return {}
 
-    def prepare_paper_review_finalization_package(
+    def _replay_paper_review_finalization_if_any(
         self,
         paper_id: str,
         request: PaperReviewPrepareFinalizationRequest,
-        *,
-        require_approval: bool = True,
-    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
-        row = self._require_paper_review(paper_id)
-        payload = self._mutation_payload(request, action="prepare_finalization_package")
-        payload.update(
-            {
-                "to_status": ReviewStatus.FINALIZED.value,
-                "require_approval": require_approval,
-            }
+        payload: dict[str, Any],
+    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]] | None:
+        if request.dry_run:
+            return None
+        replayed_event_id = self._replayed_event_id(
+            request.idempotency_key,
+            payload,
+            event_type="paper_review.finalization_package_prepared",
+            entity_type="paper_review",
+            entity_id=paper_id,
         )
-        if not request.dry_run:
-            replayed_event_id = self._replayed_event_id(
-                request.idempotency_key,
-                payload,
-                event_type="paper_review.finalization_package_prepared",
-                entity_type="paper_review",
-                entity_id=paper_id,
-            )
-            if replayed_event_id is not None:
-                item = self.paper_review_row(paper_id) or {}
-                return (
-                    replayed_event_id,
-                    False,
-                    item,
-                    _text(item.get("finalization_package_path")),
-                    self._load_manifest(_text(item.get("finalization_package_path"))),
-                )
-        current = _normal(row.get("review_status"))
-        if (
-            not request.dry_run
-            and require_approval
-            and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value
-        ):
+        if replayed_event_id is None:
+            return None
+        item = self.paper_review_row(paper_id) or {}
+        path = _text(item.get("finalization_package_path"))
+        return replayed_event_id, False, item, path, self._load_manifest(path)
+
+    def _ensure_finalization_review_status(
+        self,
+        current: str,
+        *,
+        require_approval: bool,
+        dry_run: bool,
+    ) -> None:
+        if dry_run:
+            return
+        if require_approval and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value:
             raise ValueError(
                 "legacy approval-gated finalization requires internal approved_for_finalization state"
             )
-        if (
-            not request.dry_run
-            and not require_approval
-            and current
-            in {
-                ReviewStatus.BLOCKED.value,
-                ReviewStatus.CHANGES_REQUESTED.value,
-                ReviewStatus.IN_REVIEW.value,
-                ReviewStatus.REJECTED.value,
-                ReviewStatus.UNREVIEWED.value,
-            }
-        ):
+        if not require_approval and current in _AUTOMATED_FINALIZATION_BLOCKED_STATUSES:
             raise ValueError(
                 f"automated finalization cannot publish paper reviews with review_status={current}"
             )
-        paper = self.paper_row(paper_id)
-        if paper is None:
-            raise ValueError("paper row not found")
-        checklist = self.paper_review_checklist(paper_id)
-        artifacts = [
+
+    def _collect_finalization_artifacts(
+        self, paper: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        return [
             self._resolved_artifact(paper, field)
-            for field in (
-                "draft_markdown_path",
-                "draft_latex_path",
-                "evidence_bundle_path",
-                "claim_ledger_path",
-                "manifest_path",
-            )
+            for field in _FINALIZATION_PACKAGE_ARTIFACT_FIELDS
         ]
+
+    def _check_finalization_artifact_gates(
+        self, artifacts: list[dict[str, Any]], *, dry_run: bool
+    ) -> list[str]:
         unreadable = [
             artifact["field"] for artifact in artifacts if not artifact["readable"]
         ]
-        if unreadable and not request.dry_run:
+        if unreadable and not dry_run:
             raise ValueError(
                 f"finalization package requires readable artifacts: {', '.join(unreadable)}"
             )
@@ -3241,19 +3237,27 @@ class ControlPlaneStore:
             if unreadable
             else self._semantic_finalization_artifact_failures(artifacts)
         )
-        if semantic_failures and not request.dry_run:
+        if semantic_failures and not dry_run:
             raise ValueError(
                 f"semantic evidence gate failed: {', '.join(semantic_failures)}"
             )
-        if not request.dry_run and current == ReviewStatus.FINALIZED.value:
-            item = self.paper_review_row(paper_id) or {}
-            path = _text(item.get("finalization_package_path"))
-            return None, False, item, path, self._load_manifest(path)
-        package_path = self._finalization_manifest_path(
-            paper_id, request.idempotency_key
-        )
-        now = utc_now()
-        manifest = {
+        return semantic_failures
+
+    def _build_finalization_package_manifest(
+        self,
+        *,
+        paper_id: str,
+        request: PaperReviewPrepareFinalizationRequest,
+        paper: dict[str, Any],
+        row: dict[str, Any],
+        current: str,
+        require_approval: bool,
+        artifacts: list[dict[str, Any]],
+        semantic_failures: list[str],
+        checklist: list[dict[str, Any]],
+        now: str,
+    ) -> dict[str, Any]:
+        return {
             "schema": "paper_finalization_package_v1",
             "generated_at": now,
             "dry_run": request.dry_run,
@@ -3277,14 +3281,16 @@ class ControlPlaneStore:
             "review_item": self.paper_review_row(paper_id) or {},
             "no_submission_side_effects": True,
         }
-        if request.dry_run:
-            return (
-                None,
-                False,
-                self.paper_review_row(paper_id) or {},
-                str(package_path),
-                manifest,
-            )
+
+    def _persist_finalization_package(
+        self,
+        paper_id: str,
+        request: PaperReviewPrepareFinalizationRequest,
+        payload: dict[str, Any],
+        package_path: Path,
+        manifest: dict[str, Any],
+        now: str,
+    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
         previous_manifest_exists, previous_manifest_content = _existing_file_snapshot(
             package_path,
             label="finalization package manifest",
@@ -3320,6 +3326,69 @@ class ControlPlaneStore:
             raise
         item = self.paper_review_row(paper_id) or {}
         return event_id, inserted, item, str(package_path), manifest
+
+    def prepare_paper_review_finalization_package(
+        self,
+        paper_id: str,
+        request: PaperReviewPrepareFinalizationRequest,
+        *,
+        require_approval: bool = True,
+    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
+        row = self._require_paper_review(paper_id)
+        payload = self._mutation_payload(request, action="prepare_finalization_package")
+        payload.update(
+            {
+                "to_status": ReviewStatus.FINALIZED.value,
+                "require_approval": require_approval,
+            }
+        )
+        replay = self._replay_paper_review_finalization_if_any(
+            paper_id, request, payload
+        )
+        if replay is not None:
+            return replay
+        current = _normal(row.get("review_status"))
+        self._ensure_finalization_review_status(
+            current, require_approval=require_approval, dry_run=request.dry_run
+        )
+        paper = self.paper_row(paper_id)
+        if paper is None:
+            raise ValueError("paper row not found")
+        artifacts = self._collect_finalization_artifacts(paper)
+        semantic_failures = self._check_finalization_artifact_gates(
+            artifacts, dry_run=request.dry_run
+        )
+        if not request.dry_run and current == ReviewStatus.FINALIZED.value:
+            item = self.paper_review_row(paper_id) or {}
+            path = _text(item.get("finalization_package_path"))
+            return None, False, item, path, self._load_manifest(path)
+        package_path = self._finalization_manifest_path(
+            paper_id, request.idempotency_key
+        )
+        now = utc_now()
+        manifest = self._build_finalization_package_manifest(
+            paper_id=paper_id,
+            request=request,
+            paper=paper,
+            row=row,
+            current=current,
+            require_approval=require_approval,
+            artifacts=artifacts,
+            semantic_failures=semantic_failures,
+            checklist=self.paper_review_checklist(paper_id),
+            now=now,
+        )
+        if request.dry_run:
+            return (
+                None,
+                False,
+                self.paper_review_row(paper_id) or {},
+                str(package_path),
+                manifest,
+            )
+        return self._persist_finalization_package(
+            paper_id, request, payload, package_path, manifest, now
+        )
 
     def event_rows(
         self,
