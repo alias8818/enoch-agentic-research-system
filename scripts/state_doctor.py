@@ -565,6 +565,65 @@ def run_doctor(
     return report
 
 
+def _print_human_control_plane(control: dict[str, Any]) -> None:
+    if not control.get("checked"):
+        return
+    overview = control.get("overview") or {}
+    pipeline = overview.get("paper_pipeline") or {}
+    print(f"  control overview: {'OK' if control.get('overview_ok') else 'FAIL'}")
+    print(
+        "  paper pipeline: write_needed={write_needed} raw_completed_no_paper_candidates={raw_completed_no_paper_candidates} "
+        "not_writable_by_decision_gate={not_writable_by_decision_gate} finalize_needed={finalize_needed} publish_ready={publish_ready}".format(
+            **{key: pipeline.get(key, "?") for key in REQUIRED_PAPER_PIPELINE_KEYS}
+        )
+    )
+    investigation = overview.get("investigation_pipeline") or {}
+    print(
+        "  investigation pipeline: followup_needed={followup_needed} max_followup_depth={max_followup_depth}".format(
+            **{
+                key: investigation.get(key, "?")
+                for key in REQUIRED_INVESTIGATION_PIPELINE_KEYS
+            }
+        )
+    )
+    print(
+        f"  operator_count keys: {', '.join(overview.get('operator_count_keys') or [])}"
+    )
+
+
+def _print_human_legacy_context(legacy_context: dict[str, Any]) -> None:
+    if not legacy_context.get("checked"):
+        return
+    active = legacy_context.get("active_runtime_drift") or []
+    print(
+        f"  legacy runtime context: {'OK' if not active else 'FAIL'} ({len(active)} active drift surface(s))"
+    )
+    for surface, row in sorted((legacy_context.get("surfaces") or {}).items()):
+        print(
+            "    {surface}: total={total} active_queue={active_queue} attention_queue={attention_queue} classification={classification}".format(
+                surface=surface,
+                total=row.get("total", 0),
+                active_queue=row.get("active_queue", 0),
+                attention_queue=row.get("attention_queue", 0),
+                classification=row.get("classification", "unknown"),
+            )
+        )
+
+
+def _print_human_corpus(corpus: dict[str, Any]) -> None:
+    if not corpus:
+        return
+    if corpus.get("checked"):
+        print(
+            "  corpus reconciliation: finalized_publication_drafts={live_finalized_publication_draft_count} "
+            "public_corpus={public_corpus_count} importable={importable_finalized_count}".format(
+                **corpus
+            )
+        )
+        return
+    print(f"  corpus reconciliation: skipped ({corpus.get('error', 'not checked')})")
+
+
 def _print_human(report: dict[str, Any]) -> None:
     print("Enoch state doctor")
     print(f"  overall: {'OK' if report.get('ok') else 'FAIL'}")
@@ -574,58 +633,9 @@ def _print_human(report: dict[str, Any]) -> None:
     normalization = report.get("normalization") or {}
     if normalization.get("checked"):
         print(f"  normalization dry-run rows: {normalization.get('total_rows')}")
-    control = report.get("control_plane") or {}
-    if control.get("checked"):
-        overview = control.get("overview") or {}
-        pipeline = overview.get("paper_pipeline") or {}
-        print(f"  control overview: {'OK' if control.get('overview_ok') else 'FAIL'}")
-        print(
-            "  paper pipeline: write_needed={write_needed} raw_completed_no_paper_candidates={raw_completed_no_paper_candidates} "
-            "not_writable_by_decision_gate={not_writable_by_decision_gate} finalize_needed={finalize_needed} publish_ready={publish_ready}".format(
-                **{key: pipeline.get(key, "?") for key in REQUIRED_PAPER_PIPELINE_KEYS}
-            )
-        )
-        investigation = overview.get("investigation_pipeline") or {}
-        print(
-            "  investigation pipeline: followup_needed={followup_needed} max_followup_depth={max_followup_depth}".format(
-                **{
-                    key: investigation.get(key, "?")
-                    for key in REQUIRED_INVESTIGATION_PIPELINE_KEYS
-                }
-            )
-        )
-        print(
-            f"  operator_count keys: {', '.join(overview.get('operator_count_keys') or [])}"
-        )
-    legacy_context = report.get("legacy_runtime_context") or {}
-    if legacy_context.get("checked"):
-        active = legacy_context.get("active_runtime_drift") or []
-        print(
-            f"  legacy runtime context: {'OK' if not active else 'FAIL'} ({len(active)} active drift surface(s))"
-        )
-        for surface, row in sorted((legacy_context.get("surfaces") or {}).items()):
-            print(
-                "    {surface}: total={total} active_queue={active_queue} attention_queue={attention_queue} classification={classification}".format(
-                    surface=surface,
-                    total=row.get("total", 0),
-                    active_queue=row.get("active_queue", 0),
-                    attention_queue=row.get("attention_queue", 0),
-                    classification=row.get("classification", "unknown"),
-                )
-            )
-    corpus = report.get("corpus_reconciliation") or {}
-    if corpus:
-        if corpus.get("checked"):
-            print(
-                "  corpus reconciliation: finalized_publication_drafts={live_finalized_publication_draft_count} "
-                "public_corpus={public_corpus_count} importable={importable_finalized_count}".format(
-                    **corpus
-                )
-            )
-        else:
-            print(
-                f"  corpus reconciliation: skipped ({corpus.get('error', 'not checked')})"
-            )
+    _print_human_control_plane(report.get("control_plane") or {})
+    _print_human_legacy_context(report.get("legacy_runtime_context") or {})
+    _print_human_corpus(report.get("corpus_reconciliation") or {})
     for item in report.get("failures") or []:
         print(f"  FAIL {item}")
     for item in report.get("warnings") or []:
