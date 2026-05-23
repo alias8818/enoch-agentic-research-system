@@ -761,3 +761,27 @@ def test_research_default_machine_is_consistent_and_no_longer_hardcoded_ip() -> 
     assert "ENOCH_RESEARCH_DEFAULT_MACHINE', '192.168.1.77'" not in router_source
     # The new canonical placeholder must be present in the research paths
     assert router_source.count("research-facility-node") >= 6
+
+
+def test_deploy_queue_alert_check_reasons_centralized_no_s1192_duplication() -> None:
+    """AGENTS.md deterministic validator for top CRITICAL S1192 duplication in deploy scripts.
+
+    The repeated "reason" string literals in enoch_queue_alert_check.py must be
+    defined exactly once (as module constants) after extraction. This directly
+    targets the current top duplication findings (multiple occurrences of the
+    same alert/dispatch/active reasons).
+    """
+    script_source = (ROOT / "deploy" / "enoch_queue_alert_check.py").read_text(
+        encoding="utf-8"
+    )
+
+    # Each of these reasons currently appears 3+ times; must be 1 after const extraction
+    for reason in [
+        "alert findings present; operator reconciliation required first",
+        "dispatch not safe",
+        "active worker lane present",
+    ]:
+        count = script_source.count(f'"{reason}"')
+        assert count == 1, (
+            f"reason {reason!r} still duplicated (count={count}); extract to const"
+        )

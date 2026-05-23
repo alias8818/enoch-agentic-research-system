@@ -10,6 +10,14 @@ import sys
 from urllib.parse import quote
 from urllib import error, request
 
+# Centralized skip reasons (eliminates S1192 string duplication across the
+# alert/dispatch decision dicts at module and runtime level).
+ALERT_FINDINGS_PRESENT_REASON = (
+    "alert findings present; operator reconciliation required first"
+)
+DISPATCH_NOT_SAFE_REASON = "dispatch not safe"
+ACTIVE_WORKER_LANE_PRESENT_REASON = "active worker lane present"
+
 
 def _load_config() -> dict:
     path = Path(
@@ -130,30 +138,30 @@ def main() -> int:
         if alert.get("should_alert"):
             dispatch = {
                 "action": "skipped",
-                "reason": "alert findings present; operator reconciliation required first",
+                "reason": ALERT_FINDINGS_PRESENT_REASON,
             }
             followup_dry_run = {
                 "action": "skipped",
-                "reason": "alert findings present; operator reconciliation required first",
+                "reason": ALERT_FINDINGS_PRESENT_REASON,
             }
             followup_launch = {
                 "action": "skipped",
-                "reason": "alert findings present; operator reconciliation required first",
+                "reason": ALERT_FINDINGS_PRESENT_REASON,
             }
         elif not status.get("dispatch_safe") and not only_no_candidate_blocker:
             dispatch = {
                 "action": "skipped",
-                "reason": "dispatch not safe",
+                "reason": DISPATCH_NOT_SAFE_REASON,
                 "blockers": status.get("dispatch_blockers") or [],
             }
             followup_dry_run = {
                 "action": "skipped",
-                "reason": "dispatch not safe",
+                "reason": DISPATCH_NOT_SAFE_REASON,
                 "blockers": status.get("dispatch_blockers") or [],
             }
             followup_launch = {
                 "action": "skipped",
-                "reason": "dispatch not safe",
+                "reason": DISPATCH_NOT_SAFE_REASON,
                 "blockers": status.get("dispatch_blockers") or [],
             }
         else:
@@ -201,15 +209,15 @@ def main() -> int:
                 if status.get("active_items"):
                     followup_dry_run = {
                         "action": "skipped",
-                        "reason": "active worker lane present",
+                        "reason": ACTIVE_WORKER_LANE_PRESENT_REASON,
                     }
                     followup_launch = {
                         "action": "skipped",
-                        "reason": "active worker lane present",
+                        "reason": ACTIVE_WORKER_LANE_PRESENT_REASON,
                     }
                     dispatch = {
                         "action": "skipped",
-                        "reason": "active worker lane present",
+                        "reason": ACTIVE_WORKER_LANE_PRESENT_REASON,
                     }
                 elif not followup_launch_enabled:
                     followup_dry_run = {
