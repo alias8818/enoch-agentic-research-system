@@ -1148,3 +1148,20 @@ def test_validate_supabase_readonly_adapter_manifest_json_centralized_no_s1192_d
     assert count == 1, (
         f"{lit!r} still duplicated in validate_supabase_readonly_adapter (count={count}); extract to const"
     )
+
+
+def test_research_facility_sql_guard_select_centralized_no_s1192_duplication() -> None:
+    """AGENTS.md validator for S1192 (research_facility.py:792).
+
+    "    select 1" (sql_raise_if_exists guard fragment in emit_sql) must appear
+    exactly once after const extraction to _SQL_GUARD_EXISTS_SELECT.
+    """
+    src = (ROOT / "scripts" / "research_facility.py").read_text(encoding="utf-8")
+    lit = "    select 1"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in research_facility (count={count}); extract to const"
+    )
+    assert src.count("_SQL_GUARD_EXISTS_SELECT") >= 7, (
+        "emit_sql guards must reference _SQL_GUARD_EXISTS_SELECT"
+    )
