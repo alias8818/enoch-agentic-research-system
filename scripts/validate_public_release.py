@@ -527,7 +527,7 @@ def check_github_metadata(
     for repo in GITHUB_REPO_METADATA:
         try:
             metadata = fetch_github_repo_metadata(repo)
-        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+        except (URLError, TimeoutError, json.JSONDecodeError) as exc:
             fail(f"could not fetch GitHub repo metadata for {repo}: {exc}", failures)
             continue
         _check_single_github_repo_metadata(
