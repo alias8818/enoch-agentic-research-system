@@ -17,6 +17,8 @@ import sys
 import time
 from urllib import error, request
 
+from enoch_control_plane.url_safety import secure_default_service_url
+
 # Centralized reason constant for the top remaining S1192 duplication
 # in this autopilot script.
 MISSING_DATABASE_URL_REASON = "missing database URL"
@@ -36,9 +38,8 @@ def _base_url(config: dict) -> str:
     host = str(config.get("listen_host") or "127.0.0.1")
     if host in {"0.0.0.0", "::"}:
         host = "127.0.0.1"
-    return (
-        os.environ.get("ENOCH_CONTROL_URL")
-        or f"http://{host}:{int(config.get('listen_port') or 8787)}"
+    return os.environ.get("ENOCH_CONTROL_URL") or secure_default_service_url(
+        host, int(config.get("listen_port") or 8787)
     )
 
 
