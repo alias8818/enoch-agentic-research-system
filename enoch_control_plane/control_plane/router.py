@@ -550,6 +550,9 @@ CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE = "control_plane_db+worker_preflight"
 # (paper_review draft rewrite events and comparisons in router.py).
 PAPER_REVIEW_DRAFT_REWRITTEN = "paper_review.draft_rewritten"
 
+# Centralized 404 message for publication automation lookup paths (Sonar S1192 at :845).
+PUBLICATION_AUTOMATION_ITEM_NOT_FOUND = "publication automation item not found"
+
 # Centralized authority label for Supabase-native ideas workbench freshness paths.
 SUPABASE_NATIVE_IDEAS_WORKBENCH_AUTHORITY = "Supabase-native ideas workbench"
 
@@ -841,9 +844,7 @@ def _paper_rewrite_rows_or_404(
     paper = store.paper_row(paper_id)
     item = store.paper_review_row(paper_id, include_rank_reasons=True)
     if paper is None or item is None:
-        raise PublicationAutomationNotFoundError(
-            "publication automation item not found"
-        )
+        raise PublicationAutomationNotFoundError(PUBLICATION_AUTOMATION_ITEM_NOT_FOUND)
     review_status = _normal_status(item.get("review_status"))
     if review_status in _PAPER_REWRITE_BLOCKED_REVIEW_STATUSES:
         raise PaperRewriteBlockedReviewStatusError(
@@ -7451,7 +7452,7 @@ def _register_control_plane_routes(
         paper = store.paper_row(paper_id)
         if item is None or paper is None:
             raise PublicationAutomationNotFoundError(
-                "publication automation item not found"
+                PUBLICATION_AUTOMATION_ITEM_NOT_FOUND
             )
         project_id = str(paper.get("project_id") or "")
         return DashboardPaperReviewDetailResponse(
@@ -7564,7 +7565,7 @@ def _register_control_plane_routes(
             return _paper_review_detail_response(paper_id)
         except PublicationAutomationNotFoundError as exc:
             raise HTTPException(
-                status_code=404, detail="publication automation item not found"
+                status_code=404, detail=PUBLICATION_AUTOMATION_ITEM_NOT_FOUND
             ) from exc
 
     @router.get(
@@ -7579,7 +7580,7 @@ def _register_control_plane_routes(
             return _paper_review_detail_response(paper_id)
         except PublicationAutomationNotFoundError as exc:
             raise HTTPException(
-                status_code=404, detail="publication automation item not found"
+                status_code=404, detail=PUBLICATION_AUTOMATION_ITEM_NOT_FOUND
             ) from exc
 
     @router.post(
@@ -7979,7 +7980,7 @@ def _register_control_plane_routes(
             return _rewrite_paper_review_draft(paper_id, payload)
         except PublicationAutomationNotFoundError as exc:
             raise HTTPException(
-                status_code=404, detail="publication automation item not found"
+                status_code=404, detail=PUBLICATION_AUTOMATION_ITEM_NOT_FOUND
             ) from exc
         except PaperRewriteBlockedReviewStatusError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

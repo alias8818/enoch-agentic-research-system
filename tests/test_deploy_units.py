@@ -918,6 +918,24 @@ def test_router_supabase_native_ideas_workbench_centralized_no_s1192_duplication
     )
 
 
+def test_router_publication_automation_item_not_found_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for S1192 in router.py (line 845).
+
+    "publication automation item not found" (5x in PublicationAutomationNotFoundError
+    and HTTPException detail paths) must appear exactly once after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "control_plane" / "router.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "publication automation item not found"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in router (count={count}); extract to const"
+    )
+
+
 def test_state_contract_source_provenance_status_only_centralized_no_s1192_duplication() -> (
     None
 ):
