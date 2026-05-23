@@ -59,9 +59,27 @@ STRICT_FAIL_PHRASE = re.compile(
     r"\b(?:fails?|flags|rejects)\s+(\d{1,5})\s+of\s+(?:its own\s+|its\s+|the\s+)?(\d{2,5})\s+(?:canonical\s+)?outputs",
     re.I,
 )
-PROMISING_COUNT_PHRASE = re.compile(
-    r"\b(\d{1,5})\b(?:\s|<[^>]+>)+(?:bounded\s+)?(?:useful/scale-blocked\s+|useful\s+or\s+scale-blocked\s+|promising\s+)?(?:leads|signals)(?:\s|<[^>]+>)+(?:preserved|outside|that are not|repo|records)",
-    re.I,
+_HTML_GAP = r"(?:\s|<[^>]+>)+"
+_PROMISING_LEADS = r"(?:leads|signals)"
+_PROMISING_TAIL = r"(?:preserved|outside|that are not|repo|records)"
+
+
+def _promising_count_regex(qualifier: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"\b(\d{{1,5}})\b{_HTML_GAP}{qualifier}{_PROMISING_LEADS}{_HTML_GAP}{_PROMISING_TAIL}",
+        re.I,
+    )
+
+
+PROMISING_COUNT_PHRASES = (
+    _promising_count_regex(r"bounded useful/scale-blocked "),
+    _promising_count_regex(r"useful/scale-blocked "),
+    _promising_count_regex(r"bounded useful or scale-blocked "),
+    _promising_count_regex(r"useful or scale-blocked "),
+    _promising_count_regex(r"bounded promising "),
+    _promising_count_regex(r"promising "),
+    _promising_count_regex(r"bounded "),
+    _promising_count_regex(r""),
 )
 FULL_AUDIT_CLAIM = re.compile(r"fully auditable|deeply auditable", re.I)
 QUALITY_WORDING = re.compile(r"quality (?:gates?|scans?|checks?)", re.I)
@@ -146,13 +164,18 @@ def check_promising_counts(
 ) -> None:
     for path in paths:
         text = path.read_text(encoding="utf-8", errors="replace")
-        for match in PROMISING_COUNT_PHRASE.finditer(text):
-            value = int(match.group(1))
-            if value != promising_signal_count:
-                fail(
-                    f"promising signal count drift in {path}:{line_for(text, match.start())}: {value} != {promising_signal_count}",
-                    failures,
-                )
+        seen_starts: set[int] = set()
+        for pattern in PROMISING_COUNT_PHRASES:
+            for match in pattern.finditer(text):
+                if match.start() in seen_starts:
+                    continue
+                seen_starts.add(match.start())
+                value = int(match.group(1))
+                if value != promising_signal_count:
+                    fail(
+                        f"promising signal count drift in {path}:{line_for(text, match.start())}: {value} != {promising_signal_count}",
+                        failures,
+                    )
 
 
 def _check_historic_stale_counts(path: Path, text: str, failures: list[str]) -> None:
