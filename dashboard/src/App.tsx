@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
+import { ActiveWorkList } from './activeWorkDisplay'
 import { displayText } from './displayText'
 import { apiGet, getSavedToken, saveToken } from './api/client'
 import { parseAutomationReadiness, parseOverviewResponse, parseStatusResponse } from './api/readModelSchemas'
@@ -102,6 +103,11 @@ function readinessCheckCardDetail(blockers: string[], readiness?: AutomationRead
   return 'Run the readiness check before leaving automation unattended.'
 }
 
+function readinessCheckButtonLabel(hasReadiness: boolean): string {
+  if (hasReadiness) return 'Refresh readiness'
+  return 'Check readiness'
+}
+
 function readinessCheckCardLabel(
   error: unknown,
   readiness: AutomationReadiness | undefined,
@@ -115,10 +121,18 @@ function readinessCheckCardLabel(
   return 'Not checked'
 }
 
-function activeWorkDetailHref(projectId: string, runId: string): string {
-  if (runId) return dashboardV2Href(`#run:${encodeURIComponent(runId)}`)
-  if (projectId) return dashboardV2Href(`#project:${encodeURIComponent(projectId)}`)
-  return dashboardV2Href('#runs')
+function eventDetailHref(eventId: string): string {
+  if (eventId) return dashboardV2Href(`#event:${encodeURIComponent(eventId)}`)
+  return dashboardV2Href('#events')
+}
+
+function triggerReadinessCheck(
+  readinessRequested: boolean,
+  onReadinessRequested: () => void,
+  onReadinessRefetch: () => void,
+): void {
+  onReadinessRequested()
+  if (readinessRequested) onReadinessRefetch()
 }
 
 function OverviewPageBody({
@@ -170,10 +184,7 @@ function OverviewPageBody({
         isLoading={readinessLoading || readinessFetching}
         error={readinessError}
         requested={readinessRequested}
-        onCheck={() => {
-          onReadinessRequested()
-          if (readinessRequested) onReadinessRefetch()
-        }}
+        onCheck={() => triggerReadinessCheck(readinessRequested, onReadinessRequested, onReadinessRefetch)}
       />
       <MovementDiagnosis diagnosis={diagnosis} />
       <div className="command-grid">
@@ -182,46 +193,92 @@ function OverviewPageBody({
           <PrimaryAction
             action={primaryAction}
             onRefresh={refresh}
-            onCheckReadiness={() => {
-              onReadinessRequested()
-              if (readinessRequested) onReadinessRefetch()
-            }}
+            onCheckReadiness={() => triggerReadinessCheck(readinessRequested, onReadinessRequested, onReadinessRefetch)}
           />
           <PaperMiniStrip pipeline={data.paper_pipeline} onRefresh={refresh} />
         </div>
       </div>
-      <details className="secondary-fold" onToggle={(event) => onSecondaryOpenChange(event.currentTarget.open)}>
-        <summary>Show secondary details</summary>
-        <div className="secondary-links">
-          <a href={dashboardV2Href('#runs')}>Runs</a>
-          <a href={dashboardV2Href('#papers')}>Papers</a>
-          <a href={dashboardV2Href('#events')}>Recent activity</a>
-        </div>
-        <section className="activity-snapshot" aria-label="Recent activity stream">
-          <h3>Recent activity stream</h3>
-          {recentEvents.length > 0 ? (
-            <ol>
-              {recentEvents.slice(0, 6).map((event, index) => {
-                const id = displayText(event.event_id ?? event.id, '')
-                const type = displayText(event.event_type, 'event')
-                const summary = displayText(event.summary ?? event.entity_id, 'No event summary returned.')
-                return (
-                  <li key={id || `${type}-${index}`}>
-                    <a href={id ? dashboardV2Href(`#event:${encodeURIComponent(id)}`) : dashboardV2Href('#events')}>{type}</a>
-                    <span>{summary}</span>
-                  </li>
-                )
-              })}
-            </ol>
-          ) : (
-            <p>No recent activity returned in the bounded overview snapshot.</p>
-          )}
-        </section>
-        <OperatorQueueSnapshot operatorCounts={operatorCounts} operatorDetailCounts={operatorDetailCounts} />
-        <ActiveWorkSummary activeItems={activeItems} />
-        <AutomationReadinessSummary readiness={readinessData} isLoading={readinessLoading} error={readinessError} />
-      </details>
+      <OverviewSecondaryFold
+        recentEvents={recentEvents}
+        operatorCounts={operatorCounts}
+        operatorDetailCounts={operatorDetailCounts}
+        activeItems={activeItems}
+        readinessData={readinessData}
+        readinessLoading={readinessLoading}
+        readinessError={readinessError}
+        onSecondaryOpenChange={onSecondaryOpenChange}
+      />
     </div>
+  )
+}
+
+function recentActivityListKey(event: Record<string, unknown>, index: number): string {
+  const id = displayText(event.event_id ?? event.id, '')
+  const type = displayText(event.event_type, 'event')
+  return id || `${type}-${index}`
+}
+
+function RecentActivityItem({ event }: Readonly<{ event: Record<string, unknown> }>) {
+  const id = displayText(event.event_id ?? event.id, '')
+  const type = displayText(event.event_type, 'event')
+  const summary = displayText(event.summary ?? event.entity_id, 'No event summary returned.')
+  return (
+    <li>
+      <a href={eventDetailHref(id)}>{type}</a>
+      <span>{summary}</span>
+    </li>
+  )
+}
+
+function RecentActivityStream({ events }: Readonly<{ events: OverviewResponse['recent_events'] }>) {
+  const recentEvents = events || []
+  if (recentEvents.length === 0) {
+    return <p>No recent activity returned in the bounded overview snapshot.</p>
+  }
+  return (
+    <ol>
+      {recentEvents.slice(0, 6).map((event, index) => (
+        <RecentActivityItem key={recentActivityListKey(event, index)} event={event} />
+      ))}
+    </ol>
+  )
+}
+
+function OverviewSecondaryFold({
+  recentEvents,
+  operatorCounts,
+  operatorDetailCounts,
+  activeItems,
+  readinessData,
+  readinessLoading,
+  readinessError,
+  onSecondaryOpenChange,
+}: Readonly<{
+  recentEvents: OverviewResponse['recent_events']
+  operatorCounts: Record<string, unknown>
+  operatorDetailCounts: Record<string, unknown>
+  activeItems: Record<string, unknown>[]
+  readinessData?: AutomationReadiness
+  readinessLoading: boolean
+  readinessError: unknown
+  onSecondaryOpenChange: (open: boolean) => void
+}>) {
+  return (
+    <details className="secondary-fold" onToggle={(event) => onSecondaryOpenChange(event.currentTarget.open)}>
+      <summary>Show secondary details</summary>
+      <div className="secondary-links">
+        <a href={dashboardV2Href('#runs')}>Runs</a>
+        <a href={dashboardV2Href('#papers')}>Papers</a>
+        <a href={dashboardV2Href('#events')}>Recent activity</a>
+      </div>
+      <section className="activity-snapshot" aria-label="Recent activity stream">
+        <h3>Recent activity stream</h3>
+        <RecentActivityStream events={recentEvents} />
+      </section>
+      <OperatorQueueSnapshot operatorCounts={operatorCounts} operatorDetailCounts={operatorDetailCounts} />
+      <ActiveWorkSummary activeItems={activeItems} />
+      <AutomationReadinessSummary readiness={readinessData} isLoading={readinessLoading} error={readinessError} />
+    </details>
   )
 }
 
@@ -248,20 +305,22 @@ function ReadinessCheckCard({
         <p>{readinessCheckCardDetail(blockers, readiness)}</p>
       </div>
       <button className="secondary-button" type="button" disabled={isLoading} onClick={onCheck}>
-        {readiness ? 'Refresh readiness' : 'Check readiness'}
+        {readinessCheckButtonLabel(Boolean(readiness))}
       </button>
     </section>
   )
 }
 
 
+function formatPositiveCount(value: number): string {
+  if (Number.isFinite(value) && value > 0) return String(Math.floor(value))
+  return '0'
+}
+
 function displayOperatorCount(value: unknown): string {
   if (typeof value === 'boolean' || value === null || value === undefined) return '0'
-  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? String(Math.floor(value)) : '0'
-  if (typeof value === 'string') {
-    const parsed = Number(value.trim())
-    return Number.isFinite(parsed) && parsed > 0 ? String(Math.floor(parsed)) : '0'
-  }
+  if (typeof value === 'number') return formatPositiveCount(value)
+  if (typeof value === 'string') return formatPositiveCount(Number(value.trim()))
   return '0'
 }
 
@@ -269,31 +328,45 @@ function labelOperatorKey(key: string): string {
   return key.replaceAll('_', ' ')
 }
 
-function OperatorQueueSnapshot({ operatorCounts, operatorDetailCounts }: Readonly<{ operatorCounts: Record<string, unknown>; operatorDetailCounts: Record<string, unknown> }>) {
-  const rows = [
+function operatorQueueRows(
+  operatorCounts: Record<string, unknown>,
+  operatorDetailCounts: Record<string, unknown>,
+): [string, unknown][] {
+  const entries: [string, unknown][] = [
     ['needs_attention', operatorCounts.needs_attention],
     ['running', operatorCounts.running],
     ['write_paper', operatorCounts.write_paper],
     ['ready_to_publish', operatorCounts.ready_to_publish],
     ['finalization_needed', operatorDetailCounts.finalization_needed],
     ['followup_candidate', operatorDetailCounts.followup_candidate],
-  ].filter(([, value]) => displayOperatorCount(value) !== '0')
+  ]
+  return entries.filter(([, value]) => displayOperatorCount(value) !== '0')
+}
+
+function OperatorQueueRowList({ rows }: Readonly<{ rows: [string, unknown][] }>) {
+  return (
+    <dl>
+      {rows.slice(0, 6).map(([key, value]) => (
+        <div key={String(key)}>
+          <dt>{labelOperatorKey(String(key))}</dt>
+          <dd>{displayOperatorCount(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+function OperatorQueueSnapshot({ operatorCounts, operatorDetailCounts }: Readonly<{ operatorCounts: Record<string, unknown>; operatorDetailCounts: Record<string, unknown> }>) {
+  const rows = operatorQueueRows(operatorCounts, operatorDetailCounts)
+  let body: ReactNode = <p>No operator queue counts reported in the bounded overview snapshot.</p>
+  if (rows.length > 0) {
+    body = <OperatorQueueRowList rows={rows} />
+  }
 
   return (
     <section className="operator-snapshot" aria-label="Operator queue snapshot">
       <h3>Operator queue snapshot</h3>
-      {rows.length > 0 ? (
-        <dl>
-          {rows.slice(0, 6).map(([key, value]) => (
-            <div key={String(key)}>
-              <dt>{labelOperatorKey(String(key))}</dt>
-              <dd>{displayOperatorCount(value)}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : (
-        <p>No operator queue counts reported in the bounded overview snapshot.</p>
-      )}
+      {body}
     </section>
   )
 }
@@ -302,28 +375,7 @@ function ActiveWorkSummary({ activeItems }: Readonly<{ activeItems: Record<strin
   return (
     <section className="active-work-snapshot" aria-label="Active work snapshot">
       <h3>Active work snapshot</h3>
-      {activeItems.length > 0 ? (
-        <ol>
-          {activeItems.slice(0, 6).map((item, index) => {
-            const projectId = displayText(item.project_id, '')
-            const runId = displayText(item.current_run_id ?? item.run_id, '')
-            const label = displayText(item.project_name, projectId || runId || 'Active work')
-            const machine = displayText(item.machine_target ?? item.lane, 'unknown lane')
-            const href = activeWorkDetailHref(projectId, runId)
-            return (
-              <li key={runId || projectId || index}>
-                <div>
-                  <strong>{label}</strong>
-                  <span>{machine} · {runId || projectId || 'no run id'}</span>
-                </div>
-                <a href={href}>{runId ? 'Open run' : 'Open project'}</a>
-              </li>
-            )
-          })}
-        </ol>
-      ) : (
-        <p>No active work returned in the bounded overview snapshot.</p>
-      )}
+      <ActiveWorkList activeItems={activeItems} />
     </section>
   )
 }
@@ -376,12 +428,19 @@ function ReadinessChecksList({ checks }: Readonly<{ checks: NonNullable<Automati
   )
 }
 
+function automationReadinessErrorMessage(error: unknown): ReactNode {
+  if (!error) return null
+  return <p>Automation readiness unavailable: {formatReadinessErrorMessage(error)}</p>
+}
+
 function AutomationReadinessSummary({ readiness, isLoading, error }: Readonly<{ readiness?: AutomationReadiness; isLoading: boolean; error: unknown }>) {
   const blockers = readiness?.blockers ?? []
   const checks = readiness?.checks ?? []
   const summary = readiness?.summary ?? {}
   const label = automationReadinessSummaryLabel(readiness, isLoading)
   const showAllPassed = Boolean(readiness && !error && !isLoading && blockers.length === 0)
+  const errorMessage = automationReadinessErrorMessage(error)
+  const blockersBody = error ? null : <ReadinessBlockersBody blockers={blockers} showAllPassed={showAllPassed} />
 
   return (
     <section className="readiness-snapshot" aria-label="Automation readiness">
@@ -389,8 +448,8 @@ function AutomationReadinessSummary({ readiness, isLoading, error }: Readonly<{ 
         <h3>Automation readiness</h3>
         <span className={readinessPillClass(readiness?.ok)}>{label}</span>
       </div>
-      {error ? <p>Automation readiness unavailable: {formatReadinessErrorMessage(error)}</p> : null}
-      {error ? null : <ReadinessBlockersBody blockers={blockers} showAllPassed={showAllPassed} />}
+      {errorMessage}
+      {blockersBody}
       <ReadinessFacts summary={summary} />
       <ReadinessChecksList checks={checks} />
     </section>
@@ -423,7 +482,7 @@ function UnsupportedRoutePage({ hash }: Readonly<{ hash: string }>) {
   )
 }
 
-function RoutedPage({ route }: Readonly<{ route: DashboardRoute }>) {
+function resolveRoutedPage(route: DashboardRoute): ReactNode {
   let content: ReactNode = <OverviewPage />
   switch (route.page) {
     case 'detail':
@@ -468,6 +527,10 @@ function RoutedPage({ route }: Readonly<{ route: DashboardRoute }>) {
   return content
 }
 
+function RoutedPage({ route }: Readonly<{ route: DashboardRoute }>) {
+  return resolveRoutedPage(route)
+}
+
 function navClass(route: DashboardRoute, page: DashboardRoute['page']): string {
   const active = route.page === page || (route.page === 'detail' && detailParentPage(route.kind) === page)
   return active ? 'nav-link nav-link--active' : 'nav-link'
@@ -488,16 +551,14 @@ function GlobalSearchForm({ inputRef }: Readonly<{ inputRef: RefObject<HTMLInput
         globalThis.location.href = dashboardV2Href(trimmed ? `#projects?search=${encodeURIComponent(trimmed)}` : '#projects')
       }}
     >
-      <label>
-        Global search
-        {' '}
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search projects"
-        />
-      </label>
+      <label htmlFor="app-global-search-input">Global search</label>
+      <input
+        id="app-global-search-input"
+        ref={inputRef}
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Search projects"
+      />
       <button className="secondary-button" type="submit">Search projects</button>
     </form>
   )
