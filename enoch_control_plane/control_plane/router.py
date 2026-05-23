@@ -120,6 +120,10 @@ from .worker_evidence_sync import _sync_worker_http_evidence
 
 RequireBearer = Callable[[str | None], None]
 
+_RUN_NOTES_MD = "run_notes.md"
+_EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH = "worker_http+ssh"
+_DEFAULT_RESEARCH_MODEL = "gpt-5.5"
+
 
 def _normal_status(value: Any) -> str:
     return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
@@ -378,6 +382,74 @@ def _safe_tar_target(artifact_root: Path, member_name: str) -> Path | None:
     return target
 
 
+def _append_tar_skip(
+    skipped: list[dict[str, Any]], *, path: str, status: str, error: str
+) -> None:
+    skipped.append({"path": path, "status": status, "error": error})
+
+
+def _extract_tar_member(
+    archive: tarfile.TarFile,
+    member: tarfile.TarInfo,
+    artifact_root: Path,
+    *,
+    max_file_bytes: int,
+    max_total_bytes: int,
+    written: list[str],
+    skipped: list[dict[str, Any]],
+    total_bytes: int,
+) -> int:
+    target = _safe_tar_target(artifact_root, member.name)
+    if target is None:
+        _append_tar_skip(
+            skipped,
+            path=member.name,
+            status="unsafe_path",
+            error="tar member path escapes artifact root",
+        )
+        return total_bytes
+    if member.isdir():
+        target.mkdir(parents=True, exist_ok=True)
+        return total_bytes
+    if not member.isfile():
+        _append_tar_skip(
+            skipped,
+            path=member.name,
+            status="unsupported_member",
+            error="tar member is not a regular file",
+        )
+        return total_bytes
+    if member.size > max_file_bytes or total_bytes + member.size > max_total_bytes:
+        _append_tar_skip(
+            skipped,
+            path=member.name,
+            status="too_large",
+            error="tar member exceeds evidence extraction byte limit",
+        )
+        return total_bytes
+    extracted = archive.extractfile(member)
+    if extracted is None:
+        _append_tar_skip(
+            skipped,
+            path=member.name,
+            status="read_failed",
+            error="tar member could not be read",
+        )
+        return total_bytes
+    content = extracted.read(max_file_bytes + 1)
+    if len(content) > max_file_bytes:
+        _append_tar_skip(
+            skipped,
+            path=member.name,
+            status="too_large",
+            error="tar member exceeds evidence extraction byte limit",
+        )
+        return total_bytes
+    _atomic_write_bytes(target, content)
+    written.append(member.name)
+    return total_bytes + len(content)
+
+
 def _extract_safe_tar_bytes(
     payload: bytes,
     artifact_root: Path,
@@ -401,67 +473,19 @@ def _extract_safe_tar_bytes(
     skipped: list[dict[str, Any]] = []
     total_bytes = 0
     try:
-        with (
-            tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive
-        ):  # NOSONAR(archive-extraction) - safe because _safe_tar_target prevents traversal; see function above
+        # NOSONAR - safe extraction; _safe_tar_target prevents traversal
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
             for member in archive.getmembers():
-                target = _safe_tar_target(artifact_root, member.name)
-                if target is None:
-                    skipped.append(
-                        {
-                            "path": member.name,
-                            "status": "unsafe_path",
-                            "error": "tar member path escapes artifact root",
-                        }
-                    )
-                    continue
-                if member.isdir():
-                    target.mkdir(parents=True, exist_ok=True)
-                    continue
-                if not member.isfile():
-                    skipped.append(
-                        {
-                            "path": member.name,
-                            "status": "unsupported_member",
-                            "error": "tar member is not a regular file",
-                        }
-                    )
-                    continue
-                if (
-                    member.size > max_file_bytes
-                    or total_bytes + member.size > max_total_bytes
-                ):
-                    skipped.append(
-                        {
-                            "path": member.name,
-                            "status": "too_large",
-                            "error": "tar member exceeds evidence extraction byte limit",
-                        }
-                    )
-                    continue
-                extracted = archive.extractfile(member)
-                if extracted is None:
-                    skipped.append(
-                        {
-                            "path": member.name,
-                            "status": "read_failed",
-                            "error": "tar member could not be read",
-                        }
-                    )
-                    continue
-                content = extracted.read(max_file_bytes + 1)
-                if len(content) > max_file_bytes:
-                    skipped.append(
-                        {
-                            "path": member.name,
-                            "status": "too_large",
-                            "error": "tar member exceeds evidence extraction byte limit",
-                        }
-                    )
-                    continue
-                _atomic_write_bytes(target, content)
-                total_bytes += len(content)
-                written.append(member.name)
+                total_bytes = _extract_tar_member(
+                    archive,
+                    member,
+                    artifact_root,
+                    max_file_bytes=max_file_bytes,
+                    max_total_bytes=max_total_bytes,
+                    written=written,
+                    skipped=skipped,
+                    total_bytes=total_bytes,
+                )
     except (tarfile.TarError, OSError, RuntimeError, ValueError) as exc:
         return {
             "ok": False,
@@ -500,7 +524,7 @@ def _safe_local_evidence_file(project_dir: Path, path: Path) -> bool:
 
 
 def _local_high_signal_evidence_present(project_dir: Path) -> bool:
-    return _safe_local_evidence_file(project_dir, project_dir / "run_notes.md") and any(
+    return _safe_local_evidence_file(project_dir, project_dir / _RUN_NOTES_MD) and any(
         _safe_local_evidence_file(project_dir, project_dir / rel)
         for rel in (".enoch/project_decision.json", ".omx/project_decision.json")
     )
@@ -520,27 +544,35 @@ def _safe_rglob(path: Path, pattern: str) -> list[Path]:
         return []
 
 
+def _paper_dir_has_grounding_evidence(project_dir: Path, paper_dir: Path) -> bool:
+    return _safe_local_evidence_file(
+        project_dir, paper_dir / "evidence_bundle.json"
+    ) and _safe_local_evidence_file(project_dir, paper_dir / "claim_ledger.json")
+
+
+def _papers_tree_has_grounding_evidence(project_dir: Path, papers_dir: Path) -> bool:
+    if not _existing_non_symlink_dir(papers_dir):
+        return False
+    safe_paper_dirs: list[Path] = []
+    for path in _safe_rglob(papers_dir, "*"):
+        try:
+            if path.is_dir():
+                safe_paper_dirs.append(path)
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return any(
+        _paper_dir_has_grounding_evidence(project_dir, paper_dir)
+        for paper_dir in sorted(safe_paper_dirs)
+    )
+
+
 def _local_paper_evidence_present(project_dir: Path) -> bool:
     if _local_high_signal_evidence_present(project_dir):
         return True
-    papers_dir = project_dir / "papers"
-    if _existing_non_symlink_dir(papers_dir):
-        safe_paper_dirs = []
-        for path in _safe_rglob(papers_dir, "*"):
-            try:
-                if path.is_dir():
-                    safe_paper_dirs.append(path)
-            except (OSError, RuntimeError, ValueError):
-                continue
-        for paper_dir in sorted(safe_paper_dirs):
-            if _safe_local_evidence_file(
-                project_dir, paper_dir / "evidence_bundle.json"
-            ) and _safe_local_evidence_file(
-                project_dir, paper_dir / "claim_ledger.json"
-            ):
-                return True
+    if _papers_tree_has_grounding_evidence(project_dir, project_dir / "papers"):
+        return True
     run_notes_present = _safe_local_evidence_file(
-        project_dir, project_dir / "run_notes.md"
+        project_dir, project_dir / _RUN_NOTES_MD
     )
     results_dir = project_dir / "results"
     return (
@@ -872,7 +904,6 @@ def _commit_paper_rewrite_draft(
     store: ControlPlaneStore,
     config: GateConfig,
     *,
-    paper_id: str,
     payload: PaperReviewRewriteDraftRequest,
     candidate: dict[str, Any],
     record: PaperRecord,
@@ -911,7 +942,7 @@ def _commit_paper_rewrite_draft(
             idempotency_key=payload.idempotency_key,
             event_type=PAPER_REVIEW_DRAFT_REWRITTEN,
             entity_type="paper_review",
-            entity_id=paper_id,
+            entity_id=record.paper_id,
             payload=event_payload,
         )
         draft_event_committed = True
@@ -922,7 +953,7 @@ def _commit_paper_rewrite_draft(
             package_path,
             _manifest,
         ) = store.prepare_paper_review_finalization_package(
-            paper_id,
+            record.paper_id,
             PaperReviewPrepareFinalizationRequest(
                 idempotency_key=f"{payload.idempotency_key}:automated-finalization",
                 requested_by=payload.requested_by,
@@ -962,7 +993,7 @@ def _commit_paper_rewrite_draft(
             )
         raise
     refreshed = (
-        store.paper_review_row(paper_id, include_rank_reasons=True)
+        store.paper_review_row(record.paper_id, include_rank_reasons=True)
         or finalized_item
         or item
     )
@@ -980,7 +1011,7 @@ def _commit_paper_rewrite_draft(
         inserted_event=inserted,
         event_id=event_id,
         item=refreshed,
-        paper=store.paper_row(paper_id),
+        paper=store.paper_row(record.paper_id),
         writer=writer_with_sync,
         artifact_root=str(artifact_root),
     )
@@ -1097,7 +1128,7 @@ def _sync_remote_project_evidence(
     # This intentionally excludes external source trees and large trace/log files,
     # while preserving the artifacts the paper writer needs for claim grounding.
     include_paths = [
-        "run_notes.md",
+        _RUN_NOTES_MD,
         ".enoch/project_decision.json",
         ".enoch/metrics.json",
         ".omx/project_decision.json",
@@ -1138,7 +1169,7 @@ def _sync_remote_project_evidence(
             "remote_dir": remote_dir,
             "error": f"{type(exc).__name__}: {exc}",
             "http_sync": http_sync,
-            "method": "worker_http+ssh",
+            "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
         }
     known_hosts.parent.mkdir(parents=True, exist_ok=True)
     ssh_proc: subprocess.Popen | None = None
@@ -1168,7 +1199,7 @@ def _sync_remote_project_evidence(
                     "remote_dir": remote_dir,
                     "error": f"remote evidence tar exceeded {max_tar_bytes} bytes",
                     "http_sync": http_sync,
-                    "method": "worker_http+ssh",
+                    "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
                 }
             ssh_code = ssh_proc.returncode
         else:
@@ -1190,7 +1221,7 @@ def _sync_remote_project_evidence(
                     "remote_dir": remote_dir,
                     "error": f"remote evidence tar exceeded {max_tar_bytes} bytes",
                     "http_sync": http_sync,
-                    "method": "worker_http+ssh",
+                    "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
                 }
             ssh_code = ssh_proc.returncode
             ssh_stderr_file.seek(0)
@@ -1204,7 +1235,7 @@ def _sync_remote_project_evidence(
             "remote_dir": remote_dir,
             "error": str(exc),
             "http_sync": http_sync,
-            "method": "worker_http+ssh",
+            "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
         }
     except OSError as exc:
         _stop_process(ssh_proc)
@@ -1215,7 +1246,7 @@ def _sync_remote_project_evidence(
             "remote_dir": remote_dir,
             "error": str(exc),
             "http_sync": http_sync,
-            "method": "worker_http+ssh",
+            "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
         }
     finally:
         if ssh_stderr_file is not None:
@@ -1230,7 +1261,7 @@ def _sync_remote_project_evidence(
             "stderr": (ssh_err or b"").decode("utf-8", errors="replace")[-2000:],
             "stdout": (ssh_out or b"").decode("utf-8", errors="replace")[-1000:],
             "http_sync": http_sync,
-            "method": "worker_http+ssh",
+            "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
         }
     extract_result = _extract_safe_tar_bytes(ssh_out or b"", artifact_root)
     if not extract_result.get("ok"):
@@ -1242,7 +1273,7 @@ def _sync_remote_project_evidence(
             "remote_dir": remote_dir,
             "extract": extract_result,
             "http_sync": http_sync,
-            "method": "worker_http+ssh",
+            "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
         }
     local_evidence_present = _local_paper_evidence_present(artifact_root)
     return {
@@ -1251,7 +1282,7 @@ def _sync_remote_project_evidence(
         "reason": "synced"
         if local_evidence_present
         else "synced_without_required_evidence",
-        "method": "worker_http+ssh",
+        "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
         "remote_dir": remote_dir,
         "local_evidence_present": local_evidence_present,
         "http_sync": http_sync,
@@ -1529,7 +1560,7 @@ def _post_live_dispatch_run(
         "project_dir": project_dir,
         "prompt_file": prompt_file,
         "mode": "exec",
-        "model": str(candidate.get("model") or "gpt-5.5"),
+        "model": str(candidate.get("model") or _DEFAULT_RESEARCH_MODEL),
         "reasoning_effort": "medium",
         "sandbox": str(candidate.get("sandbox") or "danger-full-access"),
     }
@@ -1904,9 +1935,13 @@ def _compact_worker_run_item(run_item: Any) -> dict[str, Any]:
         if key in run_item:
             value = run_item.get(key)
             compact[f"{key}_omitted"] = True
-            compact[f"{key}_count"] = (
-                len(value) if isinstance(value, list) else (1 if value else 0)
-            )
+            if isinstance(value, list):
+                omitted_count = len(value)
+            elif value:
+                omitted_count = 1
+            else:
+                omitted_count = 0
+            compact[f"{key}_count"] = omitted_count
     return compact
 
 
@@ -2123,9 +2158,7 @@ Follow-up rules:
 """
 
 
-def _paper_record_from_candidate(
-    candidate: dict, *, force: bool = False
-) -> PaperRecord:
+def _paper_record_from_candidate(candidate: dict) -> PaperRecord:
     project_id = str(candidate.get("project_id") or "").strip()
     run_id = str(
         candidate.get("current_run_id") or candidate.get("run_id") or ""
@@ -2520,7 +2553,7 @@ def _execute_provider_generation(
     generation_attempts: int,
     min_admission_score: float,
     bounded_float: Callable,
-    Namespace: Any,
+    namespace_cls: Any,
     research_provider_generate: Any,
     research_facility: Any,
     store: Any,
@@ -2562,14 +2595,16 @@ def _execute_provider_generation(
                 max_tokens=generation_max_tokens,
                 attempts=generation_attempts,
                 default_machine=generation_machine_target,
-                default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
+                default_model=os.environ.get(
+                    "ENOCH_RESEARCH_DEFAULT_MODEL", _DEFAULT_RESEARCH_MODEL
+                ),
                 default_sandbox=os.environ.get(
                     "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
                 ),
             )
             generated_plans = research_facility.plan_candidates(
                 (generated.get("candidates") or [])[:max_candidates],
-                Namespace(
+                namespace_cls(
                     default_machine=os.environ.get(
                         "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
                     ),
@@ -2778,7 +2813,6 @@ _RESEARCH_CYCLE_BUDGET_RESPONSE_KEYS = frozenset(
 
 def _fetch_synthetic_research_budget(
     *,
-    body: dict[str, Any],
     provider_base_url: str,
     estimated_requests: int,
     bounded_int: Callable[[str, int, int, int], int],
@@ -2979,11 +3013,7 @@ def _research_cycle_pre_live_exit(
     active: list[dict[str, Any]],
     wait_for_completion: bool,
     max_wait_seconds: int,
-    max_provider_requests: int,
-    max_promotions: int,
-    max_dispatches: int,
-    max_paper_drafts: int,
-    max_publication_rewrites: int,
+    cycle_limits: Mapping[str, int],
 ) -> dict[str, Any] | None:
     """Extracted from dashboard_research_run_cycle (stop/backpressure/dry-run exits contributing to S3776).
 
@@ -3038,14 +3068,16 @@ def _research_cycle_pre_live_exit(
         response["reason"] = (
             "dry-run only; provider was not called and no ledgers, queue rows, dispatches, or papers were written"
         )
-        response["would_generate"] = max_provider_requests > 0
-        response["would_promote_up_to"] = max_promotions
-        response["would_dispatch_up_to"] = max_dispatches
+        response["would_generate"] = cycle_limits["max_provider_requests"] > 0
+        response["would_promote_up_to"] = cycle_limits["max_promotions"]
+        response["would_dispatch_up_to"] = cycle_limits["max_dispatches"]
         response["would_wait_for_completion"] = (
             wait_for_completion and max_wait_seconds > 0
         )
-        response["would_draft_papers_up_to"] = max_paper_drafts
-        response["would_finalize_papers_up_to"] = max_publication_rewrites
+        response["would_draft_papers_up_to"] = cycle_limits["max_paper_drafts"]
+        response["would_finalize_papers_up_to"] = cycle_limits[
+            "max_publication_rewrites"
+        ]
         if hasattr(store, "append_event"):
             store.append_event(
                 idempotency_key=f"research-cycle:dry:{requested_by}:{utc_now()}",
@@ -3233,7 +3265,7 @@ def _execute_live_research_cycle(
     generation_attempts: int,
     min_admission_score: float,
     bounded_float: Callable[[str, float, float, float], float],
-    Namespace: Any,
+    namespace_cls: Any,
     research_provider_generate: Any,
     research_facility: Any,
     wait_for_completion: bool,
@@ -3288,7 +3320,7 @@ def _execute_live_research_cycle(
         generation_attempts=generation_attempts,
         min_admission_score=min_admission_score,
         bounded_float=bounded_float,
-        Namespace=Namespace,
+        namespace_cls=namespace_cls,
         research_provider_generate=research_provider_generate,
         research_facility=research_facility,
         store=store,
@@ -4913,14 +4945,6 @@ def create_control_plane_router(
         }:
             return sorted(rows, key=lambda row: int(row.get(key) or 0), reverse=reverse)
         return rows
-
-    def _paper_record_from_row(row: dict[str, Any]) -> PaperRecord:
-        data = dict(row)
-        for key in ("generated_at", "updated_at"):
-            value = data.get(key)
-            if isinstance(value, datetime):
-                data[key] = value.isoformat()
-        return PaperRecord.model_validate(data)
 
     def _paginate(
         rows: list[dict[str, Any]], *, page: int, page_size: int
@@ -6598,7 +6622,6 @@ def create_control_plane_router(
         return _commit_paper_rewrite_draft(
             store,
             config,
-            paper_id=paper_id,
             payload=payload,
             candidate=candidate,
             record=record,
@@ -7294,8 +7317,10 @@ def create_control_plane_router(
                 record,
                 default_machine=os.environ.get(
                     "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
-                ),  # NOSONAR(hardcoded-ip) - default placeholder; real value from env or config
-                default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
+                ),  # NOSONAR
+                default_model=os.environ.get(
+                    "ENOCH_RESEARCH_DEFAULT_MODEL", _DEFAULT_RESEARCH_MODEL
+                ),
                 default_sandbox=os.environ.get(
                     "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
                 ),
@@ -7307,8 +7332,10 @@ def create_control_plane_router(
             Namespace(
                 default_machine=os.environ.get(
                     "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
-                ),  # NOSONAR(hardcoded-ip) - default placeholder; real value from env or config
-                default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
+                ),  # NOSONAR
+                default_model=os.environ.get(
+                    "ENOCH_RESEARCH_DEFAULT_MODEL", _DEFAULT_RESEARCH_MODEL
+                ),
                 default_sandbox=os.environ.get(
                     "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
                 ),
@@ -7504,8 +7531,10 @@ def create_control_plane_router(
                 attempts=generation_attempts,
                 default_machine=os.environ.get(
                     "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
-                ),  # NOSONAR(hardcoded-ip) - default placeholder; real value from env or config
-                default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
+                ),  # NOSONAR
+                default_model=os.environ.get(
+                    "ENOCH_RESEARCH_DEFAULT_MODEL", _DEFAULT_RESEARCH_MODEL
+                ),
                 default_sandbox=os.environ.get(
                     "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
                 ),
@@ -7543,8 +7572,10 @@ def create_control_plane_router(
             Namespace(
                 default_machine=os.environ.get(
                     "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
-                ),  # NOSONAR(hardcoded-ip) - default placeholder; real value from env or config
-                default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
+                ),  # NOSONAR
+                default_model=os.environ.get(
+                    "ENOCH_RESEARCH_DEFAULT_MODEL", _DEFAULT_RESEARCH_MODEL
+                ),
                 default_sandbox=os.environ.get(
                     "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
                 ),
@@ -7660,7 +7691,6 @@ def create_control_plane_router(
         backpressure_reasons: list[str] = []
         estimated_requests = max_provider_requests * generation_attempts
         budget = _fetch_synthetic_research_budget(
-            body=body,
             provider_base_url=provider_base_url,
             estimated_requests=estimated_requests,
             bounded_int=bounded_int,
@@ -7771,11 +7801,13 @@ def create_control_plane_router(
             active=active,
             wait_for_completion=wait_for_completion,
             max_wait_seconds=max_wait_seconds,
-            max_provider_requests=max_provider_requests,
-            max_promotions=max_promotions,
-            max_dispatches=max_dispatches,
-            max_paper_drafts=max_paper_drafts,
-            max_publication_rewrites=max_publication_rewrites,
+            cycle_limits={
+                "max_provider_requests": max_provider_requests,
+                "max_promotions": max_promotions,
+                "max_dispatches": max_dispatches,
+                "max_paper_drafts": max_paper_drafts,
+                "max_publication_rewrites": max_publication_rewrites,
+            },
         )
         if early_response is not None:
             return early_response
@@ -7807,7 +7839,7 @@ def create_control_plane_router(
             generation_attempts=generation_attempts,
             min_admission_score=min_admission_score,
             bounded_float=bounded_float,
-            Namespace=Namespace,
+            namespace_cls=Namespace,
             research_provider_generate=research_provider_generate,
             research_facility=research_facility,
             wait_for_completion=wait_for_completion,
@@ -8474,7 +8506,7 @@ def create_control_plane_router(
                 )
                 continue
             if payload.dry_run:
-                paper = _paper_record_from_candidate(candidate, force=payload.force)
+                paper = _paper_record_from_candidate(candidate)
                 dry_candidate = draft_candidate_payload(candidate)
                 dry_candidate["evidence_sync"] = {
                     "enabled": config.paper_evidence_sync_enabled,
@@ -8528,7 +8560,7 @@ def create_control_plane_router(
                     }
                 )
                 continue
-            paper = _paper_record_from_candidate(candidate, force=payload.force)
+            paper = _paper_record_from_candidate(candidate)
             candidate_for_write = {
                 **candidate,
                 "project_dir": evidence.get("artifact_root")
