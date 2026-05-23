@@ -67,6 +67,7 @@ from .store import (
     _json,
     _json_dict,
     _json_list,
+    _notion_intake_row_result,
     _notion_page_id,
     _notion_page_id_from_url,
     _notion_status,
@@ -325,6 +326,122 @@ def _record_internal_project_source_lineage(
         ),
     )
     return int(getattr(cur, "rowcount", 0) or 0)
+
+
+def _persist_notion_intake_candidate(
+    cur: Any,
+    candidate: dict[str, Any],
+    *,
+    now: str,
+    override_existing_dispatch_metadata: bool,
+) -> str:
+    raw = candidate["source_row"]
+    existed = (
+        cur.execute(
+            "select 1 from queue_items where project_id = %s",
+            (candidate["project_id"],),
+        ).fetchone()
+        is not None
+    )
+    cur.execute(
+        """
+        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (project_id) do update set
+          project_name=excluded.project_name,
+          project_dir=projects.project_dir,
+          notion_page_url=coalesce(nullif(excluded.notion_page_url,''), projects.notion_page_url),
+          notion_page_id=coalesce(nullif(excluded.notion_page_id,''), projects.notion_page_id),
+          origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
+          updated_at=excluded.updated_at
+        """,
+        (
+            candidate["project_id"],
+            candidate["project_name"],
+            candidate["project_dir"],
+            candidate["notion_page_url"],
+            candidate["notion_page_id"],
+            candidate["origin_idea_status"],
+            now,
+            now,
+        ),
+    )
+    if existed:
+        if override_existing_dispatch_metadata:
+            cur.execute(
+                """
+                update queue_items
+                set selection_rank=%s, dispatch_priority=%s, machine_target=%s, model=%s, sandbox=%s, updated_at=%s
+                where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
+                """,
+                (
+                    candidate["selection_rank"],
+                    candidate["dispatch_priority"],
+                    candidate["machine_target"],
+                    candidate["model"],
+                    candidate["sandbox"],
+                    now,
+                    candidate["project_id"],
+                ),
+            )
+        else:
+            cur.execute(
+                """
+                update queue_items
+                set selection_rank=%s, dispatch_priority=%s, updated_at=%s
+                where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
+                """,
+                (
+                    candidate["selection_rank"],
+                    candidate["dispatch_priority"],
+                    now,
+                    candidate["project_id"],
+                ),
+            )
+        outcome = "updated"
+    else:
+        cur.execute(
+            """
+            insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+            values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                candidate["project_id"],
+                QueueStatus.QUEUED.value,
+                candidate["selection_rank"],
+                candidate["dispatch_priority"],
+                True,
+                0,
+                0,
+                0,
+                2,
+                "",
+                "",
+                "",
+                "",
+                candidate["next_action_hint"],
+                False,
+                "",
+                "",
+                "",
+                candidate["machine_target"],
+                candidate["model"],
+                candidate["sandbox"],
+                None,
+                None,
+                None,
+                now,
+            ),
+        )
+        outcome = "created"
+    _record_internal_project_source_lineage(
+        cur,
+        project_id=candidate["project_id"],
+        title=candidate["project_name"],
+        source_kind=candidate["source_kind"],
+        payload={"source_payload_json": raw if isinstance(raw, dict) else {}},
+    )
+    return outcome
 
 
 def _followup_depth_from_payload(payload: dict[str, Any] | None) -> int:
@@ -3250,70 +3367,19 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         candidates: list[dict[str, Any]] = []
         skipped_rows: list[dict[str, Any]] = []
         for raw in request.notion_rows:
-            title = _notion_title(raw)
-            status = _notion_status(raw).lower()
-            page_id = _notion_page_id(raw)
-            page_url = _notion_url(raw)
-            if not title:
-                skipped_rows.append({"reason": "missing title", "row": raw})
-                continue
-            if include_statuses and not status:
-                skipped_rows.append(
-                    {
-                        "reason": "missing status",
-                        "title": title,
-                        "status": status,
-                        "page_id": page_id,
-                    }
-                )
-                continue
-            if include_statuses and status not in include_statuses:
-                skipped_rows.append(
-                    {
-                        "reason": f"status {status!r} not included",
-                        "title": title,
-                        "status": status,
-                        "page_id": page_id,
-                    }
-                )
-                continue
-            project_id = (
-                _slug_id(page_id.replace("-", ""))
-                if page_id
-                else f"notion-{_slug_id(title)}"
-            )
-            if not project_id:
-                skipped_rows.append(
-                    {"reason": "missing project id", "title": title, "page_id": page_id}
-                )
-                continue
-            rank = _priority_rank(raw)
-            routing = route_machine_target(
+            candidate, skip = _notion_intake_row_result(
                 raw,
+                include_statuses=include_statuses,
                 default_machine_target=request.default_machine_target,
                 workload_machine_targets=request.workload_machine_targets,
+                default_model=request.default_model,
+                default_sandbox=request.default_sandbox,
+                source=request.source or "notion",
             )
-            candidates.append(
-                {
-                    "project_id": project_id,
-                    "project_name": title,
-                    "project_dir": project_id,
-                    "notion_page_url": page_url,
-                    "notion_page_id": page_id,
-                    "origin_idea_status": status,
-                    "status": QueueStatus.QUEUED.value,
-                    "selection_rank": rank,
-                    "dispatch_priority": rank,
-                    "next_action_hint": "controller_review",
-                    "machine_target": routing["machine_target"],
-                    "workload_class": routing["workload_class"],
-                    "routing_reason": routing["routing_reason"],
-                    "model": request.default_model,
-                    "sandbox": request.default_sandbox,
-                    "source_kind": request.source or "notion",
-                    "source_row": raw,
-                }
-            )
+            if skip is not None:
+                skipped_rows.append(skip)
+                continue
+            candidates.append(candidate)
         if request.dry_run:
             return False, 0, 0, len(skipped_rows), candidates, skipped_rows
         event_payload = request.model_dump(mode="json")
@@ -3341,114 +3407,16 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         skipped_rows,
                     )
                 for candidate in candidates:
-                    raw = candidate["source_row"]
-                    existed = (
-                        cur.execute(
-                            "select 1 from queue_items where project_id = %s",
-                            (candidate["project_id"],),
-                        ).fetchone()
-                        is not None
-                    )
-                    cur.execute(
-                        """
-                        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
-                        values (%s,%s,%s,%s,%s,%s,%s,%s)
-                        on conflict (project_id) do update set
-                          project_name=excluded.project_name,
-                          project_dir=projects.project_dir,
-                          notion_page_url=coalesce(nullif(excluded.notion_page_url,''), projects.notion_page_url),
-                          notion_page_id=coalesce(nullif(excluded.notion_page_id,''), projects.notion_page_id),
-                          origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
-                          updated_at=excluded.updated_at
-                        """,
-                        (
-                            candidate["project_id"],
-                            candidate["project_name"],
-                            candidate["project_dir"],
-                            candidate["notion_page_url"],
-                            candidate["notion_page_id"],
-                            candidate["origin_idea_status"],
-                            now,
-                            now,
-                        ),
-                    )
-                    if existed:
-                        if request.override_existing_dispatch_metadata:
-                            cur.execute(
-                                """
-                                update queue_items
-                                set selection_rank=%s, dispatch_priority=%s, machine_target=%s, model=%s, sandbox=%s, updated_at=%s
-                                where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
-                                """,
-                                (
-                                    candidate["selection_rank"],
-                                    candidate["dispatch_priority"],
-                                    candidate["machine_target"],
-                                    candidate["model"],
-                                    candidate["sandbox"],
-                                    now,
-                                    candidate["project_id"],
-                                ),
-                            )
-                        else:
-                            cur.execute(
-                                """
-                                update queue_items
-                                set selection_rank=%s, dispatch_priority=%s, updated_at=%s
-                                where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
-                                """,
-                                (
-                                    candidate["selection_rank"],
-                                    candidate["dispatch_priority"],
-                                    now,
-                                    candidate["project_id"],
-                                ),
-                            )
-                        updated += 1
-                    else:
-                        cur.execute(
-                            """
-                            insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
-                            values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                            """,
-                            (
-                                candidate["project_id"],
-                                QueueStatus.QUEUED.value,
-                                candidate["selection_rank"],
-                                candidate["dispatch_priority"],
-                                True,
-                                0,
-                                0,
-                                0,
-                                2,
-                                "",
-                                "",
-                                "",
-                                "",
-                                candidate["next_action_hint"],
-                                False,
-                                "",
-                                "",
-                                "",
-                                candidate["machine_target"],
-                                candidate["model"],
-                                candidate["sandbox"],
-                                None,
-                                None,
-                                None,
-                                now,
-                            ),
-                        )
-                        created += 1
-                    _record_internal_project_source_lineage(
+                    outcome = _persist_notion_intake_candidate(
                         cur,
-                        project_id=candidate["project_id"],
-                        title=candidate["project_name"],
-                        source_kind=candidate["source_kind"],
-                        payload={
-                            "source_payload_json": raw if isinstance(raw, dict) else {}
-                        },
+                        candidate,
+                        now=now,
+                        override_existing_dispatch_metadata=request.override_existing_dispatch_metadata,
                     )
+                    if outcome == "created":
+                        created += 1
+                    else:
+                        updated += 1
         return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
 
     def ingest_ideas(
