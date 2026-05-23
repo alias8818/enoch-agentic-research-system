@@ -879,11 +879,13 @@ def _unresolved_artifact(field: str, raw_path: str) -> dict[str, Any]:
 
 def _resolve_artifact_path(path: Path, project_dir: Path | None) -> Path | None:
     try:
-        return (
-            path
-            if path.is_absolute()
-            else (project_dir / path if project_dir else path)
-        ).resolve()
+        if path.is_absolute():
+            candidate = path
+        elif project_dir:
+            candidate = project_dir / path
+        else:
+            candidate = path
+        return candidate.resolve()
     except (OSError, RuntimeError, ValueError):
         return None
 
@@ -908,6 +910,143 @@ def _artifact_file_stats(
         return exists, readable, size_bytes
     except (OSError, RuntimeError, ValueError):
         return bool(raw_path), False, 0
+
+
+_QUEUE_PAPER_RUN_SCOPE = (
+    "where pa.project_id = q.project_id\n"
+    "  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)"
+)
+
+_PROJECT_DECISION_SCOPE = (
+    "where d.project_id = q.project_id\n"
+    "  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)"
+)
+
+_PROJECT_DECISION_ORDER = (
+    "order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end,"
+    " d.decided_at desc nulls last, d.decision_id desc nulls last"
+)
+
+
+def _queue_paper_scalar_subquery(select_expr: str, alias: str) -> str:
+    return f"""
+              (
+                select {select_expr}
+                from papers pa
+                {_QUEUE_PAPER_RUN_SCOPE}
+                order by pa.updated_at desc
+                limit 1
+              ) as {alias}"""
+
+
+def _queue_paper_review_subquery(select_expr: str, alias: str) -> str:
+    return f"""
+              (
+                select {select_expr}
+                from papers pa
+                left join publication_automation_items rv using(paper_id)
+                {_QUEUE_PAPER_RUN_SCOPE}
+                order by pa.updated_at desc
+                limit 1
+              ) as {alias}"""
+
+
+def _queue_corpus_subquery(select_expr: str, alias: str) -> str:
+    return f"""
+              (
+                select {select_expr}
+                from papers pa
+                left join corpus_imports ci using(paper_id)
+                {_QUEUE_PAPER_RUN_SCOPE}
+                order by pa.updated_at desc
+                limit 1
+              ) as {alias}"""
+
+
+def _queue_project_decision_subquery(select_expr: str, alias: str) -> str:
+    return f"""
+              (
+                select {select_expr}
+                from project_decisions d
+                {_PROJECT_DECISION_SCOPE}
+                {_PROJECT_DECISION_ORDER}
+                limit 1
+              ) as {alias}"""
+
+
+def _queue_project_decision_json_field_subquery(json_field: str, alias: str) -> str:
+    return _queue_project_decision_subquery(
+        (
+            f"coalesce(d.payload_json->'project_decision'->>'{json_field}',"
+            f" d.payload_json->>'{json_field}')"
+        ),
+        alias,
+    )
+
+
+def _queue_rows_related_projection_sql() -> str:
+    paper_scalars = (
+        ("pa.paper_id", "related_paper_id"),
+        ("pa.paper_status", "related_paper_status"),
+        ("pa.draft_markdown_path", "related_draft_markdown_path"),
+        ("pa.evidence_bundle_path", "related_evidence_bundle_path"),
+        ("pa.claim_ledger_path", "related_claim_ledger_path"),
+        ("pa.manifest_path", "related_manifest_path"),
+    )
+    review_scalars = (
+        ("rv.automation_status", "related_review_status"),
+        ("rv.finalization_package_path", "related_finalization_package_path"),
+    )
+    corpus_scalars = (
+        ("ci.corpus_import_id", "related_corpus_import_id"),
+        ("ci.artifact_slug", "related_artifact_slug"),
+        ("ci.source_record_fingerprint", "related_source_record_fingerprint"),
+        ("(ci.paper_id is not null)", "related_corpus_imported"),
+    )
+    decision_columns = (
+        ("d.decision_gate_state", "decision_gate_state"),
+        ("d.decision_summary", "decision_summary"),
+        ("d.payload_json", "decision_payload_json"),
+        ("d.followup_recommended", "followup_recommended"),
+        ("d.followup_type", "followup_type"),
+        ("d.followup_title", "followup_title"),
+        ("d.followup_hypothesis", "followup_hypothesis"),
+        ("d.followup_required_evidence", "followup_required_evidence"),
+        ("d.followup_success_threshold", "followup_success_threshold"),
+        ("d.followup_stop_condition", "followup_stop_condition"),
+        ("d.followup_depth", "followup_depth"),
+    )
+    decision_json_fields = (
+        ("project_decision", "project_decision"),
+        ("research_outcome", "research_outcome"),
+        ("bounded_paper_ready", "bounded_paper_ready"),
+        ("hypothesis_status", "hypothesis_status"),
+        ("evidence_strength", "evidence_strength"),
+        ("claim_scope", "claim_scope"),
+        ("scale_limits", "scale_limits"),
+    )
+    parts = [
+        *(_queue_paper_scalar_subquery(expr, alias) for expr, alias in paper_scalars),
+        *(_queue_paper_review_subquery(expr, alias) for expr, alias in review_scalars),
+        *(_queue_corpus_subquery(expr, alias) for expr, alias in corpus_scalars),
+        *(
+            _queue_project_decision_subquery(expr, alias)
+            for expr, alias in decision_columns
+        ),
+        *(
+            _queue_project_decision_json_field_subquery(field, alias)
+            for field, alias in decision_json_fields
+        ),
+        """
+              exists (
+                select 1
+                from control_events ev
+                where ev.event_type = 'followup.launch'
+                  and ev.entity_type = 'project'
+                  and ev.entity_id = q.project_id
+              ) as followup_launched""",
+    ]
+    return ",\n".join(parts)
 
 
 _SUPABASE_EVENT_PAGE_ORDER_BY = {
@@ -1406,259 +1545,7 @@ class SupabaseReadOnlyControlPlaneStore:
               p.notion_page_url,
               p.notion_page_id,
               p.origin_idea_status,
-              (
-                select pa.paper_id
-                from papers pa
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_paper_id,
-              (
-                select pa.paper_status
-                from papers pa
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_paper_status,
-              (
-                select rv.automation_status
-                from papers pa
-                left join publication_automation_items rv using(paper_id)
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_review_status,
-              (
-                select rv.finalization_package_path
-                from papers pa
-                left join publication_automation_items rv using(paper_id)
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_finalization_package_path,
-              (
-                select pa.draft_markdown_path
-                from papers pa
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_draft_markdown_path,
-              (
-                select pa.evidence_bundle_path
-                from papers pa
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_evidence_bundle_path,
-              (
-                select pa.claim_ledger_path
-                from papers pa
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_claim_ledger_path,
-              (
-                select pa.manifest_path
-                from papers pa
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_manifest_path,
-              (
-                select ci.corpus_import_id
-                from papers pa
-                left join corpus_imports ci using(paper_id)
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_corpus_import_id,
-              (
-                select ci.artifact_slug
-                from papers pa
-                left join corpus_imports ci using(paper_id)
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_artifact_slug,
-              (
-                select ci.source_record_fingerprint
-                from papers pa
-                left join corpus_imports ci using(paper_id)
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_source_record_fingerprint,
-              (
-                select (ci.paper_id is not null)
-                from papers pa
-                left join corpus_imports ci using(paper_id)
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_corpus_imported,
-              (
-                select d.decision_gate_state
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as decision_gate_state,
-              (
-                select d.decision_summary
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as decision_summary,
-              (
-                select d.payload_json
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as decision_payload_json,
-              (
-                select coalesce(d.payload_json->'project_decision'->>'project_decision', d.payload_json->>'project_decision')
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as project_decision,
-              (
-                select coalesce(d.payload_json->'project_decision'->>'research_outcome', d.payload_json->>'research_outcome')
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as research_outcome,
-              (
-                select coalesce(d.payload_json->'project_decision'->>'bounded_paper_ready', d.payload_json->>'bounded_paper_ready')
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as bounded_paper_ready,
-              (
-                select coalesce(d.payload_json->'project_decision'->>'hypothesis_status', d.payload_json->>'hypothesis_status')
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as hypothesis_status,
-              (
-                select coalesce(d.payload_json->'project_decision'->>'evidence_strength', d.payload_json->>'evidence_strength')
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as evidence_strength,
-              (
-                select coalesce(d.payload_json->'project_decision'->>'claim_scope', d.payload_json->>'claim_scope')
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as claim_scope,
-              (
-                select coalesce(d.payload_json->'project_decision'->>'scale_limits', d.payload_json->>'scale_limits')
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as scale_limits,
-              (
-                select d.followup_recommended
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_recommended,
-              (
-                select d.followup_type
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_type,
-              (
-                select d.followup_title
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_title,
-              (
-                select d.followup_hypothesis
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_hypothesis,
-              (
-                select d.followup_required_evidence
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_required_evidence,
-              (
-                select d.followup_success_threshold
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_success_threshold,
-              (
-                select d.followup_stop_condition
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_stop_condition,
-              (
-                select d.followup_depth
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_depth,
-              exists (
-                select 1
-                from control_events ev
-                where ev.event_type = 'followup.launch'
-                  and ev.entity_type = 'project'
-                  and ev.entity_id = q.project_id
-              ) as followup_launched,
+              {_queue_rows_related_projection_sql()},
               i.source_kind as idea_source_kind,
               coalesce(i.source_payload_json, '{{}}'::jsonb) as idea_source_payload_json,
               case
