@@ -1,9 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
-import { fetchMockCallUrl } from '../test/fetchMockBody'
+import { fetchMockCallUrl, fetchMockRequestBody } from '../test/fetchMockBody'
 import { AutomationPage } from './AutomationPage'
+
+const mockPackagePath = join(tmpdir(), 'enoch-test-package.json')
 
 function renderWithClient(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -71,7 +75,7 @@ it('uses the paper id from automation detail hashes for finalization dry-runs', 
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-first', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'First paper' }, { paper_id: 'paper-target', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Target paper' }] }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ item: { paper_id: 'paper-target', project_name: 'Target paper', review_status: 'triage_ready', paper_status: 'publication_draft', rank_score: 91, rank_reasons: ['positive evidence'] }, checklist: { items: [{ item_id: 'evidence', label: 'Evidence bundle present', status: 'passed' }] } }), { status: 200 }))
-    .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, package_path: '/tmp/package.json', paper_id: 'paper-target' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, package_path: mockPackagePath, paper_id: 'paper-target' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-target' }] }), { status: 200 }))
 
   renderWithClient(<AutomationPage paperId="paper-target" />)
@@ -86,7 +90,8 @@ it('uses the paper id from automation detail hashes for finalization dry-runs', 
 
   await screen.findByText('Paper finalize dry-run passed')
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/publication-automation/paper-target', expect.any(Object))
-  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/paper-reviews/paper-target/prepare-finalization-package', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/paper-reviews/paper-target/prepare-finalization-package', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMockRequestBody(fetchMock, 2)).toContain('"dry_run":true')
 })
 
 it('previews selected paper artifacts inside V2 automation detail', async () => {
@@ -136,22 +141,18 @@ it('updates automation checklist items through dialog-confirmed V2 mutation', as
   fireEvent.click(screen.getByRole('button', { name: 'Mark pass' }))
 
   await screen.findByText('Command completed')
-  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/publication-automation/paper-target/checklist/evidence', expect.objectContaining({
-    method: 'POST',
-    body: expect.stringContaining('"status":"pass"'),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/publication-automation/paper-target/checklist/evidence', expect.objectContaining({
-    body: expect.stringContaining('"note":"Marked pass from dashboard-v2"'),
-  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/publication-automation/paper-target/checklist/evidence', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMockRequestBody(fetchMock, 2)).toContain('"status":"pass"')
+  expect(fetchMockRequestBody(fetchMock, 2)).toContain('"note":"Marked pass from dashboard-v2"')
 })
 
 it('dry-runs rewrite batch and finalization package without live rewrite', async () => {
   saveToken('test-token')
-  vi.spyOn(globalThis, 'fetch')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-1', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Paper project' }] }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ item: { paper_id: 'paper-1', project_name: 'Paper project', review_status: 'triage_ready', paper_status: 'publication_draft' }, checklist: { items: [] } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, matched: 1, rows: [{ paper_id: 'paper-1', action: 'would_rewrite' }] }), { status: 200 }))
-    .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, package_path: '/tmp/package.json' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, package_path: mockPackagePath }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-1' }] }), { status: 200 }))
 
   renderWithClient(<AutomationPage />)
@@ -163,8 +164,10 @@ it('dry-runs rewrite batch and finalization package without live rewrite', async
   fireEvent.click(screen.getByRole('button', { name: 'Dry-run finalization package' }))
   await screen.findByText('Paper finalize dry-run passed')
 
-  expect(globalThis.fetch).toHaveBeenNthCalledWith(3, '/control/api/paper-reviews/rewrite-batch', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
-  expect(globalThis.fetch).toHaveBeenNthCalledWith(4, '/control/api/paper-reviews/paper-1/prepare-finalization-package', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"dry_run":true') }))
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/paper-reviews/rewrite-batch', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMockRequestBody(fetchMock, 2)).toContain('"dry_run":true')
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/control/api/paper-reviews/paper-1/prepare-finalization-package', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMockRequestBody(fetchMock, 3)).toContain('"dry_run":true')
 })
 
 it('only enables live finalization for the paper that completed dry-run', async () => {

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
+import { fetchMockRequestBody } from '../test/fetchMockBody'
 import { ResearchPage } from './ResearchPage'
 
 function renderWithClient(ui: React.ReactElement) {
@@ -181,10 +182,12 @@ it('dry-runs and confirms admitted candidate promotion without dispatching', asy
   fireEvent.click(screen.getByRole('button', { name: 'Dry-run promote selected' }))
 
   await screen.findByText('Research dry-run passed')
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/research/promote-candidate', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ candidate_id: 'cand-1', dry_run: true, requested_by: 'dashboard-v2' }),
-  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/research/promote-candidate', expect.objectContaining({ method: 'POST' }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 1))).toEqual({
+    candidate_id: 'cand-1',
+    dry_run: true,
+    requested_by: 'dashboard-v2',
+  })
 
   fireEvent.click(screen.getByRole('button', { name: 'Promote selected candidate' }))
   const dialog = await screen.findByRole('dialog', { name: 'Promote admitted candidate?' })
@@ -193,10 +196,12 @@ it('dry-runs and confirms admitted candidate promotion without dispatching', asy
   fireEvent.click(screen.getByRole('button', { name: 'Promote candidate' }))
 
   await screen.findByText('Research action completed')
-  await waitFor(() => expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/research/promote-candidate', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ candidate_id: 'cand-1', dry_run: false, requested_by: 'dashboard-v2' }),
-  })))
+  await waitFor(() => expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/research/promote-candidate', expect.objectContaining({ method: 'POST' })))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 2))).toEqual({
+    candidate_id: 'cand-1',
+    dry_run: false,
+    requested_by: 'dashboard-v2',
+  })
   await screen.findByText('No research candidates returned.')
   expect(screen.getByRole('heading', { name: 'No candidate selected' })).toBeInTheDocument()
 })

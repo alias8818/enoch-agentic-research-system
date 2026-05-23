@@ -84,14 +84,10 @@ it('dispatches the top dispatch action only after dry-run and dialog confirmatio
   fireEvent.click(dialog.querySelectorAll('button')[1])
 
   await screen.findByText('live dispatch accepted selected candidate')
-  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-next', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-next', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-next', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-next', expect.objectContaining({ method: 'POST' }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 0))).toEqual({ dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 1))).toEqual({ dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
@@ -152,14 +148,10 @@ it('launches the top follow-up action only after dry-run and dialog confirmation
   fireEvent.click(dialog.querySelectorAll('button')[1])
 
   await screen.findByText('follow-up queued without dispatch')
-  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/followups/launch-next', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ dry_run: true, requested_by: 'dashboard-v2', max_followup_depth: 4 }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/followups/launch-next', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ dry_run: false, requested_by: 'dashboard-v2', max_followup_depth: 4 }),
-  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/followups/launch-next', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/followups/launch-next', expect.objectContaining({ method: 'POST' }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 0))).toEqual({ dry_run: true, requested_by: 'dashboard-v2', max_followup_depth: 4 })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 1))).toEqual({ dry_run: false, requested_by: 'dashboard-v2', max_followup_depth: 4 })
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
@@ -203,14 +195,10 @@ it('drafts the top write-paper action only after dry-run and dialog confirmation
   fireEvent.click(dialog.querySelectorAll('button')[1])
 
   await screen.findByText('draft written for paper-ready candidate')
-  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/papers/draft-next', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ dry_run: true, requested_by: 'dashboard-v2', force: true }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/papers/draft-next', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ dry_run: false, requested_by: 'dashboard-v2', force: true }),
-  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/papers/draft-next', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/papers/draft-next', expect.objectContaining({ method: 'POST' }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 0))).toEqual({ dry_run: true, requested_by: 'dashboard-v2', force: true })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 1))).toEqual({ dry_run: false, requested_by: 'dashboard-v2', force: true })
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
@@ -520,14 +508,10 @@ it('live-dispatches a lane candidate only after exact lane dry-run and dialog co
   fireEvent.click(dialog.querySelectorAll('button')[1])
 
   await screen.findByText('live dispatch started exact GB10 candidate')
-  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'gb10-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 0))).toEqual({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 1))).toEqual({ project_id: 'gb10-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
@@ -632,14 +616,10 @@ it('checks every open lane candidate with dispatch-one instead of aggregate disp
   fireEvent.click(screen.getByRole('button', { name: 'Check open lanes' }))
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
-  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'cpu-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 0))).toEqual({ project_id: 'cpu-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 1))).toEqual({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
   expect(screen.getByText('Dispatch dry-run passed')).toBeInTheDocument()
   expect(screen.getByText('checked 2 lane candidates')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
@@ -686,22 +666,14 @@ it('live-dispatches every open lane candidate with dispatch-one after confirmati
   fireEvent.click(dialog.querySelectorAll('button')[1])
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
-  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'cpu-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'cpu-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(4, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'gb10-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 0))).toEqual({ project_id: 'cpu-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 1))).toEqual({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 2))).toEqual({ project_id: 'cpu-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 3))).toEqual({ project_id: 'gb10-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
   expect(screen.getByText('Dispatch completed')).toBeInTheDocument()
   expect(screen.getByText('dispatched 2 lane candidates')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(2)
