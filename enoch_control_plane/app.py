@@ -50,6 +50,7 @@ from .telemetry import TelemetryCollector
 # error messages in the dashboard API handlers).
 PROJECT_DIRECTORY_LABEL = "project directory"
 PROJECT_JSON_FILENAME = "project.json"
+ENOCH_PROJECT_DIRNAME = ".enoch"
 
 
 class ControlPlaneHttpError(Exception):
@@ -1114,7 +1115,7 @@ def _normalize_prepare_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
 
 
 def _load_project_metadata(project_dir: Path) -> dict[str, Any]:
-    path = project_dir / ".enoch" / PROJECT_JSON_FILENAME
+    path = project_dir / ENOCH_PROJECT_DIRNAME / PROJECT_JSON_FILENAME
     if not _checked_exists(path, label="project metadata"):
         legacy_path = project_dir / ".omx" / PROJECT_JSON_FILENAME
         if not _checked_exists(legacy_path, label="project metadata"):
@@ -1143,7 +1144,7 @@ def _resolve_workload_profile_for_project_dir(project_dir: Path) -> tuple[str, A
     if metadata is not None and not isinstance(metadata, dict):
         raise ControlPlaneHttpError(
             status_code=500,
-            detail=f"project metadata 'metadata' field must be an object: {project_dir / '.enoch' / PROJECT_JSON_FILENAME}",
+            detail=f"project metadata 'metadata' field must be an object: {project_dir / ENOCH_PROJECT_DIRNAME / PROJECT_JSON_FILENAME}",
         )
     try:
         return config.resolve_workload_profile((metadata or {}).get("workload_class"))
@@ -1503,7 +1504,7 @@ def _load_project_decision(
     include_summary_fallback: bool = True,
 ) -> tuple[ProjectDecision | None, str | None]:
     for explicit_path in (
-        project_dir / ".enoch" / "project_decision.json",
+        project_dir / ENOCH_PROJECT_DIRNAME / "project_decision.json",
         project_dir / ".omx" / "project_decision.json",
     ):
         try:
@@ -1572,8 +1573,8 @@ _RECENT_FILES_IGNORE_DIRS = frozenset(
 _RECENT_FILES_IGNORED_ROOTS: tuple[tuple[str, ...], ...] = (
     ("results",),
     ("artifacts",),
-    (".enoch", "state"),
-    (".enoch", "logs"),
+    (ENOCH_PROJECT_DIRNAME, "state"),
+    (ENOCH_PROJECT_DIRNAME, "logs"),
     (".omx", "state"),  # legacy compatibility
     (".omx", "logs"),  # legacy compatibility
 )
@@ -1827,7 +1828,9 @@ def _tail_jsonl(path: Path, limit: int = 80) -> list[str]:
 
 
 def _latest_session(project_dir: Path) -> SessionHistoryEntry | None:
-    history_path = project_dir / ".enoch" / "logs" / "session-history.jsonl"
+    history_path = (
+        project_dir / ENOCH_PROJECT_DIRNAME / "logs" / "session-history.jsonl"
+    )
     history_exists = _path_exists(history_path)
     if not history_exists:
         legacy_history_path = project_dir / ".omx" / "logs" / "session-history.jsonl"
@@ -2811,13 +2814,13 @@ async def prepare_project(
     )
 
     project_dir.mkdir(parents=True, exist_ok=True)
-    (project_dir / ".enoch").mkdir(parents=True, exist_ok=True)
+    (project_dir / ENOCH_PROJECT_DIRNAME).mkdir(parents=True, exist_ok=True)
 
     _write_text(prompt_file, request.prompt_text, request.overwrite)
     if resume_prompt_file and request.resume_prompt_text is not None:
         _write_text(resume_prompt_file, request.resume_prompt_text, request.overwrite)
 
-    metadata_path = project_dir / ".enoch" / "project.json"
+    metadata_path = project_dir / ENOCH_PROJECT_DIRNAME / "project.json"
     metadata_payload = {
         "run_id": request.run_id,
         "project_id": request.project_id,
