@@ -9263,7 +9263,9 @@ def _mount_control_plane_http_routes(
             )
         return response
 
-    @router.post("/api/intake/notion-observation")
+    @router.post(
+        "/api/intake/notion-observation", responses=_HTTP_410_LEGACY_NOTION_API
+    )
     def record_notion_observation(
         payload: dict[str, Any], authorization: Annotated[str | None, Header()] = None
     ) -> dict[str, Any]:
