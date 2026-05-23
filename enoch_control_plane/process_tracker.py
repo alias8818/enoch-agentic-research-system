@@ -26,6 +26,36 @@ def _is_benign_project_process(cmdline: str) -> bool:
     return False
 
 
+_ALLOWED_REAP_SIGNALS = frozenset({signal.SIGTERM, signal.SIGKILL})
+
+
+def _safe_send_signal(
+    pid: int,
+    sig: int,
+    *,
+    tracked: ProcessInfo | None = None,
+    proc: object | None = None,
+) -> None:
+    """Send ``sig`` to ``pid`` only after PID/signal guards and identity checks.
+
+    Guards against broadcast kills (``pid <= 0``), unexpected signals, and PID
+    reuse when ``tracked`` carries a ``create_time`` anchor.
+    """
+    if pid <= 0:
+        raise ProcessLookupError(pid)
+    if sig not in _ALLOWED_REAP_SIGNALS:
+        raise ValueError(f"unsupported stale-process reaper signal: {sig}")
+    if tracked is not None and tracked.create_time is not None:
+        active_proc = proc
+        if active_proc is None:
+            if psutil is None:
+                raise ProcessLookupError(pid)
+            active_proc = psutil.Process(pid)
+        if ProcessTracker._same_process(active_proc, tracked) is not True:
+            raise ProcessLookupError(pid)
+    os.kill(pid, sig)
+
+
 class ProcessTracker:
     """Track whether a run still owns any live local processes."""
 
@@ -336,7 +366,7 @@ class ProcessTracker:
                 if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
                     reaped.append(info)
                     continue
-                os.kill(info.pid, signal.SIGKILL)
+                _safe_send_signal(info.pid, signal.SIGKILL, tracked=info, proc=proc)
                 reaped.append(info)
             except (psutil.NoSuchProcess, ProcessLookupError):
                 reaped.append(info)
