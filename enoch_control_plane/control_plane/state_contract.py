@@ -161,6 +161,9 @@ IDEA_STATUSES: Final[set[str]] = {
 
 PAPER_DRAFT_NEXT_ACTION: Final[str] = "draft_paper_or_select_next_project"
 RUNS_STATE_SURFACE: Final[str] = "runs.state"
+PROJECT_DECISIONS_DECISION_GATE_STATE_SURFACE: Final[str] = (
+    "project_decisions.decision_gate_state"
+)
 
 STATE_CONTRACT: Final[dict[str, set[str]]] = {
     "queue_items.status": QUEUE_STATUSES,
@@ -169,7 +172,7 @@ STATE_CONTRACT: Final[dict[str, set[str]]] = {
     "runs.gate_state": RUN_STATES | {""},
     "papers.paper_status": PAPER_STATUSES,
     "publication_automation_items.automation_status": PUBLICATION_AUTOMATION_STATUSES,
-    "project_decisions.decision_gate_state": PROJECT_DECISION_GATE_STATES,
+    PROJECT_DECISIONS_DECISION_GATE_STATE_SURFACE: PROJECT_DECISION_GATE_STATES,
     "ideas.idea_status": IDEA_STATUSES,
     "projects.origin_idea_status": IDEA_STATUSES,
 }
@@ -638,7 +641,7 @@ STATE_REDUCTION_PLAN: Final[dict[str, dict[str, dict[str, str]]]] = {
             reason="terminal non-publication automation state",
         ),
     },
-    "project_decisions.decision_gate_state": {
+    PROJECT_DECISIONS_DECISION_GATE_STATE_SURFACE: {
         "positive": _decision(
             OperatorLane.WRITE_PAPER,
             "keep",
@@ -701,7 +704,7 @@ STATE_REDUCTION_PLAN["queue_items.last_run_state"] = {
     value: dict(
         STATE_REDUCTION_PLAN[RUNS_STATE_SURFACE].get(
             value,
-            STATE_REDUCTION_PLAN["project_decisions.decision_gate_state"].get(
+            STATE_REDUCTION_PLAN[PROJECT_DECISIONS_DECISION_GATE_STATE_SURFACE].get(
                 value,
                 _decision(
                     OperatorLane.HISTORICAL,
