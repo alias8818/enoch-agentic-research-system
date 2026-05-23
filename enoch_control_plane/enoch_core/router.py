@@ -105,7 +105,7 @@ def create_enoch_core_router(
             would_apply=False,
         )
 
-    @router.get("/projections/queue", response_model=QueueProjection)
+    @router.get("/projections/queue")
     def get_queue_projection(
         authorization: Annotated[str | None, Header()] = None,
         mode: Annotated[EnochCoreMode | None, Query()] = None,
