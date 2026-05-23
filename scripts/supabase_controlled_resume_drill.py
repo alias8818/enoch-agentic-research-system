@@ -125,14 +125,16 @@ def _wait_for_active(
     }
 
 
-def drill(args: argparse.Namespace) -> dict[str, Any]:
+def _require_drill_token(args: argparse.Namespace) -> str:
     token = _load_token(args.token_file)
     if not token:
         raise DrillError(
             "missing control-plane token; set ENOCH_CONTROL_PLANE_TOKEN or --token-file"
         )
-    base = args.control_url.rstrip("/")
+    return token
 
+
+def _run_resume_readiness(args: argparse.Namespace) -> dict[str, Any]:
     readiness_args = argparse.Namespace(
         control_url=args.control_url,
         token_file=args.token_file,
@@ -142,16 +144,20 @@ def drill(args: argparse.Namespace) -> dict[str, Any]:
     readiness = validate_resume_readiness(readiness_args)
     if not readiness.get("ok"):
         raise DrillError(f"resume readiness failed: {readiness.get('failures')}")
+    return readiness
 
+
+def _require_paused_maintenance_flags(base: str, token: str) -> dict[str, Any]:
     state_before = _get_state(base, token)
     flags_before = state_before.get("flags") or {}
     if not flags_before.get("queue_paused") or not flags_before.get("maintenance_mode"):
         raise DrillError(
             f"expected paused maintenance before drill, got flags={flags_before}"
         )
+    return flags_before
 
-    overview_before = _get_overview(base, token)
-    queued_before = int(((overview_before.get("counts") or {}).get("queued") or 0))
+
+def _verify_paused_dry_dispatch(base: str, token: str) -> dict[str, Any]:
     dry_dispatch = _require_200(
         "dispatch dry-run",
         _request(
@@ -168,31 +174,49 @@ def drill(args: argparse.Namespace) -> dict[str, Any]:
         raise DrillError(
             f"paused dry-run dispatch is not side-effect-free: {dry_dispatch}"
         )
+    return dry_dispatch
 
-    report: dict[str, Any] = {
-        "ok": True,
-        "applied": bool(args.apply),
-        "readiness": {
-            "workbench_rows": readiness.get("workbench_rows"),
-            "paper_pipeline": readiness.get("paper_pipeline"),
-            "timer_check": readiness.get("timer_check"),
-        },
-        "state_before": flags_before,
-        "queued_before": queued_before,
-        "dry_dispatch_before": dry_dispatch,
+
+def _readiness_report_section(readiness: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "workbench_rows": readiness.get("workbench_rows"),
+        "paper_pipeline": readiness.get("paper_pipeline"),
+        "timer_check": readiness.get("timer_check"),
     }
-    if not args.apply:
-        report["next"] = (
-            "rerun with --apply to dispatch exactly one candidate, then re-pause"
-            if queued_before > 0
-            else "no queued candidate is available; add/import a Supabase idea before running --apply"
-        )
-        return report
-    if queued_before <= 0:
-        raise DrillError(
-            "no queued candidate is available; refusing to unpause for an apply drill"
-        )
 
+
+def _dry_run_next_message(queued_before: int) -> str:
+    if queued_before > 0:
+        return "rerun with --apply to dispatch exactly one candidate, then re-pause"
+    return "no queued candidate is available; add/import a Supabase idea before running --apply"
+
+
+def _re_pause_after_drill(base: str, token: str, report: dict[str, Any]) -> None:
+    paused = _request(
+        "POST",
+        f"{base}/control/pause",
+        token,
+        {
+            "reason": "Re-paused after one-dispatch Supabase controlled resume drill.",
+            "paused_by": "supabase-controlled-resume-drill",
+            "maintenance_mode": True,
+        },
+    )
+    if paused[0] != 200:
+        report["ok"] = False
+        report["re_pause"] = {"status": paused[0], "body": paused[1]}
+        raise DrillError(
+            f"failed to re-pause after drill: HTTP {paused[0]} {paused[1]}"
+        )
+    report["re_pause"] = paused[1]
+
+
+def _apply_controlled_dispatch(
+    base: str,
+    token: str,
+    args: argparse.Namespace,
+    report: dict[str, Any],
+) -> None:
     resumed = _require_200(
         "resume",
         _request(
@@ -227,26 +251,38 @@ def drill(args: argparse.Namespace) -> dict[str, Any]:
         report["active_after_dispatch"] = _wait_for_active(
             base, token, timeout_seconds=args.active_wait_seconds
         )
-        return report
     finally:
         if not args.leave_unpaused:
-            paused = _request(
-                "POST",
-                f"{base}/control/pause",
-                token,
-                {
-                    "reason": "Re-paused after one-dispatch Supabase controlled resume drill.",
-                    "paused_by": "supabase-controlled-resume-drill",
-                    "maintenance_mode": True,
-                },
-            )
-            if paused[0] != 200:
-                report["ok"] = False
-                report["re_pause"] = {"status": paused[0], "body": paused[1]}
-                raise DrillError(
-                    f"failed to re-pause after drill: HTTP {paused[0]} {paused[1]}"
-                )
-            report["re_pause"] = paused[1]
+            _re_pause_after_drill(base, token, report)
+
+
+def drill(args: argparse.Namespace) -> dict[str, Any]:
+    token = _require_drill_token(args)
+    base = args.control_url.rstrip("/")
+    readiness = _run_resume_readiness(args)
+    flags_before = _require_paused_maintenance_flags(base, token)
+    overview_before = _get_overview(base, token)
+    queued_before = int(((overview_before.get("counts") or {}).get("queued") or 0))
+    dry_dispatch = _verify_paused_dry_dispatch(base, token)
+
+    report: dict[str, Any] = {
+        "ok": True,
+        "applied": bool(args.apply),
+        "readiness": _readiness_report_section(readiness),
+        "state_before": flags_before,
+        "queued_before": queued_before,
+        "dry_dispatch_before": dry_dispatch,
+    }
+    if not args.apply:
+        report["next"] = _dry_run_next_message(queued_before)
+        return report
+    if queued_before <= 0:
+        raise DrillError(
+            "no queued candidate is available; refusing to unpause for an apply drill"
+        )
+
+    _apply_controlled_dispatch(base, token, args, report)
+    return report
 
 
 def main() -> int:
