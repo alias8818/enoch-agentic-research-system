@@ -5283,11 +5283,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             body = status.json()
             intake_observation = body["observations"]["idea_intake"]
             self.assertIsNotNone(intake_observation)
-            self.assertEqual(intake_observation["payload"]["payload_omitted"], True)
+            self.assertTrue(intake_observation["payload"]["payload_omitted"])
             self.assertNotIn("candidates", intake_observation["payload"])
-            self.assertEqual(
-                body["recent_events"][0]["payload"]["payload_omitted"], True
-            )
+            self.assertTrue(body["recent_events"][0]["payload"]["payload_omitted"])
             self.assertNotIn("candidates", body["recent_events"][0]["payload"])
 
     def test_dashboard_status_blocks_dispatch_when_worker_refresh_fails(self) -> None:
