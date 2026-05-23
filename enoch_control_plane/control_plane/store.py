@@ -348,6 +348,101 @@ def _notion_page_id(raw: dict[str, Any]) -> str:
     ) or _notion_page_id_from_url(_notion_url(raw))
 
 
+_NOTION_EXECUTION_STATE_MAP = {
+    QueueStatus.QUEUED.value: "queued",
+    QueueStatus.DISPATCHING.value: "running",
+    QueueStatus.RUNNING.value: "running",
+    QueueStatus.AWAITING_WAKE.value: "waiting",
+    QueueStatus.WAKE_RECEIVED.value: "waiting",
+    QueueStatus.RECONCILING.value: "waiting",
+    QueueStatus.COMPLETED.value: "completed",
+    QueueStatus.PAUSED.value: "blocked",
+    QueueStatus.CANCELED.value: "completed",
+    QueueStatus.DISPATCH_ERROR.value: "failed",
+    QueueStatus.BLOCKED.value: "blocked",
+    QueueStatus.NEEDS_REVIEW.value: "blocked",
+}
+
+
+def _queue_row_merged_with_paper(
+    row: dict[str, Any], paper_by_project: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    paper = paper_by_project.get(row.get("project_id")) or {}
+    return {
+        **row,
+        "paper_id": paper.get("paper_id") or "",
+        "paper_status": paper.get("paper_status") or "",
+        "paper_type": paper.get("paper_type") or "",
+        "draft_markdown_path": paper.get("draft_markdown_path") or "",
+        "paper_updated_at": paper.get("updated_at") or "",
+    }
+
+
+def _notion_execution_blocked_reason(row: dict[str, Any], execution_state: str) -> str:
+    return (
+        row.get("blocked_reason")
+        or (
+            row.get("last_result_summary")
+            if execution_state in {"blocked", "failed"}
+            else ""
+        )
+        or ""
+    )
+
+
+def _notion_execution_update_properties(
+    row: dict[str, Any], *, execution_state: str, blocked_reason: str
+) -> dict[str, Any]:
+    return {
+        "Execution State": execution_state,
+        "Current Run ID": row.get("current_run_id") or "",
+        "Next Action": row.get("next_action_hint") or "",
+        "Blocked Reason": blocked_reason,
+        "Last Execution Update": row.get("updated_at") or utc_now(),
+        "Execution Summary": row.get("last_result_summary") or "",
+        "Enoch Project ID": row.get("project_id") or "",
+        "Enoch Queue Status": row.get("status") or "",
+        "Enoch Last Run State": row.get("last_run_state") or "",
+        "Enoch Last Event Type": row.get("last_event_type") or "",
+        "Enoch Next Action Hint": row.get("next_action_hint") or "",
+        "Enoch Project Dir": row.get("project_dir") or "",
+        "Enoch Current Session ID": row.get("current_session_id") or "",
+        "Enoch Last Result Summary": row.get("last_result_summary") or "",
+        "Enoch Last Error": row.get("last_error") or "",
+        "Enoch Manual Review Required": "__YES__"
+        if _bool(row.get("manual_review_required"))
+        else "__NO__",
+        "Enoch Dispatch Priority": row.get("dispatch_priority") or 0,
+        "Enoch Selection Rank": row.get("selection_rank") or 0,
+        "Enoch Paper ID": row.get("paper_id") or "",
+        "Enoch Paper Status": row.get("paper_status") or "",
+        "Enoch Paper Type": row.get("paper_type") or "",
+        "Enoch Paper Markdown Path": row.get("draft_markdown_path") or "",
+        "Enoch Paper Updated At": row.get("paper_updated_at") or "",
+        "Enoch Paper Updated At ISO": row.get("paper_updated_at") or "",
+    }
+
+
+def _notion_execution_update_row(
+    row: dict[str, Any], state_map: dict[str, str]
+) -> dict[str, Any] | None:
+    page_url = row.get("notion_page_url") or ""
+    if not page_url:
+        return None
+    execution_state = state_map.get(row.get("status") or "", "blocked")
+    blocked_reason = _notion_execution_blocked_reason(row, execution_state)
+    return {
+        "project_id": row.get("project_id") or "",
+        "page_id": row.get("notion_page_id") or _notion_page_id_from_url(page_url),
+        "notion_page_url": page_url,
+        "properties": _notion_execution_update_properties(
+            row,
+            execution_state=execution_state,
+            blocked_reason=blocked_reason,
+        ),
+    }
+
+
 def _priority_rank(raw: dict[str, Any]) -> int:
     priority = _text(_notion_prop(raw, "Priority")).lower()
     if priority == "high":
@@ -3818,85 +3913,15 @@ class ControlPlaneStore:
         return {}
 
     def notion_execution_update_projection(self) -> list[dict[str, Any]]:
-        state_map = {
-            QueueStatus.QUEUED.value: "queued",
-            QueueStatus.DISPATCHING.value: "running",
-            QueueStatus.RUNNING.value: "running",
-            QueueStatus.AWAITING_WAKE.value: "waiting",
-            QueueStatus.WAKE_RECEIVED.value: "waiting",
-            QueueStatus.RECONCILING.value: "waiting",
-            QueueStatus.COMPLETED.value: "completed",
-            QueueStatus.PAUSED.value: "blocked",
-            QueueStatus.CANCELED.value: "completed",
-            QueueStatus.DISPATCH_ERROR.value: "failed",
-            QueueStatus.BLOCKED.value: "blocked",
-            QueueStatus.NEEDS_REVIEW.value: "blocked",
-        }
         paper_by_project = {
             paper.get("project_id"): paper for paper in self.paper_rows()
         }
-        rows = []
+        rows: list[dict[str, Any]] = []
         for row in self.queue_rows():
-            paper = paper_by_project.get(row.get("project_id")) or {}
-            row = {
-                **row,
-                "paper_id": paper.get("paper_id") or "",
-                "paper_status": paper.get("paper_status") or "",
-                "paper_type": paper.get("paper_type") or "",
-                "draft_markdown_path": paper.get("draft_markdown_path") or "",
-                "paper_updated_at": paper.get("updated_at") or "",
-            }
-            page_url = row.get("notion_page_url") or ""
-            if not page_url:
-                continue
-            execution_state = state_map.get(row.get("status") or "", "blocked")
-            blocked_reason = (
-                row.get("blocked_reason")
-                or (
-                    row.get("last_result_summary")
-                    if execution_state in {"blocked", "failed"}
-                    else ""
-                )
-                or ""
-            )
-            rows.append(
-                {
-                    "project_id": row.get("project_id") or "",
-                    "page_id": row.get("notion_page_id")
-                    or _notion_page_id_from_url(page_url),
-                    "notion_page_url": page_url,
-                    "properties": {
-                        "Execution State": execution_state,
-                        "Current Run ID": row.get("current_run_id") or "",
-                        "Next Action": row.get("next_action_hint") or "",
-                        "Blocked Reason": blocked_reason,
-                        "Last Execution Update": row.get("updated_at") or utc_now(),
-                        "Execution Summary": row.get("last_result_summary") or "",
-                        "Enoch Project ID": row.get("project_id") or "",
-                        "Enoch Queue Status": row.get("status") or "",
-                        "Enoch Last Run State": row.get("last_run_state") or "",
-                        "Enoch Last Event Type": row.get("last_event_type") or "",
-                        "Enoch Next Action Hint": row.get("next_action_hint") or "",
-                        "Enoch Project Dir": row.get("project_dir") or "",
-                        "Enoch Current Session ID": row.get("current_session_id") or "",
-                        "Enoch Last Result Summary": row.get("last_result_summary")
-                        or "",
-                        "Enoch Last Error": row.get("last_error") or "",
-                        "Enoch Manual Review Required": "__YES__"
-                        if _bool(row.get("manual_review_required"))
-                        else "__NO__",
-                        "Enoch Dispatch Priority": row.get("dispatch_priority") or 0,
-                        "Enoch Selection Rank": row.get("selection_rank") or 0,
-                        "Enoch Paper ID": row.get("paper_id") or "",
-                        "Enoch Paper Status": row.get("paper_status") or "",
-                        "Enoch Paper Type": row.get("paper_type") or "",
-                        "Enoch Paper Markdown Path": row.get("draft_markdown_path")
-                        or "",
-                        "Enoch Paper Updated At": row.get("paper_updated_at") or "",
-                        "Enoch Paper Updated At ISO": row.get("paper_updated_at") or "",
-                    },
-                }
-            )
+            merged = _queue_row_merged_with_paper(row, paper_by_project)
+            update = _notion_execution_update_row(merged, _NOTION_EXECUTION_STATE_MAP)
+            if update is not None:
+                rows.append(update)
         return rows
 
     def export_snapshot(self, *, event_limit: int = 50) -> dict[str, Any]:
