@@ -62,6 +62,7 @@ WORKER_CALLBACK_AUDIT_KEYS = {
     "current_run_id",
     "current_last_run_state",
 }
+MISSING_TITLE_REASON = "missing title"
 
 
 def _json(payload: Any) -> str:
@@ -842,7 +843,7 @@ def _notion_intake_row_result(
     page_id = _notion_page_id(raw)
     page_url = _notion_url(raw)
     if not title:
-        return None, {"reason": "missing title", "row": raw}
+        return None, {"reason": MISSING_TITLE_REASON, "row": raw}
     if include_statuses and not status:
         return None, {
             "reason": "missing status",
@@ -1031,7 +1032,7 @@ def _notion_intake_skip_row(
     include_statuses: set[str],
 ) -> dict[str, Any] | None:
     if not title:
-        return {"reason": "missing title", "row": raw}
+        return {"reason": MISSING_TITLE_REASON, "row": raw}
     if include_statuses and not status:
         return {
             "reason": "missing status",
@@ -1128,7 +1129,7 @@ def _collect_idea_intake_candidates(
         origin_status = _idea_status(raw).lower()
         status = origin_status or "exploring"
         if not title:
-            skipped_rows.append({"reason": "missing title", "row": raw})
+            skipped_rows.append({"reason": MISSING_TITLE_REASON, "row": raw})
             continue
         if include_statuses and status and status not in include_statuses:
             skipped_rows.append(
