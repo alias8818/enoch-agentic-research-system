@@ -26,6 +26,10 @@ ACTION_BY_DISPOSITION = {
 # (addresses top remaining S1192, 13x in DOMAIN_TARGETS and state reduction mappings).
 QUEUE_ITEMS_STATUS = "queue_items.status"
 
+# Centralized surface name for the duplicated PROJECT_DECISIONS_DECISION_GATE_STATE literal
+# (addresses current top remaining S1192 in the same file, 7x in DOMAIN_TARGETS surfaces and mappings).
+PROJECT_DECISIONS_DECISION_GATE_STATE = "project_decisions.decision_gate_state"
+
 DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
     {
         "Ideas": {
@@ -43,7 +47,7 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
         "Projects": {
             "surfaces": [
                 QUEUE_ITEMS_STATUS,
-                "project_decisions.decision_gate_state",
+                PROJECT_DECISIONS_DECISION_GATE_STATE,
                 "projects.origin_idea_status",
             ],
             "states": OrderedDict(
@@ -117,12 +121,12 @@ FINAL_STATE_OVERRIDES: dict[tuple[str, str], str] = {
     (QUEUE_ITEMS_STATUS, "blocked"): "needs_attention",
     (QUEUE_ITEMS_STATUS, "needs_review"): "needs_attention",
     # Project decisions
-    ("project_decisions.decision_gate_state", "positive"): "paper_positive",
-    ("project_decisions.decision_gate_state", "negative"): "done_no_paper",
-    ("project_decisions.decision_gate_state", "needs_review"): "done_no_paper",
-    ("project_decisions.decision_gate_state", "missing"): "done_no_paper",
-    ("project_decisions.decision_gate_state", "malformed"): "done_no_paper",
-    ("project_decisions.decision_gate_state", "unknown"): "done_no_paper",
+    (PROJECT_DECISIONS_DECISION_GATE_STATE, "positive"): "paper_positive",
+    (PROJECT_DECISIONS_DECISION_GATE_STATE, "negative"): "done_no_paper",
+    (PROJECT_DECISIONS_DECISION_GATE_STATE, "needs_review"): "done_no_paper",
+    (PROJECT_DECISIONS_DECISION_GATE_STATE, "missing"): "done_no_paper",
+    (PROJECT_DECISIONS_DECISION_GATE_STATE, "malformed"): "done_no_paper",
+    (PROJECT_DECISIONS_DECISION_GATE_STATE, "unknown"): "done_no_paper",
     # Runs and run/detail states
     ("runs.state", "prepared"): "running",
     ("runs.state", "dispatching"): "running",
