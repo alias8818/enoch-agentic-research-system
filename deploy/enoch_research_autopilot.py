@@ -723,7 +723,7 @@ def _build_research_run_cycle_payload() -> tuple[dict, int]:
 
 
 def _transient_disconnect_exit(
-    exc: BaseException, base_url: str, token: str, *, phase: str
+    exc: BaseException, base_url: str, *, phase: str
 ) -> int | None:
     if not _control_plane_recovered(base_url):
         return None
@@ -763,18 +763,14 @@ def _post_research_run_cycle(
             timeout=max(60, max_wait_seconds + 120),
         )
     except RemoteDisconnected as exc:
-        exit_code = _transient_disconnect_exit(
-            exc, base_url, token, phase="disconnected"
-        )
+        exit_code = _transient_disconnect_exit(exc, base_url, phase="disconnected")
         if exit_code is not None:
             return exit_code, None
         return _research_autopilot_request_failure_exit(exc)
     except error.HTTPError as exc:
         return _research_autopilot_request_failure_exit(exc)
     except error.URLError as exc:
-        exit_code = _transient_disconnect_exit(
-            exc, base_url, token, phase="unavailable"
-        )
+        exit_code = _transient_disconnect_exit(exc, base_url, phase="unavailable")
         if exit_code is not None:
             return exit_code, None
         return _research_autopilot_request_failure_exit(exc)
