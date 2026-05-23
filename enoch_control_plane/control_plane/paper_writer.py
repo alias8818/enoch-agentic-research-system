@@ -1148,8 +1148,6 @@ def write_paper_artifacts(
             status_code=400,
             detail=f"unsupported paper_writer_provider: {config.paper_writer_provider}",
         )
-    if provider in {"deterministic", "template"}:
-        pass
     markdown = files.get(paper.draft_markdown_path, "")
     evidence_bundle = _build_evidence_bundle_data(
         project_dir, candidate, paper, writer_provider=meta
