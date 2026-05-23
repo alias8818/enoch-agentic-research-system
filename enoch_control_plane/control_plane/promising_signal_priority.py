@@ -263,13 +263,7 @@ def _followup_depth(row: dict[str, Any]) -> int:
     return max(values or [0])
 
 
-def _followup_not_ready_reason(
-    row: dict[str, Any],
-    *,
-    bucket: str,
-    max_followup_depth: int,
-    explicit_project: bool,
-) -> str | None:
+def _followup_status_not_ready_reason(row: dict[str, Any]) -> str | None:
     if not _truthy(row.get("followup_recommended")):
         return "followup_not_recommended"
     if _normal(row.get("status") or row.get("queue_status")) != "completed":
@@ -280,6 +274,18 @@ def _followup_not_ready_reason(
         return "followup_already_launched"
     if _truthy(row.get("compute_scale_blocked")):
         return "compute_scale_blocked"
+    return None
+
+
+def _followup_not_ready_reason(
+    row: dict[str, Any],
+    *,
+    bucket: str,
+    max_followup_depth: int,
+    explicit_project: bool,
+) -> str | None:
+    if reason := _followup_status_not_ready_reason(row):
+        return reason
     if _followup_depth(row) >= max_followup_depth:
         return "max_followup_depth"
     if _normal(row.get("followup_type")) not in {"deepen", "branch", "retry"}:
