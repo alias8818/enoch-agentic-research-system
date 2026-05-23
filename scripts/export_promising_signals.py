@@ -515,34 +515,49 @@ def signal_from_row(row: dict[str, Any]) -> dict[str, Any]:
     return signal
 
 
-def validate_signal(signal: dict[str, Any]) -> list[str]:
+def _signal_dict_section(signal: dict[str, Any], key: str) -> dict[str, Any]:
+    value = signal.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _validate_signal_required_fields(signal: dict[str, Any]) -> list[str]:
     issues: list[str] = []
     for field in PROMISING_SIGNAL_SCHEMA["required"]:
         value = signal.get(field)
         if value in (None, "", [], {}):
             issues.append(f"{field}:required")
+    return issues
+
+
+def _validate_signal_identity(signal: dict[str, Any]) -> list[str]:
+    issues: list[str] = []
     if signal.get("schema_version") != SCHEMA_VERSION:
         issues.append("schema_version:invalid")
     if signal.get("status") not in EXPORT_STATUSES:
         issues.append("status:invalid")
-    disclaimer = (
-        signal.get("do_not_overclaim")
-        if isinstance(signal.get("do_not_overclaim"), dict)
-        else {}
-    )
+    return issues
+
+
+def _validate_do_not_overclaim(disclaimer: dict[str, Any]) -> list[str]:
+    issues: list[str] = []
     for key in ("not_a_paper", "not_publication_validated", "not_in_main_corpus"):
         if disclaimer.get(key) is not True:
             issues.append(f"do_not_overclaim.{key}:required_true")
     if "not validated papers" not in str(disclaimer.get("disclaimer") or ""):
         issues.append("do_not_overclaim.disclaimer:missing_not_validated_papers")
-    evidence = (
-        signal.get("evidence") if isinstance(signal.get("evidence"), dict) else {}
-    )
+    return issues
+
+
+def _validate_signal_evidence(evidence: dict[str, Any]) -> list[str]:
     if evidence.get("public_evidence_copied") is not False:
-        issues.append("evidence.public_evidence_copied:must_be_false")
-    curation = (
-        signal.get("curation") if isinstance(signal.get("curation"), dict) else {}
-    )
+        return ["evidence.public_evidence_copied:must_be_false"]
+    return []
+
+
+def _validate_signal_curation(
+    signal: dict[str, Any], curation: dict[str, Any]
+) -> list[str]:
+    issues: list[str] = []
     expected_curation = rank_signal(signal)
     if curation.get("schema_version") != RANKING_SCHEMA_VERSION:
         issues.append("curation.schema_version:invalid")
@@ -551,10 +566,30 @@ def validate_signal(signal: dict[str, Any]) -> list[str]:
     for key in ("score", "bucket", "bucket_label", "score_breakdown", "reasons"):
         if curation.get(key) != expected_curation.get(key):
             issues.append(f"curation.{key}:drift")
+    return issues
+
+
+def _validate_signal_private_path_redaction(signal: dict[str, Any]) -> list[str]:
+    issues: list[str] = []
     serialized = json.dumps(signal, sort_keys=True)
     for private_root in PRIVATE_PATH_ROOTS:
         if private_root in serialized:
             issues.append(f"private_path_not_redacted:{private_root}")
+    return issues
+
+
+def validate_signal(signal: dict[str, Any]) -> list[str]:
+    issues: list[str] = []
+    issues.extend(_validate_signal_required_fields(signal))
+    issues.extend(_validate_signal_identity(signal))
+    issues.extend(
+        _validate_do_not_overclaim(_signal_dict_section(signal, "do_not_overclaim"))
+    )
+    issues.extend(_validate_signal_evidence(_signal_dict_section(signal, "evidence")))
+    issues.extend(
+        _validate_signal_curation(signal, _signal_dict_section(signal, "curation"))
+    )
+    issues.extend(_validate_signal_private_path_redaction(signal))
     return sorted(set(issues))
 
 
