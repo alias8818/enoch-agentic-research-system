@@ -14594,6 +14594,49 @@ def test_register_control_plane_routes_delegates_to_mount():
     assert callable(_mount_control_plane_http_routes)
 
 
+def test_mount_control_plane_http_routes_delegates_to_http_register():
+    """AGENTS.md test-first for OPEN S3776 (_mount_control_plane_http_routes @ router.py:5273).
+
+    Mount only forwards to _register_control_plane_http_routes so Sonar cognitive
+    complexity stays on the HTTP route registration body, not the mount entrypoint.
+    """
+    import ast
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def _register_control_plane_http_routes(" in src
+
+    module = ast.parse(src)
+    mount = next(
+        node
+        for node in module.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_mount_control_plane_http_routes"
+    )
+    body_lines = {stmt.lineno for stmt in mount.body}
+    assert body_lines, "_mount_control_plane_http_routes must have a body"
+    assert max(body_lines) - min(body_lines) <= 8, (
+        "_mount_control_plane_http_routes should remain a thin orchestrator"
+    )
+    assert any(
+        isinstance(stmt, ast.Expr)
+        and isinstance(stmt.value, ast.Call)
+        and isinstance(stmt.value.func, ast.Name)
+        and stmt.value.func.id == "_register_control_plane_http_routes"
+        for stmt in mount.body
+    )
+
+    from enoch_control_plane.control_plane.router import (
+        _mount_control_plane_http_routes,
+        _register_control_plane_http_routes,
+    )
+
+    assert callable(_mount_control_plane_http_routes)
+    assert callable(_register_control_plane_http_routes)
+
+
 def test_router_no_redundant_response_model_fastapi_style():
     """AGENTS.md test-first validator for top BLOCKERs (S8409/S8410, ~49 instances in router.py).
 
