@@ -1,4 +1,5 @@
 import { MouseEvent, ReactNode, useState } from 'react'
+import { displayText } from '../displayText'
 import type { ComposedEmptyStateCopy } from '../resourceStatePresentation'
 import { columnLinkHref, resolveColumnTone, resolveColumnValue, shortTableId, type TableColumnSpec } from '../tablePresentation'
 import { ComposedEmptyState } from './ResourceStateCards'
@@ -18,17 +19,17 @@ async function copyToClipboard(text: string): Promise<void> {
   document.body.appendChild(textarea)
   textarea.select()
   document.execCommand('copy')
-  document.body.removeChild(textarea)
+  textarea.remove()
 }
 
 function formatFallback(value: unknown): ReactNode {
   if (value === null || value === undefined || value === '') return <span className="muted-value">—</span>
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
   if (typeof value === 'object') return <code className="json-inline">{JSON.stringify(value)}</code>
-  return String(value)
+  return displayText(value)
 }
 
-function IdCell({ column, idValue, href }: { column: TableColumnSpec; idValue: string; href?: string }) {
+function IdCell({ column, idValue, href }: Readonly<{ column: TableColumnSpec; idValue: string; href?: string }>) {
   const [copied, setCopied] = useState(false)
   async function copy(event: MouseEvent<HTMLButtonElement>) {
     event.stopPropagation()
@@ -48,52 +49,97 @@ function IdCell({ column, idValue, href }: { column: TableColumnSpec; idValue: s
   )
 }
 
+function cellDisplayText(raw: unknown): string {
+  if (raw === null || raw === undefined || raw === '') return '—'
+  return displayText(raw)
+}
+
+function CellLinkWrap({
+  href,
+  className,
+  title,
+  children,
+}: Readonly<{ href?: string; className: string; title: string; children: ReactNode }>) {
+  if (href) {
+    return (
+      <a className={className} href={href} onClick={(event) => event.stopPropagation()} title={title}>
+        {children}
+      </a>
+    )
+  }
+  return <span className={className} title={title}>{children}</span>
+}
+
+function IdColumnCell({
+  column,
+  row,
+  href,
+  text,
+}: Readonly<{ column: TableColumnSpec; row: Row; href?: string; text: string }>) {
+  const fallbackId = text === '—' ? '' : text
+  const idValue = displayText(row[column.key], fallbackId)
+  if (!idValue || idValue === '—') return <span className="muted-value">—</span>
+  return <IdCell column={column} idValue={idValue} href={href} />
+}
+
+function PrimaryColumnCell({
+  raw,
+  href,
+  text,
+}: Readonly<{ raw: unknown; href?: string; text: string }>) {
+  let content: ReactNode = text
+  if (text === '—') content = formatFallback(raw)
+  const className = href ? 'cell-link cell-primary cell-truncate' : 'cell-primary cell-truncate'
+  return <CellLinkWrap href={href} className={className} title={text}>{content}</CellLinkWrap>
+}
+
+function LinkColumnCell({ href, text }: Readonly<{ href?: string; text: string }>) {
+  if (text === '—') return <span className="muted-value">—</span>
+  const className = href ? 'cell-link cell-truncate' : 'cell-truncate'
+  return <CellLinkWrap href={href} className={className} title={text}>{text}</CellLinkWrap>
+}
+
+function StatusColumnCell({ text, tone }: Readonly<{ text: string; tone?: string }>) {
+  const toneClass = tone ? ` table-status--${tone}` : ''
+  return <span className={`table-status${toneClass}`}>{text}</span>
+}
+
+function DefaultColumnCell({
+  raw,
+  href,
+  text,
+}: Readonly<{ raw: unknown; href?: string; text: string }>) {
+  const formatted = formatFallback(raw)
+  const className = href ? 'cell-link cell-truncate' : 'cell-truncate'
+  return <CellLinkWrap href={href} className={className} title={text}>{formatted}</CellLinkWrap>
+}
+
 function CellValue({
   column,
   row,
   href,
-}: {
+}: Readonly<{
   column: TableColumnSpec
   row: Row
   href?: string
-}) {
+}>) {
   const raw = resolveColumnValue(row, column)
   const tone = resolveColumnTone(row, column)
-  const text = raw === null || raw === undefined || raw === '' ? '—' : String(raw)
+  const text = cellDisplayText(raw)
 
-  if (column.kind === 'id') {
-    const idValue = String(row[column.key] || (text === '—' ? '' : text))
-    if (!idValue || idValue === '—') return <span className="muted-value">—</span>
-    return <IdCell column={column} idValue={idValue} href={href} />
-  }
-
-  if (column.kind === 'primary') {
-    const content = text === '—' ? formatFallback(raw) : text
-    return href
-      ? <a className="cell-link cell-primary cell-truncate" href={href} onClick={(event) => event.stopPropagation()} title={text}>{content}</a>
-      : <span className="cell-primary cell-truncate" title={text}>{content}</span>
-  }
-
-  if (column.kind === 'link') {
-    if (text === '—') return <span className="muted-value">—</span>
-    return href
-      ? <a className="cell-link cell-truncate" href={href} onClick={(event) => event.stopPropagation()} title={text}>{text}</a>
-      : <span className="cell-truncate" title={text}>{text}</span>
-  }
-
-  if (column.kind === 'status' || tone) {
-    const toneClass = tone ? ` table-status--${tone}` : ''
-    return <span className={`table-status${toneClass}`}>{text}</span>
-  }
-
-  const formatted = formatFallback(raw)
-  return href
-    ? <a className="cell-link cell-truncate" href={href} onClick={(event) => event.stopPropagation()} title={text}>{formatted}</a>
-    : <span className="cell-truncate" title={text}>{formatted}</span>
+  if (column.kind === 'id') return <IdColumnCell column={column} row={row} href={href} text={text} />
+  if (column.kind === 'primary') return <PrimaryColumnCell raw={raw} href={href} text={text} />
+  if (column.kind === 'link') return <LinkColumnCell href={href} text={text} />
+  if (column.kind === 'status' || tone) return <StatusColumnCell text={text} tone={tone} />
+  return <DefaultColumnCell raw={raw} href={href} text={text} />
 }
 
 function rowKey(row: Row, index: number): string {
-  return String(row.project_id || row.run_id || row.paper_id || row.event_id || row.id || index)
+  for (const candidate of [row.project_id, row.run_id, row.paper_id, row.event_id, row.id]) {
+    const key = displayText(candidate)
+    if (key) return key
+  }
+  return String(index)
 }
 
 export function DataTable({
@@ -102,13 +148,13 @@ export function DataTable({
   empty,
   onSelectRow,
   cellHref,
-}: {
+}: Readonly<{
   rows: Row[]
   columns: TableColumnSpec[]
   empty: string | ComposedEmptyStateCopy
   onSelectRow?: (row: Row) => void
   cellHref?: (row: Row, column: string) => string | undefined
-}) {
+}>) {
   if (!rows.length) {
     if (typeof empty === 'string') {
       return <div className="empty-table">{empty}</div>

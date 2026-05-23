@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { displayText } from '../displayText'
 import { useQuery } from '@tanstack/react-query'
 import { apiGet, apiPost } from '../api/client'
 import {
@@ -60,11 +61,11 @@ type DetailSelection = { kind: 'project' | 'run' | 'paper' | 'event'; id: string
 type FilterState = { search: string; status: string; pageSize: string; cursor: string }
 type CommandResult = { payload: Record<string, unknown>; context?: CommandPresentationContext }
 
-function ResourceErrorCard({ endpoint, error, onRetry, retryLabel }: { endpoint: Parameters<typeof deriveResourceErrorCopy>[0]; error: unknown; onRetry: () => void; retryLabel?: string }) {
+function ResourceErrorCard({ endpoint, error, onRetry, retryLabel }: Readonly<{ endpoint: Parameters<typeof deriveResourceErrorCopy>[0]; error: unknown; onRetry: () => void; retryLabel?: string }>) {
   return <PageResourceErrorCard copy={deriveResourceErrorCopy(endpoint, error)} error={error} onRetry={onRetry} retryLabel={retryLabel} />
 }
 
-function PageRefreshAction({ generatedAt, isFetching, onRefresh, label = 'Last loaded', refreshLabel = 'Refresh rows' }: { generatedAt?: string; isFetching: boolean; onRefresh: () => void; label?: string; refreshLabel?: string }) {
+function PageRefreshAction({ generatedAt, isFetching, onRefresh, label = 'Last loaded', refreshLabel = 'Refresh rows' }: Readonly<{ generatedAt?: string; isFetching: boolean; onRefresh: () => void; label?: string; refreshLabel?: string }>) {
   return (
     <ActionRow ariaLabel={label}>
       <span>{label} {generatedAt || 'unknown'}</span>
@@ -113,7 +114,7 @@ function firstValue(...values: unknown[]): unknown {
 function selectedDispatchReason(selection: DetailSelection | null): string {
   if (!selection) return 'Select a queued row to check whether that exact candidate can dispatch.'
   if (!selection.id) return 'Selected row has no project id.'
-  const status = String(selection.row?.status || '').toLowerCase()
+  const status = displayText(selection.row?.status).toLowerCase()
   if (status !== 'queued') return `Selected row is ${status || 'not queued'}.`
   return 'Dry-run checks /control/dispatch-one for the selected project only.'
 }
@@ -121,13 +122,13 @@ function selectedDispatchReason(selection: DetailSelection | null): string {
 function queueDispatchSignature(row?: Record<string, unknown>): string {
   if (!row) return ''
   return [
-    String(row.project_id || ''),
-    String(row.status || '').toLowerCase(),
-    String(row.machine_target || ''),
-    String(row.current_run_id || ''),
-    String(row.dispatch_priority || ''),
-    String(row.selection_rank || ''),
-    String(row.updated_at || ''),
+    displayText(row.project_id),
+    displayText(row.status).toLowerCase(),
+    displayText(row.machine_target),
+    displayText(row.current_run_id),
+    displayText(row.dispatch_priority),
+    displayText(row.selection_rank),
+    displayText(row.updated_at),
   ].join('|')
 }
 
@@ -139,15 +140,15 @@ function selectedDispatchDisabledReason(canDryRunSelected: boolean, liveReady: b
   return ''
 }
 
-function CommandResultCard({ result, stale }: { result: CommandResult | null; stale?: boolean }) {
+function CommandResultCard({ result, stale }: Readonly<{ result: CommandResult | null; stale?: boolean }>) {
   if (!result) return null
   return <CommandResultSummary result={{ payload: result.payload, context: { ...result.context, stale: stale || result.context?.stale } }} />
 }
 
-function CountCard({ label, value, detail }: { label: string; value: unknown; detail: string }) {
+function CountCard({ label, value, detail }: Readonly<{ label: string; value: unknown; detail: string }>) {
   return (
     <div className="count-card">
-      <div>{String(value ?? 0)}</div>
+      <div>{displayText(value, '0')}</div>
       <div>{label}</div>
       <p>{detail}</p>
     </div>
@@ -157,26 +158,27 @@ function CountCard({ label, value, detail }: { label: string; value: unknown; de
 function eventCellHref(row: Record<string, unknown>, column: string): string | undefined {
   if (column !== 'id' && column !== 'event_id') return undefined
   const id = firstValue(row.event_id, row.id)
-  return id ? dashboardV2Href(`#event:${encodeURIComponent(String(id))}`) : undefined
+  const idText = displayText(id)
+  return idText ? dashboardV2Href(`#event:${encodeURIComponent(idText)}`) : undefined
 }
 
 function detailCellHref(row: Record<string, unknown>, column: string): string | undefined {
   if (column === 'project_id') {
-    const id = firstValue(row.project_id)
-    return id ? dashboardV2Href(`#project:${encodeURIComponent(String(id))}`) : undefined
+    const idText = displayText(firstValue(row.project_id))
+    return idText ? dashboardV2Href(`#project:${encodeURIComponent(idText)}`) : undefined
   }
   if (column === 'run_id') {
-    const id = firstValue(row.run_id)
-    return id ? dashboardV2Href(`#run:${encodeURIComponent(String(id))}`) : undefined
+    const idText = displayText(firstValue(row.run_id))
+    return idText ? dashboardV2Href(`#run:${encodeURIComponent(idText)}`) : undefined
   }
   if (column === 'paper_id') {
-    const id = firstValue(row.paper_id)
-    return id ? dashboardV2Href(`#paper:${encodeURIComponent(String(id))}`) : undefined
+    const idText = displayText(firstValue(row.paper_id))
+    return idText ? dashboardV2Href(`#paper:${encodeURIComponent(idText)}`) : undefined
   }
   return eventCellHref(row, column)
 }
 
-export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'queue' }> }) {
+export function QueuePage({ route }: Readonly<{ route: Extract<DashboardRoute, { page: 'queue' }> }>) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [dispatchResult, setDispatchResult] = useState<CommandResult | null>(null)
   const [dispatchBusy, setDispatchBusy] = useState(false)
@@ -197,9 +199,9 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
   if (query.isLoading) return <LoadingStateCard label="queue" />
   if (query.isError) return <ResourceErrorCard endpoint="queue" error={query.error} onRetry={() => { void query.refetch() }} retryLabel="Retry queue" />
   const selectedProjectId = selection?.id || ''
-  const selectedStatus = String(selection?.row?.status || '').toLowerCase()
+  const selectedStatus = displayText(selection?.row?.status).toLowerCase()
   const canDryRunSelected = Boolean(selectedProjectId) && selectedStatus === 'queued'
-  const selectedCurrentRow = (query.data?.rows || []).find((row) => String(row.project_id || '') === selectedProjectId)
+  const selectedCurrentRow = (query.data?.rows || []).find((row) => displayText(row.project_id) === selectedProjectId)
   const selectedCurrentSignature = queueDispatchSignature(selectedCurrentRow || selection?.row)
   const canLiveDispatchSelected = canDryRunSelected
     && liveDispatchProjectId === selectedProjectId
@@ -263,7 +265,7 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
         <section className="queue-command-card queue-command-card--compact">
           <div>
             <p className="eyebrow">Selected queue row</p>
-            <h2>{String(firstValue(selection?.row?.project_name, selection?.row?.title) || selectedProjectId || 'No row selected')}</h2>
+            <h2>{displayText(firstValue(selection?.row?.project_name, selection?.row?.title), displayText(selectedProjectId, 'No row selected'))}</h2>
             {selectedProjectId ? <span className="detail-id-chip" title={selectedProjectId}>{shortId(selectedProjectId)}</span> : null}
             <p>{selection?.row ? queueDispatchReadiness(selection.row).label : selectedDispatchReason(selection)}</p>
           </div>
@@ -278,7 +280,7 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
           {dispatchDisabledReason ? <p className="primary-action-disabled-reason">{dispatchDisabledReason}</p> : null}
         </section>
         <CommandResultCard result={dispatchResult} stale={staleDispatchReady} />
-        <DataTable rows={query.data?.rows || []} columns={queueTableColumns} empty={deriveQueueEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => { setDispatchResult(null); setLiveDispatchProjectId(''); setLiveDispatchSignature(''); setSelection({ kind: 'project', id: String(row.project_id || ''), row }) }} />
+        <DataTable rows={query.data?.rows || []} columns={queueTableColumns} empty={deriveQueueEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => { setDispatchResult(null); setLiveDispatchProjectId(''); setLiveDispatchSignature(''); setSelection({ kind: 'project', id: displayText(row.project_id), row }) }} />
         <DetailPanel selection={selection} onClose={() => setSelection(null)} />
       </PageShell>
       {dialog}
@@ -286,7 +288,7 @@ export function QueuePage({ route }: { route: Extract<DashboardRoute, { page: 'q
   )
 }
 
-export function ProjectsPage({ route }: { route: Extract<DashboardRoute, { page: 'projects' }> }) {
+export function ProjectsPage({ route }: Readonly<{ route: Extract<DashboardRoute, { page: 'projects' }> }>) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [filters, setFilters] = useState<FilterState>({ search: route.search || '', status: route.status, pageSize: '50', cursor: '' })
   useEffect(() => {
@@ -300,13 +302,13 @@ export function ProjectsPage({ route }: { route: Extract<DashboardRoute, { page:
   return (
     <PageShell title="Projects" subtitle="Search projects and open structured detail before dispatch or paper actions." dataSource="/control/api/v1/projects" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
       <ListFilterBar state={filters} statusOptions={[{ label: 'all project states', value: '' }, { label: 'testing', value: 'testing' }, { label: 'exploring', value: 'exploring' }, { label: 'queued', value: 'queued' }, { label: 'running', value: 'running' }, { label: 'completed', value: 'completed' }, { label: 'blocked', value: 'blocked' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash('#projects', 'status', next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash('#projects', 'status', next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <DataTable rows={query.data?.rows || []} columns={projectsTableColumns} empty={deriveProjectsEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'project', id: String(row.project_id || ''), row })} />
+      <DataTable rows={query.data?.rows || []} columns={projectsTableColumns} empty={deriveProjectsEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'project', id: displayText(row.project_id), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )
 }
 
-export function RunsPage({ route }: { route: Extract<DashboardRoute, { page: 'runs' }> }) {
+export function RunsPage({ route }: Readonly<{ route: Extract<DashboardRoute, { page: 'runs' }> }>) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [filters, setFilters] = useState<FilterState>({ search: route.search || '', status: route.state, pageSize: '50', cursor: '' })
   useEffect(() => {
@@ -320,13 +322,13 @@ export function RunsPage({ route }: { route: Extract<DashboardRoute, { page: 'ru
   return (
     <PageShell title="Runs" subtitle="Inspect run state, gates, activity, and related artifacts." dataSource="/control/api/v1/runs" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
       <ListFilterBar state={filters} statusOptions={[{ label: 'all run states', value: '' }, { label: 'running', value: 'running' }, { label: 'dispatching', value: 'dispatching' }, { label: 'awaiting wake', value: 'awaiting_wake' }, { label: 'dispatch error', value: 'dispatch_error' }, { label: 'completed', value: 'completed' }, { label: 'wake ready', value: 'wake_ready' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash(next.status ? `#runs:${encodeURIComponent(next.status)}` : '#runs', '', { ...next, status: '' })) }} onReset={() => { const next = { search: '', status: route.state, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash(next.status ? `#runs:${encodeURIComponent(next.status)}` : '#runs', '', { ...next, status: '' })) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <DataTable rows={query.data?.rows || []} columns={runsTableColumns} empty={deriveRunsEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'run', id: String(row.run_id || ''), row })} />
+      <DataTable rows={query.data?.rows || []} columns={runsTableColumns} empty={deriveRunsEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'run', id: displayText(row.run_id), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )
 }
 
-export function PapersPage({ route }: { route: Extract<DashboardRoute, { page: 'papers' }> }) {
+export function PapersPage({ route }: Readonly<{ route: Extract<DashboardRoute, { page: 'papers' }> }>) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [filters, setFilters] = useState<FilterState>({ search: route.search || '', status: route.status, pageSize: '50', cursor: '' })
   useEffect(() => {
@@ -340,13 +342,27 @@ export function PapersPage({ route }: { route: Extract<DashboardRoute, { page: '
   return (
     <PageShell title="Papers" subtitle="Track draft, finalization, and publication readiness." dataSource="/control/api/v1/papers" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
       <ListFilterBar state={filters} statusOptions={[{ label: 'all paper statuses', value: '' }, { label: 'publication draft', value: 'publication_draft' }, { label: 'draft review', value: 'draft_review' }, { label: 'archived', value: 'archived' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash('#papers', 'status', next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash('#papers', 'status', next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <DataTable rows={query.data?.rows || []} columns={papersTableColumns} empty={derivePapersEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'paper', id: String(row.paper_id || ''), row })} />
+      <DataTable rows={query.data?.rows || []} columns={papersTableColumns} empty={derivePapersEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'paper', id: displayText(row.paper_id), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )
 }
 
-export function CorpusPage({ route }: { route?: Extract<DashboardRoute, { page: 'corpus' }> }) {
+function CorpusSelectedPaperLink({ row }: Readonly<{ row: Record<string, unknown> }>) {
+  const paperUrl = publicCorpusPaperUrl(row)
+  if (!paperUrl) {
+    return (
+      <p className="composed-empty-state-hint">Select an imported row with an artifact slug to open its public corpus path.</p>
+    )
+  }
+  return (
+    <div className="action-row">
+      <a className="primary-button primary-button--link" href={paperUrl} target="_blank" rel="noreferrer">Open public paper.md</a>
+    </div>
+  )
+}
+
+export function CorpusPage({ route }: Readonly<{ route?: Extract<DashboardRoute, { page: 'corpus' }> }>) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [filters, setFilters] = useState<FilterState>({ search: route?.search || '', status: route?.status || 'publication_draft', pageSize: '50', cursor: '' })
   useEffect(() => {
@@ -364,16 +380,19 @@ export function CorpusPage({ route }: { route?: Extract<DashboardRoute, { page: 
   const publishReady = pipeline.publish_ready ?? pipeline.missing_from_corpus ?? 0
   const imported = pipeline.published_imported ?? 0
   const publicationReady = pipeline.publication_ready_total ?? 0
-  const validationDetail = publishReady > 0
-    ? 'Import validation needs corpus autopilot.'
-    : 'Corpus import ledger has no missing finalized drafts.'
+  let validationDetail = 'Corpus import ledger has no missing finalized drafts.'
+  let importValidationStatus = 'clean'
+  if (publishReady > 0) {
+    validationDetail = 'Import validation needs corpus autopilot.'
+    importValidationStatus = 'pending'
+  }
   return (
     <PageShell title="Corpus import" subtitle="Find publication-ready drafts that still need corpus import." dataSource="/control/api/v1/papers and corpus import ledger" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching || overview.isFetching} onRefresh={() => { void query.refetch(); void overview.refetch() }} />}>
       <section className="count-grid" aria-label="Corpus import summary">
         <CountCard label="Missing corpus import" value={publishReady} detail="Finalized publication drafts without corpus-import ledger rows." />
         <CountCard label="Already imported" value={imported} detail="Publication-ready drafts already recorded in corpus_imports." />
         <CountCard label="Publication-ready total" value={publicationReady} detail="Finalized drafts whether imported or still missing import." />
-        <CountCard label="Import validation" value={publishReady > 0 ? 'pending' : 'clean'} detail={validationDetail} />
+        <CountCard label="Import validation" value={importValidationStatus} detail={validationDetail} />
       </section>
       <section className="corpus-links-card" aria-label="Public corpus and release validation">
         <p className="eyebrow">External evidence</p>
@@ -382,21 +401,10 @@ export function CorpusPage({ route }: { route?: Extract<DashboardRoute, { page: 
           <a className="secondary-button secondary-button--link" href={publicCorpusIndexUrl()} target="_blank" rel="noreferrer">Corpus index (GitHub)</a>
           <a className="secondary-button secondary-button--link" href={publicReleaseValidatorUrl()} target="_blank" rel="noreferrer">Release validator script</a>
         </div>
-        {selection?.kind === 'paper' && selection.row ? (
-          (() => {
-            const paperUrl = publicCorpusPaperUrl(selection.row)
-            return paperUrl ? (
-              <div className="action-row">
-                <a className="primary-button primary-button--link" href={paperUrl} target="_blank" rel="noreferrer">Open public paper.md</a>
-              </div>
-            ) : (
-              <p className="composed-empty-state-hint">Select an imported row with an artifact slug to open its public corpus path.</p>
-            )
-          })()
-        ) : null}
+        {selection?.kind === 'paper' && selection.row ? <CorpusSelectedPaperLink row={selection.row} /> : null}
       </section>
       <ListFilterBar state={filters} statusOptions={[{ label: 'publication draft', value: 'publication_draft' }, { label: 'draft review', value: 'draft_review' }, { label: 'archived', value: 'archived' }, { label: 'all paper statuses', value: '' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash('#corpus', 'status', next)) }} onReset={() => { const next = { search: '', status: route?.status || 'publication_draft', pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash('#corpus', 'status', next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <DataTable rows={query.data?.rows || []} columns={corpusTableColumns} empty={deriveCorpusEmpty({ search: filters.search, status: filters.status, defaultStatus: 'publication_draft' })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'paper', id: String(row.paper_id || ''), row })} />
+      <DataTable rows={query.data?.rows || []} columns={corpusTableColumns} empty={deriveCorpusEmpty({ search: filters.search, status: filters.status, defaultStatus: 'publication_draft' })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'paper', id: displayText(row.paper_id), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )
@@ -413,7 +421,7 @@ type IntakeResponse = {
   recent_events?: Record<string, unknown>[]
 }
 
-function IntakeIdeaDetail({ row, ideaId, onClose }: { row: Record<string, unknown> | null; ideaId?: string; onClose: () => void }) {
+function IntakeIdeaDetail({ row, ideaId, onClose }: Readonly<{ row: Record<string, unknown> | null; ideaId?: string; onClose: () => void }>) {
   if (!row && ideaId) {
     return (
       <section className="detail-panel" aria-label="Intake idea detail">
@@ -438,8 +446,8 @@ function IntakeIdeaDetail({ row, ideaId, onClose }: { row: Record<string, unknow
       <div className="detail-panel-head">
         <div>
           <p className="eyebrow">Intake idea detail</p>
-          <h2>{String(row.title || row.idea_id || 'Selected idea')}</h2>
-          <span className="detail-id-chip" title={String(row.idea_id || '')}>{shortId(String(row.idea_id || ''))}</span>
+          <h2>{displayText(row.title, displayText(row.idea_id, 'Selected idea'))}</h2>
+          <span className="detail-id-chip" title={displayText(row.idea_id)}>{shortId(displayText(row.idea_id))}</span>
         </div>
         <button className="secondary-button" type="button" onClick={onClose}>Close</button>
       </div>
@@ -455,11 +463,11 @@ function IntakeIdeaDetail({ row, ideaId, onClose }: { row: Record<string, unknow
 
 function intakeCellHref(row: Record<string, unknown>, column: string): string | undefined {
   if (column !== 'idea_id') return undefined
-  const ideaId = String(row.idea_id || '')
+  const ideaId = displayText(row.idea_id)
   return ideaId ? dashboardV2Href(`#intake:${encodeURIComponent(ideaId)}`) : undefined
 }
 
-export function IntakePage({ route }: { route?: Extract<DashboardRoute, { page: 'intake' }> }) {
+export function IntakePage({ route }: Readonly<{ route?: Extract<DashboardRoute, { page: 'intake' }> }>) {
   const [selection, setSelection] = useState<Record<string, unknown> | null>(null)
   const query = useQuery({ queryKey: ['intake'], queryFn: () => apiGet<IntakeResponse>('/control/api/intake/ideas?page_size=100') })
   if (query.isLoading) return <LoadingStateCard label="ideas intake" />
@@ -470,7 +478,7 @@ export function IntakePage({ route }: { route?: Extract<DashboardRoute, { page: 
   const latestSync = data.latest_sync ? [data.latest_sync] : []
   const routeIdeaId = route?.ideaId || ''
   const rows = data.queued_projection || []
-  const selectedRow = selection || rows.find((row) => String(row.idea_id || '') === routeIdeaId) || null
+  const selectedRow = selection || rows.find((row) => displayText(row.idea_id) === routeIdeaId) || null
   return (
     <PageShell title="Ideas intake" subtitle="Review admitted ideas, queue state, and next operator actions." dataSource="/control/api/intake/ideas" action={<PageRefreshAction generatedAt={data.generated_at} isFetching={query.isFetching} onRefresh={() => { setSelection(null); void query.refetch() }} refreshLabel="Refresh intake" />}>
       <WorkbenchOperatorSummary summary={data.operator_summary} />
@@ -489,7 +497,7 @@ export function IntakePage({ route }: { route?: Extract<DashboardRoute, { page: 
   )
 }
 
-export function EventsPage({ route }: { route?: Extract<DashboardRoute, { page: 'events' }> }) {
+export function EventsPage({ route }: Readonly<{ route?: Extract<DashboardRoute, { page: 'events' }> }>) {
   const [selection, setSelection] = useState<DetailSelection | null>(null)
   const [filters, setFilters] = useState<FilterState>({ search: route?.search || '', status: route?.eventType || '', pageSize: '50', cursor: '' })
   useEffect(() => {
@@ -508,7 +516,7 @@ export function EventsPage({ route }: { route?: Extract<DashboardRoute, { page: 
   return (
     <PageShell title="Events" subtitle="Scan recent control-plane events and open related entities." dataSource="/control/api/v1/events" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { void query.refetch() }} />}>
       <ListFilterBar state={filters} statusLabel="Event type" statusOptions={[{ label: 'all event types', value: '' }, { label: 'Queue Alert', value: 'Queue Alert' }, { label: 'worker.callback', value: 'worker.callback' }, { label: 'paper.drafted', value: 'paper.drafted' }, { label: 'research.run_cycle.live', value: 'research.run_cycle.live' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash('#events', 'event_type', next)) }} onReset={() => { const next = { search: '', status: '', pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash('#events', 'event_type', next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <DataTable rows={query.data?.rows || []} columns={eventsTableColumns} empty={deriveEventsEmpty({ search: filters.search, status: filters.status })} onSelectRow={(row) => setSelection({ kind: 'event', id: String(row.id || row.event_id || ''), row })} />
+      <DataTable rows={query.data?.rows || []} columns={eventsTableColumns} empty={deriveEventsEmpty({ search: filters.search, status: filters.status })} onSelectRow={(row) => setSelection({ kind: 'event', id: displayText(row.id, displayText(row.event_id)), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )

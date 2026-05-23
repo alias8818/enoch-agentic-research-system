@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { AutomationDetail, AutomationListRow, PagedRows } from '../api/readModels'
+import type { AutomationDetail } from '../api/readModels'
+import { displayText } from '../displayText'
 import { parseAutomationDetail, parseAutomationListResponse } from '../api/readModelSchemas'
 import { apiGet, apiPost } from '../api/client'
 import { dashboardV2Href } from '../routes'
@@ -45,13 +46,49 @@ function replaceRouteHash(hash: string) {
 
 function automationCellHref(row: Record<string, unknown>, column: string): string | undefined {
   if (column !== 'paper_id') return undefined
-  const paperId = String(row.paper_id || '')
+  const paperId = displayText(row.paper_id)
   return paperId ? dashboardV2Href(`#automation:${encodeURIComponent(paperId)}`) : undefined
 }
 
 function textList(value: unknown): string[] {
   if (!Array.isArray(value)) return []
-  return value.map((item) => String(item || '').trim()).filter(Boolean)
+  return value.map((item) => displayText(item).trim()).filter(Boolean)
+}
+
+function checklistMarkActions(
+  checklistItem: Record<string, unknown>,
+): { key: string; label: string; status: ChecklistUpdateInput['status'] }[] {
+  const itemId = displayText(checklistItem.item_id)
+  const status = displayText(checklistItem.status).toLowerCase()
+  if (!itemId || status === 'pass' || status === 'passed') return []
+  return [
+    { key: `${itemId}-pass`, label: `Mark ${itemId} pass`, status: 'pass' },
+    { key: `${itemId}-fail`, label: `Mark ${itemId} fail`, status: 'fail' },
+    { key: `${itemId}-risk`, label: `Mark ${itemId} accepted risk`, status: 'accepted_risk' },
+  ]
+}
+
+function automationResultCards(mutations: {
+  rewriteDryRun: { data?: MutationResult }
+  rewriteDraft: { data?: MutationResult }
+  finalizationDryRun: { data?: MutationResult }
+  finalizationLive: { data?: MutationResult }
+  rejectPaper: { data?: MutationResult }
+  checklistUpdate: { data?: MutationResult }
+}): { result?: MutationResult; context: CommandPresentationContext }[] {
+  return [
+    { result: mutations.rewriteDryRun.data, context: { commandFamily: 'finalize' } },
+    { result: mutations.rewriteDraft.data, context: { commandFamily: 'finalize' } },
+    { result: mutations.finalizationDryRun.data, context: { commandFamily: 'finalize' } },
+    { result: mutations.finalizationLive.data, context: { commandFamily: 'finalize' } },
+    { result: mutations.rejectPaper.data, context: { commandFamily: 'automation' } },
+    { result: mutations.checklistUpdate.data, context: { commandFamily: 'automation' } },
+  ]
+}
+
+function activeArtifactBusyField(isPending: boolean, field?: string): string {
+  if (!isPending) return ''
+  return field ?? ''
 }
 
 const artifactFields = ['draft_markdown_path', 'draft_latex_path', 'evidence_bundle_path', 'claim_ledger_path', 'manifest_path']
@@ -60,33 +97,116 @@ function artifactLabel(field: string): string {
   return field.replace('_path', '').replaceAll('_', ' ')
 }
 
+function artifactPreviewButtonLabel(artifactBusy: string, field: string): string {
+  if (artifactBusy === field) return `Loading ${artifactLabel(field)}`
+  return `Preview ${artifactLabel(field)}`
+}
+
+function automationDetailTitle(item: AutomationDetail['item']): string {
+  const paperTitle = displayText(item?.paper_title)
+  if (paperTitle) return paperTitle
+  const projectName = displayText(item?.project_name)
+  if (projectName) return projectName
+  return displayText(item?.paper_id, 'Automation detail')
+}
+
+function AutomationDetailArtifacts({
+  paperId,
+  fields,
+  artifactBusy,
+  onPreviewArtifact,
+}: Readonly<{
+  paperId: string
+  fields: string[]
+  artifactBusy: string
+  onPreviewArtifact: (paperId: string, field: string) => void
+}>) {
+  return (
+    <>
+      <h3>Artifacts</h3>
+      <div className="action-row" aria-label="Artifact preview actions">
+        {fields.map((field) => (
+          <button
+            key={field}
+            className="secondary-button"
+            type="button"
+            disabled={artifactBusy === field}
+            onClick={() => onPreviewArtifact(paperId, field)}
+          >
+            {artifactPreviewButtonLabel(artifactBusy, field)}
+          </button>
+        ))}
+      </div>
+    </>
+  )
+}
+
+function AutomationDetailChecklist({
+  checklistItems,
+  paperId,
+  checklistBusy,
+  onMarkChecklist,
+}: Readonly<{
+  checklistItems: Record<string, unknown>[]
+  paperId: string
+  checklistBusy: boolean
+  onMarkChecklist?: (input: ChecklistUpdateInput) => void
+}>) {
+  return (
+    <>
+      <h3>Checklist</h3>
+      <DataTable rows={checklistItems} columns={simpleTableColumns(['item_id', 'label', 'status', 'note'], { label: { kind: 'primary' } })} empty="No checklist rows returned." />
+      {onMarkChecklist ? (
+        <div className="action-row" aria-label="Checklist actions">
+          {checklistItems.flatMap((checklistItem) =>
+            checklistMarkActions(checklistItem).map((action) => (
+              <button
+                key={action.key}
+                className="secondary-button"
+                type="button"
+                disabled={checklistBusy}
+                onClick={() => onMarkChecklist({ paperId, itemId: displayText(checklistItem.item_id), status: action.status })}
+              >
+                {action.label}
+              </button>
+            )),
+          )}
+        </div>
+      ) : null}
+    </>
+  )
+}
+
 function AutomationDetailCard({
   detail,
   onMarkChecklist,
   onPreviewArtifact,
   checklistBusy = false,
   artifactBusy = '',
-}: {
+}: Readonly<{
   detail?: AutomationDetail
   onMarkChecklist?: (input: ChecklistUpdateInput) => void
   onPreviewArtifact?: (paperId: string, field: string) => void
   checklistBusy?: boolean
   artifactBusy?: string
-}) {
+}>) {
   if (!detail?.item) return null
   const item = detail.item
   const checklistItems = detail.checklist?.items || []
-  const paperId = String(item.paper_id || '')
+  const paperId = displayText(item.paper_id)
   const reasons = textList(item.rank_reasons)
   const availableArtifactFields = artifactFields.filter((field) => Boolean(item[field]))
+  const detailTitle = automationDetailTitle(item)
+  const showArtifacts = availableArtifactFields.length > 0 && Boolean(onPreviewArtifact) && Boolean(paperId)
+  const showChecklist = checklistItems.length > 0
   return (
     <section className="result-card" aria-label="Automation detail">
-      <h2>{String(item.project_name || item.paper_title || item.paper_id || 'Automation detail')}</h2>
+      <h2>{detailTitle}</h2>
       <dl className="detail-field-grid">
-        <div className="detail-field"><dt>paper id</dt><dd>{String(item.paper_id || '—')}</dd></div>
-        <div className="detail-field"><dt>automation</dt><dd>{String(item.review_status || '—')}</dd></div>
-        <div className="detail-field"><dt>paper status</dt><dd>{String(item.paper_status || '—')}</dd></div>
-        <div className="detail-field"><dt>rank score</dt><dd>{String(item.rank_score ?? '—')}</dd></div>
+        <div className="detail-field"><dt>paper id</dt><dd>{displayText(item.paper_id, '—')}</dd></div>
+        <div className="detail-field"><dt>automation</dt><dd>{displayText(item.review_status, '—')}</dd></div>
+        <div className="detail-field"><dt>paper status</dt><dd>{displayText(item.paper_status, '—')}</dd></div>
+        <div className="detail-field"><dt>rank score</dt><dd>{displayText(item.rank_score, '—')}</dd></div>
       </dl>
       {reasons.length ? (
         <>
@@ -94,55 +214,60 @@ function AutomationDetailCard({
           <ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
         </>
       ) : null}
-      {availableArtifactFields.length > 0 && onPreviewArtifact && paperId ? (
-        <>
-          <h3>Artifacts</h3>
-          <div className="action-row" aria-label="Artifact preview actions">
-            {availableArtifactFields.map((field) => (
-              <button
-                key={field}
-                className="secondary-button"
-                type="button"
-                disabled={artifactBusy === field}
-                onClick={() => onPreviewArtifact(paperId, field)}
-              >
-                {artifactBusy === field ? `Loading ${artifactLabel(field)}` : `Preview ${artifactLabel(field)}`}
-              </button>
-            ))}
-          </div>
-        </>
+      {showArtifacts && onPreviewArtifact ? (
+        <AutomationDetailArtifacts
+          paperId={paperId}
+          fields={availableArtifactFields}
+          artifactBusy={artifactBusy}
+          onPreviewArtifact={onPreviewArtifact}
+        />
       ) : null}
-      {checklistItems.length ? (
-        <>
-          <h3>Checklist</h3>
-          <DataTable rows={checklistItems} columns={simpleTableColumns(['item_id', 'label', 'status', 'note'], { label: { kind: 'primary' } })} empty="No checklist rows returned." />
-          {onMarkChecklist && paperId ? (
-            <div className="action-row" aria-label="Checklist actions">
-              {checklistItems.flatMap((checklistItem) => {
-                const itemId = String(checklistItem.item_id || '')
-                const status = String(checklistItem.status || '').toLowerCase()
-                if (!itemId || status === 'pass' || status === 'passed') return []
-                return ([
-                  { key: `${itemId}-pass`, label: `Mark ${itemId} pass`, status: 'pass' as const },
-                  { key: `${itemId}-fail`, label: `Mark ${itemId} fail`, status: 'fail' as const },
-                  { key: `${itemId}-risk`, label: `Mark ${itemId} accepted risk`, status: 'accepted_risk' as const },
-                ]).map((action) => (
-                  <button
-                    key={action.key}
-                    className="secondary-button"
-                    type="button"
-                    disabled={checklistBusy}
-                    onClick={() => onMarkChecklist({ paperId, itemId, status: action.status })}
-                  >
-                    {action.label}
-                  </button>
-                ))
-              })}
-            </div>
-          ) : null}
-        </>
+      {showChecklist ? (
+        <AutomationDetailChecklist
+          checklistItems={checklistItems}
+          paperId={paperId}
+          checklistBusy={checklistBusy}
+          onMarkChecklist={onMarkChecklist}
+        />
       ) : null}
     </section>
+  )
+}
+
+function AutomationPageFeedback({
+  activePaperId,
+  artifactPreview,
+  automationError,
+  automationLoading,
+  detailError,
+  artifactPreviewError,
+  resultCards,
+}: Readonly<{
+  activePaperId: string
+  artifactPreview: { project_name?: string; field?: string; content?: string } | null
+  automationError?: Error
+  automationLoading: boolean
+  detailError?: Error
+  artifactPreviewError?: Error
+  resultCards: { result?: MutationResult; context: CommandPresentationContext }[]
+}>) {
+  return (
+    <>
+      {detailError ? <div className="state-card state-card--error">Automation detail unavailable: {String(detailError.message)}</div> : null}
+      {resultCards.map((card, index) => (
+        <OperatorResultCard key={`${card.context.commandFamily}-${index}`} result={card.result} context={card.context} />
+      ))}
+      {artifactPreviewError ? <div className="state-card state-card--error">Artifact preview unavailable: {String(artifactPreviewError.message)}</div> : null}
+      {artifactPreview ? (
+        <section className="result-card artifact-preview" aria-label="Artifact preview">
+          <h2>Artifact preview</h2>
+          <p>{artifactPreview.project_name || activePaperId || 'Paper artifact'} · {artifactPreview.field || 'artifact'}</p>
+          <pre className="artifact-content">{displayText(artifactPreview.content)}</pre>
+        </section>
+      ) : null}
+      {automationLoading ? <div className="state-card">Loading publication automation…</div> : null}
+      {automationError ? <div className="state-card state-card--error">Publication automation unavailable: {String(automationError.message)}</div> : null}
+    </>
   )
 }
 
@@ -150,11 +275,11 @@ export function AutomationPage({
   paperId = '',
   search = '',
   reviewStatus = '',
-}: {
+}: Readonly<{
   paperId?: string
   search?: string
   reviewStatus?: string
-}) {
+}>) {
   const queryClient = useQueryClient()
   const { confirm, dialog } = useOperatorDialog()
   const [selectedPaperId, setSelectedPaperId] = useState(paperId)
@@ -316,22 +441,23 @@ export function AutomationPage({
     if (filters.search) params.set('search', filters.search)
     if (filters.status) params.set('review_status', filters.status)
     const next = await apiGet<{ paper_id?: string; item?: { paper_id?: string } }>(`/control/api/publication-automation/next?${params.toString()}`)
-    const nextPaperId = String(next.item?.paper_id || next.paper_id || '')
+    const nextPaperId = displayText(next.item?.paper_id, displayText(next.paper_id))
     if (!nextPaperId) return
     setSelectedPaperId(nextPaperId)
     replaceRouteHash(automationHash(filters, nextPaperId))
   }
 
   const counts = automation.data?.counts || {}
-  const selectedRow = rows.find((row) => String(row.paper_id || '') === activePaperId)
-  const resultCards: { result?: MutationResult; context: CommandPresentationContext }[] = [
-    { result: rewriteDryRun.data, context: { commandFamily: 'finalize' } },
-    { result: rewriteDraft.data, context: { commandFamily: 'finalize' } },
-    { result: finalizationDryRun.data, context: { commandFamily: 'finalize' } },
-    { result: finalizationLive.data, context: { commandFamily: 'finalize' } },
-    { result: rejectPaper.data, context: { commandFamily: 'automation' } },
-    { result: checklistUpdate.data, context: { commandFamily: 'automation' } },
-  ]
+  const selectedRow = rows.find((row) => displayText(row.paper_id) === activePaperId)
+  const resultCards = automationResultCards({
+    rewriteDryRun,
+    rewriteDraft,
+    finalizationDryRun,
+    finalizationLive,
+    rejectPaper,
+    checklistUpdate,
+  })
+  const selectedTitle = displayText(selectedRow?.project_name, activePaperId)
 
   function refreshAutomation() {
     void automation.refetch()
@@ -397,7 +523,7 @@ export function AutomationPage({
           empty="No publication automation rows returned."
           cellHref={automationCellHref}
           onSelectRow={(row) => {
-            const nextPaperId = String(row.paper_id || '')
+            const nextPaperId = displayText(row.paper_id)
             setSelectedPaperId(nextPaperId)
             replaceRouteHash(automationHash(filters, nextPaperId))
           }}
@@ -410,7 +536,7 @@ export function AutomationPage({
 
       {activePaperId ? (
         <SelectedEntityActions
-          title={String(selectedRow?.project_name || activePaperId)}
+          title={selectedTitle}
           entityId={activePaperId}
           description="Dry-run first where available, then confirm live rewrite, finalization, or reject."
           ariaLabel="Selected paper actions"
@@ -431,25 +557,17 @@ export function AutomationPage({
           artifactPreviewQuery.mutate({ paperId: targetPaperId, field })
         }}
         checklistBusy={checklistUpdate.isPending}
-        artifactBusy={artifactPreviewQuery.isPending ? artifactPreviewQuery.variables?.field || '' : ''}
+        artifactBusy={activeArtifactBusyField(artifactPreviewQuery.isPending, artifactPreviewQuery.variables?.field)}
       />
-      {detail.isError ? <div className="state-card state-card--error">Automation detail unavailable: {String(detail.error.message)}</div> : null}
-
-      {resultCards.map((card, index) => (
-        <OperatorResultCard key={`${card.context.commandFamily}-${index}`} result={card.result} context={card.context} />
-      ))}
-
-      {artifactPreviewQuery.isError ? <div className="state-card state-card--error">Artifact preview unavailable: {String(artifactPreviewQuery.error.message)}</div> : null}
-      {artifactPreview ? (
-        <section className="result-card artifact-preview" aria-label="Artifact preview">
-          <h2>Artifact preview</h2>
-          <p>{artifactPreview.project_name || activePaperId || 'Paper artifact'} · {artifactPreview.field || 'artifact'}</p>
-          <pre className="artifact-content">{String(artifactPreview.content || '')}</pre>
-        </section>
-      ) : null}
-
-      {automation.isLoading ? <div className="state-card">Loading publication automation…</div> : null}
-      {automation.isError ? <div className="state-card state-card--error">Publication automation unavailable: {String(automation.error.message)}</div> : null}
+      <AutomationPageFeedback
+        activePaperId={activePaperId}
+        artifactPreview={artifactPreview}
+        automationError={automation.isError ? automation.error : undefined}
+        automationLoading={automation.isLoading}
+        detailError={detail.isError ? detail.error : undefined}
+        artifactPreviewError={artifactPreviewQuery.isError ? artifactPreviewQuery.error : undefined}
+        resultCards={resultCards}
+      />
       {dialog}
     </section>
   )
