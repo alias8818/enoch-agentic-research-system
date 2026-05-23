@@ -168,20 +168,8 @@ function CandidateDetailPanel({ row }: Readonly<{ row: Record<string, unknown> }
   )
 }
 
-function CandidateDetail({ row, candidateId }: Readonly<{ row: Record<string, unknown> | null; candidateId: string }>) {
-  if (!row && candidateId) return <CandidateDetailMissing candidateId={candidateId} />
-  if (!row) return null
-  return <CandidateDetailPanel row={row} />
-}
-
 function researchCandidateDetailHref(candidateId: string): string {
   return dashboardV2Href(`#research:${encodeURIComponent(candidateId)}`)
-}
-
-function candidateCellHref(row: Record<string, unknown>, column: string): string | undefined {
-  if (column !== 'candidate_id') return undefined
-  const candidateId = displayText(row.candidate_id)
-  return candidateId ? researchCandidateDetailHref(candidateId) : undefined
 }
 
 type ResearchGenerationSectionProps = Readonly<{
@@ -283,9 +271,20 @@ type ResearchFacilityBodyProps = Readonly<{
 function ResearchFacilityBody({ rows, counts, activeCandidate, routeCandidateId, onSelectRow }: ResearchFacilityBodyProps) {
   return (
     <>
-      <DataTable rows={rows} columns={simpleTableColumns(['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at'], { title: { kind: 'primary' }, candidate_id: { kind: 'id' } })} empty="No research candidates returned." cellHref={candidateCellHref} onSelectRow={onSelectRow} />
+      <DataTable
+        rows={rows}
+        columns={simpleTableColumns(['candidate_id', 'status', 'admission_decision', 'machine_target', 'title', 'updated_at'], { title: { kind: 'primary' }, candidate_id: { kind: 'id' } })}
+        empty="No research candidates returned."
+        cellHref={(row, column) => {
+          if (column !== 'candidate_id') return undefined
+          const candidateId = displayText(row.candidate_id)
+          return candidateId ? researchCandidateDetailHref(candidateId) : undefined
+        }}
+        onSelectRow={onSelectRow}
+      />
       <WorkbenchCountsFold counts={counts} label="Research facility counts" />
-      <CandidateDetail row={activeCandidate} candidateId={routeCandidateId} />
+      {!activeCandidate && routeCandidateId ? <CandidateDetailMissing candidateId={routeCandidateId} /> : null}
+      {activeCandidate ? <CandidateDetailPanel row={activeCandidate} /> : null}
     </>
   )
 }
@@ -309,6 +308,103 @@ async function runConfirmedOperatorAction(
 
 type ResearchPageRoute = Extract<DashboardRoute, { page: 'research' }>
 
+function onGenerateBatchMutationSuccess(
+  payload: GenerateBatchResponse,
+  variables: { dry_run: boolean },
+  setDryRunReady: (ready: boolean) => void,
+  allowsLive: (payload?: GenerateBatchResponse) => boolean,
+  invalidateFacility: () => void,
+) {
+  if (variables.dry_run) {
+    setDryRunReady(allowsLive(payload))
+    return
+  }
+  setDryRunReady(false)
+  invalidateFacility()
+}
+
+function researchCycleLiveReady(dryRunReady: boolean, dryRunSignature: string, currentFacilitySignature: string): boolean {
+  if (!dryRunReady) return false
+  if (!currentFacilitySignature) return false
+  return dryRunSignature === currentFacilitySignature
+}
+
+function researchCycleDryRunStale(dryRunReady: boolean, dryRunSignature: string, currentFacilitySignature: string): boolean {
+  return dryRunReady && dryRunSignature !== currentFacilitySignature
+}
+
+function deriveResearchCycleDerivedState(input: Readonly<{
+  facilityData?: ResearchFacilityResponse
+  cycleDryRunReady: boolean
+  cycleDryRunSignature: string
+  cyclePending: boolean
+}>) {
+  const currentFacilitySignature = facilitySignature(input.facilityData)
+  const canLiveCycle = researchCycleLiveReady(input.cycleDryRunReady, input.cycleDryRunSignature, currentFacilitySignature)
+  const staleCycleDryRun = researchCycleDryRunStale(input.cycleDryRunReady, input.cycleDryRunSignature, currentFacilitySignature)
+  const cycleDisabledReason = liveCycleDisabledReason(canLiveCycle, input.cycleDryRunReady, staleCycleDryRun, input.cyclePending)
+  return { currentFacilitySignature, canLiveCycle, staleCycleDryRun, cycleDisabledReason }
+}
+
+function deriveResearchBatchDerivedState(input: Readonly<{
+  batchDryRunReady: boolean
+  providerBatchDryRunReady: boolean
+  generateBatchPending: boolean
+  providerBatchPending: boolean
+  generateBatchData?: GenerateBatchResponse
+  providerBatchData?: GenerateBatchResponse
+}>) {
+  const canLiveGenerateBatch = input.batchDryRunReady && generateBatchAllowsLive(input.generateBatchData)
+  const canLiveProviderBatch = input.providerBatchDryRunReady && providerBatchAllowsLive(input.providerBatchData)
+  const generateBatchDisabledReason = liveGenerateDisabledReason(canLiveGenerateBatch, input.batchDryRunReady, input.generateBatchPending, 'Generate candidate batch')
+  const providerBatchDisabledReason = liveGenerateDisabledReason(canLiveProviderBatch, input.providerBatchDryRunReady, input.providerBatchPending, 'Generate provider batch')
+  return { canLiveGenerateBatch, canLiveProviderBatch, generateBatchDisabledReason, providerBatchDisabledReason }
+}
+
+function deriveResearchSelectionDerivedState(input: Readonly<{
+  routeCandidateId: string
+  rows: Record<string, unknown>[]
+  selectedCandidate: Record<string, unknown> | null
+  promotionData?: PromotionResponse
+}>) {
+  const activeCandidate = input.selectedCandidate || input.rows.find((row) => displayText(row.candidate_id) === input.routeCandidateId) || null
+  const selectedCandidateId = displayText(activeCandidate?.candidate_id, input.routeCandidateId)
+  const selectedCandidateTitle = displayText(activeCandidate?.title, selectedCandidateId || 'No candidate selected')
+  const candidateDryRunPassed = input.promotionData?.action === 'dry_run_promote_candidate' && input.promotionData?.candidate_id === selectedCandidateId
+  return { activeCandidate, selectedCandidateId, selectedCandidateTitle, candidateDryRunPassed }
+}
+
+function deriveResearchPageDerivedState(input: Readonly<{
+  routeCandidateId: string
+  facilityData?: ResearchFacilityResponse
+  selectedCandidate: Record<string, unknown> | null
+  cycleDryRunReady: boolean
+  cycleDryRunSignature: string
+  batchDryRunReady: boolean
+  providerBatchDryRunReady: boolean
+  cyclePending: boolean
+  generateBatchPending: boolean
+  providerBatchPending: boolean
+  generateBatchData?: GenerateBatchResponse
+  providerBatchData?: GenerateBatchResponse
+  promotionData?: PromotionResponse
+}>) {
+  const rows = input.facilityData?.rows || []
+  const counts = input.facilityData?.counts || {}
+  return {
+    rows,
+    counts,
+    ...deriveResearchCycleDerivedState(input),
+    ...deriveResearchBatchDerivedState(input),
+    ...deriveResearchSelectionDerivedState({
+      routeCandidateId: input.routeCandidateId,
+      rows,
+      selectedCandidate: input.selectedCandidate,
+      promotionData: input.promotionData,
+    }),
+  }
+}
+
 function useResearchPageController(route?: ResearchPageRoute) {
   const queryClient = useQueryClient()
   const { confirm, dialog } = useOperatorDialog()
@@ -331,38 +427,46 @@ function useResearchPageController(route?: ResearchPageRoute) {
       void queryClient.invalidateQueries({ queryKey: ['research-facility'] })
     },
   })
+  const invalidateFacility = () => { void queryClient.invalidateQueries({ queryKey: ['research-facility'] }) }
   const generateBatch = useMutation({
     mutationFn: (payload: { dry_run: boolean; max_candidates: number; requested_by: string }) => apiPost<GenerateBatchResponse>('/control/api/research/generate-batch', payload),
     onSuccess: (payload, variables) => {
-      if (variables.dry_run) {
-        setBatchDryRunReady(generateBatchAllowsLive(payload))
-        return
-      }
-      setBatchDryRunReady(false)
-      void queryClient.invalidateQueries({ queryKey: ['research-facility'] })
+      onGenerateBatchMutationSuccess(payload, variables, setBatchDryRunReady, generateBatchAllowsLive, invalidateFacility)
     },
   })
   const generateProviderBatch = useMutation({
     mutationFn: (payload: { dry_run: boolean; max_candidates: number; requested_by: string }) => apiPost<GenerateBatchResponse>('/control/api/research/generate-provider-batch', payload),
     onSuccess: (payload, variables) => {
-      if (variables.dry_run) {
-        setProviderBatchDryRunReady(providerBatchAllowsLive(payload))
-        return
-      }
-      setProviderBatchDryRunReady(false)
-      void queryClient.invalidateQueries({ queryKey: ['research-facility'] })
+      onGenerateBatchMutationSuccess(payload, variables, setProviderBatchDryRunReady, providerBatchAllowsLive, invalidateFacility)
     },
+  })
+
+  const routeCandidateId = route?.candidateId || ''
+  const derived = deriveResearchPageDerivedState({
+    routeCandidateId,
+    facilityData: facility.data,
+    selectedCandidate,
+    cycleDryRunReady,
+    cycleDryRunSignature,
+    batchDryRunReady,
+    providerBatchDryRunReady,
+    cyclePending: cycle.isPending,
+    generateBatchPending: generateBatch.isPending,
+    providerBatchPending: generateProviderBatch.isPending,
+    generateBatchData: generateBatch.data,
+    providerBatchData: generateProviderBatch.data,
+    promotionData: promotion.data,
   })
 
   async function runDryCycle() {
     const payload = await cycle.mutateAsync(dryRunCyclePayload)
     const ready = cycleDryRunAllowsLive(payload)
     setCycleDryRunReady(ready)
-    setCycleDryRunSignature(ready ? currentFacilitySignature : '')
+    setCycleDryRunSignature(ready ? derived.currentFacilitySignature : '')
   }
 
   async function runLiveCycle() {
-    await runConfirmedOperatorAction(canLiveCycle, confirm, {
+    await runConfirmedOperatorAction(derived.canLiveCycle, confirm, {
       title: 'Run one bounded live cycle?',
       message: 'This can spend one provider request and promote candidates. V2 will not dispatch, wait for completion, write papers, or finalize publications from this action.',
       confirmLabel: 'Run bounded cycle',
@@ -375,7 +479,7 @@ function useResearchPageController(route?: ResearchPageRoute) {
   }
 
   async function runLiveGenerateBatch() {
-    await runConfirmedOperatorAction(canLiveGenerateBatch, confirm, {
+    await runConfirmedOperatorAction(derived.canLiveGenerateBatch, confirm, {
       title: 'Generate research candidates now?',
       message: 'This writes new internal research candidates to the facility ledger. Review dry-run counts before proceeding.',
       confirmLabel: 'Generate candidates',
@@ -384,7 +488,7 @@ function useResearchPageController(route?: ResearchPageRoute) {
   }
 
   async function runLiveProviderBatch() {
-    await runConfirmedOperatorAction(canLiveProviderBatch, confirm, {
+    await runConfirmedOperatorAction(derived.canLiveProviderBatch, confirm, {
       title: 'Generate provider-backed candidates now?',
       message: 'This spends provider inference budget and writes candidates to the facility ledger. Review dry-run budget checks first.',
       confirmLabel: 'Generate provider batch',
@@ -392,37 +496,21 @@ function useResearchPageController(route?: ResearchPageRoute) {
     }, () => generateProviderBatch.mutateAsync({ dry_run: false, max_candidates: 2, requested_by: 'dashboard-v2' }))
   }
 
-  const rows = facility.data?.rows || []
-  const currentFacilitySignature = facilitySignature(facility.data)
-  const canLiveCycle = cycleDryRunReady && Boolean(currentFacilitySignature) && cycleDryRunSignature === currentFacilitySignature
-  const staleCycleDryRun = cycleDryRunReady && cycleDryRunSignature !== currentFacilitySignature
-  const cycleDisabledReason = liveCycleDisabledReason(canLiveCycle, cycleDryRunReady, staleCycleDryRun, cycle.isPending)
-  const canLiveGenerateBatch = batchDryRunReady && generateBatchAllowsLive(generateBatch.data)
-  const canLiveProviderBatch = providerBatchDryRunReady && providerBatchAllowsLive(generateProviderBatch.data)
-  const generateBatchDisabledReason = liveGenerateDisabledReason(canLiveGenerateBatch, batchDryRunReady, generateBatch.isPending, 'Generate candidate batch')
-  const providerBatchDisabledReason = liveGenerateDisabledReason(canLiveProviderBatch, providerBatchDryRunReady, generateProviderBatch.isPending, 'Generate provider batch')
-  const routeCandidateId = route?.candidateId || ''
-  const activeCandidate = selectedCandidate || rows.find((row) => displayText(row.candidate_id) === routeCandidateId) || null
-  const selectedCandidateId = displayText(activeCandidate?.candidate_id, routeCandidateId)
-  const selectedCandidateTitle = displayText(activeCandidate?.title, selectedCandidateId || 'No candidate selected')
-  const candidateDryRunPassed = promotion.data?.action === 'dry_run_promote_candidate' && promotion.data?.candidate_id === selectedCandidateId
-
   async function dryRunPromotion() {
-    if (!selectedCandidateId) return
-    await promotion.mutateAsync({ candidate_id: selectedCandidateId, dry_run: true, requested_by: 'dashboard-v2' })
+    if (!derived.selectedCandidateId) return
+    await promotion.mutateAsync({ candidate_id: derived.selectedCandidateId, dry_run: true, requested_by: 'dashboard-v2' })
   }
 
   async function promoteCandidate() {
-    if (!selectedCandidateId) return
+    if (!derived.selectedCandidateId) return
     await runConfirmedOperatorAction(true, confirm, {
       title: 'Promote admitted candidate?',
-      message: `Promote ${selectedCandidateId} into queued idea/project rows? This writes queue ledgers only and will not dispatch work.`,
+      message: `Promote ${derived.selectedCandidateId} into queued idea/project rows? This writes queue ledgers only and will not dispatch work.`,
       confirmLabel: 'Promote candidate',
       tone: 'warn',
-    }, () => promotion.mutateAsync({ candidate_id: selectedCandidateId, dry_run: false, requested_by: 'dashboard-v2' }))
+    }, () => promotion.mutateAsync({ candidate_id: derived.selectedCandidateId, dry_run: false, requested_by: 'dashboard-v2' }))
   }
 
-  const counts = facility.data?.counts || {}
   function refreshCandidates() {
     setSelectedCandidate(null)
     promotion.reset()
@@ -439,19 +527,7 @@ function useResearchPageController(route?: ResearchPageRoute) {
     promotion,
     generateBatch,
     generateProviderBatch,
-    cycleDisabledReason,
-    canLiveCycle,
-    staleCycleDryRun,
-    canLiveGenerateBatch,
-    canLiveProviderBatch,
-    generateBatchDisabledReason,
-    providerBatchDisabledReason,
-    selectedCandidateTitle,
-    selectedCandidateId,
-    candidateDryRunPassed,
-    rows,
-    counts,
-    activeCandidate,
+    ...derived,
     routeCandidateId,
     setSelectedCandidate,
     runDryCycle,
