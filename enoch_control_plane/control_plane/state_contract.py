@@ -82,6 +82,11 @@ RUN_STATES: Final[set[str]] = {
 }
 
 WAKE_GATE_COMPLETION_STATES: Final[set[str]] = {"wake_ready", "session_finished_ready"}
+
+# Centralized reason constant for the top remaining S1192 duplication
+# (source/provenance status only in idea_status and similar decision mappings).
+SOURCE_PROVENANCE_STATUS_ONLY_REASON = "source/provenance status only"
+
 ACTIVE_QUEUE_STATUSES: Final[set[str]] = {
     "dispatching",
     "running",
@@ -667,7 +672,7 @@ STATE_REDUCTION_PLAN: Final[dict[str, dict[str, dict[str, str]]]] = {
         "unknown": _decision(
             OperatorLane.HISTORICAL,
             "legacy_internal",
-            reason="source/provenance status only",
+            reason=SOURCE_PROVENANCE_STATUS_ONLY_REASON,
         ),
         "exploring": _decision(
             OperatorLane.READY_QUEUE, "keep", reason="included by default intake policy"
@@ -676,16 +681,16 @@ STATE_REDUCTION_PLAN: Final[dict[str, dict[str, dict[str, str]]]] = {
             OperatorLane.READY_QUEUE, "keep", reason="included by default intake policy"
         ),
         "validated": _decision(
-            OperatorLane.HISTORICAL, "keep", reason="source/provenance status only"
+            OperatorLane.HISTORICAL, "keep", reason=SOURCE_PROVENANCE_STATUS_ONLY_REASON
         ),
         "discarded": _decision(
-            OperatorLane.HISTORICAL, "keep", reason="source/provenance status only"
+            OperatorLane.HISTORICAL, "keep", reason=SOURCE_PROVENANCE_STATUS_ONLY_REASON
         ),
         "parked": _decision(
-            OperatorLane.HISTORICAL, "keep", reason="source/provenance status only"
+            OperatorLane.HISTORICAL, "keep", reason=SOURCE_PROVENANCE_STATUS_ONLY_REASON
         ),
         "deprecated": _decision(
-            OperatorLane.HISTORICAL, "keep", reason="source/provenance status only"
+            OperatorLane.HISTORICAL, "keep", reason=SOURCE_PROVENANCE_STATUS_ONLY_REASON
         ),
     },
     "projects.origin_idea_status": {},

@@ -880,3 +880,21 @@ def test_router_paper_review_draft_rewritten_centralized_no_s1192_duplication() 
     assert count == 1, (
         f"{lit!r} still duplicated in router (count={count}); extract to const"
     )
+
+
+def test_state_contract_source_provenance_status_only_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top S1192 (state_contract.py:670).
+
+    "source/provenance status only" (flagged in latest Sonar top duplication, 5x)
+    must appear exactly once after const extraction.
+    """
+    src = (
+        ROOT / "enoch_control_plane" / "control_plane" / "state_contract.py"
+    ).read_text(encoding="utf-8")
+    lit = "source/provenance status only"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in state_contract (count={count}); extract to const"
+    )
