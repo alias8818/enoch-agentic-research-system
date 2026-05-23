@@ -110,37 +110,55 @@ _QUEUE_STATUS_EQUALS_PARAM = "q.status = %s"
 
 ConnectionFactory = Callable[[], Any]
 
+_NEGATIVE_DECISION_GATE_TOKENS = (
+    "negative",
+    "reject",
+    "not positive",
+    "nonpositive",
+    "non_positive",
+)
+_UNKNOWN_DECISION_GATE_TOKENS = (
+    "needs_review",
+    "inconclusive",
+    "caveat",
+    "conditional",
+    "mixed",
+)
+
+
+def _decision_gate_values_text(gate: dict[str, Any]) -> str:
+    return " ".join(
+        _text(item[-1]).lower()
+        for item in gate.get("values") or []
+        if isinstance(item, (list, tuple)) and item
+    )
+
+
+def _decision_gate_haystack(gate: dict[str, Any], *, reason: str) -> str:
+    return " ".join(
+        [reason, _text(gate.get("decision")).lower(), _decision_gate_values_text(gate)]
+    )
+
+
+def _haystack_contains_any_token(haystack: str, tokens: tuple[str, ...]) -> bool:
+    for token in tokens:
+        if token in haystack:
+            return True
+    return False
+
 
 def _decision_gate_state(gate: dict[str, Any]) -> str:
     if gate.get("eligible") is True:
         return "positive"
     reason = _text(gate.get("reason")).lower()
-    decision = _text(gate.get("decision")).lower()
-    values = " ".join(
-        _text(item[-1]).lower()
-        for item in gate.get("values") or []
-        if isinstance(item, (list, tuple)) and item
-    )
-    haystack = " ".join([reason, decision, values])
     if "missing" in reason:
         return "missing"
     if "could not" in reason or "malformed" in reason:
         return "malformed"
-    if any(
-        token in haystack
-        for token in (
-            "negative",
-            "reject",
-            "not positive",
-            "nonpositive",
-            "non_positive",
-        )
-    ):
+    haystack = _decision_gate_haystack(gate, reason=reason)
+    if _haystack_contains_any_token(haystack, _NEGATIVE_DECISION_GATE_TOKENS):
         return "negative"
-    if any(
-        token in haystack
-        for token in ("needs_review", "inconclusive", "caveat", "conditional", "mixed")
-    ):
+    if _haystack_contains_any_token(haystack, _UNKNOWN_DECISION_GATE_TOKENS):
         return "unknown"
     return "unknown"
 
