@@ -524,29 +524,41 @@ def _import_backfill_projects(cur: Any, project_rows: list[dict[str, Any]]) -> i
     )
 
 
+def _backfill_row_int(row: dict[str, Any], key: str) -> int:
+    return int(row.get(key) or 0)
+
+
+def _backfill_row_str(row: dict[str, Any], key: str, default: str = "") -> str:
+    return str(row.get(key) or default)
+
+
+def _backfill_row_bool(row: dict[str, Any], key: str) -> bool:
+    return bool(row.get(key))
+
+
 def _backfill_queue_item_params(row: dict[str, Any]) -> tuple[Any, ...]:
     return (
         row.get("project_id"),
-        row.get("status") or "unknown",
-        int(row.get("selection_rank") or 0),
-        int(row.get("dispatch_priority") or 0),
-        bool(row.get("auto_continue")),
-        int(row.get("continue_count") or 0),
-        int(row.get("max_continues") or 0),
-        int(row.get("retry_count") or 0),
-        int(row.get("max_retries") or 0),
-        row.get("current_run_id") or "",
-        row.get("current_session_id") or "",
-        row.get("last_run_state") or "",
-        row.get("last_event_type") or "",
-        row.get("next_action_hint") or "",
-        bool(row.get("manual_review_required")),
-        row.get("blocked_reason") or "",
-        row.get("last_error") or "",
-        row.get("last_result_summary") or "",
-        row.get("machine_target") or "",
-        row.get("model") or "",
-        row.get("sandbox") or "",
+        _backfill_row_str(row, "status", "unknown"),
+        _backfill_row_int(row, "selection_rank"),
+        _backfill_row_int(row, "dispatch_priority"),
+        _backfill_row_bool(row, "auto_continue"),
+        _backfill_row_int(row, "continue_count"),
+        _backfill_row_int(row, "max_continues"),
+        _backfill_row_int(row, "retry_count"),
+        _backfill_row_int(row, "max_retries"),
+        _backfill_row_str(row, "current_run_id"),
+        _backfill_row_str(row, "current_session_id"),
+        _backfill_row_str(row, "last_run_state"),
+        _backfill_row_str(row, "last_event_type"),
+        _backfill_row_str(row, "next_action_hint"),
+        _backfill_row_bool(row, "manual_review_required"),
+        _backfill_row_str(row, "blocked_reason"),
+        _backfill_row_str(row, "last_error"),
+        _backfill_row_str(row, "last_result_summary"),
+        _backfill_row_str(row, "machine_target"),
+        _backfill_row_str(row, "model"),
+        _backfill_row_str(row, "sandbox"),
         row.get("last_dispatch_at"),
         row.get("last_callback_at"),
         row.get("stale_after"),
