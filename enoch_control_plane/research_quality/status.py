@@ -184,7 +184,12 @@ def _quality_status_from_severity_counts(
 ) -> tuple[str, str]:
     blocked = int(severity_counts.get("blocked") or 0)
     warnings = int(severity_counts.get("warning") or 0)
-    status = "blocked" if blocked else "warnings" if warnings else "clean"
+    if blocked:
+        status = "blocked"
+    elif warnings:
+        status = "warnings"
+    else:
+        status = "clean"
     label = {
         "clean": RESEARCH_QUALITY_LABEL_CLEAN,
         "warnings": RESEARCH_QUALITY_LABEL_WARNINGS,
