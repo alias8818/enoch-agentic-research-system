@@ -1076,3 +1076,21 @@ def test_validate_supabase_readonly_adapter_evidence_json_centralized_no_s1192_d
     assert count == 1, (
         f"{lit!r} still duplicated in validate_supabase_readonly_adapter (count={count}); extract to const"
     )
+
+
+def test_validate_supabase_readonly_adapter_claims_json_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top remaining S1192 in validate_supabase_readonly_adapter.py (line 235).
+
+    "claims.json" (flagged in latest Sonar top duplication, 3x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "validate_supabase_readonly_adapter.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "claims.json"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in validate_supabase_readonly_adapter (count={count}); extract to const"
+    )

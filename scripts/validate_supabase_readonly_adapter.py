@@ -55,6 +55,10 @@ DRAFT_TEX = "draft.tex"
 # (addresses current top remaining S1192 in artifact name lists and path assignments).
 EVIDENCE_JSON = "evidence.json"
 
+# Centralized filename for the duplicated CLAIMS_JSON literal
+# (addresses current top remaining S1192 in artifact name lists and path assignments).
+CLAIMS_JSON = "claims.json"
+
 
 def run(
     cmd: list[str], *, stdin: str | None = None, check: bool = True
@@ -240,7 +244,7 @@ def sqlite_fixture(store: ControlPlaneStore) -> None:
                 DRAFT_MD,
                 DRAFT_TEX,
                 EVIDENCE_JSON,
-                "claims.json",
+                CLAIMS_JSON,
                 "manifest.json",
                 NOW,
                 NOW,
@@ -761,7 +765,7 @@ def main() -> int:
                     draft_markdown_path=DRAFT_MD,
                     draft_latex_path=DRAFT_TEX,
                     evidence_bundle_path=EVIDENCE_JSON,
-                    claim_ledger_path="claims.json",
+                    claim_ledger_path=CLAIMS_JSON,
                     manifest_path="manifest.json",
                 )
             )
@@ -827,7 +831,7 @@ def main() -> int:
                 DRAFT_MD,
                 DRAFT_TEX,
                 EVIDENCE_JSON,
-                "claims.json",
+                CLAIMS_JSON,
                 "manifest.json",
             ):
                 (artifact_root / rel_path).write_text(f"{rel_path}\n", encoding="utf-8")
