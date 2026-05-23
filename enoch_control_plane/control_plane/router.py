@@ -3529,6 +3529,218 @@ def _compute_research_lane_feed_pressure(
     return pressure
 
 
+def _ideas_intake_dict_rows(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(row) for row in value if isinstance(row, dict)]
+
+
+def _ideas_intake_projection_counts(raw_counts: Any) -> dict[str, int]:
+    if not isinstance(raw_counts, dict):
+        return {}
+    return {str(key): int(value or 0) for key, value in raw_counts.items()}
+
+
+def _ideas_intake_load_raw_projection(
+    store: Any, page_size: int
+) -> list[dict[str, Any]]:
+    idea_projection_reader = getattr(store, "idea_workbench_projection", None)
+    legacy_projection_reader = getattr(store, "queue_notion_projection", None)
+    if callable(idea_projection_reader):
+        try:
+            raw_projection = idea_projection_reader(limit=page_size)
+        except TypeError:
+            raw_projection = idea_projection_reader()
+    elif callable(legacy_projection_reader):
+        raw_projection = legacy_projection_reader()
+    else:
+        raw_projection = []
+    return _ideas_intake_dict_rows(raw_projection)[:page_size]
+
+
+def _ideas_intake_recent_events(store: Any) -> list[dict[str, Any]]:
+    recent = _ideas_intake_dict_rows(
+        store.event_rows(limit=20, event_type="ideas.intake")
+    )
+    if recent:
+        return recent
+    return _ideas_intake_dict_rows(
+        store.event_rows(limit=20, event_type="notion.intake")
+    )
+
+
+def _ideas_intake_latest_from_parts(
+    raw_latest: Any,
+) -> DashboardObservationRecord | None:
+    if raw_latest is None or isinstance(raw_latest, DashboardObservationRecord):
+        return raw_latest
+    return None
+
+
+def _ideas_intake_skipped_reasons_from_payload(
+    payload: dict[str, Any],
+) -> dict[str, int]:
+    if payload.get("skipped_reasons"):
+        return {
+            str(reason): int(count or 0)
+            for reason, count in (payload.get("skipped_reasons") or {}).items()
+        }
+    skipped: dict[str, int] = {}
+    for item in payload.get("skipped_rows") or []:
+        reason = (
+            str(item.get("reason") or "unknown")
+            if isinstance(item, dict)
+            else "unknown"
+        )
+        skipped[reason] = skipped.get(reason, 0) + 1
+    return skipped
+
+
+def _ideas_intake_prepare_latest(
+    latest: DashboardObservationRecord | None,
+    *,
+    include_latest_payload: bool,
+) -> tuple[DashboardObservationRecord | None, dict[str, int]]:
+    if not latest:
+        return None, {}
+    payload = latest.payload or {}
+    skipped_reasons = _ideas_intake_skipped_reasons_from_payload(payload)
+    if include_latest_payload:
+        return latest, skipped_reasons
+    return (
+        latest.model_copy(
+            update={
+                "payload": {
+                    "payload_omitted": True,
+                    "skipped_row_count": payload.get(
+                        "skipped_row_count",
+                        len(payload.get("skipped_rows") or []),
+                    ),
+                }
+            }
+        ),
+        skipped_reasons,
+    )
+
+
+def _ideas_intake_empty_projection_warnings(
+    projection: list[dict[str, Any]],
+) -> list[DashboardFinding]:
+    if projection:
+        return []
+    return [
+        DashboardFinding(
+            severity="warn",
+            source="idea_intake",
+            authority="Supabase-native ideas workbench",
+            message="No Supabase-native ideas are visible",
+            observed_at=utc_now(),
+            suggested_action="load ideas into Supabase before resuming the queue",
+        )
+    ]
+
+
+def _ideas_intake_fallback_parts(
+    store: Any,
+    *,
+    page_size: int,
+    include_latest_payload: bool,
+    latest_metadata: Callable[[str], DashboardObservationRecord | None],
+    intake_freshness: Callable[[], dict[str, DashboardFreshness]],
+) -> tuple[
+    DashboardObservationRecord | None,
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    dict[str, int],
+    dict[str, DashboardFreshness],
+]:
+    latest = (
+        store.latest_dashboard_observation(source="idea_intake")
+        if include_latest_payload
+        else latest_metadata("idea_intake")
+    )
+    return (
+        latest,
+        _ideas_intake_load_raw_projection(store, page_size),
+        _ideas_intake_recent_events(store),
+        _ideas_intake_projection_counts(store.status_counts()),
+        intake_freshness(),
+    )
+
+
+def _ideas_intake_parts_from_mapping(
+    intake_parts: Mapping[str, Any],
+    *,
+    db_freshness: Callable[[str], dict[str, DashboardFreshness]],
+    freshness_for_observation: Callable[
+        [str, str, DashboardObservationRecord | None], DashboardFreshness
+    ],
+) -> tuple[
+    DashboardObservationRecord | None,
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    dict[str, int],
+    dict[str, DashboardFreshness],
+]:
+    latest = _ideas_intake_latest_from_parts(intake_parts.get("latest_sync"))
+    freshness = {
+        **db_freshness("Supabase-native ideas workbench"),
+        "idea_intake": freshness_for_observation(
+            "idea_intake",
+            "latest Supabase-native ideas intake observation",
+            latest,
+        ),
+    }
+    return (
+        latest,
+        _ideas_intake_dict_rows(intake_parts.get("queued_projection")),
+        _ideas_intake_dict_rows(intake_parts.get("recent_events")),
+        _ideas_intake_projection_counts(intake_parts.get("projection_counts")),
+        freshness,
+    )
+
+
+def _ideas_intake_resolve_parts(
+    store: Any,
+    *,
+    page_size: int,
+    include_latest_payload: bool,
+    latest_metadata: Callable[[str], DashboardObservationRecord | None],
+    intake_freshness: Callable[[], dict[str, DashboardFreshness]],
+    db_freshness: Callable[[str], dict[str, DashboardFreshness]],
+    freshness_for_observation: Callable[
+        [str, str, DashboardObservationRecord | None], DashboardFreshness
+    ],
+) -> tuple[
+    DashboardObservationRecord | None,
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    dict[str, int],
+    dict[str, DashboardFreshness],
+]:
+    intake_reader = getattr(store, "dashboard_ideas_intake_parts", None)
+    fallback = partial(
+        _ideas_intake_fallback_parts,
+        store,
+        page_size=page_size,
+        include_latest_payload=include_latest_payload,
+        latest_metadata=latest_metadata,
+        intake_freshness=intake_freshness,
+    )
+    if not callable(intake_reader):
+        return fallback()
+    intake_parts = intake_reader(
+        page_size=page_size, include_latest_payload=include_latest_payload
+    )
+    if isinstance(intake_parts, Mapping):
+        return _ideas_intake_parts_from_mapping(
+            intake_parts,
+            db_freshness=db_freshness,
+            freshness_for_observation=freshness_for_observation,
+        )
+    return fallback()
+
+
 def create_control_plane_router(
     config: GateConfig, require_bearer: RequireBearer
 ) -> APIRouter:
@@ -7093,128 +7305,21 @@ def create_control_plane_router(
         page_size: int = 50,
         include_latest_payload: bool = False,
     ) -> DashboardIntakeResponse:
-        def dict_rows(value: Any) -> list[dict[str, Any]]:
-            return (
-                [dict(row) for row in value if isinstance(row, dict)]
-                if isinstance(value, list)
-                else []
+        latest, projection, recent, projection_counts, freshness = (
+            _ideas_intake_resolve_parts(
+                store,
+                page_size=page_size,
+                include_latest_payload=include_latest_payload,
+                latest_metadata=_latest_dashboard_observation_metadata,
+                intake_freshness=_intake_freshness,
+                db_freshness=_db_freshness,
+                freshness_for_observation=_freshness_for_observation,
             )
-
-        def fallback_parts() -> tuple[
-            DashboardObservationRecord | None,
-            list[dict[str, Any]],
-            list[dict[str, Any]],
-            dict[str, int],
-            dict[str, DashboardFreshness],
-        ]:
-            latest = (
-                store.latest_dashboard_observation(source="idea_intake")
-                if include_latest_payload
-                else _latest_dashboard_observation_metadata("idea_intake")
-            )
-            idea_projection_reader = getattr(store, "idea_workbench_projection", None)
-            legacy_projection_reader = getattr(store, "queue_notion_projection", None)
-            raw_projection: Any
-            if callable(idea_projection_reader):
-                try:
-                    raw_projection = idea_projection_reader(limit=page_size)
-                except TypeError:
-                    raw_projection = idea_projection_reader()
-            elif callable(legacy_projection_reader):
-                raw_projection = legacy_projection_reader()
-            else:
-                raw_projection = []
-            projection = dict_rows(raw_projection)[:page_size]
-            recent = dict_rows(store.event_rows(limit=20, event_type="ideas.intake"))
-            if not recent:
-                recent = dict_rows(
-                    store.event_rows(limit=20, event_type="notion.intake")
-                )
-            raw_counts = store.status_counts()
-            projection_counts = (
-                {str(key): int(value or 0) for key, value in raw_counts.items()}
-                if isinstance(raw_counts, dict)
-                else {}
-            )
-            return latest, projection, recent, projection_counts, _intake_freshness()
-
-        intake_reader = getattr(store, "dashboard_ideas_intake_parts", None)
-        if callable(intake_reader):
-            intake_parts = intake_reader(
-                page_size=page_size, include_latest_payload=include_latest_payload
-            )
-            if isinstance(intake_parts, Mapping):
-                raw_latest = intake_parts.get("latest_sync")
-                latest = (
-                    raw_latest
-                    if raw_latest is None
-                    or isinstance(raw_latest, DashboardObservationRecord)
-                    else None
-                )
-                raw_projection = intake_parts.get("queued_projection")
-                projection = dict_rows(raw_projection)
-                raw_recent = intake_parts.get("recent_events")
-                recent = dict_rows(raw_recent)
-                raw_counts = intake_parts.get("projection_counts")
-                projection_counts = (
-                    {str(key): int(value or 0) for key, value in raw_counts.items()}
-                    if isinstance(raw_counts, dict)
-                    else {}
-                )
-                freshness = {
-                    **_db_freshness("Supabase-native ideas workbench"),
-                    "idea_intake": _freshness_for_observation(
-                        "idea_intake",
-                        "latest Supabase-native ideas intake observation",
-                        latest,
-                    ),
-                }
-            else:
-                latest, projection, recent, projection_counts, freshness = (
-                    fallback_parts()
-                )
-        else:
-            latest, projection, recent, projection_counts, freshness = fallback_parts()
-        skipped_reasons: dict[str, int] = {}
-        if latest:
-            payload = latest.payload or {}
-            if payload.get("skipped_reasons"):
-                skipped_reasons = {
-                    str(reason): int(count or 0)
-                    for reason, count in (payload.get("skipped_reasons") or {}).items()
-                }
-            else:
-                for item in payload.get("skipped_rows") or []:
-                    reason = (
-                        str(item.get("reason") or "unknown")
-                        if isinstance(item, dict)
-                        else "unknown"
-                    )
-                    skipped_reasons[reason] = skipped_reasons.get(reason, 0) + 1
-            if not include_latest_payload:
-                latest = latest.model_copy(
-                    update={
-                        "payload": {
-                            "payload_omitted": True,
-                            "skipped_row_count": payload.get(
-                                "skipped_row_count",
-                                len(payload.get("skipped_rows") or []),
-                            ),
-                        }
-                    }
-                )
-        warnings = []
-        if not projection:
-            warnings.append(
-                DashboardFinding(
-                    severity="warn",
-                    source="idea_intake",
-                    authority="Supabase-native ideas workbench",
-                    message="No Supabase-native ideas are visible",
-                    observed_at=utc_now(),
-                    suggested_action="load ideas into Supabase before resuming the queue",
-                )
-            )
+        )
+        latest, skipped_reasons = _ideas_intake_prepare_latest(
+            latest, include_latest_payload=include_latest_payload
+        )
+        warnings = _ideas_intake_empty_projection_warnings(projection)
         projection = [
             read_models.summarize_idea_workbench_row(row)
             for row in projection[:page_size]
