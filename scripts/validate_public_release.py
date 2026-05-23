@@ -155,39 +155,55 @@ def check_promising_counts(
                 )
 
 
+def _check_historic_stale_counts(path: Path, text: str, failures: list[str]) -> None:
+    for match in HISTORIC_STALE_COUNT.finditer(text):
+        fail(
+            f"historic stale count in {path}:{line_for(text, match.start())}: {match.group(0)}",
+            failures,
+        )
+
+
+def _check_artifact_count_phrases(
+    path: Path, text: str, artifact_count: int, failures: list[str]
+) -> None:
+    for pattern in (COUNT_PHRASE, SPLIT_SVG_COUNT_PHRASE):
+        for match in pattern.finditer(text):
+            value = int(match.group(1))
+            if value != artifact_count:
+                fail(
+                    f"artifact count drift in {path}:{line_for(text, match.start())}: {value} != {artifact_count}",
+                    failures,
+                )
+
+
+def _check_packaging_pass_phrases(
+    path: Path, text: str, artifact_count: int, pass_count: int, failures: list[str]
+) -> None:
+    for match in PASS_PHRASE.finditer(text):
+        left, right = int(match.group(1)), int(match.group(2))
+        phrase = match.group(3).lower()
+        if "packaging" in phrase and (left, right) != (pass_count, artifact_count):
+            fail(
+                f"packaging/provenance pass count drift in {path}:{line_for(text, match.start())}: {left}/{right} != {pass_count}/{artifact_count}",
+                failures,
+            )
+    for match in OF_PASS_PHRASE.finditer(text):
+        left, right = int(match.group(1)), int(match.group(2))
+        if (left, right) != (pass_count, artifact_count):
+            fail(
+                f"packaging/provenance pass count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {pass_count} of {artifact_count}",
+                failures,
+            )
+
+
 def check_counts(
     paths: list[Path], artifact_count: int, pass_count: int, failures: list[str]
 ) -> None:
     for path in paths:
         text = path.read_text(encoding="utf-8", errors="replace")
-        for match in HISTORIC_STALE_COUNT.finditer(text):
-            fail(
-                f"historic stale count in {path}:{line_for(text, match.start())}: {match.group(0)}",
-                failures,
-            )
-        for pattern in (COUNT_PHRASE, SPLIT_SVG_COUNT_PHRASE):
-            for match in pattern.finditer(text):
-                value = int(match.group(1))
-                if value != artifact_count:
-                    fail(
-                        f"artifact count drift in {path}:{line_for(text, match.start())}: {value} != {artifact_count}",
-                        failures,
-                    )
-        for match in PASS_PHRASE.finditer(text):
-            left, right = int(match.group(1)), int(match.group(2))
-            phrase = match.group(3).lower()
-            if "packaging" in phrase and (left, right) != (pass_count, artifact_count):
-                fail(
-                    f"packaging/provenance pass count drift in {path}:{line_for(text, match.start())}: {left}/{right} != {pass_count}/{artifact_count}",
-                    failures,
-                )
-        for match in OF_PASS_PHRASE.finditer(text):
-            left, right = int(match.group(1)), int(match.group(2))
-            if (left, right) != (pass_count, artifact_count):
-                fail(
-                    f"packaging/provenance pass count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {pass_count} of {artifact_count}",
-                    failures,
-                )
+        _check_historic_stale_counts(path, text, failures)
+        _check_artifact_count_phrases(path, text, artifact_count, failures)
+        _check_packaging_pass_phrases(path, text, artifact_count, pass_count, failures)
 
 
 def check_strict_public_counts(
