@@ -33,7 +33,7 @@ def _base_url(config: dict) -> str:
     host = str(config.get("listen_host") or "127.0.0.1")
     if host in {"0.0.0.0", "::"}:
         host = "127.0.0.1"
-    return f"http://{host}:{int(config.get('listen_port') or 8787)}"
+    return f"https://{host}:{int(config.get('listen_port') or 8787)}"
 
 
 def _get_json(base_url: str, path: str, token: str) -> dict:
@@ -98,7 +98,7 @@ def main() -> int:
     base_url = _base_url(config)
     preflight_payload = {
         "wake_gate_url": config.get("worker_wake_gate_url")
-        or "http://worker.example:8787",
+        or "https://worker.example:8787",
         "bearer_token": config.get("worker_wake_gate_bearer_token") or "",
         "require_paused": False,
         "strict": False,
