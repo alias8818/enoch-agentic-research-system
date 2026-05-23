@@ -4114,3 +4114,26 @@ def test_supabase_store_validate_checklist_item_update_rules() -> None:
         SupabaseControlPlaneStore._validate_checklist_item_update(
             item, "not_applicable", "", "foo"
         )
+
+
+def test_validate_checklist_item_update_is_staticmethod() -> None:
+    """AGENTS.md deterministic validator for S5720 CRITICAL (top issue after dup fixes).
+
+    The extracted pure helper must be decorated @staticmethod so it can be
+    called via ClassName or instance without signature errors. This was the
+    root cause of the S5720 "Rename item to self" flag.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.find_spec("enoch_control_plane.control_plane.supabase_store")
+    src_path = Path(spec.origin)
+    src = src_path.read_text(encoding="utf-8")
+
+    # Must have @staticmethod on the line(s) immediately preceding this specific def
+    def_idx = src.find("    def _validate_checklist_item_update(")
+    assert def_idx != -1
+    preceding = src[max(0, def_idx - 50) : def_idx]
+    assert "@staticmethod" in preceding, (
+        "@staticmethod decorator missing immediately before _validate_checklist_item_update (S5720 root cause)"
+    )

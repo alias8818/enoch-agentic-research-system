@@ -2908,6 +2908,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     )
         return event_id, inserted, self.paper_review_row(paper_id) or {}
 
+    @staticmethod
     def _validate_checklist_item_update(
         item: dict[str, Any] | None, status: str, note: str, item_id: str
     ) -> None:
