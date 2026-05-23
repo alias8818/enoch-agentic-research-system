@@ -13,7 +13,10 @@ from enoch_control_plane.control_plane.models import (
     PaperRecord,
     PaperStatus,
 )
-from enoch_control_plane.control_plane.store import QueueStatus
+from enoch_control_plane.control_plane.store import (
+    QueueStatus,
+    _default_supabase_finalization_root,
+)
 
 
 def test_record_project_decision_gate_is_decided_at_guarded() -> None:
@@ -1345,6 +1348,24 @@ def test_supabase_launch_followup_append_failure_does_not_queue_followup(
     assert ideas == set()
     assert projects == set()
     assert queue_items == set()
+
+
+def test_supabase_finalization_manifest_default_root_is_user_private(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ENOCH_SUPABASE_FINALIZATION_ROOT", raising=False)
+    store = s.SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    package_path = store._finalization_manifest_path(
+        "paper:run:draft", "package-default-root"
+    )
+    expected_root = _default_supabase_finalization_root()
+    assert package_path == (
+        expected_root
+        / "paper-run-draft"
+        / "package-default-root"
+        / "finalization_manifest.json"
+    )
+    assert "/tmp/" not in package_path.as_posix()
 
 
 def test_supabase_prepare_finalization_event_failure_restores_manifest(

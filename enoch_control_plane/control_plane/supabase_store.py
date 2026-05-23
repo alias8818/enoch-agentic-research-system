@@ -54,6 +54,7 @@ from .store import (
     _completed_success_queue_row,
     _contract_worker_callback_states,
     _default_review_checklist,
+    _default_supabase_finalization_root,
     _expanduser_or_none,
     _existing_file_snapshot,
     _first_present,
@@ -3064,12 +3065,12 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         }
 
     def _finalization_manifest_path(self, paper_id: str, idempotency_key: str) -> Path:
-        root = Path(
-            os.environ.get(
-                "ENOCH_SUPABASE_FINALIZATION_ROOT",
-                "/tmp/enoch-supabase-finalization-packages",
-            )
-        ).expanduser()
+        configured = os.environ.get("ENOCH_SUPABASE_FINALIZATION_ROOT", "").strip()
+        root = (
+            Path(configured).expanduser()
+            if configured
+            else _default_supabase_finalization_root()
+        )
         return (
             root
             / _slug_id(paper_id)

@@ -159,6 +159,17 @@ def _expanduser_or_none(value: str) -> Path | None:
         return None
 
 
+def _default_supabase_finalization_root() -> Path:
+    """User-private storage for Supabase finalization manifests (not world-writable /tmp)."""
+    return (
+        Path.home()
+        / ".local"
+        / "state"
+        / "enoch-worker-gate"
+        / "supabase-finalization-packages"
+    )
+
+
 def _is_older_timestamp(incoming: Any, existing: Any) -> bool:
     incoming_dt = parse_utc_datetime(incoming)
     existing_dt = parse_utc_datetime(existing)
