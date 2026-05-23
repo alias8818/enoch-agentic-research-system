@@ -4661,10 +4661,10 @@ class ControlPlaneStore:
     def research_facility_workbench_projection(
         self, *, limit: int = 200
     ) -> list[dict[str, Any]]:
-        # The SQLite compatibility store predates the Research Facility ledgers.
+        # limit is unused: SQLite compatibility store predates Research Facility ledgers.
         # Returning an empty projection keeps legacy/local smokes working while
         # the Supabase/Postgres store owns the real source/candidate/admission
-        # workbench.
+        # workbench and honors limit on queries.
         return []
 
     def research_facility_workbench_counts(self) -> dict[str, int]:
