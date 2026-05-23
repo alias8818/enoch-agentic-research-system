@@ -310,6 +310,13 @@ def _assert_writable_control_plane_store(action: str, *, backend: str) -> None:
         )
 
 
+def _require_writable_store_http(action: str, *, backend: str) -> None:
+    try:
+        _assert_writable_control_plane_store(action, backend=backend)
+    except WritableControlPlaneStoreRequiredError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+
+
 RequireBearer = Callable[[str | None], None]
 
 _RUN_NOTES_MD = "run_notes.md"
@@ -4745,12 +4752,7 @@ def create_control_plane_router(
         require_bearer(authorization)
 
     def _require_writable_store(action: str) -> None:
-        try:
-            _assert_writable_control_plane_store(
-                action, backend=config.control_plane_store_backend
-            )
-        except WritableControlPlaneStoreRequiredError as exc:
-            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        _require_writable_store_http(action, backend=config.control_plane_store_backend)
 
     def _dispatch_route_metadata(machine_target: str, target: Any) -> dict[str, Any]:
         return {
