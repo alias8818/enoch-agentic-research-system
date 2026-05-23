@@ -368,6 +368,92 @@ def fetch_github_repo_metadata(repo: str) -> dict:
         return json.loads(result.stdout)
 
 
+def _check_github_metadata_counts(
+    metadata_text: str,
+    repo: str,
+    artifact_count: int,
+    failures: list[str],
+) -> None:
+    for match in HISTORIC_STALE_COUNT.finditer(metadata_text):
+        fail(
+            f"historic stale count in GitHub metadata for {repo}: {match.group(0)}",
+            failures,
+        )
+    for match in COUNT_PHRASE.finditer(metadata_text):
+        value = int(match.group(1))
+        if value != artifact_count:
+            fail(
+                f"artifact count drift in GitHub metadata for {repo}: {value} != {artifact_count}",
+                failures,
+            )
+
+
+def _check_github_corpus_repo_metadata(
+    description: str,
+    homepage: str,
+    expected_corpus_prefix: str,
+    expected_homepage: str,
+    failures: list[str],
+) -> None:
+    if not description.startswith(expected_corpus_prefix):
+        fail(
+            f"corpus GitHub description does not start with {expected_corpus_prefix!r}: {description!r}",
+            failures,
+        )
+    if homepage != expected_homepage:
+        fail(
+            f"corpus GitHub homepage drift: {homepage!r} != {expected_homepage!r}",
+            failures,
+        )
+
+
+def _check_github_promising_signals_repo_metadata(
+    description: str,
+    homepage: str,
+    expected_promising_prefix: str,
+    expected_homepage: str,
+    failures: list[str],
+) -> None:
+    if not description.startswith(expected_promising_prefix):
+        fail(
+            f"promising signals GitHub description does not start with {expected_promising_prefix!r}: {description!r}",
+            failures,
+        )
+    if homepage != expected_homepage:
+        fail(
+            f"promising signals GitHub homepage drift: {homepage!r} != {expected_homepage!r}",
+            failures,
+        )
+
+
+def _check_single_github_repo_metadata(
+    repo: str,
+    metadata: dict,
+    artifact_count: int,
+    promising_signal_count: int,
+    expected_corpus_prefix: str,
+    expected_promising_prefix: str,
+    expected_homepage: str,
+    failures: list[str],
+) -> None:
+    description = str(metadata.get("description") or "")
+    homepage = str(metadata.get("homepage") or "")
+    metadata_text = f"{description} {homepage}"
+    _check_github_metadata_counts(metadata_text, repo, artifact_count, failures)
+    if repo == "alias8818/enoch-ai-research-corpus":
+        _check_github_corpus_repo_metadata(
+            description, homepage, expected_corpus_prefix, expected_homepage, failures
+        )
+    if repo == "alias8818/enoch-promising-signals" and promising_signal_count:
+        _check_github_promising_signals_repo_metadata(
+            description,
+            homepage,
+            expected_promising_prefix,
+            expected_homepage,
+            failures,
+        )
+
+
 def check_github_metadata(
     artifact_count: int, failures: list[str], promising_signal_count: int = 0
 ) -> None:
@@ -384,43 +470,16 @@ def check_github_metadata(
         except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
             fail(f"could not fetch GitHub repo metadata for {repo}: {exc}", failures)
             continue
-        description = str(metadata.get("description") or "")
-        homepage = str(metadata.get("homepage") or "")
-        metadata_text = f"{description} {homepage}"
-        for match in HISTORIC_STALE_COUNT.finditer(metadata_text):
-            fail(
-                f"historic stale count in GitHub metadata for {repo}: {match.group(0)}",
-                failures,
-            )
-        for match in COUNT_PHRASE.finditer(metadata_text):
-            value = int(match.group(1))
-            if value != artifact_count:
-                fail(
-                    f"artifact count drift in GitHub metadata for {repo}: {value} != {artifact_count}",
-                    failures,
-                )
-        if repo == "alias8818/enoch-ai-research-corpus":
-            if not description.startswith(expected_corpus_prefix):
-                fail(
-                    f"corpus GitHub description does not start with {expected_corpus_prefix!r}: {description!r}",
-                    failures,
-                )
-            if homepage != expected_homepage:
-                fail(
-                    f"corpus GitHub homepage drift: {homepage!r} != {expected_homepage!r}",
-                    failures,
-                )
-        if repo == "alias8818/enoch-promising-signals" and promising_signal_count:
-            if not description.startswith(expected_promising_prefix):
-                fail(
-                    f"promising signals GitHub description does not start with {expected_promising_prefix!r}: {description!r}",
-                    failures,
-                )
-            if homepage != expected_homepage:
-                fail(
-                    f"promising signals GitHub homepage drift: {homepage!r} != {expected_homepage!r}",
-                    failures,
-                )
+        _check_single_github_repo_metadata(
+            repo,
+            metadata,
+            artifact_count,
+            promising_signal_count,
+            expected_corpus_prefix,
+            expected_promising_prefix,
+            expected_homepage,
+            failures,
+        )
 
 
 def promising_signal_public_paths(promising: Path) -> list[Path]:
