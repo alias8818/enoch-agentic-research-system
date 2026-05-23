@@ -3051,7 +3051,9 @@ def test_supabase_worker_callback_append_failure_does_not_mutate_runtime_state(
 
 
 def test_supabase_worker_callback_upserts_missing_run_row_like_sqlite() -> None:
-    source = inspect.getsource(s.SupabaseControlPlaneStore.record_worker_callback)
+    source = inspect.getsource(
+        s.SupabaseControlPlaneStore._persist_applied_worker_callback
+    )
 
     assert "insert into runs" in source.lower()
     assert "on conflict (run_id) do update set" in source.lower()
