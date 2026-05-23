@@ -604,40 +604,40 @@ def main() -> int:
                     "upsert_paper did not persist",
                     failures,
                 )
-                inserted_snapshot, projects, queue_items, papers = (
-                    write_store.import_snapshot(
-                        ImportSnapshotRequest(
-                            idempotency_key="write-smoke-import",
-                            source="validator",
-                            queue_rows=[
-                                {
-                                    "project_id": "proj-import",
-                                    "project_name": "Imported Project",
-                                    "status": "queued",
-                                    "current_run_id": "run-import",
-                                    "next_action_hint": "select_next",
-                                }
-                            ],
-                            paper_rows=[
-                                {
-                                    "paper_id": "paper-import",
-                                    "project_id": "proj-import",
-                                    "run_id": "",
-                                    "paper_status": "draft_review",
-                                }
-                            ],
-                        )
+                import_snapshot_result = write_store.import_snapshot(
+                    ImportSnapshotRequest(
+                        idempotency_key="write-smoke-import",
+                        source="validator",
+                        queue_rows=[
+                            {
+                                "project_id": "proj-import",
+                                "project_name": "Imported Project",
+                                "status": "queued",
+                                "current_run_id": "run-import",
+                                "next_action_hint": "select_next",
+                            }
+                        ],
+                        paper_rows=[
+                            {
+                                "paper_id": "paper-import",
+                                "project_id": "proj-import",
+                                "run_id": "",
+                                "paper_status": "draft_review",
+                            }
+                        ],
                     )
+                )
+                _, _, _, _ = import_snapshot_result
+                _assert_ok(
+                    import_snapshot_result[0]
+                    and import_snapshot_result[1:] == (1, 1, 1),
+                    "import_snapshot counts mismatch",
+                    failures,
                 )
 
             _run_write_smoke(write_store, failures)
 
             def _run_more_write_operations(write_store, failures: list[str]) -> None:
-                _assert_ok(
-                    inserted_snapshot and (projects, queue_items, papers) == (1, 1, 1),  # noqa: F821 - resolved at runtime by prior _run_write_smoke call in same enclosing main()
-                    "import_snapshot counts mismatch",
-                    failures,
-                )
                 _assert_ok(
                     write_store.queue_row("proj-import") is not None
                     and write_store.paper_row("paper-import") is not None,
