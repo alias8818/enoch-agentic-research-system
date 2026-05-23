@@ -17,6 +17,10 @@ import sys
 import time
 from urllib import error, request
 
+# Centralized reason constant for the top remaining S1192 duplication
+# in this autopilot script.
+MISSING_DATABASE_URL_REASON = "missing database URL"
+
 
 def _load_config() -> dict:
     path = Path(
@@ -201,7 +205,7 @@ def refresh_research_quality_report() -> dict:
         return {
             "ok": False,
             "action": "research_quality_refresh_skipped",
-            "reason": "missing database URL",
+            "reason": MISSING_DATABASE_URL_REASON,
         }
 
     output = Path(
@@ -283,7 +287,7 @@ def refresh_research_quality_window_comparison() -> dict:
         return {
             "ok": False,
             "action": "research_quality_window_comparison_skipped",
-            "reason": "missing database URL",
+            "reason": MISSING_DATABASE_URL_REASON,
         }
 
     output = Path(
@@ -369,7 +373,7 @@ def run_quota_gated_janitor_llm_review() -> dict:
         return {
             "ok": False,
             "action": "research_janitor_llm_review_skipped",
-            "reason": "missing database URL",
+            "reason": MISSING_DATABASE_URL_REASON,
         }
 
     output = Path(

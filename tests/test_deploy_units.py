@@ -785,3 +785,19 @@ def test_deploy_queue_alert_check_reasons_centralized_no_s1192_duplication() -> 
         assert count == 1, (
             f"reason {reason!r} still duplicated (count={count}); extract to const"
         )
+
+
+def test_deploy_research_autopilot_missing_database_url_centralized() -> None:
+    """AGENTS.md validator for current top S1192 (enoch_research_autopilot.py:204).
+
+    "missing database URL" (flagged in latest Sonar top duplication) must appear
+    exactly once after const extraction.
+    """
+    script_source = (ROOT / "deploy" / "enoch_research_autopilot.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "missing database URL"
+    count = script_source.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in autopilot (count={count}); extract to const"
+    )
