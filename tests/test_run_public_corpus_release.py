@@ -1,6 +1,28 @@
 from pathlib import Path
 
-from scripts.run_public_corpus_release import build_steps, parse_args
+from scripts.run_public_corpus_release import (
+    build_steps,
+    default_control_url,
+    parse_args,
+)
+
+
+def test_default_control_url_prefers_worker_host_env(monkeypatch) -> None:
+    monkeypatch.delenv("ENOCH_CONTROL_URL", raising=False)
+    monkeypatch.setenv("ENOCH_WORKER_HOST", "worker.example")
+    assert default_control_url() == "http://worker.example:8787"
+    args = parse_args(["--root", "/tmp", "--dry-run"])
+    assert args.control_url == "http://worker.example:8787"
+
+
+def test_default_control_url_honors_control_url_env(monkeypatch) -> None:
+    monkeypatch.setenv("ENOCH_CONTROL_URL", "http://control.example:9999")
+    assert default_control_url() == "http://control.example:9999"
+
+
+def test_parse_args_control_url_has_no_inline_magic_ip() -> None:
+    source = Path("scripts/run_public_corpus_release.py").read_text(encoding="utf-8")
+    assert "192.168.1.166" not in source.split("def parse_args", 1)[1]
 
 
 def test_release_plan_includes_validation_by_default(tmp_path: Path) -> None:
