@@ -956,6 +956,87 @@ def _dedupe_source_records(records: Iterable[dict[str, Any]]) -> list[dict[str, 
     return deduped
 
 
+_DECISION_FIELD_MAP = {
+    "research_outcome": "research_outcome",
+    "hypothesis_status": "hypothesis_status",
+    "evidence_strength": "evidence_strength",
+    "claim_scope": "claim_scope",
+    "scale_limits": "scale_limits",
+    "useful_signal_summary": "useful_signal_summary",
+    "recommended_next_action": "recommended_next_action",
+    "stop_reason": "stop_reason",
+    "bounded_paper_ready": "bounded_paper_ready",
+    "compute_scale_blocked": "compute_scale_blocked",
+}
+
+
+def _backfill_decision_fields(
+    repaired: dict[str, Any],
+    decision: dict[str, Any],
+    classification: list[str],
+    actions: list[str],
+) -> None:
+    for row_field, decision_field in _DECISION_FIELD_MAP.items():
+        if repaired.get(row_field) not in (None, "", [], {}):
+            continue
+        value = decision.get(decision_field)
+        if value in (None, "", [], {}):
+            continue
+        repaired[row_field] = value
+        if "missing_decision_field" not in classification:
+            classification.append("missing_decision_field")
+        actions.append(f"{row_field}:project_decision")
+
+
+def _backfill_source_lineage(
+    repaired: dict[str, Any],
+    row: dict[str, Any],
+    classification: list[str],
+    actions: list[str],
+) -> None:
+    if _sources_from_row(repaired):
+        return
+    candidate_sources = _source_records_from_candidate_metadata(row)
+    if candidate_sources:
+        repaired["source_records"] = candidate_sources
+        classification.append("missing_research_source_lineage")
+        actions.append("source_records:research_candidate_metadata")
+        return
+    project_id = _text(row.get("project_id"))
+    title = _text(row.get("project_name") or row.get("title"))
+    if project_id and title:
+        repaired["source_records"] = [
+            {
+                "source_id": f"internal_generated:{project_id}",
+                "url": "",
+                "title": f"Internal Enoch project: {title}",
+            }
+        ]
+        classification.append("missing_research_source_lineage")
+        actions.append("source_records:queue_project_metadata")
+        return
+    classification.append("unrecoverable_project_identity")
+
+
+def _append_backfill_validation_classifications(
+    repaired: dict[str, Any],
+    row: dict[str, Any],
+    classification: list[str],
+    issues: list[str],
+) -> None:
+    if (
+        "sources:required" in issues
+        and "missing_research_source_lineage" not in classification
+    ):
+        classification.append("missing_research_source_lineage")
+    if any(issue.startswith("sources") for issue in issues) and _sources_from_row(
+        repaired
+    ):
+        classification.append("missing_source_url_or_title")
+    if not _text(row.get("artifact_root")) and not _list(row.get("artifact_paths")):
+        classification.append("missing_evidence_claim_boundary")
+
+
 def backfill_promising_signal_row(row: dict[str, Any]) -> dict[str, Any]:
     """Return a deterministically enriched copy of a promising-signal row.
 
@@ -973,62 +1054,12 @@ def backfill_promising_signal_row(row: dict[str, Any]) -> dict[str, Any]:
         or row.get("payload_json")
         or row.get("project_decision")
     )
-    decision_field_map = {
-        "research_outcome": "research_outcome",
-        "hypothesis_status": "hypothesis_status",
-        "evidence_strength": "evidence_strength",
-        "claim_scope": "claim_scope",
-        "scale_limits": "scale_limits",
-        "useful_signal_summary": "useful_signal_summary",
-        "recommended_next_action": "recommended_next_action",
-        "stop_reason": "stop_reason",
-        "bounded_paper_ready": "bounded_paper_ready",
-        "compute_scale_blocked": "compute_scale_blocked",
-    }
-    for row_field, decision_field in decision_field_map.items():
-        if repaired.get(row_field) in (None, "", [], {}):
-            value = decision.get(decision_field)
-            if value not in (None, "", [], {}):
-                repaired[row_field] = value
-                if "missing_decision_field" not in classification:
-                    classification.append("missing_decision_field")
-                actions.append(f"{row_field}:project_decision")
-
-    if not _sources_from_row(repaired):
-        candidate_sources = _source_records_from_candidate_metadata(row)
-        if candidate_sources:
-            repaired["source_records"] = candidate_sources
-            classification.append("missing_research_source_lineage")
-            actions.append("source_records:research_candidate_metadata")
-        else:
-            project_id = _text(row.get("project_id"))
-            title = _text(row.get("project_name") or row.get("title"))
-            if project_id and title:
-                repaired["source_records"] = [
-                    {
-                        "source_id": f"internal_generated:{project_id}",
-                        "url": "",
-                        "title": f"Internal Enoch project: {title}",
-                    }
-                ]
-                classification.append("missing_research_source_lineage")
-                actions.append("source_records:queue_project_metadata")
-            else:
-                classification.append("unrecoverable_project_identity")
+    _backfill_decision_fields(repaired, decision, classification, actions)
+    _backfill_source_lineage(repaired, row, classification, actions)
 
     signal = signal_from_row(repaired)
     issues = validate_signal(signal)
-    if (
-        "sources:required" in issues
-        and "missing_research_source_lineage" not in classification
-    ):
-        classification.append("missing_research_source_lineage")
-    if any(issue.startswith("sources") for issue in issues) and _sources_from_row(
-        repaired
-    ):
-        classification.append("missing_source_url_or_title")
-    if not _text(row.get("artifact_root")) and not _list(row.get("artifact_paths")):
-        classification.append("missing_evidence_claim_boundary")
+    _append_backfill_validation_classifications(repaired, row, classification, issues)
 
     repaired["_promising_signal_backfill"] = {
         "classification": sorted(set(classification)),
