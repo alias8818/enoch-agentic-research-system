@@ -1,4 +1,4 @@
-import { MouseEvent, ReactNode, useState } from 'react'
+import { KeyboardEvent, MouseEvent, ReactNode, useState } from 'react'
 import { displayText } from '../displayText'
 import type { ComposedEmptyStateCopy } from '../resourceStatePresentation'
 import { columnLinkHref, resolveColumnTone, resolveColumnValue, shortTableId, type TableColumnSpec } from '../tablePresentation'
@@ -7,26 +7,35 @@ import { ComposedEmptyState } from './ResourceStateCards'
 type Row = Record<string, unknown>
 
 async function copyToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
+  if (!navigator.clipboard?.writeText) return
+  await navigator.clipboard.writeText(text)
+}
+
+function formatObjectPreview(value: object): ReactNode {
+  try {
+    return <code className="json-inline">{JSON.stringify(value)}</code>
+  } catch {
+    return <span className="muted-value">—</span>
   }
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.setAttribute('readonly', 'true')
-  textarea.style.position = 'fixed'
-  textarea.style.opacity = '0'
-  document.body.appendChild(textarea)
-  textarea.select()
-  document.execCommand('copy')
-  textarea.remove()
 }
 
 function formatFallback(value: unknown): ReactNode {
   if (value === null || value === undefined || value === '') return <span className="muted-value">—</span>
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
-  if (typeof value === 'object') return <code className="json-inline">{JSON.stringify(value)}</code>
+  if (typeof value === 'object') return formatObjectPreview(value)
   return displayText(value)
+}
+
+function IdCellLabel({ idValue, href }: Readonly<{ idValue: string; href?: string }>) {
+  const label = shortTableId(idValue)
+  if (href) {
+    return (
+      <a className="cell-link" href={href} onClick={(event) => event.stopPropagation()}>
+        {label}
+      </a>
+    )
+  }
+  return <span>{label}</span>
 }
 
 function IdCell({ column, idValue, href }: Readonly<{ column: TableColumnSpec; idValue: string; href?: string }>) {
@@ -39,9 +48,7 @@ function IdCell({ column, idValue, href }: Readonly<{ column: TableColumnSpec; i
   }
   return (
     <span className="table-id-chip" title={idValue}>
-      {href
-        ? <a className="cell-link" href={href} onClick={(event) => event.stopPropagation()}>{shortTableId(idValue)}</a>
-        : <span>{shortTableId(idValue)}</span>}
+      <IdCellLabel idValue={idValue} href={href} />
       <button className="copy-button copy-button--subtle" type="button" onClick={copy} aria-label={`Copy ${column.label} ${idValue}`}>
         {copied ? 'Copied' : 'Copy'}
       </button>
@@ -78,7 +85,7 @@ function IdColumnCell({
 }: Readonly<{ column: TableColumnSpec; row: Row; href?: string; text: string }>) {
   const fallbackId = text === '—' ? '' : text
   const idValue = displayText(row[column.key], fallbackId)
-  if (!idValue || idValue === '—') return <span className="muted-value">—</span>
+  if (idValue === '' || idValue === '—') return <span className="muted-value">—</span>
   return <IdCell column={column} idValue={idValue} href={href} />
 }
 
@@ -114,6 +121,17 @@ function DefaultColumnCell({
   return <CellLinkWrap href={href} className={className} title={text}>{formatted}</CellLinkWrap>
 }
 
+function defaultColumnCell(
+  column: TableColumnSpec,
+  raw: unknown,
+  href: string | undefined,
+  text: string,
+  tone: string | undefined,
+): ReactNode {
+  if (column.kind === 'status' || tone) return <StatusColumnCell text={text} tone={tone} />
+  return <DefaultColumnCell raw={raw} href={href} text={text} />
+}
+
 function CellValue({
   column,
   row,
@@ -127,11 +145,16 @@ function CellValue({
   const tone = resolveColumnTone(row, column)
   const text = cellDisplayText(raw)
 
-  if (column.kind === 'id') return <IdColumnCell column={column} row={row} href={href} text={text} />
-  if (column.kind === 'primary') return <PrimaryColumnCell raw={raw} href={href} text={text} />
-  if (column.kind === 'link') return <LinkColumnCell href={href} text={text} />
-  if (column.kind === 'status' || tone) return <StatusColumnCell text={text} tone={tone} />
-  return <DefaultColumnCell raw={raw} href={href} text={text} />
+  switch (column.kind) {
+    case 'id':
+      return <IdColumnCell column={column} row={row} href={href} text={text} />
+    case 'primary':
+      return <PrimaryColumnCell raw={raw} href={href} text={text} />
+    case 'link':
+      return <LinkColumnCell href={href} text={text} />
+    default:
+      return defaultColumnCell(column, raw, href, text, tone)
+  }
 }
 
 function rowKey(row: Row, index: number): string {
@@ -139,7 +162,92 @@ function rowKey(row: Row, index: number): string {
     const key = displayText(candidate)
     if (key) return key
   }
-  return String(index)
+  return `${index}`
+}
+
+function primaryColumnClass(column: TableColumnSpec): string | undefined {
+  return column.kind === 'primary' ? 'data-table-col--primary' : undefined
+}
+
+function cellTitle(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
+}
+
+function rowAllowsColumnLink(onSelectRow: ((row: Row) => void) | undefined, column: TableColumnSpec): boolean {
+  if (onSelectRow === undefined) return true
+  return column.kind === 'id' || column.kind === 'link'
+}
+
+function resolveDataCellHref(
+  row: Row,
+  column: TableColumnSpec,
+  onSelectRow: ((row: Row) => void) | undefined,
+  cellHref: ((row: Row, column: string) => string | undefined) | undefined,
+): string | undefined {
+  if (!rowAllowsColumnLink(onSelectRow, column)) return undefined
+  return cellHref?.(row, column.key) ?? columnLinkHref(row, column)
+}
+
+function handleSelectableRowKeyDown(
+  event: KeyboardEvent<HTMLTableRowElement>,
+  onSelectRow: (row: Row) => void,
+  row: Row,
+): void {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.preventDefault()
+  onSelectRow(row)
+}
+
+function DataTableCell({
+  row,
+  column,
+  onSelectRow,
+  cellHref,
+}: Readonly<{
+  row: Row
+  column: TableColumnSpec
+  onSelectRow?: (row: Row) => void
+  cellHref?: (row: Row, column: string) => string | undefined
+}>) {
+  const value = resolveColumnValue(row, column)
+  const href = resolveDataCellHref(row, column, onSelectRow, cellHref)
+  return (
+    <td className={primaryColumnClass(column)} title={cellTitle(value)}>
+      <CellValue column={column} row={row} href={href} />
+    </td>
+  )
+}
+
+function DataTableRow({
+  row,
+  columns,
+  onSelectRow,
+  cellHref,
+}: Readonly<{
+  row: Row
+  columns: TableColumnSpec[]
+  onSelectRow?: (row: Row) => void
+  cellHref?: (row: Row, column: string) => string | undefined
+}>) {
+  return (
+    <tr
+      className={onSelectRow ? 'selectable-row' : undefined}
+      tabIndex={onSelectRow ? 0 : undefined}
+      onClick={() => onSelectRow?.(row)}
+      onKeyDown={onSelectRow ? (event) => handleSelectableRowKeyDown(event, onSelectRow, row) : undefined}
+    >
+      {columns.map((column) => (
+        <DataTableCell key={column.key} row={row} column={column} onSelectRow={onSelectRow} cellHref={cellHref} />
+      ))}
+    </tr>
+  )
+}
+
+function EmptyDataTable({ empty }: Readonly<{ empty: string | ComposedEmptyStateCopy }>) {
+  if (typeof empty === 'string') {
+    return <div className="empty-table">{empty}</div>
+  }
+  return <ComposedEmptyState state={empty} />
 }
 
 export function DataTable({
@@ -155,45 +263,27 @@ export function DataTable({
   onSelectRow?: (row: Row) => void
   cellHref?: (row: Row, column: string) => string | undefined
 }>) {
-  if (!rows.length) {
-    if (typeof empty === 'string') {
-      return <div className="empty-table">{empty}</div>
-    }
-    return <ComposedEmptyState state={empty} />
-  }
+  if (!rows.length) return <EmptyDataTable empty={empty} />
   return (
     <div className="data-table-wrap">
       <div className="data-table-scroll">
         <table className="data-table">
           <thead>
-            <tr>{columns.map((column) => <th key={column.key} className={column.kind === 'primary' ? 'data-table-col--primary' : undefined}>{column.label}</th>)}</tr>
+            <tr>
+              {columns.map((column) => (
+                <th key={column.key} className={primaryColumnClass(column)}>{column.label}</th>
+              ))}
+            </tr>
           </thead>
           <tbody>
             {rows.map((row, index) => (
-              <tr
+              <DataTableRow
                 key={rowKey(row, index)}
-                className={onSelectRow ? 'selectable-row' : undefined}
-                tabIndex={onSelectRow ? 0 : undefined}
-                onClick={() => onSelectRow?.(row)}
-                onKeyDown={(event) => {
-                  if (!onSelectRow) return
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    onSelectRow(row)
-                  }
-                }}
-              >
-                {columns.map((column) => {
-                  const allowLink = !onSelectRow || column.kind === 'id' || column.kind === 'link'
-                  const href = allowLink ? (cellHref?.(row, column.key) ?? columnLinkHref(row, column)) : undefined
-                  const value = resolveColumnValue(row, column)
-                  return (
-                    <td key={column.key} className={column.kind === 'primary' ? 'data-table-col--primary' : undefined} title={typeof value === 'string' ? value : undefined}>
-                      <CellValue column={column} row={row} href={href} />
-                    </td>
-                  )
-                })}
-              </tr>
+                row={row}
+                columns={columns}
+                onSelectRow={onSelectRow}
+                cellHref={cellHref}
+              />
             ))}
           </tbody>
         </table>
