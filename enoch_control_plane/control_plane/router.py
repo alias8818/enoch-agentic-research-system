@@ -5100,6 +5100,97 @@ def _cp_mount_configured_worker_lanes(config: GateConfig) -> list[dict[str, Any]
     return lanes
 
 
+def _cp_mount_rows_by_worker_lane(
+    config: GateConfig, rows: list[dict[str, Any]]
+) -> dict[str, list[dict[str, Any]]]:
+    by_lane: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_lane.setdefault(_cp_mount_worker_lane_key(config, row), []).append(row)
+    return by_lane
+
+
+def _cp_mount_merge_unconfigured_worker_lanes(
+    config: GateConfig,
+    lanes_by_key: dict[str, dict[str, Any]],
+    *row_groups: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    merged = dict(lanes_by_key)
+    for rows in row_groups:
+        for row in rows:
+            lane_key = _cp_mount_worker_lane_key(config, row)
+            if not lane_key or lane_key in merged:
+                continue
+            target = config.resolved_worker_target(str(row.get("machine_target") or ""))
+            merged[lane_key] = {
+                "lane_key": lane_key,
+                "machine_target": str(row.get("machine_target") or ""),
+                "worker_role": target.role or "worker",
+                "wake_gate_url": target.wake_gate_url,
+                "configured": False,
+            }
+    return merged
+
+
+def _cp_mount_worker_lane_sort_key(lane: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(lane.get("worker_role") or ""),
+        str(lane.get("machine_target") or ""),
+        str(lane.get("lane_key") or ""),
+    )
+
+
+def _cp_mount_lane_dispatch_state(
+    *,
+    lane_active: list[dict[str, Any]],
+    next_candidate: dict[str, Any] | None,
+    global_blockers: list[str],
+) -> tuple[bool, str, str]:
+    if lane_active:
+        return False, "", "lane active"
+    if next_candidate and global_blockers:
+        return False, "", global_blockers[0]
+    if next_candidate:
+        return True, "lane open with queued candidate", ""
+    return False, "", "no queued candidate for lane"
+
+
+def _cp_mount_worker_lane_capacity_entry(
+    lane: dict[str, Any],
+    *,
+    active_by_lane: dict[str, list[dict[str, Any]]],
+    queued_by_lane: dict[str, list[dict[str, Any]]],
+    global_blockers: list[str],
+) -> dict[str, Any]:
+    lane_key = str(lane["lane_key"])
+    lane_active = sorted(
+        active_by_lane.get(lane_key, []),
+        key=lambda row: str(row.get("updated_at") or ""),
+        reverse=True,
+    )
+    lane_queued = queued_by_lane.get(lane_key, [])
+    next_candidate = lane_queued[0] if lane_queued else None
+    dispatch_available, dispatch_reason, dispatch_blocker = (
+        _cp_mount_lane_dispatch_state(
+            lane_active=lane_active,
+            next_candidate=next_candidate,
+            global_blockers=global_blockers,
+        )
+    )
+    return {
+        **lane,
+        "status": "active" if lane_active else "idle",
+        "active_count": len(lane_active),
+        "active_item": _worker_lane_summary_row(
+            lane_active[0] if lane_active else None
+        ),
+        "queued_count": len(lane_queued),
+        "next_candidate": _worker_lane_summary_row(next_candidate),
+        "dispatch_available": dispatch_available,
+        "dispatch_reason": dispatch_reason,
+        "dispatch_blocker": dispatch_blocker,
+    }
+
+
 def _cp_mount_worker_lane_capacity(
     config: GateConfig,
     store: Any,
@@ -5110,79 +5201,25 @@ def _cp_mount_worker_lane_capacity(
 ) -> list[dict[str, Any]]:
     active_rows = list(active if active is not None else store.active_items())
     queue_rows = list(rows if rows is not None else store.queue_rows())
-    active_by_lane: dict[str, list[dict[str, Any]]] = {}
-    queued_by_lane: dict[str, list[dict[str, Any]]] = {}
-    for row in active_rows:
-        active_by_lane.setdefault(_cp_mount_worker_lane_key(config, row), []).append(
-            row
-        )
     queued_candidates = _cp_queued_dispatch_candidates(store, queue_rows)
-    for row in queued_candidates:
-        queued_by_lane.setdefault(_cp_mount_worker_lane_key(config, row), []).append(
-            row
-        )
-
+    active_by_lane = _cp_mount_rows_by_worker_lane(config, active_rows)
+    queued_by_lane = _cp_mount_rows_by_worker_lane(config, queued_candidates)
     lanes_by_key = {
         lane["lane_key"]: lane for lane in _cp_mount_configured_worker_lanes(config)
     }
-    for row in [*active_rows, *queued_candidates]:
-        lane_key = _cp_mount_worker_lane_key(config, row)
-        if lane_key and lane_key not in lanes_by_key:
-            target = config.resolved_worker_target(str(row.get("machine_target") or ""))
-            lanes_by_key[lane_key] = {
-                "lane_key": lane_key,
-                "machine_target": str(row.get("machine_target") or ""),
-                "worker_role": target.role or "worker",
-                "wake_gate_url": target.wake_gate_url,
-                "configured": False,
-            }
-
-    global_blockers = [str(item) for item in (global_blockers or []) if str(item)]
-    output: list[dict[str, Any]] = []
-    for lane in sorted(
-        lanes_by_key.values(),
-        key=lambda item: (
-            str(item.get("worker_role") or ""),
-            str(item.get("machine_target") or ""),
-            str(item.get("lane_key") or ""),
-        ),
-    ):
-        lane_key = str(lane["lane_key"])
-        lane_active = sorted(
-            active_by_lane.get(lane_key, []),
-            key=lambda row: str(row.get("updated_at") or ""),
-            reverse=True,
+    lanes_by_key = _cp_mount_merge_unconfigured_worker_lanes(
+        config, lanes_by_key, active_rows, queued_candidates
+    )
+    blockers = [str(item) for item in (global_blockers or []) if str(item)]
+    return [
+        _cp_mount_worker_lane_capacity_entry(
+            lane,
+            active_by_lane=active_by_lane,
+            queued_by_lane=queued_by_lane,
+            global_blockers=blockers,
         )
-        lane_queued = queued_by_lane.get(lane_key, [])
-        next_candidate = lane_queued[0] if lane_queued else None
-        dispatch_available = False
-        dispatch_reason = ""
-        dispatch_blocker = ""
-        if lane_active:
-            dispatch_blocker = "lane active"
-        elif next_candidate and global_blockers:
-            dispatch_blocker = global_blockers[0]
-        elif next_candidate:
-            dispatch_available = True
-            dispatch_reason = "lane open with queued candidate"
-        else:
-            dispatch_blocker = "no queued candidate for lane"
-        output.append(
-            {
-                **lane,
-                "status": "active" if lane_active else "idle",
-                "active_count": len(lane_active),
-                "active_item": _worker_lane_summary_row(
-                    lane_active[0] if lane_active else None
-                ),
-                "queued_count": len(lane_queued),
-                "next_candidate": _worker_lane_summary_row(next_candidate),
-                "dispatch_available": dispatch_available,
-                "dispatch_reason": dispatch_reason,
-                "dispatch_blocker": dispatch_blocker,
-            }
-        )
-    return output
+        for lane in sorted(lanes_by_key.values(), key=_cp_mount_worker_lane_sort_key)
+    ]
 
 
 def _cp_mount_candidate_machine_target_conflict_set(
