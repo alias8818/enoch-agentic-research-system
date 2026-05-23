@@ -5,6 +5,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, model_validator
 
+from enoch_control_plane.url_safety import secure_default_service_url
+
 
 class WorkloadClass(str, Enum):
     UNKNOWN = "unknown"
@@ -72,7 +74,7 @@ class GateConfig(BaseModel):
     n8n_callback_timeout_sec: int = Field(default=120, ge=5)
     log_events: bool = True
     live_dispatch_enabled: bool = False
-    worker_wake_gate_url: str = "http://worker.example:8787"
+    worker_wake_gate_url: str = secure_default_service_url("worker.example", 8787)
     worker_wake_gate_bearer_token: str = ""
     worker_targets: dict[str, WorkerTargetConfig] = Field(default_factory=dict)
     workload_machine_targets: dict[str, str] = Field(default_factory=dict)

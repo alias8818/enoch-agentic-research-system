@@ -2,7 +2,22 @@ from __future__ import annotations
 
 import pytest
 
-from enoch_control_plane.url_safety import validate_http_url
+from enoch_control_plane.url_safety import (
+    secure_default_service_url,
+    validate_http_url,
+)
+
+
+def test_secure_default_service_url_uses_https_for_remote_hosts() -> None:
+    assert (
+        secure_default_service_url("worker.example", 8787)
+        == "https://worker.example:8787"
+    )
+
+
+def test_secure_default_service_url_preserves_http_for_loopback() -> None:
+    assert secure_default_service_url("127.0.0.1", 8787) == "http://127.0.0.1:8787"
+    assert secure_default_service_url("localhost", 8787) == "http://localhost:8787"
 
 
 def test_validate_http_url_accepts_http_and_https() -> None:
