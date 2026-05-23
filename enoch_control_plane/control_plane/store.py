@@ -298,7 +298,6 @@ def _worker_callback_transition(
     event_type: str, payload: dict[str, Any]
 ) -> tuple[str, str, int, str]:
     status = QueueStatus.COMPLETED.value
-    next_action_hint = "select_next_project"
     manual_review_required = 0
     last_error = ""
     if event_type == "session_started":
