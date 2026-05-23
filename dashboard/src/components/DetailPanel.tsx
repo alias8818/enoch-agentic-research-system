@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { apiGet } from '../api/client'
 import { deriveDetailOperatorSummary, type DetailKind, type DetailOperatorSummary } from '../detailOperatorSummary'
+import { displayText } from '../displayText'
 import { shortId } from '../format'
 import { detailBreadcrumb } from '../routePolicy'
 import { dashboardV2Href } from '../routes'
@@ -43,12 +44,11 @@ function firstValue(...values: unknown[]): unknown {
   return values.find((value) => value !== null && value !== undefined && value !== '')
 }
 
-function stringifyValue(value: unknown): string {
+function detailText(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—'
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
   if (typeof value === 'object') return JSON.stringify(value)
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') return String(value)
-  return '—'
+  return displayText(value, '—')
 }
 
 function kindLabel(kind: DetailKind): string {
@@ -60,7 +60,7 @@ function recordArray(value: unknown): Record<string, unknown>[] {
 }
 
 function rowTitle(row: Record<string, unknown>, fallback: string): string {
-  return stringifyValue(firstValue(row.title, row.project_name, row.paper_title, row.summary, row.current_activity, row.event_type, fallback))
+  return detailText(firstValue(row.title, row.project_name, row.paper_title, row.summary, row.current_activity, row.event_type, fallback))
 }
 
 function RelatedSection({ title, rows, kind }: Readonly<{ title: string; rows: Record<string, unknown>[]; kind: 'run' | 'paper' | 'event' }>) {
@@ -70,13 +70,13 @@ function RelatedSection({ title, rows, kind }: Readonly<{ title: string; rows: R
       <h4>{title}</h4>
       <div className="detail-related-list">
         {rows.slice(0, 6).map((row, index) => {
-          const id = stringifyValue(firstValue(row.run_id, row.paper_id, row.id, row.event_id, `row-${index + 1}`))
+          const id = detailText(firstValue(row.run_id, row.paper_id, row.id, row.event_id, `row-${index + 1}`))
           const titleText = kind === 'run' ? id : rowTitle(row, id)
-          const meta = stringifyValue(firstValue(row.state, row.status, row.event_type, row.updated_at, row.created_at))
+          const meta = detailText(firstValue(row.state, row.status, row.event_type, row.updated_at, row.created_at))
           return (
             <a key={`${kind}-${id}-${index}`} className="detail-related-row detail-related-row--link" href={dashboardV2Href(`#${kind}:${encodeURIComponent(id)}`)}>
               <strong>{titleText}</strong>
-              {meta !== '—' && meta !== titleText ? <span>{meta}</span> : null}
+              {meta === '—' || meta === titleText ? null : <span>{meta}</span>}
             </a>
           )
         })}
@@ -158,7 +158,7 @@ function PaperArtifacts({ id, payload }: Readonly<{ id: string; payload: Record<
       </div>
       <div className="artifact-button-row">
         {available.map(([field, label]) => (
-          <button key={field} className="secondary-button" type="button" disabled={pendingField === field} onClick={() => { void loadArtifact(field) }}>
+          <button key={field} className="secondary-button" type="button" disabled={pendingField === field} onClick={() => { loadArtifact(field).catch(() => undefined) }}>
             Preview {label}
           </button>
         ))}
@@ -178,7 +178,7 @@ function detailTitle(kind: DetailKind, payload: Record<string, unknown>, fallbac
   const project = record(payload.project)
   const run = record(payload.run)
   const paper = record(payload.paper)
-  const raw = stringifyValue(firstValue(
+  const raw = detailText(firstValue(
     project.project_name,
     project.title,
     run.project_name,
@@ -268,7 +268,7 @@ function FieldGrid({ fields }: Readonly<{ fields: Field[] }>) {
       {visible.map((field) => (
         <div key={field.label} className="detail-field">
           <dt>{field.label}</dt>
-          <dd>{stringifyValue(field.value)}</dd>
+          <dd>{detailText(field.value)}</dd>
         </div>
       ))}
     </dl>
@@ -289,12 +289,12 @@ function RecordFields({ kind, id, payload, presentation }: Readonly<{ kind: Deta
 }
 
 function isQueueAlertEvent(payload: Record<string, unknown>): boolean {
-  return stringifyValue(payload.event_type).toLowerCase() === 'queue_alert.detected'
+  return detailText(payload.event_type).toLowerCase() === 'queue_alert.detected'
 }
 
 function listValues(value: unknown): string[] {
   if (!Array.isArray(value)) return []
-  return value.map((item) => stringifyValue(item)).filter((item) => item !== '—')
+  return value.map((item) => detailText(item)).filter((item) => item !== '—')
 }
 
 function queueAlertCurrentState(isLoading: boolean, isError: boolean, resolvedNow: boolean): string {
@@ -310,7 +310,7 @@ function currentBlockersLabel(isSuccess: boolean, currentBlockers: string[]): st
 }
 
 function findingKey(finding: Record<string, unknown>, index: number): string {
-  return `${stringifyValue(firstValue(finding.message, finding.source))}-${index}`
+  return `${detailText(firstValue(finding.message, finding.source))}-${index}`
 }
 
 function QueueAlertDetails({ payload }: Readonly<{ payload: Record<string, unknown> }>) {
@@ -320,7 +320,7 @@ function QueueAlertDetails({ payload }: Readonly<{ payload: Record<string, unkno
   const blockers = listValues(nested.dispatch_blockers)
   const suppressed = recordArray(nested.transient_suppressed_findings)
   const status = useQuery({
-    queryKey: ['queue-alert-current-status', stringifyValue(firstValue(payload.event_id, payload.id, nested.fingerprint))],
+    queryKey: ['queue-alert-current-status', detailText(firstValue(payload.event_id, payload.id, nested.fingerprint))],
     queryFn: () => apiGet<Record<string, unknown>>('/control/api/status'),
     enabled: isQueueAlert,
     retry: false,
@@ -339,7 +339,7 @@ function QueueAlertDetails({ payload }: Readonly<{ payload: Record<string, unkno
         </div>
         <div className="detail-field">
           <dt>event-time dispatch safe</dt>
-          <dd>{stringifyValue(nested.dispatch_safe)}</dd>
+          <dd>{detailText(nested.dispatch_safe)}</dd>
         </div>
         <div className="detail-field">
           <dt>event-time blockers</dt>
@@ -358,12 +358,18 @@ function QueueAlertDetails({ payload }: Readonly<{ payload: Record<string, unkno
         <div className="detail-related-list">
           <strong>Alert findings</strong>
           {findings.slice(0, 5).map((finding, index) => {
-            const suggestedAction = stringifyValue(finding.suggested_action)
+            const suggestedAction = detailText(finding.suggested_action)
+            let suggestedActionNode = null
+            if (suggestedAction === '—') {
+              suggestedActionNode = null
+            } else {
+              suggestedActionNode = <span>{suggestedAction}</span>
+            }
             return (
             <div key={findingKey(finding, index)} className="detail-related-row">
-              <strong>{stringifyValue(firstValue(finding.message, finding.source, `finding ${index + 1}`))}</strong>
-              <span>{stringifyValue(firstValue(finding.severity, 'unknown'))} · {stringifyValue(firstValue(finding.source, 'unknown source'))}</span>
-              {suggestedAction !== '—' ? <span>{suggestedAction}</span> : null}
+              <strong>{detailText(firstValue(finding.message, finding.source, `finding ${index + 1}`))}</strong>
+              <span>{detailText(firstValue(finding.severity, 'unknown'))} · {detailText(firstValue(finding.source, 'unknown source'))}</span>
+              {suggestedActionNode}
             </div>
             )
           })}
@@ -373,30 +379,30 @@ function QueueAlertDetails({ payload }: Readonly<{ payload: Record<string, unkno
   )
 }
 
-function structuredDetailLead(presentation: 'panel' | 'page', summary: string, title: string, kind: DetailKind) {
+function structuredDetailLead({ presentation, summary, title, kind }: Readonly<{ presentation: 'panel' | 'page'; summary: string; title: string; kind: DetailKind }>) {
   if (presentation === 'panel') {
     return (
       <>
         <Eyebrow>{kindLabel(kind)}</Eyebrow>
         <h3>{title}</h3>
-        {summary !== '—' && summary !== title ? <p>{summary}</p> : null}
+        {summary === '—' || summary === title ? null : <p>{summary}</p>}
       </>
     )
   }
-  if (summary !== '—' && summary !== title) {
-    return <p className="detail-page-lead">{summary}</p>
+  if (summary === '—' || summary === title) {
+    return null
   }
-  return null
+  return <p className="detail-page-lead">{summary}</p>
 }
 
 function StructuredDetail({ kind, id, payload, presentation = 'panel', operatorSummary: operatorSummaryProp }: Readonly<{ kind: DetailKind; id: string; payload: Record<string, unknown>; presentation?: 'panel' | 'page'; operatorSummary?: DetailOperatorSummary }>) {
   const title = detailTitle(kind, payload, id)
-  const summary = stringifyValue(firstValue(payload.summary, record(payload.project).abstract, record(payload.paper).summary, record(payload.paper).abstract))
+  const summary = detailText(firstValue(payload.summary, record(payload.project).abstract, record(payload.paper).summary, record(payload.paper).abstract))
   const operatorSummary = operatorSummaryProp ?? deriveDetailOperatorSummary(kind, payload)
   return (
     <div className={`detail-body${presentation === 'page' ? ' detail-body--page' : ''}`}>
       <section className={`detail-summary${presentation === 'page' ? ' detail-summary--flat' : ''}`}>
-        {structuredDetailLead(presentation, summary, title, kind)}
+        {structuredDetailLead({ presentation, summary, title, kind })}
         <EntityLinkChips links={operatorSummary.entityLinks} />
         {presentation === 'panel' ? <FieldGrid fields={detailFields(kind, payload, id)} /> : null}
       </section>
@@ -471,9 +477,55 @@ function detailDataSource(kind: DetailKind, id: string): string {
   return `/control/api/v1/events?event_id=${encodeURIComponent(id)}&include_payload=true&page_size=1&sort=recent`
 }
 
+function detailPageSubtitle(
+  kind: DetailKind,
+  id: string,
+  hasResolvedPayload: boolean,
+  operatorSummary: DetailOperatorSummary | null,
+): string {
+  let subtitle = `${kindLabel(kind)} · ${shortId(id)} · loading`
+  if (hasResolvedPayload && operatorSummary) {
+    subtitle = statusSubtitle(kind, id, operatorSummary.state)
+  }
+  return subtitle
+}
+
+function DetailPageBody({
+  selection,
+  hasInlineEvent,
+  url,
+  query,
+  payload,
+  operatorSummary,
+}: Readonly<{
+  selection: DetailSelection
+  hasInlineEvent: boolean
+  url: string | null
+  query: ReturnType<typeof useQuery<Record<string, unknown>>>
+  payload: Record<string, unknown>
+  operatorSummary: DetailOperatorSummary | null
+}>) {
+  const showDetailBody = (hasInlineEvent || query.isSuccess || !url) && !query.isError
+  return (
+    <div className="detail-page-body" aria-label="Dashboard detail page">
+      {query.isLoading && !hasInlineEvent ? <StateCard compact>Loading detail…</StateCard> : null}
+      {query.isError && !hasInlineEvent ? <StateCard variant="error" compact>Detail unavailable: {String(query.error.message)}</StateCard> : null}
+      {showDetailBody ? (
+        <StructuredDetail
+          kind={selection.kind}
+          id={selection.id}
+          payload={payload}
+          presentation="page"
+          operatorSummary={operatorSummary ?? undefined}
+        />
+      ) : null}
+    </div>
+  )
+}
+
 export function DetailPage({ selection }: Readonly<{ selection: DetailSelection }>) {
   const inlineRow = selection.row
-  const hasInlineEvent = selection.kind === 'event' && inlineRow
+  const hasInlineEvent = Boolean(selection.kind === 'event' && inlineRow)
   const url = endpoint(selection)
   const query = useQuery({
     queryKey: ['detail-page', selection.kind, selection.id],
@@ -481,13 +533,11 @@ export function DetailPage({ selection }: Readonly<{ selection: DetailSelection 
     enabled: Boolean(url) && !hasInlineEvent,
     retry: false,
   })
-  const payload = hasInlineEvent ? inlineRow : payloadFromDetailData(selection.kind, query.data)
+  const payload = hasInlineEvent ? inlineRow! : payloadFromDetailData(selection.kind, query.data)
   const hasResolvedPayload = hasInlineEvent || query.isSuccess
   const operatorSummary = hasResolvedPayload ? deriveDetailOperatorSummary(selection.kind, payload) : null
   const title = hasResolvedPayload ? detailTitle(selection.kind, payload, selection.id) : kindLabel(selection.kind)
-  const subtitle = hasResolvedPayload && operatorSummary
-    ? statusSubtitle(selection.kind, selection.id, operatorSummary.state)
-    : `${kindLabel(selection.kind)} · ${shortId(selection.id)} · loading`
+  const subtitle = detailPageSubtitle(selection.kind, selection.id, hasResolvedPayload, operatorSummary)
   return (
     <section className="page-stack">
       <PageHeader
@@ -497,19 +547,14 @@ export function DetailPage({ selection }: Readonly<{ selection: DetailSelection 
         dataSource={detailDataSource(selection.kind, selection.id)}
         action={<span className="detail-id-chip" title={selection.id}>{shortId(selection.id)}</span>}
       />
-      <div className="detail-page-body" aria-label="Dashboard detail page">
-        {query.isLoading && !hasInlineEvent ? <StateCard compact>Loading detail…</StateCard> : null}
-        {query.isError && !hasInlineEvent ? <StateCard variant="error" compact>Detail unavailable: {String(query.error.message)}</StateCard> : null}
-        {(hasInlineEvent || query.isSuccess || !url) && !query.isError ? (
-          <StructuredDetail
-            kind={selection.kind}
-            id={selection.id}
-            payload={payload}
-            presentation="page"
-            operatorSummary={operatorSummary ?? undefined}
-          />
-        ) : null}
-      </div>
+      <DetailPageBody
+        selection={selection}
+        hasInlineEvent={hasInlineEvent}
+        url={url}
+        query={query}
+        payload={payload}
+        operatorSummary={operatorSummary}
+      />
     </section>
   )
 }
