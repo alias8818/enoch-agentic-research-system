@@ -34,6 +34,7 @@ from ..observability import current_rss_mib, peak_rss_mib
 from ..timeutils import parse_utc_datetime
 from .paper_writer import write_paper_artifacts
 from .models import (
+    DEFAULT_MACHINE_TARGET,
     ControlStateResponse,
     DashboardConfigStatus,
     DashboardFinding,
@@ -3914,7 +3915,7 @@ def create_control_plane_router(
         if not target:
             return _worker_lane_key({"machine_target": ""})
         if "://" in target:
-            if (urlparse(target).hostname or "") == "worker.example":
+            if (urlparse(target).hostname or "") == DEFAULT_MACHINE_TARGET:
                 return _worker_lane_key({"machine_target": ""})
             return target.rstrip("/")
         return _worker_lane_key({"machine_target": target})
@@ -8161,7 +8162,7 @@ def create_control_plane_router(
         _require_legacy_notion_api_enabled()
         if not payload.dry_run:
             _require_writable_store("Notion ideas intake")
-        if payload.default_machine_target == "worker.example":
+        if payload.default_machine_target == DEFAULT_MACHINE_TARGET:
             configured_worker = urlparse(config.worker_wake_gate_url).hostname or ""
             if configured_worker:
                 payload = payload.model_copy(
@@ -8202,7 +8203,7 @@ def create_control_plane_router(
         authorize(authorization)
         if not payload.dry_run:
             _require_writable_store("ideas intake")
-        if payload.default_machine_target == "worker.example":
+        if payload.default_machine_target == DEFAULT_MACHINE_TARGET:
             configured_worker = urlparse(config.worker_wake_gate_url).hostname or ""
             if configured_worker:
                 payload = payload.model_copy(
@@ -8278,7 +8279,7 @@ def create_control_plane_router(
     def _configured_worker_preflight_url() -> str:
         worker_url = (config.worker_wake_gate_url or "").strip()
         worker_host = urlparse(worker_url).hostname or ""
-        if not worker_url or worker_host == "worker.example":
+        if not worker_url or worker_host == DEFAULT_MACHINE_TARGET:
             raise HTTPException(
                 status_code=503,
                 detail="worker preflight requires configured worker_wake_gate_url",
@@ -8324,7 +8325,7 @@ def create_control_plane_router(
                 detail="wake_gate_url must match configured worker_wake_gate_url or a configured worker target; use machine_target for named routes",
             )
         worker_host = urlparse((payload.wake_gate_url or "").strip()).hostname or ""
-        if worker_host == "worker.example":
+        if worker_host == DEFAULT_MACHINE_TARGET:
             return payload.model_copy(
                 update={
                     "wake_gate_url": _configured_worker_preflight_url(),
