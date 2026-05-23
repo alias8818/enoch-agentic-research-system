@@ -14,7 +14,7 @@ import subprocess
 import tarfile
 import tempfile
 import time
-from typing import Any, Callable, Mapping
+from typing import Annotated, Any, Callable, Mapping
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query
@@ -5066,8 +5066,8 @@ def create_control_plane_router(
 
     @router.get("/api/status")
     def dashboard_status(
-        refresh_worker: bool = Query(default=False),
-        authorization: str | None = Header(default=None),
+        refresh_worker: Annotated[bool, Query()] = False,
+        authorization: Annotated[str | None, Header()] = None,
     ) -> DashboardStatusResponse:
         authorize(authorization)
         return dashboard_status_response(refresh_worker=refresh_worker)
@@ -8233,7 +8233,7 @@ def create_control_plane_router(
     @router.post("/api/preflight")
     def dashboard_preflight(
         payload: WorkerPreflightRequest,
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> WorkerPreflightResponse:
         authorize(authorization)
         payload = _target_aware_preflight_payload(payload)

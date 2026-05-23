@@ -179,6 +179,149 @@ function selectedDispatchDisabledReason(canDryRunSelected: boolean, liveReady: b
   return ''
 }
 
+function mergeQueueFiltersFromRoute(current: FilterState, route: { search?: string; status: string }): FilterState | null {
+  if (current.status === route.status && current.search === route.search) return null
+  return { ...current, status: route.status, search: route.search || '', cursor: '' }
+}
+
+type QueueDispatchState = {
+  selectedProjectId: string
+  selectedCurrentSignature: string
+  canDryRunSelected: boolean
+  canLiveDispatchSelected: boolean
+  staleDispatchReady: boolean
+  dispatchDisabledReason: string
+}
+
+function deriveQueueDispatchState(
+  rows: Record<string, unknown>[] | undefined,
+  selection: DetailSelection | null,
+  liveDispatchProjectId: string,
+  liveDispatchSignature: string,
+  dispatchBusy: boolean,
+): QueueDispatchState {
+  const selectedProjectId = selection?.id || ''
+  const selectedStatus = displayText(selection?.row?.status).toLowerCase()
+  const canDryRunSelected = Boolean(selectedProjectId) && selectedStatus === 'queued'
+  const selectedCurrentRow = (rows || []).find((row) => displayText(row.project_id) === selectedProjectId)
+  const selectedCurrentSignature = queueDispatchSignature(selectedCurrentRow || selection?.row)
+  const canLiveDispatchSelected = canDryRunSelected
+    && liveDispatchProjectId === selectedProjectId
+    && Boolean(liveDispatchSignature)
+    && liveDispatchSignature === selectedCurrentSignature
+  const staleDispatchReady = Boolean(liveDispatchSignature) && liveDispatchSignature !== selectedCurrentSignature
+  const dispatchDisabledReason = selectedDispatchDisabledReason(canDryRunSelected, canLiveDispatchSelected, staleDispatchReady, dispatchBusy)
+  return { selectedProjectId, selectedCurrentSignature, canDryRunSelected, canLiveDispatchSelected, staleDispatchReady, dispatchDisabledReason }
+}
+
+type QueueDispatchMutators = {
+  setDispatchBusy: (busy: boolean) => void
+  setDispatchResult: (result: CommandResult | null) => void
+  setLiveDispatchProjectId: (projectId: string) => void
+  setLiveDispatchSignature: (signature: string) => void
+  setSelection: (selection: DetailSelection | null) => void
+  refetchQueue: () => Promise<unknown>
+}
+
+async function runQueueDryRunDispatch(
+  canDryRunSelected: boolean,
+  selectedProjectId: string,
+  selectedCurrentSignature: string,
+  mutators: QueueDispatchMutators,
+): Promise<void> {
+  if (!canDryRunSelected) return
+  mutators.setDispatchBusy(true)
+  try {
+    const payload = await apiPost<Record<string, unknown>>('/control/dispatch-one', {
+      project_id: selectedProjectId,
+      dry_run: true,
+      requested_by: 'dashboard-v2',
+      force_preflight: true,
+    })
+    mutators.setDispatchResult({ payload, context: { commandFamily: 'dispatch' } })
+    const followUp = dryRunDispatchFollowUp(payload.action, selectedProjectId, selectedCurrentSignature)
+    mutators.setLiveDispatchProjectId(followUp.projectId)
+    mutators.setLiveDispatchSignature(followUp.signature)
+  } catch (error) {
+    mutators.setDispatchResult({ payload: { ok: false, reason: formatReadinessErrorMessage(error) }, context: { commandFamily: 'dispatch' } })
+    mutators.setLiveDispatchProjectId('')
+    mutators.setLiveDispatchSignature('')
+  } finally {
+    mutators.setDispatchBusy(false)
+  }
+}
+
+async function runQueueLiveDispatch(
+  selectedProjectId: string,
+  canLiveDispatchSelected: boolean,
+  confirm: (options: { title: string; message: string; confirmLabel: string; tone: 'warn' }) => Promise<boolean>,
+  mutators: QueueDispatchMutators,
+): Promise<void> {
+  if (!selectedProjectId || !canLiveDispatchSelected) return
+  const confirmed = await confirm({
+    title: 'Dispatch selected project?',
+    message: `This starts live dispatch for exactly ${selectedProjectId}. Use Check selected dispatch again if the row changed or went stale.`,
+    confirmLabel: 'Dispatch selected',
+    tone: 'warn',
+  })
+  if (!confirmed) return
+  mutators.setDispatchBusy(true)
+  try {
+    const payload = await apiPost<Record<string, unknown>>('/control/dispatch-one', {
+      project_id: selectedProjectId,
+      dry_run: false,
+      requested_by: 'dashboard-v2',
+      force_preflight: true,
+    })
+    mutators.setDispatchResult({ payload, context: { commandFamily: 'dispatch' } })
+    mutators.setLiveDispatchProjectId('')
+    mutators.setLiveDispatchSignature('')
+    mutators.setSelection(null)
+    refetchInBackground(mutators.refetchQueue)
+  } catch (error) {
+    mutators.setDispatchResult({ payload: { ok: false, reason: formatReadinessErrorMessage(error) }, context: { commandFamily: 'dispatch' } })
+  } finally {
+    mutators.setDispatchBusy(false)
+  }
+}
+
+function QueueDispatchCommandCard({
+  selection,
+  dispatch,
+  dispatchBusy,
+  dispatchDisabledReason,
+  onDryRun,
+  onLive,
+}: Readonly<{
+  selection: DetailSelection | null
+  dispatch: QueueDispatchState
+  dispatchBusy: boolean
+  dispatchDisabledReason: string
+  onDryRun: () => void
+  onLive: () => void
+}>) {
+  const { selectedProjectId, canDryRunSelected, canLiveDispatchSelected } = dispatch
+  return (
+    <section className="queue-command-card queue-command-card--compact">
+      <div>
+        <p className="eyebrow">Selected queue row</p>
+        <h2>{displayText(firstValue(selection?.row?.project_name, selection?.row?.title), displayText(selectedProjectId, 'No row selected'))}</h2>
+        {selectedProjectId ? <span className="detail-id-chip" title={selectedProjectId}>{shortId(selectedProjectId)}</span> : null}
+        <p>{selection?.row ? queueDispatchReadiness(selection.row).label : selectedDispatchReason(selection)}</p>
+      </div>
+      <div className="action-row">
+        <button className="secondary-button" type="button" disabled={!canDryRunSelected || dispatchBusy} onClick={onDryRun}>
+          {dispatchBusy ? 'Checking…' : 'Check selected dispatch'}
+        </button>
+        <button className="primary-button" type="button" disabled={!canLiveDispatchSelected || dispatchBusy} onClick={onLive}>
+          Dispatch selected project
+        </button>
+      </div>
+      {dispatchDisabledReason ? <p className="primary-action-disabled-reason">{dispatchDisabledReason}</p> : null}
+    </section>
+  )
+}
+
 function CommandResultCard({ result, stale }: Readonly<{ result: CommandResult | null; stale?: boolean }>) {
   if (!result) return null
   return <CommandResultSummary result={{ payload: result.payload, context: { ...result.context, stale: stale || result.context?.stale } }} />
@@ -226,7 +369,7 @@ export function QueuePage({ route }: Readonly<{ route: Extract<DashboardRoute, {
   const [filters, setFilters] = useState<FilterState>({ search: route.search || '', status: route.status, pageSize: '50', cursor: '' })
   const { confirm, dialog } = useOperatorDialog()
   useEffect(() => {
-    setFilters((current) => current.status === route.status && current.search === route.search ? current : { ...current, status: route.status, search: route.search || '', cursor: '' })
+    setFilters((current) => mergeQueueFiltersFromRoute(current, route) ?? current)
     setSelection(null)
     setDispatchResult(null)
     setLiveDispatchProjectId('')
@@ -237,89 +380,28 @@ export function QueuePage({ route }: Readonly<{ route: Extract<DashboardRoute, {
   const query = useQuery({ queryKey: ['queue', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/queue?${params}`).then(parseQueueListResponse) })
   if (query.isLoading) return <LoadingStateCard label="queue" />
   if (query.isError) return <ResourceErrorCard endpoint="queue" error={query.error} onRetry={() => { refetchInBackground(() => query.refetch()) }} retryLabel="Retry queue" />
-  const selectedProjectId = selection?.id || ''
-  const selectedStatus = displayText(selection?.row?.status).toLowerCase()
-  const canDryRunSelected = Boolean(selectedProjectId) && selectedStatus === 'queued'
-  const selectedCurrentRow = (query.data?.rows || []).find((row) => displayText(row.project_id) === selectedProjectId)
-  const selectedCurrentSignature = queueDispatchSignature(selectedCurrentRow || selection?.row)
-  const canLiveDispatchSelected = canDryRunSelected
-    && liveDispatchProjectId === selectedProjectId
-    && Boolean(liveDispatchSignature)
-    && liveDispatchSignature === selectedCurrentSignature
-  const staleDispatchReady = Boolean(liveDispatchSignature) && liveDispatchSignature !== selectedCurrentSignature
-  const dispatchDisabledReason = selectedDispatchDisabledReason(canDryRunSelected, canLiveDispatchSelected, staleDispatchReady, dispatchBusy)
-  async function dryRunSelectedDispatch() {
-    if (!canDryRunSelected) return
-    setDispatchBusy(true)
-    try {
-      const payload = await apiPost<Record<string, unknown>>('/control/dispatch-one', {
-        project_id: selectedProjectId,
-        dry_run: true,
-        requested_by: 'dashboard-v2',
-        force_preflight: true,
-      })
-      setDispatchResult({ payload, context: { commandFamily: 'dispatch' } })
-      const followUp = dryRunDispatchFollowUp(payload.action, selectedProjectId, selectedCurrentSignature)
-      setLiveDispatchProjectId(followUp.projectId)
-      setLiveDispatchSignature(followUp.signature)
-    } catch (error) {
-      setDispatchResult({ payload: { ok: false, reason: formatReadinessErrorMessage(error) }, context: { commandFamily: 'dispatch' } })
-      setLiveDispatchProjectId('')
-      setLiveDispatchSignature('')
-    } finally {
-      setDispatchBusy(false)
-    }
-  }
-  async function liveDispatchSelected() {
-    if (!selectedProjectId || !canLiveDispatchSelected) return
-    const confirmed = await confirm({
-      title: 'Dispatch selected project?',
-      message: `This starts live dispatch for exactly ${selectedProjectId}. Use Check selected dispatch again if the row changed or went stale.`,
-      confirmLabel: 'Dispatch selected',
-      tone: 'warn',
-    })
-    if (!confirmed) return
-    setDispatchBusy(true)
-    try {
-      const payload = await apiPost<Record<string, unknown>>('/control/dispatch-one', {
-        project_id: selectedProjectId,
-        dry_run: false,
-        requested_by: 'dashboard-v2',
-        force_preflight: true,
-      })
-      setDispatchResult({ payload, context: { commandFamily: 'dispatch' } })
-      setLiveDispatchProjectId('')
-      setLiveDispatchSignature('')
-      setSelection(null)
-      refetchInBackground(() => query.refetch())
-    } catch (error) {
-      setDispatchResult({ payload: { ok: false, reason: formatReadinessErrorMessage(error) }, context: { commandFamily: 'dispatch' } })
-    } finally {
-      setDispatchBusy(false)
-    }
+  const dispatch = deriveQueueDispatchState(query.data?.rows, selection, liveDispatchProjectId, liveDispatchSignature, dispatchBusy)
+  const dispatchMutators: QueueDispatchMutators = {
+    setDispatchBusy,
+    setDispatchResult,
+    setLiveDispatchProjectId,
+    setLiveDispatchSignature,
+    setSelection,
+    refetchQueue: () => query.refetch(),
   }
   return (
     <>
       <PageShell title="Queue" subtitle="Review queue rows, dry-run dispatch, and start selected work safely." dataSource="/control/api/v1/queue" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { refetchInBackground(() => query.refetch()) }} />}>
         <ListFilterBar savedFiltersTableId="queue" state={filters} statusOptions={[{ label: 'all statuses', value: '' }, { label: 'queued', value: 'queued' }, { label: 'active', value: 'active' }, { label: 'blocked', value: 'blocked' }, { label: 'completed', value: 'completed' }]} onApply={(next) => { setFilters(next); replaceRouteHash(queueHash(next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(queueHash(next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-        <section className="queue-command-card queue-command-card--compact">
-          <div>
-            <p className="eyebrow">Selected queue row</p>
-            <h2>{displayText(firstValue(selection?.row?.project_name, selection?.row?.title), displayText(selectedProjectId, 'No row selected'))}</h2>
-            {selectedProjectId ? <span className="detail-id-chip" title={selectedProjectId}>{shortId(selectedProjectId)}</span> : null}
-            <p>{selection?.row ? queueDispatchReadiness(selection.row).label : selectedDispatchReason(selection)}</p>
-          </div>
-          <div className="action-row">
-            <button className="secondary-button" type="button" disabled={!canDryRunSelected || dispatchBusy} onClick={dryRunSelectedDispatch}>
-              {dispatchBusy ? 'Checking…' : 'Check selected dispatch'}
-            </button>
-            <button className="primary-button" type="button" disabled={!canLiveDispatchSelected || dispatchBusy} onClick={liveDispatchSelected}>
-              Dispatch selected project
-            </button>
-          </div>
-          {dispatchDisabledReason ? <p className="primary-action-disabled-reason">{dispatchDisabledReason}</p> : null}
-        </section>
-        <CommandResultCard result={dispatchResult} stale={staleDispatchReady} />
+        <QueueDispatchCommandCard
+          selection={selection}
+          dispatch={dispatch}
+          dispatchBusy={dispatchBusy}
+          dispatchDisabledReason={dispatch.dispatchDisabledReason}
+          onDryRun={() => { void runQueueDryRunDispatch(dispatch.canDryRunSelected, dispatch.selectedProjectId, dispatch.selectedCurrentSignature, dispatchMutators) }}
+          onLive={() => { void runQueueLiveDispatch(dispatch.selectedProjectId, dispatch.canLiveDispatchSelected, confirm, dispatchMutators) }}
+        />
+        <CommandResultCard result={dispatchResult} stale={dispatch.staleDispatchReady} />
         <DataTable rows={query.data?.rows || []} columns={queueTableColumns} empty={deriveQueueEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => { setDispatchResult(null); setLiveDispatchProjectId(''); setLiveDispatchSignature(''); setSelection({ kind: 'project', id: displayText(row.project_id), row }) }} />
         <DetailPanel selection={selection} onClose={() => setSelection(null)} />
       </PageShell>
