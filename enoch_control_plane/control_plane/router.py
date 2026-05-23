@@ -1050,7 +1050,7 @@ def _commit_paper_rewrite_draft(
                 project_id=project_id,
             )
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except ValueError as exc:
+    except ValueError:
         if not draft_event_committed:
             _restore_paper_rewrite_side_effects(
                 store,
@@ -1059,7 +1059,7 @@ def _commit_paper_rewrite_draft(
                 original_project_dir=original_project_dir,
                 project_id=project_id,
             )
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise
     except Exception:
         if not draft_event_committed:
             _restore_paper_rewrite_side_effects(
@@ -7065,21 +7065,24 @@ def create_control_plane_router(
             evidence_sync=evidence_sync,
         )
         artifact_snapshots = _snapshot_paper_rewrite_artifacts(artifact_root, record)
-        return _commit_paper_rewrite_draft(
-            store,
-            config,
-            payload=payload,
-            candidate=candidate,
-            record=record,
-            artifact_root=artifact_root,
-            use_current_dir=use_current_dir,
-            project_id=project_id,
-            evidence_sync=evidence_sync,
-            artifact_snapshots=artifact_snapshots,
-            original_record=original_record,
-            original_project_dir=original_project_dir,
-            item=item,
-        )
+        try:
+            return _commit_paper_rewrite_draft(
+                store,
+                config,
+                payload=payload,
+                candidate=candidate,
+                record=record,
+                artifact_root=artifact_root,
+                use_current_dir=use_current_dir,
+                project_id=project_id,
+                evidence_sync=evidence_sync,
+                artifact_snapshots=artifact_snapshots,
+                original_record=original_record,
+                original_project_dir=original_project_dir,
+                item=item,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     def _require_safe_paper_artifact_root(paper_id: str) -> None:
         paper = store.paper_row(paper_id)
