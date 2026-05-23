@@ -1,1 +1,1 @@
-[full test file with the promotable_rows validator appended]
+[full test file with the followup validator appended]
