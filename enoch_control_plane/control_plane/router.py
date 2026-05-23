@@ -175,6 +175,8 @@ _HTTP_404_PROJECT: dict[int, dict[str, str]] = {
 
 _HTTP_404_PAPER: dict[int, dict[str, str]] = {404: {"description": "Paper not found"}}
 
+_HTTP_404_PAPER_DETAIL = "paper not found"
+
 _HTTP_404_QUEUE_ITEM: dict[int, dict[str, str]] = {
     404: {"description": "Queue item not found"},
 }
@@ -6939,7 +6941,7 @@ def _register_control_plane_routes(
         authorize(authorization)
         paper = store.paper_row(paper_id)
         if paper is None:
-            raise HTTPException(status_code=404, detail="paper not found")
+            raise HTTPException(status_code=404, detail=_HTTP_404_PAPER_DETAIL)
         project_id = str(paper.get("project_id") or "")
         run_id = str(paper.get("run_id") or "")
         events, next_cursor, has_more = store.event_page(
@@ -7781,7 +7783,7 @@ def _register_control_plane_routes(
     def _require_safe_paper_artifact_root(paper_id: str) -> None:
         paper = store.paper_row(paper_id)
         if paper is None:
-            raise HTTPException(status_code=404, detail="paper not found")
+            raise HTTPException(status_code=404, detail=_HTTP_404_PAPER_DETAIL)
         project_id = str(paper.get("project_id") or "").strip()
         project_dir_text = str(paper.get("project_dir") or project_id).strip()
         safe_root = _local_artifact_root_http(
@@ -8155,7 +8157,7 @@ def _register_control_plane_routes(
         authorize(authorization)
         paper = store.paper_row(paper_id)
         if paper is None:
-            raise HTTPException(status_code=404, detail="paper not found")
+            raise HTTPException(status_code=404, detail=_HTTP_404_PAPER_DETAIL)
         path = _resolve_paper_artifact(paper, field)
         max_bytes = 1_000_000
         try:
@@ -8188,7 +8190,7 @@ def _register_control_plane_routes(
         authorize(authorization)
         paper = store.paper_row(paper_id)
         if paper is None:
-            raise HTTPException(status_code=404, detail="paper not found")
+            raise HTTPException(status_code=404, detail=_HTTP_404_PAPER_DETAIL)
         project_id = str(paper.get("project_id") or "")
         run_id = str(paper.get("run_id") or "")
         missing = [
