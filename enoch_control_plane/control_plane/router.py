@@ -1070,7 +1070,7 @@ def _commit_paper_rewrite_draft(
                 project_id=project_id,
             )
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except ValueError as exc:
+    except ValueError:
         if not draft_event_committed:
             _restore_paper_rewrite_side_effects(
                 store,
@@ -1079,7 +1079,7 @@ def _commit_paper_rewrite_draft(
                 original_project_dir=original_project_dir,
                 project_id=project_id,
             )
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise
     except Exception:
         if not draft_event_committed:
             _restore_paper_rewrite_side_effects(
