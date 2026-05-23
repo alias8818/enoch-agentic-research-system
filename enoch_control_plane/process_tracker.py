@@ -293,6 +293,46 @@ class ProcessTracker:
                 described.append(info)
         return described
 
+    def _stale_reap_scan_context(
+        self,
+        record: RunRecord,
+        *,
+        gpu_compute_pids: list[int] | None,
+        command_markers: list[str],
+    ) -> tuple[list[str], set[int]] | None:
+        if psutil is None or not self._root_exited(record):
+            return None
+
+        project_dir = self._project_dir(record)
+        if project_dir is None or not project_dir.exists():
+            return None
+
+        markers = [marker.lower() for marker in command_markers if marker.strip()]
+        gpu_pids = set(gpu_compute_pids or [])
+        return markers, gpu_pids
+
+    def _maybe_stale_reap_candidate(
+        self,
+        pid: int,
+        proc: object,
+        *,
+        root_pid: int | None,
+        stale_after_sec: int,
+        markers: list[str],
+        gpu_pids: set[int],
+    ) -> ProcessInfo | None:
+        if pid == root_pid:
+            return None
+        info = self._process_info(proc)
+        if info is None or _is_benign_project_process(info.cmdline):
+            return None
+        if (info.elapsed_sec or 0) < stale_after_sec:
+            return None
+        cmd = info.cmdline.lower()
+        if not (any(marker in cmd for marker in markers) or pid in gpu_pids):
+            return None
+        return info
+
     def stale_reap_candidates(
         self,
         record: RunRecord,
@@ -312,30 +352,26 @@ class ProcessTracker:
         than the configured grace window, and it must either appear in GPU
         compute telemetry or match an explicit stale-command marker.
         """
-        if psutil is None or not self._root_exited(record):
+        context = self._stale_reap_scan_context(
+            record,
+            gpu_compute_pids=gpu_compute_pids,
+            command_markers=command_markers,
+        )
+        if context is None:
             return []
 
-        project_dir = self._project_dir(record)
-        if project_dir is None or not project_dir.exists():
-            return []
-
-        markers = [marker.lower() for marker in command_markers if marker.strip()]
-        gpu_pids = set(gpu_compute_pids or [])
+        markers, gpu_pids = context
         candidates: list[ProcessInfo] = []
         for pid, proc in sorted(self._project_owned_processes(record).items()):
-            if pid == record.root_pid:
-                continue
-            info = self._process_info(proc)
-            if info is None:
-                continue
-            if _is_benign_project_process(info.cmdline):
-                continue
-            if (info.elapsed_sec or 0) < stale_after_sec:
-                continue
-            cmd = info.cmdline.lower()
-            marker_match = any(marker in cmd for marker in markers)
-            gpu_match = pid in gpu_pids
-            if marker_match or gpu_match:
+            info = self._maybe_stale_reap_candidate(
+                pid,
+                proc,
+                root_pid=record.root_pid,
+                stale_after_sec=stale_after_sec,
+                markers=markers,
+                gpu_pids=gpu_pids,
+            )
+            if info is not None:
                 candidates.append(info)
         return candidates
 
