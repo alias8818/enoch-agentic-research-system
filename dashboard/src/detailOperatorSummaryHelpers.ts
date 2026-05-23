@@ -1,3 +1,4 @@
+import { displayText } from './displayText'
 import { shortId } from './format'
 
 export type DetailKind = 'project' | 'run' | 'paper' | 'event'
@@ -52,7 +53,7 @@ export function firstValue(...values: unknown[]): unknown {
 export function text(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—'
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
-  return String(value)
+  return displayText(value, '—')
 }
 
 export function entityLink(kind: DetailKind, id: unknown, label?: unknown): EntityLink | null {
