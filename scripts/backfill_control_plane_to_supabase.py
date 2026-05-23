@@ -199,38 +199,51 @@ def reject_target_identity_conflicts(
                 )
 
 
-def decision_file_candidates(
-    project: dict[str, Any], project_roots: Sequence[Path]
-) -> list[Path]:
-    candidates: list[Path] = []
-    project_dir = str(project.get("project_dir") or "").strip()
-    project_id = str(project.get("project_id") or "").strip()
-    names = [value for value in (project_dir, project_id) if value]
+def _resolved_project_roots(project_roots: Sequence[Path]) -> list[Path]:
     safe_roots: list[Path] = []
     for root in project_roots:
         try:
             safe_roots.append(root.expanduser().resolve())
         except (OSError, RuntimeError, ValueError):
             continue
-    for root in safe_roots:
-        for name in names:
-            try:
-                path = Path(name).expanduser()
-                candidate = (
-                    path.resolve() if path.is_absolute() else (root / path).resolve()
-                )
-                candidate.relative_to(root)
-            except (OSError, RuntimeError, ValueError):
-                continue
-            candidates.append(candidate)
+    return safe_roots
+
+
+def _decision_path_under_root(root: Path, name: str) -> Path | None:
+    try:
+        path = Path(name).expanduser()
+        candidate = path.resolve() if path.is_absolute() else (root / path).resolve()
+        candidate.relative_to(root)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return candidate
+
+
+def _unique_paths(paths: Iterable[Path]) -> list[Path]:
     seen: set[str] = set()
     result: list[Path] = []
-    for candidate in candidates:
+    for candidate in paths:
         key = str(candidate)
-        if key not in seen:
-            seen.add(key)
-            result.append(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(candidate)
     return result
+
+
+def decision_file_candidates(
+    project: dict[str, Any], project_roots: Sequence[Path]
+) -> list[Path]:
+    project_dir = str(project.get("project_dir") or "").strip()
+    project_id = str(project.get("project_id") or "").strip()
+    names = [value for value in (project_dir, project_id) if value]
+    candidates: list[Path] = []
+    for root in _resolved_project_roots(project_roots):
+        for name in names:
+            candidate = _decision_path_under_root(root, name)
+            if candidate is not None:
+                candidates.append(candidate)
+    return _unique_paths(candidates)
 
 
 def decision_gate_state(gate: dict[str, Any]) -> str:
