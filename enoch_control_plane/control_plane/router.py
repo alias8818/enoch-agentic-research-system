@@ -5474,7 +5474,7 @@ def create_control_plane_router(
         )
 
     @router.get("/health")
-    def health(authorization: str | None = Header(default=None)) -> dict:
+    def health(authorization: Annotated[str | None, Header()] = None) -> dict:
         authorize(authorization)
         backend = config.control_plane_store_backend
         db_path = str(getattr(store, "path", backend))
@@ -5488,7 +5488,7 @@ def create_control_plane_router(
 
     @router.get("/state")
     def get_state(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> ControlStateResponse:
         authorize(authorization)
         return state_response()
@@ -5682,7 +5682,7 @@ def create_control_plane_router(
     )
     def dashboard_queue_alert_check(
         payload: dict[str, Any] | None = None,
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         authorize(authorization)
         request_payload = payload or {}
@@ -5733,8 +5733,8 @@ def create_control_plane_router(
 
     @router.get("/api/queue-health")
     def dashboard_queue_health(
-        refresh_worker: bool = Query(default=False),
-        authorization: str | None = Header(default=None),
+        refresh_worker: Annotated[bool, Query()] = False,
+        authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         authorize(authorization)
         status = dashboard_status_response(refresh_worker=refresh_worker)
@@ -5775,7 +5775,7 @@ def create_control_plane_router(
         responses=_HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT,
     )
     def worker_callback(
-        callback: GateCallback, authorization: str | None = Header(default=None)
+        callback: GateCallback, authorization: Annotated[str | None, Header()] = None
     ) -> dict[str, Any]:
         authorize(authorization)
         _require_writable_store("worker callback recording")
@@ -5868,30 +5868,30 @@ def create_control_plane_router(
 
     @router.get("/api/v1/research-quality")
     def dashboard_v1_research_quality(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         authorize(authorization)
         return _research_quality_payload()
 
     @router.get("/api/v1/source-lineage")
     def dashboard_v1_source_lineage(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         authorize(authorization)
         return _source_lineage_payload()
 
     @router.get("/api/v1/automation-readiness")
     def dashboard_v1_automation_readiness(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         authorize(authorization)
         return _automation_readiness_payload()
 
     @router.get("/api/v1/overview")
     def dashboard_v1_overview(
-        authorization: str | None = Header(default=None),
-        active_limit: int = Query(default=5, ge=1, le=25),
-        event_limit: int = Query(default=10, ge=0, le=50),
+        authorization: Annotated[str | None, Header()] = None,
+        active_limit: Annotated[int, Query(ge=1, le=25)] = 5,
+        event_limit: Annotated[int, Query(ge=0, le=50)] = 10,
     ) -> dict[str, Any]:
         authorize(authorization)
         # Compute worker-lane capacity once and feed it into the overview read
@@ -5954,7 +5954,8 @@ def create_control_plane_router(
 
     @router.post("/api/v1/followups/launch-next")
     def launch_next_followup(
-        payload: FollowupLaunchRequest, authorization: str | None = Header(default=None)
+        payload: FollowupLaunchRequest,
+        authorization: Annotated[str | None, Header()] = None,
     ) -> FollowupLaunchResponse:
         authorize(authorization)
         if not payload.dry_run:
@@ -5983,7 +5984,7 @@ def create_control_plane_router(
 
     @router.get("/api/v1/lanes")
     def dashboard_v1_lanes(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         authorize(authorization)
         active_for_lanes = _active_items_fast(limit=10)
@@ -6006,12 +6007,12 @@ def create_control_plane_router(
 
     @router.get("/api/v1/queue")
     def dashboard_v1_queue(
-        authorization: str | None = Header(default=None),
-        queue: str = Query(default="all"),
+        authorization: Annotated[str | None, Header()] = None,
+        queue: Annotated[str, Query()] = "all",
         status: str = "",
         search: str = "",
         cursor: str = "",
-        page_size: int = Query(default=50, ge=1, le=200),
+        page_size: Annotated[int, Query(ge=1, le=200)] = 50,
         sort: str = "priority",
     ) -> dict[str, Any]:
         authorize(authorization)
@@ -6049,12 +6050,12 @@ def create_control_plane_router(
 
     @router.get("/api/v1/runs")
     def dashboard_v1_runs(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
         state: str = "",
         project_id: str = "",
         search: str = "",
         cursor: str = "",
-        page_size: int = Query(default=50, ge=1, le=200),
+        page_size: Annotated[int, Query(ge=1, le=200)] = 50,
         sort: str = "recent",
     ) -> dict[str, Any]:
         authorize(authorization)
@@ -6092,8 +6093,8 @@ def create_control_plane_router(
     @router.get("/api/v1/runs/{run_id}")
     def dashboard_v1_run_detail(
         run_id: str,
-        authorization: str | None = Header(default=None),
-        event_limit: int = Query(default=50, ge=0, le=100),
+        authorization: Annotated[str | None, Header()] = None,
+        event_limit: Annotated[int, Query(ge=0, le=100)] = 50,
     ) -> dict[str, Any]:
         authorize(authorization)
         run = store.run_row(run_id)
@@ -6140,11 +6141,11 @@ def create_control_plane_router(
 
     @router.get("/api/v1/projects")
     def dashboard_v1_projects(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
         status: str = "",
         search: str = "",
         cursor: str = "",
-        page_size: int = Query(default=50, ge=1, le=200),
+        page_size: Annotated[int, Query(ge=1, le=200)] = 50,
         sort: str = "recent",
     ) -> dict[str, Any]:
         authorize(authorization)
@@ -6172,8 +6173,8 @@ def create_control_plane_router(
     @router.get("/api/v1/projects/{project_id}")
     def dashboard_v1_project_detail(
         project_id: str,
-        authorization: str | None = Header(default=None),
-        event_limit: int = Query(default=50, ge=0, le=100),
+        authorization: Annotated[str | None, Header()] = None,
+        event_limit: Annotated[int, Query(ge=0, le=100)] = 50,
     ) -> dict[str, Any]:
         authorize(authorization)
         project = store.project_row(project_id)
@@ -6228,11 +6229,11 @@ def create_control_plane_router(
 
     @router.get("/api/v1/papers")
     def dashboard_v1_papers(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
         status: str = "",
         search: str = "",
         cursor: str = "",
-        page_size: int = Query(default=50, ge=1, le=200),
+        page_size: Annotated[int, Query(ge=1, le=200)] = 50,
         sort: str = "recent",
     ) -> dict[str, Any]:
         authorize(authorization)
@@ -6261,8 +6262,8 @@ def create_control_plane_router(
     @router.get("/api/v1/papers/{paper_id}")
     def dashboard_v1_paper_detail(
         paper_id: str,
-        authorization: str | None = Header(default=None),
-        event_limit: int = Query(default=50, ge=0, le=100),
+        authorization: Annotated[str | None, Header()] = None,
+        event_limit: Annotated[int, Query(ge=0, le=100)] = 50,
     ) -> dict[str, Any]:
         authorize(authorization)
         paper = store.paper_row(paper_id)
@@ -6300,14 +6301,14 @@ def create_control_plane_router(
 
     @router.get("/api/v1/events")
     def dashboard_v1_events(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
         event_id: str = "",
         entity_type: str = "",
         entity_id: str = "",
         event_type: str = "",
         search: str = "",
         cursor: str = "",
-        page_size: int = Query(default=50, ge=1, le=200),
+        page_size: Annotated[int, Query(ge=1, le=200)] = 50,
         include_payload: bool = False,
         sort: str = "recent",
     ) -> dict[str, Any]:
@@ -6350,7 +6351,7 @@ def create_control_plane_router(
 
     @router.get("/api/v1/observability/health")
     def dashboard_v1_observability_health(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         authorize(authorization)
         latest_route_observation = None
@@ -6387,7 +6388,7 @@ def create_control_plane_router(
 
     @router.get("/api/v1/observability/memory")
     def dashboard_v1_observability_memory(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         authorize(authorization)
         rss = current_rss_mib()
@@ -6410,9 +6411,9 @@ def create_control_plane_router(
     @router.get("/api/queues/{queue}")
     def dashboard_queue(
         queue: str,
-        authorization: str | None = Header(default=None),
-        page: int = Query(default=1, ge=1),
-        page_size: int = Query(default=50, ge=1, le=500),
+        authorization: Annotated[str | None, Header()] = None,
+        page: Annotated[int, Query(ge=1)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=500)] = 50,
         search: str = "",
         status: str = "",
         sort: str = "dispatch_priority",
@@ -6527,7 +6528,7 @@ def create_control_plane_router(
 
     @router.get("/api/projects/{project_id}")
     def dashboard_project(
-        project_id: str, authorization: str | None = Header(default=None)
+        project_id: str, authorization: Annotated[str | None, Header()] = None
     ) -> DashboardProjectDetailResponse:
         authorize(authorization)
         project = store.project_row(project_id)
@@ -6586,7 +6587,7 @@ def create_control_plane_router(
 
     @router.get("/api/runs/{run_id}")
     def dashboard_run(
-        run_id: str, authorization: str | None = Header(default=None)
+        run_id: str, authorization: Annotated[str | None, Header()] = None
     ) -> DashboardRunDetailResponse:
         authorize(authorization)
         run = store.run_row(run_id)
@@ -6641,7 +6642,7 @@ def create_control_plane_router(
     @router.post("/api/paper-reviews/backfill")
     def dashboard_paper_reviews_backfill(
         payload: PaperReviewBackfillRequest,
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> PaperReviewBackfillResponse:
         authorize(authorization)
         _require_writable_store("publication automation backfill")
@@ -6662,9 +6663,9 @@ def create_control_plane_router(
 
     def _dashboard_paper_reviews_response(
         *,
-        authorization: str | None = Header(default=None),
-        page: int = Query(default=1, ge=1),
-        page_size: int = Query(default=50, ge=1, le=500),
+        authorization: Annotated[str | None, Header()] = None,
+        page: Annotated[int, Query(ge=1)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=500)] = 50,
         review_status: str = "",
         paper_status: str = "",
         search: str = "",
@@ -6725,9 +6726,9 @@ def create_control_plane_router(
 
     @router.get("/api/publication-automation")
     def dashboard_publication_automation(
-        authorization: str | None = Header(default=None),
-        page: int = Query(default=1, ge=1),
-        page_size: int = Query(default=50, ge=1, le=500),
+        authorization: Annotated[str | None, Header()] = None,
+        page: Annotated[int, Query(ge=1)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=500)] = 50,
         review_status: str = "",
         paper_status: str = "",
         search: str = "",
@@ -6748,9 +6749,9 @@ def create_control_plane_router(
 
     @router.get("/api/paper-reviews")
     def dashboard_paper_reviews(
-        authorization: str | None = Header(default=None),
-        page: int = Query(default=1, ge=1),
-        page_size: int = Query(default=50, ge=1, le=500),
+        authorization: Annotated[str | None, Header()] = None,
+        page: Annotated[int, Query(ge=1)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=500)] = 50,
         review_status: str = "",
         paper_status: str = "",
         search: str = "",
@@ -6796,7 +6797,7 @@ def create_control_plane_router(
 
     def _dashboard_next_paper_review_response(
         *,
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
         review_status: str = "",
         paper_status: str = "publication_draft",
         search: str = "",
@@ -6842,7 +6843,7 @@ def create_control_plane_router(
         "/api/publication-automation/next",
     )
     def dashboard_next_publication_automation(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
         review_status: str = "",
         paper_status: str = "publication_draft",
         search: str = "",
@@ -6856,7 +6857,7 @@ def create_control_plane_router(
 
     @router.get("/api/paper-reviews/next")
     def dashboard_next_paper_review(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
         review_status: str = "",
         paper_status: str = "publication_draft",
         search: str = "",
@@ -6872,7 +6873,7 @@ def create_control_plane_router(
         "/api/publication-automation/{paper_id}",
     )
     def dashboard_publication_automation_item(
-        paper_id: str, authorization: str | None = Header(default=None)
+        paper_id: str, authorization: Annotated[str | None, Header()] = None
     ) -> DashboardPaperReviewDetailResponse:
         authorize(authorization)
         return _paper_review_detail_response(paper_id)
@@ -6881,7 +6882,7 @@ def create_control_plane_router(
         "/api/paper-reviews/{paper_id}",
     )
     def dashboard_paper_review(
-        paper_id: str, authorization: str | None = Header(default=None)
+        paper_id: str, authorization: Annotated[str | None, Header()] = None
     ) -> DashboardPaperReviewDetailResponse:
         authorize(authorization)
         return _paper_review_detail_response(paper_id)
@@ -6895,7 +6896,7 @@ def create_control_plane_router(
     def dashboard_paper_review_claim(
         paper_id: str,
         payload: PaperReviewClaimRequest,
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> PaperReviewMutationResponse:
         authorize(authorization)
         _require_writable_store("publication automation claim")
@@ -6919,7 +6920,7 @@ def create_control_plane_router(
         paper_id: str,
         item_id: str,
         payload: PaperReviewChecklistUpdateRequest,
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> PaperReviewMutationResponse:
         authorize(authorization)
         _require_writable_store("publication automation checklist update")
@@ -6944,7 +6945,7 @@ def create_control_plane_router(
     def dashboard_paper_review_status(
         paper_id: str,
         payload: PaperReviewStatusUpdateRequest,
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> PaperReviewMutationResponse:
         authorize(authorization)
         _require_writable_store("publication automation status update")
@@ -6969,7 +6970,7 @@ def create_control_plane_router(
     def dashboard_paper_review_approve_finalization(
         paper_id: str,
         payload: PaperReviewApproveFinalizationRequest,
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> PaperReviewMutationResponse:
         authorize(authorization)
         _require_writable_store("publication automation finalization approval")
@@ -7116,7 +7117,7 @@ def create_control_plane_router(
     )
     def dashboard_paper_reviews_rewrite_batch(
         payload: PaperReviewBulkRewriteRequest,
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> PaperReviewBulkRewriteResponse:
         authorize(authorization)
         if not payload.dry_run:
@@ -7248,7 +7249,7 @@ def create_control_plane_router(
     def dashboard_paper_review_rewrite_draft(
         paper_id: str,
         payload: PaperReviewRewriteDraftRequest,
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> PaperReviewRewriteDraftResponse:
         authorize(authorization)
         _require_writable_store("publication automation draft rewrite")
@@ -7265,7 +7266,7 @@ def create_control_plane_router(
     def dashboard_paper_review_prepare_finalization_package(
         paper_id: str,
         payload: PaperReviewPrepareFinalizationRequest,
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> PaperReviewFinalizationPackageResponse:
         authorize(authorization)
         _require_writable_store("publication automation finalization package")
@@ -7291,9 +7292,9 @@ def create_control_plane_router(
 
     @router.get("/api/papers")
     def dashboard_papers(
-        authorization: str | None = Header(default=None),
-        page: int = Query(default=1, ge=1),
-        page_size: int = Query(default=50, ge=1, le=500),
+        authorization: Annotated[str | None, Header()] = None,
+        page: Annotated[int, Query(ge=1)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=500)] = 50,
         search: str = "",
         status: str = "",
         sort: str = "-updated_at",
@@ -7399,7 +7400,7 @@ def create_control_plane_router(
         responses=_HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT,
     )
     def dashboard_paper_artifact(
-        paper_id: str, field: str, authorization: str | None = Header(default=None)
+        paper_id: str, field: str, authorization: Annotated[str | None, Header()] = None
     ) -> dict[str, Any]:
         authorize(authorization)
         paper = store.paper_row(paper_id)
@@ -7432,7 +7433,7 @@ def create_control_plane_router(
 
     @router.get("/api/papers/{paper_id}")
     def dashboard_paper(
-        paper_id: str, authorization: str | None = Header(default=None)
+        paper_id: str, authorization: Annotated[str | None, Header()] = None
     ) -> DashboardPaperDetailResponse:
         authorize(authorization)
         paper = store.paper_row(paper_id)
@@ -7478,9 +7479,9 @@ def create_control_plane_router(
 
     @router.get("/api/events")
     def dashboard_events(
-        authorization: str | None = Header(default=None),
-        page: int = Query(default=1, ge=1),
-        page_size: int = Query(default=100, ge=1, le=500),
+        authorization: Annotated[str | None, Header()] = None,
+        page: Annotated[int, Query(ge=1)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=500)] = 100,
         entity_type: str = "",
         entity_id: str = "",
         event_type: str = "",
@@ -7567,9 +7568,9 @@ def create_control_plane_router(
 
     @router.get("/api/intake/ideas")
     def dashboard_ideas_intake(
-        authorization: str | None = Header(default=None),
-        page_size: int = Query(default=50, ge=1, le=200),
-        include_latest_payload: bool = Query(default=False),
+        authorization: Annotated[str | None, Header()] = None,
+        page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+        include_latest_payload: Annotated[bool, Query()] = False,
     ) -> DashboardIntakeResponse:
         authorize(authorization)
         return _dashboard_ideas_intake_response(
@@ -7578,8 +7579,8 @@ def create_control_plane_router(
 
     @router.get("/api/research/facility")
     def dashboard_research_facility(
-        authorization: str | None = Header(default=None),
-        page_size: int = Query(default=50, ge=1, le=200),
+        authorization: Annotated[str | None, Header()] = None,
+        page_size: Annotated[int, Query(ge=1, le=200)] = 50,
     ) -> dict[str, Any]:
         authorize(authorization)
         rows = (
@@ -7615,8 +7616,8 @@ def create_control_plane_router(
 
     @router.post("/api/research/generate-batch")
     def dashboard_research_generate_batch(
-        payload: dict[str, Any] | None = Body(default=None),
-        authorization: str | None = Header(default=None),
+        payload: Annotated[dict[str, Any] | None, Body()] = None,
+        authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         authorize(authorization)
         from argparse import Namespace
@@ -7726,8 +7727,8 @@ def create_control_plane_router(
 
     @router.post("/api/research/generate-provider-batch")
     def dashboard_research_generate_provider_batch(
-        payload: dict[str, Any] | None = Body(default=None),
-        authorization: str | None = Header(default=None),
+        payload: Annotated[dict[str, Any] | None, Body()] = None,
+        authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         authorize(authorization)
         from argparse import Namespace
@@ -7954,8 +7955,8 @@ def create_control_plane_router(
         responses=_HTTP_400_RESEARCH_CANDIDATE_ID,
     )
     def dashboard_research_run_cycle(
-        payload: dict[str, Any] | None = Body(default=None),
-        authorization: str | None = Header(default=None),
+        payload: Annotated[dict[str, Any] | None, Body()] = None,
+        authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         """Run one bounded Research Facility cycle.
 
@@ -8207,8 +8208,8 @@ def create_control_plane_router(
         responses=_HTTP_400_RESEARCH_CANDIDATE_ID,
     )
     def dashboard_research_promote_candidate(
-        payload: dict[str, Any] | None = Body(default=None),
-        authorization: str | None = Header(default=None),
+        payload: Annotated[dict[str, Any] | None, Body()] = None,
+        authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         authorize(authorization)
         body = payload or {}
@@ -8230,12 +8231,12 @@ def create_control_plane_router(
 
     @router.get("/api/research/provider-budget")
     def dashboard_research_provider_budget(
-        authorization: str | None = Header(default=None),
-        estimated_requests: int = Query(default=2, ge=0, le=100),
-        reserve_requests: int = Query(default=2, ge=0, le=100),
-        min_remaining_credits: float = Query(default=5.0, ge=0.0),
-        min_rolling_remaining: int = Query(default=10, ge=0),
-        timeout: int = Query(default=20, ge=1, le=60),
+        authorization: Annotated[str | None, Header()] = None,
+        estimated_requests: Annotated[int, Query(ge=0, le=100)] = 2,
+        reserve_requests: Annotated[int, Query(ge=0, le=100)] = 2,
+        min_remaining_credits: Annotated[float, Query(ge=0.0)] = 5.0,
+        min_rolling_remaining: Annotated[int, Query(ge=0)] = 10,
+        timeout: Annotated[int, Query(ge=1, le=60)] = 20,
     ) -> dict[str, Any]:
         authorize(authorization)
         from scripts import research_provider_budget
@@ -8293,9 +8294,9 @@ def create_control_plane_router(
 
     @router.get("/api/intake/notion")
     def dashboard_notion_intake(
-        authorization: str | None = Header(default=None),
-        page_size: int = Query(default=50, ge=1, le=200),
-        include_latest_payload: bool = Query(default=False),
+        authorization: Annotated[str | None, Header()] = None,
+        page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+        include_latest_payload: Annotated[bool, Query()] = False,
     ) -> DashboardIntakeResponse:
         authorize(authorization)
         _require_legacy_notion_api_enabled()
@@ -8307,7 +8308,7 @@ def create_control_plane_router(
 
     @router.post("/pause")
     def pause(
-        payload: PauseRequest, authorization: str | None = Header(default=None)
+        payload: PauseRequest, authorization: Annotated[str | None, Header()] = None
     ) -> ControlStateResponse:
         authorize(authorization)
         _require_writable_store("operator pause")
@@ -8320,7 +8321,7 @@ def create_control_plane_router(
 
     @router.post("/resume")
     def resume(
-        payload: ResumeRequest, authorization: str | None = Header(default=None)
+        payload: ResumeRequest, authorization: Annotated[str | None, Header()] = None
     ) -> ControlStateResponse:
         authorize(authorization)
         _require_writable_store("operator resume")
@@ -8332,7 +8333,7 @@ def create_control_plane_router(
     @router.post("/queue/mark-paused")
     def mark_queue_item_paused(
         payload: MarkQueueItemPausedRequest,
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> ControlStateResponse:
         authorize(authorization)
         _require_writable_store("queue item pause")
@@ -8346,7 +8347,8 @@ def create_control_plane_router(
 
     @router.post("/import/legacy-snapshot")
     def import_snapshot(
-        payload: ImportSnapshotRequest, authorization: str | None = Header(default=None)
+        payload: ImportSnapshotRequest,
+        authorization: Annotated[str | None, Header()] = None,
     ) -> ImportSnapshotResponse:
         authorize(authorization)
         _require_writable_store("legacy snapshot import")
@@ -8376,7 +8378,8 @@ def create_control_plane_router(
 
     @router.post("/intake/notion-ideas")
     def intake_notion_ideas(
-        payload: NotionIntakeRequest, authorization: str | None = Header(default=None)
+        payload: NotionIntakeRequest,
+        authorization: Annotated[str | None, Header()] = None,
     ) -> NotionIntakeResponse:
         authorize(authorization)
         _require_legacy_notion_api_enabled()
@@ -8418,7 +8421,8 @@ def create_control_plane_router(
 
     @router.post("/intake/ideas")
     def intake_ideas(
-        payload: IdeaIntakeRequest, authorization: str | None = Header(default=None)
+        payload: IdeaIntakeRequest,
+        authorization: Annotated[str | None, Header()] = None,
     ) -> IdeaIntakeResponse:
         authorize(authorization)
         if not payload.dry_run:
@@ -8459,7 +8463,7 @@ def create_control_plane_router(
 
     @router.post("/api/intake/notion-observation")
     def record_notion_observation(
-        payload: dict[str, Any], authorization: str | None = Header(default=None)
+        payload: dict[str, Any], authorization: Annotated[str | None, Header()] = None
     ) -> dict[str, Any]:
         authorize(authorization)
         _require_legacy_notion_api_enabled()
@@ -8479,7 +8483,7 @@ def create_control_plane_router(
 
     @router.post("/api/intake/ideas-observation")
     def record_ideas_observation(
-        payload: dict[str, Any], authorization: str | None = Header(default=None)
+        payload: dict[str, Any], authorization: Annotated[str | None, Header()] = None
     ) -> dict[str, Any]:
         authorize(authorization)
         _require_writable_store("intake observation")
@@ -8564,7 +8568,7 @@ def create_control_plane_router(
     @router.post("/worker/preflight")
     def worker_preflight(
         payload: WorkerPreflightRequest,
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> WorkerPreflightResponse:
         authorize(authorization)
         payload = payload.model_copy(
@@ -8593,7 +8597,8 @@ def create_control_plane_router(
 
     @router.post("/dispatch-next")
     def dispatch_next(
-        payload: DispatchNextRequest, authorization: str | None = Header(default=None)
+        payload: DispatchNextRequest,
+        authorization: Annotated[str | None, Header()] = None,
     ) -> DispatchNextResponse:
         authorize(authorization)
         if not payload.dry_run:
@@ -8649,7 +8654,8 @@ def create_control_plane_router(
 
     @router.post("/dispatch-one")
     def dispatch_one(
-        payload: DispatchOneRequest, authorization: str | None = Header(default=None)
+        payload: DispatchOneRequest,
+        authorization: Annotated[str | None, Header()] = None,
     ) -> DispatchNextResponse:
         authorize(authorization)
         project_id = str(payload.project_id or "").strip()
@@ -8698,7 +8704,7 @@ def create_control_plane_router(
         )
 
     @router.get("/queue")
-    def queue(authorization: str | None = Header(default=None)) -> dict:
+    def queue(authorization: Annotated[str | None, Header()] = None) -> dict:
         authorize(authorization)
         return {
             "ok": True,
@@ -8708,13 +8714,13 @@ def create_control_plane_router(
         }
 
     @router.get("/papers")
-    def papers(authorization: str | None = Header(default=None)) -> dict:
+    def papers(authorization: Annotated[str | None, Header()] = None) -> dict:
         authorize(authorization)
         return {"ok": True, "rows": store.paper_rows()}
 
     @router.get("/export/snapshot")
     def export_snapshot(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> ExportSnapshotResponse:
         authorize(authorization)
         snapshot = store.export_snapshot()
@@ -8727,7 +8733,7 @@ def create_control_plane_router(
 
     @router.get("/projections/notion/queue")
     def notion_queue_projection(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> ProjectionResponse:
         authorize(authorization)
         _require_legacy_notion_api_enabled()
@@ -8736,7 +8742,7 @@ def create_control_plane_router(
 
     @router.get("/projections/ideas/workbench")
     def ideas_workbench_projection(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> ProjectionResponse:
         authorize(authorization)
         rows = (
@@ -8752,7 +8758,7 @@ def create_control_plane_router(
 
     @router.get("/projections/notion/papers")
     def notion_papers_projection(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> ProjectionResponse:
         authorize(authorization)
         _require_legacy_notion_api_enabled()
@@ -8765,7 +8771,7 @@ def create_control_plane_router(
 
     @router.get("/projections/notion/execution-updates")
     def notion_execution_updates_projection(
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> ProjectionResponse:
         authorize(authorization)
         _require_legacy_notion_api_enabled()
@@ -8831,7 +8837,7 @@ def create_control_plane_router(
         responses=_HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT,
     )
     def draft_next(
-        payload: DraftNextRequest, authorization: str | None = Header(default=None)
+        payload: DraftNextRequest, authorization: Annotated[str | None, Header()] = None
     ) -> DraftNextResponse:
         authorize(authorization)
         candidates = eligible_paper_draft_candidates(
