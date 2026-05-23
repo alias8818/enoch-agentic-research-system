@@ -4918,7 +4918,16 @@ def create_control_plane_router(
 ) -> APIRouter:
     router = APIRouter(prefix="/control", tags=["control-plane"])
     store = _control_plane_store_for_config(config)
+    _register_control_plane_routes(router, config, store, require_bearer)
+    return router
 
+
+def _register_control_plane_routes(
+    router: APIRouter,
+    config: GateConfig,
+    store: Any,
+    require_bearer: RequireBearer,
+) -> None:
     def authorize(authorization: str | None) -> None:
         require_bearer(authorization)
 
@@ -9860,5 +9869,3 @@ def create_control_plane_router(
             reason="eligible paper-draft candidates were not paper-ready or lacked sufficient positive local or synced evidence",
             candidate={"skipped": skipped[:10]},
         )
-
-    return router
