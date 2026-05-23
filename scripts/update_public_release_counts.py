@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Iterable
 
@@ -308,6 +310,15 @@ def update_text(text: str, stats: dict[str, int]) -> str:
     return text
 
 
+def default_generated_manifest_path() -> Path:
+    fd, path = tempfile.mkstemp(
+        prefix="enoch-ecosystem.generated.",
+        suffix=".json",
+    )
+    os.close(fd)
+    return Path(path)
+
+
 def public_files(root: Path) -> list[Path]:
     return (
         existing(root / "enoch-agentic-research-system", PUBLIC_FILES)
@@ -334,7 +345,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--generated-manifest",
         type=Path,
-        default=Path("/tmp/enoch-ecosystem.generated.json"),
+        default=None,
+        help=(
+            "Staging path for a freshly generated ecosystem manifest; "
+            "defaults to a private mkstemp file under the system temp directory"
+        ),
     )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
@@ -345,7 +360,10 @@ def main(argv: list[str] | None = None) -> int:
             f"strict total {stats['strict_total']} != artifact count {stats['artifact_count']}"
         )
     if not args.dry_run:
-        generate_manifest(root, args.generated_manifest)
+        generated_manifest = args.generated_manifest
+        if generated_manifest is None:
+            generated_manifest = default_generated_manifest_path()
+        generate_manifest(root, generated_manifest)
     changed: list[str] = []
     for path in public_files(root):
         old = path.read_text(encoding="utf-8", errors="replace")

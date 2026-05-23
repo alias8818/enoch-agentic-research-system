@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import json
+import tempfile
+from pathlib import Path
 
 import pytest
 
-from scripts.update_public_release_counts import artifact_stats, update_text
+from scripts.update_public_release_counts import (
+    artifact_stats,
+    default_generated_manifest_path,
+    update_text,
+)
 
 
 def test_update_text_rewrites_current_public_count_phrases_without_touching_history() -> (
@@ -84,6 +90,17 @@ def test_update_text_rewrites_current_public_count_phrases_without_touching_hist
     )
     assert "376 unique topics, not 497 directory entries" in updated
     assert "1,1,429" not in updated
+
+
+def test_default_generated_manifest_path_uses_private_temp_file() -> None:
+    path = default_generated_manifest_path()
+    try:
+        assert path.name.startswith("enoch-ecosystem.generated.")
+        assert path.suffix == ".json"
+        assert path.parent == Path(tempfile.gettempdir())
+        assert path.stat().st_mode & 0o777 == 0o600
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def test_artifact_stats_rejects_boolean_counts(tmp_path) -> None:
