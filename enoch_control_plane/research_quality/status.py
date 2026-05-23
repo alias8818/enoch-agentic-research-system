@@ -81,44 +81,70 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
     return "blocked"
 
 
-def classify_quality_report(
-    report: dict[str, Any], *, report_path: str = "", report_mtime: str = ""
-) -> dict[str, Any]:
-    summary_raw = report.get("summary")
-    candidate_scores_raw = report.get("candidate_scores")
-    decision_scores_raw = report.get("decision_scores")
+def _quality_report_malformed_reasons(report: dict[str, Any]) -> list[str]:
     malformed_reasons: list[str] = []
-    if not isinstance(summary_raw, dict):
+    if not isinstance(report.get("summary"), dict):
         malformed_reasons.append("missing_or_invalid_summary")
-    if not isinstance(candidate_scores_raw, list):
+    if not isinstance(report.get("candidate_scores"), list):
         malformed_reasons.append("missing_or_invalid_candidate_scores")
-    if not isinstance(decision_scores_raw, list):
+    if not isinstance(report.get("decision_scores"), list):
         malformed_reasons.append("missing_or_invalid_decision_scores")
-    if malformed_reasons:
-        return {
-            "ok": False,
-            "status": "blocked",
-            "label": RESEARCH_QUALITY_LABEL_BLOCKED,
-            "report_path": report_path,
-            "report_mtime": report_mtime,
-            "report_generated_at": report.get("generated_at") or "",
-            "schema_version": report.get("schema_version") or "",
-            "decisions_checked": 0,
-            "candidates_checked": 0,
-            "problem_counts": {"malformed_quality_report": 1},
-            "raw_problem_counts": {},
-            "severity_counts": {"blocked": 1},
-            "problem_details": [
-                {
-                    "section": "report",
-                    "severity": "blocked",
-                    "problem": "malformed_quality_report",
-                    "reason": "; ".join(malformed_reasons),
-                }
-            ],
-        }
-    summary = summary_raw
-    raw_problem_counts = dict(summary.get("problem_counts") or {})
+    return malformed_reasons
+
+
+def _blocked_malformed_quality_report(
+    report: dict[str, Any],
+    *,
+    report_path: str,
+    report_mtime: str,
+    malformed_reasons: list[str],
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "status": "blocked",
+        "label": RESEARCH_QUALITY_LABEL_BLOCKED,
+        "report_path": report_path,
+        "report_mtime": report_mtime,
+        "report_generated_at": report.get("generated_at") or "",
+        "schema_version": report.get("schema_version") or "",
+        "decisions_checked": 0,
+        "candidates_checked": 0,
+        "problem_counts": {"malformed_quality_report": 1},
+        "raw_problem_counts": {},
+        "severity_counts": {"blocked": 1},
+        "problem_details": [
+            {
+                "section": "report",
+                "severity": "blocked",
+                "problem": "malformed_quality_report",
+                "reason": "; ".join(malformed_reasons),
+            }
+        ],
+    }
+
+
+def _quality_problem_detail(
+    section_name: str,
+    problem: str,
+    severity: str,
+    item: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "section": section_name,
+        "severity": severity,
+        "problem": problem,
+        "project_id": item.get("project_id"),
+        "candidate_id": item.get("candidate_id"),
+        "run_id": item.get("run_id"),
+        "title": item.get("project_name") or item.get("title"),
+        "decision": item.get("decision"),
+        "hypothesis_status": item.get("hypothesis_status"),
+    }
+
+
+def _collect_quality_problem_metrics(
+    report: dict[str, Any],
+) -> tuple[Counter[str], Counter[str], list[dict[str, Any]]]:
     actionable_problem_counts: Counter[str] = Counter()
     severity_counts: Counter[str] = Counter()
     problem_details: list[dict[str, Any]] = []
@@ -133,19 +159,15 @@ def classify_quality_report(
                 if severity in {"warning", "blocked"}:
                     actionable_problem_counts[str(problem)] += 1
                 problem_details.append(
-                    {
-                        "section": section_name,
-                        "severity": severity,
-                        "problem": str(problem),
-                        "project_id": item.get("project_id"),
-                        "candidate_id": item.get("candidate_id"),
-                        "run_id": item.get("run_id"),
-                        "title": item.get("project_name") or item.get("title"),
-                        "decision": item.get("decision"),
-                        "hypothesis_status": item.get("hypothesis_status"),
-                    }
+                    _quality_problem_detail(section_name, str(problem), severity, item)
                 )
 
+    return actionable_problem_counts, severity_counts, problem_details
+
+
+def _quality_status_from_severity_counts(
+    severity_counts: Counter[str],
+) -> tuple[str, str]:
     blocked = int(severity_counts.get("blocked") or 0)
     warnings = int(severity_counts.get("warning") or 0)
     status = "blocked" if blocked else "warnings" if warnings else "clean"
@@ -154,6 +176,27 @@ def classify_quality_report(
         "warnings": RESEARCH_QUALITY_LABEL_WARNINGS,
         "blocked": RESEARCH_QUALITY_LABEL_BLOCKED,
     }[status]
+    return status, label
+
+
+def classify_quality_report(
+    report: dict[str, Any], *, report_path: str = "", report_mtime: str = ""
+) -> dict[str, Any]:
+    malformed_reasons = _quality_report_malformed_reasons(report)
+    if malformed_reasons:
+        return _blocked_malformed_quality_report(
+            report,
+            report_path=report_path,
+            report_mtime=report_mtime,
+            malformed_reasons=malformed_reasons,
+        )
+
+    summary = report["summary"]
+    raw_problem_counts = dict(summary.get("problem_counts") or {})
+    actionable_problem_counts, severity_counts, problem_details = (
+        _collect_quality_problem_metrics(report)
+    )
+    status, label = _quality_status_from_severity_counts(severity_counts)
     return {
         "ok": status != "blocked",
         "status": status,
