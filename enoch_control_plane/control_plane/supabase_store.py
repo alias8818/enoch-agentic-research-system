@@ -101,6 +101,8 @@ from .workload_routing import route_machine_target
 # (status count query used in multiple _query calls).
 STATUS_COUNT_QUERY = "select status, count(*) as count from queue_items group by status"
 PROJECT_DECISION_JSON_FILENAME = "project_decision.json"
+# Centralized SQL fragment for queue status equality filters (Sonar S1192 at ~1598).
+_QUEUE_STATUS_EQUALS_PARAM = "q.status = %s"
 
 
 ConnectionFactory = Callable[[], Any]
@@ -1663,7 +1665,7 @@ class SupabaseReadOnlyControlPlaneStore:
             clauses.append(f"q.status in ({placeholders})")
             params.extend(sorted(ACTIVE_STATUSES))
         elif queue == "queued":
-            clauses.append("q.status = %s")
+            clauses.append(_QUEUE_STATUS_EQUALS_PARAM)
             params.append(QueueStatus.QUEUED.value)
         elif queue == "blocked":
             clauses.append(
@@ -1677,16 +1679,16 @@ class SupabaseReadOnlyControlPlaneStore:
                 ]
             )
         elif queue == "paused":
-            clauses.append("q.status = %s")
+            clauses.append(_QUEUE_STATUS_EQUALS_PARAM)
             params.append(QueueStatus.PAUSED.value)
         elif queue == "completed":
             clauses.append("q.status in (%s, %s)")
             params.extend([QueueStatus.COMPLETED.value, QueueStatus.CANCELED.value])
         elif queue not in {"", "all"}:
-            clauses.append("q.status = %s")
+            clauses.append(_QUEUE_STATUS_EQUALS_PARAM)
             params.append(queue)
         if status:
-            clauses.append("q.status = %s")
+            clauses.append(_QUEUE_STATUS_EQUALS_PARAM)
             params.append(status)
         if search:
             needle = f"%{search.strip()}%"
@@ -5053,7 +5055,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         self, *, project_id: str = "", max_followup_depth: int = 4
     ) -> dict[str, Any] | None:
         clauses = [
-            "q.status = %s",
+            _QUEUE_STATUS_EQUALS_PARAM,
             "q.manual_review_required = false",
             "coalesce(pe.followup_recommended, false) = true",
             "coalesce(pe.followup_title, '') <> ''",

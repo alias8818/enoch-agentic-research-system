@@ -991,6 +991,23 @@ def test_supabase_store_sql_status_count_query_centralized_no_s1192_duplication(
     )
 
 
+def test_supabase_store_queue_status_equals_param_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for S1192 (supabase_store.py:1598, issue 4dc0fd65).
+
+    "q.status = %s" (flagged 5x) must appear exactly once after const extraction.
+    """
+    src = (
+        ROOT / "enoch_control_plane" / "control_plane" / "supabase_store.py"
+    ).read_text(encoding="utf-8")
+    lit = "q.status = %s"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in supabase_store (count={count}); extract to const"
+    )
+
+
 def test_backfill_project_decision_json_centralized_no_s1192_duplication() -> None:
     """AGENTS.md validator for current top S1192 (backfill_control_plane_to_supabase.py:289).
 
