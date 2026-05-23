@@ -14,6 +14,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -113,115 +114,206 @@ def summarize(
     }
 
 
-def main() -> int:
-    if os.environ.get("ENOCH_ENABLE_PAPER_DRAIN", "0") != "1":
-        print(
-            json.dumps(
-                {
-                    "ok": True,
-                    "action": "skipped",
-                    "reason": "paper drain disabled; set ENOCH_ENABLE_PAPER_DRAIN=1",
-                },
-                sort_keys=True,
-            )
+@dataclass(frozen=True)
+class DrainSettings:
+    max_runs: int
+    fail_limit: int
+    sleep_sec: int
+    rewrite_new: bool
+    requested_by: str
+    client: ControlClient
+
+
+def _print_disabled_skip() -> int:
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "action": "skipped",
+                "reason": "paper drain disabled; set ENOCH_ENABLE_PAPER_DRAIN=1",
+            },
+            sort_keys=True,
         )
-        return 0
-    max_runs = env_int("ENOCH_PAPER_DRAIN_MAX_RUNS", 25, min_value=1, max_value=500)
-    fail_limit = env_int("ENOCH_PAPER_DRAIN_FAIL_LIMIT", 3, min_value=1, max_value=50)
-    sleep_sec = env_int("ENOCH_PAPER_DRAIN_SLEEP_SEC", 0, min_value=0, max_value=3600)
+    )
+    return 0
+
+
+def _load_drain_settings() -> DrainSettings:
     timeout = env_int(
         "ENOCH_PAPER_DRAIN_TIMEOUT_SEC", 420, min_value=30, max_value=3600
-    )
-    rewrite_new = os.environ.get("ENOCH_PAPER_DRAIN_REWRITE_NEW", "1") == "1"
-    requested_by = os.environ.get(
-        "ENOCH_PAPER_DRAIN_REQUESTED_BY", "systemd:enoch-paper-drain"
     )
     client = ControlClient(
         os.environ.get("ENOCH_CONTROL_URL", "http://127.0.0.1:8787"),
         load_token(),
         timeout,
     )
+    return DrainSettings(
+        max_runs=env_int("ENOCH_PAPER_DRAIN_MAX_RUNS", 25, min_value=1, max_value=500),
+        fail_limit=env_int(
+            "ENOCH_PAPER_DRAIN_FAIL_LIMIT", 3, min_value=1, max_value=50
+        ),
+        sleep_sec=env_int(
+            "ENOCH_PAPER_DRAIN_SLEEP_SEC", 0, min_value=0, max_value=3600
+        ),
+        rewrite_new=os.environ.get("ENOCH_PAPER_DRAIN_REWRITE_NEW", "1") == "1",
+        requested_by=os.environ.get(
+            "ENOCH_PAPER_DRAIN_REQUESTED_BY", "systemd:enoch-paper-drain"
+        ),
+        client=client,
+    )
+
+
+def _log_drain_failure(
+    index: int,
+    *,
+    phase: str,
+    http_status: int,
+    failures: int,
+    response: dict[str, Any],
+    paper_id: str = "",
+) -> None:
+    payload: dict[str, Any] = {
+        "ok": False,
+        "phase": phase,
+        "http_status": http_status,
+        "failure": failures,
+        "response": response,
+    }
+    if paper_id:
+        payload["paper_id"] = paper_id
+    print(
+        f"{utc_stamp()} drain[{index}] " + json.dumps(payload, sort_keys=True),
+        flush=True,
+    )
+
+
+def _stop_on_fail_limit(drafted: int, failures: int, fail_limit: int) -> bool:
+    if failures < fail_limit:
+        return False
+    print(
+        f"{utc_stamp()} drain stopped drafted={drafted} failures={failures} reason=fail_limit",
+        flush=True,
+    )
+    return True
+
+
+def _record_http_failure(
+    index: int,
+    *,
+    phase: str,
+    http_status: int,
+    response: dict[str, Any],
+    drafted: int,
+    failures: int,
+    fail_limit: int,
+    paper_id: str = "",
+) -> tuple[int, int | None]:
+    failures += 1
+    _log_drain_failure(
+        index,
+        phase=phase,
+        http_status=http_status,
+        failures=failures,
+        response=response,
+        paper_id=paper_id,
+    )
+    if _stop_on_fail_limit(drafted, failures, fail_limit):
+        return failures, 1
+    return failures, None
+
+
+def _finish_on_terminal_action(
+    index: int,
+    draft: dict[str, Any],
+    draft_status: int,
+    drafted: int,
+    action: str,
+) -> int:
+    print(
+        f"{utc_stamp()} drain[{index}] "
+        + json.dumps(summarize(index, draft, None, draft_status), sort_keys=True),
+        flush=True,
+    )
+    print(
+        f"{utc_stamp()} drain complete drafted={drafted} terminal_action={action or 'unknown'}",
+        flush=True,
+    )
+    return 0
+
+
+def _rewrite_drafted_paper(
+    index: int,
+    *,
+    client: ControlClient,
+    draft: dict[str, Any],
+    settings: DrainSettings,
+    drafted: int,
+    failures: int,
+) -> tuple[dict[str, Any] | None, int, int | None]:
+    paper_id = str((draft.get("paper") or {}).get("paper_id") or "")
+    if not (settings.rewrite_new and paper_id):
+        return None, failures, None
+    encoded = urllib.parse.quote(paper_id, safe="")
+    rewrite_status, rewrite = client.post(
+        f"/control/api/publication-automation/{encoded}/rewrite-draft",
+        {
+            "idempotency_key": f"paper-drain:{paper_id}:{int(time.time())}",
+            "requested_by": settings.requested_by,
+            "force": True,
+        },
+    )
+    if rewrite_status >= 400:
+        return rewrite, *_record_http_failure(
+            index,
+            phase="rewrite",
+            http_status=rewrite_status,
+            response=rewrite,
+            drafted=drafted,
+            failures=failures,
+            fail_limit=settings.fail_limit,
+            paper_id=paper_id,
+        )
+    return rewrite, 0, None
+
+
+def _run_drain_loop(settings: DrainSettings) -> int:
     drafted = 0
     failures = 0
-    for index in range(1, max_runs + 1):
+    client = settings.client
+    for index in range(1, settings.max_runs + 1):
         draft_status, draft = client.post(
-            "/control/papers/draft-next", {"force": False, "requested_by": requested_by}
+            "/control/papers/draft-next",
+            {"force": False, "requested_by": settings.requested_by},
         )
-        rewrite: dict[str, Any] | None = None
         action = str(draft.get("action") or "")
         if draft_status >= 400:
-            failures += 1
-            print(
-                f"{utc_stamp()} drain[{index}] "
-                + json.dumps(
-                    {
-                        "ok": False,
-                        "phase": "draft",
-                        "http_status": draft_status,
-                        "failure": failures,
-                        "response": draft,
-                    },
-                    sort_keys=True,
-                ),
-                flush=True,
+            failures, exit_code = _record_http_failure(
+                index,
+                phase="draft",
+                http_status=draft_status,
+                response=draft,
+                drafted=drafted,
+                failures=failures,
+                fail_limit=settings.fail_limit,
             )
-            if failures >= fail_limit:
-                print(
-                    f"{utc_stamp()} drain stopped drafted={drafted} failures={failures} reason=fail_limit",
-                    flush=True,
-                )
-                return 1
+            if exit_code is not None:
+                return exit_code
             continue
         if action != "drafted":
-            print(
-                f"{utc_stamp()} drain[{index}] "
-                + json.dumps(
-                    summarize(index, draft, rewrite, draft_status), sort_keys=True
-                ),
-                flush=True,
+            return _finish_on_terminal_action(
+                index, draft, draft_status, drafted, action
             )
-            print(
-                f"{utc_stamp()} drain complete drafted={drafted} terminal_action={action or 'unknown'}",
-                flush=True,
-            )
-            return 0
         drafted += 1
-        paper_id = str((draft.get("paper") or {}).get("paper_id") or "")
-        if rewrite_new and paper_id:
-            encoded = urllib.parse.quote(paper_id, safe="")
-            rewrite_status, rewrite = client.post(
-                f"/control/api/publication-automation/{encoded}/rewrite-draft",
-                {
-                    "idempotency_key": f"paper-drain:{paper_id}:{int(time.time())}",
-                    "requested_by": requested_by,
-                    "force": True,
-                },
-            )
-            if rewrite_status >= 400:
-                failures += 1
-                print(
-                    f"{utc_stamp()} drain[{index}] "
-                    + json.dumps(
-                        {
-                            "ok": False,
-                            "phase": "rewrite",
-                            "http_status": rewrite_status,
-                            "paper_id": paper_id,
-                            "failure": failures,
-                            "response": rewrite,
-                        },
-                        sort_keys=True,
-                    ),
-                    flush=True,
-                )
-                if failures >= fail_limit:
-                    print(
-                        f"{utc_stamp()} drain stopped drafted={drafted} failures={failures} reason=fail_limit",
-                        flush=True,
-                    )
-                    return 1
-            else:
-                failures = 0
+        rewrite, failures, exit_code = _rewrite_drafted_paper(
+            index,
+            client=client,
+            draft=draft,
+            settings=settings,
+            drafted=drafted,
+            failures=failures,
+        )
+        if exit_code is not None:
+            return exit_code
         print(
             f"{utc_stamp()} drain[{index}] "
             + json.dumps(
@@ -229,13 +321,19 @@ def main() -> int:
             ),
             flush=True,
         )
-        if sleep_sec:
-            time.sleep(sleep_sec)
+        if settings.sleep_sec:
+            time.sleep(settings.sleep_sec)
     print(
-        f"{utc_stamp()} drain stopped at max_runs={max_runs} drafted={drafted} failures={failures}",
+        f"{utc_stamp()} drain stopped at max_runs={settings.max_runs} drafted={drafted} failures={failures}",
         flush=True,
     )
     return 0
+
+
+def main() -> int:
+    if os.environ.get("ENOCH_ENABLE_PAPER_DRAIN", "0") != "1":
+        return _print_disabled_skip()
+    return _run_drain_loop(_load_drain_settings())
 
 
 if __name__ == "__main__":
