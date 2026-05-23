@@ -166,6 +166,7 @@ RUNS_GATE_STATE_SURFACE: Final[str] = "runs.gate_state"
 PROJECT_DECISIONS_DECISION_GATE_STATE_SURFACE: Final[str] = (
     "project_decisions.decision_gate_state"
 )
+IDEAS_IDEA_STATUS_SURFACE: Final[str] = "ideas.idea_status"
 
 STATE_CONTRACT: Final[dict[str, set[str]]] = {
     "queue_items.status": QUEUE_STATUSES,
@@ -177,7 +178,7 @@ STATE_CONTRACT: Final[dict[str, set[str]]] = {
     "papers.paper_status": PAPER_STATUSES,
     "publication_automation_items.automation_status": PUBLICATION_AUTOMATION_STATUSES,
     PROJECT_DECISIONS_DECISION_GATE_STATE_SURFACE: PROJECT_DECISION_GATE_STATES,
-    "ideas.idea_status": IDEA_STATUSES,
+    IDEAS_IDEA_STATUS_SURFACE: IDEA_STATUSES,
     "projects.origin_idea_status": IDEA_STATUSES,
 }
 
@@ -676,7 +677,7 @@ STATE_REDUCTION_PLAN: Final[dict[str, dict[str, dict[str, str]]]] = {
             reason="unknown decision is not writable",
         ),
     },
-    "ideas.idea_status": {
+    IDEAS_IDEA_STATUS_SURFACE: {
         "unknown": _decision(
             OperatorLane.HISTORICAL,
             "legacy_internal",
@@ -734,6 +735,6 @@ STATE_REDUCTION_PLAN[RUNS_GATE_STATE_SURFACE] = {
     for value in STATE_CONTRACT[RUNS_GATE_STATE_SURFACE]
 }
 STATE_REDUCTION_PLAN["projects.origin_idea_status"] = {
-    value: dict(STATE_REDUCTION_PLAN["ideas.idea_status"][value])
+    value: dict(STATE_REDUCTION_PLAN[IDEAS_IDEA_STATUS_SURFACE][value])
     for value in STATE_CONTRACT["projects.origin_idea_status"]
 }
