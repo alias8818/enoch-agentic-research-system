@@ -475,13 +475,27 @@ def _build_evidence_bundle_data(
     }
 
 
+def _markdown_body_without_fences_and_headers(markdown: str) -> str:
+    """Drop fenced code blocks and ATX headings without backtracking-prone regex."""
+    kept: list[str] = []
+    in_fence = False
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence or stripped.startswith("#"):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
 def _sentence_claims(markdown: str) -> list[str]:
     """Extract candidate claim sentences from markdown.
 
     Uses safe (non-regex-backtracking) detection for signal keywords to avoid ReDoS.
     """
-    body = re.sub(r"```.*?```", " ", markdown, flags=re.S)
-    body = re.sub(r"^#+\s+.*$", " ", body, flags=re.M)
+    body = _markdown_body_without_fences_and_headers(markdown)
     raw_sentences = re.split(r"(?<=[.!?])\s+", body)
     claims: list[str] = []
 
