@@ -1601,6 +1601,39 @@ def _recent_files_heap_add(
         heapq.heappushpop(collected, entry)
 
 
+def _recent_files_scan_should_stop(
+    scanned: int, max_entries: int, deadline: float, *, inclusive_cap: bool
+) -> bool:
+    at_cap = scanned >= max_entries if inclusive_cap else scanned > max_entries
+    return at_cap or time.monotonic() > deadline
+
+
+def _recent_files_scan_directory_files(
+    collected: list[tuple[float, str]],
+    *,
+    root_path: Path,
+    files: list[str],
+    project_dir: Path,
+    limit: int,
+    max_entries: int,
+    deadline: float,
+    scanned: int,
+) -> int:
+    for filename in files:
+        scanned += 1
+        if _recent_files_scan_should_stop(
+            scanned, max_entries, deadline, inclusive_cap=False
+        ):
+            break
+        entry = _recent_files_stat_mtime(root_path, filename, project_dir)
+        if entry is None:
+            continue
+        _recent_files_heap_add(
+            collected, limit=limit, mtime=entry[0], rel_path=entry[1]
+        )
+    return scanned
+
+
 def _recent_files_scan(
     project_dir: Path,
     *,
@@ -1613,7 +1646,9 @@ def _recent_files_scan(
     deadline = time.monotonic() + max_seconds
     walker = os.walk(project_dir, onerror=lambda _exc: None)
     for root, dirs, files in walker:
-        if scanned >= max_entries or time.monotonic() > deadline:
+        if _recent_files_scan_should_stop(
+            scanned, max_entries, deadline, inclusive_cap=True
+        ):
             break
         root_path = Path(root)
         rel_root = _recent_files_rel_root(root_path, project_dir)
@@ -1623,16 +1658,16 @@ def _recent_files_scan(
             dirs[:] = []
             continue
         _recent_files_prune_dirs(dirs)
-        for filename in files:
-            scanned += 1
-            if scanned > max_entries or time.monotonic() > deadline:
-                break
-            entry = _recent_files_stat_mtime(root_path, filename, project_dir)
-            if entry is None:
-                continue
-            _recent_files_heap_add(
-                collected, limit=limit, mtime=entry[0], rel_path=entry[1]
-            )
+        scanned = _recent_files_scan_directory_files(
+            collected,
+            root_path=root_path,
+            files=files,
+            project_dir=project_dir,
+            limit=limit,
+            max_entries=max_entries,
+            deadline=deadline,
+            scanned=scanned,
+        )
     return collected
 
 
