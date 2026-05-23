@@ -51,6 +51,19 @@ def _append_tar_skip(
     skipped.append({"path": path, "status": status, "error": error})
 
 
+def _filter_tar_member(
+    member: tarfile.TarInfo, artifact_root: Path
+) -> tarfile.TarInfo | None:
+    """Apply PEP 706 data filter when available (Python 3.12+)."""
+    data_filter = getattr(tarfile, "data_filter", None)
+    if data_filter is None:
+        return member
+    try:
+        return data_filter(member, str(artifact_root))
+    except tarfile.FilterError:
+        return None
+
+
 def _read_tar_member_bytes(
     archive: tarfile.TarFile,
     member: tarfile.TarInfo,
@@ -166,7 +179,12 @@ def extract_safe_tar_bytes(
     compressed_len = max(len(payload), 1)
     limit_exceeded = False
     try:
+        # S5042: bounded member count, total bytes, compression ratio, and
+        # PEP 706 data_filter (filter='data') when supported.
         with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+            data_filter = getattr(tarfile, "data_filter", None)
+            if data_filter is not None:
+                archive.extraction_filter = data_filter
             entry_count = 0
             for member in archive:
                 entry_count += 1
@@ -179,6 +197,16 @@ def extract_safe_tar_bytes(
                     )
                     limit_exceeded = True
                     break
+                filtered = _filter_tar_member(member, artifact_root)
+                if filtered is None:
+                    _append_tar_skip(
+                        skipped,
+                        path=member.name,
+                        status="unsafe_path",
+                        error="tar member rejected by data filter",
+                    )
+                    continue
+                member = filtered
                 if (
                     total_bytes > 0
                     and total_bytes / compressed_len > max_compression_ratio
