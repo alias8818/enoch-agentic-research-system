@@ -750,8 +750,9 @@ def sql_json(value: Any) -> str:
     )
 
 
-# Indented SELECT for sql_raise_if_exists guards (Sonar S1192 at emit_sql :792).
+# Indented fragments for sql_raise_if_exists guards (Sonar S1192 in emit_sql).
 _SQL_GUARD_EXISTS_SELECT = "    select 1"
+_SQL_GUARD_AND_OPEN = "      and ("
 
 
 def sql_raise_if_exists(query: str, message: str) -> str:
@@ -796,7 +797,7 @@ def emit_sql(
                             _SQL_GUARD_EXISTS_SELECT,
                             "    from enoch.research_sources",
                             f"    where source_id = {sql_literal(source_id)}",
-                            "      and (",
+                            _SQL_GUARD_AND_OPEN,
                             f"        source_kind is distinct from {sql_literal(source_kind)}",
                             f"        or url is distinct from {sql_literal(_as_text(source.get('url')))}",
                             f"        or external_id is distinct from {sql_literal(_as_text(source.get('external_id')))}",
@@ -821,7 +822,7 @@ def emit_sql(
                             _SQL_GUARD_EXISTS_SELECT,
                             "    from enoch.research_sources",
                             f"    where source_id = {sql_literal(source_id)}",
-                            "      and (",
+                            _SQL_GUARD_AND_OPEN,
                             f"        url is distinct from {sql_literal(_as_text(url))}",
                             "      )",
                         ]
@@ -841,7 +842,7 @@ def emit_sql(
                         _SQL_GUARD_EXISTS_SELECT,
                         "    from enoch.research_candidates",
                         f"    where candidate_id = {sql_literal(c['candidate_id'])}",
-                        "      and (",
+                        _SQL_GUARD_AND_OPEN,
                         f"        generation_mode is distinct from {sql_literal(c['generation_mode'])}",
                         f"        or dedupe_key is distinct from {sql_literal(c['dedupe_key'])}",
                         f"        or title is distinct from {sql_literal(c['title'])}",
@@ -897,7 +898,7 @@ def emit_sql(
                             _SQL_GUARD_EXISTS_SELECT,
                             "    from enoch.ideas",
                             f"    where idea_id = {sql_literal(idea_id)}",
-                            "      and (",
+                            _SQL_GUARD_AND_OPEN,
                             "        source_kind is distinct from 'research_facility'",
                             "      )",
                         ]
@@ -917,7 +918,7 @@ def emit_sql(
                             _SQL_GUARD_EXISTS_SELECT,
                             "    from enoch.projects",
                             f"    where project_id = {sql_literal(idea_id)}",
-                            "      and (",
+                            _SQL_GUARD_AND_OPEN,
                             f"        project_dir is distinct from {sql_literal(idea_id)}",
                             "        or origin_idea_status is distinct from 'testing'",
                             "      )",
@@ -938,7 +939,7 @@ def emit_sql(
                             _SQL_GUARD_EXISTS_SELECT,
                             "    from enoch.queue_items",
                             f"    where project_id = {sql_literal(idea_id)}",
-                            "      and (",
+                            _SQL_GUARD_AND_OPEN,
                             "        status is distinct from 'queued'",
                             "        or coalesce(current_run_id, '') <> ''",
                             "        or coalesce(next_action_hint, '') not in ('', 'controller_review')",
@@ -971,7 +972,7 @@ def emit_sql(
                         _SQL_GUARD_EXISTS_SELECT,
                         "    from enoch.research_admissions",
                         f"    where idempotency_key = {sql_literal(idempotency_key)}",
-                        "      and (",
+                        _SQL_GUARD_AND_OPEN,
                         f"        candidate_id is distinct from {sql_literal(c['candidate_id'])}",
                         f"        or admission_decision is distinct from {sql_literal(plan.admission_decision)}",
                         f"        or admission_reason is distinct from {sql_literal(plan.admission_reason)}",
