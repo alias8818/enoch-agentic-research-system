@@ -815,3 +815,19 @@ def test_app_py_project_directory_label_centralized_no_s1192_duplication() -> No
     assert count == 1, (
         f"{lit!r} still duplicated in app.py (count={count}); extract to const"
     )
+
+
+def test_read_models_missing_project_decision_artifact_centralized() -> None:
+    """AGENTS.md validator for current top S1192 (read_models.py:303).
+
+    "missing project decision artifact" (flagged in latest Sonar top duplication, 4x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "control_plane" / "read_models.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "missing project decision artifact"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in read_models (count={count}); extract to const"
+    )

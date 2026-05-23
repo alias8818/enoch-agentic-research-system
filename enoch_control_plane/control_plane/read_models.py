@@ -36,6 +36,10 @@ from .state_contract import (
     WAKE_GATE_COMPLETION_STATES,
 )
 
+# Centralized reason constant for the top remaining S1192 duplication
+# in this file (decision gates and mappings).
+MISSING_PROJECT_DECISION_ARTIFACT_REASON = "missing project decision artifact"
+
 READY_REVIEW_STATUSES = PUBLICATION_READY_AUTOMATION_STATUSES
 # Paper review rows are an automation lane, not an operator-approval lane.
 # Queue blockers/questions still require operator attention; publication drafts should
@@ -300,7 +304,7 @@ def _paper_draft_gate_for_row(row: dict[str, Any]) -> dict[str, Any] | None:
     if not project_dir:
         return {
             "eligible": False,
-            "reason": "missing project decision artifact",
+            "reason": MISSING_PROJECT_DECISION_ARTIFACT_REASON,
             "values": [],
             "project_dir": "",
         }
@@ -320,7 +324,10 @@ def _paper_draft_gate_for_row(row: dict[str, Any]) -> dict[str, Any] | None:
         if isinstance(values, list):
             gate = {**gate, "values": values[:8]}
         gate = {**gate, "project_dir": str(candidate)}
-        if values or _text(gate.get("reason")) != "missing project decision artifact":
+        if (
+            values
+            or _text(gate.get("reason")) != MISSING_PROJECT_DECISION_ARTIFACT_REASON
+        ):
             return gate
         last_gate = gate
     return last_gate
@@ -550,7 +557,7 @@ def _paper_draft_gate_from_row_decision(row: dict[str, Any]) -> dict[str, Any] |
     reason_by_state = {
         "negative": "project decision is not positive",
         "needs_review": "project decision is not positive",
-        "missing": "missing project decision artifact",
+        "missing": MISSING_PROJECT_DECISION_ARTIFACT_REASON,
         "malformed": "project decision artifact could not be read",
         "unknown": "project decision lacks positive draft signal",
     }
@@ -2320,7 +2327,7 @@ def overview(
                     or "",
                     "decision_summary": _decision_summary_from_gate(gate),
                     "gate_reason": (gate or {}).get(
-                        "reason", "missing project decision artifact"
+                        "reason", MISSING_PROJECT_DECISION_ARTIFACT_REASON
                     ),
                 }
             )
