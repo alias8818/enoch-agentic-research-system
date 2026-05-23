@@ -3467,79 +3467,84 @@ def _evaluate_research_cycle_backpressure(
     return []
 
 
+@dataclass(frozen=True)
+class _ResearchCycleInitialResponseParams:
+    dry_run: bool
+    enabled: bool
+    provider_model: str
+    allowed_models: list[str]
+    body: dict[str, Any]
+    max_provider_requests: int
+    max_promotions: int
+    max_dispatches: int
+    min_queue_depth_per_lane: int
+    max_paper_drafts: int
+    max_publication_rewrites: int
+    min_admission_score: float
+    wait_for_completion: bool
+    max_wait_seconds: int
+    fresh_generation_backlog_threshold: int
+    janitor_enabled: bool
+    janitor_limit: int
+    janitor_report: dict[str, Any]
+    budget: dict[str, Any]
+    initial_promotable: list[dict[str, Any]]
+    initial_open_lane_promotable: list[dict[str, Any]]
+    lane_feed_pressure: dict[str, Any]
+    generation_target_lane: Any
+    stop_reasons: list[str]
+
+
 def _build_research_cycle_initial_response(
     *,
-    dry_run: bool,
-    enabled: bool,
-    provider_model: str,
-    allowed_models: list[str],
-    body: dict[str, Any],
-    max_provider_requests: int,
-    max_promotions: int,
-    max_dispatches: int,
-    min_queue_depth_per_lane: int,
-    max_paper_drafts: int,
-    max_publication_rewrites: int,
-    min_admission_score: float,
-    wait_for_completion: bool,
-    max_wait_seconds: int,
-    fresh_generation_backlog_threshold: int,
-    janitor_enabled: bool,
-    janitor_limit: int,
-    janitor_report: dict[str, Any],
-    budget: dict[str, Any],
-    initial_promotable: list[dict[str, Any]],
-    initial_open_lane_promotable: list[dict[str, Any]],
-    lane_feed_pressure: dict[str, Any],
-    generation_target_lane: Any,
-    stop_reasons: list[str],
+    params: _ResearchCycleInitialResponseParams,
 ) -> dict[str, Any]:
     """Extracted from dashboard_research_run_cycle (large response skeleton contributing to S3776)."""
     return {
-        "ok": not stop_reasons,
-        "action": "dry_run_research_cycle" if dry_run else "research_cycle",
-        "dry_run": dry_run,
-        "enabled": enabled,
+        "ok": not params.stop_reasons,
+        "action": "dry_run_research_cycle" if params.dry_run else "research_cycle",
+        "dry_run": params.dry_run,
+        "enabled": params.enabled,
         "queue_admitted": False,
         "dispatch_started": False,
         "provider": "synthetic.new",
-        "provider_model": provider_model,
-        "allowed_models": allowed_models,
+        "provider_model": params.provider_model,
+        "allowed_models": params.allowed_models,
         "policy": {
-            "max_provider_requests_per_run": max_provider_requests,
-            "max_promotions_per_run": max_promotions,
-            "max_dispatches_per_run": max_dispatches,
-            "min_queue_depth_per_lane": min_queue_depth_per_lane,
-            "max_paper_drafts_per_run": max_paper_drafts,
-            "max_publication_rewrites_per_run": max_publication_rewrites,
-            "min_admission_score": min_admission_score,
+            "max_provider_requests_per_run": params.max_provider_requests,
+            "max_promotions_per_run": params.max_promotions,
+            "max_dispatches_per_run": params.max_dispatches,
+            "min_queue_depth_per_lane": params.min_queue_depth_per_lane,
+            "max_paper_drafts_per_run": params.max_paper_drafts,
+            "max_publication_rewrites_per_run": params.max_publication_rewrites,
+            "min_admission_score": params.min_admission_score,
             "require_budget_ok": True,
             "stop_if_queue_active": True,
             "stop_if_dashboard_attention": bool(
-                body.get("stop_if_dashboard_attention", True)
+                params.body.get("stop_if_dashboard_attention", True)
             ),
-            "wait_for_completion": wait_for_completion,
-            "max_wait_seconds": max_wait_seconds,
-            "fresh_generation_backlog_threshold": fresh_generation_backlog_threshold,
-            "janitor_enabled": janitor_enabled,
-            "janitor_limit": janitor_limit,
+            "wait_for_completion": params.wait_for_completion,
+            "max_wait_seconds": params.max_wait_seconds,
+            "fresh_generation_backlog_threshold": params.fresh_generation_backlog_threshold,
+            "janitor_enabled": params.janitor_enabled,
+            "janitor_limit": params.janitor_limit,
         },
-        "janitor": janitor_report,
+        "janitor": params.janitor_report,
         "budget": {
-            key: budget.get(key)
+            key: params.budget.get(key)
             for key in _RESEARCH_CYCLE_BUDGET_RESPONSE_KEYS
-            if key in budget
+            if key in params.budget
         },
-        "initial_promotable_count": len(initial_promotable),
+        "initial_promotable_count": len(params.initial_promotable),
         "planned_promotions": [
             row.get("candidate_id")
-            for row in (initial_open_lane_promotable or initial_promotable)[
-                :max_promotions
-            ]
+            for row in (
+                params.initial_open_lane_promotable or params.initial_promotable
+            )[: params.max_promotions]
         ],
-        "open_lane_promotable_count": len(initial_open_lane_promotable),
-        "lane_feed_pressure": lane_feed_pressure,
-        "generation_target_lane": generation_target_lane,
+        "open_lane_promotable_count": len(params.initial_open_lane_promotable),
+        "lane_feed_pressure": params.lane_feed_pressure,
+        "generation_target_lane": params.generation_target_lane,
         "generated_count": 0,
         "promoted_count": 0,
         "dispatched_count": 0,
@@ -8551,30 +8556,32 @@ def create_control_plane_router(
             )
         )
         response = _build_research_cycle_initial_response(
-            dry_run=dry_run,
-            enabled=enabled,
-            provider_model=provider_model,
-            allowed_models=allowed_models,
-            body=body,
-            max_provider_requests=max_provider_requests,
-            max_promotions=max_promotions,
-            max_dispatches=max_dispatches,
-            min_queue_depth_per_lane=min_queue_depth_per_lane,
-            max_paper_drafts=max_paper_drafts,
-            max_publication_rewrites=max_publication_rewrites,
-            min_admission_score=min_admission_score,
-            wait_for_completion=wait_for_completion,
-            max_wait_seconds=max_wait_seconds,
-            fresh_generation_backlog_threshold=fresh_generation_backlog_threshold,
-            janitor_enabled=janitor_enabled,
-            janitor_limit=janitor_limit,
-            janitor_report=janitor_report,
-            budget=budget,
-            initial_promotable=initial_promotable,
-            initial_open_lane_promotable=initial_open_lane_promotable,
-            lane_feed_pressure=lane_feed_pressure,
-            generation_target_lane=generation_target_lane,
-            stop_reasons=stop_reasons,
+            params=_ResearchCycleInitialResponseParams(
+                dry_run=dry_run,
+                enabled=enabled,
+                provider_model=provider_model,
+                allowed_models=allowed_models,
+                body=body,
+                max_provider_requests=max_provider_requests,
+                max_promotions=max_promotions,
+                max_dispatches=max_dispatches,
+                min_queue_depth_per_lane=min_queue_depth_per_lane,
+                max_paper_drafts=max_paper_drafts,
+                max_publication_rewrites=max_publication_rewrites,
+                min_admission_score=min_admission_score,
+                wait_for_completion=wait_for_completion,
+                max_wait_seconds=max_wait_seconds,
+                fresh_generation_backlog_threshold=fresh_generation_backlog_threshold,
+                janitor_enabled=janitor_enabled,
+                janitor_limit=janitor_limit,
+                janitor_report=janitor_report,
+                budget=budget,
+                initial_promotable=initial_promotable,
+                initial_open_lane_promotable=initial_open_lane_promotable,
+                lane_feed_pressure=lane_feed_pressure,
+                generation_target_lane=generation_target_lane,
+                stop_reasons=stop_reasons,
+            ),
         )
         _append_research_cycle_queue_paused_guardrail(
             store=store,
