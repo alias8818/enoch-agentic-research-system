@@ -494,6 +494,49 @@ def enrich_synthesized_candidate(
     return row
 
 
+def _single_provider_candidate(response: Any) -> dict[str, Any] | None:
+    candidates = response.get("candidates") if isinstance(response, dict) else None
+    if (
+        not isinstance(candidates, list)
+        or len(candidates) != 1
+        or not isinstance(candidates[0], dict)
+    ):
+        return None
+    return candidates[0]
+
+
+def _synthesize_cluster_candidate(
+    cluster: dict[str, Any],
+    *,
+    reflection_patterns: list[dict[str, Any]],
+    provider: Callable[[str], dict[str, Any]],
+    requested_by: str,
+    prompt: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    cluster_key = cluster.get("cluster_key")
+    try:
+        response = provider(prompt)
+    except Exception as exc:  # pragma: no cover - defensive CLI path
+        return None, {"cluster_key": cluster_key, "error": str(exc)}
+    raw_candidate = _single_provider_candidate(response)
+    if raw_candidate is None:
+        return None, {
+            "cluster_key": cluster_key,
+            "error": "provider must return exactly one candidate",
+        }
+    candidate = enrich_synthesized_candidate(
+        raw_candidate, cluster, reflection_patterns, requested_by=requested_by
+    )
+    problems = validate_synthesized_candidate(candidate)
+    if problems:
+        return None, {
+            "cluster_key": cluster_key,
+            "candidate_id": candidate.get("candidate_id"),
+            "problems": problems,
+        }
+    return candidate, None
+
+
 def synthesize_clusters(
     clusters: list[dict[str, Any]],
     *,
@@ -507,38 +550,15 @@ def synthesize_clusters(
     for cluster in clusters:
         prompt = build_synthesis_prompt(cluster, reflection_patterns)
         prompts.append({"cluster_key": cluster.get("cluster_key"), "prompt": prompt})
-        try:
-            response = provider(prompt)
-        except Exception as exc:  # pragma: no cover - defensive CLI path
-            failures.append(
-                {"cluster_key": cluster.get("cluster_key"), "error": str(exc)}
-            )
-            continue
-        candidates = response.get("candidates") if isinstance(response, dict) else None
-        if (
-            not isinstance(candidates, list)
-            or len(candidates) != 1
-            or not isinstance(candidates[0], dict)
-        ):
-            failures.append(
-                {
-                    "cluster_key": cluster.get("cluster_key"),
-                    "error": "provider must return exactly one candidate",
-                }
-            )
-            continue
-        candidate = enrich_synthesized_candidate(
-            candidates[0], cluster, reflection_patterns, requested_by=requested_by
+        candidate, failure = _synthesize_cluster_candidate(
+            cluster,
+            reflection_patterns=reflection_patterns,
+            provider=provider,
+            requested_by=requested_by,
+            prompt=prompt,
         )
-        problems = validate_synthesized_candidate(candidate)
-        if problems:
-            failures.append(
-                {
-                    "cluster_key": cluster.get("cluster_key"),
-                    "candidate_id": candidate.get("candidate_id"),
-                    "problems": problems,
-                }
-            )
+        if failure is not None:
+            failures.append(failure)
             continue
         synthesized.append(candidate)
     return {
