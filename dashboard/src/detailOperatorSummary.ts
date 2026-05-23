@@ -16,8 +16,8 @@ import {
   type DetailKind,
   type DetailOperatorSummary,
   type EntityLink,
+  type IntakeIdeaOperatorSummary,
   type OperatorAnswer,
-  type ResearchCandidateOperatorSummary,
 } from './detailOperatorSummaryHelpers'
 import { paperSummary } from './detailOperatorSummaryPaper'
 
@@ -30,7 +30,6 @@ export type {
   IntakeIdeaOperatorSummary,
   OperatorAnswer,
   OperatorSection,
-  ResearchCandidateOperatorSummary,
 } from './detailOperatorSummaryHelpers'
 
 function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary {
@@ -406,7 +405,7 @@ function researchCandidateActionNeeded(attention: boolean, rejected: boolean): s
   return 'Admission needs operator review before promote.'
 }
 
-export function deriveResearchCandidateOperatorSummary(row: Record<string, unknown>): ResearchCandidateOperatorSummary {
+export function deriveResearchCandidateOperatorSummary(row: Record<string, unknown>): IntakeIdeaOperatorSummary {
   const status = text(row.status)
   const admission = text(row.admission_decision)
   const target = text(row.machine_target)

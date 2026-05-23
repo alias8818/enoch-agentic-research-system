@@ -38,8 +38,6 @@ export type IntakeIdeaOperatorSummary = {
   actionNeeded: string | null
 }
 
-export type ResearchCandidateOperatorSummary = IntakeIdeaOperatorSummary
-
 export function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
