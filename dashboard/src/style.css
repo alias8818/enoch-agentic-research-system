@@ -1017,7 +1017,7 @@ span.cell-primary.cell-truncate {
 .copy-button {
   border: 1px solid rgba(244,241,234,0.16);
   border-radius: 0.5rem;
-  background: rgba(255,255,255,0.035);
+  background: #121110;
   color: #c9c0b3;
   padding: 0.18rem 0.38rem;
   font-size: 0.62rem;
