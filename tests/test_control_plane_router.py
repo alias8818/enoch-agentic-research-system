@@ -14637,11 +14637,11 @@ def test_mount_control_plane_http_routes_delegates_to_http_register():
     assert callable(_register_control_plane_http_routes)
 
 
-def test_register_control_plane_http_routes_delegates_to_route_handlers():
-    """AGENTS.md test-first for OPEN S3776 (_register_control_plane_http_routes @ router.py:5282).
+def test_register_control_plane_http_route_handlers_is_thin_orchestrator():
+    """AGENTS.md test-first for OPEN S3776 (_register_control_plane_http_route_handlers).
 
-    Register only forwards to _register_control_plane_http_route_handlers so Sonar cognitive
-    complexity stays on the HTTP route handler body, not the registration entrypoint.
+    Handler registration delegates to prepare + domain registrars so Sonar cognitive
+    complexity stays off the HTTP registration entrypoint.
     """
     import ast
     from pathlib import Path
@@ -14652,31 +14652,32 @@ def test_register_control_plane_http_routes_delegates_to_route_handlers():
     assert "def _register_control_plane_http_route_handlers(" in src
 
     module = ast.parse(src)
-    registrar = next(
+    handlers = next(
         node
         for node in module.body
         if isinstance(node, ast.FunctionDef)
-        and node.name == "_register_control_plane_http_routes"
+        and node.name == "_register_control_plane_http_route_handlers"
     )
-    body_lines = {stmt.lineno for stmt in registrar.body}
-    assert body_lines, "_register_control_plane_http_routes must have a body"
-    assert max(body_lines) - min(body_lines) <= 8, (
-        "_register_control_plane_http_routes should remain a thin orchestrator"
+    body_lines = {stmt.lineno for stmt in handlers.body}
+    assert body_lines, "_register_control_plane_http_route_handlers must have a body"
+    assert max(body_lines) - min(body_lines) <= 20, (
+        "_register_control_plane_http_route_handlers should remain a thin orchestrator"
     )
-    assert any(
-        isinstance(stmt, ast.Expr)
+    called = {
+        stmt.value.func.id
+        for stmt in handlers.body
+        if isinstance(stmt, ast.Expr)
         and isinstance(stmt.value, ast.Call)
         and isinstance(stmt.value.func, ast.Name)
-        and stmt.value.func.id == "_register_control_plane_http_route_handlers"
-        for stmt in registrar.body
-    )
+    }
+    assert "_prepare_control_plane_http_route_bindings" in called
+    assert "_register_control_plane_dashboard_shell_routes" in called
+    assert "_register_control_plane_operator_legacy_routes" in called
 
     from enoch_control_plane.control_plane.router import (
         _register_control_plane_http_route_handlers,
-        _register_control_plane_http_routes,
     )
 
-    assert callable(_register_control_plane_http_routes)
     assert callable(_register_control_plane_http_route_handlers)
 
 
