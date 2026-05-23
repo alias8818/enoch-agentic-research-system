@@ -4586,6 +4586,167 @@ def _worker_evidence_sync_kwargs_for_row(
     }
 
 
+def _status_has_no_live_worker_preflight_conflict(
+    status: DashboardStatusResponse,
+) -> bool:
+    return any(
+        item.source == CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE
+        and "no live worker run" in item.message
+        for item in [*status.conflicts, *status.warnings]
+    )
+
+
+def _reconcile_row_evidence_and_gate(
+    config: GateConfig,
+    row: dict[str, Any],
+) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+    artifact_root, project_dir_text = _artifact_root_for_queue_row(config, row)
+    gate = paper_draft_decision_gate(artifact_root)
+    evidence_sync = _evidence_sync_skipped_by_gate(config, gate)
+    if gate.get("eligible") or not gate.get("values"):
+        project_id = str(row.get("project_id") or "").strip()
+        run_id = str(row.get("current_run_id") or "").strip()
+        evidence_sync = _sync_remote_project_evidence(
+            config,
+            project_id=project_id,
+            artifact_root=artifact_root,
+            source_project_dir=project_dir_text,
+            source_run_id=run_id,
+            **_worker_evidence_sync_kwargs_for_row(config, row),
+        )
+        gate = paper_draft_decision_gate(artifact_root)
+    return artifact_root, gate, evidence_sync
+
+
+def _auto_reconcile_missing_paper_evidence(
+    config: GateConfig,
+    store: Any,
+    *,
+    project_id: str,
+    run_id: str,
+    artifact_root: Path,
+    gate: dict[str, Any],
+    evidence_sync: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not (
+        config.paper_evidence_sync_enabled
+        and not _local_paper_evidence_present(artifact_root)
+        and gate.get("eligible")
+    ):
+        return None
+    evidence_alert = _record_paper_evidence_blocked(
+        config,
+        store,
+        entity_type="project",
+        entity_id=project_id,
+        project_id=project_id,
+        run_id=run_id,
+        artifact_root=str(artifact_root),
+        evidence_sync=evidence_sync,
+    )
+    return {
+        "ok": False,
+        "project_id": project_id,
+        "run_id": run_id,
+        "reason": "missing paper evidence",
+        "artifact_root": str(artifact_root),
+        "evidence_sync": evidence_sync,
+        "decision_gate": gate,
+        "evidence_alert": evidence_alert,
+    }
+
+
+def _auto_reconcile_missing_decision_artifact(
+    *,
+    project_id: str,
+    run_id: str,
+    artifact_root: Path,
+    gate: dict[str, Any],
+    evidence_sync: dict[str, Any],
+) -> dict[str, Any] | None:
+    if gate.get("values"):
+        return None
+    return {
+        "ok": False,
+        "project_id": project_id,
+        "run_id": run_id,
+        "reason": "missing project decision artifact",
+        "artifact_root": str(artifact_root),
+        "evidence_sync": evidence_sync,
+    }
+
+
+def _auto_reconcile_replay_wake_ready_callback(
+    store: Any,
+    row: dict[str, Any],
+    *,
+    project_id: str,
+    run_id: str,
+    artifact_root: Path,
+    gate: dict[str, Any],
+    evidence_sync: dict[str, Any],
+    requested_by: str,
+) -> dict[str, Any]:
+    callback = GateCallback(
+        event_type="wake_ready",
+        run_id=run_id,
+        session_id=str(row.get("current_session_id") or ""),
+        project_id=project_id,
+        project_name=str(row.get("project_name") or project_id),
+        source_event="control-plane-auto-reconcile",
+        gate_state="wake_ready",
+        process_tracking={
+            "root_pid": None,
+            "process_group_id": None,
+            "processes": [],
+            "live_process_count": 0,
+        },
+        telemetry={
+            "replayed_by": requested_by,
+            "artifact_root": str(artifact_root),
+            "evidence_sync": evidence_sync,
+        },
+        reason="auto replay: active row had no live worker run but durable decision artifact exists",
+        idempotency_key=f"{run_id}:wake_ready:auto-reconcile:{requested_by}",
+    )
+    try:
+        event_id, inserted, updated = store.record_worker_callback(
+            callback, received_by="queue-alert-auto-reconcile"
+        )
+        decision_record = (
+            store.record_project_decision_gate(
+                project_id=project_id,
+                run_id=run_id,
+                artifact_root=artifact_root,
+            )
+            if hasattr(store, "record_project_decision_gate")
+            else {}
+        )
+        if decision_record.get("persisted"):
+            store.update_project_dir(project_id, str(artifact_root))
+        return {
+            "ok": True,
+            "project_id": project_id,
+            "run_id": run_id,
+            "event_id": event_id,
+            "inserted_event": inserted,
+            "queue_status": (updated or {}).get("status"),
+            "artifact_root": str(artifact_root),
+            "evidence_sync": evidence_sync,
+            "decision_gate": gate,
+            "decision_record": decision_record,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "project_id": project_id,
+            "run_id": run_id,
+            "reason": f"{type(exc).__name__}: {exc}",
+            "artifact_root": str(artifact_root),
+            "evidence_sync": evidence_sync,
+        }
+
+
 def _auto_reconcile_stale_callback_ready(
     config: GateConfig,
     store: Any,
@@ -4595,12 +4756,7 @@ def _auto_reconcile_stale_callback_ready(
 ) -> list[dict[str, Any]]:
     if not status.active_items:
         return []
-    has_no_live_conflict = any(
-        item.source == CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE
-        and "no live worker run" in item.message
-        for item in [*status.conflicts, *status.warnings]
-    )
-    if not has_no_live_conflict:
+    if not _status_has_no_live_worker_preflight_conflict(status):
         return []
     reconciled: list[dict[str, Any]] = []
     for row in status.active_items:
@@ -4608,122 +4764,43 @@ def _auto_reconcile_stale_callback_ready(
         run_id = str(row.get("current_run_id") or "").strip()
         if not project_id or not run_id:
             continue
-        artifact_root, project_dir_text = _artifact_root_for_queue_row(config, row)
-        gate = paper_draft_decision_gate(artifact_root)
-        evidence_sync = _evidence_sync_skipped_by_gate(config, gate)
-        if gate.get("eligible") or not gate.get("values"):
-            evidence_sync = _sync_remote_project_evidence(
-                config,
-                project_id=project_id,
-                artifact_root=artifact_root,
-                source_project_dir=project_dir_text,
-                source_run_id=run_id,
-                **_worker_evidence_sync_kwargs_for_row(config, row),
-            )
-            gate = paper_draft_decision_gate(artifact_root)
-        local_evidence_present = _local_paper_evidence_present(artifact_root)
-        if (
-            config.paper_evidence_sync_enabled
-            and not local_evidence_present
-            and gate.get("eligible")
-        ):
-            evidence_alert = _record_paper_evidence_blocked(
-                config,
+        artifact_root, gate, evidence_sync = _reconcile_row_evidence_and_gate(
+            config, row
+        )
+        blocked = _auto_reconcile_missing_paper_evidence(
+            config,
+            store,
+            project_id=project_id,
+            run_id=run_id,
+            artifact_root=artifact_root,
+            gate=gate,
+            evidence_sync=evidence_sync,
+        )
+        if blocked is not None:
+            reconciled.append(blocked)
+            continue
+        blocked = _auto_reconcile_missing_decision_artifact(
+            project_id=project_id,
+            run_id=run_id,
+            artifact_root=artifact_root,
+            gate=gate,
+            evidence_sync=evidence_sync,
+        )
+        if blocked is not None:
+            reconciled.append(blocked)
+            continue
+        reconciled.append(
+            _auto_reconcile_replay_wake_ready_callback(
                 store,
-                entity_type="project",
-                entity_id=project_id,
+                row,
                 project_id=project_id,
                 run_id=run_id,
-                artifact_root=str(artifact_root),
+                artifact_root=artifact_root,
+                gate=gate,
                 evidence_sync=evidence_sync,
+                requested_by=requested_by,
             )
-            reconciled.append(
-                {
-                    "ok": False,
-                    "project_id": project_id,
-                    "run_id": run_id,
-                    "reason": "missing paper evidence",
-                    "artifact_root": str(artifact_root),
-                    "evidence_sync": evidence_sync,
-                    "decision_gate": gate,
-                    "evidence_alert": evidence_alert,
-                }
-            )
-            continue
-        if not gate.get("values"):
-            reconciled.append(
-                {
-                    "ok": False,
-                    "project_id": project_id,
-                    "run_id": run_id,
-                    "reason": "missing project decision artifact",
-                    "artifact_root": str(artifact_root),
-                    "evidence_sync": evidence_sync,
-                }
-            )
-            continue
-        callback = GateCallback(
-            event_type="wake_ready",
-            run_id=run_id,
-            session_id=str(row.get("current_session_id") or ""),
-            project_id=project_id,
-            project_name=str(row.get("project_name") or project_id),
-            source_event="control-plane-auto-reconcile",
-            gate_state="wake_ready",
-            process_tracking={
-                "root_pid": None,
-                "process_group_id": None,
-                "processes": [],
-                "live_process_count": 0,
-            },
-            telemetry={
-                "replayed_by": requested_by,
-                "artifact_root": str(artifact_root),
-                "evidence_sync": evidence_sync,
-            },
-            reason="auto replay: active row had no live worker run but durable decision artifact exists",
-            idempotency_key=f"{run_id}:wake_ready:auto-reconcile:{requested_by}",
         )
-        try:
-            event_id, inserted, updated = store.record_worker_callback(
-                callback, received_by="queue-alert-auto-reconcile"
-            )
-            decision_record = (
-                store.record_project_decision_gate(
-                    project_id=project_id,
-                    run_id=run_id,
-                    artifact_root=artifact_root,
-                )
-                if hasattr(store, "record_project_decision_gate")
-                else {}
-            )
-            if decision_record.get("persisted"):
-                store.update_project_dir(project_id, str(artifact_root))
-            reconciled.append(
-                {
-                    "ok": True,
-                    "project_id": project_id,
-                    "run_id": run_id,
-                    "event_id": event_id,
-                    "inserted_event": inserted,
-                    "queue_status": (updated or {}).get("status"),
-                    "artifact_root": str(artifact_root),
-                    "evidence_sync": evidence_sync,
-                    "decision_gate": gate,
-                    "decision_record": decision_record,
-                }
-            )
-        except Exception as exc:
-            reconciled.append(
-                {
-                    "ok": False,
-                    "project_id": project_id,
-                    "run_id": run_id,
-                    "reason": f"{type(exc).__name__}: {exc}",
-                    "artifact_root": str(artifact_root),
-                    "evidence_sync": evidence_sync,
-                }
-            )
     if reconciled:
         store.append_event(
             idempotency_key=f"queue-alert-auto-reconcile:{utc_now()}",
