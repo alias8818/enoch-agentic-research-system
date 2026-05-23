@@ -2919,24 +2919,21 @@ async def write_project_paper(
     }
 
 
-@app.post("/dispatch", responses=_DISPATCH_RESPONSES)
-async def dispatch_run(
-    request: DispatchRequest,
-    authorization: Annotated[str | None, Header()] = None,
-) -> dict:
-    _require_local_bearer(authorization)
-    project_dir = _resolve_under_root(request.project_dir, config.expanded_project_root)
-    prompt_file = _resolve_under_root(request.prompt_file, config.expanded_project_root)
-    workload_class, workload_profile = _resolve_workload_profile_for_project_dir(
-        project_dir
-    )
-
+def _require_dispatch_script() -> Path:
     script_path = Path(config.dispatch_script_path).expanduser()
     if not script_path.exists():
         raise HTTPException(
             status_code=500, detail=f"dispatch script not found: {script_path}"
         )
+    return script_path
 
+
+def _build_dispatch_cmd(
+    script_path: Path,
+    request: DispatchRequest,
+    project_dir: Path,
+    prompt_file: Path,
+) -> list[str]:
     cmd = [
         str(script_path),
         "--run-id",
@@ -2963,27 +2960,36 @@ async def dispatch_run(
     if request.log_dir:
         log_dir = _resolve_under_root(request.log_dir, config.expanded_project_root)
         cmd.extend(["--log-dir", str(log_dir)])
+    return cmd
 
+
+def _dispatch_subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.update(
+        {
+            "ENOCH_COMPLETION_CALLBACK_URL": config.completion_callback_url,
+            "ENOCH_COMPLETION_CALLBACK_TOKEN": config.completion_callback_token,
+            "ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC": str(
+                config.completion_callback_timeout_sec
+            ),
+            "ENOCH_WORKER_STATE_DIR": str(config.expanded_state_dir),
+        }
+    )
+    return env
+
+
+async def _run_dispatch_subprocess(
+    cmd: list[str],
+) -> subprocess.CompletedProcess[str]:
     try:
-        env = os.environ.copy()
-        env.update(
-            {
-                "ENOCH_COMPLETION_CALLBACK_URL": config.completion_callback_url,
-                "ENOCH_COMPLETION_CALLBACK_TOKEN": config.completion_callback_token,
-                "ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC": str(
-                    config.completion_callback_timeout_sec
-                ),
-                "ENOCH_WORKER_STATE_DIR": str(config.expanded_state_dir),
-            }
-        )
-        result = await asyncio.to_thread(
+        return await asyncio.to_thread(
             subprocess.run,
             cmd,
             capture_output=True,
             text=True,
             check=False,
             timeout=config.dispatch_timeout_sec,
-            env=env,
+            env=_dispatch_subprocess_env(),
         )
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(
@@ -2991,6 +2997,10 @@ async def dispatch_run(
             detail=f"dispatch timed out after {config.dispatch_timeout_sec}s",
         ) from exc
 
+
+def _parse_dispatch_subprocess_result(
+    result: subprocess.CompletedProcess[str],
+) -> dict[str, Any]:
     if result.returncode != 0:
         raise HTTPException(
             status_code=502,
@@ -3000,9 +3010,8 @@ async def dispatch_run(
                 "stderr": result.stderr.strip(),
             },
         )
-
     try:
-        payload = json.loads(result.stdout)
+        return json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         raise HTTPException(
             status_code=502,
@@ -3013,6 +3022,22 @@ async def dispatch_run(
             },
         ) from exc
 
+
+def _apply_dispatch_baseline_vram(record: RunRecord) -> None:
+    baseline_sample = telemetry.sample()
+    if record.baseline_vram_mib is None or (
+        baseline_sample.memory_source == "uma_meminfo" and record.baseline_vram_mib == 0
+    ):
+        record.baseline_vram_mib = baseline_sample.vram_used_mib
+
+
+def _persist_dispatch_run_record(
+    request: DispatchRequest,
+    project_dir: Path,
+    workload_class: str,
+    workload_profile: Any,
+    payload: dict[str, Any],
+) -> None:
     record = store.load_run(request.run_id) or RunRecord(
         run_id=request.run_id,
         session_id=request.session_id or "",
@@ -3034,12 +3059,29 @@ async def dispatch_run(
     record.last_idempotency_key = None
     record.quiet_samples = []
     record.updated_at = utc_now()
-    baseline_sample = telemetry.sample()
-    if record.baseline_vram_mib is None or (
-        baseline_sample.memory_source == "uma_meminfo" and record.baseline_vram_mib == 0
-    ):
-        record.baseline_vram_mib = baseline_sample.vram_used_mib
+    _apply_dispatch_baseline_vram(record)
     store.save_run(record)
+
+
+@app.post("/dispatch", responses=_DISPATCH_RESPONSES)
+async def dispatch_run(
+    request: DispatchRequest,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict:
+    _require_local_bearer(authorization)
+    project_dir = _resolve_under_root(request.project_dir, config.expanded_project_root)
+    prompt_file = _resolve_under_root(request.prompt_file, config.expanded_project_root)
+    workload_class, workload_profile = _resolve_workload_profile_for_project_dir(
+        project_dir
+    )
+
+    script_path = _require_dispatch_script()
+    cmd = _build_dispatch_cmd(script_path, request, project_dir, prompt_file)
+    result = await _run_dispatch_subprocess(cmd)
+    payload = _parse_dispatch_subprocess_result(result)
+    _persist_dispatch_run_record(
+        request, project_dir, workload_class, workload_profile, payload
+    )
 
     return {
         "accepted": True,
