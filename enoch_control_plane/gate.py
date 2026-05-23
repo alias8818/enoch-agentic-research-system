@@ -4,8 +4,16 @@ from datetime import datetime, timezone
 from statistics import mean
 from typing import Any
 
-from .config import GateConfig
-from .models import ControlPlaneEvent, GateCallback, GateState, RunRecord, utc_now
+from .config import GateConfig, GateThresholdProfile
+from .models import (
+    ControlPlaneEvent,
+    GateCallback,
+    GateState,
+    ProcessSnapshot,
+    RunRecord,
+    TelemetrySample,
+    utc_now,
+)
 from .timeutils import parse_utc_datetime
 from .process_tracker import ProcessTracker
 from .telemetry import TelemetryCollector
@@ -18,6 +26,63 @@ _EVENT_PRECEDENCE = {
     "session-stop": 3,
     "session-end": 3,
 }
+
+_EVALUABLE_GATE_STATES = {
+    GateState.PENDING_IDLE_GATE,
+    GateState.WAITING_FOR_PROCESS_EXIT,
+    GateState.WAITING_FOR_QUIET_WINDOW,
+    GateState.FINISHED_PENDING_GATE,
+}
+
+
+def _process_snapshot_has_activity(snapshot: ProcessSnapshot) -> bool:
+    return (
+        snapshot.process_alive
+        or snapshot.descendants_alive
+        or snapshot.gpu_processes_alive
+        or snapshot.project_cwd_processes_alive
+    )
+
+
+def _memory_quiet_enough(
+    record: RunRecord,
+    latest_sample: TelemetrySample,
+    workload_profile: GateThresholdProfile,
+) -> tuple[bool, int, int, str]:
+    vram_current = latest_sample.vram_used_mib
+    memory_source = latest_sample.memory_source
+    if memory_source == "uma_meminfo" and not record.baseline_vram_mib:
+        # DGX Spark/iGPU UMA memory is system memory pressure, not
+        # dedicated VRAM. Older in-flight records may have a zero baseline
+        # from the previous unsupported nvidia-smi/NVML path; rebase them
+        # to the first observed UMA pressure sample so the quiet window can
+        # complete when CPU/GPU/process state is otherwise idle.
+        record.baseline_vram_mib = vram_current
+    vram_baseline = record.baseline_vram_mib or 0
+    if memory_source == "uma_meminfo":
+        # UMA pressure is host allocator state, not dedicated framebuffer
+        # occupancy. Python, npm, and filesystem cache often settle above
+        # the launch baseline after a run has exited, so using a small VRAM
+        # delta here can wedge the gate even when no project process and no
+        # GPU work remain. On UMA, require enough allocatable memory for
+        # another run instead of requiring pressure to return to baseline.
+        quiet = (
+            latest_sample.uma_allocatable_mib
+            > workload_profile.vram_delta_threshold_mib
+        )
+    else:
+        quiet = (
+            vram_current <= vram_baseline + workload_profile.vram_delta_threshold_mib
+        )
+    return quiet, vram_baseline, vram_current, memory_source
+
+
+def _is_duplicate_gate_callback(record: RunRecord) -> bool:
+    if not record.last_idempotency_key:
+        return False
+    last_seen = record.last_idempotency_key.rsplit(":", maxsplit=1)[-1]
+    current_seen = record.idle_seen_at or record.last_event_at
+    return current_seen == last_seen
 
 
 class WakeGate:
@@ -105,15 +170,9 @@ class WakeGate:
         record.quiet_samples = []
         return record, True
 
-    def evaluate(self, record: RunRecord) -> tuple[RunRecord, GateCallback | None]:
-        if record.gate_state not in {
-            GateState.PENDING_IDLE_GATE,
-            GateState.WAITING_FOR_PROCESS_EXIT,
-            GateState.WAITING_FOR_QUIET_WINDOW,
-            GateState.FINISHED_PENDING_GATE,
-        }:
-            return record, None
-
+    def _resolve_evaluate_workload(
+        self, record: RunRecord
+    ) -> tuple[str, GateThresholdProfile]:
         if record.workload_profile is not None:
             workload_class = (
                 record.workload_class or self.config.normalize_workload_class(None)
@@ -129,79 +188,37 @@ class WakeGate:
                 record.workload_class = workload_class
             if record.workload_profile != workload_profile:
                 record.workload_profile = workload_profile
+        return workload_class, workload_profile
 
-        sample = self.telemetry.sample()
-        process_snapshot = self.process_tracker.snapshot(
-            record, sample.gpu_compute_pids
-        )
+    def _append_quiet_sample(
+        self,
+        record: RunRecord,
+        sample: TelemetrySample,
+        workload_profile: GateThresholdProfile,
+    ) -> int:
         record.quiet_samples.append(sample)
         max_samples = max(
             1, workload_profile.idle_sustain_sec // self.config.sample_interval_sec
         )
         record.quiet_samples = record.quiet_samples[-max_samples:]
         record.updated_at = utc_now()
+        return max_samples
 
-        if (
-            process_snapshot.process_alive
-            or process_snapshot.descendants_alive
-            or process_snapshot.gpu_processes_alive
-            or process_snapshot.project_cwd_processes_alive
-        ):
-            record.gate_state = GateState.WAITING_FOR_PROCESS_EXIT
-            # Any active tracked process invalidates the quiet window and
-            # forces the gate to rebuild a fresh idle sample set afterward.
-            record.quiet_samples = []
-            return record, None
-
-        cpu_avg = mean(item.cpu_pct for item in record.quiet_samples)
-        gpu_avg = mean(item.gpu_pct for item in record.quiet_samples)
-        gpu_peak = max(item.gpu_pct for item in record.quiet_samples)
-        latest_sample = record.quiet_samples[-1]
-        vram_current = latest_sample.vram_used_mib
-        memory_source = latest_sample.memory_source
-        if memory_source == "uma_meminfo" and not record.baseline_vram_mib:
-            # DGX Spark/iGPU UMA memory is system memory pressure, not
-            # dedicated VRAM. Older in-flight records may have a zero baseline
-            # from the previous unsupported nvidia-smi/NVML path; rebase them
-            # to the first observed UMA pressure sample so the quiet window can
-            # complete when CPU/GPU/process state is otherwise idle.
-            record.baseline_vram_mib = vram_current
-        vram_baseline = record.baseline_vram_mib or 0
-        if memory_source == "uma_meminfo":
-            # UMA pressure is host allocator state, not dedicated framebuffer
-            # occupancy. Python, npm, and filesystem cache often settle above
-            # the launch baseline after a run has exited, so using a small VRAM
-            # delta here can wedge the gate even when no project process and no
-            # GPU work remain. On UMA, require enough allocatable memory for
-            # another run instead of requiring pressure to return to baseline.
-            memory_quiet_enough = (
-                latest_sample.uma_allocatable_mib
-                > workload_profile.vram_delta_threshold_mib
-            )
-        else:
-            memory_quiet_enough = (
-                vram_current
-                <= vram_baseline + workload_profile.vram_delta_threshold_mib
-            )
-
-        quiet_enough = (
-            len(record.quiet_samples) >= max_samples
-            and cpu_avg < workload_profile.cpu_idle_threshold_pct
-            and gpu_avg < workload_profile.gpu_idle_avg_threshold_pct
-            and gpu_peak < workload_profile.gpu_idle_peak_threshold_pct
-            and memory_quiet_enough
-        )
-
-        if not quiet_enough:
-            record.gate_state = GateState.WAITING_FOR_QUIET_WINDOW
-            return record, None
-
-        if record.last_idempotency_key:
-            last_seen = record.last_idempotency_key.rsplit(":", maxsplit=1)[-1]
-            current_seen = record.idle_seen_at or record.last_event_at
-            if current_seen == last_seen:
-                return record, None
-
+    def _build_gate_ready_callback(
+        self,
+        record: RunRecord,
+        process_snapshot: ProcessSnapshot,
+        workload_class: str,
+        workload_profile: GateThresholdProfile,
+        cpu_avg: float,
+        gpu_avg: float,
+        gpu_peak: float,
+        vram_baseline: int,
+        vram_current: int,
+        memory_source: str,
+        memory_quiet_enough: bool,
+        latest_sample: TelemetrySample,
+    ) -> tuple[RunRecord, GateCallback]:
         if record.last_event and record.last_event.value == "session-end":
             record.gate_state = GateState.FINISHED_READY
             event_type = "session_finished_ready"
@@ -244,6 +261,63 @@ class WakeGate:
             idempotency_key=idempotency_key,
         )
         return record, callback
+
+    def evaluate(self, record: RunRecord) -> tuple[RunRecord, GateCallback | None]:
+        if record.gate_state not in _EVALUABLE_GATE_STATES:
+            return record, None
+
+        workload_class, workload_profile = self._resolve_evaluate_workload(record)
+
+        sample = self.telemetry.sample()
+        process_snapshot = self.process_tracker.snapshot(
+            record, sample.gpu_compute_pids
+        )
+        max_samples = self._append_quiet_sample(record, sample, workload_profile)
+
+        if _process_snapshot_has_activity(process_snapshot):
+            record.gate_state = GateState.WAITING_FOR_PROCESS_EXIT
+            # Any active tracked process invalidates the quiet window and
+            # forces the gate to rebuild a fresh idle sample set afterward.
+            record.quiet_samples = []
+            return record, None
+
+        cpu_avg = mean(item.cpu_pct for item in record.quiet_samples)
+        gpu_avg = mean(item.gpu_pct for item in record.quiet_samples)
+        gpu_peak = max(item.gpu_pct for item in record.quiet_samples)
+        latest_sample = record.quiet_samples[-1]
+        memory_quiet_enough, vram_baseline, vram_current, memory_source = (
+            _memory_quiet_enough(record, latest_sample, workload_profile)
+        )
+
+        quiet_enough = (
+            len(record.quiet_samples) >= max_samples
+            and cpu_avg < workload_profile.cpu_idle_threshold_pct
+            and gpu_avg < workload_profile.gpu_idle_avg_threshold_pct
+            and gpu_peak < workload_profile.gpu_idle_peak_threshold_pct
+            and memory_quiet_enough
+        )
+
+        if not quiet_enough:
+            record.gate_state = GateState.WAITING_FOR_QUIET_WINDOW
+            return record, None
+
+        if _is_duplicate_gate_callback(record):
+            return record, None
+
+        return self._build_gate_ready_callback(
+            record,
+            process_snapshot,
+            workload_class,
+            workload_profile,
+            cpu_avg,
+            gpu_avg,
+            gpu_peak,
+            vram_baseline,
+            vram_current,
+            memory_source,
+            memory_quiet_enough,
+            latest_sample,
+        )
 
     def reap_stale_project_processes(self, record: RunRecord) -> list[dict[str, Any]]:
         if not self.config.stale_project_process_reaper_enabled:
