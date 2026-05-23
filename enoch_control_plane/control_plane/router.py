@@ -765,47 +765,61 @@ def _paper_rewrite_rows_or_404(
     return paper, item
 
 
+def _configured_project_root_or_400(config: GateConfig) -> Path:
+    try:
+        return config.expanded_project_root.resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400, detail="configured project root could not be resolved"
+        ) from exc
+
+
+def _paper_rewrite_current_project_dir(project: dict[str, Any] | None) -> Path:
+    try:
+        return (
+            Path(str((project or {}).get("project_dir") or "")).expanduser()
+            if project
+            else Path()
+        )
+    except RuntimeError:
+        return Path()
+
+
+def _paper_rewrite_current_dir_resolution(
+    configured_root: Path,
+    current_project_dir: Path,
+) -> tuple[bool, Path | None]:
+    if not str(current_project_dir):
+        return False, None
+    try:
+        resolved = current_project_dir.resolve()
+        resolved.relative_to(configured_root)
+    except ValueError:
+        return False, None
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(
+            status_code=400, detail="paper artifact root could not be resolved"
+        ) from exc
+    try:
+        return resolved.exists(), resolved
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="paper artifact root could not be inspected",
+        ) from exc
+
+
 def _resolve_paper_rewrite_artifact_root(
     config: GateConfig,
     *,
     project_id: str,
     project: dict[str, Any] | None,
 ) -> tuple[Path, bool]:
-    try:
-        configured_root = config.expanded_project_root.resolve()
-    except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=400, detail="configured project root could not be resolved"
-        ) from exc
-    try:
-        current_project_dir = (
-            Path(str((project or {}).get("project_dir") or "")).expanduser()
-            if project
-            else Path()
-        )
-    except RuntimeError:
-        current_project_dir = Path()
-    use_current_dir = False
-    resolved_current_project_dir: Path | None = None
-    if str(current_project_dir):
-        try:
-            resolved_current_project_dir = current_project_dir.resolve()
-            resolved_current_project_dir.relative_to(configured_root)
-        except ValueError:
-            use_current_dir = False
-            resolved_current_project_dir = None
-        except (OSError, RuntimeError) as exc:
-            raise HTTPException(
-                status_code=400, detail="paper artifact root could not be resolved"
-            ) from exc
-        else:
-            try:
-                use_current_dir = resolved_current_project_dir.exists()
-            except (OSError, RuntimeError) as exc:
-                raise HTTPException(
-                    status_code=400,
-                    detail="paper artifact root could not be inspected",
-                ) from exc
+    configured_root = _configured_project_root_or_400(config)
+    current_project_dir = _paper_rewrite_current_project_dir(project)
+    use_current_dir, resolved_current_project_dir = (
+        _paper_rewrite_current_dir_resolution(configured_root, current_project_dir)
+    )
     try:
         artifact_root = (
             resolved_current_project_dir
