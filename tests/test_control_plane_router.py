@@ -12549,7 +12549,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 )
 
             with patch(
-                "enoch_control_plane.control_plane.router.post_worker_json",
+                "enoch_control_plane.control_plane.worker_evidence_sync.post_worker_json",
                 side_effect=fake_worker_post,
             ):
                 response = client.post(
