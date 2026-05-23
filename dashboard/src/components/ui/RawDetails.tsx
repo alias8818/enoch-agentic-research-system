@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-export function RawDetails({ summary, children, className }: { summary: string; children: ReactNode; className?: string }) {
+export function RawDetails({ summary, children, className }: Readonly<{ summary: string; children: ReactNode; className?: string }>) {
   const classes = ['raw-details', className].filter(Boolean).join(' ')
   return <details className={classes}><summary>{summary}</summary>{children}</details>
 }
