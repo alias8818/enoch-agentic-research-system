@@ -258,25 +258,31 @@ function eventEntityLabel(entityType: string, entityId: string): string {
   return `${entityType} ${shortId(entityId)}`
 }
 
-function payloadProofAnswers(payload: Record<string, unknown>): OperatorAnswer[] {
-  const nested = eventPayloadRecord(payload)
-  const answers: OperatorAnswer[] = []
-  const seen = new Set<string>()
+function appendEventPayloadProofKeys(
+  answers: OperatorAnswer[],
+  seen: Set<string>,
+  nested: Record<string, unknown>,
+  payload: Record<string, unknown>,
+): void {
   for (const [key, label] of EVENT_PAYLOAD_PROOF_KEYS) {
     const normalized = text(firstValue(nested[key], payload[key]))
     if (normalized === '—' || seen.has(label)) continue
     seen.add(label)
     answers.push({ label, value: normalized })
   }
+}
+
+function appendFindingsProofAnswers(answers: OperatorAnswer[], nested: Record<string, unknown>): void {
   const findings = recordArray(nested.findings)
-  if (findings.length) {
-    answers.push({ label: 'findings', value: `${findings.length} recorded` })
-    const topFinding = findings[0]
-    const topFindingMessage = text(firstValue(topFinding.message, topFinding.source))
-    if (topFindingMessage !== '—') {
-      answers.push({ label: 'top finding', value: topFindingMessage })
-    }
+  if (!findings.length) return
+  answers.push({ label: 'findings', value: `${findings.length} recorded` })
+  const topFindingMessage = text(firstValue(findings[0].message, findings[0].source))
+  if (topFindingMessage !== '—') {
+    answers.push({ label: 'top finding', value: topFindingMessage })
   }
+}
+
+function appendDispatchProofAnswers(answers: OperatorAnswer[], nested: Record<string, unknown>): void {
   if (Array.isArray(nested.dispatch_blockers)) {
     const blockers = nested.dispatch_blockers.map((item) => text(item)).filter((item) => item !== '—')
     answers.push({ label: 'dispatch blockers', value: blockers.length ? blockers.join('; ') : 'none' })
@@ -287,8 +293,25 @@ function payloadProofAnswers(payload: Record<string, unknown>): OperatorAnswer[]
   if (nested.dispatch_safe !== null && nested.dispatch_safe !== undefined) {
     answers.push({ label: 'dispatch safe at event time', value: text(nested.dispatch_safe) })
   }
+}
+
+function emptyPayloadProofFallback(nested: Record<string, unknown>): OperatorAnswer {
+  const hasNestedKeys = nested && Object.keys(nested).length > 0
+  return {
+    label: 'payload',
+    value: hasNestedKeys ? 'present — expand Raw payload for full evidence' : 'empty',
+  }
+}
+
+function payloadProofAnswers(payload: Record<string, unknown>): OperatorAnswer[] {
+  const nested = eventPayloadRecord(payload)
+  const answers: OperatorAnswer[] = []
+  const seen = new Set<string>()
+  appendEventPayloadProofKeys(answers, seen, nested, payload)
+  appendFindingsProofAnswers(answers, nested)
+  appendDispatchProofAnswers(answers, nested)
   if (!answers.length) {
-    answers.push({ label: 'payload', value: nested && Object.keys(nested).length ? 'present — expand Raw payload for full evidence' : 'empty' })
+    answers.push(emptyPayloadProofFallback(nested))
   }
   return answers
 }
