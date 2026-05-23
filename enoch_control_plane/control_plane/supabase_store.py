@@ -102,6 +102,7 @@ from .workload_routing import route_machine_target
 # Centralized SQL constant for the top remaining S1192 duplication
 # (status count query used in multiple _query calls).
 STATUS_COUNT_QUERY = "select status, count(*) as count from queue_items group by status"
+PROJECT_DECISION_JSON_FILENAME = "project_decision.json"
 
 
 ConnectionFactory = Callable[[], Any]
@@ -5141,11 +5142,11 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 "reason": "missing project decision artifact",
                 "gate": gate,
             }
-        artifact_path = artifact_root_path / ".enoch" / "project_decision.json"
+        artifact_path = artifact_root_path / ".enoch" / PROJECT_DECISION_JSON_FILENAME
         if not artifact_path.exists():
-            artifact_path = artifact_root_path / ".omx" / "project_decision.json"
+            artifact_path = artifact_root_path / ".omx" / PROJECT_DECISION_JSON_FILENAME
         if not artifact_path.exists():
-            artifact_path = artifact_root_path / "project_decision.json"
+            artifact_path = artifact_root_path / PROJECT_DECISION_JSON_FILENAME
         decision_payload = project_decision_payload(artifact_root_path)
         followup = followup_candidate_from_decision_payload(decision_payload)
         run_id_value = _text(run_id) or None
