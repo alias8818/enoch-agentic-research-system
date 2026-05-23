@@ -316,6 +316,101 @@ def _has_external_source_url(sources: list[dict[str, Any]]) -> bool:
     return False
 
 
+def _source_lineage_score(sources: list[dict[str, Any]]) -> tuple[int, list[str]]:
+    reasons: list[str] = []
+    if sources:
+        score = 8
+        reasons.append("source lineage present")
+    else:
+        score = -20
+        reasons.append("source lineage missing")
+    if _has_external_source_url(sources):
+        score += 4
+        reasons.append("external source URL present")
+    return score, reasons
+
+
+def _followup_score(followup: dict[str, Any]) -> tuple[int, list[str]]:
+    reasons: list[str] = []
+    score = 0
+    if _truthy(followup.get("recommended")):
+        score += 10
+        reasons.append("bounded follow-up is specified")
+    required_evidence = [
+        _text(item) for item in _list(followup.get("required_evidence")) if _text(item)
+    ]
+    score += min(5, len(required_evidence) * 2)
+    depth = int(followup.get("depth") or 0)
+    if depth > 2:
+        score -= min(15, (depth - 2) * 5)
+        reasons.append("follow-up depth is already high")
+    return score, reasons
+
+
+def _bounded_evidence_score(signal: dict[str, Any]) -> tuple[int, list[str]]:
+    reasons: list[str] = []
+    evidence = (
+        signal.get("evidence") if isinstance(signal.get("evidence"), dict) else {}
+    )
+    artifact_paths = [
+        _text(item) for item in _list(evidence.get("artifact_paths")) if _text(item)
+    ]
+    score = min(10, len(artifact_paths) * 2)
+    if artifact_paths:
+        reasons.append("local evidence artifact paths are present")
+    joined_paths = " ".join(path.lower() for path in artifact_paths)
+    if "metrics" in joined_paths:
+        score += 4
+        reasons.append("metrics artifact is present")
+    if "project_decision" in joined_paths:
+        score += 4
+        reasons.append("project decision artifact is present")
+    disclaimer = (
+        signal.get("do_not_overclaim")
+        if isinstance(signal.get("do_not_overclaim"), dict)
+        else {}
+    )
+    if (
+        disclaimer.get("not_a_paper") is True
+        and _text(signal.get("claim_scope"))
+        and _text(signal.get("scale_limits"))
+    ):
+        score += 4
+    return score, reasons
+
+
+def _normalized_hypothesis_status(signal: dict[str, Any]) -> str:
+    return (
+        _text(signal.get("hypothesis_status"))
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
+
+
+def _ranking_bucket(
+    signal: dict[str, Any], *, score: int, followup: dict[str, Any]
+) -> str:
+    if _text(signal.get("status")) == "compute_scale_blocked":
+        return "compute_scale_blocked"
+    hypothesis_text = _normalized_hypothesis_status(signal)
+    if (
+        hypothesis_text in {"unsupported", "not_supported", "negative", "falsified"}
+        or score < 35
+    ):
+        return "likely_stale_low_value_archive"
+    if score >= 85 and _text(signal.get("evidence_strength")).lower() in {
+        "strong",
+        "high",
+        "moderate",
+        "medium",
+    }:
+        return "top_external_researcher_candidates"
+    if _truthy(followup.get("recommended")) and score >= 45:
+        return "followup_recommended"
+    return "weak_local_only_preserved"
+
+
 def rank_signal(signal: dict[str, Any]) -> dict[str, Any]:
     """Return deterministic curation metadata derived only from signal fields."""
 
@@ -333,91 +428,24 @@ def rank_signal(signal: dict[str, Any]) -> dict[str, Any]:
     reasons.append(hypothesis_reason)
 
     sources = signal.get("sources") if isinstance(signal.get("sources"), list) else []
-    source_score = 0
-    if sources:
-        source_score += 8
-        reasons.append("source lineage present")
-    else:
-        source_score -= 20
-        reasons.append("source lineage missing")
-    if _has_external_source_url(sources):
-        source_score += 4
-        reasons.append("external source URL present")
+    source_score, source_reasons = _source_lineage_score(sources)
     score_breakdown["source_lineage"] = source_score
+    reasons.extend(source_reasons)
 
     followup = (
         signal.get("followup") if isinstance(signal.get("followup"), dict) else {}
     )
-    followup_score = 0
-    if _truthy(followup.get("recommended")):
-        followup_score += 10
-        reasons.append("bounded follow-up is specified")
-    required_evidence = [
-        _text(item) for item in _list(followup.get("required_evidence")) if _text(item)
-    ]
-    followup_score += min(5, len(required_evidence) * 2)
-    depth = int(followup.get("depth") or 0)
-    if depth > 2:
-        followup_score -= min(15, (depth - 2) * 5)
-        reasons.append("follow-up depth is already high")
+    followup_score, followup_reasons = _followup_score(followup)
     score_breakdown["followup"] = followup_score
+    reasons.extend(followup_reasons)
 
-    evidence = (
-        signal.get("evidence") if isinstance(signal.get("evidence"), dict) else {}
-    )
-    artifact_paths = [
-        _text(item) for item in _list(evidence.get("artifact_paths")) if _text(item)
-    ]
-    bounded_score = min(10, len(artifact_paths) * 2)
-    if artifact_paths:
-        reasons.append("local evidence artifact paths are present")
-    joined_paths = " ".join(path.lower() for path in artifact_paths)
-    if "metrics" in joined_paths:
-        bounded_score += 4
-        reasons.append("metrics artifact is present")
-    if "project_decision" in joined_paths:
-        bounded_score += 4
-        reasons.append("project decision artifact is present")
-    disclaimer = (
-        signal.get("do_not_overclaim")
-        if isinstance(signal.get("do_not_overclaim"), dict)
-        else {}
-    )
-    if (
-        disclaimer.get("not_a_paper") is True
-        and _text(signal.get("claim_scope"))
-        and _text(signal.get("scale_limits"))
-    ):
-        bounded_score += 4
+    bounded_score, bounded_reasons = _bounded_evidence_score(signal)
     score_breakdown["bounded_evidence"] = bounded_score
+    reasons.extend(bounded_reasons)
 
     raw_score = sum(score_breakdown.values())
     score = max(0, min(100, raw_score))
-    hypothesis_text = (
-        _text(signal.get("hypothesis_status"))
-        .lower()
-        .replace("-", "_")
-        .replace(" ", "_")
-    )
-    status = _text(signal.get("status"))
-    if status == "compute_scale_blocked":
-        bucket = "compute_scale_blocked"
-    elif (
-        hypothesis_text in {"unsupported", "not_supported", "negative", "falsified"}
-        or score < 35
-    ):
-        bucket = "likely_stale_low_value_archive"
-    elif score >= 85 and _text(signal.get("evidence_strength")).lower() in {
-        "strong",
-        "high",
-        "moderate",
-        "medium",
-    }:
-        bucket = "top_external_researcher_candidates"
-    elif _truthy(followup.get("recommended")) and score >= 45:
-        bucket = "followup_recommended"
-    else:
-        bucket = "weak_local_only_preserved"
+    bucket = _ranking_bucket(signal, score=score, followup=followup)
 
     return {
         "schema_version": RANKING_SCHEMA_VERSION,
