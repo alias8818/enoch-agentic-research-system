@@ -127,6 +127,14 @@ _UNKNOWN_DECISION_GATE_TOKENS = (
 )
 
 
+def _execute_rowcount(cur: Any, result: Any | None = None) -> int:
+    if result is not None:
+        count = getattr(result, "rowcount", None)
+        if count is not None:
+            return int(count or 0)
+    return int(getattr(cur, "rowcount", 0) or 0)
+
+
 def _decision_gate_values_text(gate: dict[str, Any]) -> str:
     return " ".join(
         _text(item[-1]).lower()
@@ -2965,10 +2973,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         QueueStatus.DISPATCHING.value,
                     ),
                 )
-                rowcount = int(
-                    getattr(result, "rowcount", getattr(cur, "rowcount", 1)) or 0
-                )
-                if rowcount == 1:
+                if _execute_rowcount(cur, result) == 1:
                     self._append_event_in_cursor(
                         cur,
                         idempotency_key=f"dispatch-claim-release:{run_id}",
