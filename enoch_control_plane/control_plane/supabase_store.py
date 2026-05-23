@@ -1635,6 +1635,234 @@ class SupabaseReadOnlyControlPlaneStore:
             next_cursor = str(max(0, cursor_id) + safe_size) if has_more else None
         return out, next_cursor, has_more
 
+    def _overview_queue_status_counts(self, cur: Any) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        blocked_count = 0
+        for row in self._cursor_rows(
+            cur,
+            """
+            select
+              status,
+              count(*) as count,
+              (
+                select count(*)
+                from queue_items
+                where manual_review_required = true or status in (%s, %s, %s)
+              ) as blocked_count
+            from queue_items
+            group by status
+            """,
+            (
+                QueueStatus.BLOCKED.value,
+                QueueStatus.NEEDS_REVIEW.value,
+                QueueStatus.DISPATCH_ERROR.value,
+            ),
+        ):
+            status = _text(row["status"]) or "unknown"
+            count = int(row["count"] or 0)
+            counts[status] = count
+            counts["all"] = counts.get("all", 0) + count
+            blocked_count = int(row.get("blocked_count") or 0)
+        counts["active"] = sum(counts.get(status, 0) for status in ACTIVE_STATUSES)
+        counts["queued"] = counts.get(QueueStatus.QUEUED.value, 0)
+        counts["blocked"] = blocked_count
+        for key in ("all", "active", "queued", "blocked", "paused", "completed"):
+            counts.setdefault(key, 0)
+        return counts
+
+    def _overview_paper_status_counts(self, cur: Any) -> dict[str, int]:
+        paper_counts: dict[str, int] = {}
+        for row in self._cursor_rows(
+            cur,
+            "select paper_status, count(*) as count from papers group by paper_status",
+        ):
+            status = _text(row["paper_status"]) or "unknown"
+            count = int(row["count"] or 0)
+            paper_counts[status] = count
+            paper_counts["all"] = paper_counts.get("all", 0) + count
+        paper_counts.setdefault("all", 0)
+        return paper_counts
+
+    def _overview_active_queue_slice(
+        self, cur: Any, *, active_limit: int
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        safe_active_limit = max(1, min(active_limit, 50))
+        placeholders = ",".join(["%s"] * len(ACTIVE_STATUSES))
+        active_items = self._queue_rows_from_cursor(
+            cur,
+            f"where q.status in ({placeholders}) order by q.updated_at desc limit %s",
+            (*sorted(ACTIVE_STATUSES), safe_active_limit),
+        )
+        next_candidates = self._queue_rows_from_cursor(
+            cur,
+            "where q.status = %s order by q.dispatch_priority asc, q.updated_at desc limit 1",
+            (QueueStatus.QUEUED.value,),
+        )
+        next_candidate = next_candidates[0] if next_candidates else None
+        return active_items, next_candidate
+
+    def _overview_operator_queue_rows(self, cur: Any) -> list[dict[str, Any]]:
+        return self._cursor_rows(
+            cur,
+            """
+            select
+              q.project_id,
+              p.project_name,
+              q.status,
+              q.dispatch_priority,
+              q.selection_rank,
+              q.current_run_id,
+              q.current_session_id,
+              q.last_run_state,
+              q.next_action_hint,
+              q.manual_review_required,
+              q.blocked_reason,
+              q.last_result_summary,
+              q.last_callback_at,
+              q.last_dispatch_at,
+              q.updated_at,
+              p.project_dir,
+              p.notion_page_url,
+              ''::text as related_paper_id,
+              ''::text as related_paper_status,
+              ''::text as related_review_status,
+              ''::text as related_finalization_package_path,
+              ''::text as related_draft_markdown_path,
+              ''::text as related_evidence_bundle_path,
+              ''::text as related_claim_ledger_path,
+              ''::text as related_manifest_path,
+              false as related_corpus_imported,
+              ''::text as related_corpus_import_id,
+              ''::text as related_artifact_slug,
+              ''::text as related_source_record_fingerprint,
+              coalesce(pe.decision_gate_state, '') as decision_gate_state,
+              coalesce(pe.decision_summary, '') as decision_summary,
+              coalesce(pe.research_outcome, '') as research_outcome,
+              coalesce(pe.hypothesis_status, '') as hypothesis_status,
+              coalesce(pe.evidence_strength, '') as evidence_strength,
+              coalesce(pe.claim_scope, '') as claim_scope,
+              coalesce(pe.scale_limits, '') as scale_limits,
+              coalesce(pe.useful_signal_summary, '') as useful_signal_summary,
+              coalesce(pe.bounded_paper_ready, false) as bounded_paper_ready,
+              coalesce(pe.compute_scale_blocked, false) as compute_scale_blocked,
+              coalesce(pe.recommended_next_action, '') as recommended_next_action,
+              coalesce(pe.stop_reason, '') as stop_reason,
+              coalesce(pe.followup_recommended, false) as followup_recommended,
+              coalesce(pe.followup_type, '') as followup_type,
+              coalesce(pe.followup_title, '') as followup_title,
+              coalesce(pe.followup_hypothesis, '') as followup_hypothesis,
+              coalesce(pe.followup_required_evidence, '[]'::jsonb) as followup_required_evidence,
+              coalesce(pe.followup_success_threshold, '') as followup_success_threshold,
+              coalesce(pe.followup_stop_condition, '') as followup_stop_condition,
+              coalesce(pe.followup_depth, 0) as followup_depth,
+              case
+                when coalesce(i.source_payload_json->>'followup_depth', '') ~ '^[0-9]+$'
+                then (i.source_payload_json->>'followup_depth')::integer
+                when coalesce(i.source_payload_json->>'parent_followup_depth', '') ~ '^[0-9]+$'
+                then (i.source_payload_json->>'parent_followup_depth')::integer
+                else 0
+              end as source_followup_depth,
+              exists (
+                select 1
+                from control_events ev
+                where ev.event_type = 'followup.launch'
+                  and ev.entity_type = 'project'
+                  and ev.entity_id = q.project_id
+              ) as followup_launched
+            from queue_items q
+            join projects p using(project_id)
+            left join paper_eligibility pe on pe.project_id = q.project_id
+            left join ideas i on i.idea_id = q.project_id
+            where exists (
+                select 1
+                from paper_eligibility candidate
+                where candidate.project_id = q.project_id
+                  and (candidate.raw_write_candidate or candidate.followup_recommended)
+            )
+               or q.manual_review_required = true
+               or q.status in (%s, %s, %s)
+            order by q.updated_at desc
+            """,
+            (
+                QueueStatus.BLOCKED.value,
+                QueueStatus.NEEDS_REVIEW.value,
+                QueueStatus.DISPATCH_ERROR.value,
+            ),
+        )
+
+    def _overview_operator_paper_rows(self, cur: Any) -> list[dict[str, Any]]:
+        return self._paper_rows_from_cursor(
+            cur,
+            """
+            where
+              (pa.paper_status = %s and rv.automation_status = %s and rv.finalization_package_path <> '' and ci.paper_id is null)
+              or ci.paper_id is not null
+              or pa.paper_status in (%s, %s, %s)
+            order by pa.updated_at desc
+            """,
+            (
+                PaperStatus.PUBLICATION_DRAFT.value,
+                ReviewStatus.FINALIZED.value,
+                PaperStatus.PUBLICATION_DRAFT.value,
+                PaperStatus.DRAFT_REVIEW.value,
+                PaperStatus.ARCHIVED.value,
+            ),
+        )
+
+    def _overview_events_page(
+        self, cur: Any, *, event_limit: int
+    ) -> tuple[list[dict[str, Any]], str | None, bool]:
+        safe_event_limit = max(0, min(event_limit, 50))
+        if not safe_event_limit:
+            return [], None, False
+        event_rows = self._cursor_rows(
+            cur,
+            """
+            select
+                event_id,
+                idempotency_key,
+                event_type,
+                entity_type,
+                entity_id,
+                pg_column_size(payload_json) as payload_bytes,
+                created_at
+            from control_events
+            order by event_id desc
+            limit %s
+            """,
+            (safe_event_limit + 1,),
+        )
+        events: list[dict[str, Any]] = []
+        for row in event_rows[:safe_event_limit]:
+            item = dict(row)
+            item["payload_summary"] = {
+                "keys": [],
+                "bytes": int(item.pop("payload_bytes") or 0),
+            }
+            item["created_at"] = str(item.get("created_at") or "")
+            events.append(item)
+        event_has_more = len(event_rows) > safe_event_limit
+        event_next_cursor = (
+            str(events[-1]["event_id"]) if event_has_more and events else None
+        )
+        return events, event_next_cursor, event_has_more
+
+    def _fetch_overview_read_model_parts(
+        self, cur: Any, *, active_limit: int, event_limit: int
+    ) -> dict[str, Any]:
+        active_items, next_candidate = self._overview_active_queue_slice(
+            cur, active_limit=active_limit
+        )
+        return {
+            "counts": self._overview_queue_status_counts(cur),
+            "paper_counts": self._overview_paper_status_counts(cur),
+            "active_items": active_items,
+            "next_candidate": next_candidate,
+            "raw_queue_rows": self._overview_operator_queue_rows(cur),
+            "raw_paper_rows": self._overview_operator_paper_rows(cur),
+            "events_page": self._overview_events_page(cur, event_limit=event_limit),
+        }
+
     def overview_read_model_parts(
         self, *, active_limit: int = 5, event_limit: int = 10
     ) -> dict[str, Any]:
@@ -1652,223 +1880,11 @@ class SupabaseReadOnlyControlPlaneStore:
             try:
                 with self._connect() as conn:
                     with conn.cursor() as cur:
-                        counts: dict[str, int] = {}
-                        blocked_count = 0
-                        for row in self._cursor_rows(
+                        return self._fetch_overview_read_model_parts(
                             cur,
-                            """
-                            select
-                              status,
-                              count(*) as count,
-                              (
-                                select count(*)
-                                from queue_items
-                                where manual_review_required = true or status in (%s, %s, %s)
-                              ) as blocked_count
-                            from queue_items
-                            group by status
-                            """,
-                            (
-                                QueueStatus.BLOCKED.value,
-                                QueueStatus.NEEDS_REVIEW.value,
-                                QueueStatus.DISPATCH_ERROR.value,
-                            ),
-                        ):
-                            status = _text(row["status"]) or "unknown"
-                            count = int(row["count"] or 0)
-                            counts[status] = count
-                            counts["all"] = counts.get("all", 0) + count
-                            blocked_count = int(row.get("blocked_count") or 0)
-                        counts["active"] = sum(
-                            counts.get(status, 0) for status in ACTIVE_STATUSES
+                            active_limit=active_limit,
+                            event_limit=event_limit,
                         )
-                        counts["queued"] = counts.get(QueueStatus.QUEUED.value, 0)
-                        counts["blocked"] = blocked_count
-                        for key in (
-                            "all",
-                            "active",
-                            "queued",
-                            "blocked",
-                            "paused",
-                            "completed",
-                        ):
-                            counts.setdefault(key, 0)
-
-                        paper_counts: dict[str, int] = {}
-                        for row in self._cursor_rows(
-                            cur,
-                            "select paper_status, count(*) as count from papers group by paper_status",
-                        ):
-                            status = _text(row["paper_status"]) or "unknown"
-                            count = int(row["count"] or 0)
-                            paper_counts[status] = count
-                            paper_counts["all"] = paper_counts.get("all", 0) + count
-                        paper_counts.setdefault("all", 0)
-
-                        safe_active_limit = max(1, min(active_limit, 50))
-                        placeholders = ",".join(["%s"] * len(ACTIVE_STATUSES))
-                        active_items = self._queue_rows_from_cursor(
-                            cur,
-                            f"where q.status in ({placeholders}) order by q.updated_at desc limit %s",
-                            (*sorted(ACTIVE_STATUSES), safe_active_limit),
-                        )
-                        next_candidates = self._queue_rows_from_cursor(
-                            cur,
-                            "where q.status = %s order by q.dispatch_priority asc, q.updated_at desc limit 1",
-                            (QueueStatus.QUEUED.value,),
-                        )
-                        raw_queue_rows = self._cursor_rows(
-                            cur,
-                            """
-                            select
-                              q.project_id,
-                              p.project_name,
-                              q.status,
-                              q.dispatch_priority,
-                              q.selection_rank,
-                              q.current_run_id,
-                              q.current_session_id,
-                              q.last_run_state,
-                              q.next_action_hint,
-                              q.manual_review_required,
-                              q.blocked_reason,
-                              q.last_result_summary,
-                              q.last_callback_at,
-                              q.last_dispatch_at,
-                              q.updated_at,
-                              p.project_dir,
-                              p.notion_page_url,
-                              ''::text as related_paper_id,
-                              ''::text as related_paper_status,
-                              ''::text as related_review_status,
-                              ''::text as related_finalization_package_path,
-                              ''::text as related_draft_markdown_path,
-                              ''::text as related_evidence_bundle_path,
-                              ''::text as related_claim_ledger_path,
-                              ''::text as related_manifest_path,
-                              false as related_corpus_imported,
-                              ''::text as related_corpus_import_id,
-                              ''::text as related_artifact_slug,
-                              ''::text as related_source_record_fingerprint,
-                              coalesce(pe.decision_gate_state, '') as decision_gate_state,
-                              coalesce(pe.decision_summary, '') as decision_summary,
-                              coalesce(pe.research_outcome, '') as research_outcome,
-                              coalesce(pe.hypothesis_status, '') as hypothesis_status,
-                              coalesce(pe.evidence_strength, '') as evidence_strength,
-                              coalesce(pe.claim_scope, '') as claim_scope,
-                              coalesce(pe.scale_limits, '') as scale_limits,
-                              coalesce(pe.useful_signal_summary, '') as useful_signal_summary,
-                              coalesce(pe.bounded_paper_ready, false) as bounded_paper_ready,
-                              coalesce(pe.compute_scale_blocked, false) as compute_scale_blocked,
-                              coalesce(pe.recommended_next_action, '') as recommended_next_action,
-                              coalesce(pe.stop_reason, '') as stop_reason,
-                              coalesce(pe.followup_recommended, false) as followup_recommended,
-                              coalesce(pe.followup_type, '') as followup_type,
-                              coalesce(pe.followup_title, '') as followup_title,
-                              coalesce(pe.followup_hypothesis, '') as followup_hypothesis,
-                              coalesce(pe.followup_required_evidence, '[]'::jsonb) as followup_required_evidence,
-                              coalesce(pe.followup_success_threshold, '') as followup_success_threshold,
-                              coalesce(pe.followup_stop_condition, '') as followup_stop_condition,
-                              coalesce(pe.followup_depth, 0) as followup_depth,
-                              case
-                                when coalesce(i.source_payload_json->>'followup_depth', '') ~ '^[0-9]+$'
-                                then (i.source_payload_json->>'followup_depth')::integer
-                                when coalesce(i.source_payload_json->>'parent_followup_depth', '') ~ '^[0-9]+$'
-                                then (i.source_payload_json->>'parent_followup_depth')::integer
-                                else 0
-                              end as source_followup_depth,
-                              exists (
-                                select 1
-                                from control_events ev
-                                where ev.event_type = 'followup.launch'
-                                  and ev.entity_type = 'project'
-                                  and ev.entity_id = q.project_id
-                              ) as followup_launched
-                            from queue_items q
-                            join projects p using(project_id)
-                            left join paper_eligibility pe on pe.project_id = q.project_id
-                            left join ideas i on i.idea_id = q.project_id
-                            where exists (
-                                select 1
-                                from paper_eligibility candidate
-                                where candidate.project_id = q.project_id
-                                  and (candidate.raw_write_candidate or candidate.followup_recommended)
-                            )
-                               or q.manual_review_required = true
-                               or q.status in (%s, %s, %s)
-                            order by q.updated_at desc
-                            """,
-                            (
-                                QueueStatus.BLOCKED.value,
-                                QueueStatus.NEEDS_REVIEW.value,
-                                QueueStatus.DISPATCH_ERROR.value,
-                            ),
-                        )
-                        raw_paper_rows = self._paper_rows_from_cursor(
-                            cur,
-                            """
-                            where
-                              (pa.paper_status = %s and rv.automation_status = %s and rv.finalization_package_path <> '' and ci.paper_id is null)
-                              or ci.paper_id is not null
-                              or pa.paper_status in (%s, %s, %s)
-                            order by pa.updated_at desc
-                            """,
-                            (
-                                PaperStatus.PUBLICATION_DRAFT.value,
-                                ReviewStatus.FINALIZED.value,
-                                PaperStatus.PUBLICATION_DRAFT.value,
-                                PaperStatus.DRAFT_REVIEW.value,
-                                PaperStatus.ARCHIVED.value,
-                            ),
-                        )
-
-                        safe_event_limit = max(0, min(event_limit, 50))
-                        if safe_event_limit:
-                            event_rows = self._cursor_rows(
-                                cur,
-                                """
-                                select
-                                    event_id,
-                                    idempotency_key,
-                                    event_type,
-                                    entity_type,
-                                    entity_id,
-                                    pg_column_size(payload_json) as payload_bytes,
-                                    created_at
-                                from control_events
-                                order by event_id desc
-                                limit %s
-                                """,
-                                (safe_event_limit + 1,),
-                            )
-                            events = []
-                            for row in event_rows[:safe_event_limit]:
-                                item = dict(row)
-                                item["payload_summary"] = {
-                                    "keys": [],
-                                    "bytes": int(item.pop("payload_bytes") or 0),
-                                }
-                                item["created_at"] = str(item.get("created_at") or "")
-                                events.append(item)
-                            event_has_more = len(event_rows) > safe_event_limit
-                            event_next_cursor = (
-                                str(events[-1]["event_id"])
-                                if event_has_more and events
-                                else None
-                            )
-                        else:
-                            events = []
-                            event_next_cursor = None
-                            event_has_more = False
-                return {
-                    "counts": counts,
-                    "paper_counts": paper_counts,
-                    "active_items": active_items,
-                    "next_candidate": next_candidates[0] if next_candidates else None,
-                    "raw_queue_rows": raw_queue_rows,
-                    "raw_paper_rows": raw_paper_rows,
-                    "events_page": (events, event_next_cursor, event_has_more),
-                }
             except Exception as exc:
                 last_exc = exc
                 if attempt < 2 and self._is_transient_connection_error(exc):
