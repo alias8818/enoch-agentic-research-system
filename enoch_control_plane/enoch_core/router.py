@@ -69,7 +69,7 @@ def create_enoch_core_router(
     def latest_snapshot_or_empty() -> dict:
         return store.rebuild_queue_projection()
 
-    @router.get("/health", response_model=HealthResponse)
+    @router.get("/health")
     def health(
         authorization: Annotated[str | None, Header()] = None,
     ) -> HealthResponse:
