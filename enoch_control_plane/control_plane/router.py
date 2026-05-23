@@ -4751,8 +4751,9 @@ def create_control_plane_router(
     def authorize(authorization: str | None) -> None:
         require_bearer(authorization)
 
-    def _require_writable_store(action: str) -> None:
-        _require_writable_store_http(action, backend=config.control_plane_store_backend)
+    _require_writable_store = partial(
+        _require_writable_store_http, backend=config.control_plane_store_backend
+    )
 
     def _dispatch_route_metadata(machine_target: str, target: Any) -> dict[str, Any]:
         return {
