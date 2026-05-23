@@ -49,6 +49,8 @@ ACTIVE_STATUSES = {
     "wake_received",
     "reconciling",
 }
+# Centralized SQL fragment for queue status equality filters (Sonar S1192).
+_QUEUE_STATUS_EQ = "q.status = ?"
 TERMINAL_SUCCESS_CALLBACK_STATES = {"wake_ready", "session_finished_ready"}
 WORKER_CALLBACK_AUDIT_KEYS = {
     "delivered_at",
@@ -2026,7 +2028,7 @@ class ControlPlaneStore:
             clauses.append(f"q.status IN ({','.join('?' for _ in ACTIVE_STATUSES)})")
             params.extend(sorted(ACTIVE_STATUSES))
         elif queue == "queued":
-            clauses.append("q.status = ?")
+            clauses.append(_QUEUE_STATUS_EQ)
             params.append(QueueStatus.QUEUED.value)
         elif queue == "blocked":
             clauses.append("(q.manual_review_required = 1 OR q.status IN (?, ?, ?))")
@@ -2038,16 +2040,16 @@ class ControlPlaneStore:
                 ]
             )
         elif queue == "paused":
-            clauses.append("q.status = ?")
+            clauses.append(_QUEUE_STATUS_EQ)
             params.append(QueueStatus.PAUSED.value)
         elif queue == "completed":
             clauses.append("q.status IN (?, ?)")
             params.extend([QueueStatus.COMPLETED.value, QueueStatus.CANCELED.value])
         elif queue not in {"", "all"}:
-            clauses.append("q.status = ?")
+            clauses.append(_QUEUE_STATUS_EQ)
             params.append(queue)
         if status:
-            clauses.append("q.status = ?")
+            clauses.append(_QUEUE_STATUS_EQ)
             params.append(status)
         if search.strip():
             needle = f"%{search.strip()}%"
