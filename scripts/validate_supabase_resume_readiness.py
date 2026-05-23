@@ -278,7 +278,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--control-url",
-        default=os.environ.get("ENOCH_CONTROL_PLANE_URL", DEFAULT_CONTROL_PLANE_URL),
+        default=os.environ.get("ENOCH_CONTROL_URL")
+        or os.environ.get("ENOCH_CONTROL_PLANE_URL")
+        or DEFAULT_CONTROL_PLANE_URL,
     )
     parser.add_argument(
         "--token-file",
@@ -289,7 +291,7 @@ def main() -> int:
     parser.add_argument(
         "--ssh-host",
         default=os.environ.get("ENOCH_CONTROL_PLANE_SSH_HOST", ""),
-        help="optional host for systemd timer checks, e.g. root@192.168.1.166",
+        help="optional host for systemd timer checks, e.g. root@control-plane-host",
     )
     parser.add_argument("--output", default="")
     args = parser.parse_args()
