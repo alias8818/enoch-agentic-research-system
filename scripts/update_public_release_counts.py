@@ -16,11 +16,12 @@ from typing import Iterable
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.validate_public_release import (
-    PUBLIC_FILES,
-    PROFILE_FILES,
     DOC_FILES,
     OWNER_PROFILE_FILES,
     PERSONAL_SITE_FILES,
+    PROFILE_FILES,
+    PUBLIC_FILES,
+    STRICT_FAIL_PHRASE,
 )
 
 DEDUPE_BASELINE = 376
@@ -251,16 +252,11 @@ def update_text(text: str, stats: dict[str, int]) -> str:
     for pattern, replacement in strict_patterns:
         text = pattern.sub(replacement, text)
 
-    text = re.sub(
-        r"\b(?:fails?|flags|rejects)\s+\d{1,5}\s+of\s+(?:its own\s+|its\s+|the\s+)?\d{2,5}\s+(?:canonical\s+)?outputs",
-        lambda m: re.sub(
-            r"\d{1,5}\s+of\s+(?:its own\s+|its\s+|the\s+)?\d{2,5}",
-            f"{sf} of {n}",
-            m.group(0),
-            count=1,
-        ),
+    text = STRICT_FAIL_PHRASE.sub(
+        lambda m: m.group(0)
+        .replace(m.group(1), str(sf), 1)
+        .replace(m.group(2), str(n), 1),
         text,
-        flags=re.I,
     )
     text = re.sub(
         r"\b(?:fails?|rejects)\s+\d{1,5}\s+of\s+them\b",
