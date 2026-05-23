@@ -159,6 +159,54 @@ def _expanduser_or_none(value: str) -> Path | None:
         return None
 
 
+def _unresolved_artifact(field: str, raw_path: str) -> dict[str, Any]:
+    return {
+        "field": field,
+        "path": raw_path,
+        "absolute_path": "",
+        "exists": False,
+        "readable": False,
+        "safe": False,
+        "size_bytes": 0,
+    }
+
+
+def _resolve_artifact_absolute_path(
+    path: Path, project_dir: Path | None
+) -> Path | None:
+    try:
+        candidate = (
+            path
+            if path.is_absolute()
+            else (project_dir / path if project_dir else path)
+        )
+        return candidate.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _artifact_path_within_project(resolved: Path, project_dir: Path | None) -> bool:
+    if project_dir is None:
+        return True
+    try:
+        resolved.relative_to(project_dir.resolve())
+        return True
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _artifact_access_stats(
+    resolved: Path, raw_path: str, safe: bool
+) -> tuple[bool, bool, int]:
+    try:
+        exists = bool(raw_path) and resolved.exists()
+        readable = safe and exists and resolved.is_file()
+        size_bytes = resolved.stat().st_size if readable else 0
+        return exists, readable, size_bytes
+    except (OSError, RuntimeError, ValueError):
+        return bool(raw_path), False, 0
+
+
 def _default_supabase_finalization_root() -> Path:
     """User-private storage for Supabase finalization manifests (not world-writable /tmp)."""
     return (
@@ -2348,56 +2396,15 @@ class ControlPlaneStore:
         )
         path = _expanduser_or_none(raw_path) if raw_path else Path()
         if project_dir_text and project_dir is None:
-            return {
-                "field": field,
-                "path": raw_path,
-                "absolute_path": "",
-                "exists": False,
-                "readable": False,
-                "safe": False,
-                "size_bytes": 0,
-            }
+            return _unresolved_artifact(field, raw_path)
         if raw_path and path is None:
-            return {
-                "field": field,
-                "path": raw_path,
-                "absolute_path": "",
-                "exists": False,
-                "readable": False,
-                "safe": False,
-                "size_bytes": 0,
-            }
+            return _unresolved_artifact(field, raw_path)
         path = path or Path()
-        try:
-            resolved = (
-                path
-                if path.is_absolute()
-                else (project_dir / path if project_dir else path)
-            ).resolve()
-        except (OSError, RuntimeError, ValueError):
-            return {
-                "field": field,
-                "path": raw_path,
-                "absolute_path": "",
-                "exists": False,
-                "readable": False,
-                "safe": False,
-                "size_bytes": 0,
-            }
-        safe = True
-        if project_dir is not None:
-            try:
-                resolved.relative_to(project_dir.resolve())
-            except (OSError, RuntimeError, ValueError):
-                safe = False
-        try:
-            exists = bool(raw_path) and resolved.exists()
-            readable = safe and exists and resolved.is_file()
-            size_bytes = resolved.stat().st_size if readable else 0
-        except (OSError, RuntimeError, ValueError):
-            exists = bool(raw_path)
-            readable = False
-            size_bytes = 0
+        resolved = _resolve_artifact_absolute_path(path, project_dir)
+        if resolved is None:
+            return _unresolved_artifact(field, raw_path)
+        safe = _artifact_path_within_project(resolved, project_dir)
+        exists, readable, size_bytes = _artifact_access_stats(resolved, raw_path, safe)
         return {
             "field": field,
             "path": raw_path,
