@@ -1757,6 +1757,85 @@ def _write_deterministic_paper(
         _atomic_write_text(target, content)
 
 
+def _compute_janitor_report(
+    *,
+    store: Any,
+    janitor_enabled: bool,
+    janitor_limit: int,
+    max_promotions: int,
+    dry_run: bool,
+    stop_reasons: list[str],
+    backpressure_reasons: list[str],
+    requested_by: str,
+) -> dict[str, Any]:
+    """Extracted from dashboard_research_run_cycle (contributes to the 61 S3776).
+
+    Self-contained janitor phase: fetch + classify + bounded promotions + apply (fail-soft)
+    + report building. Thin delegation left in the giant.
+    """
+    from scripts import research_facility_maintenance
+
+    janitor_report: dict[str, Any] = {
+        "enabled": janitor_enabled,
+        "ok": True,
+        "action": "skipped",
+    }
+    if janitor_enabled and janitor_limit and hasattr(store, "database_url"):
+        try:
+            janitor_rows = research_facility_maintenance.fetch_needs_review_rows(
+                store.database_url, limit=janitor_limit
+            )
+            janitor_actions = research_facility_maintenance.classify_rows(
+                janitor_rows,
+                policy=research_facility_maintenance.JanitorPolicy(),
+                now=datetime.now(timezone.utc),
+            )
+            janitor_promotions = [
+                item for item in janitor_actions if item.get("action") == "promote"
+            ][:max_promotions]
+            apply_result = None
+            janitor_apply_allowed = (
+                not dry_run and not stop_reasons and not backpressure_reasons
+            )
+            if janitor_apply_allowed and janitor_promotions:
+                apply_result = research_facility_maintenance.apply_actions(
+                    store.database_url,
+                    janitor_promotions,
+                    requested_by=requested_by,
+                    apply_rejections=False,
+                )
+            janitor_report = research_facility_maintenance.build_report(
+                janitor_rows,
+                janitor_actions,
+                applied=bool(apply_result),
+                apply_result=apply_result,
+            )
+            janitor_report["enabled"] = True
+            janitor_report["bounded_promotion_count"] = len(janitor_promotions)
+            if not janitor_apply_allowed and not dry_run and janitor_promotions:
+                janitor_report["apply_blocked_reason"] = "; ".join(
+                    stop_reasons or backpressure_reasons
+                )
+            janitor_report["actions"] = janitor_report["actions"][:25]
+        except Exception as exc:  # noqa: BLE001 - maintenance must fail soft
+            janitor_report = {
+                "enabled": True,
+                "ok": False,
+                "action": "failed",
+                "reason": f"research janitor failed: {exc}",
+            }
+    elif not janitor_enabled:
+        janitor_report = {"enabled": False, "ok": True, "action": "disabled"}
+    else:
+        janitor_report = {
+            "enabled": True,
+            "ok": True,
+            "action": "skipped",
+            "reason": "store does not expose a database URL",
+        }
+    return janitor_report
+
+
 def create_control_plane_router(
     config: GateConfig, require_bearer: RequireBearer
 ) -> APIRouter:
@@ -6256,7 +6335,6 @@ def create_control_plane_router(
         from argparse import Namespace
         from scripts import (
             research_facility,
-            research_facility_maintenance,
             research_provider_budget,
             research_provider_generate,
         )
@@ -6425,67 +6503,16 @@ def create_control_plane_router(
 
         janitor_enabled = bool(body.get("janitor_enabled", True))
         janitor_limit = bounded_int("janitor_limit", 250, 0, 500)
-        janitor_report: dict[str, Any] = {
-            "enabled": janitor_enabled,
-            "ok": True,
-            "action": "skipped",
-        }
-        if janitor_enabled and janitor_limit and hasattr(store, "database_url"):
-            try:
-                janitor_rows = research_facility_maintenance.fetch_needs_review_rows(
-                    store.database_url, limit=janitor_limit
-                )
-                janitor_actions = research_facility_maintenance.classify_rows(
-                    janitor_rows,
-                    policy=research_facility_maintenance.JanitorPolicy(),
-                    now=datetime.now(timezone.utc),
-                )
-                # Bound maintenance per tick. Rejections stay report-only here;
-                # applying them requires the standalone janitor CLI with
-                # --apply-rejections so automation cannot silently discard rows.
-                janitor_promotions = [
-                    item for item in janitor_actions if item.get("action") == "promote"
-                ][:max_promotions]
-                apply_result = None
-                janitor_apply_allowed = (
-                    not dry_run and not stop_reasons and not backpressure_reasons
-                )
-                if janitor_apply_allowed and janitor_promotions:
-                    apply_result = research_facility_maintenance.apply_actions(
-                        store.database_url,
-                        janitor_promotions,
-                        requested_by=requested_by,
-                        apply_rejections=False,
-                    )
-                janitor_report = research_facility_maintenance.build_report(
-                    janitor_rows,
-                    janitor_actions,
-                    applied=bool(apply_result),
-                    apply_result=apply_result,
-                )
-                janitor_report["enabled"] = True
-                janitor_report["bounded_promotion_count"] = len(janitor_promotions)
-                if not janitor_apply_allowed and not dry_run and janitor_promotions:
-                    janitor_report["apply_blocked_reason"] = "; ".join(
-                        stop_reasons or backpressure_reasons
-                    )
-                janitor_report["actions"] = janitor_report["actions"][:25]
-            except Exception as exc:  # noqa: BLE001 - maintenance must fail soft inside long-haul tick
-                janitor_report = {
-                    "enabled": True,
-                    "ok": False,
-                    "action": "failed",
-                    "reason": f"research janitor failed: {exc}",
-                }
-        elif not janitor_enabled:
-            janitor_report = {"enabled": False, "ok": True, "action": "disabled"}
-        else:
-            janitor_report = {
-                "enabled": True,
-                "ok": True,
-                "action": "skipped",
-                "reason": "store does not expose a database URL",
-            }
+        janitor_report = _compute_janitor_report(
+            store=store,
+            janitor_enabled=janitor_enabled,
+            janitor_limit=janitor_limit,
+            max_promotions=max_promotions,
+            dry_run=dry_run,
+            stop_reasons=stop_reasons,
+            backpressure_reasons=backpressure_reasons,
+            requested_by=requested_by,
+        )
 
         initial_promotable = promotable_rows()
         active_lane_keys = {_worker_lane_key(row) for row in active}
