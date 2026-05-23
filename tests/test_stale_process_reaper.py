@@ -185,7 +185,7 @@ class StaleProcessReaperTests(unittest.TestCase):
         with (
             patch.object(tracker, "stale_reap_candidates", return_value=[candidate]),
             patch(
-                "enoch_control_plane.process_tracker.os.kill",
+                "enoch_control_plane.process_tracker._safe_send_signal",
                 side_effect=PermissionError,
             ),
         ):
@@ -240,7 +240,8 @@ class StaleProcessReaperTests(unittest.TestCase):
                 [],
             )
 
-        self.assertEqual(len(signaled), 1)
+        # Identity check at SIGTERM blocks signaling a reused PID occupant.
+        self.assertEqual(len(signaled), 0)
 
     def test_reaper_audits_process_that_exits_during_identity_check(self) -> None:
         class _GoneProcess:
