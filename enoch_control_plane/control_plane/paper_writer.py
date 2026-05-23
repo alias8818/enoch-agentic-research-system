@@ -16,7 +16,16 @@ from ..url_safety import validate_http_url
 from .models import PaperRecord
 
 
-EVIDENCE_TEXT_EXTENSIONS = {".md", ".txt", ".json", ".jsonl", ".csv", ".log", ".py"}
+JSON_FILE_SUFFIX = ".json"
+EVIDENCE_TEXT_EXTENSIONS = {
+    ".md",
+    ".txt",
+    JSON_FILE_SUFFIX,
+    ".jsonl",
+    ".csv",
+    ".log",
+    ".py",
+}
 EVIDENCE_PUBLIC_DIR = "evidence"
 PAPER_PATH_LABEL = "paper path"
 MAX_EVIDENCE_FILES = 80
@@ -446,7 +455,7 @@ def _metric_summary_for_file(
 ) -> dict[str, Any] | None:
     suffix = path.suffix.lower()
     try:
-        if suffix == ".json":
+        if suffix == JSON_FILE_SUFFIX:
             data = json.loads(text)
             metrics = _flatten_json_metrics(data)
             return {"source_path": rel_path, "format": "json", "metrics": metrics}
@@ -929,7 +938,7 @@ def _is_result_summary_candidate(path: Path) -> bool:
         return True
     if name in _RESULT_SUMMARY_JSON_NAMES:
         return True
-    return "sweep" in name and name.endswith(".json")
+    return "sweep" in name and name.endswith(JSON_FILE_SUFFIX)
 
 
 def _append_result_summaries(
