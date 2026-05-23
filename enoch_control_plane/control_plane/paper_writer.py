@@ -18,6 +18,7 @@ from .models import PaperRecord
 
 EVIDENCE_TEXT_EXTENSIONS = {".md", ".txt", ".json", ".jsonl", ".csv", ".log", ".py"}
 EVIDENCE_PUBLIC_DIR = "evidence"
+PAPER_PATH_LABEL = "paper path"
 MAX_EVIDENCE_FILES = 80
 MAX_PUBLIC_EVIDENCE_BYTES = 80_000
 MAX_METRIC_FILES = 40
@@ -117,18 +118,22 @@ def _paper_write_target(project_dir: Path, rel_path: Any) -> tuple[Path, str]:
     return target, raw_rel_path
 
 
+def _paper_path_not_file_target_detail(rel_path: Any) -> str:
+    return f"paper path is not a file target: {rel_path}"
+
+
 def _reject_directory_or_empty_paper_target(
     target: Path, project_dir: Path, rel_path: Any, raw_rel_path: str
 ) -> None:
     if not raw_rel_path or target == project_dir:
         raise HTTPException(
-            status_code=400, detail=f"paper path is not a file target: {rel_path}"
+            status_code=400, detail=_paper_path_not_file_target_detail(rel_path)
         )
-    if _path_exists_for_paper(target, label="paper path") and _path_is_dir_for_paper(
-        target, label="paper path"
-    ):
+    if _path_exists_for_paper(
+        target, label=PAPER_PATH_LABEL
+    ) and _path_is_dir_for_paper(target, label=PAPER_PATH_LABEL):
         raise HTTPException(
-            status_code=400, detail=f"paper path is not a file target: {rel_path}"
+            status_code=400, detail=_paper_path_not_file_target_detail(rel_path)
         )
 
 
@@ -151,7 +156,7 @@ def _write_single_paper_file(
     target, raw_rel_path = _paper_write_target(project_dir, rel_path)
     _reject_directory_or_empty_paper_target(target, project_dir, rel_path, raw_rel_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    if _path_exists_for_paper(target, label="paper path") and not force:
+    if _path_exists_for_paper(target, label=PAPER_PATH_LABEL) and not force:
         return
     _atomic_write_text_file(target, content)
 
