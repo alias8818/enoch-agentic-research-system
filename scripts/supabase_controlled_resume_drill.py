@@ -29,9 +29,17 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts.run_public_corpus_release import default_control_url
 from scripts.validate_supabase_resume_readiness import (
     validate as validate_resume_readiness,
 )
+
+
+def _default_drill_control_url() -> str:
+    explicit = os.environ.get("ENOCH_CONTROL_PLANE_URL", "").strip()
+    if explicit:
+        return explicit
+    return default_control_url()
 
 
 class DrillError(RuntimeError):
@@ -245,7 +253,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--control-url",
-        default=os.environ.get("ENOCH_CONTROL_PLANE_URL", "http://192.168.1.166:8787"),
+        default=_default_drill_control_url(),
     )
     parser.add_argument(
         "--token-file",
