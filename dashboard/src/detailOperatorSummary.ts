@@ -347,11 +347,18 @@ function eventActionNeeded(payload: Record<string, unknown>): string | null {
   return null
 }
 
+function eventDefaultEntityType(payload: Record<string, unknown>): string {
+  if (payload.project_id) return 'project'
+  if (payload.run_id) return 'run'
+  if (payload.paper_id) return 'paper'
+  return 'entity'
+}
+
 function eventSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const eventType = text(payload.event_type)
   const headline = eventHumanSummary(payload)
   const entityId = text(firstValue(payload.entity_id, payload.project_id, payload.paper_id, payload.run_id))
-  const entityType = text(firstValue(payload.entity_type, payload.project_id ? 'project' : payload.run_id ? 'run' : payload.paper_id ? 'paper' : 'entity'))
+  const entityType = text(firstValue(payload.entity_type, eventDefaultEntityType(payload)))
   const createdAt = text(firstValue(payload.created_at, payload.updated_at))
   const eventId = text(firstValue(payload.event_id, payload.id))
   const entityLinks = eventEntityLinks(payload)
