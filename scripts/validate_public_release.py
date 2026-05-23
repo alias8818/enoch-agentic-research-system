@@ -55,14 +55,9 @@ OF_PASS_PHRASE = re.compile(
     r"\b(\d{2,5})\s+of\s+(\d{2,5})\s+pass(?:es)?\s+(?:the\s+)?packaging(?:/| and )provenance",
     re.I,
 )
-_STRICT_FAIL_OUTPUTS = r"\s+(?:canonical\s+)?outputs"
-STRICT_FAIL_PHRASES = tuple(
-    re.compile(
-        rf"{verb}\s+(\d{{1,5}})\s+of\s+{owner}(\d{{2,5}}){_STRICT_FAIL_OUTPUTS}",
-        re.I,
-    )
-    for verb in (r"\bfails?", r"\bflags", r"\brejects")
-    for owner in ("", r"its own\s+", r"its\s+", r"the\s+")
+STRICT_FAIL_PHRASE = re.compile(
+    r"\b(?:fails?|flags|rejects)\s+(\d{1,5})\s+of\s+(?:its own\s+|its\s+|the\s+)?(\d{2,5})\s+(?:canonical\s+)?outputs",
+    re.I,
 )
 PROMISING_COUNT_PHRASE = re.compile(
     r"\b(\d{1,5})\b(?:\s|<[^>]+>)+(?:bounded\s+)?(?:useful/scale-blocked\s+|useful\s+or\s+scale-blocked\s+|promising\s+)?(?:leads|signals)(?:\s|<[^>]+>)+(?:preserved|outside|that are not|repo|records)",
@@ -228,14 +223,13 @@ def check_strict_public_counts(
                     f"strict audit pass count drift in {path}:{line_for(text, match.start())}: {left}/{right} != {strict_pass_count}/{artifact_count}",
                     failures,
                 )
-        for pattern in STRICT_FAIL_PHRASES:
-            for match in pattern.finditer(text):
-                left, right = int(match.group(1)), int(match.group(2))
-                if (left, right) != (strict_fail_count, artifact_count):
-                    fail(
-                        f"strict audit fail count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {strict_fail_count} of {artifact_count}",
-                        failures,
-                    )
+        for match in STRICT_FAIL_PHRASE.finditer(text):
+            left, right = int(match.group(1)), int(match.group(2))
+            if (left, right) != (strict_fail_count, artifact_count):
+                fail(
+                    f"strict audit fail count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {strict_fail_count} of {artifact_count}",
+                    failures,
+                )
 
 
 def check_quality_scope(paths: list[Path], failures: list[str]) -> None:
