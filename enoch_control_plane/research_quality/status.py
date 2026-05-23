@@ -10,8 +10,8 @@ from .datasets import as_bool, is_supported_negative_nonblocking, negative_ratio
 
 DEFAULT_REPORT_PATHS = (
     "/var/lib/enoch-control-plane/research-quality/latest-report.json",
-    "/tmp/enoch-dspy-quality-report.after.json",
-    "/tmp/enoch-dspy-quality-report.json",
+    "/var/lib/enoch-control-plane/research-quality/dspy-quality-report.after.json",
+    "/var/lib/enoch-control-plane/research-quality/dspy-quality-report.json",
 )
 DEFAULT_WINDOW_REPORT_PATH = (
     "/var/lib/enoch-control-plane/research-quality/latest-window-comparison.json"
