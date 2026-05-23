@@ -14637,6 +14637,50 @@ def test_mount_control_plane_http_routes_delegates_to_http_register():
     assert callable(_register_control_plane_http_routes)
 
 
+def test_register_control_plane_http_route_handlers_is_thin_orchestrator():
+    """AGENTS.md test-first for OPEN S3776 (_register_control_plane_http_route_handlers).
+
+    Handler registration delegates to prepare + domain registrars so Sonar cognitive
+    complexity stays off the HTTP registration entrypoint.
+    """
+    import ast
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def _register_control_plane_http_route_handlers(" in src
+
+    module = ast.parse(src)
+    handlers = next(
+        node
+        for node in module.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_register_control_plane_http_route_handlers"
+    )
+    body_lines = {stmt.lineno for stmt in handlers.body}
+    assert body_lines, "_register_control_plane_http_route_handlers must have a body"
+    assert max(body_lines) - min(body_lines) <= 20, (
+        "_register_control_plane_http_route_handlers should remain a thin orchestrator"
+    )
+    called = {
+        stmt.value.func.id
+        for stmt in handlers.body
+        if isinstance(stmt, ast.Expr)
+        and isinstance(stmt.value, ast.Call)
+        and isinstance(stmt.value.func, ast.Name)
+    }
+    assert "_prepare_control_plane_http_route_bindings" in called
+    assert "_register_control_plane_dashboard_shell_routes" in called
+    assert "_register_control_plane_operator_legacy_routes" in called
+
+    from enoch_control_plane.control_plane.router import (
+        _register_control_plane_http_route_handlers,
+    )
+
+    assert callable(_register_control_plane_http_route_handlers)
+
+
 def test_router_no_redundant_response_model_fastapi_style():
     """AGENTS.md test-first validator for top BLOCKERs (S8409/S8410, ~49 instances in router.py).
 
