@@ -5,7 +5,7 @@ import argparse
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import HTTPException
 
@@ -25,6 +25,8 @@ from enoch_control_plane.control_plane.supabase_store import (
     SupabaseReadOnlyControlPlaneStore,
     resolve_supabase_database_url,
 )
+
+ProcessStatus = Literal["updated", "skipped", "failed"]
 
 
 def load_config(path: Path) -> GateConfig:
@@ -72,7 +74,7 @@ def artifact_root_for_row(config: GateConfig, row: dict[str, Any]) -> Path:
     )
 
 
-def main() -> int:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Backfill evidence_bundle.json and claim_ledger.json for existing Enoch papers."
     )
@@ -103,8 +105,133 @@ def main() -> int:
         help="Rewrite existing evidence_bundle/claim_ledger/manifest files.",
     )
     parser.add_argument("--dry-run", action="store_true")
-    args = parser.parse_args()
+    return parser.parse_args()
 
+
+def _default_evidence_sync() -> dict[str, Any]:
+    return {"enabled": False, "synced": False, "reason": "not_requested"}
+
+
+def _source_project_dir_for_sync(config: GateConfig, row: dict[str, Any]) -> str:
+    source_project_dir = str(row.get("project_dir") or "")
+    resolved_root = str(config.expanded_project_root.resolve())
+    if source_project_dir.startswith("/") and not source_project_dir.startswith(
+        resolved_root
+    ):
+        return source_project_dir
+    return ""
+
+
+def _maybe_sync_evidence(
+    config: GateConfig,
+    args: argparse.Namespace,
+    row: dict[str, Any],
+    *,
+    project_id: str,
+    artifact_root: Path,
+) -> dict[str, Any]:
+    if not args.sync:
+        return _default_evidence_sync()
+    return _sync_remote_project_evidence(
+        config,
+        project_id=project_id,
+        artifact_root=artifact_root,
+        source_project_dir=_source_project_dir_for_sync(config, row),
+        source_run_id=str(row.get("run_id") or ""),
+    )
+
+
+def _build_candidate(
+    row: dict[str, Any],
+    *,
+    project_id: str,
+    artifact_root: Path,
+    record: PaperRecord,
+    evidence_sync: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "project_id": project_id,
+        "project_name": str(row.get("project_name") or project_id),
+        "project_dir": str(artifact_root),
+        "run_id": record.run_id,
+        "current_run_id": record.run_id,
+        "source_project_dir": str(row.get("project_dir") or ""),
+        "evidence_sync": evidence_sync,
+    }
+
+
+def _failure_result(
+    paper_id: str,
+    project_id: str,
+    artifact_root: Path,
+    error: str,
+) -> dict[str, Any]:
+    return {
+        "paper_id": paper_id,
+        "project_id": project_id,
+        "updated": False,
+        "artifact_root": str(artifact_root),
+        "error": error,
+    }
+
+
+def _process_paper_row(
+    config: GateConfig,
+    args: argparse.Namespace,
+    row: dict[str, Any],
+) -> tuple[ProcessStatus, dict[str, Any]]:
+    paper_id = str(row.get("paper_id") or "")
+    project_id = str(row.get("project_id") or "")
+    artifact_root = artifact_root_for_row(config, row)
+    try:
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        evidence_sync = _maybe_sync_evidence(
+            config, args, row, project_id=project_id, artifact_root=artifact_root
+        )
+        local_evidence = _local_paper_evidence_present(artifact_root)
+        record = paper_record_from_row(row)
+        candidate = _build_candidate(
+            row,
+            project_id=project_id,
+            artifact_root=artifact_root,
+            record=record,
+            evidence_sync=evidence_sync,
+        )
+        if args.dry_run:
+            return "skipped", {
+                "paper_id": paper_id,
+                "project_id": project_id,
+                "dry_run": True,
+                "artifact_root": str(artifact_root),
+                "local_evidence_present": local_evidence,
+                "evidence_sync": evidence_sync,
+            }
+        meta = backfill_paper_evidence_artifacts(
+            config, candidate, record, force=args.force
+        )
+        return "updated", {
+            "paper_id": paper_id,
+            "project_id": project_id,
+            "updated": True,
+            "artifact_root": str(artifact_root),
+            "meta": meta,
+            "evidence_sync": evidence_sync,
+        }
+    except HTTPException as exc:
+        return "failed", _failure_result(
+            paper_id, project_id, artifact_root, str(exc.detail)
+        )
+    except Exception as exc:
+        return "failed", _failure_result(
+            paper_id,
+            project_id,
+            artifact_root,
+            f"{type(exc).__name__}: {exc}",
+        )
+
+
+def main() -> int:
+    args = _parse_args()
     config = load_config(args.config)
     store = make_store(config)
     wanted = {str(item) for item in args.paper_id}
@@ -121,89 +248,14 @@ def main() -> int:
         if args.limit and processed >= args.limit:
             break
         processed += 1
-        project_id = str(row.get("project_id") or "")
-        artifact_root = artifact_root_for_row(config, row)
-        evidence_sync: dict[str, Any] = {
-            "enabled": False,
-            "synced": False,
-            "reason": "not_requested",
-        }
-        try:
-            artifact_root.mkdir(parents=True, exist_ok=True)
-            if args.sync:
-                source_project_dir = str(row.get("project_dir") or "")
-                evidence_sync = _sync_remote_project_evidence(
-                    config,
-                    project_id=project_id,
-                    artifact_root=artifact_root,
-                    source_project_dir=source_project_dir
-                    if source_project_dir.startswith("/")
-                    and not source_project_dir.startswith(
-                        str(config.expanded_project_root.resolve())
-                    )
-                    else "",
-                    source_run_id=str(row.get("run_id") or ""),
-                )
-            local_evidence = _local_paper_evidence_present(artifact_root)
-            record = paper_record_from_row(row)
-            candidate = {
-                "project_id": project_id,
-                "project_name": str(row.get("project_name") or project_id),
-                "project_dir": str(artifact_root),
-                "run_id": record.run_id,
-                "current_run_id": record.run_id,
-                "source_project_dir": str(row.get("project_dir") or ""),
-                "evidence_sync": evidence_sync,
-            }
-            if args.dry_run:
-                skipped += 1
-                out_rows.append(
-                    {
-                        "paper_id": paper_id,
-                        "project_id": project_id,
-                        "dry_run": True,
-                        "artifact_root": str(artifact_root),
-                        "local_evidence_present": local_evidence,
-                        "evidence_sync": evidence_sync,
-                    }
-                )
-                continue
-            meta = backfill_paper_evidence_artifacts(
-                config, candidate, record, force=args.force
-            )
+        status, result = _process_paper_row(config, args, row)
+        out_rows.append(result)
+        if status == "updated":
             updated += 1
-            out_rows.append(
-                {
-                    "paper_id": paper_id,
-                    "project_id": project_id,
-                    "updated": True,
-                    "artifact_root": str(artifact_root),
-                    "meta": meta,
-                    "evidence_sync": evidence_sync,
-                }
-            )
-        except HTTPException as exc:
+        elif status == "skipped":
+            skipped += 1
+        else:
             failed += 1
-            out_rows.append(
-                {
-                    "paper_id": paper_id,
-                    "project_id": project_id,
-                    "updated": False,
-                    "artifact_root": str(artifact_root),
-                    "error": exc.detail,
-                }
-            )
-        except Exception as exc:
-            failed += 1
-            out_rows.append(
-                {
-                    "paper_id": paper_id,
-                    "project_id": project_id,
-                    "updated": False,
-                    "artifact_root": str(artifact_root),
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
-            )
 
     print(
         json.dumps(
