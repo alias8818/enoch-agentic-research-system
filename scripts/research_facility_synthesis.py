@@ -74,35 +74,45 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _append_parsed_list_item(items: list[Any], item: Any) -> None:
+    if not isinstance(item, str):
+        if _text(item):
+            items.append(item)
+        return
+    text = _text(item)
+    if not text:
+        return
+    items.extend(_split_numbered_list_text(text))
+
+
+def _as_list_from_sequence(value: Iterable[Any]) -> list[Any]:
+    items: list[Any] = []
+    for item in value:
+        _append_parsed_list_item(items, item)
+    return items
+
+
+def _as_list_from_str(value: str) -> list[Any]:
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return _split_numbered_list_text(value)
+    if isinstance(decoded, list):
+        return _as_list(decoded)
+    return _split_numbered_list_text(value)
+
+
 def _as_list(value: Any) -> list[Any]:
     if value is None or value == "":
         return []
     if isinstance(value, list):
-        items: list[Any] = []
-        for item in value:
-            if not isinstance(item, str):
-                if _text(item):
-                    items.append(item)
-                continue
-            text = _text(item)
-            if not text:
-                continue
-            items.extend(_split_numbered_list_text(text))
-        return items
+        return _as_list_from_sequence(value)
     if isinstance(value, tuple):
         return list(value)
     if isinstance(value, dict):
         return list(value)
     if isinstance(value, str):
-        try:
-            decoded = json.loads(value)
-        except json.JSONDecodeError:
-            return _split_numbered_list_text(value)
-        return (
-            _as_list(decoded)
-            if isinstance(decoded, list)
-            else _split_numbered_list_text(value)
-        )
+        return _as_list_from_str(value)
     return [value]
 
 
