@@ -232,79 +232,130 @@ def candidate_cases(candidates: list[CandidateRow]) -> list[dict[str, Any]]:
     return cases
 
 
+def _decision_case_supported_but_negative(
+    row: DecisionRow,
+    *,
+    score: float,
+    problems: list[str],
+    compact: dict[str, Any],
+) -> dict[str, Any] | None:
+    if "supported_but_negative_requires_review" not in problems:
+        return None
+    return _case(
+        "supported_but_negative_warning",
+        "warn_not_block_or_write_paper",
+        "warning",
+        row.run_id or row.project_id,
+        row.project_name,
+        {"decision": compact, "quality_score": score, "problems": problems},
+        "Classify as a Research Quality warning for operator inspection; do not count as paper-positive and do not block long-haul readiness unless stronger evidence says the gate is wrong.",
+        "Supported-but-negative decisions can be legitimate proxy/support cases, but they are exactly where prompt and paper-gate policy should be evaluated.",
+    )
+
+
+def _decision_case_proxy_only_positive(
+    row: DecisionRow, *, compact: dict[str, Any]
+) -> dict[str, Any] | None:
+    if not (
+        _proxy_only(row)
+        and row.hypothesis_status in {"supported", "mixed"}
+        and row.decision == "finalize_negative"
+    ):
+        return None
+    return _case(
+        "proxy_only_positive",
+        "require_direct_evidence_before_paper",
+        "info",
+        row.run_id or row.project_id,
+        row.project_name,
+        {"decision": compact},
+        "Keep the result out of the paper-writing lane unless a follow-up provides direct artifact-backed evidence against the target baseline.",
+        "Proxy-only or early-falsification support should guide follow-up policy, not become publication work.",
+    )
+
+
+def _decision_case_max_depth_followup(
+    raw: RawDecision,
+    row: DecisionRow,
+    *,
+    compact: dict[str, Any],
+    max_followup_depth: int,
+) -> dict[str, Any] | None:
+    if not (
+        _followup_depth(raw.row) >= max_followup_depth
+        and row.decision == "finalize_negative"
+    ):
+        return None
+    return _case(
+        "max_depth_followup_ending",
+        "stop_or_require_manual_new_branch",
+        "info",
+        row.run_id or row.project_id,
+        row.project_name,
+        {"decision": compact, "max_followup_depth": max_followup_depth},
+        "Do not auto-branch again at or above max follow-up depth; require a manually justified new mechanism if work continues.",
+        "Depth-capped negative endings are useful eval cases for preventing infinite adjacent variants.",
+    )
+
+
+def _decision_case_useful_adjacent_followup(
+    raw: RawDecision,
+    row: DecisionRow,
+    *,
+    compact: dict[str, Any],
+    max_followup_depth: int,
+) -> dict[str, Any] | None:
+    if not (
+        has_bounded_followup(row)
+        and _followup_depth(raw.row) < max_followup_depth
+        and row.decision == "finalize_negative"
+    ):
+        return None
+    return _case(
+        "useful_adjacent_followup",
+        "promote_bounded_followup_candidate",
+        "info",
+        row.run_id or row.project_id,
+        row.followup_title or row.project_name,
+        {"decision": compact},
+        "Prefer promoting a bounded follow-up when it has a changed hypothesis, at least two required evidence items, a success threshold, and a stop condition.",
+        "This is the positive eval class for follow-up branching policy: adjacent work is allowed when the branch is bounded and mechanism-changing.",
+    )
+
+
+def _cases_for_decision(
+    raw: RawDecision, *, max_followup_depth: int
+) -> list[dict[str, Any]]:
+    row = raw.decision
+    score, problems = classify_decision_quality(row)
+    compact = _compact_decision(row, raw.row)
+    optional_cases = (
+        _decision_case_supported_but_negative(
+            row, score=score, problems=problems, compact=compact
+        ),
+        _decision_case_proxy_only_positive(row, compact=compact),
+        _decision_case_max_depth_followup(
+            raw, row, compact=compact, max_followup_depth=max_followup_depth
+        ),
+        _decision_case_useful_adjacent_followup(
+            raw, row, compact=compact, max_followup_depth=max_followup_depth
+        ),
+    )
+    return [case for case in optional_cases if case is not None]
+
+
 def decision_cases(
     raw_decisions: list[RawDecision], *, max_followup_depth: int
 ) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
     seen: set[str] = set()
     for raw in raw_decisions:
-        row = raw.decision
-        score, problems = classify_decision_quality(row)
-        compact = _compact_decision(row, raw.row)
-        if "supported_but_negative_requires_review" in problems:
-            cases.append(
-                _case(
-                    "supported_but_negative_warning",
-                    "warn_not_block_or_write_paper",
-                    "warning",
-                    row.run_id or row.project_id,
-                    row.project_name,
-                    {"decision": compact, "quality_score": score, "problems": problems},
-                    "Classify as a Research Quality warning for operator inspection; do not count as paper-positive and do not block long-haul readiness unless stronger evidence says the gate is wrong.",
-                    "Supported-but-negative decisions can be legitimate proxy/support cases, but they are exactly where prompt and paper-gate policy should be evaluated.",
-                )
-            )
-        if (
-            _proxy_only(row)
-            and row.hypothesis_status in {"supported", "mixed"}
-            and row.decision == "finalize_negative"
-        ):
-            cases.append(
-                _case(
-                    "proxy_only_positive",
-                    "require_direct_evidence_before_paper",
-                    "info",
-                    row.run_id or row.project_id,
-                    row.project_name,
-                    {"decision": compact},
-                    "Keep the result out of the paper-writing lane unless a follow-up provides direct artifact-backed evidence against the target baseline.",
-                    "Proxy-only or early-falsification support should guide follow-up policy, not become publication work.",
-                )
-            )
-        if (
-            _followup_depth(raw.row) >= max_followup_depth
-            and row.decision == "finalize_negative"
-        ):
-            cases.append(
-                _case(
-                    "max_depth_followup_ending",
-                    "stop_or_require_manual_new_branch",
-                    "info",
-                    row.run_id or row.project_id,
-                    row.project_name,
-                    {"decision": compact, "max_followup_depth": max_followup_depth},
-                    "Do not auto-branch again at or above max follow-up depth; require a manually justified new mechanism if work continues.",
-                    "Depth-capped negative endings are useful eval cases for preventing infinite adjacent variants.",
-                )
-            )
-        if (
-            has_bounded_followup(row)
-            and _followup_depth(raw.row) < max_followup_depth
-            and row.decision == "finalize_negative"
-        ):
-            case = _case(
-                "useful_adjacent_followup",
-                "promote_bounded_followup_candidate",
-                "info",
-                row.run_id or row.project_id,
-                row.followup_title or row.project_name,
-                {"decision": compact},
-                "Prefer promoting a bounded follow-up when it has a changed hypothesis, at least two required evidence items, a success threshold, and a stop condition.",
-                "This is the positive eval class for follow-up branching policy: adjacent work is allowed when the branch is bounded and mechanism-changing.",
-            )
-            if case["case_id"] not in seen:
-                cases.append(case)
+        for case in _cases_for_decision(raw, max_followup_depth=max_followup_depth):
+            if case["case_type"] == "useful_adjacent_followup":
+                if case["case_id"] in seen:
+                    continue
                 seen.add(case["case_id"])
+            cases.append(case)
     return cases
 
 
