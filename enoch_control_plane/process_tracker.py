@@ -306,10 +306,14 @@ class ProcessTracker:
 
         term_signaled: list[ProcessInfo] = []
         for info in candidates:
+            pid = info.pid
+            # S4828: never signal pid <= 0 (pid 0 is the process group).
+            if pid <= 0:
+                continue
             try:
-                os.kill(info.pid, signal.SIGTERM)
+                os.kill(pid, signal.SIGTERM)
                 term_signaled.append(info)
-            except (ProcessLookupError, PermissionError):
+            except (ProcessLookupError, PermissionError, OSError):
                 continue
 
         if term_grace_sec > 0:
