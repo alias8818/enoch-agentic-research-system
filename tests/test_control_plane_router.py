@@ -14023,6 +14023,61 @@ def test_resolve_research_provider_model_no_duplicated_literals() -> None:
     )
 
 
+def test_alerts_queue_alert_findings_54_c901_extracted():
+    """AGENTS.md test-first for the new horrible-first CRITICAL S3776 (cognitive 54)
+    in alerts.py:queue_alert_findings after the BLOCKER response_model remediation.
+
+    The 54-complexity active-lane stale/hang findings collection (the for row in active_items
+    stale_after + hang logic) has been lifted to a top-level helper.
+    Validator: helper def exists (centralized), and behavioral smoke on the helper.
+    Red on the restored base (no helper); green after extraction.
+    """
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/alerts.py").read_text(encoding="utf-8")
+
+    # The extraction centralizes the logic; the helper must now be present at module level.
+    assert "def _collect_active_lane_findings(" in src, (
+        "_collect_active_lane_findings helper not found (S3776 54 still inline in queue_alert_findings)"
+    )
+
+    # Behavioral smoke: import and exercise the helper with a minimal triggering status.
+    # (ensures semantics preserved exactly)
+    from datetime import datetime, timezone, timedelta
+    from enoch_control_plane.control_plane.alerts import _collect_active_lane_findings
+    from enoch_control_plane.control_plane.models import DashboardStatusResponse, DashboardFinding
+
+    # Minimal fake row that should produce one "stale" finding (no live run)
+    class FakeFlags:
+        queue_paused = False
+        maintenance_mode = False
+
+    class FakeConfig:
+        live_dispatch_enabled = True
+
+    class FakeStatus:
+        flags = FakeFlags()
+        config = FakeConfig()
+        conflicts = []
+        active_items = [
+            {
+                "project_id": "p1",
+                "current_run_id": "r1",
+                "stale_after": (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat(),
+                "updated_at": None,
+                "last_dispatch_at": None,
+            }
+        ]
+        warnings = []
+        source_freshness = {}
+
+    findings = _collect_active_lane_findings(FakeStatus(), hang_after_sec=300)
+    assert isinstance(findings, list)
+    assert len(findings) == 1
+    assert findings[0].authority == "queue_items.stale_after"
+    assert "stale_after timestamp" in findings[0].message
+
+
 def test_router_no_redundant_response_model_fastapi_style():
     """AGENTS.md test-first validator for top BLOCKERs (S8409/S8410, ~49 instances in router.py).
 

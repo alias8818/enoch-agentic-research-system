@@ -124,6 +124,65 @@ def _has_idle_lane_dispatch_opportunity(status: DashboardStatusResponse) -> bool
     return False
 
 
+def _collect_active_lane_findings(
+    status: DashboardStatusResponse, *, hang_after_sec: int
+) -> list[DashboardFinding]:
+    """Extracted from queue_alert_findings (the 54-cognitive-complexity S3776 hot spot).
+
+    Collects warn findings for active queue items that are stale (stale_after passed)
+    or have not updated within the hang window. Lives at module level for testability
+    and to reduce the complexity of the caller.
+    """
+    findings: list[DashboardFinding] = []
+    for row in status.active_items:
+        stale_at = _parse_ts(row.get("stale_after"))
+        if stale_at and datetime.now(timezone.utc) > stale_at:
+            if _has_live_worker_run(status, str(row.get("current_run_id") or "")):
+                continue
+            findings.append(
+                DashboardFinding(
+                    severity="warn",
+                    source="control_plane_db",
+                    authority="queue_items.stale_after",
+                    message="active queue item exceeded its stale_after timestamp",
+                    observed_at=_observed_at_text(row.get("stale_after")),
+                    suggested_action="inspect run detail and reconcile the queue item",
+                    data={
+                        "project_id": row.get("project_id"),
+                        "run_id": row.get("current_run_id"),
+                    },
+                )
+            )
+        elif not stale_at:
+            updated = _parse_ts(
+                row.get("updated_at") or row.get("last_dispatch_at")
+            )
+            if updated and datetime.now(timezone.utc) > updated + timedelta(
+                seconds=hang_after_sec
+            ):
+                if _has_live_worker_run(
+                    status, str(row.get("current_run_id") or "")
+                ):
+                    continue
+                findings.append(
+                    DashboardFinding(
+                        severity="warn",
+                        source="control_plane_db",
+                        authority="queue_items.updated_at",
+                        message=f"active queue item has not updated for more than {hang_after_sec} seconds",
+                        observed_at=_observed_at_text(
+                            row.get("updated_at") or row.get("last_dispatch_at")
+                        ),
+                        suggested_action="inspect GB10 wake gate and active run detail",
+                        data={
+                            "project_id": row.get("project_id"),
+                            "run_id": row.get("current_run_id"),
+                        },
+                    )
+                )
+    return findings
+
+
 def queue_alert_findings(
     status: DashboardStatusResponse, *, hang_after_sec: int
 ) -> list[DashboardFinding]:
@@ -136,52 +195,9 @@ def queue_alert_findings(
         findings.append(item)
 
     if not intentional_hold and status.config.live_dispatch_enabled:
-        for row in status.active_items:
-            stale_at = _parse_ts(row.get("stale_after"))
-            if stale_at and datetime.now(timezone.utc) > stale_at:
-                if _has_live_worker_run(status, str(row.get("current_run_id") or "")):
-                    continue
-                active_lane_findings.append(
-                    DashboardFinding(
-                        severity="warn",
-                        source="control_plane_db",
-                        authority="queue_items.stale_after",
-                        message="active queue item exceeded its stale_after timestamp",
-                        observed_at=_observed_at_text(row.get("stale_after")),
-                        suggested_action="inspect run detail and reconcile the queue item",
-                        data={
-                            "project_id": row.get("project_id"),
-                            "run_id": row.get("current_run_id"),
-                        },
-                    )
-                )
-            elif not stale_at:
-                updated = _parse_ts(
-                    row.get("updated_at") or row.get("last_dispatch_at")
-                )
-                if updated and datetime.now(timezone.utc) > updated + timedelta(
-                    seconds=hang_after_sec
-                ):
-                    if _has_live_worker_run(
-                        status, str(row.get("current_run_id") or "")
-                    ):
-                        continue
-                    active_lane_findings.append(
-                        DashboardFinding(
-                            severity="warn",
-                            source="control_plane_db",
-                            authority="queue_items.updated_at",
-                            message=f"active queue item has not updated for more than {hang_after_sec} seconds",
-                            observed_at=_observed_at_text(
-                                row.get("updated_at") or row.get("last_dispatch_at")
-                            ),
-                            suggested_action="inspect GB10 wake gate and active run detail",
-                            data={
-                                "project_id": row.get("project_id"),
-                                "run_id": row.get("current_run_id"),
-                            },
-                        )
-                    )
+        active_lane_findings = _collect_active_lane_findings(
+            status, hang_after_sec=hang_after_sec
+        )
 
         active_lane_present = bool(status.active_items)
         active_lane_unhealthy = bool(active_lane_findings)
