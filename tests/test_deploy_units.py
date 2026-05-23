@@ -898,3 +898,21 @@ def test_state_contract_source_provenance_status_only_centralized_no_s1192_dupli
     assert count == 1, (
         f"{lit!r} still duplicated in state_contract (count={count}); extract to const"
     )
+
+
+def test_supabase_store_sql_status_count_query_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top S1192 (supabase_store.py:744).
+
+    The SQL literal "select status, count(*) as count from queue_items group by status"
+    (flagged in latest Sonar top duplication, 3x) must appear exactly once after const extraction.
+    """
+    src = (
+        ROOT / "enoch_control_plane" / "control_plane" / "supabase_store.py"
+    ).read_text(encoding="utf-8")
+    lit = "select status, count(*) as count from queue_items group by status"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in supabase_store (count={count}); extract to const"
+    )

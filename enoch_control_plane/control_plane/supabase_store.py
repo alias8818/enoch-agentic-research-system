@@ -86,6 +86,10 @@ from .store import (
 )
 from .workload_routing import route_machine_target
 
+# Centralized SQL constant for the top remaining S1192 duplication
+# (status count query used in multiple _query calls).
+STATUS_COUNT_QUERY = "select status, count(*) as count from queue_items group by status"
+
 
 ConnectionFactory = Callable[[], Any]
 
@@ -740,9 +744,7 @@ class SupabaseReadOnlyControlPlaneStore:
 
     def queue_counts_sql(self) -> dict[str, int]:
         counts: dict[str, int] = {}
-        for row in self._query(
-            "select status, count(*) as count from queue_items group by status"
-        ):
+        for row in self._query(STATUS_COUNT_QUERY):
             status = _text(row["status"]) or "unknown"
             count = int(row["count"] or 0)
             counts[status] = count
@@ -1835,9 +1837,7 @@ class SupabaseReadOnlyControlPlaneStore:
 
     def status_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}
-        for row in self._query(
-            "select status, count(*) as count from queue_items group by status"
-        ):
+        for row in self._query(STATUS_COUNT_QUERY):
             counts[_text(row["status"]) or "unknown"] = int(row["count"] or 0)
         return counts
 
@@ -2046,7 +2046,7 @@ class SupabaseReadOnlyControlPlaneStore:
                     _text(row["status"]) or "unknown": int(row["count"] or 0)
                     for row in self._cursor_rows(
                         cur,
-                        "select status, count(*) as count from queue_items group by status",
+                        STATUS_COUNT_QUERY,
                     )
                 }
         return {
