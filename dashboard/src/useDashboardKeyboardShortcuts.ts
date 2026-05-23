@@ -6,12 +6,12 @@ export function useDashboardKeyboardShortcuts({
   onToggleHelp,
   onCloseHelp,
   searchInputRef,
-}: {
+}: Readonly<{
   helpOpen: boolean
   onToggleHelp: () => void
   onCloseHelp: () => void
   searchInputRef: RefObject<HTMLInputElement | null>
-}) {
+}>) {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape' && helpOpen) {

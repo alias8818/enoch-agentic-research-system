@@ -5,14 +5,14 @@ export function PageHeader({
   action,
   toolbar,
   breadcrumb,
-}: {
+}: Readonly<{
   title: string
   subtitle: string
   dataSource?: string
   action?: React.ReactNode
   toolbar?: React.ReactNode
   breadcrumb?: { label: string; href?: string }[]
-}) {
+}>) {
   return (
     <header className="page-header page-header--compact">
       <div className="page-header-main">

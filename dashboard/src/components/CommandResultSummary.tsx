@@ -1,4 +1,5 @@
 import { deriveCommandPresentation, type CommandPresentationContext } from '../commandResultPresentation'
+import { displayText } from '../displayText'
 
 type CommandResultLike = {
   title?: string
@@ -17,7 +18,7 @@ function firstValue(...values: unknown[]): unknown {
 function text(value: unknown, fallback = '—'): string {
   if (value === null || value === undefined || value === '') return fallback
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
-  return String(value)
+  return displayText(value, fallback)
 }
 
 function commandReason(payload: Record<string, unknown>): string {
@@ -58,7 +59,7 @@ function laneTarget(payload: Record<string, unknown>): string {
   ))
 }
 
-function SummaryField({ label, value }: { label: string; value: string }) {
+function SummaryField({ label, value }: Readonly<{ label: string; value: string }>) {
   return (
     <div className="command-result-field">
       <dt>{label}</dt>
@@ -67,7 +68,7 @@ function SummaryField({ label, value }: { label: string; value: string }) {
   )
 }
 
-export function CommandResultSummary({ result, className = '' }: { result: CommandResultLike | null | undefined; className?: string }) {
+export function CommandResultSummary({ result, className = '' }: Readonly<{ result: CommandResultLike | null | undefined; className?: string }>) {
   if (!result) return null
   const payload = result.payload || {}
   const presentation = deriveCommandPresentation(payload, result.context)

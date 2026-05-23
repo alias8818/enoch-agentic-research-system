@@ -1,13 +1,13 @@
-import { DASHBOARD_KEYBOARD_SHORTCUTS, type KeyboardShortcutScope } from '../keyboardShortcuts'
+import { DASHBOARD_KEYBOARD_SHORTCUTS, type KeyboardShortcut, type KeyboardShortcutScope } from '../keyboardShortcuts'
 
 function scopeLabel(scope: KeyboardShortcutScope): string {
   return scope === 'global' ? 'Global' : 'Tables'
 }
 
-export function KeyboardShortcutHelp({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function KeyboardShortcutHelp({ open, onClose }: Readonly<{ open: boolean; onClose: () => void }>) {
   if (!open) return null
 
-  const grouped = DASHBOARD_KEYBOARD_SHORTCUTS.reduce<Record<KeyboardShortcutScope, typeof DASHBOARD_KEYBOARD_SHORTCUTS>>((acc, shortcut) => {
+  const grouped = DASHBOARD_KEYBOARD_SHORTCUTS.reduce<Record<KeyboardShortcutScope, KeyboardShortcut[]>>((acc, shortcut) => {
     acc[shortcut.scope].push(shortcut)
     return acc
   }, { global: [], table: [] })

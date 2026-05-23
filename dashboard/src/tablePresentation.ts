@@ -1,3 +1,4 @@
+import { displayText } from './displayText'
 import { dashboardV2Href } from './routes'
 
 export type TableColumnKind = 'primary' | 'id' | 'text' | 'age' | 'status' | 'link'
@@ -12,7 +13,7 @@ export type TableColumnSpec = {
 function text(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—'
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
-  return String(value)
+  return displayText(value, '—')
 }
 
 function firstValue(...values: unknown[]): unknown {
@@ -39,7 +40,7 @@ export function formatAgeLabel(row: Record<string, unknown>): string {
 }
 
 export function queueDispatchReadiness(row: Record<string, unknown>): { label: string; tone: 'ready' | 'blocked' | 'neutral' } {
-  const status = String(row.status || row.queue_status || '').toLowerCase()
+  const status = displayText(firstValue(row.status, row.queue_status)).toLowerCase()
   const blocked = text(firstValue(row.blocked_reason, row.decision_summary))
   if (row.manual_review_required === true) return { label: 'Needs operator review', tone: 'blocked' }
   if (blocked !== '—') return { label: blocked, tone: 'blocked' }
@@ -74,7 +75,7 @@ export function paperPipelineStatus(row: Record<string, unknown>): string {
 }
 
 export function eventEntityLink(row: Record<string, unknown>): { label: string; href?: string } {
-  const entityType = String(row.entity_type || '').toLowerCase()
+  const entityType = displayText(row.entity_type).toLowerCase()
   const projectId = text(firstValue(row.project_id, entityType.includes('project') ? row.entity_id : null))
   const runId = text(firstValue(row.run_id, entityType.includes('run') ? row.entity_id : null))
   const paperId = text(firstValue(row.paper_id, entityType.includes('paper') ? row.entity_id : null))
@@ -180,23 +181,23 @@ export function columnLinkHref(row: Record<string, unknown>, column: TableColumn
   if (column.key === 'entity_link') return eventEntityLink(row).href
   if (column.key === 'project_id') {
     const id = firstValue(row.project_id)
-    return id ? dashboardV2Href(`#project:${encodeURIComponent(String(id))}`) : undefined
+    return id ? dashboardV2Href(`#project:${encodeURIComponent(displayText(id))}`) : undefined
   }
   if (column.key === 'run_id') {
     const id = firstValue(row.run_id)
-    return id ? dashboardV2Href(`#run:${encodeURIComponent(String(id))}`) : undefined
+    return id ? dashboardV2Href(`#run:${encodeURIComponent(displayText(id))}`) : undefined
   }
   if (column.key === 'paper_id') {
     const id = firstValue(row.paper_id)
-    return id ? dashboardV2Href(`#paper:${encodeURIComponent(String(id))}`) : undefined
+    return id ? dashboardV2Href(`#paper:${encodeURIComponent(displayText(id))}`) : undefined
   }
   if (column.key === 'primary' || column.kind === 'primary') {
     const projectId = firstValue(row.project_id)
     const runId = firstValue(row.run_id)
     const paperId = firstValue(row.paper_id)
-    if (projectId) return dashboardV2Href(`#project:${encodeURIComponent(String(projectId))}`)
-    if (runId) return dashboardV2Href(`#run:${encodeURIComponent(String(runId))}`)
-    if (paperId) return dashboardV2Href(`#paper:${encodeURIComponent(String(paperId))}`)
+    if (projectId) return dashboardV2Href(`#project:${encodeURIComponent(displayText(projectId))}`)
+    if (runId) return dashboardV2Href(`#run:${encodeURIComponent(displayText(runId))}`)
+    if (paperId) return dashboardV2Href(`#paper:${encodeURIComponent(displayText(paperId))}`)
   }
   return undefined
 }

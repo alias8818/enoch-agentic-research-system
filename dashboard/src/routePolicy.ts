@@ -16,7 +16,7 @@ export type BreadcrumbItem = {
 
 export type DetailKind = 'project' | 'run' | 'paper' | 'event'
 
-export const ROUTE_AUDIT: { hash: string; surface: RouteSurface; note: string }[] = [
+export const ROUTE_AUDIT: ReadonlyArray<{ hash: string; surface: RouteSurface; note: string }> = [
   { hash: '#overview', surface: 'command-center', note: 'Primary operator command center' },
   { hash: '#projects', surface: 'list', note: 'Project discovery index' },
   { hash: '#queue', surface: 'list', note: 'Queue slices with selected-row dispatch' },
@@ -37,25 +37,23 @@ export const ROUTE_AUDIT: { hash: string; surface: RouteSurface; note: string }[
   { hash: '#automation:…', surface: 'list', note: 'Automation list with selected paper panel' },
 ]
 
+const DETAIL_ROUTE_META: Readonly<Record<DetailKind, { listHash: string; listLabel: string; parentPage: DashboardRoute['page'] }>> = {
+  project: { listHash: '#projects', listLabel: 'Projects', parentPage: 'projects' },
+  run: { listHash: '#runs', listLabel: 'Runs', parentPage: 'runs' },
+  paper: { listHash: '#papers', listLabel: 'Papers', parentPage: 'papers' },
+  event: { listHash: '#events', listLabel: 'Events', parentPage: 'events' },
+}
+
 export function detailListHash(kind: DetailKind): string {
-  if (kind === 'project') return '#projects'
-  if (kind === 'run') return '#runs'
-  if (kind === 'paper') return '#papers'
-  return '#events'
+  return DETAIL_ROUTE_META[kind].listHash
 }
 
 export function detailListLabel(kind: DetailKind): string {
-  if (kind === 'project') return 'Projects'
-  if (kind === 'run') return 'Runs'
-  if (kind === 'paper') return 'Papers'
-  return 'Events'
+  return DETAIL_ROUTE_META[kind].listLabel
 }
 
 export function detailParentPage(kind: DetailKind): DashboardRoute['page'] {
-  if (kind === 'project') return 'projects'
-  if (kind === 'run') return 'runs'
-  if (kind === 'paper') return 'papers'
-  return 'events'
+  return DETAIL_ROUTE_META[kind].parentPage
 }
 
 export function detailBreadcrumb(kind: DetailKind, currentLabel: string): BreadcrumbItem[] {

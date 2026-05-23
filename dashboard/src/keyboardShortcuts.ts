@@ -6,7 +6,7 @@ export type KeyboardShortcut = {
   scope: KeyboardShortcutScope
 }
 
-export const DASHBOARD_KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
+export const DASHBOARD_KEYBOARD_SHORTCUTS: ReadonlyArray<KeyboardShortcut> = [
   { keys: '?', description: 'Show or hide keyboard shortcuts', scope: 'global' },
   { keys: '/', description: 'Focus global project search', scope: 'global' },
   { keys: 'Esc', description: 'Close keyboard shortcuts help', scope: 'global' },

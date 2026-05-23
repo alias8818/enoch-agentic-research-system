@@ -1,3 +1,5 @@
+import { displayText } from './displayText'
+
 export type CommandSeverity = 'passed' | 'dry_run' | 'blocked' | 'failed' | 'stale'
 
 export type OperatorDecision =
@@ -20,7 +22,7 @@ export type CommandPresentation = {
 
 function text(value: unknown): string {
   if (value === null || value === undefined || value === '') return ''
-  return String(value)
+  return displayText(value)
 }
 
 function action(payload: Record<string, unknown>): string {
@@ -57,38 +59,32 @@ function severityLabel(severity: CommandSeverity): string {
   return 'Stale state'
 }
 
-function deriveTitle(payload: Record<string, unknown>, context: CommandPresentationContext | undefined, severity: CommandSeverity): string {
-  const family = commandFamily(payload, context)
-  if (context?.stale) return `${familyTitle(family)} stale — refresh required`
+const FAMILY_BLOCKED_TITLES: Readonly<Record<string, string>> = {
+  dispatch: 'Dispatch blocked',
+  paper: 'Paper action blocked',
+  finalize: 'Paper action blocked',
+  research: 'Research action blocked',
+  followup: 'Follow-up blocked',
+  automation: 'Automation action blocked',
+  command: 'Command blocked',
+}
 
-  if (severity === 'blocked' || severity === 'failed') {
-    if (family === 'dispatch') return 'Dispatch blocked'
-    if (family === 'paper' || family === 'finalize') return 'Paper action blocked'
-    if (family === 'research') return 'Research action blocked'
-    if (family === 'followup') return 'Follow-up blocked'
-    if (family === 'automation') return 'Automation action blocked'
-    return 'Command blocked'
-  }
+const FAMILY_DRY_RUN_TITLES: Readonly<Record<string, string>> = {
+  dispatch: 'Dispatch dry-run passed',
+  finalize: 'Paper finalize dry-run passed',
+  paper: 'Paper draft dry-run passed',
+  followup: 'Follow-up dry-run passed',
+  research: 'Research dry-run passed',
+  command: 'Dry-run passed',
+}
 
-  if (severity === 'dry_run') {
-    if (family === 'dispatch') return 'Dispatch dry-run passed'
-    if (family === 'finalize') return 'Paper finalize dry-run passed'
-    if (family === 'paper') return 'Paper draft dry-run passed'
-    if (family === 'followup') return 'Follow-up dry-run passed'
-    if (family === 'research') return 'Research dry-run passed'
-    return 'Dry-run passed'
-  }
-
-  if (severity === 'passed') {
-    if (family === 'dispatch') return 'Dispatch completed'
-    if (family === 'finalize') return 'Paper finalize completed'
-    if (family === 'paper') return 'Paper action completed'
-    if (family === 'followup') return 'Follow-up completed'
-    if (family === 'research') return 'Research action completed'
-    return 'Command completed'
-  }
-
-  return 'Command result'
+const FAMILY_PASSED_TITLES: Readonly<Record<string, string>> = {
+  dispatch: 'Dispatch completed',
+  finalize: 'Paper finalize completed',
+  paper: 'Paper action completed',
+  followup: 'Follow-up completed',
+  research: 'Research action completed',
+  command: 'Command completed',
 }
 
 function familyTitle(family: string): string {
@@ -98,6 +94,20 @@ function familyTitle(family: string): string {
   if (family === 'followup') return 'Follow-up'
   if (family === 'research') return 'Research action'
   return 'Command'
+}
+
+function titleForFamily(family: string, titles: Readonly<Record<string, string>>): string {
+  return titles[family] ?? titles.command
+}
+
+function deriveTitle(payload: Record<string, unknown>, context: CommandPresentationContext | undefined, severity: CommandSeverity): string {
+  const family = commandFamily(payload, context)
+  if (context?.stale) return `${familyTitle(family)} stale — refresh required`
+
+  if (severity === 'blocked' || severity === 'failed') return titleForFamily(family, FAMILY_BLOCKED_TITLES)
+  if (severity === 'dry_run') return titleForFamily(family, FAMILY_DRY_RUN_TITLES)
+  if (severity === 'passed') return titleForFamily(family, FAMILY_PASSED_TITLES)
+  return 'Command result'
 }
 
 function deriveDecision(payload: Record<string, unknown>, context: CommandPresentationContext | undefined, severity: CommandSeverity): OperatorDecision {

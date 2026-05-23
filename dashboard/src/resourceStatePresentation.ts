@@ -33,10 +33,13 @@ export type ListFilterContext = {
   defaultStatus?: string
 }
 
+import { displayText } from './displayText'
+
 const CONTROL_PLANE_LOG = 'journalctl -u enoch-control-plane.service -n 160 --no-pager'
 
 function errorMessage(error: unknown): string {
-  return String(error instanceof Error ? error.message : error)
+  if (error instanceof Error) return error.message
+  return displayText(error, 'Unknown error')
 }
 
 function hasActiveFilters(context: ListFilterContext): boolean {

@@ -12,7 +12,7 @@ function formatStamp(value?: string): string {
   return date.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-export function OverviewFreshness({ generatedAt, laneGeneratedAt, isFetching, onRefresh }: OverviewFreshnessProps) {
+export function OverviewFreshness({ generatedAt, laneGeneratedAt, isFetching, onRefresh }: Readonly<OverviewFreshnessProps>) {
   return (
     <section className="freshness-bar" aria-label="Dashboard data freshness">
       <div>
