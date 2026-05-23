@@ -4008,6 +4008,95 @@ def _research_lane_feed_pressure_label(machine_target: str, worker_role: Any) ->
     return f"{machine_target or 'default'} lane"
 
 
+def _research_lane_target_label(machine_target: str) -> str:
+    machine_lower = machine_target.lower()
+    if "gb10" in machine_lower:
+        return "GB10"
+    if "cpu" in machine_lower:
+        return "CPU"
+    return machine_target or "default"
+
+
+def _promotable_rows_for_research_lane_feed(
+    *,
+    store: Any,
+    promotable: list[dict[str, Any]] | None,
+    min_admission_score: float,
+) -> list[dict[str, Any]]:
+    if promotable is not None:
+        return list(promotable)
+    if not hasattr(store, "research_facility_workbench_projection"):
+        return []
+    try:
+        workbench_rows = list(store.research_facility_workbench_projection(limit=100))  # type: ignore[attr-defined]
+    except Exception:
+        workbench_rows = []
+    return [
+        row
+        for row in workbench_rows
+        if str(row.get("admission_decision") or "") == "admitted"
+        and not str(row.get("admitted_idea_id") or "").strip()
+        and float(row.get("total_score") or 0) >= min_admission_score
+    ]
+
+
+def _index_research_lane_feed_rows_by_lane(
+    *,
+    queued_rows: list[dict[str, Any]],
+    promotable_rows: list[dict[str, Any]],
+    _queued_dispatch_candidates: Callable,
+    _worker_lane_key: Callable,
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]]]:
+    queued_by_lane: dict[str, list[dict[str, Any]]] = {}
+    promotable_by_lane: dict[str, list[dict[str, Any]]] = {}
+    for row in _queued_dispatch_candidates(queued_rows):
+        queued_by_lane.setdefault(_worker_lane_key(row), []).append(row)
+    for row in promotable_rows:
+        promotable_by_lane.setdefault(_worker_lane_key(row), []).append(row)
+    return queued_by_lane, promotable_by_lane
+
+
+def _research_lane_feed_next_action_and_summary(
+    *,
+    label: str,
+    machine_target: str,
+    queued_count: int,
+    promotable_count: int,
+    active_count: int,
+    queue_deficit: int,
+    min_queue_depth: int,
+) -> tuple[str, str]:
+    if not queue_deficit:
+        return (
+            "queue_depth_satisfied",
+            f"{label} has queued depth {queued_count}/{min_queue_depth}; no feed action needed.",
+        )
+    if queued_count and not active_count:
+        return (
+            "dispatch_queued",
+            f"{label} idle with queued work; autopilot should dispatch the queued candidate.",
+        )
+    if promotable_count:
+        return (
+            "promote_candidate",
+            f"{label} needs queued depth {queued_count}/{min_queue_depth}; "
+            f"autopilot should promote {promotable_count} admitted candidate(s).",
+        )
+    target_label = _research_lane_target_label(machine_target)
+    if queued_count:
+        summary = (
+            f"{label} active with queued depth {queued_count}/{min_queue_depth}; "
+            f"autopilot should generate {target_label}-targeted work to fill the remaining deficit."
+        )
+    else:
+        idle_prefix = "idle " if not active_count else ""
+        summary = (
+            f"{label} {idle_prefix}with no queued candidate; "
+            f"autopilot should generate {target_label}-targeted work."
+        )
+    return ("generate_candidate", summary)
+
+
 def _compute_research_lane_feed_pressure(
     *,
     active: list[dict[str, Any]],
@@ -4024,32 +4113,17 @@ def _compute_research_lane_feed_pressure(
 ) -> dict[str, dict[str, Any]]:
     lane_rows = lanes or _worker_lane_capacity(active=active, rows=queued or [])
     queued_rows = list(queued if queued is not None else _queue_rows_for_lane_feed())
-    if promotable is None:
-        if not hasattr(store, "research_facility_workbench_projection"):
-            promotable_rows_for_feed: list[dict[str, Any]] = []
-        else:
-            try:
-                workbench_rows = list(
-                    store.research_facility_workbench_projection(limit=100)
-                )  # type: ignore[attr-defined]
-            except Exception:
-                workbench_rows = []
-            promotable_rows_for_feed = [
-                row
-                for row in workbench_rows
-                if str(row.get("admission_decision") or "") == "admitted"
-                and not str(row.get("admitted_idea_id") or "").strip()
-                and float(row.get("total_score") or 0) >= min_admission_score
-            ]
-    else:
-        promotable_rows_for_feed = list(promotable)
-
-    queued_by_lane: dict[str, list[dict[str, Any]]] = {}
-    promotable_by_lane: dict[str, list[dict[str, Any]]] = {}
-    for row in _queued_dispatch_candidates(queued_rows):
-        queued_by_lane.setdefault(_worker_lane_key(row), []).append(row)
-    for row in promotable_rows_for_feed:
-        promotable_by_lane.setdefault(_worker_lane_key(row), []).append(row)
+    promotable_rows_for_feed = _promotable_rows_for_research_lane_feed(
+        store=store,
+        promotable=promotable,
+        min_admission_score=min_admission_score,
+    )
+    queued_by_lane, promotable_by_lane = _index_research_lane_feed_rows_by_lane(
+        queued_rows=queued_rows,
+        promotable_rows=promotable_rows_for_feed,
+        _queued_dispatch_candidates=_queued_dispatch_candidates,
+        _worker_lane_key=_worker_lane_key,
+    )
 
     pressure: dict[str, dict[str, Any]] = {}
     min_queue_depth = max(0, min(int(min_queue_depth), 100))
@@ -4063,27 +4137,15 @@ def _compute_research_lane_feed_pressure(
         promotable_count = len(promotable_by_lane.get(lane_key, []))
         active_count = int(lane.get("active_count") or 0)
         queue_deficit = max(0, min_queue_depth - queued_count)
-        if not queue_deficit:
-            next_action = "queue_depth_satisfied"
-            summary = f"{label} has queued depth {queued_count}/{min_queue_depth}; no feed action needed."
-        elif queued_count and not active_count:
-            next_action = "dispatch_queued"
-            summary = f"{label} idle with queued work; autopilot should dispatch the queued candidate."
-        elif promotable_count:
-            next_action = "promote_candidate"
-            summary = f"{label} needs queued depth {queued_count}/{min_queue_depth}; autopilot should promote {promotable_count} admitted candidate(s)."
-        else:
-            next_action = "generate_candidate"
-            if "gb10" in machine_target.lower():
-                target_label = "GB10"
-            elif "cpu" in machine_target.lower():
-                target_label = "CPU"
-            else:
-                target_label = machine_target or "default"
-            if queued_count:
-                summary = f"{label} active with queued depth {queued_count}/{min_queue_depth}; autopilot should generate {target_label}-targeted work to fill the remaining deficit."
-            else:
-                summary = f"{label} {'idle ' if not active_count else ''}with no queued candidate; autopilot should generate {target_label}-targeted work."
+        next_action, summary = _research_lane_feed_next_action_and_summary(
+            label=label,
+            machine_target=machine_target,
+            queued_count=queued_count,
+            promotable_count=promotable_count,
+            active_count=active_count,
+            queue_deficit=queue_deficit,
+            min_queue_depth=min_queue_depth,
+        )
         pressure[machine_target or lane_key] = {
             "lane_key": lane_key,
             "machine_target": machine_target,
