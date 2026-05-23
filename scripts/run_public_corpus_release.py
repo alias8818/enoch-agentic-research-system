@@ -49,6 +49,15 @@ def default_control_url() -> str:
     return secure_default_service_url(host, CONTROL_PLANE_PORT)
 
 
+def _default_ledger_sql_output() -> str:
+    fd, path = tempfile.mkstemp(
+        prefix="enoch-sync-corpus-imports.",
+        suffix=".sql",
+    )
+    os.close(fd)
+    return path
+
+
 @dataclass(frozen=True)
 class Step:
     name: str
@@ -362,7 +371,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Apply ledger sync through Supabase linked CLI when no DB URL is available.",
     )
     parser.add_argument(
-        "--ledger-sql-output", default="/tmp/enoch-sync-corpus-imports.sql"
+        "--ledger-sql-output",
+        default=_default_ledger_sql_output,
     )
     parser.add_argument(
         "--dry-run",
