@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { apiGet, apiPost } from '../api/client'
 import {
   parseEventListResponse,
+  parseIntakeIdeasResponse,
   parseOverviewResponse,
   parsePaperListResponse,
   parseProjectListResponse,
@@ -528,16 +529,6 @@ export function CorpusPage({ route }: Readonly<{ route?: Extract<DashboardRoute,
 }
 
 
-type IntakeResponse = {
-  generated_at?: string
-  operator_summary?: string
-  latest_sync?: Record<string, unknown> | null
-  projection_counts?: Record<string, number>
-  queued_projection?: Record<string, unknown>[]
-  skipped_reasons?: Record<string, number>
-  recent_events?: Record<string, unknown>[]
-}
-
 function IntakeIdeaDetail({ row, ideaId, onClose }: Readonly<{ row: Record<string, unknown> | null; ideaId?: string; onClose: () => void }>) {
   if (!row && ideaId) {
     return (
@@ -586,7 +577,10 @@ function intakeCellHref(row: Record<string, unknown>, column: string): string | 
 
 export function IntakePage({ route }: Readonly<{ route?: Extract<DashboardRoute, { page: 'intake' }> }>) {
   const [selection, setSelection] = useState<Record<string, unknown> | null>(null)
-  const query = useQuery({ queryKey: ['intake'], queryFn: () => apiGet<IntakeResponse>('/control/api/intake/ideas?page_size=100') })
+  const query = useQuery({
+    queryKey: ['intake'],
+    queryFn: () => apiGet<unknown>('/control/api/intake/ideas?page_size=100').then(parseIntakeIdeasResponse),
+  })
   if (query.isLoading) return <LoadingStateCard label="ideas intake" />
   if (query.isError) return <ResourceErrorCard endpoint="intake" error={query.error} onRetry={() => { refetchInBackground(() => query.refetch()) }} retryLabel="Retry intake" />
   const data = query.data || {}

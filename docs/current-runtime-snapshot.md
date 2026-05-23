@@ -28,7 +28,9 @@ http://127.0.0.1:8787/control/dashboard-v2
 
 From a browser via Tailscale or tunnel, substitute the host you use for the control plane API. Paste the control API bearer token when the V2 shell prompts.
 
-Current committed V2 bundle (verify after deploy): read the hashed `index-*.js` filename from `enoch_control_plane/control_plane/dashboard_v2/index.html` (currently `index-BX2lBAxQ.js` on `main`).
+Current committed V2 bundle (verify after deploy): read the hashed `index-*.js` filename from `enoch_control_plane/control_plane/dashboard_v2/index.html` (currently `index-Ca1YwziA.js` on `main`).
+
+**B7 pause semantics (2026-05-23):** Deterministic backend coverage in `tests/test_control_plane_router.py::test_overview_flags_reflect_dashboard_v2_pause_maintenance_mode` asserts `POST /control/pause` with `maintenance_mode: true` surfaces `flags.maintenance_mode` and `flags.queue_paused` on `/control/api/v1/overview`. Re-run the manual UI check on the reference VM during deploy smoke (pause → confirm overview → resume).
 
 ### Post-deploy verification (control VM)
 

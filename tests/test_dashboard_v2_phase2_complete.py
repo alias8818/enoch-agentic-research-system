@@ -116,7 +116,11 @@ def test_cutover_audit_gate_table_reflects_landed_v2() -> None:
     for marker in CUTOVER_LANDED_MARKERS:
         assert marker in text
     assert "**Resolved**" in text
-    assert "operator VM check pending" in text or "operator VM step" in text.lower()
+    assert (
+        "operator VM check pending" in text
+        or "optional operator vm step" in text.lower()
+        or "test_overview_flags_reflect_dashboard_v2_pause_maintenance_mode" in text
+    )
     assert "Legacy-only blocker" not in text or "claim review" in text.lower()
     assert "V2 pause omits explicit `maintenance_mode:true`" not in text
     assert "**Legacy-only** — accepted drop for cutover (use API/CLI" not in text

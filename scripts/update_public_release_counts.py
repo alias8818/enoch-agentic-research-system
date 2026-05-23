@@ -254,9 +254,11 @@ def update_text(text: str, stats: dict[str, int]) -> str:
 
     for pattern in STRICT_FAIL_PHRASES:
         text = pattern.sub(
-            lambda m: m.group(0)
-            .replace(m.group(1), str(sf), 1)
-            .replace(m.group(2), str(n), 1),
+            lambda m: (
+                m.group(0)
+                .replace(m.group(1), str(sf), 1)
+                .replace(m.group(2), str(n), 1)
+            ),
             text,
         )
     text = re.sub(

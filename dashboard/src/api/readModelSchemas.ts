@@ -7,6 +7,8 @@ import type {
   AutomationDetail,
   AutomationListRow,
   EventListRow,
+  IntakeIdeasResponse,
+  IntakeIdeaProjectionRow,
   PagedRows,
   PaperListRow,
   ProjectListRow,
@@ -228,6 +230,34 @@ export const paperListResponseSchema = pagedRowsSchema(paperListRowSchema)
 export const eventListResponseSchema = pagedRowsSchema(eventListRowSchema)
 export const automationListResponseSchema = pagedRowsSchema(automationListRowSchema)
 
+export const intakeIdeaProjectionRowSchema = z.object({
+  idea_id: apiString,
+  title: apiString,
+  idea_status: apiString,
+  queue_status: apiString,
+  next_action_hint: apiString,
+  paper_status: apiString,
+  source_kind: apiString,
+  machine_target: apiString,
+  project_id: apiString,
+  updated_at: apiString,
+  operator_stage: apiString,
+  operator_detail_stage: apiString,
+  operator_next_step: apiString,
+  operator_stage_label: apiString,
+}).passthrough()
+
+export const intakeIdeasResponseSchema = z.object({
+  ok: z.boolean().optional(),
+  generated_at: z.string().optional(),
+  operator_summary: z.string().optional(),
+  latest_sync: z.record(z.unknown()).nullable().optional(),
+  projection_counts: z.record(z.number()).optional(),
+  queued_projection: z.array(intakeIdeaProjectionRowSchema).optional(),
+  skipped_reasons: z.record(z.number()).optional(),
+  recent_events: z.array(z.record(z.unknown())).optional(),
+}).passthrough()
+
 export const OPERATOR_LIST_FIELD_KEYS = {
   queue: ['project_id', 'project_name', 'status'] as const,
   projects: ['project_id', 'project_name', 'queue_status'] as const,
@@ -279,4 +309,8 @@ export function parseStatusResponse(payload: unknown): StatusResponse {
 
 export function parseAutomationReadiness(payload: unknown): AutomationReadiness {
   return automationReadinessSchema.parse(payload) as AutomationReadiness
+}
+
+export function parseIntakeIdeasResponse(payload: unknown): IntakeIdeasResponse {
+  return intakeIdeasResponseSchema.parse(payload) as IntakeIdeasResponse
 }

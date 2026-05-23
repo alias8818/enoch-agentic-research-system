@@ -1128,6 +1128,50 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertIn("operator_next_step", row)
         self.assertIn("operator_stage_label", row)
 
+    def test_overview_flags_reflect_dashboard_v2_pause_maintenance_mode(self) -> None:
+        """B7 cutover: dashboard pause sends maintenance_mode; overview flags must match."""
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+
+            resume_setup = client.post(
+                "/control/resume",
+                headers=headers,
+                json={"resumed_by": "test-setup", "maintenance_mode": False},
+            )
+            self.assertEqual(resume_setup.status_code, 200)
+            running = client.get("/control/api/v1/overview", headers=headers).json()
+            self.assertFalse(running["flags"]["queue_paused"])
+            self.assertFalse(running["flags"]["maintenance_mode"])
+
+            pause = client.post(
+                "/control/pause",
+                headers=headers,
+                json={
+                    "reason": "dashboard operator pause",
+                    "paused_by": "dashboard-v2",
+                    "maintenance_mode": True,
+                },
+            )
+            self.assertEqual(pause.status_code, 200)
+            pause_state = pause.json()
+            self.assertTrue(pause_state["flags"]["queue_paused"])
+            self.assertTrue(pause_state["flags"]["maintenance_mode"])
+
+            paused = client.get("/control/api/v1/overview", headers=headers).json()
+            self.assertTrue(paused["flags"]["queue_paused"])
+            self.assertTrue(paused["flags"]["maintenance_mode"])
+
+            resume = client.post(
+                "/control/resume",
+                headers=headers,
+                json={"resumed_by": "test", "maintenance_mode": False},
+            )
+            self.assertEqual(resume.status_code, 200)
+            cleared = client.get("/control/api/v1/overview", headers=headers).json()
+            self.assertFalse(cleared["flags"]["queue_paused"])
+            self.assertFalse(cleared["flags"]["maintenance_mode"])
+
     def test_supabase_native_ideas_intake_live_rejects_readonly_before_store_write(
         self,
     ) -> None:
