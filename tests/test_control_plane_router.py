@@ -13935,3 +13935,22 @@ def test_resolve_research_provider_model_validation() -> None:
     assert error["action"] == "research_cycle_blocked"
     assert "not in the allowed model list" in error["reason"]
     assert "allowed_models" in error
+
+
+def test_resolve_research_cycle_params_smoke() -> None:
+    """Smoke test for the second extraction from dashboard_research_run_cycle.
+
+    Ensures the params resolver produces a usable object with the expected fields.
+    This would have caught breakage when wiring the resolver into the giant function.
+    """
+    from enoch_control_plane.control_plane.router import (
+        _resolve_research_cycle_params,
+    )
+
+    params = _resolve_research_cycle_params({})
+    assert hasattr(params, "max_provider_requests")
+    assert hasattr(params, "max_promotions")
+    assert hasattr(params, "generation_attempts")
+    assert hasattr(params, "min_admission_score")
+    assert params.max_provider_requests >= 0
+    assert params.generation_attempts >= 1
