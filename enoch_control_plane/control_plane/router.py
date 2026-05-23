@@ -2674,6 +2674,250 @@ def _compute_promotable_rows(
     return sorted(candidates, key=candidate_priority, reverse=True)
 
 
+_REASON_FOLLOWUP_STARVES_TARGET_LANE = "bounded follow-up candidate targets a different lane than the largest empty queue deficit"
+_REASON_FOLLOWUP_DISPATCH_DISABLED = (
+    "bounded follow-up candidate exists but dispatch is disabled for this run"
+)
+
+
+def _fetch_next_followup_candidate(store: Any) -> dict[str, Any] | None:
+    if not hasattr(store, "next_followup_candidate"):
+        return None
+    candidate = store.next_followup_candidate(max_followup_depth=4)
+    return candidate if candidate else None
+
+
+def _followup_lane_key_pair(
+    followup_candidate: dict[str, Any],
+    generation_target_lane: Any,
+    research_row_lane_key: Callable[[dict[str, Any]], str],
+) -> tuple[str, str]:
+    return (
+        research_row_lane_key(followup_candidate),
+        str((generation_target_lane or {}).get("lane_key") or ""),
+    )
+
+
+def _followup_starves_target_lane(
+    *,
+    generation_target_lane: Any,
+    max_provider_requests: int,
+    followup_lane_key: str,
+    generation_lane_key: str,
+) -> bool:
+    return (
+        bool(generation_target_lane)
+        and bool(max_provider_requests)
+        and bool(followup_lane_key)
+        and bool(generation_lane_key)
+        and followup_lane_key != generation_lane_key
+    )
+
+
+def _append_followup_launch_stage(
+    response: dict[str, Any],
+    *,
+    ok: bool,
+    action: Any,
+    reason: Any = None,
+    parent_project_id: Any = None,
+    project_id: Any = None,
+    candidate_lane_key: str | None = None,
+    generation_lane_key: str | None = None,
+) -> None:
+    stage: dict[str, Any] = {
+        "stage": "followup_launch",
+        "ok": ok,
+        "action": action,
+    }
+    if reason is not None:
+        stage["reason"] = reason
+    if parent_project_id is not None:
+        stage["parent_project_id"] = parent_project_id
+    if project_id is not None:
+        stage["project_id"] = project_id
+    if candidate_lane_key is not None:
+        stage["candidate_lane_key"] = candidate_lane_key
+    if generation_lane_key is not None:
+        stage["generation_lane_key"] = generation_lane_key
+    response["stages"].append(stage)
+
+
+def _record_followup_starvation_skip(
+    response: dict[str, Any],
+    *,
+    followup_candidate: dict[str, Any],
+    generation_target_lane: Any,
+    followup_lane_key: str,
+    generation_lane_key: str,
+) -> None:
+    response["followup_launch"] = {
+        "action": "skipped",
+        "reason": _REASON_FOLLOWUP_STARVES_TARGET_LANE,
+        "candidate": followup_candidate,
+        "candidate_lane_key": followup_lane_key,
+        "generation_target_lane": generation_target_lane,
+    }
+    _append_followup_launch_stage(
+        response,
+        ok=True,
+        action="skipped",
+        reason=_REASON_FOLLOWUP_STARVES_TARGET_LANE,
+        parent_project_id=followup_candidate.get("project_id"),
+        candidate_lane_key=followup_lane_key,
+        generation_lane_key=generation_lane_key,
+    )
+
+
+def _record_followup_dispatch_disabled(
+    response: dict[str, Any],
+    followup_candidate: dict[str, Any],
+) -> None:
+    response["followup_launch"] = {
+        "action": "skipped",
+        "reason": _REASON_FOLLOWUP_DISPATCH_DISABLED,
+        "candidate": followup_candidate,
+    }
+    _append_followup_launch_stage(
+        response,
+        ok=True,
+        action="skipped",
+        reason=_REASON_FOLLOWUP_DISPATCH_DISABLED,
+        parent_project_id=followup_candidate.get("project_id"),
+    )
+
+
+def _launch_followup_and_record(
+    response: dict[str, Any],
+    *,
+    store: Any,
+    followup_candidate: dict[str, Any],
+    requested_by: str,
+    dispatch_queued_project: Callable[[str], bool],
+) -> bool:
+    followup_launch = store.launch_followup_candidate(
+        project_id=str(followup_candidate.get("project_id") or ""),
+        dry_run=False,
+        requested_by=requested_by,
+        max_followup_depth=4,
+    )
+    response["followup_launch"] = followup_launch
+    _append_followup_launch_stage(
+        response,
+        ok=followup_launch.get("action") == "followup_queued",
+        action=followup_launch.get("action"),
+        reason=followup_launch.get("reason"),
+        parent_project_id=(followup_launch.get("candidate") or {}).get("project_id"),
+        project_id=(followup_launch.get("followup") or {}).get("idea_id"),
+    )
+    if followup_launch.get("action") != "followup_queued":
+        return False
+    response["queued_count"] = 1
+    followup_project_id = str(
+        (followup_launch.get("followup") or {}).get("idea_id") or ""
+    ).strip()
+    if followup_project_id:
+        dispatch_queued_project(followup_project_id)
+    return True
+
+
+def _apply_followup_branch_skip_flags(
+    response: dict[str, Any],
+    followup_branch_taken: bool,
+) -> None:
+    response["fresh_generation_skipped"] = followup_branch_taken
+    response["fresh_promotion_skipped"] = followup_branch_taken
+    if followup_branch_taken:
+        response["reason"] = (
+            "bounded follow-up branch took priority over fresh idea generation"
+        )
+
+
+def _clear_followup_skip_flags(response: dict[str, Any]) -> None:
+    response["fresh_generation_skipped"] = False
+    response["fresh_promotion_skipped"] = False
+
+
+def _maybe_skip_fresh_generation_for_backlog(
+    response: dict[str, Any],
+    *,
+    initial_promotable: list[dict[str, Any]],
+    max_provider_requests: int,
+    fresh_generation_backlog_threshold: int,
+    generation_target_lane: Any,
+) -> None:
+    if response.get("fresh_generation_skipped"):
+        return
+    if not max_provider_requests:
+        return
+    if not fresh_generation_backlog_threshold:
+        return
+    if len(initial_promotable) < fresh_generation_backlog_threshold:
+        return
+    if generation_target_lane:
+        return
+    response["fresh_generation_skipped"] = True
+    response["fresh_promotion_skipped"] = False
+    response["fresh_generation_skip_reason"] = (
+        "admitted candidate backlog is above fresh generation threshold"
+    )
+    response["stages"].append(
+        {
+            "stage": "provider_generation",
+            "ok": True,
+            "action": "skipped",
+            "reason": response["fresh_generation_skip_reason"],
+            "initial_promotable_count": len(initial_promotable),
+            "fresh_generation_backlog_threshold": fresh_generation_backlog_threshold,
+        }
+    )
+
+
+def _handle_followup_candidate(
+    response: dict[str, Any],
+    *,
+    store: Any,
+    followup_candidate: dict[str, Any],
+    generation_target_lane: Any,
+    max_dispatches: int,
+    max_provider_requests: int,
+    requested_by: str,
+    dispatch_queued_project: Callable[[str], bool],
+    research_row_lane_key: Callable[[dict[str, Any]], str],
+) -> None:
+    followup_lane_key, generation_lane_key = _followup_lane_key_pair(
+        followup_candidate, generation_target_lane, research_row_lane_key
+    )
+    if _followup_starves_target_lane(
+        generation_target_lane=generation_target_lane,
+        max_provider_requests=max_provider_requests,
+        followup_lane_key=followup_lane_key,
+        generation_lane_key=generation_lane_key,
+    ):
+        _record_followup_starvation_skip(
+            response,
+            followup_candidate=followup_candidate,
+            generation_target_lane=generation_target_lane,
+            followup_lane_key=followup_lane_key,
+            generation_lane_key=generation_lane_key,
+        )
+        _apply_followup_branch_skip_flags(response, False)
+        return
+
+    if max_dispatches:
+        followup_branch_taken = _launch_followup_and_record(
+            response,
+            store=store,
+            followup_candidate=followup_candidate,
+            requested_by=requested_by,
+            dispatch_queued_project=dispatch_queued_project,
+        )
+    else:
+        _record_followup_dispatch_disabled(response, followup_candidate)
+        followup_branch_taken = False
+    _apply_followup_branch_skip_flags(response, followup_branch_taken)
+
+
 def _handle_followup_and_early_skips(
     *,
     store: Any,
@@ -2693,117 +2937,29 @@ def _handle_followup_and_early_skips(
     generation_target_lane, setting of fresh_*_skipped flags, and the early backlog
     threshold skip. Thin delegation left in the giant.
     """
-    followup_candidate = None
-    followup_branch_taken = False
-    if hasattr(store, "next_followup_candidate"):
-        followup_candidate = store.next_followup_candidate(max_followup_depth=4)
+    followup_candidate = _fetch_next_followup_candidate(store)
     if followup_candidate:
-        followup_lane_key = research_row_lane_key(followup_candidate)
-        generation_lane_key = str((generation_target_lane or {}).get("lane_key") or "")
-        followup_starves_target_lane = (
-            bool(generation_target_lane)
-            and bool(max_provider_requests)
-            and bool(followup_lane_key)
-            and bool(generation_lane_key)
-            and followup_lane_key != generation_lane_key
+        _handle_followup_candidate(
+            response,
+            store=store,
+            followup_candidate=followup_candidate,
+            generation_target_lane=generation_target_lane,
+            max_dispatches=max_dispatches,
+            max_provider_requests=max_provider_requests,
+            requested_by=requested_by,
+            dispatch_queued_project=dispatch_queued_project,
+            research_row_lane_key=research_row_lane_key,
         )
-        if followup_starves_target_lane:
-            response["followup_launch"] = {
-                "action": "skipped",
-                "reason": "bounded follow-up candidate targets a different lane than the largest empty queue deficit",
-                "candidate": followup_candidate,
-                "candidate_lane_key": followup_lane_key,
-                "generation_target_lane": generation_target_lane,
-            }
-            response["stages"].append(
-                {
-                    "stage": "followup_launch",
-                    "ok": True,
-                    "action": "skipped",
-                    "reason": response["followup_launch"]["reason"],
-                    "parent_project_id": followup_candidate.get("project_id"),
-                    "candidate_lane_key": followup_lane_key,
-                    "generation_lane_key": generation_lane_key,
-                }
-            )
-        elif max_dispatches:
-            followup_launch = store.launch_followup_candidate(
-                project_id=str(followup_candidate.get("project_id") or ""),
-                dry_run=False,
-                requested_by=requested_by,
-                max_followup_depth=4,
-            )
-            response["followup_launch"] = followup_launch
-            response["stages"].append(
-                {
-                    "stage": "followup_launch",
-                    "ok": followup_launch.get("action") == "followup_queued",
-                    "action": followup_launch.get("action"),
-                    "parent_project_id": (followup_launch.get("candidate") or {}).get(
-                        "project_id"
-                    ),
-                    "project_id": (followup_launch.get("followup") or {}).get(
-                        "idea_id"
-                    ),
-                    "reason": followup_launch.get("reason"),
-                }
-            )
-            if followup_launch.get("action") == "followup_queued":
-                followup_branch_taken = True
-                response["queued_count"] = 1
-                followup_project_id = str(
-                    (followup_launch.get("followup") or {}).get("idea_id") or ""
-                ).strip()
-                if followup_project_id:
-                    dispatch_queued_project(followup_project_id)
-        else:
-            response["followup_launch"] = {
-                "action": "skipped",
-                "reason": "bounded follow-up candidate exists but dispatch is disabled for this run",
-                "candidate": followup_candidate,
-            }
-            response["stages"].append(
-                {
-                    "stage": "followup_launch",
-                    "ok": True,
-                    "action": "skipped",
-                    "reason": "bounded follow-up candidate exists but dispatch is disabled for this run",
-                    "parent_project_id": followup_candidate.get("project_id"),
-                }
-            )
-        response["fresh_generation_skipped"] = followup_branch_taken
-        response["fresh_promotion_skipped"] = followup_branch_taken
-        if followup_branch_taken:
-            response["reason"] = (
-                "bounded follow-up branch took priority over fresh idea generation"
-            )
     else:
-        response["fresh_generation_skipped"] = False
-        response["fresh_promotion_skipped"] = False
+        _clear_followup_skip_flags(response)
 
-    if (
-        not response.get("fresh_generation_skipped")
-        and max_provider_requests
-        and fresh_generation_backlog_threshold
-        and len(initial_promotable) >= fresh_generation_backlog_threshold
-        and not generation_target_lane
-    ):
-        response["fresh_generation_skipped"] = True
-        response["fresh_promotion_skipped"] = False
-        response["fresh_generation_skip_reason"] = (
-            "admitted candidate backlog is above fresh generation threshold"
-        )
-        response["stages"].append(
-            {
-                "stage": "provider_generation",
-                "ok": True,
-                "action": "skipped",
-                "reason": response["fresh_generation_skip_reason"],
-                "initial_promotable_count": len(initial_promotable),
-                "fresh_generation_backlog_threshold": fresh_generation_backlog_threshold,
-            }
-        )
-
+    _maybe_skip_fresh_generation_for_backlog(
+        response,
+        initial_promotable=initial_promotable,
+        max_provider_requests=max_provider_requests,
+        fresh_generation_backlog_threshold=fresh_generation_backlog_threshold,
+        generation_target_lane=generation_target_lane,
+    )
     return response
 
 
