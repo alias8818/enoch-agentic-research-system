@@ -29,7 +29,9 @@ def test_record_project_decision_gate_is_decided_at_guarded() -> None:
 
 
 def test_supabase_project_upserts_preserve_existing_origin_status_on_replay() -> None:
-    source = inspect.getsource(s.SupabaseControlPlaneStore)
+    source = inspect.getsource(s.SupabaseControlPlaneStore) + inspect.getsource(
+        s._persist_idea_intake_candidate
+    )
 
     assert (
         "origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status)"
