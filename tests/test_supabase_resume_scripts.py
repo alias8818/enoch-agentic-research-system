@@ -8,7 +8,19 @@ from scripts import requeue_supabase_cutover_paused_items as requeue
 from scripts import supabase_controlled_resume_drill as drill
 
 
-def test_resume_drill_control_url_default_has_no_inline_http_magic_ip() -> None:
+def test_drill_default_control_url_honors_control_plane_url_env(monkeypatch) -> None:
+    monkeypatch.setenv("ENOCH_CONTROL_PLANE_URL", "http://plane.example:8787")
+    monkeypatch.delenv("ENOCH_CONTROL_URL", raising=False)
+    assert drill._default_drill_control_url() == "http://plane.example:8787"
+
+
+def test_drill_default_control_url_falls_back_to_release_helper(monkeypatch) -> None:
+    monkeypatch.delenv("ENOCH_CONTROL_PLANE_URL", raising=False)
+    monkeypatch.setenv("ENOCH_CONTROL_URL", "http://control.example:9999")
+    assert drill._default_drill_control_url() == "http://control.example:9999"
+
+
+def test_drill_main_control_url_has_no_inline_magic_ip() -> None:
     source = Path("scripts/supabase_controlled_resume_drill.py").read_text(
         encoding="utf-8"
     )

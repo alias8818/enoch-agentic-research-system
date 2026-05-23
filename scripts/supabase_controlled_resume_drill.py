@@ -35,6 +35,13 @@ from scripts.validate_supabase_resume_readiness import (
 )
 
 
+def _default_drill_control_url() -> str:
+    explicit = os.environ.get("ENOCH_CONTROL_PLANE_URL", "").strip()
+    if explicit:
+        return explicit
+    return default_control_url()
+
+
 class DrillError(RuntimeError):
     pass
 
@@ -246,7 +253,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--control-url",
-        default=default_control_url(),
+        default=_default_drill_control_url(),
     )
     parser.add_argument(
         "--token-file",
