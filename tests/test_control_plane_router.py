@@ -14021,3 +14021,21 @@ def test_resolve_research_provider_model_no_duplicated_literals() -> None:
     assert src.count(zai) <= 1, (
         f"'{zai}' over-duplicated (count={src.count(zai)}); must be 1 via const"
     )
+
+
+def test_router_no_redundant_response_model_fastapi_style():
+    """AGENTS.md test-first validator for top BLOCKERs (S8409/S8410, ~49 instances in router.py).
+
+    Observed: after recovery to good code, Sonar reports 425 BLOCKER (mostly these in router).
+    Invariant: no redundant response_model= in @router.* decorators (return annotation suffices);
+    use Annotated for any remaining dep injection. This drops the BLOCKER count and follows
+    modern FastAPI recommendations.
+    The test is red on the restored tree; patch removes the params; must turn green with ruff/pytest.
+    """
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    count = src.count("response_model=")
+    assert count == 0, (
+        f"redundant response_model= still present (count={count}); remove all per S8409/S8410 to clear 49+ BLOCKERs"
+    )

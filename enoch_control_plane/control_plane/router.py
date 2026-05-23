@@ -3506,14 +3506,14 @@ def create_control_plane_router(
             "timestamp": utc_now(),
         }
 
-    @router.get("/state", response_model=ControlStateResponse)
+    @router.get("/state")
     def get_state(
         authorization: str | None = Header(default=None),
     ) -> ControlStateResponse:
         authorize(authorization)
         return state_response()
 
-    @router.get("/api/status", response_model=DashboardStatusResponse)
+    @router.get("/api/status")
     def dashboard_status(
         refresh_worker: bool = Query(default=False),
         authorization: str | None = Header(default=None),
@@ -3966,7 +3966,7 @@ def create_control_plane_router(
             },
         }
 
-    @router.post("/api/v1/followups/launch-next", response_model=FollowupLaunchResponse)
+    @router.post("/api/v1/followups/launch-next")
     def launch_next_followup(
         payload: FollowupLaunchRequest, authorization: str | None = Header(default=None)
     ) -> FollowupLaunchResponse:
@@ -4421,7 +4421,7 @@ def create_control_plane_router(
             "route_observability_enabled": config.route_observability_enabled,
         }
 
-    @router.get("/api/queues/{queue}", response_model=DashboardQueueResponse)
+    @router.get("/api/queues/{queue}")
     def dashboard_queue(
         queue: str,
         authorization: str | None = Header(default=None),
@@ -4540,7 +4540,7 @@ def create_control_plane_router(
         return conflicts
 
     @router.get(
-        "/api/projects/{project_id}", response_model=DashboardProjectDetailResponse
+        "/api/projects/{project_id}"
     )
     def dashboard_project(
         project_id: str, authorization: str | None = Header(default=None)
@@ -4600,7 +4600,7 @@ def create_control_plane_router(
             ),
         )
 
-    @router.get("/api/runs/{run_id}", response_model=DashboardRunDetailResponse)
+    @router.get("/api/runs/{run_id}")
     def dashboard_run(
         run_id: str, authorization: str | None = Header(default=None)
     ) -> DashboardRunDetailResponse:
@@ -4653,10 +4653,9 @@ def create_control_plane_router(
 
     @router.post(
         "/api/publication-automation/backfill",
-        response_model=PaperReviewBackfillResponse,
     )
     @router.post(
-        "/api/paper-reviews/backfill", response_model=PaperReviewBackfillResponse
+        "/api/paper-reviews/backfill"
     )
     def dashboard_paper_reviews_backfill(
         payload: PaperReviewBackfillRequest,
@@ -4743,7 +4742,7 @@ def create_control_plane_router(
         )
 
     @router.get(
-        "/api/publication-automation", response_model=DashboardPaperReviewsResponse
+        "/api/publication-automation"
     )
     def dashboard_publication_automation(
         authorization: str | None = Header(default=None),
@@ -4767,7 +4766,7 @@ def create_control_plane_router(
             queue_label="publication_automation",
         )
 
-    @router.get("/api/paper-reviews", response_model=DashboardPaperReviewsResponse)
+    @router.get("/api/paper-reviews")
     def dashboard_paper_reviews(
         authorization: str | None = Header(default=None),
         page: int = Query(default=1, ge=1),
@@ -4861,7 +4860,6 @@ def create_control_plane_router(
 
     @router.get(
         "/api/publication-automation/next",
-        response_model=DashboardPaperReviewDetailResponse,
     )
     def dashboard_next_publication_automation(
         authorization: str | None = Header(default=None),
@@ -4877,7 +4875,7 @@ def create_control_plane_router(
         )
 
     @router.get(
-        "/api/paper-reviews/next", response_model=DashboardPaperReviewDetailResponse
+        "/api/paper-reviews/next"
     )
     def dashboard_next_paper_review(
         authorization: str | None = Header(default=None),
@@ -4894,7 +4892,6 @@ def create_control_plane_router(
 
     @router.get(
         "/api/publication-automation/{paper_id}",
-        response_model=DashboardPaperReviewDetailResponse,
     )
     def dashboard_publication_automation_item(
         paper_id: str, authorization: str | None = Header(default=None)
@@ -4904,7 +4901,6 @@ def create_control_plane_router(
 
     @router.get(
         "/api/paper-reviews/{paper_id}",
-        response_model=DashboardPaperReviewDetailResponse,
     )
     def dashboard_paper_review(
         paper_id: str, authorization: str | None = Header(default=None)
@@ -4914,11 +4910,9 @@ def create_control_plane_router(
 
     @router.post(
         "/api/publication-automation/{paper_id}/claim",
-        response_model=PaperReviewMutationResponse,
     )
     @router.post(
         "/api/paper-reviews/{paper_id}/claim",
-        response_model=PaperReviewMutationResponse,
     )
     def dashboard_paper_review_claim(
         paper_id: str,
@@ -4939,11 +4933,9 @@ def create_control_plane_router(
 
     @router.post(
         "/api/publication-automation/{paper_id}/checklist/{item_id}",
-        response_model=PaperReviewMutationResponse,
     )
     @router.post(
         "/api/paper-reviews/{paper_id}/checklist/{item_id}",
-        response_model=PaperReviewMutationResponse,
     )
     def dashboard_paper_review_checklist(
         paper_id: str,
@@ -4967,11 +4959,9 @@ def create_control_plane_router(
 
     @router.post(
         "/api/publication-automation/{paper_id}/status",
-        response_model=PaperReviewMutationResponse,
     )
     @router.post(
         "/api/paper-reviews/{paper_id}/status",
-        response_model=PaperReviewMutationResponse,
     )
     def dashboard_paper_review_status(
         paper_id: str,
@@ -4994,11 +4984,9 @@ def create_control_plane_router(
 
     @router.post(
         "/api/publication-automation/{paper_id}/approve-finalization",
-        response_model=PaperReviewMutationResponse,
     )
     @router.post(
         "/api/paper-reviews/{paper_id}/approve-finalization",
-        response_model=PaperReviewMutationResponse,
     )
     def dashboard_paper_review_approve_finalization(
         paper_id: str,
@@ -5319,11 +5307,9 @@ def create_control_plane_router(
 
     @router.post(
         "/api/publication-automation/rewrite-batch",
-        response_model=PaperReviewBulkRewriteResponse,
     )
     @router.post(
         "/api/paper-reviews/rewrite-batch",
-        response_model=PaperReviewBulkRewriteResponse,
     )
     def dashboard_paper_reviews_rewrite_batch(
         payload: PaperReviewBulkRewriteRequest,
@@ -5450,11 +5436,9 @@ def create_control_plane_router(
 
     @router.post(
         "/api/publication-automation/{paper_id}/rewrite-draft",
-        response_model=PaperReviewRewriteDraftResponse,
     )
     @router.post(
         "/api/paper-reviews/{paper_id}/rewrite-draft",
-        response_model=PaperReviewRewriteDraftResponse,
     )
     def dashboard_paper_review_rewrite_draft(
         paper_id: str,
@@ -5467,11 +5451,9 @@ def create_control_plane_router(
 
     @router.post(
         "/api/publication-automation/{paper_id}/prepare-finalization-package",
-        response_model=PaperReviewFinalizationPackageResponse,
     )
     @router.post(
         "/api/paper-reviews/{paper_id}/prepare-finalization-package",
-        response_model=PaperReviewFinalizationPackageResponse,
     )
     def dashboard_paper_review_prepare_finalization_package(
         paper_id: str,
@@ -5500,7 +5482,7 @@ def create_control_plane_router(
             manifest=manifest,
         )
 
-    @router.get("/api/papers", response_model=DashboardPapersResponse)
+    @router.get("/api/papers")
     def dashboard_papers(
         authorization: str | None = Header(default=None),
         page: int = Query(default=1, ge=1),
@@ -5638,7 +5620,7 @@ def create_control_plane_router(
             "content": data.decode("utf-8", errors="replace"),
         }
 
-    @router.get("/api/papers/{paper_id}", response_model=DashboardPaperDetailResponse)
+    @router.get("/api/papers/{paper_id}")
     def dashboard_paper(
         paper_id: str, authorization: str | None = Header(default=None)
     ) -> DashboardPaperDetailResponse:
@@ -5684,7 +5666,7 @@ def create_control_plane_router(
             conflicts=[],
         )
 
-    @router.get("/api/events", response_model=DashboardEventsResponse)
+    @router.get("/api/events")
     def dashboard_events(
         authorization: str | None = Header(default=None),
         page: int = Query(default=1, ge=1),
@@ -5880,7 +5862,7 @@ def create_control_plane_router(
             conflicts=[],
         )
 
-    @router.get("/api/intake/ideas", response_model=DashboardIntakeResponse)
+    @router.get("/api/intake/ideas")
     def dashboard_ideas_intake(
         authorization: str | None = Header(default=None),
         page_size: int = Query(default=50, ge=1, le=200),
@@ -7234,7 +7216,7 @@ def create_control_plane_router(
         )
         return response
 
-    @router.get("/api/intake/notion", response_model=DashboardIntakeResponse)
+    @router.get("/api/intake/notion")
     def dashboard_notion_intake(
         authorization: str | None = Header(default=None),
         page_size: int = Query(default=50, ge=1, le=200),
@@ -7248,7 +7230,7 @@ def create_control_plane_router(
             include_latest_payload=include_latest_payload,
         )
 
-    @router.post("/pause", response_model=ControlStateResponse)
+    @router.post("/pause")
     def pause(
         payload: PauseRequest, authorization: str | None = Header(default=None)
     ) -> ControlStateResponse:
@@ -7261,7 +7243,7 @@ def create_control_plane_router(
         )
         return state_response()
 
-    @router.post("/resume", response_model=ControlStateResponse)
+    @router.post("/resume")
     def resume(
         payload: ResumeRequest, authorization: str | None = Header(default=None)
     ) -> ControlStateResponse:
@@ -7272,7 +7254,7 @@ def create_control_plane_router(
         )
         return state_response()
 
-    @router.post("/queue/mark-paused", response_model=ControlStateResponse)
+    @router.post("/queue/mark-paused")
     def mark_queue_item_paused(
         payload: MarkQueueItemPausedRequest,
         authorization: str | None = Header(default=None),
@@ -7287,7 +7269,7 @@ def create_control_plane_router(
             raise HTTPException(status_code=404, detail="queue item not found")
         return state_response()
 
-    @router.post("/import/legacy-snapshot", response_model=ImportSnapshotResponse)
+    @router.post("/import/legacy-snapshot")
     def import_snapshot(
         payload: ImportSnapshotRequest, authorization: str | None = Header(default=None)
     ) -> ImportSnapshotResponse:
@@ -7317,7 +7299,7 @@ def create_control_plane_router(
         )
         return response
 
-    @router.post("/intake/notion-ideas", response_model=NotionIntakeResponse)
+    @router.post("/intake/notion-ideas")
     def intake_notion_ideas(
         payload: NotionIntakeRequest, authorization: str | None = Header(default=None)
     ) -> NotionIntakeResponse:
@@ -7359,7 +7341,7 @@ def create_control_plane_router(
             )
         return response
 
-    @router.post("/intake/ideas", response_model=IdeaIntakeResponse)
+    @router.post("/intake/ideas")
     def intake_ideas(
         payload: IdeaIntakeRequest, authorization: str | None = Header(default=None)
     ) -> IdeaIntakeResponse:
@@ -7504,7 +7486,7 @@ def create_control_plane_router(
             }
         )
 
-    @router.post("/worker/preflight", response_model=WorkerPreflightResponse)
+    @router.post("/worker/preflight")
     def worker_preflight(
         payload: WorkerPreflightRequest,
         authorization: str | None = Header(default=None),
@@ -7522,7 +7504,7 @@ def create_control_plane_router(
         _record_preflight_observations(response)
         return response
 
-    @router.post("/api/preflight", response_model=WorkerPreflightResponse)
+    @router.post("/api/preflight")
     def dashboard_preflight(
         payload: WorkerPreflightRequest,
         authorization: str | None = Header(default=None),
@@ -7534,7 +7516,7 @@ def create_control_plane_router(
             _record_preflight_observations(response)
         return response
 
-    @router.post("/dispatch-next", response_model=DispatchNextResponse)
+    @router.post("/dispatch-next")
     def dispatch_next(
         payload: DispatchNextRequest, authorization: str | None = Header(default=None)
     ) -> DispatchNextResponse:
@@ -7590,7 +7572,7 @@ def create_control_plane_router(
             event_id=None,
         )
 
-    @router.post("/dispatch-one", response_model=DispatchNextResponse)
+    @router.post("/dispatch-one")
     def dispatch_one(
         payload: DispatchOneRequest, authorization: str | None = Header(default=None)
     ) -> DispatchNextResponse:
@@ -7655,7 +7637,7 @@ def create_control_plane_router(
         authorize(authorization)
         return {"ok": True, "rows": store.paper_rows()}
 
-    @router.get("/export/snapshot", response_model=ExportSnapshotResponse)
+    @router.get("/export/snapshot")
     def export_snapshot(
         authorization: str | None = Header(default=None),
     ) -> ExportSnapshotResponse:
@@ -7668,7 +7650,7 @@ def create_control_plane_router(
             events=snapshot["events"],
         )
 
-    @router.get("/projections/notion/queue", response_model=ProjectionResponse)
+    @router.get("/projections/notion/queue")
     def notion_queue_projection(
         authorization: str | None = Header(default=None),
     ) -> ProjectionResponse:
@@ -7677,7 +7659,7 @@ def create_control_plane_router(
         rows = store.queue_notion_projection()
         return ProjectionResponse(rows=rows, counts=store.status_counts())
 
-    @router.get("/projections/ideas/workbench", response_model=ProjectionResponse)
+    @router.get("/projections/ideas/workbench")
     def ideas_workbench_projection(
         authorization: str | None = Header(default=None),
     ) -> ProjectionResponse:
@@ -7693,7 +7675,7 @@ def create_control_plane_router(
             counts[key] = counts.get(key, 0) + 1
         return ProjectionResponse(rows=rows, counts=counts)
 
-    @router.get("/projections/notion/papers", response_model=ProjectionResponse)
+    @router.get("/projections/notion/papers")
     def notion_papers_projection(
         authorization: str | None = Header(default=None),
     ) -> ProjectionResponse:
@@ -7707,7 +7689,7 @@ def create_control_plane_router(
         return ProjectionResponse(rows=rows, counts=counts)
 
     @router.get(
-        "/projections/notion/execution-updates", response_model=ProjectionResponse
+        "/projections/notion/execution-updates"
     )
     def notion_execution_updates_projection(
         authorization: str | None = Header(default=None),
@@ -7771,7 +7753,7 @@ def create_control_plane_router(
             return artifact_gate, artifact_root
         return row_gate, artifact_root
 
-    @router.post("/papers/draft-next", response_model=DraftNextResponse)
+    @router.post("/papers/draft-next")
     def draft_next(
         payload: DraftNextRequest, authorization: str | None = Header(default=None)
     ) -> DraftNextResponse:
