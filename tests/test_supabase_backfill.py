@@ -17,6 +17,13 @@ from scripts.backfill_control_plane_to_supabase import (
 )
 
 
+def _backfill_postgres_insert_source() -> str:
+    mod = backfill_control_plane_to_supabase
+    return inspect.getsource(mod._import_backfill_domain_tables) + inspect.getsource(
+        mod._upsert_backfill_control_flags
+    )
+
+
 def test_json_text_normalizes_invalid_or_empty_payloads() -> None:
     assert json_text("", {}) == "{}"
     assert json_text("not json", []) == "[]"
@@ -139,9 +146,7 @@ def test_backfill_target_identity_guard_allows_same_existing_identity() -> None:
 
 
 def test_backfill_conflict_updates_are_timestamp_guarded() -> None:
-    source = inspect.getsource(
-        backfill_control_plane_to_supabase.import_sqlite_to_postgres
-    )
+    source = _backfill_postgres_insert_source()
 
     for nullable_guard in (
         "control_flags.updated_at is null or excluded.updated_at >= control_flags.updated_at",
@@ -155,9 +160,7 @@ def test_backfill_conflict_updates_are_timestamp_guarded() -> None:
 
 
 def test_backfill_project_decision_conflict_update_is_decided_at_guarded() -> None:
-    source = inspect.getsource(
-        backfill_control_plane_to_supabase.import_sqlite_to_postgres
-    )
+    source = _backfill_postgres_insert_source()
 
     assert (
         "where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at"
@@ -166,9 +169,7 @@ def test_backfill_project_decision_conflict_update_is_decided_at_guarded() -> No
 
 
 def test_backfill_control_events_are_append_only_on_idempotency_conflict() -> None:
-    source = inspect.getsource(
-        backfill_control_plane_to_supabase.import_sqlite_to_postgres
-    ).lower()
+    source = _backfill_postgres_insert_source().lower()
     event_insert = source[source.index("insert into control_events(idempotency_key") :]
     event_insert = event_insert[
         : event_insert.index('imported["operator_observations"]')
