@@ -45,6 +45,19 @@ export type {
   OperatorSection,
 } from './detailOperatorSummaryHelpers'
 
+function projectNextStepMessage(attention: boolean, state: string, runState: string): string {
+  if (attention) {
+    return 'Resolve the blocker or manual-review flag before dispatching again.'
+  }
+  if (state === 'queued') {
+    return 'Run a dispatch dry-run on the lane card before starting work.'
+  }
+  if (runState === 'running' || state === 'running') {
+    return 'Open the current run and watch gate state plus recent events.'
+  }
+  return 'Review paper status and recent events before taking a write action.'
+}
+
 function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const project = record(payload.project)
   const queue = queueRecord(payload)
