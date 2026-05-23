@@ -369,42 +369,79 @@ Reflection pattern seeds:
 """.strip()
 
 
-def validate_synthesized_candidate(candidate: dict[str, Any]) -> list[str]:
+def _validate_synthesized_artifacts(candidate: dict[str, Any]) -> list[str]:
     problems: list[str] = []
     artifacts = {_text(item) for item in _as_list(candidate.get("expected_artifacts"))}
     for artifact in sorted(REQUIRED_ORACLE_ARTIFACTS):
         if artifact not in artifacts:
             problems.append(f"missing expected artifact {artifact}")
+    return problems
+
+
+def _validate_synthesized_standard_fields(candidate: dict[str, Any]) -> list[str]:
+    problems: list[str] = []
     for key in REQUIRED_STANDARD_TEXT_FIELDS:
         if not _text(candidate.get(key)):
             problems.append(f"missing {key}")
     for key in REQUIRED_STANDARD_ARRAY_FIELDS:
         if not _as_list(candidate.get(key)):
             problems.append(f"missing {key}")
+    return problems
+
+
+def _validate_synthesized_score(
+    score_key: str, candidate: dict[str, Any]
+) -> str | None:
+    try:
+        score = float(candidate.get(score_key))
+    except (TypeError, ValueError):
+        return f"{score_key} must be a 0-10 number"
+    if score < 0.0 or score > 10.0:
+        return f"{score_key} must be a 0-10 number"
+    return None
+
+
+def _validate_synthesized_scores(candidate: dict[str, Any]) -> list[str]:
+    problems: list[str] = []
     for key in REQUIRED_SCORE_FIELDS:
-        try:
-            score = float(candidate.get(key))
-        except (TypeError, ValueError):
-            problems.append(f"{key} must be a 0-10 number")
-            continue
-        if score < 0.0 or score > 10.0:
-            problems.append(f"{key} must be a 0-10 number")
+        message = _validate_synthesized_score(key, candidate)
+        if message:
+            problems.append(message)
+    return problems
+
+
+def _validate_synthesized_numeric_thresholds(candidate: dict[str, Any]) -> list[str]:
+    problems: list[str] = []
     for key in ("success_threshold", "kill_condition"):
         if not re.search(r"\d", _text(candidate.get(key))):
             problems.append(f"{key} must include at least one numeric threshold")
-    if (
-        "oracle"
-        not in " ".join(
-            [
-                _text(candidate.get("title")),
-                _text(candidate.get("implementation")),
-                _text(candidate.get("mechanism")),
-            ]
-        ).lower()
-    ):
-        problems.append(
+    return problems
+
+
+def _validate_synthesized_oracle_meta_experiment(
+    candidate: dict[str, Any],
+) -> list[str]:
+    oracle_text = " ".join(
+        [
+            _text(candidate.get("title")),
+            _text(candidate.get("implementation")),
+            _text(candidate.get("mechanism")),
+        ]
+    ).lower()
+    if "oracle" not in oracle_text:
+        return [
             "synthesized candidate must explicitly describe an oracle/meta-experiment"
-        )
+        ]
+    return []
+
+
+def validate_synthesized_candidate(candidate: dict[str, Any]) -> list[str]:
+    problems: list[str] = []
+    problems.extend(_validate_synthesized_artifacts(candidate))
+    problems.extend(_validate_synthesized_standard_fields(candidate))
+    problems.extend(_validate_synthesized_scores(candidate))
+    problems.extend(_validate_synthesized_numeric_thresholds(candidate))
+    problems.extend(_validate_synthesized_oracle_meta_experiment(candidate))
     return problems
 
 
