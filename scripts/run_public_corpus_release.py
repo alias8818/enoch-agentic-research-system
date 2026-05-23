@@ -19,6 +19,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from enoch_control_plane.url_safety import secure_default_service_url
+
 CONTROL_PLANE_PORT = 8787
 # Documented on-prem control-plane host for the research-facility LAN.
 # Override via ENOCH_WORKER_HOST (host only) or ENOCH_CONTROL_URL (full base URL).
@@ -39,11 +41,12 @@ def _default_control_plane_host() -> str:
 
 
 def default_control_url() -> str:
-    explicit = os.environ.get("ENOCH_CONTROL_URL", "").strip()
-    if explicit:
-        return explicit
+    for env_name in ("ENOCH_CONTROL_URL", "ENOCH_CONTROL_PLANE_URL"):
+        explicit = os.environ.get(env_name, "").strip()
+        if explicit:
+            return explicit
     host = _default_control_plane_host()
-    return f"http://{host}:{CONTROL_PLANE_PORT}"
+    return secure_default_service_url(host, CONTROL_PLANE_PORT)
 
 
 @dataclass(frozen=True)
