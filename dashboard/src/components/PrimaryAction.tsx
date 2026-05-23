@@ -23,8 +23,8 @@ type PrimaryActionCtaProps = {
   liveReady: boolean
   liveDisabledReason: string
   onCheckReadiness?: () => void
-  onDryRun: () => void
-  onLive: () => void
+  onDryRun: () => void | Promise<void>
+  onLive: () => void | Promise<void>
 }
 
 type PrimaryActionViewProps = PrimaryActionCtaProps & {
@@ -176,8 +176,8 @@ export function PrimaryAction({
       staleReady={controller.staleReady}
       dialog={controller.dialog}
       onCheckReadiness={onCheckReadiness}
-      onDryRun={() => { void controller.runDryRun() }}
-      onLive={() => { void controller.runLive() }}
+      onDryRun={controller.runDryRun}
+      onLive={controller.runLive}
     />
   )
 }
