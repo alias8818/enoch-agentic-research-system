@@ -916,3 +916,19 @@ def test_supabase_store_sql_status_count_query_centralized_no_s1192_duplication(
     assert count == 1, (
         f"{lit!r} still duplicated in supabase_store (count={count}); extract to const"
     )
+
+
+def test_backfill_project_decision_json_centralized_no_s1192_duplication() -> None:
+    """AGENTS.md validator for current top S1192 (backfill_control_plane_to_supabase.py:289).
+
+    "project_decision.json" (flagged in latest Sonar top duplication, 5x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "backfill_control_plane_to_supabase.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "project_decision.json"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in backfill (count={count}); extract to const"
+    )

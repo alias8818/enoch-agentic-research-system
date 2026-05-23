@@ -49,6 +49,10 @@ POSTGRES_TABLE_COLUMNS = {
     "runs": {"run_id", "project_id"},
 }
 
+# Centralized filename constant for the top remaining S1192 duplication
+# (project decision artifact paths in .enoch/, .omx/, and root).
+PROJECT_DECISION_JSON = "project_decision.json"
+
 SQLITE_TABLE_ORDER_COLUMNS = {
     "projects": {"project_id"},
     "queue_items": {"project_id"},
@@ -285,12 +289,12 @@ def load_project_decisions(
                         "decision_summary": str(
                             gate.get("decision") or gate.get("reason") or ""
                         ),
-                        "artifact_path": str(root / ".enoch" / "project_decision.json")
-                        if (root / ".enoch" / "project_decision.json").exists()
+                        "artifact_path": str(root / ".enoch" / PROJECT_DECISION_JSON)
+                        if (root / ".enoch" / PROJECT_DECISION_JSON).exists()
                         else (
-                            str(root / ".omx" / "project_decision.json")
-                            if (root / ".omx" / "project_decision.json").exists()
-                            else str(root / "project_decision.json")
+                            str(root / ".omx" / PROJECT_DECISION_JSON)
+                            if (root / ".omx" / PROJECT_DECISION_JSON).exists()
+                            else str(root / PROJECT_DECISION_JSON)
                         ),
                         "payload_json": json_text(payload, {}),
                         "payload_hash": stable_hash(payload),
