@@ -270,15 +270,30 @@ def _first_present(raw: dict[str, Any], *names: str) -> Any:
     return None
 
 
-def _snapshot_rows(
-    snapshot: dict[str, Any] | list[dict[str, Any]] | None, *, paper: bool = False
+def _snapshot_row_key(row: dict[str, Any], *, paper: bool) -> str:
+    id_field = "paper_id" if paper else "project_id"
+    return _text(row.get(id_field)) or _hash(row)
+
+
+def _register_snapshot_row(
+    row: dict[str, Any],
+    *,
+    paper: bool,
+    seen: dict[str, str],
+    rows: list[dict[str, Any]],
+) -> None:
+    row_key = _snapshot_row_key(row, paper=paper)
+    if row_key in seen:
+        if seen[row_key] != _json(row):
+            raise ValueError(f"conflicting snapshot row identity for {row_key!r}")
+        return
+    seen[row_key] = _json(row)
+    rows.append(row)
+
+
+def _snapshot_rows_from_dict(
+    snapshot: dict[str, Any], *, paper: bool
 ) -> list[dict[str, Any]]:
-    if snapshot is None:
-        return []
-    if isinstance(snapshot, list):
-        return [row for row in snapshot if isinstance(row, dict)]
-    if not isinstance(snapshot, dict):
-        return []
     keys = (
         ("latest_rows", "rows", "active_rows", "blocked_rows")
         if paper
@@ -291,20 +306,21 @@ def _snapshot_rows(
         if not isinstance(value, list):
             continue
         for row in value:
-            if not isinstance(row, dict):
-                continue
-            row_key = _text(
-                row.get("paper_id") if paper else row.get("project_id")
-            ) or _hash(row)
-            if row_key in seen:
-                if seen[row_key] != _json(row):
-                    raise ValueError(
-                        f"conflicting snapshot row identity for {row_key!r}"
-                    )
-                continue
-            seen[row_key] = _json(row)
-            rows.append(row)
+            if isinstance(row, dict):
+                _register_snapshot_row(row, paper=paper, seen=seen, rows=rows)
     return rows
+
+
+def _snapshot_rows(
+    snapshot: dict[str, Any] | list[dict[str, Any]] | None, *, paper: bool = False
+) -> list[dict[str, Any]]:
+    if snapshot is None:
+        return []
+    if isinstance(snapshot, list):
+        return [row for row in snapshot if isinstance(row, dict)]
+    if not isinstance(snapshot, dict):
+        return []
+    return _snapshot_rows_from_dict(snapshot, paper=paper)
 
 
 def _reject_conflicting_snapshot_rows(
