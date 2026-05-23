@@ -45,6 +45,11 @@ from .process_tracker import ProcessTracker
 from .state_store import StateStore
 from .telemetry import TelemetryCollector
 
+# Centralized label for project directory checks (eliminates S1192 duplication
+# of the literal across multiple _checked_exists / _checked_is_dir calls and
+# error messages in the dashboard API handlers).
+PROJECT_DIRECTORY_LABEL = "project directory"
+
 
 def load_config(path: Path | None = None) -> GateConfig:
     env_path = os.environ.get("ENOCH_CONFIG") or os.environ.get(
@@ -1104,7 +1109,7 @@ def _resolve_project_relative_path(project_dir: Path, relative_path: str) -> Pat
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
-            detail=f"paper artifact path escapes project directory: {relative_path}",
+            detail=f"paper artifact path escapes {PROJECT_DIRECTORY_LABEL}: {relative_path}",
         ) from exc
     return resolved
 
@@ -2179,10 +2184,12 @@ def dashboard_api_paper_artifact(
     _require_dashboard_bearer(authorization, token)
     project_dir = _resolve_project_dir(project_id, None)
     if not _checked_exists(
-        project_dir, label="project directory", status_code=403
-    ) or not _checked_is_dir(project_dir, label="project directory", status_code=403):
+        project_dir, label=PROJECT_DIRECTORY_LABEL, status_code=403
+    ) or not _checked_is_dir(
+        project_dir, label=PROJECT_DIRECTORY_LABEL, status_code=403
+    ):
         raise HTTPException(
-            status_code=404, detail=f"project directory not found: {project_id}"
+            status_code=404, detail=f"{PROJECT_DIRECTORY_LABEL} not found: {project_id}"
         )
     artifact_path = _resolve_project_relative_path(project_dir, path)
     try:
@@ -2401,7 +2408,7 @@ async def project_status(
         active_processes = gate.process_tracker.describe_processes(record)
 
     project_available = _checked_exists(
-        resolved_project_dir, label="project directory", status_code=403
+        resolved_project_dir, label=PROJECT_DIRECTORY_LABEL, status_code=403
     )
     response = ProjectStatusResponse(
         project_id=project_id,
@@ -2500,10 +2507,12 @@ async def read_project_paper(
 
     project_dir = _resolve_project_dir(project_id, None)
     if not _checked_exists(
-        project_dir, label="project directory", status_code=403
-    ) or not _checked_is_dir(project_dir, label="project directory", status_code=403):
+        project_dir, label=PROJECT_DIRECTORY_LABEL, status_code=403
+    ) or not _checked_is_dir(
+        project_dir, label=PROJECT_DIRECTORY_LABEL, status_code=403
+    ):
         raise HTTPException(
-            status_code=404, detail=f"project directory not found: {project_id}"
+            status_code=404, detail=f"{PROJECT_DIRECTORY_LABEL} not found: {project_id}"
         )
 
     files: list[dict[str, Any]] = []
@@ -2570,10 +2579,12 @@ async def write_project_paper(
 
     project_dir = _resolve_project_dir(project_id, None)
     if not _checked_exists(
-        project_dir, label="project directory", status_code=403
-    ) or not _checked_is_dir(project_dir, label="project directory", status_code=403):
+        project_dir, label=PROJECT_DIRECTORY_LABEL, status_code=403
+    ) or not _checked_is_dir(
+        project_dir, label=PROJECT_DIRECTORY_LABEL, status_code=403
+    ):
         raise HTTPException(
-            status_code=404, detail=f"project directory not found: {project_id}"
+            status_code=404, detail=f"{PROJECT_DIRECTORY_LABEL} not found: {project_id}"
         )
 
     written: list[dict[str, Any]] = []

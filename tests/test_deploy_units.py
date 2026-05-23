@@ -801,3 +801,17 @@ def test_deploy_research_autopilot_missing_database_url_centralized() -> None:
     assert count == 1, (
         f"{lit!r} still duplicated in autopilot (count={count}); extract to const"
     )
+
+
+def test_app_py_project_directory_label_centralized_no_s1192_duplication() -> None:
+    """AGENTS.md validator for current top S1192 (enoch_control_plane/app.py:2182).
+
+    The literal "project directory" (used as label in _checked_exists/_checked_is_dir)
+    is duplicated 7 times per Sonar. Must be 1 after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "app.py").read_text(encoding="utf-8")
+    lit = "project directory"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in app.py (count={count}); extract to const"
+    )
