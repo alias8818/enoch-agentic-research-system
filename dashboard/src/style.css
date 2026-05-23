@@ -943,6 +943,7 @@ button:disabled { cursor: not-allowed; }
   font-size: 0.9rem;
 }
 .composed-empty-state {
+  display: block;
   border: 1px dashed rgba(244,241,234,0.14);
   border-radius: 1.25rem;
   background: rgba(0,0,0,0.18);
