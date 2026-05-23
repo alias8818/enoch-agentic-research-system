@@ -2,7 +2,7 @@ function formatCountLabel(key: string): string {
   return key.replaceAll('_', ' ')
 }
 
-export function WorkbenchOperatorSummary({ summary }: { summary?: string | null }) {
+export function WorkbenchOperatorSummary({ summary }: Readonly<{ summary?: string | null }>) {
   const text = String(summary || '').trim()
   if (!text) return null
   return (
