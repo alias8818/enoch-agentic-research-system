@@ -1237,3 +1237,22 @@ def test_research_facility_sql_guard_select_centralized_no_s1192_duplication() -
     assert src.count("_SQL_GUARD_EXISTS_SELECT") >= 7, (
         "emit_sql guards must reference _SQL_GUARD_EXISTS_SELECT"
     )
+
+
+def test_research_facility_sql_guard_and_close_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for S1192 (de91349f, research_facility.py emit_sql).
+
+    "      )" (closing paren for identity-conflict guards) must appear exactly
+    once after const extraction to _SQL_GUARD_AND_CLOSE.
+    """
+    src = (ROOT / "scripts" / "research_facility.py").read_text(encoding="utf-8")
+    lit = "      )"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in research_facility (count={count}); extract to const"
+    )
+    assert src.count("_SQL_GUARD_AND_CLOSE") >= 7, (
+        "emit_sql guards must reference _SQL_GUARD_AND_CLOSE"
+    )
