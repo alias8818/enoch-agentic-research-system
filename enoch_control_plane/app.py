@@ -1333,53 +1333,77 @@ def _safe_read_json(path: Path) -> dict[str, Any]:
         raise ValueError(f"invalid JSON in decision file: {path}") from exc
 
 
-def _coerce_project_decision(
-    raw: dict[str, Any], source: str, source_path: Path | None = None
-) -> ProjectDecision:
-    action = str(raw.get("project_decision") or raw.get("decision") or "").strip()
-    if action not in {
+_PROJECT_DECISION_ACTIONS = frozenset(
+    {
         "continue",
         "finalize_negative",
         "finalize_positive",
         "branch_new_project",
         "blocked",
         "needs_review",
-    }:
+    }
+)
+_HYPOTHESIS_STATUSES = frozenset({"supported", "unsupported", "mixed", "inconclusive"})
+_CONFIDENCE_LEVELS = frozenset({"low", "medium", "high"})
+_EVIDENCE_STRENGTHS = frozenset({"weak", "moderate", "strong"})
+_FOLLOWUP_TYPES = frozenset({"", "deepen", "branch", "retry"})
+
+
+def _coerce_member_or_default(
+    value: Any, *, default: str, allowed: frozenset[str]
+) -> str:
+    text = str(value or default).strip() or default
+    return text if text in allowed else default
+
+
+def _coerce_project_decision_action(raw: dict[str, Any]) -> str:
+    action = str(raw.get("project_decision") or raw.get("decision") or "").strip()
+    if action not in _PROJECT_DECISION_ACTIONS:
         raise ValueError(f"unsupported project decision: {action or '<missing>'}")
+    return action
 
-    hypothesis_status = (
-        str(raw.get("hypothesis_status") or "inconclusive").strip() or "inconclusive"
-    )
-    if hypothesis_status not in {"supported", "unsupported", "mixed", "inconclusive"}:
-        hypothesis_status = "inconclusive"
 
-    confidence = str(raw.get("confidence") or "medium").strip() or "medium"
-    if confidence not in {"low", "medium", "high"}:
-        confidence = "medium"
-
-    evidence_strength = (
-        str(raw.get("evidence_strength") or "moderate").strip() or "moderate"
-    )
-    if evidence_strength not in {"weak", "moderate", "strong"}:
-        evidence_strength = "moderate"
-
-    raw_followup_type = (
+def _coerce_followup_type(raw: dict[str, Any]) -> str:
+    followup_type = (
         str(raw.get("followup_type") or "").strip().lower().replace("-", "_")
     )
-    if raw_followup_type not in {"", "deepen", "branch", "retry"}:
-        raw_followup_type = ""
-    raw_required = raw.get("followup_required_evidence")
+    return followup_type if followup_type in _FOLLOWUP_TYPES else ""
+
+
+def _coerce_followup_required_evidence(raw_required: Any) -> list[str]:
     if isinstance(raw_required, list):
-        followup_required_evidence = [
+        return [
             part
             for item in raw_required
             for part in split_numbered_list_text(str(item))
             if part
         ]
-    elif isinstance(raw_required, str):
-        followup_required_evidence = split_numbered_list_text(raw_required)
-    else:
-        followup_required_evidence = []
+    if isinstance(raw_required, str):
+        return split_numbered_list_text(raw_required)
+    return []
+
+
+def _coerce_project_decision(
+    raw: dict[str, Any], source: str, source_path: Path | None = None
+) -> ProjectDecision:
+    action = _coerce_project_decision_action(raw)
+    hypothesis_status = _coerce_member_or_default(
+        raw.get("hypothesis_status"),
+        default="inconclusive",
+        allowed=_HYPOTHESIS_STATUSES,
+    )
+    confidence = _coerce_member_or_default(
+        raw.get("confidence"), default="medium", allowed=_CONFIDENCE_LEVELS
+    )
+    evidence_strength = _coerce_member_or_default(
+        raw.get("evidence_strength"),
+        default="moderate",
+        allowed=_EVIDENCE_STRENGTHS,
+    )
+    raw_followup_type = _coerce_followup_type(raw)
+    followup_required_evidence = _coerce_followup_required_evidence(
+        raw.get("followup_required_evidence")
+    )
 
     return ProjectDecision(
         project_decision=action,
