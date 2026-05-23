@@ -14356,6 +14356,37 @@ def test_wait_for_completion_extracted_no_duplication_in_giant():
     assert callable(_wait_for_completion)
 
 
+def test_worker_settling_after_vm_completion_extracted_for_s3776():
+    """AGENTS.md test-first for OPEN S3776 at router.py ~2064 (_worker_settling_after_vm_completion).
+
+    Completed-run-id collection and worker-run matching are extracted so the orchestrator
+    stays linear and cognitive complexity stays under Sonar's threshold.
+    """
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
+    for helper in (
+        "_worker_no_live_failed_check",
+        "_collect_completed_run_ids",
+        "_worker_settling_match_for_completed_runs",
+    ):
+        assert f"def {helper}(" in src, (
+            f"{helper} helper missing (S3776 2064 still monolithic)"
+        )
+
+    from enoch_control_plane.control_plane.router import (
+        _collect_completed_run_ids,
+        _worker_settling_after_vm_completion,
+        _worker_settling_match_for_completed_runs,
+    )
+
+    assert callable(_worker_settling_after_vm_completion)
+    assert callable(_collect_completed_run_ids)
+    assert callable(_worker_settling_match_for_completed_runs)
+
+
 def test_router_no_redundant_response_model_fastapi_style():
     """AGENTS.md test-first validator for top BLOCKERs (S8409/S8410, ~49 instances in router.py).
 
