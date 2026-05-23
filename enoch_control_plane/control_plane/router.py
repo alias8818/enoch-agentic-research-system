@@ -3821,122 +3821,127 @@ def _execute_research_paper_stages(
     return drafted_papers, finalized_papers
 
 
+@dataclass(frozen=True)
+class _LiveResearchCycleParams:
+    store: Any
+    requested_by: str
+    generation_target_lane: Any
+    max_dispatches: int
+    max_provider_requests: int
+    fresh_generation_backlog_threshold: int
+    initial_promotable: list[dict[str, Any]]
+    promotable_rows: Callable[[], list[dict[str, Any]]]
+    open_lane_research_rows: Callable[..., list[dict[str, Any]]]
+    max_promotions: int
+    provider_openai_base_url: str
+    provider_model: str
+    max_candidates: int
+    topic: str
+    temperature: float
+    seed: str
+    generation_timeout: int
+    generation_max_tokens: int
+    generation_attempts: int
+    min_admission_score: float
+    bounded_float: Callable[[str, float, float, float], float]
+    namespace_cls: Any
+    research_provider_generate: Any
+    research_facility: Any
+    wait_for_completion: bool
+    max_wait_seconds: int
+    poll_interval_seconds: int
+    max_paper_drafts: int
+    max_publication_rewrites: int
+    draft_next: Callable[..., Any]
+    rewrite_paper_review_draft: Callable[..., Any]
+    control_api_bearer_token: str
+    worker_lane_key: Callable[[dict[str, Any]], str]
+    live_dispatch: Callable[..., Any]
+    jsonable_encoder: Callable[..., Any]
+    research_row_lane_key: Callable[[dict[str, Any]], str]
+
+
 def _execute_live_research_cycle(
     *,
-    store: Any,
+    params: _LiveResearchCycleParams,
     response: dict[str, Any],
-    requested_by: str,
-    generation_target_lane: Any,
-    max_dispatches: int,
-    max_provider_requests: int,
-    fresh_generation_backlog_threshold: int,
-    initial_promotable: list[dict[str, Any]],
-    promotable_rows: Callable[[], list[dict[str, Any]]],
-    open_lane_research_rows: Callable[..., list[dict[str, Any]]],
-    max_promotions: int,
-    provider_openai_base_url: str,
-    provider_model: str,
-    max_candidates: int,
-    topic: str,
-    temperature: float,
-    seed: str,
-    generation_timeout: int,
-    generation_max_tokens: int,
-    generation_attempts: int,
-    min_admission_score: float,
-    bounded_float: Callable[[str, float, float, float], float],
-    namespace_cls: Any,
-    research_provider_generate: Any,
-    research_facility: Any,
-    wait_for_completion: bool,
-    max_wait_seconds: int,
-    poll_interval_seconds: int,
-    max_paper_drafts: int,
-    max_publication_rewrites: int,
-    draft_next: Callable[..., Any],
-    rewrite_paper_review_draft: Callable[..., Any],
-    control_api_bearer_token: str,
-    _worker_lane_key: Callable[[dict[str, Any]], str],
-    _live_dispatch: Callable[..., Any],
-    jsonable_encoder: Callable[..., Any],
-    research_row_lane_key: Callable[[dict[str, Any]], str],
 ) -> dict[str, Any]:
     """Extracted from dashboard_research_run_cycle (live path orchestration contributing to S3776)."""
 
     def dispatch_queued_project(project_id: str) -> bool:
         return _dispatch_queued_project(
             project_id,
-            store=store,
+            store=params.store,
             response=response,
-            requested_by=requested_by,
-            _live_dispatch=_live_dispatch,
-            jsonable_encoder=jsonable_encoder,
+            requested_by=params.requested_by,
+            _live_dispatch=params.live_dispatch,
+            jsonable_encoder=params.jsonable_encoder,
         )
 
     response = _handle_followup_and_early_skips(
-        store=store,
-        generation_target_lane=generation_target_lane,
-        max_dispatches=max_dispatches,
-        max_provider_requests=max_provider_requests,
-        fresh_generation_backlog_threshold=fresh_generation_backlog_threshold,
-        initial_promotable=initial_promotable,
+        store=params.store,
+        generation_target_lane=params.generation_target_lane,
+        max_dispatches=params.max_dispatches,
+        max_provider_requests=params.max_provider_requests,
+        fresh_generation_backlog_threshold=params.fresh_generation_backlog_threshold,
+        initial_promotable=params.initial_promotable,
         response=response,
-        requested_by=requested_by,
+        requested_by=params.requested_by,
         dispatch_queued_project=dispatch_queued_project,
-        research_row_lane_key=research_row_lane_key,
+        research_row_lane_key=params.research_row_lane_key,
     )
     response = _execute_provider_generation(
         params=_ProviderGenerationParams(
-            max_provider_requests=max_provider_requests,
-            generation_target_lane=generation_target_lane,
-            provider_openai_base_url=provider_openai_base_url,
-            provider_model=provider_model,
-            max_candidates=max_candidates,
-            topic=topic,
-            temperature=temperature,
-            seed=seed,
-            generation_timeout=generation_timeout,
-            generation_max_tokens=generation_max_tokens,
-            generation_attempts=generation_attempts,
-            min_admission_score=min_admission_score,
-            bounded_float=bounded_float,
-            namespace_cls=namespace_cls,
-            research_provider_generate=research_provider_generate,
-            research_facility=research_facility,
-            store=store,
-            requested_by=requested_by,
+            max_provider_requests=params.max_provider_requests,
+            generation_target_lane=params.generation_target_lane,
+            provider_openai_base_url=params.provider_openai_base_url,
+            provider_model=params.provider_model,
+            max_candidates=params.max_candidates,
+            topic=params.topic,
+            temperature=params.temperature,
+            seed=params.seed,
+            generation_timeout=params.generation_timeout,
+            generation_max_tokens=params.generation_max_tokens,
+            generation_attempts=params.generation_attempts,
+            min_admission_score=params.min_admission_score,
+            bounded_float=params.bounded_float,
+            namespace_cls=params.namespace_cls,
+            research_provider_generate=params.research_provider_generate,
+            research_facility=params.research_facility,
+            store=params.store,
+            requested_by=params.requested_by,
         ),
         response=response,
     )
     response = _execute_promotion(
-        promotable_rows=promotable_rows,
-        open_lane_research_rows=open_lane_research_rows,
-        max_promotions=max_promotions,
-        max_dispatches=max_dispatches,
-        store=store,
-        requested_by=requested_by,
+        promotable_rows=params.promotable_rows,
+        open_lane_research_rows=params.open_lane_research_rows,
+        max_promotions=params.max_promotions,
+        max_dispatches=params.max_dispatches,
+        store=params.store,
+        requested_by=params.requested_by,
         response=response,
-        _worker_lane_key=_worker_lane_key,
+        _worker_lane_key=params.worker_lane_key,
         dispatch_queued_project=dispatch_queued_project,
     )
     wait_result = _wait_for_completion(
-        store=store,
+        store=params.store,
         response=response,
-        wait_for_completion=wait_for_completion,
-        max_wait_seconds=max_wait_seconds,
-        poll_interval_seconds=poll_interval_seconds,
+        wait_for_completion=params.wait_for_completion,
+        max_wait_seconds=params.max_wait_seconds,
+        poll_interval_seconds=params.poll_interval_seconds,
     )
     drafted_papers, finalized_papers = _execute_research_paper_stages(
-        store=store,
+        store=params.store,
         response=response,
-        max_paper_drafts=max_paper_drafts,
-        max_publication_rewrites=max_publication_rewrites,
-        wait_for_completion=wait_for_completion,
+        max_paper_drafts=params.max_paper_drafts,
+        max_publication_rewrites=params.max_publication_rewrites,
+        wait_for_completion=params.wait_for_completion,
         wait_result=wait_result,
-        requested_by=requested_by,
-        draft_next=draft_next,
-        rewrite_paper_review_draft=rewrite_paper_review_draft,
-        control_api_bearer_token=control_api_bearer_token,
+        requested_by=params.requested_by,
+        draft_next=params.draft_next,
+        rewrite_paper_review_draft=params.rewrite_paper_review_draft,
+        control_api_bearer_token=params.control_api_bearer_token,
     )
     response["paper_drafts"] = drafted_papers
     response["paper_drafted_count"] = sum(
@@ -3948,13 +3953,13 @@ def _execute_live_research_cycle(
         response["reason"] = (
             "bounded research cycle completed; broad queue pause preserved and paper stages were positive-gated"
         )
-    if hasattr(store, "append_event"):
-        store.append_event(
-            idempotency_key=f"research-cycle:live:{requested_by}:{utc_now()}",
+    if hasattr(params.store, "append_event"):
+        params.store.append_event(
+            idempotency_key=f"research-cycle:live:{params.requested_by}:{utc_now()}",
             event_type="research.run_cycle.live",
             entity_type="research",
             entity_id="run-cycle",
-            payload=jsonable_encoder(response),
+            payload=params.jsonable_encoder(response),
         )
     return response
 
@@ -8615,43 +8620,45 @@ def create_control_plane_router(
         )
 
         return _execute_live_research_cycle(
-            store=store,
+            params=_LiveResearchCycleParams(
+                store=store,
+                requested_by=requested_by,
+                generation_target_lane=generation_target_lane,
+                max_dispatches=max_dispatches,
+                max_provider_requests=max_provider_requests,
+                fresh_generation_backlog_threshold=fresh_generation_backlog_threshold,
+                initial_promotable=initial_promotable,
+                promotable_rows=promotable_rows,
+                open_lane_research_rows=open_lane_research_rows_local,
+                max_promotions=max_promotions,
+                provider_openai_base_url=provider_openai_base_url,
+                provider_model=provider_model,
+                max_candidates=max_candidates,
+                topic=topic,
+                temperature=temperature,
+                seed=seed,
+                generation_timeout=generation_timeout,
+                generation_max_tokens=generation_max_tokens,
+                generation_attempts=generation_attempts,
+                min_admission_score=min_admission_score,
+                bounded_float=bounded_float,
+                namespace_cls=Namespace,
+                research_provider_generate=research_provider_generate,
+                research_facility=research_facility,
+                wait_for_completion=wait_for_completion,
+                max_wait_seconds=max_wait_seconds,
+                poll_interval_seconds=poll_interval_seconds,
+                max_paper_drafts=max_paper_drafts,
+                max_publication_rewrites=max_publication_rewrites,
+                draft_next=draft_next,
+                rewrite_paper_review_draft=_rewrite_paper_review_draft,
+                control_api_bearer_token=config.control_api_bearer_token,
+                worker_lane_key=_worker_lane_key,
+                live_dispatch=_live_dispatch,
+                jsonable_encoder=jsonable_encoder,
+                research_row_lane_key=research_row_lane_key,
+            ),
             response=response,
-            requested_by=requested_by,
-            generation_target_lane=generation_target_lane,
-            max_dispatches=max_dispatches,
-            max_provider_requests=max_provider_requests,
-            fresh_generation_backlog_threshold=fresh_generation_backlog_threshold,
-            initial_promotable=initial_promotable,
-            promotable_rows=promotable_rows,
-            open_lane_research_rows=open_lane_research_rows_local,
-            max_promotions=max_promotions,
-            provider_openai_base_url=provider_openai_base_url,
-            provider_model=provider_model,
-            max_candidates=max_candidates,
-            topic=topic,
-            temperature=temperature,
-            seed=seed,
-            generation_timeout=generation_timeout,
-            generation_max_tokens=generation_max_tokens,
-            generation_attempts=generation_attempts,
-            min_admission_score=min_admission_score,
-            bounded_float=bounded_float,
-            namespace_cls=Namespace,
-            research_provider_generate=research_provider_generate,
-            research_facility=research_facility,
-            wait_for_completion=wait_for_completion,
-            max_wait_seconds=max_wait_seconds,
-            poll_interval_seconds=poll_interval_seconds,
-            max_paper_drafts=max_paper_drafts,
-            max_publication_rewrites=max_publication_rewrites,
-            draft_next=draft_next,
-            rewrite_paper_review_draft=_rewrite_paper_review_draft,
-            control_api_bearer_token=config.control_api_bearer_token,
-            _worker_lane_key=_worker_lane_key,
-            _live_dispatch=_live_dispatch,
-            jsonable_encoder=jsonable_encoder,
-            research_row_lane_key=research_row_lane_key,
         )
 
     @router.post(
