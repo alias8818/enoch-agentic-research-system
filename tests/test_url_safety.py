@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from enoch_control_plane.url_safety import (
+    looks_like_external_source_reference,
     secure_default_service_url,
     validate_http_url,
 )
@@ -18,6 +19,37 @@ def test_secure_default_service_url_uses_https_for_remote_hosts() -> None:
 def test_secure_default_service_url_preserves_http_for_loopback() -> None:
     assert secure_default_service_url("127.0.0.1", 8787) == "http://127.0.0.1:8787"
     assert secure_default_service_url("localhost", 8787) == "http://localhost:8787"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://arxiv.org/abs/2605.06546",
+        "http://127.0.0.1:8787/path",
+        "arxiv:2605.06546",
+        "doi:10.1234/example",
+    ],
+)
+def test_looks_like_external_source_reference_accepts_external_ids(
+    value: str,
+) -> None:
+    assert looks_like_external_source_reference(value) is True
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "   ",
+        "file:///etc/passwd",
+        "local-artifact.json",
+        "source-id-without-scheme",
+    ],
+)
+def test_looks_like_external_source_reference_rejects_non_external(
+    value: str,
+) -> None:
+    assert looks_like_external_source_reference(value) is False
 
 
 def test_validate_http_url_accepts_http_and_https() -> None:
