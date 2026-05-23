@@ -750,9 +750,9 @@ def sql_json(value: Any) -> str:
     )
 
 
-# Indented SELECT for sql_raise_if_exists guards (Sonar S1192 at emit_sql :792).
+# Indented fragments for sql_raise_if_exists guards (Sonar S1192 in emit_sql).
 _SQL_GUARD_EXISTS_SELECT = "    select 1"
-# Opening AND clause for identity-conflict guards (Sonar S1192 at emit_sql :795).
+# Opening AND clause for identity-conflict guards (Sonar S1192 in emit_sql).
 _SQL_GUARD_AND_OPEN = "      and ("
 
 
