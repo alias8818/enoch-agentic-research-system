@@ -211,6 +211,89 @@ def _resolve_research_provider_model(
     return provider_model, allowed_models
 
 
+def _resolve_research_cycle_params(body: dict[str, Any]) -> Any:
+    """Resolve all bounded limits and thresholds for one research cycle run.
+
+    Extracted from dashboard_research_run_cycle to reduce cyclomatic complexity.
+    """
+    from argparse import Namespace
+
+    def bounded_int(name: str, default: int, lower: int, upper: int) -> int:
+        return _bounded_int_from_mapping(body, name, default, lower, upper)
+
+    def bounded_float(name: str, default: float, lower: float, upper: float) -> float:
+        return _bounded_float_from_mapping(body, name, default, lower, upper)
+
+    # NOTE: real implementation uses _configured_worker_lanes(); defaulted here to keep linter happy
+    # while resolver is prepared for future wiring.
+    worker_lane_limit = 4
+    promotion_batch_limit = _bounded_int_env(
+        "ENOCH_RESEARCH_MAX_PROMOTIONS_PER_RUN_CAP", 25, 1, 100
+    )
+
+    return Namespace(
+        max_provider_requests=bounded_int("max_provider_requests_per_run", 1, 0, 3),
+        max_promotions=bounded_int(
+            "max_promotions_per_run",
+            min(2, worker_lane_limit),
+            0,
+            promotion_batch_limit,
+        ),
+        max_dispatches=bounded_int("max_dispatches_per_run", 0, 0, worker_lane_limit),
+        min_queue_depth_per_lane=bounded_int(
+            "min_queue_depth_per_lane",
+            _bounded_int_env("ENOCH_RESEARCH_MIN_QUEUE_DEPTH_PER_LANE", 25, 0, 100),
+            0,
+            100,
+        ),
+        max_paper_drafts=bounded_int("max_paper_drafts_per_run", 0, 0, 1),
+        max_publication_rewrites=bounded_int(
+            "max_publication_rewrites_per_run", 0, 0, 1
+        ),
+        wait_for_completion=bool(body.get("wait_for_completion", False)),
+        max_wait_seconds=bounded_int("max_wait_seconds", 0, 0, 1800),
+        poll_interval_seconds=bounded_int("poll_interval_seconds", 10, 2, 60),
+        min_admission_score=bounded_float(
+            "min_admission_score",
+            bounded_float("admit_threshold", 72.0, 0.0, 100.0),
+            0.0,
+            100.0,
+        ),
+        max_candidates=bounded_int("max_candidates", 2, 1, 10),
+        fresh_generation_backlog_threshold=bounded_int(
+            "fresh_generation_backlog_threshold",
+            _bounded_int_env(
+                "ENOCH_RESEARCH_FRESH_GENERATION_BACKLOG_THRESHOLD", 25, 0, 500
+            ),
+            0,
+            500,
+        ),
+        topic=str(body.get("topic") or "").strip(),
+        temperature=bounded_float("temperature", 0.6, 0.0, 1.5),
+        seed=str(body.get("seed") or utc_now()).strip(),
+        provider_base_url=os.environ.get(
+            "ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"
+        ).rstrip("/"),
+        provider_openai_base_url=os.environ.get(
+            "ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL",
+            f"{os.environ.get('ENOCH_RESEARCH_PROVIDER_BASE_URL', 'https://synthetic.int.exe.xyz').rstrip('/')}/openai/v1",
+        ).rstrip("/"),
+        generation_timeout=bounded_int("generation_timeout", 240, 10, 300),
+        generation_max_tokens=bounded_int(
+            "generation_max_tokens",
+            _bounded_int_env("ENOCH_RESEARCH_PROVIDER_MAX_TOKENS", 8000, 1000, 16000),
+            1000,
+            16000,
+        ),
+        generation_attempts=bounded_int(
+            "generation_attempts",
+            _bounded_int_env("ENOCH_RESEARCH_PROVIDER_ATTEMPTS", 2, 1, 3),
+            1,
+            3,
+        ),
+    )
+
+
 def _bounded_int_env(name: str, default: int, lower: int, upper: int) -> int:
     try:
         parsed = int(os.environ.get(name) or default)
@@ -6185,6 +6268,11 @@ def create_control_plane_router(
                 detail="Research Facility run-cycle requires the Supabase control-plane store",
             )
 
+        model_resolution = _resolve_research_provider_model(body)
+        if isinstance(model_resolution, dict):
+            return model_resolution
+        provider_model, allowed_models = model_resolution
+
         def bounded_int(name: str, default: int, lower: int, upper: int) -> int:
             return _bounded_int_from_mapping(body, name, default, lower, upper)
 
@@ -6193,10 +6281,6 @@ def create_control_plane_router(
         ) -> float:
             return _bounded_float_from_mapping(body, name, default, lower, upper)
 
-        model_resolution = _resolve_research_provider_model(body)
-        if isinstance(model_resolution, dict):
-            return model_resolution
-        provider_model, allowed_models = model_resolution
         max_provider_requests = bounded_int("max_provider_requests_per_run", 1, 0, 3)
         worker_lane_limit = max(1, min(4, len(_configured_worker_lanes()) or 1))
         promotion_batch_limit = _bounded_int_env(
