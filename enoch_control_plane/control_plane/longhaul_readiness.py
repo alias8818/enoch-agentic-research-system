@@ -435,6 +435,50 @@ def _add_resource_utilization_check(
     return resource, resource_ok, resource_count
 
 
+def _readiness_research_quality_summary(
+    quality: dict[str, Any], quality_status: str
+) -> dict[str, Any]:
+    return {
+        "research_quality_status": quality_status,
+        "research_quality_decisions_checked": int(
+            quality.get("decisions_checked") or 0
+        ),
+        "research_quality_problem_counts": quality.get("problem_counts") or {},
+        "research_quality_report_path": quality.get("report_path") or "",
+        "research_quality_report_mtime": quality.get("report_mtime") or "",
+        "research_quality_post_prompt_monitor": quality.get("post_prompt_monitor")
+        or {},
+    }
+
+
+def _readiness_source_lineage_summary(
+    lineage: dict[str, Any], lineage_status: str
+) -> dict[str, Any]:
+    return {
+        "source_lineage_status": lineage_status,
+        "source_lineage_candidates_checked": int(
+            lineage.get("candidates_checked") or 0
+        ),
+        "source_lineage_followups_checked": int(lineage.get("followups_checked") or 0),
+        "source_lineage_missing_sources": int(lineage.get("missing_sources") or 0),
+        "source_lineage_missing_lineage": int(lineage.get("missing_lineage") or 0),
+        "source_lineage_problem_counts": lineage.get("problem_counts") or {},
+        "source_lineage_report_path": lineage.get("report_path") or "",
+        "source_lineage_report_mtime": lineage.get("report_mtime") or "",
+    }
+
+
+def _readiness_resource_utilization_summary(
+    resource: dict[str, Any], resource_ok: bool, resource_count: int
+) -> dict[str, Any]:
+    return {
+        "resource_utilization_status": str(
+            resource.get("status") or ("clean" if resource_ok else "blocked")
+        ),
+        "resource_utilization_findings": resource_count,
+    }
+
+
 def _build_readiness_summary(
     *,
     queue_paused: bool,
@@ -480,29 +524,11 @@ def _build_readiness_summary(
         "corpus_last_result": corpus_result or "unknown",
         "corpus_tick_age_seconds": corpus_age,
         "corpus_tick_max_age_seconds": corpus_max_age_seconds,
-        "research_quality_status": quality_status,
-        "research_quality_decisions_checked": int(
-            quality.get("decisions_checked") or 0
+        **_readiness_research_quality_summary(quality, quality_status),
+        **_readiness_source_lineage_summary(lineage, lineage_status),
+        **_readiness_resource_utilization_summary(
+            resource, resource_ok, resource_count
         ),
-        "research_quality_problem_counts": quality.get("problem_counts") or {},
-        "research_quality_report_path": quality.get("report_path") or "",
-        "research_quality_report_mtime": quality.get("report_mtime") or "",
-        "research_quality_post_prompt_monitor": quality.get("post_prompt_monitor")
-        or {},
-        "source_lineage_status": lineage_status,
-        "source_lineage_candidates_checked": int(
-            lineage.get("candidates_checked") or 0
-        ),
-        "source_lineage_followups_checked": int(lineage.get("followups_checked") or 0),
-        "source_lineage_missing_sources": int(lineage.get("missing_sources") or 0),
-        "source_lineage_missing_lineage": int(lineage.get("missing_lineage") or 0),
-        "source_lineage_problem_counts": lineage.get("problem_counts") or {},
-        "source_lineage_report_path": lineage.get("report_path") or "",
-        "source_lineage_report_mtime": lineage.get("report_mtime") or "",
-        "resource_utilization_status": str(
-            resource.get("status") or ("clean" if resource_ok else "blocked")
-        ),
-        "resource_utilization_findings": resource_count,
     }
 
 
