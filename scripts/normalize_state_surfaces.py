@@ -6,6 +6,10 @@ import json
 import os
 from typing import Any
 
+SESSION_FINISHED_WAKE_READY_ALIAS_REASON = (
+    "session_finished_ready is a delivery-complete alias of wake_ready"
+)
+
 NORMALIZATION_STATEMENTS: tuple[dict[str, str], ...] = (
     {
         "name": "rejected_draft_review_papers_to_archived",
@@ -93,7 +97,7 @@ NORMALIZATION_STATEMENTS: tuple[dict[str, str], ...] = (
         set last_run_state = 'wake_ready', updated_at = now()
         where last_run_state = 'session_finished_ready'
         """,
-        "reason": "session_finished_ready is a delivery-complete alias of wake_ready",
+        "reason": SESSION_FINISHED_WAKE_READY_ALIAS_REASON,
     },
     {
         "name": "current_queue_last_run_dispatch_accepted_to_awaiting_wake",
@@ -164,7 +168,7 @@ NORMALIZATION_STATEMENTS: tuple[dict[str, str], ...] = (
         set state = 'wake_ready', updated_at = now()
         where state = 'session_finished_ready'
         """,
-        "reason": "session_finished_ready is a delivery-complete alias of wake_ready",
+        "reason": SESSION_FINISHED_WAKE_READY_ALIAS_REASON,
     },
     {
         "name": "run_gate_session_finished_alias_to_wake_ready",
@@ -173,7 +177,7 @@ NORMALIZATION_STATEMENTS: tuple[dict[str, str], ...] = (
         set gate_state = 'wake_ready', updated_at = now()
         where gate_state = 'session_finished_ready'
         """,
-        "reason": "session_finished_ready is a delivery-complete alias of wake_ready",
+        "reason": SESSION_FINISHED_WAKE_READY_ALIAS_REASON,
     },
 )
 
