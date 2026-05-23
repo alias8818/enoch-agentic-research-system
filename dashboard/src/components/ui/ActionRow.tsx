@@ -1,4 +1,4 @@
 import type { ReactNode } from 'react'
-export function ActionRow({ children, ariaLabel }: { children: ReactNode; ariaLabel?: string }) {
+export function ActionRow({ children, ariaLabel }: Readonly<{ children: ReactNode; ariaLabel?: string }>) {
   return <div className="action-row" aria-label={ariaLabel}>{children}</div>
 }
