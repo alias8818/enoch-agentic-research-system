@@ -192,6 +192,102 @@ def _token_budget(value: Any) -> str:
     return ""
 
 
+_RUNTIME_PENALTY_BY_CLASS = {
+    "": 0.0,
+    "small": 0.0,
+    "medium": 1.0,
+    "large": 3.0,
+    "overnight": 5.0,
+}
+
+_TARGETED_SOURCE_HOSTS = ("github.com/", "dspy.ai/", "docs.vllm.ai/")
+
+
+def _dispatch_lineage_bonus(
+    *,
+    mode: str,
+    parent_project_id: str,
+    parent_run_id: str,
+    falsifiability_score: float,
+) -> float:
+    if mode == "followup_from_negative" or parent_project_id or parent_run_id:
+        return 8.0
+    if mode == "paper_replication_extension":
+        return 5.0
+    if mode == "implementation_gap":
+        return 3.0
+    if mode == "home_hardware_accessibility":
+        return 2.0
+    if mode == "moonshot":
+        return 2.0 if falsifiability_score >= 7.0 else -6.0
+    return 0.0
+
+
+def _dispatch_targeted_source_bonus(
+    *, source_kind: str, source_urls: list[str]
+) -> float:
+    bonus = 0.0
+    if source_kind == "arxiv" or any("arxiv.org/abs/" in url for url in source_urls):
+        bonus += 4.0
+    if any(host in url for url in source_urls for host in _TARGETED_SOURCE_HOSTS):
+        bonus += 1.5
+    return bonus
+
+
+def _dispatch_age_bonus(
+    *, created: datetime | None, now_dt: datetime
+) -> tuple[float, float]:
+    if created is None:
+        return 0.0, 0.0
+    age_days = max(0.0, (now_dt - created).total_seconds() / 86400.0)
+    return age_days, min(5.0, age_days * 0.25)
+
+
+def _dispatch_saturation_penalty(
+    *, category: str, category_counts: dict[str, int] | None
+) -> tuple[float, int]:
+    category_count = int((category_counts or {}).get(category, 0) or 0)
+    if category_count <= 8:
+        return 0.0, category_count
+    return min(8.0, (category_count - 8) * 0.5), category_count
+
+
+def _dispatch_duplicate_penalty(
+    *, similar_prior: list[Any], novelty_comparison: str
+) -> float:
+    if not similar_prior:
+        return 0.0
+    penalty = 4.0
+    if not novelty_comparison:
+        penalty += 4.0
+    return penalty
+
+
+def _dispatch_runtime_penalty(*, runtime_class: str, token_budget: str) -> float:
+    penalty = _RUNTIME_PENALTY_BY_CLASS.get(runtime_class, 1.0)
+    if token_budget == "large":
+        penalty += 1.0
+    return penalty
+
+
+def _dispatch_weak_contract_penalty(
+    *,
+    total_score: float,
+    novelty_score: float,
+    falsifiability_score: float,
+) -> float:
+    penalty = 0.0
+    if total_score < 68.0:
+        penalty += 6.0
+    elif total_score < 72.0:
+        penalty += 2.0
+    if novelty_score and novelty_score < 7.0:
+        penalty += 2.0
+    if falsifiability_score and falsifiability_score < 7.0:
+        penalty += 2.0
+    return penalty
+
+
 def dispatch_priority_breakdown(
     row: dict[str, Any],
     *,
@@ -222,67 +318,32 @@ def dispatch_priority_breakdown(
     novelty_score = _as_float(row.get("novelty_score"))
     falsifiability_score = _as_float(row.get("falsifiability_score"))
 
-    lineage_bonus = 0.0
-    if mode == "followup_from_negative" or parent_project_id or parent_run_id:
-        lineage_bonus += 8.0
-    elif mode == "paper_replication_extension":
-        lineage_bonus += 5.0
-    elif mode == "implementation_gap":
-        lineage_bonus += 3.0
-    elif mode == "home_hardware_accessibility":
-        lineage_bonus += 2.0
-    elif mode == "moonshot":
-        lineage_bonus += 2.0 if falsifiability_score >= 7.0 else -6.0
-
-    targeted_source_bonus = 0.0
-    if source_kind == "arxiv" or any("arxiv.org/abs/" in url for url in source_urls):
-        targeted_source_bonus += 4.0
-    if any(
-        host in url
-        for url in source_urls
-        for host in ("github.com/", "dspy.ai/", "docs.vllm.ai/")
-    ):
-        targeted_source_bonus += 1.5
-
+    lineage_bonus = _dispatch_lineage_bonus(
+        mode=mode,
+        parent_project_id=parent_project_id,
+        parent_run_id=parent_run_id,
+        falsifiability_score=falsifiability_score,
+    )
+    targeted_source_bonus = _dispatch_targeted_source_bonus(
+        source_kind=source_kind, source_urls=source_urls
+    )
     created = _parse_datetime(row.get("created_at") or row.get("updated_at"))
-    age_days = 0.0
-    if created is not None:
-        age_days = max(0.0, (now_dt - created).total_seconds() / 86400.0)
-    age_bonus = min(5.0, age_days * 0.25)
-
-    saturation_penalty = 0.0
-    category_count = int((category_counts or {}).get(category, 0) or 0)
-    if category_count > 8:
-        saturation_penalty = min(8.0, (category_count - 8) * 0.5)
-
-    duplicate_penalty = 0.0
-    if similar_prior:
-        duplicate_penalty = 4.0
-        # Similarity is not fatal if the candidate includes a novelty
-        # comparison, but it should not beat cleaner work unless other signals
-        # are strong.
-        if not _as_text(row.get("novelty_comparison")):
-            duplicate_penalty += 4.0
-
-    runtime_penalty = {
-        "": 0.0,
-        "small": 0.0,
-        "medium": 1.0,
-        "large": 3.0,
-        "overnight": 5.0,
-    }.get(runtime_class, 1.0)
-    if token_budget == "large":
-        runtime_penalty += 1.0
-
-    weak_contract_penalty = 0.0
-    if total_score < 68.0:
-        weak_contract_penalty += 6.0
-    elif total_score < 72.0:
-        weak_contract_penalty += 2.0
-    if novelty_score and novelty_score < 7.0:
-        weak_contract_penalty += 2.0
-    if falsifiability_score and falsifiability_score < 7.0:
-        weak_contract_penalty += 2.0
+    age_days, age_bonus = _dispatch_age_bonus(created=created, now_dt=now_dt)
+    saturation_penalty, category_count = _dispatch_saturation_penalty(
+        category=category, category_counts=category_counts
+    )
+    duplicate_penalty = _dispatch_duplicate_penalty(
+        similar_prior=similar_prior,
+        novelty_comparison=_as_text(row.get("novelty_comparison")),
+    )
+    runtime_penalty = _dispatch_runtime_penalty(
+        runtime_class=runtime_class, token_budget=token_budget
+    )
+    weak_contract_penalty = _dispatch_weak_contract_penalty(
+        total_score=total_score,
+        novelty_score=novelty_score,
+        falsifiability_score=falsifiability_score,
+    )
 
     score = (
         total_score
