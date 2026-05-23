@@ -27,6 +27,12 @@ class HttpResponse:
 Transport = Callable[[str, str, dict[str, str], dict[str, Any] | None], HttpResponse]
 
 
+def _is_non_retryable_http_error(
+    exc: error.HTTPError, attempt: int, max_attempts: int
+) -> bool:
+    return exc.code < 500 or attempt >= max_attempts
+
+
 def _json_request(
     method: str, url: str, headers: dict[str, str], payload: dict[str, Any] | None
 ) -> HttpResponse:
@@ -47,7 +53,7 @@ def _json_request(
         ) as exc:  # pragma: no cover - exercised by integration use
             raw = exc.read().decode("utf-8")
             detail = raw or exc.reason
-            if exc.code < 500 or attempt >= max_attempts:
+            if _is_non_retryable_http_error(exc, attempt, max_attempts):
                 raise NotionSyncError(
                     f"{method} {url} failed with {exc.code}: {detail}"
                 ) from exc
