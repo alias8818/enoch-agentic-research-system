@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Callable
+from typing import Annotated, Callable
 
 from fastapi import APIRouter, Header, HTTPException, Query
 
@@ -66,7 +66,9 @@ def create_enoch_core_router(
         return store.rebuild_queue_projection()
 
     @router.get("/health", response_model=HealthResponse)
-    def health(authorization: str | None = Header(default=None)) -> HealthResponse:
+    def health(
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> HealthResponse:
         authorize(authorization)
         return HealthResponse(
             mode=current_mode(), db_path=store_path, store_backend=backend
@@ -75,7 +77,7 @@ def create_enoch_core_router(
     @router.post("/snapshots/n8n-queue", response_model=SnapshotIngestResponse)
     def ingest_n8n_queue_snapshot(
         payload: QueueSnapshotRequest,
-        authorization: str | None = Header(default=None),
+        authorization: Annotated[str | None, Header()] = None,
     ) -> SnapshotIngestResponse:
         authorize(authorization)
         mode = current_mode(payload.mode)
@@ -97,8 +99,8 @@ def create_enoch_core_router(
 
     @router.get("/projections/queue", response_model=QueueProjection)
     def get_queue_projection(
-        authorization: str | None = Header(default=None),
-        mode: EnochCoreMode | None = Query(default=None),
+        authorization: Annotated[str | None, Header()] = None,
+        mode: Annotated[EnochCoreMode | None, Query()] = None,
     ) -> QueueProjection:
         authorize(authorization)
         snapshot = latest_snapshot_or_empty()
@@ -107,8 +109,8 @@ def create_enoch_core_router(
 
     @router.get("/candidates/paper-draft", response_model=CandidateResponse)
     def paper_draft_candidate(
-        authorization: str | None = Header(default=None),
-        mode: EnochCoreMode | None = Query(default=None),
+        authorization: Annotated[str | None, Header()] = None,
+        mode: Annotated[EnochCoreMode | None, Query()] = None,
     ) -> CandidateResponse:
         authorize(authorization)
         effective_mode = current_mode(mode)
@@ -142,8 +144,8 @@ def create_enoch_core_router(
 
     @router.get("/candidates/paper-polish", response_model=CandidateResponse)
     def paper_polish_candidate(
-        authorization: str | None = Header(default=None),
-        mode: EnochCoreMode | None = Query(default=None),
+        authorization: Annotated[str | None, Header()] = None,
+        mode: Annotated[EnochCoreMode | None, Query()] = None,
     ) -> CandidateResponse:
         authorize(authorization)
         effective_mode = current_mode(mode)
