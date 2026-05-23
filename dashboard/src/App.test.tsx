@@ -1,15 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from './api/client'
+import { fetchMockCallUrl } from './test/fetchMockBody'
 import { App } from './App'
-
-function fetchMockCallUrl(fetchMock: { mock: { calls: unknown[][] } }, callIndex: number): string {
-  const input = fetchMock.mock.calls[callIndex][0]
-  if (typeof input === 'string') return input
-  if (input instanceof URL) return input.href
-  if (input instanceof Request) return input.url
-  throw new TypeError(`Expected fetch URL to be a string, URL, or Request, got ${typeof input}`)
-}
 
 afterEach(() => {
   cleanup()

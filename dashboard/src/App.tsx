@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FormEvent, RefObject, useEffect, useRef, useState } from 'react'
+import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
+import { displayText } from './displayText'
 import { apiGet, getSavedToken, saveToken } from './api/client'
 import { parseAutomationReadiness, parseOverviewResponse, parseStatusResponse } from './api/readModelSchemas'
 import { CommandHero } from './components/CommandHero'
@@ -16,25 +17,27 @@ import { WorkerLanes } from './components/WorkerLanes'
 import { DASHBOARD_V2_PATH, canonicalDashboardHash, dashboardV2Href, dashboardRouteTitle, parseDashboardRoute } from './routes'
 import type { DashboardRoute } from './routes'
 import { detailParentPage, unsupportedRouteSuggestions } from './routePolicy'
-import type { AutomationReadiness } from './types'
+import type { AutomationReadiness, OverviewResponse, StatusResponse } from './types'
 import { KeyboardShortcutHelp } from './components/KeyboardShortcutHelp'
 import { applyTheme, getSavedTheme, saveTheme, toggleTheme, type DashboardTheme } from './theme'
 import { useDashboardKeyboardShortcuts } from './useDashboardKeyboardShortcuts'
 
-function TokenGate({ onSave }: { onSave: () => void }) {
+function TokenGate({ onSave }: Readonly<{ onSave: () => void }>) {
   const [token, setToken] = useState(getSavedToken())
-  function submit(event: FormEvent) {
-    event.preventDefault()
-    saveToken(token)
-    onSave()
-  }
   return (
     <main className="auth-frame">
       <section className="auth-card">
         <p className="eyebrow">Enoch Dashboard V2</p>
         <h1>Bearer token required</h1>
         <p>The React dashboard does not call authenticated APIs until a token is saved locally in this browser.</p>
-        <form className="auth-form" onSubmit={submit}>
+        <form
+          className="auth-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            saveToken(token)
+            onSave()
+          }}
+        >
           <input type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Bearer token" aria-label="Bearer token" />
           <button className="primary-button" type="submit">Save token</button>
         </form>
@@ -65,12 +68,92 @@ function OverviewPage() {
     return <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8 text-zinc-300">Loading command center…</div>
   }
   if (overview.isError || !overview.data) {
-    return <div className="rounded-3xl border border-red-900 bg-red-950/40 p-8 text-red-100">Command state unavailable: {String(overview.error?.message || 'unknown error')}</div>
+    return <div className="rounded-3xl border border-red-900 bg-red-950/40 p-8 text-red-100">Command state unavailable: {formatReadinessErrorMessage(overview.error)}</div>
   }
 
-  const data = overview.data
+  return (
+    <OverviewPageBody
+      data={overview.data}
+      statusData={status.data}
+      statusLoading={status.isLoading}
+      statusError={status.error}
+      readinessData={readiness.data}
+      readinessLoading={readiness.isLoading}
+      readinessFetching={readiness.isFetching}
+      readinessError={readiness.error}
+      onReadinessRefetch={() => readiness.refetch()}
+      readinessRequested={readinessRequested}
+      isFetching={overview.isFetching || status.isFetching}
+      onSecondaryOpenChange={setSecondaryOpen}
+      onReadinessRequested={() => setReadinessRequested(true)}
+      refresh={refresh}
+    />
+  )
+}
+
+function formatReadinessErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  return displayText(error, 'unknown error')
+}
+
+function readinessCheckCardDetail(blockers: string[], readiness?: AutomationReadiness): string {
+  if (blockers.length > 0) return blockers[0]
+  if (readiness?.ok) return 'Long-haul checks currently pass.'
+  return 'Run the readiness check before leaving automation unattended.'
+}
+
+function readinessCheckCardLabel(
+  error: unknown,
+  readiness: AutomationReadiness | undefined,
+  isLoading: boolean,
+  requested: boolean,
+): string {
+  if (error) return `Unavailable: ${formatReadinessErrorMessage(error)}`
+  if (readiness?.label) return readiness.label
+  if (isLoading) return 'Checking…'
+  if (requested) return 'No readiness result returned'
+  return 'Not checked'
+}
+
+function activeWorkDetailHref(projectId: string, runId: string): string {
+  if (runId) return dashboardV2Href(`#run:${encodeURIComponent(runId)}`)
+  if (projectId) return dashboardV2Href(`#project:${encodeURIComponent(projectId)}`)
+  return dashboardV2Href('#runs')
+}
+
+function OverviewPageBody({
+  data,
+  statusData,
+  statusLoading,
+  statusError,
+  readinessData,
+  readinessLoading,
+  readinessFetching,
+  readinessError,
+  onReadinessRefetch,
+  readinessRequested,
+  isFetching,
+  onSecondaryOpenChange,
+  onReadinessRequested,
+  refresh,
+}: Readonly<{
+  data: OverviewResponse
+  statusData?: StatusResponse
+  statusLoading: boolean
+  statusError: unknown
+  readinessData?: AutomationReadiness
+  readinessLoading: boolean
+  readinessFetching: boolean
+  readinessError: unknown
+  onReadinessRefetch: () => void
+  readinessRequested: boolean
+  isFetching: boolean
+  onSecondaryOpenChange: (open: boolean) => void
+  onReadinessRequested: () => void
+  refresh: () => void
+}>) {
   const diagnosis = data.movement_diagnosis || { status: 'unknown', primary_reason: 'No movement diagnosis returned.', blockers: [] }
-  const primaryAction = resolvePrimaryAction(data, readiness.data)
+  const primaryAction = resolvePrimaryAction(data, readinessData)
   const recentEvents = data.recent_events || []
   const activeItems = data.active_items || []
   const operatorCounts = data.operator_counts || {}
@@ -78,36 +161,36 @@ function OverviewPage() {
   return (
     <div className="command-stack">
       <div className="command-topline">
-        <OverviewFreshness generatedAt={data.generated_at} laneGeneratedAt={status.data?.generated_at} isFetching={overview.isFetching || status.isFetching} onRefresh={refresh} />
+        <OverviewFreshness generatedAt={data.generated_at} laneGeneratedAt={statusData?.generated_at} isFetching={isFetching} onRefresh={refresh} />
         <SafetyBar flags={data.flags} onRefresh={refresh} />
       </div>
-      <CommandHero overview={data} diagnosis={diagnosis} readiness={readiness.data} readinessRequested={readinessRequested} readinessLoading={readiness.isLoading || readiness.isFetching} requiresReadinessCheck />
+      <CommandHero overview={data} diagnosis={diagnosis} readiness={readinessData} readinessRequested={readinessRequested} readinessLoading={readinessLoading || readinessFetching} requiresReadinessCheck />
       <ReadinessCheckCard
-        readiness={readiness.data}
-        isLoading={readiness.isLoading || readiness.isFetching}
-        error={readiness.error}
+        readiness={readinessData}
+        isLoading={readinessLoading || readinessFetching}
+        error={readinessError}
         requested={readinessRequested}
         onCheck={() => {
-          setReadinessRequested(true)
-          if (readinessRequested) void readiness.refetch()
+          onReadinessRequested()
+          if (readinessRequested) onReadinessRefetch()
         }}
       />
       <MovementDiagnosis diagnosis={diagnosis} />
       <div className="command-grid">
-        <WorkerLanes lanes={status.data?.worker_lanes || []} isLoading={status.isLoading} error={status.error} onRefresh={refresh} />
+        <WorkerLanes lanes={statusData?.worker_lanes || []} isLoading={statusLoading} error={statusError} onRefresh={refresh} />
         <div className="side-rail">
           <PrimaryAction
             action={primaryAction}
             onRefresh={refresh}
             onCheckReadiness={() => {
-              setReadinessRequested(true)
-              if (readinessRequested) void readiness.refetch()
+              onReadinessRequested()
+              if (readinessRequested) onReadinessRefetch()
             }}
           />
           <PaperMiniStrip pipeline={data.paper_pipeline} onRefresh={refresh} />
         </div>
       </div>
-      <details className="secondary-fold" onToggle={(event) => setSecondaryOpen(event.currentTarget.open)}>
+      <details className="secondary-fold" onToggle={(event) => onSecondaryOpenChange(event.currentTarget.open)}>
         <summary>Show secondary details</summary>
         <div className="secondary-links">
           <a href={dashboardV2Href('#runs')}>Runs</a>
@@ -119,9 +202,9 @@ function OverviewPage() {
           {recentEvents.length > 0 ? (
             <ol>
               {recentEvents.slice(0, 6).map((event, index) => {
-                const id = String(event.event_id || event.id || '')
-                const type = String(event.event_type || 'event')
-                const summary = String(event.summary || event.entity_id || 'No event summary returned.')
+                const id = displayText(event.event_id ?? event.id, '')
+                const type = displayText(event.event_type, 'event')
+                const summary = displayText(event.summary ?? event.entity_id, 'No event summary returned.')
                 return (
                   <li key={id || `${type}-${index}`}>
                     <a href={id ? dashboardV2Href(`#event:${encodeURIComponent(id)}`) : dashboardV2Href('#events')}>{type}</a>
@@ -136,7 +219,7 @@ function OverviewPage() {
         </section>
         <OperatorQueueSnapshot operatorCounts={operatorCounts} operatorDetailCounts={operatorDetailCounts} />
         <ActiveWorkSummary activeItems={activeItems} />
-        <AutomationReadinessSummary readiness={readiness.data} isLoading={readiness.isLoading} error={readiness.error} />
+        <AutomationReadinessSummary readiness={readinessData} isLoading={readinessLoading} error={readinessError} />
       </details>
     </div>
   )
@@ -148,23 +231,21 @@ function ReadinessCheckCard({
   error,
   requested,
   onCheck,
-}: {
-  readiness?: AutomationReadiness;
-  isLoading: boolean;
-  error: unknown;
-  requested: boolean;
-  onCheck: () => void;
-}) {
+}: Readonly<{
+  readiness?: AutomationReadiness
+  isLoading: boolean
+  error: unknown
+  requested: boolean
+  onCheck: () => void
+}>) {
   const blockers = readiness?.blockers || []
-  const label = error
-    ? `Unavailable: ${String(error instanceof Error ? error.message : error)}`
-    : readiness?.label || (isLoading ? 'Checking…' : requested ? 'No readiness result returned' : 'Not checked')
+  const label = readinessCheckCardLabel(error, readiness, isLoading, requested)
   return (
     <section className="readiness-check-card" aria-label="Readiness check">
       <div>
         <p className="eyebrow">Automation readiness</p>
         <h2>{label}</h2>
-        <p>{blockers.length > 0 ? blockers[0] : readiness?.ok ? 'Long-haul checks currently pass.' : 'Run the readiness check before leaving automation unattended.'}</p>
+        <p>{readinessCheckCardDetail(blockers, readiness)}</p>
       </div>
       <button className="secondary-button" type="button" disabled={isLoading} onClick={onCheck}>
         {readiness ? 'Refresh readiness' : 'Check readiness'}
@@ -188,7 +269,7 @@ function labelOperatorKey(key: string): string {
   return key.replaceAll('_', ' ')
 }
 
-function OperatorQueueSnapshot({ operatorCounts, operatorDetailCounts }: { operatorCounts: Record<string, unknown>; operatorDetailCounts: Record<string, unknown> }) {
+function OperatorQueueSnapshot({ operatorCounts, operatorDetailCounts }: Readonly<{ operatorCounts: Record<string, unknown>; operatorDetailCounts: Record<string, unknown> }>) {
   const rows = [
     ['needs_attention', operatorCounts.needs_attention],
     ['running', operatorCounts.running],
@@ -217,22 +298,18 @@ function OperatorQueueSnapshot({ operatorCounts, operatorDetailCounts }: { opera
   )
 }
 
-function ActiveWorkSummary({ activeItems }: { activeItems: Record<string, unknown>[] }) {
+function ActiveWorkSummary({ activeItems }: Readonly<{ activeItems: Record<string, unknown>[] }>) {
   return (
     <section className="active-work-snapshot" aria-label="Active work snapshot">
       <h3>Active work snapshot</h3>
       {activeItems.length > 0 ? (
         <ol>
           {activeItems.slice(0, 6).map((item, index) => {
-            const projectId = String(item.project_id || '')
-            const runId = String(item.current_run_id || item.run_id || '')
-            const label = String(item.project_name || projectId || runId || 'Active work')
-            const machine = String(item.machine_target || item.lane || 'unknown lane')
-            const href = runId
-              ? dashboardV2Href(`#run:${encodeURIComponent(runId)}`)
-              : projectId
-                ? dashboardV2Href(`#project:${encodeURIComponent(projectId)}`)
-                : dashboardV2Href('#runs')
+            const projectId = displayText(item.project_id, '')
+            const runId = displayText(item.current_run_id ?? item.run_id, '')
+            const label = displayText(item.project_name, projectId || runId || 'Active work')
+            const machine = displayText(item.machine_target ?? item.lane, 'unknown lane')
+            const href = activeWorkDetailHref(projectId, runId)
             return (
               <li key={runId || projectId || index}>
                 <div>
@@ -255,17 +332,13 @@ function readinessPillClass(ok: boolean | undefined): string {
   return ok ? 'readiness-pill readiness-pill--good' : 'readiness-pill readiness-pill--warn'
 }
 
-function formatReadinessErrorMessage(error: unknown): string {
-  return String(error instanceof Error ? error.message : error)
-}
-
 function automationReadinessSummaryLabel(readiness: AutomationReadiness | undefined, isLoading: boolean): string {
   if (readiness?.label) return readiness.label
   if (isLoading) return 'Checking automation readiness…'
   return 'Automation readiness unavailable'
 }
 
-function ReadinessFacts({ summary }: { summary: NonNullable<AutomationReadiness['summary']> }) {
+function ReadinessFacts({ summary }: Readonly<{ summary: NonNullable<AutomationReadiness['summary']> }>) {
   return (
     <div className="readiness-facts">
       <span>queued {String(summary.queued ?? 0)}</span>
@@ -276,7 +349,7 @@ function ReadinessFacts({ summary }: { summary: NonNullable<AutomationReadiness[
   )
 }
 
-function ReadinessBlockersBody({ blockers, showAllPassed }: { blockers: string[]; showAllPassed: boolean }) {
+function ReadinessBlockersBody({ blockers, showAllPassed }: Readonly<{ blockers: string[]; showAllPassed: boolean }>) {
   if (blockers.length > 0) {
     return (
       <ul>
@@ -290,7 +363,7 @@ function ReadinessBlockersBody({ blockers, showAllPassed }: { blockers: string[]
   return null
 }
 
-function ReadinessChecksList({ checks }: { checks: NonNullable<AutomationReadiness['checks']> }) {
+function ReadinessChecksList({ checks }: Readonly<{ checks: NonNullable<AutomationReadiness['checks']> }>) {
   if (checks.length === 0) return null
   return (
     <div className="readiness-checks" aria-label="Automation readiness checks">
@@ -303,7 +376,7 @@ function ReadinessChecksList({ checks }: { checks: NonNullable<AutomationReadine
   )
 }
 
-function AutomationReadinessSummary({ readiness, isLoading, error }: { readiness?: AutomationReadiness; isLoading: boolean; error: unknown }) {
+function AutomationReadinessSummary({ readiness, isLoading, error }: Readonly<{ readiness?: AutomationReadiness; isLoading: boolean; error: unknown }>) {
   const blockers = readiness?.blockers ?? []
   const checks = readiness?.checks ?? []
   const summary = readiness?.summary ?? {}
@@ -333,35 +406,66 @@ function currentRoute(): DashboardRoute {
   return parseDashboardRoute(canonical)
 }
 
-function RoutedPage({ route }: { route: DashboardRoute }) {
-  if (route.page === 'detail') return <DetailPage selection={{ kind: route.kind, id: route.id }} />
-  if (route.page === 'projects') return <ProjectsPage route={route} />
-  if (route.page === 'queue') return <QueuePage route={route} />
-  if (route.page === 'runs') return <RunsPage route={route} />
-  if (route.page === 'papers') return <PapersPage route={route} />
-  if (route.page === 'events') return <EventsPage route={route} />
-  if (route.page === 'observability') return <ObservabilityPage />
-  if (route.page === 'corpus') return <CorpusPage route={route} />
-  if (route.page === 'research') return <ResearchPage route={route} />
-  if (route.page === 'intake') return <IntakePage route={route} />
-  if (route.page === 'automation') return <AutomationPage paperId={route.paperId} search={route.search} reviewStatus={route.reviewStatus} />
-  if (route.page === 'unsupported') {
-    const suggestions = unsupportedRouteSuggestions(route.hash)
-    return (
-      <section className="legacy-card unsupported-route-card">
-        <p className="eyebrow">V2 route guard</p>
-        <h1>Unsupported V2 route</h1>
-        <p>This hash is not owned by a React subview yet. Use a supported list or detail route below, or return to the command center.</p>
-        <div className="unsupported-route-actions">
-          {suggestions.map((item) => (
-            <a key={item.href} className="secondary-button secondary-button--link" href={item.href}>{item.label}</a>
-          ))}
-          <a className="primary-button primary-button--link" href={dashboardV2Href('#overview')}>Back to command center</a>
-        </div>
-      </section>
-    )
+function UnsupportedRoutePage({ hash }: Readonly<{ hash: string }>) {
+  const suggestions = unsupportedRouteSuggestions(hash)
+  return (
+    <section className="legacy-card unsupported-route-card">
+      <p className="eyebrow">V2 route guard</p>
+      <h1>Unsupported V2 route</h1>
+      <p>This hash is not owned by a React subview yet. Use a supported list or detail route below, or return to the command center.</p>
+      <div className="unsupported-route-actions">
+        {suggestions.map((item) => (
+          <a key={item.href} className="secondary-button secondary-button--link" href={item.href}>{item.label}</a>
+        ))}
+        <a className="primary-button primary-button--link" href={dashboardV2Href('#overview')}>Back to command center</a>
+      </div>
+    </section>
+  )
+}
+
+function RoutedPage({ route }: Readonly<{ route: DashboardRoute }>) {
+  let content: ReactNode = <OverviewPage />
+  switch (route.page) {
+    case 'detail':
+      content = <DetailPage selection={{ kind: route.kind, id: route.id }} />
+      break
+    case 'projects':
+      content = <ProjectsPage route={route} />
+      break
+    case 'queue':
+      content = <QueuePage route={route} />
+      break
+    case 'runs':
+      content = <RunsPage route={route} />
+      break
+    case 'papers':
+      content = <PapersPage route={route} />
+      break
+    case 'events':
+      content = <EventsPage route={route} />
+      break
+    case 'observability':
+      content = <ObservabilityPage />
+      break
+    case 'corpus':
+      content = <CorpusPage route={route} />
+      break
+    case 'research':
+      content = <ResearchPage route={route} />
+      break
+    case 'intake':
+      content = <IntakePage route={route} />
+      break
+    case 'automation':
+      content = <AutomationPage paperId={route.paperId} search={route.search} reviewStatus={route.reviewStatus} />
+      break
+    case 'unsupported':
+      content = <UnsupportedRoutePage hash={route.hash} />
+      break
+    default:
+      break
   }
-  return <OverviewPage />
+  return content
 }
 
 function navClass(route: DashboardRoute, page: DashboardRoute['page']): string {
@@ -373,17 +477,20 @@ function moreNavClass(route: DashboardRoute): string {
   return ['events', 'observability', 'corpus', 'research', 'intake', 'automation', 'unsupported'].includes(route.page) ? 'nav-more nav-more--active' : 'nav-more'
 }
 
-function GlobalSearchForm({ inputRef }: { inputRef: RefObject<HTMLInputElement | null> }) {
+function GlobalSearchForm({ inputRef }: Readonly<{ inputRef: RefObject<HTMLInputElement | null> }>) {
   const [query, setQuery] = useState('')
-  function submit(event: FormEvent) {
-    event.preventDefault()
-    const trimmed = query.trim()
-    globalThis.location.href = dashboardV2Href(trimmed ? `#projects?search=${encodeURIComponent(trimmed)}` : '#projects')
-  }
   return (
-    <form className="app-global-search" onSubmit={submit}>
+    <form
+      className="app-global-search"
+      onSubmit={(event) => {
+        event.preventDefault()
+        const trimmed = query.trim()
+        globalThis.location.href = dashboardV2Href(trimmed ? `#projects?search=${encodeURIComponent(trimmed)}` : '#projects')
+      }}
+    >
       <label>
         Global search
+        {' '}
         <input
           ref={inputRef}
           value={query}

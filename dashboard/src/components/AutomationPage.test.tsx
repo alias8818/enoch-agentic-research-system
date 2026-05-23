@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
+import { fetchMockCallUrl } from '../test/fetchMockBody'
 import { AutomationPage } from './AutomationPage'
 
 function renderWithClient(ui: React.ReactElement) {
@@ -28,9 +29,9 @@ it('loads publication automation rows from the bounded API', async () => {
     expect.stringContaining('/control/api/publication-automation?'),
     expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }),
   )
-  expect(String(fetchMock.mock.calls[0]?.[0])).toContain('page_size=50')
-  expect(String(fetchMock.mock.calls[0]?.[0])).toContain('paper_status=publication_draft')
-  expect(String(fetchMock.mock.calls[0]?.[0])).toContain('sort=-rank_score')
+  expect(fetchMockCallUrl(fetchMock, 0)).toContain('page_size=50')
+  expect(fetchMockCallUrl(fetchMock, 0)).toContain('paper_status=publication_draft')
+  expect(fetchMockCallUrl(fetchMock, 0)).toContain('sort=-rank_score')
 })
 
 it('opens automation detail from selected table rows', async () => {

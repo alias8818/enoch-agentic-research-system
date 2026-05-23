@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
+import { fetchMockRequestBody } from '../test/fetchMockBody'
 import { CommandHero } from './CommandHero'
 import { MovementDiagnosis } from './MovementDiagnosis'
 import { PaperMiniStrip } from './PaperMiniStrip'
@@ -103,6 +104,7 @@ it('invalidates primary action live dispatch when the top action changes', async
 
   fireEvent.click(screen.getByRole('button', { name: 'Check dispatch' }))
   await screen.findByText('dry-run dispatch selected candidate')
+  expect(fetchMock).toHaveBeenCalledTimes(1)
   expect(screen.getByRole('button', { name: 'Dispatch work' })).toBeEnabled()
 
   rerender(<PrimaryAction action={{ kind: 'dispatch_next', title: 'Dispatch CPU lane', summary: 'A different queued candidate now matches the idle lane.', action_label: 'Dispatch', action_hash: '#queue:queued&lane=cpu' }} onRefresh={onRefresh} />)
@@ -125,7 +127,7 @@ it('runs follow-up primary actions as safe dry-runs instead of only linking away
     method: 'POST',
     body: expect.stringContaining('"dry_run":true'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"max_followup_depth":4')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"max_followup_depth":4')
   expect(screen.getByText('Follow-up dry-run passed')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
@@ -175,7 +177,7 @@ it('runs write-paper primary actions as safe dry-runs instead of only linking aw
     method: 'POST',
     body: expect.stringContaining('"dry_run":true'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"force":true')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"force":true')
   expect(screen.getByText('Paper draft dry-run passed')).toBeInTheDocument()
   expect(screen.getByText('eligible paper-ready candidate found')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
@@ -226,8 +228,8 @@ it('runs finalize-paper primary actions as safe dry-runs instead of only linking
     method: 'POST',
     body: expect.stringContaining('"dry_run":true'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"paper_status":"publication_draft"')
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"skip_rewritten":true')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"paper_status":"publication_draft"')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"skip_rewritten":true')
   expect(screen.getByText('Paper finalize dry-run passed')).toBeInTheDocument()
   expect(screen.getByText('would finalize 2 publication drafts')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
@@ -257,16 +259,16 @@ it('finalizes the top paper action only after dry-run and dialog confirmation', 
     method: 'POST',
     body: expect.stringContaining('"idempotency_key":"primary-action-rewrite-batch:dashboard-v2:'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"dry_run":true')
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"paper_status":"publication_draft"')
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"skip_rewritten":true')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"dry_run":true')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"paper_status":"publication_draft"')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"skip_rewritten":true')
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/paper-reviews/rewrite-batch', expect.objectContaining({
     method: 'POST',
     body: expect.stringContaining('"idempotency_key":"primary-action-rewrite-batch-live:dashboard-v2:'),
   }))
-  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"dry_run":false')
-  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"force":true')
-  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"paper_status":"publication_draft"')
+  expect(fetchMockRequestBody(fetchMock, 1)).toContain('"dry_run":false')
+  expect(fetchMockRequestBody(fetchMock, 1)).toContain('"force":true')
+  expect(fetchMockRequestBody(fetchMock, 1)).toContain('"paper_status":"publication_draft"')
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
@@ -302,7 +304,7 @@ it('uses dialog confirmations for queue pause instead of window.confirm', async 
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/control/pause', expect.objectContaining({ method: 'POST' })))
   const pauseCall = fetchMock.mock.calls.find(([path]) => path === '/control/pause')
-  expect(JSON.parse(String(pauseCall?.[1]?.body))).toEqual({
+  expect(JSON.parse(fetchMockRequestBody({ mock: { calls: pauseCall ? [pauseCall] : [] } }, 0))).toEqual({
     reason: 'dashboard operator pause',
     paused_by: 'dashboard-v2',
     maintenance_mode: true,
@@ -404,8 +406,8 @@ it('dry-runs feed actions without spending provider requests or promoting work',
     method: 'POST',
     body: expect.stringContaining('"dry_run":true'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"enabled":false')
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"max_dispatches_per_run":0')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"enabled":false')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"max_dispatches_per_run":0')
   expect(screen.getByText('Research action blocked')).toBeInTheDocument()
   expect(screen.getByText('provider budget passed; no provider request spent')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
@@ -452,18 +454,18 @@ it('runs a confirmed live feed cycle only after a feed dry-run', async () => {
     method: 'POST',
     body: expect.stringContaining('"dry_run":true'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"enabled":false')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"enabled":false')
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/research/run-cycle', expect.objectContaining({
     method: 'POST',
     body: expect.stringContaining('"dry_run":false'),
   }))
-  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"enabled":true')
-  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"max_dispatches_per_run":0')
+  expect(fetchMockRequestBody(fetchMock, 1)).toContain('"enabled":true')
+  expect(fetchMockRequestBody(fetchMock, 1)).toContain('"max_dispatches_per_run":0')
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
 it('invalidates live feed authorization when feed-eligible lanes change', async () => {
-  const fetchMock = vi.spyOn(globalThis, 'fetch')
+  vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'research_cycle_dry_run', dry_run: true, reason: 'would generate one candidate' }), { status: 200 }))
   const onRefresh = vi.fn()
 
@@ -494,7 +496,7 @@ it('uses dispatch-one for lane-card dispatch checks so the selected lane candida
     method: 'POST',
     body: expect.stringContaining('"project_id":"gb10-project"'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"dry_run":true')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"dry_run":true')
   expect(screen.getByText('Dispatch dry-run passed')).toBeInTheDocument()
 })
 
@@ -558,7 +560,7 @@ it('runs paper finalize strip actions as dry-runs without rewriting drafts live'
     method: 'POST',
     body: expect.stringContaining('"dry_run":true'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"limit":10')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"limit":10')
   expect(screen.getByText('Paper finalize dry-run passed')).toBeInTheDocument()
   expect(screen.getByText('would rewrite one publication draft')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
@@ -588,18 +590,18 @@ it('finalizes paper strip drafts only after dry-run and dialog confirmation', as
     method: 'POST',
     body: expect.stringContaining('"idempotency_key":"paper-strip-rewrite-batch:dashboard-v2:'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"dry_run":true')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"dry_run":true')
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/paper-reviews/rewrite-batch', expect.objectContaining({
     method: 'POST',
     body: expect.stringContaining('"idempotency_key":"paper-strip-rewrite-batch-live:dashboard-v2:'),
   }))
-  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"dry_run":false')
-  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"force":true')
+  expect(fetchMockRequestBody(fetchMock, 1)).toContain('"dry_run":false')
+  expect(fetchMockRequestBody(fetchMock, 1)).toContain('"force":true')
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
 it('invalidates paper strip live finalization when pipeline state changes', async () => {
-  const fetchMock = vi.spyOn(globalThis, 'fetch')
+  vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, matched: 1, processed: 1, reason: 'would rewrite one publication draft' }), { status: 200 }))
   const onRefresh = vi.fn()
 
