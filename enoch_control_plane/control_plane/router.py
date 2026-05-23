@@ -1109,6 +1109,241 @@ def _read_process_stdout_bounded(
     return b"".join(chunks), False
 
 
+def _remote_evidence_tar_include_paths() -> list[str]:
+    return [
+        _RUN_NOTES_MD,
+        ".enoch/project_decision.json",
+        ".enoch/metrics.json",
+        ".omx/project_decision.json",
+        ".omx/metrics.json",
+        "results",
+        "papers",
+    ]
+
+
+def _build_remote_evidence_ssh_cmd(config: GateConfig, remote_dir: str) -> list[str]:
+    remote_cmd = (
+        "cd "
+        + shlex.quote(remote_dir)
+        + " && tar -czf - --ignore-failed-read --exclude=__pycache__ --exclude='*.pyc' "
+        + " ".join(shlex.quote(path) for path in _remote_evidence_tar_include_paths())
+    )
+    known_hosts = (config.expanded_state_dir / "ssh_known_hosts").expanduser()
+    return [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=8",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        f"UserKnownHostsFile={known_hosts}",
+        config.paper_evidence_sync_ssh_host,
+        remote_cmd,
+    ]
+
+
+def _remote_evidence_tar_too_large_result(
+    artifact_root: Path,
+    http_sync: dict[str, Any],
+    *,
+    remote_dir: str,
+    max_tar_bytes: int,
+) -> dict[str, Any]:
+    local_present = _local_paper_evidence_present(artifact_root)
+    return {
+        "enabled": True,
+        "synced": local_present,
+        "local_evidence_present": local_present,
+        "reason": "remote_tar_too_large",
+        "remote_dir": remote_dir,
+        "error": f"remote evidence tar exceeded {max_tar_bytes} bytes",
+        "http_sync": http_sync,
+        "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
+    }
+
+
+def _read_remote_evidence_ssh_tar(
+    config: GateConfig,
+    ssh_cmd: list[str],
+    *,
+    artifact_root: Path,
+    remote_dir: str,
+    http_sync: dict[str, Any],
+) -> tuple[bytes, bytes, int] | dict[str, Any]:
+    max_tar_bytes = int(
+        getattr(config, "paper_evidence_sync_max_tar_bytes", 96_000_000) or 96_000_000
+    )
+    ssh_proc: subprocess.Popen | None = None
+    ssh_stderr_file: Any | None = None
+    try:
+        ssh_stderr_file = tempfile.TemporaryFile()
+        ssh_proc = subprocess.Popen(
+            ssh_cmd, stdout=subprocess.PIPE, stderr=ssh_stderr_file
+        )
+        ssh_stdout = getattr(ssh_proc, "stdout", None)
+        if ssh_stdout is None or isinstance(ssh_stdout, io.BytesIO):
+            ssh_out, ssh_err = ssh_proc.communicate(
+                timeout=config.paper_evidence_sync_timeout_sec
+            )
+            if len(ssh_out or b"") > max_tar_bytes:
+                _stop_process(ssh_proc)
+                return _remote_evidence_tar_too_large_result(
+                    artifact_root,
+                    http_sync,
+                    remote_dir=remote_dir,
+                    max_tar_bytes=max_tar_bytes,
+                )
+            return ssh_out or b"", ssh_err or b"", int(ssh_proc.returncode or 0)
+        ssh_out, too_large = _read_process_stdout_bounded(
+            ssh_proc,
+            command=ssh_cmd,
+            timeout_sec=int(config.paper_evidence_sync_timeout_sec),
+            max_bytes=max_tar_bytes,
+        )
+        if too_large:
+            _stop_process(ssh_proc)
+            return _remote_evidence_tar_too_large_result(
+                artifact_root,
+                http_sync,
+                remote_dir=remote_dir,
+                max_tar_bytes=max_tar_bytes,
+            )
+        ssh_stderr_file.seek(0)
+        return (
+            ssh_out,
+            ssh_stderr_file.read(),
+            int(ssh_proc.returncode or 0),
+        )
+    except subprocess.TimeoutExpired as exc:
+        _stop_process(ssh_proc)
+        return {
+            "enabled": True,
+            "synced": _local_paper_evidence_present(artifact_root),
+            "reason": "timeout",
+            "remote_dir": remote_dir,
+            "error": str(exc),
+            "http_sync": http_sync,
+            "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
+        }
+    except OSError as exc:
+        _stop_process(ssh_proc)
+        return {
+            "enabled": True,
+            "synced": _local_paper_evidence_present(artifact_root),
+            "reason": "spawn_failed",
+            "remote_dir": remote_dir,
+            "error": str(exc),
+            "http_sync": http_sync,
+            "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
+        }
+    finally:
+        if ssh_stderr_file is not None:
+            ssh_stderr_file.close()
+
+
+def _finalize_remote_evidence_ssh_sync(
+    artifact_root: Path,
+    http_sync: dict[str, Any],
+    *,
+    remote_dir: str,
+    ssh_out: bytes,
+    ssh_err: bytes,
+    ssh_code: int,
+) -> dict[str, Any]:
+    if ssh_code != 0:
+        return {
+            "enabled": True,
+            "synced": _local_paper_evidence_present(artifact_root),
+            "reason": "command_failed",
+            "remote_dir": remote_dir,
+            "ssh_returncode": ssh_code,
+            "stderr": (ssh_err or b"").decode("utf-8", errors="replace")[-2000:],
+            "stdout": (ssh_out or b"").decode("utf-8", errors="replace")[-1000:],
+            "http_sync": http_sync,
+            "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
+        }
+    extract_result = _extract_safe_tar_bytes(ssh_out or b"", artifact_root)
+    if not extract_result.get("ok"):
+        local_present = _local_paper_evidence_present(artifact_root)
+        return {
+            "enabled": True,
+            "synced": local_present,
+            "local_evidence_present": local_present,
+            "reason": str(extract_result.get("reason") or "extract_failed"),
+            "remote_dir": remote_dir,
+            "extract": extract_result,
+            "http_sync": http_sync,
+            "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
+        }
+    local_evidence_present = _local_paper_evidence_present(artifact_root)
+    return {
+        "enabled": True,
+        "synced": local_evidence_present,
+        "reason": "synced"
+        if local_evidence_present
+        else "synced_without_required_evidence",
+        "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
+        "remote_dir": remote_dir,
+        "local_evidence_present": local_evidence_present,
+        "http_sync": http_sync,
+    }
+
+
+def _sync_remote_project_evidence_ssh_fallback(
+    config: GateConfig,
+    *,
+    project_id: str,
+    artifact_root: Path,
+    source_project_dir: str,
+    http_sync: dict[str, Any],
+) -> dict[str, Any]:
+    remote_dir = _remote_evidence_dir(
+        config, project_id=project_id, source_project_dir=source_project_dir
+    )
+    # The VM talks to the GB10 over SSH and streams a bounded evidence tarball.
+    # This intentionally excludes external source trees and large trace/log files,
+    # while preserving the artifacts the paper writer needs for claim grounding.
+    ssh_cmd = _build_remote_evidence_ssh_cmd(config, remote_dir)
+    try:
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        if not artifact_root.is_dir():
+            raise NotADirectoryError(str(artifact_root))
+    except (OSError, RuntimeError, ValueError) as exc:
+        local_present = _local_paper_evidence_present(artifact_root)
+        return {
+            "enabled": True,
+            "synced": local_present,
+            "local_evidence_present": local_present,
+            "reason": "artifact_root_unusable",
+            "remote_dir": remote_dir,
+            "error": f"{type(exc).__name__}: {exc}",
+            "http_sync": http_sync,
+            "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
+        }
+    known_hosts = (config.expanded_state_dir / "ssh_known_hosts").expanduser()
+    known_hosts.parent.mkdir(parents=True, exist_ok=True)
+    ssh_payload = _read_remote_evidence_ssh_tar(
+        config,
+        ssh_cmd,
+        artifact_root=artifact_root,
+        remote_dir=remote_dir,
+        http_sync=http_sync,
+    )
+    if isinstance(ssh_payload, dict):
+        return ssh_payload
+    ssh_out, ssh_err, ssh_code = ssh_payload
+    return _finalize_remote_evidence_ssh_sync(
+        artifact_root,
+        http_sync,
+        remote_dir=remote_dir,
+        ssh_out=ssh_out,
+        ssh_err=ssh_err,
+        ssh_code=ssh_code,
+    )
+
+
 def _sync_remote_project_evidence(
     config: GateConfig,
     *,
@@ -1140,180 +1375,22 @@ def _sync_remote_project_evidence(
             "http_sync": http_sync,
         }
     if not allow_ssh_fallback:
+        local_present = _local_paper_evidence_present(artifact_root)
         return {
             "enabled": True,
-            "synced": _local_paper_evidence_present(artifact_root),
-            "local_evidence_present": _local_paper_evidence_present(artifact_root),
+            "synced": local_present,
+            "local_evidence_present": local_present,
             "reason": "worker_http_no_required_evidence",
             "method": "worker_http",
             "http_sync": http_sync,
         }
-    remote_dir = _remote_evidence_dir(
-        config, project_id=project_id, source_project_dir=source_project_dir
+    return _sync_remote_project_evidence_ssh_fallback(
+        config,
+        project_id=project_id,
+        artifact_root=artifact_root,
+        source_project_dir=source_project_dir,
+        http_sync=http_sync,
     )
-    # The VM talks to the GB10 over SSH and streams a bounded evidence tarball.
-    # This intentionally excludes external source trees and large trace/log files,
-    # while preserving the artifacts the paper writer needs for claim grounding.
-    include_paths = [
-        _RUN_NOTES_MD,
-        ".enoch/project_decision.json",
-        ".enoch/metrics.json",
-        ".omx/project_decision.json",
-        ".omx/metrics.json",
-        "results",
-        "papers",
-    ]
-    remote_cmd = (
-        "cd "
-        + shlex.quote(remote_dir)
-        + " && tar -czf - --ignore-failed-read --exclude=__pycache__ --exclude='*.pyc' "
-        + " ".join(shlex.quote(path) for path in include_paths)
-    )
-    known_hosts = (config.expanded_state_dir / "ssh_known_hosts").expanduser()
-    ssh_cmd = [
-        "ssh",
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "ConnectTimeout=8",
-        "-o",
-        "StrictHostKeyChecking=accept-new",
-        "-o",
-        f"UserKnownHostsFile={known_hosts}",
-        config.paper_evidence_sync_ssh_host,
-        remote_cmd,
-    ]
-    try:
-        artifact_root.mkdir(parents=True, exist_ok=True)
-        if not artifact_root.is_dir():
-            raise NotADirectoryError(str(artifact_root))
-    except (OSError, RuntimeError, ValueError) as exc:
-        return {
-            "enabled": True,
-            "synced": _local_paper_evidence_present(artifact_root),
-            "local_evidence_present": _local_paper_evidence_present(artifact_root),
-            "reason": "artifact_root_unusable",
-            "remote_dir": remote_dir,
-            "error": f"{type(exc).__name__}: {exc}",
-            "http_sync": http_sync,
-            "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
-        }
-    known_hosts.parent.mkdir(parents=True, exist_ok=True)
-    ssh_proc: subprocess.Popen | None = None
-    ssh_stderr_file: Any | None = None
-    max_tar_bytes = int(
-        getattr(config, "paper_evidence_sync_max_tar_bytes", 96_000_000) or 96_000_000
-    )
-    try:
-        ssh_stderr_file = tempfile.TemporaryFile()
-        ssh_proc = subprocess.Popen(
-            ssh_cmd, stdout=subprocess.PIPE, stderr=ssh_stderr_file
-        )
-        ssh_stdout = getattr(ssh_proc, "stdout", None)
-        if ssh_stdout is None or isinstance(ssh_stdout, io.BytesIO):
-            ssh_out, ssh_err = ssh_proc.communicate(
-                timeout=config.paper_evidence_sync_timeout_sec
-            )
-            if len(ssh_out or b"") > max_tar_bytes:
-                _stop_process(ssh_proc)
-                return {
-                    "enabled": True,
-                    "synced": _local_paper_evidence_present(artifact_root),
-                    "local_evidence_present": _local_paper_evidence_present(
-                        artifact_root
-                    ),
-                    "reason": "remote_tar_too_large",
-                    "remote_dir": remote_dir,
-                    "error": f"remote evidence tar exceeded {max_tar_bytes} bytes",
-                    "http_sync": http_sync,
-                    "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
-                }
-            ssh_code = ssh_proc.returncode
-        else:
-            ssh_out, too_large = _read_process_stdout_bounded(
-                ssh_proc,
-                command=ssh_cmd,
-                timeout_sec=int(config.paper_evidence_sync_timeout_sec),
-                max_bytes=max_tar_bytes,
-            )
-            if too_large:
-                _stop_process(ssh_proc)
-                return {
-                    "enabled": True,
-                    "synced": _local_paper_evidence_present(artifact_root),
-                    "local_evidence_present": _local_paper_evidence_present(
-                        artifact_root
-                    ),
-                    "reason": "remote_tar_too_large",
-                    "remote_dir": remote_dir,
-                    "error": f"remote evidence tar exceeded {max_tar_bytes} bytes",
-                    "http_sync": http_sync,
-                    "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
-                }
-            ssh_code = ssh_proc.returncode
-            ssh_stderr_file.seek(0)
-            ssh_err = ssh_stderr_file.read()
-    except subprocess.TimeoutExpired as exc:
-        _stop_process(ssh_proc)
-        return {
-            "enabled": True,
-            "synced": _local_paper_evidence_present(artifact_root),
-            "reason": "timeout",
-            "remote_dir": remote_dir,
-            "error": str(exc),
-            "http_sync": http_sync,
-            "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
-        }
-    except OSError as exc:
-        _stop_process(ssh_proc)
-        return {
-            "enabled": True,
-            "synced": _local_paper_evidence_present(artifact_root),
-            "reason": "spawn_failed",
-            "remote_dir": remote_dir,
-            "error": str(exc),
-            "http_sync": http_sync,
-            "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
-        }
-    finally:
-        if ssh_stderr_file is not None:
-            ssh_stderr_file.close()
-    if ssh_code != 0:
-        return {
-            "enabled": True,
-            "synced": _local_paper_evidence_present(artifact_root),
-            "reason": "command_failed",
-            "remote_dir": remote_dir,
-            "ssh_returncode": ssh_code,
-            "stderr": (ssh_err or b"").decode("utf-8", errors="replace")[-2000:],
-            "stdout": (ssh_out or b"").decode("utf-8", errors="replace")[-1000:],
-            "http_sync": http_sync,
-            "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
-        }
-    extract_result = _extract_safe_tar_bytes(ssh_out or b"", artifact_root)
-    if not extract_result.get("ok"):
-        return {
-            "enabled": True,
-            "synced": _local_paper_evidence_present(artifact_root),
-            "local_evidence_present": _local_paper_evidence_present(artifact_root),
-            "reason": str(extract_result.get("reason") or "extract_failed"),
-            "remote_dir": remote_dir,
-            "extract": extract_result,
-            "http_sync": http_sync,
-            "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
-        }
-    local_evidence_present = _local_paper_evidence_present(artifact_root)
-    return {
-        "enabled": True,
-        "synced": local_evidence_present,
-        "reason": "synced"
-        if local_evidence_present
-        else "synced_without_required_evidence",
-        "method": _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH,
-        "remote_dir": remote_dir,
-        "local_evidence_present": local_evidence_present,
-        "http_sync": http_sync,
-    }
 
 
 def _safe_slug(value: str, fallback: str) -> str:
