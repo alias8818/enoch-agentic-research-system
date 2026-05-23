@@ -327,6 +327,65 @@ function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   }
 }
 
+function paperPublicationBlocker(
+  review: string,
+  operatorExplanation: string,
+  missingArtifacts: string[],
+  imported: boolean,
+): string {
+  if (review === 'rejected') return 'Review rejected this paper.'
+  if (operatorExplanation !== '—') return operatorExplanation
+  if (missingArtifacts.length) return `Missing: ${missingArtifacts.join(', ')}.`
+  if (imported) return 'Corpus import complete; no publication blockers.'
+  return 'Publication artifacts ready for corpus import.'
+}
+
+function paperSummaryContext(
+  imported: boolean,
+  missingArtifacts: string[],
+  review: string,
+  flags: Record<string, unknown>,
+): string {
+  if (imported) return 'Corpus import ledger shows this paper as imported.'
+  if (missingArtifacts.length) {
+    return `Publication blocked: missing ${missingArtifacts.join(', ')}.`
+  }
+  if (review !== '—') return `Review ${review}; all publication artifacts present.`
+  const evidence = artifactFlagPresent(flags, 'evidence_bundle') ? 'present' : 'missing'
+  const claimLedger = artifactFlagPresent(flags, 'claim_ledger') ? 'present' : 'missing'
+  return `Evidence paths ${evidence}; claim ledger ${claimLedger}.`
+}
+
+function paperSummaryNextStep(
+  stageSource: Record<string, unknown>,
+  imported: boolean,
+  reviewRejected: boolean,
+  needsFinalization: boolean,
+  missingArtifacts: string[],
+): string {
+  if (imported) {
+    return operatorNextStep(stageSource, 'No corpus import action is needed for this paper.')
+  }
+  if (reviewRejected) {
+    return operatorNextStep(stageSource, 'Do not publish; start a new run or resolve review rejection first.')
+  }
+  if (needsFinalization || missingArtifacts.length) {
+    return operatorNextStep(stageSource, 'Preview artifacts, then finalize only after checklist items look correct.')
+  }
+  return operatorNextStep(stageSource, 'Run corpus import when the publication checklist is complete.')
+}
+
+function paperSummaryActionNeeded(
+  reviewRejected: boolean,
+  missingArtifacts: string[],
+): string | null {
+  if (reviewRejected) return 'Review rejected this paper; do not publish without a new run.'
+  if (missingArtifacts.length) {
+    return `Complete missing artifacts before publication: ${missingArtifacts.join(', ')}.`
+  }
+  return null
+}
+
 function paperSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const paper = record(payload.paper)
   const project = record(payload.project)
@@ -346,38 +405,18 @@ function paperSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const machineTarget = text(firstValue(queue.machine_target, payload.machine_target))
   const operatorExplanation = text(firstValue(paper.operator_explanation, payload.operator_explanation))
   const missingArtifacts = missingPublicationArtifacts(flags)
-  const publicationBlocker = review === 'rejected'
-    ? 'Review rejected this paper.'
-    : operatorExplanation !== '—'
-      ? operatorExplanation
-      : missingArtifacts.length
-        ? `Missing: ${missingArtifacts.join(', ')}.`
-        : imported
-          ? 'Corpus import complete; no publication blockers.'
-          : 'Publication artifacts ready for corpus import.'
+  const publicationBlocker = paperPublicationBlocker(review, operatorExplanation, missingArtifacts, imported)
   const entityLinks: EntityLink[] = []
   pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, projectName))
   pushLink(entityLinks, entityLink('run', runId !== '—' ? runId : null))
   const reviewRejected = review === 'rejected'
   const needsFinalization = missingArtifacts.includes('finalization package')
-  const context = imported
-    ? 'Corpus import ledger shows this paper as imported.'
-    : missingArtifacts.length
-      ? `Publication blocked: missing ${missingArtifacts.join(', ')}.`
-      : review !== '—'
-        ? `Review ${review}; all publication artifacts present.`
-        : `Evidence paths ${artifactFlagPresent(flags, 'evidence_bundle') ? 'present' : 'missing'}; claim ledger ${artifactFlagPresent(flags, 'claim_ledger') ? 'present' : 'missing'}.`
+  const context = paperSummaryContext(imported, missingArtifacts, review, flags)
 
   return {
     state: operatorStageLabel(stageSource, status),
     context,
-    next: operatorNextStep(stageSource, imported
-      ? 'No corpus import action is needed for this paper.'
-      : reviewRejected
-        ? 'Do not publish; start a new run or resolve review rejection first.'
-        : needsFinalization || missingArtifacts.length
-          ? 'Preview artifacts, then finalize only after checklist items look correct.'
-          : 'Run corpus import when the publication checklist is complete.'),
+    next: paperSummaryNextStep(stageSource, imported, reviewRejected, needsFinalization, missingArtifacts),
     entityLinks,
     sections: [
       {
@@ -418,11 +457,7 @@ function paperSummary(payload: Record<string, unknown>): DetailOperatorSummary {
       },
     ],
     recentActivity: latestEventSummary(events),
-    actionNeeded: reviewRejected
-      ? 'Review rejected this paper; do not publish without a new run.'
-      : missingArtifacts.length
-        ? `Complete missing artifacts before publication: ${missingArtifacts.join(', ')}.`
-        : null,
+    actionNeeded: paperSummaryActionNeeded(reviewRejected, missingArtifacts),
   }
 }
 
