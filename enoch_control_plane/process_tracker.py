@@ -386,6 +386,41 @@ class ProcessTracker:
         except psutil.AccessDenied:
             return False
 
+    @staticmethod
+    def _send_term_to_stale_candidates(
+        candidates: list[ProcessInfo],
+    ) -> list[ProcessInfo]:
+        term_signaled: list[ProcessInfo] = []
+        for info in candidates:
+            try:
+                _safe_send_signal(info.pid, signal.SIGTERM, tracked=info)
+                term_signaled.append(info)
+            except (OSError, ValueError):
+                continue
+        return term_signaled
+
+    def _finalize_stale_reap(self, info: ProcessInfo) -> ProcessInfo | None:
+        """Reap one TERM-signaled process; return info if reaped, None if skipped."""
+        try:
+            proc = psutil.Process(info.pid) if psutil is not None else None
+            if proc is None:
+                return None
+            same_process = self._same_process(proc, info)
+            if same_process is None:
+                return info
+            if not same_process:
+                # PID was reused during the TERM grace window. Never signal
+                # the new occupant.
+                return None
+            if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
+                return info
+            _safe_send_signal(info.pid, signal.SIGKILL, tracked=info, proc=proc)
+            return info
+        except (psutil.NoSuchProcess, ProcessLookupError):
+            return info
+        except (PermissionError, psutil.AccessDenied):
+            return None
+
     def reap_stale_project_processes(
         self,
         record: RunRecord,
@@ -404,38 +439,13 @@ class ProcessTracker:
         if not candidates:
             return []
 
-        term_signaled: list[ProcessInfo] = []
-        for info in candidates:
-            try:
-                _safe_send_signal(info.pid, signal.SIGTERM, tracked=info)
-                term_signaled.append(info)
-            except (OSError, ValueError):
-                continue
-
+        term_signaled = self._send_term_to_stale_candidates(candidates)
         if term_grace_sec > 0:
             time.sleep(term_grace_sec)
 
         reaped: list[ProcessInfo] = []
         for info in term_signaled:
-            try:
-                proc = psutil.Process(info.pid) if psutil is not None else None
-                if proc is None:
-                    continue
-                same_process = self._same_process(proc, info)
-                if same_process is None:
-                    reaped.append(info)
-                    continue
-                if not same_process:
-                    # PID was reused during the TERM grace window. Never signal
-                    # the new occupant.
-                    continue
-                if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
-                    reaped.append(info)
-                    continue
-                _safe_send_signal(info.pid, signal.SIGKILL, tracked=info, proc=proc)
-                reaped.append(info)
-            except (psutil.NoSuchProcess, ProcessLookupError):
-                reaped.append(info)
-            except (PermissionError, psutil.AccessDenied):
-                continue
+            result = self._finalize_stale_reap(info)
+            if result is not None:
+                reaped.append(result)
         return reaped
