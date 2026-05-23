@@ -1004,3 +1004,21 @@ def test_generate_state_vocabulary_plan_publication_automation_items_automation_
     assert count == 1, (
         f"{lit!r} still duplicated in vocabulary plan (count={count}); extract to const"
     )
+
+
+def test_push_public_release_bundle_public_release_integrity_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top S1192 (push_public_release_bundle.py:457).
+
+    "Public release integrity" (flagged in latest Sonar top duplication, 4x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "push_public_release_bundle.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "Public release integrity"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in push_public_release_bundle (count={count}); extract to const"
+    )

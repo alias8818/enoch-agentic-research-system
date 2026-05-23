@@ -38,6 +38,10 @@ PROJECT_PYTHON = ["uv", "run", "python"]
 DEFAULT_SOURCE_LINEAGE_CREATED_AFTER = "2026-05-19T17:51:00Z"
 DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF = "2026-05-19T17:51:00Z"
 
+# Centralized workflow name for the duplicated PUBLIC_RELEASE_INTEGRITY_WORKFLOW literal
+# (addresses top remaining S1192 in Repo definitions and workflow calls).
+PUBLIC_RELEASE_INTEGRITY_WORKFLOW = "Public release integrity"
+
 
 def printable_cmd(cmd: list[str]) -> str:
     redacted: list[str] = []
@@ -454,19 +458,21 @@ def main() -> int:
     system = Repo(
         "system",
         root / "enoch-agentic-research-system",
-        workflow="Public release integrity",
+        workflow=PUBLIC_RELEASE_INTEGRITY_WORKFLOW,
     )
     docs = Repo("docs", root / "enoch-docs")
     owner_profile = Repo("owner_profile", root / "alias8818")
     profile_site = Repo("profile_site", root / "alias8818.github.io")
     personal_site = Repo("personal_site", root / "jeremyblankenship.dev")
     corpus = Repo(
-        "corpus", root / "enoch-ai-research-corpus", workflow="Public release integrity"
+        "corpus",
+        root / "enoch-ai-research-corpus",
+        workflow=PUBLIC_RELEASE_INTEGRITY_WORKFLOW,
     )
     promising = Repo(
         "promising",
         root / "enoch-promising-signals",
-        workflow="Public release integrity",
+        workflow=PUBLIC_RELEASE_INTEGRITY_WORKFLOW,
     )
     ordered_dependencies = [
         system,
@@ -514,7 +520,7 @@ def main() -> int:
 
     if args.watch:
         watch_latest_workflow(
-            corpus, workflow="Public release integrity", commit=head(corpus)
+            corpus, workflow=PUBLIC_RELEASE_INTEGRITY_WORKFLOW, commit=head(corpus)
         )
 
     print("public release bundle push complete")
