@@ -4373,20 +4373,332 @@ def _ideas_intake_resolve_parts(
     return fallback()
 
 
+def _control_plane_store_for_config(config: GateConfig) -> Any:
+    if config.control_plane_store_backend == "supabase_readonly":
+        return SupabaseReadOnlyControlPlaneStore(
+            resolve_supabase_database_url(config.supabase_database_url)
+        )
+    if config.control_plane_store_backend == "supabase":
+        return SupabaseControlPlaneStore(
+            resolve_supabase_database_url(config.supabase_database_url)
+        )
+    return ControlPlaneStore(config.expanded_state_dir / "control_plane.sqlite3")
+
+
+def _alert_paper_evidence_blocked(
+    config: GateConfig,
+    *,
+    project_id: str,
+    run_id: str = "",
+    paper_id: str = "",
+    reason: str = "",
+) -> dict[str, Any]:
+    if not config.pushover_alerts_enabled:
+        return {
+            "attempted": False,
+            "ok": False,
+            "detail": "pushover alerts disabled",
+        }
+    result = send_pushover(
+        config,
+        title="Enoch paper evidence blocked",
+        message=f"Paper generation blocked because source evidence could not be gathered. project={project_id} run={run_id or 'unknown'} paper={paper_id or 'unknown'} reason={reason or 'missing evidence'}",
+        priority=1,
+    )
+    return {
+        "attempted": result.attempted,
+        "ok": result.ok,
+        "status_code": result.status_code,
+        "detail": result.detail,
+    }
+
+
+def _record_paper_evidence_blocked(
+    config: GateConfig,
+    store: Any,
+    *,
+    entity_type: str,
+    entity_id: str,
+    project_id: str,
+    run_id: str = "",
+    paper_id: str = "",
+    artifact_root: str = "",
+    evidence_sync: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    evidence_sync = evidence_sync or {}
+    reason = str(evidence_sync.get("reason") or "missing evidence")
+    # Bucket by UTC day, not hour. A missing-evidence paper candidate is
+    # durable until evidence arrives or the row is no longer paper-ready;
+    # hourly timer retries should not produce hourly Pushover noise.
+    bucket = utc_now()[:10]
+    key = ":".join(
+        [
+            "paper-evidence-sync-blocked",
+            entity_type,
+            _safe_slug(entity_id, "unknown"),
+            _safe_slug(run_id or paper_id or "unknown", "unknown"),
+            bucket,
+        ]
+    )
+    try:
+        event_id, inserted = store.append_event(
+            idempotency_key=key,
+            event_type="paper.evidence_sync_blocked",
+            entity_type=entity_type,
+            entity_id=entity_id,
+            payload={
+                "project_id": project_id,
+                "run_id": run_id,
+                "paper_id": paper_id,
+                "artifact_root": artifact_root,
+                "reason": reason,
+                "evidence_sync_summary": {
+                    "enabled": evidence_sync.get("enabled"),
+                    "synced": evidence_sync.get("synced"),
+                    "method": evidence_sync.get("method"),
+                    "local_evidence_present": evidence_sync.get(
+                        "local_evidence_present"
+                    ),
+                    "reason": reason,
+                },
+            },
+        )
+    except IdempotencyConflict as exc:
+        return {
+            "attempted": False,
+            "ok": True,
+            "detail": "duplicate paper evidence alert suppressed",
+            "event_id": None,
+            "event_store_conflict": True,
+            "event_store_error": str(exc)[:300],
+        }
+    except Exception as exc:  # noqa: BLE001 - alerting must survive event-store failures
+        notification = _alert_paper_evidence_blocked(
+            config,
+            project_id=project_id,
+            run_id=run_id,
+            paper_id=paper_id,
+            reason=reason,
+        )
+        return {
+            **notification,
+            "event_id": None,
+            "event_store_failed": True,
+            "event_store_error": f"{type(exc).__name__}: {exc}"[:300],
+        }
+    if not inserted:
+        return {
+            "attempted": False,
+            "ok": True,
+            "detail": "duplicate paper evidence alert suppressed",
+            "event_id": event_id,
+        }
+    notification = _alert_paper_evidence_blocked(
+        config,
+        project_id=project_id,
+        run_id=run_id,
+        paper_id=paper_id,
+        reason=reason,
+    )
+    return {**notification, "event_id": event_id}
+
+
+def _artifact_root_for_queue_row(
+    config: GateConfig, row: dict[str, Any]
+) -> tuple[Path, str]:
+    project_id = str(row.get("project_id") or "").strip()
+    project_dir_text = str(row.get("project_dir") or project_id).strip()
+    return _local_artifact_root_http(
+        config, project_id=project_id, project_dir_text=project_dir_text
+    ), project_dir_text
+
+
+def _evidence_sync_skipped_by_gate(
+    config: GateConfig, gate: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "enabled": config.paper_evidence_sync_enabled,
+        "synced": False,
+        "skipped": True,
+        "reason": "decision_gate_not_writable",
+        "decision_gate_reason": str(gate.get("reason") or ""),
+    }
+
+
+def _worker_evidence_sync_kwargs_for_row(
+    config: GateConfig, row: dict[str, Any]
+) -> dict[str, Any]:
+    machine_target = str(row.get("machine_target") or "")
+    worker_target = config.resolved_worker_target(machine_target)
+    default_target = config.resolved_worker_target("")
+    target_url = (worker_target.wake_gate_url or "").strip().rstrip("/")
+    default_url = (default_target.wake_gate_url or "").strip().rstrip("/")
+    return {
+        "worker_wake_gate_url": worker_target.wake_gate_url,
+        "worker_bearer_token": worker_target.bearer_token,
+        # The SSH evidence fallback is configured for the default/GB10 worker
+        # root.  For routed CPU workers, falling back to that SSH host would
+        # inspect the wrong machine and can mark a valid CPU run as missing
+        # evidence.  Routed non-default workers must succeed through their
+        # own HTTP read endpoint or fail closed.
+        "allow_ssh_fallback": not target_url or target_url == default_url,
+    }
+
+
+def _auto_reconcile_stale_callback_ready(
+    config: GateConfig,
+    store: Any,
+    status: DashboardStatusResponse,
+    *,
+    requested_by: str,
+) -> list[dict[str, Any]]:
+    if not status.active_items:
+        return []
+    has_no_live_conflict = any(
+        item.source == CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE
+        and "no live worker run" in item.message
+        for item in [*status.conflicts, *status.warnings]
+    )
+    if not has_no_live_conflict:
+        return []
+    reconciled: list[dict[str, Any]] = []
+    for row in status.active_items:
+        project_id = str(row.get("project_id") or "").strip()
+        run_id = str(row.get("current_run_id") or "").strip()
+        if not project_id or not run_id:
+            continue
+        artifact_root, project_dir_text = _artifact_root_for_queue_row(config, row)
+        gate = paper_draft_decision_gate(artifact_root)
+        evidence_sync = _evidence_sync_skipped_by_gate(config, gate)
+        if gate.get("eligible") or not gate.get("values"):
+            evidence_sync = _sync_remote_project_evidence(
+                config,
+                project_id=project_id,
+                artifact_root=artifact_root,
+                source_project_dir=project_dir_text,
+                source_run_id=run_id,
+                **_worker_evidence_sync_kwargs_for_row(config, row),
+            )
+            gate = paper_draft_decision_gate(artifact_root)
+        local_evidence_present = _local_paper_evidence_present(artifact_root)
+        if (
+            config.paper_evidence_sync_enabled
+            and not local_evidence_present
+            and gate.get("eligible")
+        ):
+            evidence_alert = _record_paper_evidence_blocked(
+                config,
+                store,
+                entity_type="project",
+                entity_id=project_id,
+                project_id=project_id,
+                run_id=run_id,
+                artifact_root=str(artifact_root),
+                evidence_sync=evidence_sync,
+            )
+            reconciled.append(
+                {
+                    "ok": False,
+                    "project_id": project_id,
+                    "run_id": run_id,
+                    "reason": "missing paper evidence",
+                    "artifact_root": str(artifact_root),
+                    "evidence_sync": evidence_sync,
+                    "decision_gate": gate,
+                    "evidence_alert": evidence_alert,
+                }
+            )
+            continue
+        if not gate.get("values"):
+            reconciled.append(
+                {
+                    "ok": False,
+                    "project_id": project_id,
+                    "run_id": run_id,
+                    "reason": "missing project decision artifact",
+                    "artifact_root": str(artifact_root),
+                    "evidence_sync": evidence_sync,
+                }
+            )
+            continue
+        callback = GateCallback(
+            event_type="wake_ready",
+            run_id=run_id,
+            session_id=str(row.get("current_session_id") or ""),
+            project_id=project_id,
+            project_name=str(row.get("project_name") or project_id),
+            source_event="control-plane-auto-reconcile",
+            gate_state="wake_ready",
+            process_tracking={
+                "root_pid": None,
+                "process_group_id": None,
+                "processes": [],
+                "live_process_count": 0,
+            },
+            telemetry={
+                "replayed_by": requested_by,
+                "artifact_root": str(artifact_root),
+                "evidence_sync": evidence_sync,
+            },
+            reason="auto replay: active row had no live worker run but durable decision artifact exists",
+            idempotency_key=f"{run_id}:wake_ready:auto-reconcile:{requested_by}",
+        )
+        try:
+            event_id, inserted, updated = store.record_worker_callback(
+                callback, received_by="queue-alert-auto-reconcile"
+            )
+            decision_record = (
+                store.record_project_decision_gate(
+                    project_id=project_id,
+                    run_id=run_id,
+                    artifact_root=artifact_root,
+                )
+                if hasattr(store, "record_project_decision_gate")
+                else {}
+            )
+            if decision_record.get("persisted"):
+                store.update_project_dir(project_id, str(artifact_root))
+            reconciled.append(
+                {
+                    "ok": True,
+                    "project_id": project_id,
+                    "run_id": run_id,
+                    "event_id": event_id,
+                    "inserted_event": inserted,
+                    "queue_status": (updated or {}).get("status"),
+                    "artifact_root": str(artifact_root),
+                    "evidence_sync": evidence_sync,
+                    "decision_gate": gate,
+                    "decision_record": decision_record,
+                }
+            )
+        except Exception as exc:
+            reconciled.append(
+                {
+                    "ok": False,
+                    "project_id": project_id,
+                    "run_id": run_id,
+                    "reason": f"{type(exc).__name__}: {exc}",
+                    "artifact_root": str(artifact_root),
+                    "evidence_sync": evidence_sync,
+                }
+            )
+    if reconciled:
+        store.append_event(
+            idempotency_key=f"queue-alert-auto-reconcile:{utc_now()}",
+            event_type="queue_alert.auto_reconcile",
+            entity_type="queue_alert",
+            entity_id="active-lane",
+            payload={"requested_by": requested_by, "results": reconciled},
+        )
+    return reconciled
+
+
 def create_control_plane_router(
     config: GateConfig, require_bearer: RequireBearer
 ) -> APIRouter:
     router = APIRouter(prefix="/control", tags=["control-plane"])
-    if config.control_plane_store_backend == "supabase_readonly":
-        store = SupabaseReadOnlyControlPlaneStore(
-            resolve_supabase_database_url(config.supabase_database_url)
-        )
-    elif config.control_plane_store_backend == "supabase":
-        store = SupabaseControlPlaneStore(
-            resolve_supabase_database_url(config.supabase_database_url)
-        )
-    else:
-        store = ControlPlaneStore(config.expanded_state_dir / "control_plane.sqlite3")
+    store = _control_plane_store_for_config(config)
 
     def authorize(authorization: str | None) -> None:
         require_bearer(authorization)
@@ -4398,107 +4710,6 @@ def create_control_plane_router(
             )
         except WritableControlPlaneStoreRequiredError as exc:
             raise HTTPException(status_code=501, detail=str(exc)) from exc
-
-    def _alert_paper_evidence_blocked(
-        *, project_id: str, run_id: str = "", paper_id: str = "", reason: str = ""
-    ) -> dict[str, Any]:
-        if not config.pushover_alerts_enabled:
-            return {
-                "attempted": False,
-                "ok": False,
-                "detail": "pushover alerts disabled",
-            }
-        result = send_pushover(
-            config,
-            title="Enoch paper evidence blocked",
-            message=f"Paper generation blocked because source evidence could not be gathered. project={project_id} run={run_id or 'unknown'} paper={paper_id or 'unknown'} reason={reason or 'missing evidence'}",
-            priority=1,
-        )
-        return {
-            "attempted": result.attempted,
-            "ok": result.ok,
-            "status_code": result.status_code,
-            "detail": result.detail,
-        }
-
-    def _record_paper_evidence_blocked(
-        *,
-        entity_type: str,
-        entity_id: str,
-        project_id: str,
-        run_id: str = "",
-        paper_id: str = "",
-        artifact_root: str = "",
-        evidence_sync: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        evidence_sync = evidence_sync or {}
-        reason = str(evidence_sync.get("reason") or "missing evidence")
-        # Bucket by UTC day, not hour. A missing-evidence paper candidate is
-        # durable until evidence arrives or the row is no longer paper-ready;
-        # hourly timer retries should not produce hourly Pushover noise.
-        bucket = utc_now()[:10]
-        key = ":".join(
-            [
-                "paper-evidence-sync-blocked",
-                entity_type,
-                _safe_slug(entity_id, "unknown"),
-                _safe_slug(run_id or paper_id or "unknown", "unknown"),
-                bucket,
-            ]
-        )
-        try:
-            event_id, inserted = store.append_event(
-                idempotency_key=key,
-                event_type="paper.evidence_sync_blocked",
-                entity_type=entity_type,
-                entity_id=entity_id,
-                payload={
-                    "project_id": project_id,
-                    "run_id": run_id,
-                    "paper_id": paper_id,
-                    "artifact_root": artifact_root,
-                    "reason": reason,
-                    "evidence_sync_summary": {
-                        "enabled": evidence_sync.get("enabled"),
-                        "synced": evidence_sync.get("synced"),
-                        "method": evidence_sync.get("method"),
-                        "local_evidence_present": evidence_sync.get(
-                            "local_evidence_present"
-                        ),
-                        "reason": reason,
-                    },
-                },
-            )
-        except IdempotencyConflict as exc:
-            return {
-                "attempted": False,
-                "ok": True,
-                "detail": "duplicate paper evidence alert suppressed",
-                "event_id": None,
-                "event_store_conflict": True,
-                "event_store_error": str(exc)[:300],
-            }
-        except Exception as exc:  # noqa: BLE001 - alerting must survive event-store failures
-            notification = _alert_paper_evidence_blocked(
-                project_id=project_id, run_id=run_id, paper_id=paper_id, reason=reason
-            )
-            return {
-                **notification,
-                "event_id": None,
-                "event_store_failed": True,
-                "event_store_error": f"{type(exc).__name__}: {exc}"[:300],
-            }
-        if not inserted:
-            return {
-                "attempted": False,
-                "ok": True,
-                "detail": "duplicate paper evidence alert suppressed",
-                "event_id": event_id,
-            }
-        notification = _alert_paper_evidence_blocked(
-            project_id=project_id, run_id=run_id, paper_id=paper_id, reason=reason
-        )
-        return {**notification, "event_id": event_id}
 
     def _dispatch_route_metadata(machine_target: str, target: Any) -> dict[str, Any]:
         return {
@@ -5938,181 +6149,6 @@ def create_control_plane_router(
         authorize(authorization)
         return dashboard_status_response(refresh_worker=refresh_worker)
 
-    def _artifact_root_for_queue_row(row: dict[str, Any]) -> tuple[Path, str]:
-        project_id = str(row.get("project_id") or "").strip()
-        project_dir_text = str(row.get("project_dir") or project_id).strip()
-        return _local_artifact_root_http(
-            config, project_id=project_id, project_dir_text=project_dir_text
-        ), project_dir_text
-
-    def _evidence_sync_skipped_by_gate(gate: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "enabled": config.paper_evidence_sync_enabled,
-            "synced": False,
-            "skipped": True,
-            "reason": "decision_gate_not_writable",
-            "decision_gate_reason": str(gate.get("reason") or ""),
-        }
-
-    def _worker_evidence_sync_kwargs_for_row(row: dict[str, Any]) -> dict[str, Any]:
-        machine_target = str(row.get("machine_target") or "")
-        worker_target = config.resolved_worker_target(machine_target)
-        default_target = config.resolved_worker_target("")
-        target_url = (worker_target.wake_gate_url or "").strip().rstrip("/")
-        default_url = (default_target.wake_gate_url or "").strip().rstrip("/")
-        return {
-            "worker_wake_gate_url": worker_target.wake_gate_url,
-            "worker_bearer_token": worker_target.bearer_token,
-            # The SSH evidence fallback is configured for the default/GB10 worker
-            # root.  For routed CPU workers, falling back to that SSH host would
-            # inspect the wrong machine and can mark a valid CPU run as missing
-            # evidence.  Routed non-default workers must succeed through their
-            # own HTTP read endpoint or fail closed.
-            "allow_ssh_fallback": not target_url or target_url == default_url,
-        }
-
-    def _auto_reconcile_stale_callback_ready(
-        status: DashboardStatusResponse, *, requested_by: str
-    ) -> list[dict[str, Any]]:
-        if not status.active_items:
-            return []
-        has_no_live_conflict = any(
-            item.source == CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE
-            and "no live worker run" in item.message
-            for item in [*status.conflicts, *status.warnings]
-        )
-        if not has_no_live_conflict:
-            return []
-        reconciled: list[dict[str, Any]] = []
-        for row in status.active_items:
-            project_id = str(row.get("project_id") or "").strip()
-            run_id = str(row.get("current_run_id") or "").strip()
-            if not project_id or not run_id:
-                continue
-            artifact_root, project_dir_text = _artifact_root_for_queue_row(row)
-            gate = paper_draft_decision_gate(artifact_root)
-            evidence_sync = _evidence_sync_skipped_by_gate(gate)
-            if gate.get("eligible") or not gate.get("values"):
-                evidence_sync = _sync_remote_project_evidence(
-                    config,
-                    project_id=project_id,
-                    artifact_root=artifact_root,
-                    source_project_dir=project_dir_text,
-                    source_run_id=run_id,
-                    **_worker_evidence_sync_kwargs_for_row(row),
-                )
-                gate = paper_draft_decision_gate(artifact_root)
-            local_evidence_present = _local_paper_evidence_present(artifact_root)
-            if (
-                config.paper_evidence_sync_enabled
-                and not local_evidence_present
-                and gate.get("eligible")
-            ):
-                evidence_alert = _record_paper_evidence_blocked(
-                    entity_type="project",
-                    entity_id=project_id,
-                    project_id=project_id,
-                    run_id=run_id,
-                    artifact_root=str(artifact_root),
-                    evidence_sync=evidence_sync,
-                )
-                reconciled.append(
-                    {
-                        "ok": False,
-                        "project_id": project_id,
-                        "run_id": run_id,
-                        "reason": "missing paper evidence",
-                        "artifact_root": str(artifact_root),
-                        "evidence_sync": evidence_sync,
-                        "decision_gate": gate,
-                        "evidence_alert": evidence_alert,
-                    }
-                )
-                continue
-            if not gate.get("values"):
-                reconciled.append(
-                    {
-                        "ok": False,
-                        "project_id": project_id,
-                        "run_id": run_id,
-                        "reason": "missing project decision artifact",
-                        "artifact_root": str(artifact_root),
-                        "evidence_sync": evidence_sync,
-                    }
-                )
-                continue
-            callback = GateCallback(
-                event_type="wake_ready",
-                run_id=run_id,
-                session_id=str(row.get("current_session_id") or ""),
-                project_id=project_id,
-                project_name=str(row.get("project_name") or project_id),
-                source_event="control-plane-auto-reconcile",
-                gate_state="wake_ready",
-                process_tracking={
-                    "root_pid": None,
-                    "process_group_id": None,
-                    "processes": [],
-                    "live_process_count": 0,
-                },
-                telemetry={
-                    "replayed_by": requested_by,
-                    "artifact_root": str(artifact_root),
-                    "evidence_sync": evidence_sync,
-                },
-                reason="auto replay: active row had no live worker run but durable decision artifact exists",
-                idempotency_key=f"{run_id}:wake_ready:auto-reconcile:{requested_by}",
-            )
-            try:
-                event_id, inserted, updated = store.record_worker_callback(
-                    callback, received_by="queue-alert-auto-reconcile"
-                )
-                decision_record = (
-                    store.record_project_decision_gate(
-                        project_id=project_id,
-                        run_id=run_id,
-                        artifact_root=artifact_root,
-                    )
-                    if hasattr(store, "record_project_decision_gate")
-                    else {}
-                )
-                if decision_record.get("persisted"):
-                    store.update_project_dir(project_id, str(artifact_root))
-                reconciled.append(
-                    {
-                        "ok": True,
-                        "project_id": project_id,
-                        "run_id": run_id,
-                        "event_id": event_id,
-                        "inserted_event": inserted,
-                        "queue_status": (updated or {}).get("status"),
-                        "artifact_root": str(artifact_root),
-                        "evidence_sync": evidence_sync,
-                        "decision_gate": gate,
-                        "decision_record": decision_record,
-                    }
-                )
-            except Exception as exc:
-                reconciled.append(
-                    {
-                        "ok": False,
-                        "project_id": project_id,
-                        "run_id": run_id,
-                        "reason": f"{type(exc).__name__}: {exc}",
-                        "artifact_root": str(artifact_root),
-                        "evidence_sync": evidence_sync,
-                    }
-                )
-        if reconciled:
-            store.append_event(
-                idempotency_key=f"queue-alert-auto-reconcile:{utc_now()}",
-                event_type="queue_alert.auto_reconcile",
-                entity_type="queue_alert",
-                entity_id="active-lane",
-                payload={"requested_by": requested_by, "results": reconciled},
-            )
-        return reconciled
-
     @router.post(
         "/api/alerts/queue-check",
         responses=_HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT,
@@ -6133,7 +6169,7 @@ def create_control_plane_router(
         auto_reconcile: list[dict[str, Any]] = []
         if not dry_run:
             auto_reconcile = _auto_reconcile_stale_callback_ready(
-                status, requested_by=requested_by
+                config, store, status, requested_by=requested_by
             )
             if any(item.get("ok") for item in auto_reconcile):
                 status = dashboard_status_response(refresh_worker=False)
@@ -6233,9 +6269,9 @@ def create_control_plane_router(
         )
         if should_sync_decision and row:
             project_id = str(row.get("project_id") or callback.project_id or "").strip()
-            artifact_root, project_dir_text = _artifact_root_for_queue_row(row)
+            artifact_root, project_dir_text = _artifact_root_for_queue_row(config, row)
             decision_gate = paper_draft_decision_gate(artifact_root)
-            evidence_sync = _evidence_sync_skipped_by_gate(decision_gate)
+            evidence_sync = _evidence_sync_skipped_by_gate(config, decision_gate)
             if decision_gate.get("eligible") or not decision_gate.get("values"):
                 evidence_sync = _sync_remote_project_evidence(
                     config,
@@ -6243,7 +6279,7 @@ def create_control_plane_router(
                     artifact_root=artifact_root,
                     source_project_dir=project_dir_text,
                     source_run_id=str(callback.run_id or ""),
-                    **_worker_evidence_sync_kwargs_for_row(row),
+                    **_worker_evidence_sync_kwargs_for_row(config, row),
                 )
                 decision_gate = paper_draft_decision_gate(artifact_root)
             decision_sync = {
@@ -6258,6 +6294,8 @@ def create_control_plane_router(
                 and decision_gate.get("eligible")
             ):
                 decision_sync["evidence_alert"] = _record_paper_evidence_blocked(
+                    config,
+                    store,
                     entity_type="project",
                     entity_id=project_id,
                     project_id=project_id,
@@ -7492,6 +7530,8 @@ def create_control_plane_router(
             artifact_root
         ):
             _record_paper_evidence_blocked(
+                config,
+                store,
                 entity_type="paper",
                 entity_id=paper_id,
                 project_id=project_id,
@@ -9470,6 +9510,8 @@ def create_control_plane_router(
             evidence = _prepare_draft_evidence(candidate)
             if not evidence["local_evidence_present"]:
                 _record_paper_evidence_blocked(
+                    config,
+                    store,
                     entity_type="project",
                     entity_id=str(candidate.get("project_id") or ""),
                     project_id=str(candidate.get("project_id") or ""),

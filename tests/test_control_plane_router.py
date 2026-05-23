@@ -14433,6 +14433,41 @@ def test_worker_settling_after_vm_completion_extracted_for_s3776():
     assert callable(_worker_settling_match_for_completed_runs)
 
 
+def test_paper_evidence_and_auto_reconcile_extracted_from_giant():
+    """AGENTS.md test-first for 5th-lowest OPEN S3776 (create_control_plane_router @ router.py:4304).
+
+    Paper-evidence alerting, queue-row artifact resolution, and stale-callback auto-reconcile
+    are module-level helpers so nested definitions no longer inflate the giant's complexity.
+    """
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
+    for name in (
+        "_control_plane_store_for_config",
+        "_alert_paper_evidence_blocked",
+        "_record_paper_evidence_blocked",
+        "_artifact_root_for_queue_row",
+        "_evidence_sync_skipped_by_gate",
+        "_worker_evidence_sync_kwargs_for_row",
+        "_auto_reconcile_stale_callback_ready",
+    ):
+        assert f"def {name}(" in src, (
+            f"{name} helper missing (still nested in create_control_plane_router)"
+        )
+
+    from enoch_control_plane.control_plane.router import (
+        _auto_reconcile_stale_callback_ready,
+        _control_plane_store_for_config,
+        _record_paper_evidence_blocked,
+    )
+
+    assert callable(_control_plane_store_for_config)
+    assert callable(_record_paper_evidence_blocked)
+    assert callable(_auto_reconcile_stale_callback_ready)
+
+
 def test_router_no_redundant_response_model_fastapi_style():
     """AGENTS.md test-first validator for top BLOCKERs (S8409/S8410, ~49 instances in router.py).
 
