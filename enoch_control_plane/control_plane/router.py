@@ -2655,6 +2655,32 @@ def _handle_followup_and_early_skips(
     return response
 
 
+def _provider_generation_machine_target(generation_target_lane: Any) -> str:
+    return str(
+        (generation_target_lane or {}).get("machine_target")
+        or os.environ.get("ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node")
+    )
+
+
+def _provider_generation_topic(
+    *,
+    topic: str,
+    generation_target_lane: Any,
+    generation_machine_target: str,
+) -> str:
+    if not generation_target_lane:
+        return topic
+    lane = generation_target_lane or {}
+    return (
+        f"Lane feed pressure: generate bounded work for machine_target={generation_machine_target}; "
+        f"worker_role={lane.get('worker_role') or 'worker'}; "
+        f"desired_queue_depth={lane.get('desired_queue_depth')}; "
+        f"queued_count={lane.get('queued_count')}; "
+        f"promotable_count={lane.get('promotable_count')}. "
+        f"{topic}"
+    ).strip()
+
+
 def _execute_provider_generation(
     *,
     max_provider_requests: int,
@@ -2685,22 +2711,14 @@ def _execute_provider_generation(
     generated_plans = []
     if max_provider_requests and not response.get("fresh_generation_skipped"):
         try:
-            generation_machine_target = str(
-                (generation_target_lane or {}).get("machine_target")
-                or os.environ.get(
-                    "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
-                )
+            generation_machine_target = _provider_generation_machine_target(
+                generation_target_lane
             )
-            generation_topic = topic
-            if generation_target_lane:
-                generation_topic = (
-                    f"Lane feed pressure: generate bounded work for machine_target={generation_machine_target}; "
-                    f"worker_role={(generation_target_lane or {}).get('worker_role') or 'worker'}; "
-                    f"desired_queue_depth={(generation_target_lane or {}).get('desired_queue_depth')}; "
-                    f"queued_count={(generation_target_lane or {}).get('queued_count')}; "
-                    f"promotable_count={(generation_target_lane or {}).get('promotable_count')}. "
-                    f"{topic}"
-                ).strip()
+            generation_topic = _provider_generation_topic(
+                topic=topic,
+                generation_target_lane=generation_target_lane,
+                generation_machine_target=generation_machine_target,
+            )
             generated = research_provider_generate.generate_provider_candidates(
                 base_url=provider_openai_base_url,
                 model=provider_model,
