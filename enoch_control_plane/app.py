@@ -2017,7 +2017,7 @@ def _dashboard_truth(
         and age_seconds > stale_seconds
     )
 
-    if active_processes:
+    if active_processes or state == GateState.RUNNING:
         lifecycle = "active"
         status = "Active"
         detail = "Codex or project-owned processes are still running."
@@ -2028,12 +2028,6 @@ def _dashboard_truth(
         status = "Superseded"
         detail = "A newer run exists for this project; this older record is historical evidence, not current attention."
         is_live = False
-        needs_attention = False
-    elif state == GateState.RUNNING:
-        lifecycle = "active"
-        status = "Active"
-        detail = "Codex or project-owned processes are still running."
-        is_live = True
         needs_attention = False
     elif state == GateState.QUESTION_PENDING:
         lifecycle = "question_pending"
