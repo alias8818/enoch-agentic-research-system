@@ -148,6 +148,10 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _row_or(row: dict[str, Any], key: str, default: Any = "") -> Any:
+    return row.get(key) or default
+
+
 def _normal(value: Any) -> str:
     return _text(value).lower().replace("-", "_").replace(" ", "_")
 
@@ -438,36 +442,55 @@ def _notion_execution_blocked_reason(row: dict[str, Any], execution_state: str) 
     )
 
 
-def _notion_execution_update_properties(
+def _notion_manual_review_required(row: dict[str, Any]) -> str:
+    return "__YES__" if _bool(row.get("manual_review_required")) else "__NO__"
+
+
+def _notion_execution_core_properties(
     row: dict[str, Any], *, execution_state: str, blocked_reason: str
 ) -> dict[str, Any]:
     return {
         "Execution State": execution_state,
-        "Current Run ID": row.get("current_run_id") or "",
-        "Next Action": row.get("next_action_hint") or "",
+        "Current Run ID": _row_or(row, "current_run_id"),
+        "Next Action": _row_or(row, "next_action_hint"),
         "Blocked Reason": blocked_reason,
-        "Last Execution Update": row.get("updated_at") or utc_now(),
-        "Execution Summary": row.get("last_result_summary") or "",
-        "Enoch Project ID": row.get("project_id") or "",
-        "Enoch Queue Status": row.get("status") or "",
-        "Enoch Last Run State": row.get("last_run_state") or "",
-        "Enoch Last Event Type": row.get("last_event_type") or "",
-        "Enoch Next Action Hint": row.get("next_action_hint") or "",
-        "Enoch Project Dir": row.get("project_dir") or "",
-        "Enoch Current Session ID": row.get("current_session_id") or "",
-        "Enoch Last Result Summary": row.get("last_result_summary") or "",
-        "Enoch Last Error": row.get("last_error") or "",
-        "Enoch Manual Review Required": "__YES__"
-        if _bool(row.get("manual_review_required"))
-        else "__NO__",
-        "Enoch Dispatch Priority": row.get("dispatch_priority") or 0,
-        "Enoch Selection Rank": row.get("selection_rank") or 0,
-        "Enoch Paper ID": row.get("paper_id") or "",
-        "Enoch Paper Status": row.get("paper_status") or "",
-        "Enoch Paper Type": row.get("paper_type") or "",
-        "Enoch Paper Markdown Path": row.get("draft_markdown_path") or "",
-        "Enoch Paper Updated At": row.get("paper_updated_at") or "",
-        "Enoch Paper Updated At ISO": row.get("paper_updated_at") or "",
+        "Last Execution Update": _row_or(row, "updated_at", utc_now()),
+        "Execution Summary": _row_or(row, "last_result_summary"),
+    }
+
+
+def _notion_execution_enoch_properties(row: dict[str, Any]) -> dict[str, Any]:
+    paper_updated_at = _row_or(row, "paper_updated_at")
+    return {
+        "Enoch Project ID": _row_or(row, "project_id"),
+        "Enoch Queue Status": _row_or(row, "status"),
+        "Enoch Last Run State": _row_or(row, "last_run_state"),
+        "Enoch Last Event Type": _row_or(row, "last_event_type"),
+        "Enoch Next Action Hint": _row_or(row, "next_action_hint"),
+        "Enoch Project Dir": _row_or(row, "project_dir"),
+        "Enoch Current Session ID": _row_or(row, "current_session_id"),
+        "Enoch Last Result Summary": _row_or(row, "last_result_summary"),
+        "Enoch Last Error": _row_or(row, "last_error"),
+        "Enoch Manual Review Required": _notion_manual_review_required(row),
+        "Enoch Dispatch Priority": _row_or(row, "dispatch_priority", 0),
+        "Enoch Selection Rank": _row_or(row, "selection_rank", 0),
+        "Enoch Paper ID": _row_or(row, "paper_id"),
+        "Enoch Paper Status": _row_or(row, "paper_status"),
+        "Enoch Paper Type": _row_or(row, "paper_type"),
+        "Enoch Paper Markdown Path": _row_or(row, "draft_markdown_path"),
+        "Enoch Paper Updated At": paper_updated_at,
+        "Enoch Paper Updated At ISO": paper_updated_at,
+    }
+
+
+def _notion_execution_update_properties(
+    row: dict[str, Any], *, execution_state: str, blocked_reason: str
+) -> dict[str, Any]:
+    return {
+        **_notion_execution_core_properties(
+            row, execution_state=execution_state, blocked_reason=blocked_reason
+        ),
+        **_notion_execution_enoch_properties(row),
     }
 
 
