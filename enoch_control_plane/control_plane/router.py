@@ -2053,6 +2053,121 @@ def _handle_followup_and_early_skips(
     return response
 
 
+def _execute_provider_generation(
+    *,
+    max_provider_requests: int,
+    response: dict[str, Any],
+    generation_target_lane: Any,
+    provider_openai_base_url: str,
+    provider_model: str,
+    max_candidates: int,
+    topic: str,
+    temperature: float,
+    seed: str,
+    generation_timeout: int,
+    generation_max_tokens: int,
+    generation_attempts: int,
+    min_admission_score: float,
+    bounded_float: Callable,
+    Namespace: Any,
+    research_provider_generate: Any,
+    research_facility: Any,
+    store: Any,
+    requested_by: str,
+) -> dict[str, Any]:
+    """Extracted from dashboard_research_run_cycle (large live execution path contributing to 1595/remaining S3776).
+
+    Handles lane-pressure-aware topic construction, provider candidate generation call,
+    planning, ledger recording, stages append, and error handling. Thin delegation left in the giant.
+    """
+    generated_plans = []
+    if max_provider_requests and not response.get("fresh_generation_skipped"):
+        try:
+            generation_machine_target = str(
+                (generation_target_lane or {}).get("machine_target")
+                or os.environ.get(
+                    "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
+                )
+            )
+            generation_topic = topic
+            if generation_target_lane:
+                generation_topic = (
+                    f"Lane feed pressure: generate bounded work for machine_target={generation_machine_target}; "
+                    f"worker_role={(generation_target_lane or {}).get('worker_role') or 'worker'}; "
+                    f"desired_queue_depth={(generation_target_lane or {}).get('desired_queue_depth')}; "
+                    f"queued_count={(generation_target_lane or {}).get('queued_count')}; "
+                    f"promotable_count={(generation_target_lane or {}).get('promotable_count')}. "
+                    f"{topic}"
+                ).strip()
+            generated = research_provider_generate.generate_provider_candidates(
+                base_url=provider_openai_base_url,
+                model=provider_model,
+                api_key="",
+                max_candidates=max_candidates,
+                topic=generation_topic,
+                temperature=temperature,
+                seed=seed,
+                timeout=generation_timeout,
+                max_tokens=generation_max_tokens,
+                attempts=generation_attempts,
+                default_machine=generation_machine_target,
+                default_model=os.environ.get(
+                    "ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"
+                ),
+                default_sandbox=os.environ.get(
+                    "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
+                ),
+            )
+            generated_plans = research_facility.plan_candidates(
+                (generated.get("candidates") or [])[:max_candidates],
+                Namespace(
+                    default_machine=os.environ.get(
+                        "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
+                    ),
+                    default_model=os.environ.get(
+                        "ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"
+                    ),
+                    default_sandbox=os.environ.get(
+                        "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
+                    ),
+                    admit_threshold=min_admission_score,
+                    review_threshold=bounded_float(
+                        "review_threshold", 58.0, 0.0, 100.0
+                    ),
+                    history=[],
+                ),
+            )
+            ledger_result = store.record_research_facility_plans(
+                generated_plans, requested_by=requested_by, queue_admitted=False
+            )
+            response["generated_count"] = len(generated_plans)
+            response["provider_response_id"] = generated.get(
+                "provider_response_id", ""
+            )
+            response["attempts_used"] = generated.get("attempts_used", 1)
+            response["generation_target_lane"] = generation_target_lane
+            response["ledger_result"] = ledger_result
+            response["stages"].append(
+                {
+                    "stage": "provider_generation",
+                    "ok": True,
+                    "candidate_count": len(generated_plans),
+                    "ledger_result": ledger_result,
+                    "generation_target_lane": str(
+                        (generation_target_lane or {}).get("machine_target") or ""
+                    ),
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 - provider output is external and must not break long-haul ticks
+            warning = f"provider generation skipped: {exc}"
+            response.setdefault("warnings", []).append(warning)
+            response["stages"].append(
+                {"stage": "provider_generation", "ok": False, "reason": warning}
+            )
+
+    return response
+
+
 def create_control_plane_router(
     config: GateConfig, require_bearer: RequireBearer
 ) -> APIRouter:
@@ -6961,90 +7076,27 @@ def create_control_plane_router(
             research_row_lane_key=research_row_lane_key,
         )
 
-        generated_plans = []
-        if max_provider_requests and not response.get("fresh_generation_skipped"):
-            try:
-                generation_machine_target = str(
-                    (generation_target_lane or {}).get("machine_target")
-                    or os.environ.get(
-                        "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
-                    )
-                )
-                generation_topic = topic
-                if generation_target_lane:
-                    generation_topic = (
-                        f"Lane feed pressure: generate bounded work for machine_target={generation_machine_target}; "
-                        f"worker_role={(generation_target_lane or {}).get('worker_role') or 'worker'}; "
-                        f"desired_queue_depth={(generation_target_lane or {}).get('desired_queue_depth')}; "
-                        f"queued_count={(generation_target_lane or {}).get('queued_count')}; "
-                        f"promotable_count={(generation_target_lane or {}).get('promotable_count')}. "
-                        f"{topic}"
-                    ).strip()
-                generated = research_provider_generate.generate_provider_candidates(
-                    base_url=provider_openai_base_url,
-                    model=provider_model,
-                    api_key="",
-                    max_candidates=max_candidates,
-                    topic=generation_topic,
-                    temperature=temperature,
-                    seed=seed,
-                    timeout=generation_timeout,
-                    max_tokens=generation_max_tokens,
-                    attempts=generation_attempts,
-                    default_machine=generation_machine_target,
-                    default_model=os.environ.get(
-                        "ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"
-                    ),
-                    default_sandbox=os.environ.get(
-                        "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
-                    ),
-                )
-                generated_plans = research_facility.plan_candidates(
-                    (generated.get("candidates") or [])[:max_candidates],
-                    Namespace(
-                        default_machine=os.environ.get(
-                            "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
-                        ),
-                        default_model=os.environ.get(
-                            "ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"
-                        ),
-                        default_sandbox=os.environ.get(
-                            "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
-                        ),
-                        admit_threshold=min_admission_score,
-                        review_threshold=bounded_float(
-                            "review_threshold", 58.0, 0.0, 100.0
-                        ),
-                        history=[],
-                    ),
-                )
-                ledger_result = store.record_research_facility_plans(
-                    generated_plans, requested_by=requested_by, queue_admitted=False
-                )
-                response["generated_count"] = len(generated_plans)
-                response["provider_response_id"] = generated.get(
-                    "provider_response_id", ""
-                )
-                response["attempts_used"] = generated.get("attempts_used", 1)
-                response["generation_target_lane"] = generation_target_lane
-                response["ledger_result"] = ledger_result
-                response["stages"].append(
-                    {
-                        "stage": "provider_generation",
-                        "ok": True,
-                        "candidate_count": len(generated_plans),
-                        "ledger_result": ledger_result,
-                        "generation_target_lane": str(
-                            (generation_target_lane or {}).get("machine_target") or ""
-                        ),
-                    }
-                )
-            except Exception as exc:  # noqa: BLE001 - provider output is external and must not break long-haul ticks
-                warning = f"provider generation skipped: {exc}"
-                response.setdefault("warnings", []).append(warning)
-                response["stages"].append(
-                    {"stage": "provider_generation", "ok": False, "reason": warning}
-                )
+        response = _execute_provider_generation(
+            max_provider_requests=max_provider_requests,
+            response=response,
+            generation_target_lane=generation_target_lane,
+            provider_openai_base_url=provider_openai_base_url,
+            provider_model=provider_model,
+            max_candidates=max_candidates,
+            topic=topic,
+            temperature=temperature,
+            seed=seed,
+            generation_timeout=generation_timeout,
+            generation_max_tokens=generation_max_tokens,
+            generation_attempts=generation_attempts,
+            min_admission_score=min_admission_score,
+            bounded_float=bounded_float,
+            Namespace=Namespace,
+            research_provider_generate=research_provider_generate,
+            research_facility=research_facility,
+            store=store,
+            requested_by=requested_by,
+        )
 
         promoted: list[dict[str, Any]] = []
         if not response.get("fresh_promotion_skipped"):

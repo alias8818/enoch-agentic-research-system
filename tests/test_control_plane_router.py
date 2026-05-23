@@ -14161,6 +14161,26 @@ def test_followup_and_early_skips_extracted_no_duplication_in_giant():
     assert callable(_handle_followup_and_early_skips)
 
 
+def test_provider_generation_execution_extracted_no_duplication_in_giant():
+    """AGENTS.md test-first for the next horrible-first S3776 inside the 1595
+    create_control_plane_router / dashboard_research_run_cycle (after followup/early-skips extraction).
+
+    The large provider generation execution path (topic construction from lane pressure,
+    generate_provider_candidates call, plan_candidates, record_plans, stages append,
+    error handling) is extracted to _execute_provider_generation to further reduce
+    cognitive complexity of the giant.
+    """
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    assert "def _execute_provider_generation(" in src, (
+        "_execute_provider_generation helper missing (provider generation execution logic still inline in the giant)"
+    )
+
+    from enoch_control_plane.control_plane.router import _execute_provider_generation
+    assert callable(_execute_provider_generation)
+
+
 def test_router_no_redundant_response_model_fastapi_style():
     """AGENTS.md test-first validator for top BLOCKERs (S8409/S8410, ~49 instances in router.py).
 
