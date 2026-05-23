@@ -16,6 +16,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlparse
 
 from enoch_control_plane.timeutils import parse_utc_datetime
 
@@ -273,7 +274,9 @@ def _has_external_source_url(sources: list[dict[str, Any]]) -> bool:
     for source in sources:
         url = _text(source.get("url")).lower()
         source_id = _text(source.get("source_id")).lower()
-        if url.startswith(("http://", "https://", "arxiv:", "doi:")):
+        if url.startswith(("arxiv:", "doi:")):
+            return True
+        if urlparse(url).scheme in {"http", "https"}:
             return True
         if source_id.startswith(("arxiv:", "doi:")):
             return True
