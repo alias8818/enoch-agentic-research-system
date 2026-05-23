@@ -355,6 +355,313 @@ def _paper_identity_conflicts(
     )
 
 
+def _validate_import_snapshot_rows(
+    queue_rows: list[dict[str, Any]], paper_rows: list[dict[str, Any]]
+) -> None:
+    _reject_conflicting_snapshot_rows(
+        queue_rows,
+        key_fields=("project_id",),
+        identity_fields=(
+            ("project_name", "name", "title"),
+            ("project_dir", "project_path"),
+            ("status", "queue_status"),
+            ("current_run_id",),
+        ),
+        label="queue project",
+    )
+    _reject_conflicting_snapshot_rows(
+        paper_rows,
+        key_fields=("paper_id",),
+        identity_fields=(
+            ("project_id",),
+            ("run_id",),
+            ("paper_type",),
+            ("paper_status",),
+            ("draft_markdown_path",),
+            ("draft_latex_path",),
+            ("evidence_bundle_path",),
+            ("claim_ledger_path",),
+            ("manifest_path",),
+        ),
+        label="paper",
+    )
+
+
+def _import_snapshot_event_payload(
+    request: ImportSnapshotRequest,
+    queue_rows: list[dict[str, Any]],
+    paper_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    event_payload = request.model_dump(mode="json")
+    event_payload["normalized_queue_row_count"] = len(queue_rows)
+    event_payload["normalized_paper_row_count"] = len(paper_rows)
+    return event_payload
+
+
+def _queue_status_from_import_raw(raw: dict[str, Any]) -> QueueStatus:
+    status_text = _text(_first_present(raw, "status", "queue_status")) or "queued"
+    if status_text in QueueStatus._value2member_map_:
+        return QueueStatus(status_text)
+    return QueueStatus.QUEUED
+
+
+def _project_record_from_import_queue_raw(
+    raw: dict[str, Any], project_id: str
+) -> ProjectRecord:
+    return ProjectRecord(
+        project_id=project_id,
+        project_name=_text(_first_present(raw, "project_name", "name", "title"))
+        or project_id,
+        project_dir=_text(_first_present(raw, "project_dir", "project_path")),
+        notion_page_url=_text(_first_present(raw, "notion_page_url", "url")),
+        notion_page_id=_text(_first_present(raw, "notion_page_id", "page_id", "id"))
+        or _notion_page_id_from_url(
+            _text(_first_present(raw, "notion_page_url", "url"))
+        ),
+        origin_idea_status=_text(
+            _first_present(raw, "origin_idea_status", "idea_status")
+        )
+        or "unknown",
+        created_at=_text(_first_present(raw, "createdAt", "created_at")) or utc_now(),
+        updated_at=_text(
+            _first_present(raw, "updatedAt", "updated_at", "last_execution_update")
+        )
+        or utc_now(),
+    )
+
+
+def _queue_item_record_from_import_raw(
+    raw: dict[str, Any], project_id: str
+) -> QueueItemRecord:
+    return QueueItemRecord(
+        project_id=project_id,
+        status=_queue_status_from_import_raw(raw),
+        selection_rank=_int(_first_present(raw, "selection_rank", "rank"), 50),
+        dispatch_priority=_int(
+            _first_present(raw, "dispatch_priority", "priority"), 50
+        ),
+        auto_continue=_bool(_first_present(raw, "auto_continue", "autoContinue")),
+        continue_count=_int(_first_present(raw, "continue_count", "continueCount"), 0),
+        max_continues=_int(_first_present(raw, "max_continues", "maxContinues"), 0),
+        retry_count=_int(_first_present(raw, "retry_count", "retryCount"), 0),
+        max_retries=_int(_first_present(raw, "max_retries", "maxRetries"), 2),
+        current_run_id=_text(raw.get("current_run_id")),
+        current_session_id=_text(raw.get("current_session_id")),
+        last_run_state=_text(raw.get("last_run_state")),
+        last_event_type=_text(raw.get("last_event_type")),
+        next_action_hint=_text(raw.get("next_action_hint")) or "controller_review",
+        manual_review_required=_bool(raw.get("manual_review_required")),
+        blocked_reason=_text(raw.get("blocked_reason")),
+        last_error=_text(raw.get("last_error")),
+        last_result_summary=_text(raw.get("last_result_summary")),
+        machine_target=_text(raw.get("machine_target")) or "worker.example",
+        model=_text(raw.get("model")) or "gpt-5.5",
+        sandbox=_text(raw.get("sandbox")) or "danger-full-access",
+        last_dispatch_at=_first_present(
+            raw, "last_dispatch_at", "last_execution_update"
+        ),
+        last_callback_at=raw.get("last_callback_at"),
+        stale_after=raw.get("stale_after"),
+        updated_at=_text(
+            _first_present(raw, "updatedAt", "updated_at", "last_execution_update")
+        )
+        or utc_now(),
+    )
+
+
+def _upsert_import_project(conn: sqlite3.Connection, project: ProjectRecord) -> None:
+    conn.execute(
+        """INSERT INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?)
+        ON CONFLICT(project_id) DO UPDATE SET
+            project_name=excluded.project_name,
+            project_dir=COALESCE(NULLIF(projects.project_dir,''), excluded.project_dir),
+            notion_page_url=COALESCE(NULLIF(excluded.notion_page_url,''), projects.notion_page_url),
+            notion_page_id=COALESCE(NULLIF(excluded.notion_page_id,''), projects.notion_page_id),
+            origin_idea_status=COALESCE(NULLIF(excluded.origin_idea_status,''), projects.origin_idea_status),
+            updated_at=excluded.updated_at
+        WHERE excluded.updated_at >= projects.updated_at""",
+        (
+            project.project_id,
+            project.project_name,
+            project.project_dir,
+            project.notion_page_url,
+            project.notion_page_id,
+            project.origin_idea_status,
+            project.created_at,
+            project.updated_at,
+        ),
+    )
+
+
+def _existing_queue_row_for_import(
+    conn: sqlite3.Connection, project_id: str
+) -> dict[str, Any] | None:
+    existing_row = conn.execute(
+        "SELECT status,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,last_dispatch_at,last_callback_at,stale_after,updated_at FROM queue_items WHERE project_id=?",
+        (project_id,),
+    ).fetchone()
+    return dict(existing_row) if existing_row else None
+
+
+def _preserve_active_runtime_on_import(
+    qi: QueueItemRecord,
+    existing_queue: dict[str, Any],
+    raw: dict[str, Any],
+) -> None:
+    existing_run_id = _text(existing_queue.get("current_run_id"))
+    incoming_run_id = _text(raw.get("current_run_id"))
+    preserve_active_runtime = bool(
+        _text(existing_queue["status"]) in ACTIVE_STATUSES
+        and (
+            not existing_run_id
+            or incoming_run_id != existing_run_id
+            or qi.status.value not in ACTIVE_STATUSES
+        )
+    )
+    if not preserve_active_runtime:
+        return
+    qi.status = QueueStatus(_text(existing_queue["status"]))
+    qi.current_run_id = existing_run_id
+    qi.current_session_id = _text(existing_queue["current_session_id"])
+    qi.last_run_state = _text(existing_queue["last_run_state"])
+    qi.last_event_type = _text(existing_queue["last_event_type"])
+    qi.next_action_hint = _text(existing_queue["next_action_hint"]) or "await_callback"
+    qi.manual_review_required = _bool(existing_queue["manual_review_required"])
+    qi.blocked_reason = _text(existing_queue["blocked_reason"])
+    qi.last_error = _text(existing_queue["last_error"])
+    qi.last_result_summary = _text(existing_queue["last_result_summary"])
+    qi.last_dispatch_at = existing_queue["last_dispatch_at"]
+    qi.last_callback_at = existing_queue["last_callback_at"]
+    qi.stale_after = existing_queue["stale_after"]
+
+
+def _upsert_import_queue_item(conn: sqlite3.Connection, qi: QueueItemRecord) -> None:
+    conn.execute(
+        """INSERT OR REPLACE INTO queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            qi.project_id,
+            qi.status.value,
+            qi.selection_rank,
+            qi.dispatch_priority,
+            int(qi.auto_continue),
+            qi.continue_count,
+            qi.max_continues,
+            qi.retry_count,
+            qi.max_retries,
+            qi.current_run_id,
+            qi.current_session_id,
+            qi.last_run_state,
+            qi.last_event_type,
+            qi.next_action_hint,
+            int(qi.manual_review_required),
+            qi.blocked_reason,
+            qi.last_error,
+            qi.last_result_summary,
+            qi.machine_target,
+            qi.model,
+            qi.sandbox,
+            qi.last_dispatch_at,
+            qi.last_callback_at,
+            qi.stale_after,
+            qi.updated_at,
+        ),
+    )
+
+
+def _import_queue_row(conn: sqlite3.Connection, raw: dict[str, Any]) -> tuple[int, int]:
+    project_id = _text(raw.get("project_id"))
+    if not project_id:
+        return 0, 0
+    project = _project_record_from_import_queue_raw(raw, project_id)
+    qi = _queue_item_record_from_import_raw(raw, project_id)
+    _upsert_import_project(conn, project)
+    projects = 1
+    existing_queue = _existing_queue_row_for_import(conn, project_id)
+    if existing_queue and _is_older_timestamp(
+        qi.updated_at, existing_queue.get("updated_at")
+    ):
+        return projects, 0
+    if existing_queue:
+        _preserve_active_runtime_on_import(qi, existing_queue, raw)
+    _upsert_import_queue_item(conn, qi)
+    return projects, 1
+
+
+def _paper_status_from_import_raw(raw: dict[str, Any]) -> str:
+    status = _text(raw.get("paper_status")) or PaperStatus.DRAFT_REVIEW.value
+    if status not in PaperStatus._value2member_map_:
+        return PaperStatus.DRAFT_REVIEW.value
+    return status
+
+
+def _ensure_import_project_for_paper(
+    conn: sqlite3.Connection, raw: dict[str, Any], project_id: str
+) -> None:
+    conn.execute(
+        "INSERT OR IGNORE INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+        (
+            project_id,
+            _text(raw.get("project_name")) or project_id,
+            _text(raw.get("project_dir")),
+            _text(raw.get("notion_page_url")),
+            _text(raw.get("notion_page_id"))
+            or _notion_page_id_from_url(_text(raw.get("notion_page_url"))),
+            "unknown",
+            utc_now(),
+            utc_now(),
+        ),
+    )
+
+
+def _import_paper_row(conn: sqlite3.Connection, raw: dict[str, Any]) -> int:
+    paper_id = _text(raw.get("paper_id"))
+    project_id = _text(raw.get("project_id"))
+    if not paper_id or not project_id:
+        return 0
+    _ensure_import_project_for_paper(conn, raw, project_id)
+    status = _paper_status_from_import_raw(raw)
+    existing_paper = conn.execute(
+        "SELECT project_id, run_id, paper_type, updated_at FROM papers WHERE paper_id=?",
+        (paper_id,),
+    ).fetchone()
+    if _paper_identity_conflicts(
+        existing_paper,
+        {
+            "project_id": project_id,
+            "run_id": _text(raw.get("run_id")),
+            "paper_type": _text(raw.get("paper_type")) or "arxiv_draft",
+        },
+    ):
+        raise IdempotencyConflict(
+            f"paper id {paper_id!r} was reused with different paper identity"
+        )
+    if existing_paper and _is_older_timestamp(
+        raw.get("updated_at"), existing_paper["updated_at"]
+    ):
+        return 0
+    conn.execute(
+        """INSERT OR REPLACE INTO papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            paper_id,
+            project_id,
+            _text(raw.get("run_id")),
+            _text(raw.get("paper_type")) or "arxiv_draft",
+            status,
+            _text(raw.get("draft_markdown_path")),
+            _text(raw.get("draft_latex_path")),
+            _text(raw.get("evidence_bundle_path")),
+            _text(raw.get("claim_ledger_path")),
+            _text(raw.get("manifest_path")),
+            _text(raw.get("generated_at")) or utc_now(),
+            _text(raw.get("updated_at")) or utc_now(),
+        ),
+    )
+    return 1
+
+
 def _slug_id(value: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")[:80]
 
@@ -1208,36 +1515,8 @@ class ControlPlaneStore:
             *request.paper_rows,
             *_snapshot_rows(request.paper_snapshot, paper=True),
         ]
-        _reject_conflicting_snapshot_rows(
-            queue_rows,
-            key_fields=("project_id",),
-            identity_fields=(
-                ("project_name", "name", "title"),
-                ("project_dir", "project_path"),
-                ("status", "queue_status"),
-                ("current_run_id",),
-            ),
-            label="queue project",
-        )
-        _reject_conflicting_snapshot_rows(
-            paper_rows,
-            key_fields=("paper_id",),
-            identity_fields=(
-                ("project_id",),
-                ("run_id",),
-                ("paper_type",),
-                ("paper_status",),
-                ("draft_markdown_path",),
-                ("draft_latex_path",),
-                ("evidence_bundle_path",),
-                ("claim_ledger_path",),
-                ("manifest_path",),
-            ),
-            label="paper",
-        )
-        event_payload = request.model_dump(mode="json")
-        event_payload["normalized_queue_row_count"] = len(queue_rows)
-        event_payload["normalized_paper_row_count"] = len(paper_rows)
+        _validate_import_snapshot_rows(queue_rows, paper_rows)
+        event_payload = _import_snapshot_event_payload(request, queue_rows, paper_rows)
         projects = queue_items = papers = 0
         with self._connect() as conn:
             _, inserted = self._append_event_in_conn(
@@ -1251,254 +1530,11 @@ class ControlPlaneStore:
             if not inserted:
                 return False, 0, 0, 0
             for raw in queue_rows:
-                project_id = _text(raw.get("project_id"))
-                if not project_id:
-                    continue
-                project = ProjectRecord(
-                    project_id=project_id,
-                    project_name=_text(
-                        _first_present(raw, "project_name", "name", "title")
-                    )
-                    or project_id,
-                    project_dir=_text(
-                        _first_present(raw, "project_dir", "project_path")
-                    ),
-                    notion_page_url=_text(
-                        _first_present(raw, "notion_page_url", "url")
-                    ),
-                    notion_page_id=_text(
-                        _first_present(raw, "notion_page_id", "page_id", "id")
-                    )
-                    or _notion_page_id_from_url(
-                        _text(_first_present(raw, "notion_page_url", "url"))
-                    ),
-                    origin_idea_status=_text(
-                        _first_present(raw, "origin_idea_status", "idea_status")
-                    )
-                    or "unknown",
-                    created_at=_text(_first_present(raw, "createdAt", "created_at"))
-                    or utc_now(),
-                    updated_at=_text(
-                        _first_present(
-                            raw, "updatedAt", "updated_at", "last_execution_update"
-                        )
-                    )
-                    or utc_now(),
-                )
-                qi = QueueItemRecord(
-                    project_id=project_id,
-                    status=QueueStatus(
-                        _text(_first_present(raw, "status", "queue_status")) or "queued"
-                    )
-                    if (
-                        _text(_first_present(raw, "status", "queue_status")) or "queued"
-                    )
-                    in QueueStatus._value2member_map_
-                    else QueueStatus.QUEUED,
-                    selection_rank=_int(
-                        _first_present(raw, "selection_rank", "rank"), 50
-                    ),
-                    dispatch_priority=_int(
-                        _first_present(raw, "dispatch_priority", "priority"), 50
-                    ),
-                    auto_continue=_bool(
-                        _first_present(raw, "auto_continue", "autoContinue")
-                    ),
-                    continue_count=_int(
-                        _first_present(raw, "continue_count", "continueCount"), 0
-                    ),
-                    max_continues=_int(
-                        _first_present(raw, "max_continues", "maxContinues"), 0
-                    ),
-                    retry_count=_int(
-                        _first_present(raw, "retry_count", "retryCount"), 0
-                    ),
-                    max_retries=_int(
-                        _first_present(raw, "max_retries", "maxRetries"), 2
-                    ),
-                    current_run_id=_text(raw.get("current_run_id")),
-                    current_session_id=_text(raw.get("current_session_id")),
-                    last_run_state=_text(raw.get("last_run_state")),
-                    last_event_type=_text(raw.get("last_event_type")),
-                    next_action_hint=_text(raw.get("next_action_hint"))
-                    or "controller_review",
-                    manual_review_required=_bool(raw.get("manual_review_required")),
-                    blocked_reason=_text(raw.get("blocked_reason")),
-                    last_error=_text(raw.get("last_error")),
-                    last_result_summary=_text(raw.get("last_result_summary")),
-                    machine_target=_text(raw.get("machine_target")) or "worker.example",
-                    model=_text(raw.get("model")) or "gpt-5.5",
-                    sandbox=_text(raw.get("sandbox")) or "danger-full-access",
-                    last_dispatch_at=_first_present(
-                        raw, "last_dispatch_at", "last_execution_update"
-                    ),
-                    last_callback_at=raw.get("last_callback_at"),
-                    stale_after=raw.get("stale_after"),
-                    updated_at=_text(
-                        _first_present(
-                            raw, "updatedAt", "updated_at", "last_execution_update"
-                        )
-                    )
-                    or utc_now(),
-                )
-                conn.execute(
-                    """INSERT INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
-                    VALUES (?,?,?,?,?,?,?,?)
-                    ON CONFLICT(project_id) DO UPDATE SET
-                        project_name=excluded.project_name,
-                        project_dir=COALESCE(NULLIF(projects.project_dir,''), excluded.project_dir),
-                        notion_page_url=COALESCE(NULLIF(excluded.notion_page_url,''), projects.notion_page_url),
-                        notion_page_id=COALESCE(NULLIF(excluded.notion_page_id,''), projects.notion_page_id),
-                        origin_idea_status=COALESCE(NULLIF(excluded.origin_idea_status,''), projects.origin_idea_status),
-                        updated_at=excluded.updated_at
-                    WHERE excluded.updated_at >= projects.updated_at""",
-                    (
-                        project.project_id,
-                        project.project_name,
-                        project.project_dir,
-                        project.notion_page_url,
-                        project.notion_page_id,
-                        project.origin_idea_status,
-                        project.created_at,
-                        project.updated_at,
-                    ),
-                )
-                projects += 1
-                existing_row = conn.execute(
-                    "SELECT status,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,last_dispatch_at,last_callback_at,stale_after,updated_at FROM queue_items WHERE project_id=?",
-                    (project_id,),
-                ).fetchone()
-                existing_queue = dict(existing_row) if existing_row else None
-                if existing_queue and _is_older_timestamp(
-                    qi.updated_at, existing_queue.get("updated_at")
-                ):
-                    continue
-                existing_run_id = _text((existing_queue or {}).get("current_run_id"))
-                incoming_run_id = _text(raw.get("current_run_id"))
-                preserve_active_runtime = bool(
-                    existing_queue
-                    and _text(existing_queue["status"]) in ACTIVE_STATUSES
-                    and (
-                        not existing_run_id
-                        or incoming_run_id != existing_run_id
-                        or qi.status.value not in ACTIVE_STATUSES
-                    )
-                )
-                if preserve_active_runtime:
-                    assert existing_queue is not None
-                    qi.status = QueueStatus(_text(existing_queue["status"]))
-                    qi.current_run_id = existing_run_id
-                    qi.current_session_id = _text(existing_queue["current_session_id"])
-                    qi.last_run_state = _text(existing_queue["last_run_state"])
-                    qi.last_event_type = _text(existing_queue["last_event_type"])
-                    qi.next_action_hint = (
-                        _text(existing_queue["next_action_hint"]) or "await_callback"
-                    )
-                    qi.manual_review_required = _bool(
-                        existing_queue["manual_review_required"]
-                    )
-                    qi.blocked_reason = _text(existing_queue["blocked_reason"])
-                    qi.last_error = _text(existing_queue["last_error"])
-                    qi.last_result_summary = _text(
-                        existing_queue["last_result_summary"]
-                    )
-                    qi.last_dispatch_at = existing_queue["last_dispatch_at"]
-                    qi.last_callback_at = existing_queue["last_callback_at"]
-                    qi.stale_after = existing_queue["stale_after"]
-                conn.execute(
-                    """INSERT OR REPLACE INTO queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (
-                        qi.project_id,
-                        qi.status.value,
-                        qi.selection_rank,
-                        qi.dispatch_priority,
-                        int(qi.auto_continue),
-                        qi.continue_count,
-                        qi.max_continues,
-                        qi.retry_count,
-                        qi.max_retries,
-                        qi.current_run_id,
-                        qi.current_session_id,
-                        qi.last_run_state,
-                        qi.last_event_type,
-                        qi.next_action_hint,
-                        int(qi.manual_review_required),
-                        qi.blocked_reason,
-                        qi.last_error,
-                        qi.last_result_summary,
-                        qi.machine_target,
-                        qi.model,
-                        qi.sandbox,
-                        qi.last_dispatch_at,
-                        qi.last_callback_at,
-                        qi.stale_after,
-                        qi.updated_at,
-                    ),
-                )
-                queue_items += 1
+                row_projects, row_queue_items = _import_queue_row(conn, raw)
+                projects += row_projects
+                queue_items += row_queue_items
             for raw in paper_rows:
-                paper_id = _text(raw.get("paper_id"))
-                project_id = _text(raw.get("project_id"))
-                if not paper_id or not project_id:
-                    continue
-                conn.execute(
-                    "INSERT OR IGNORE INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-                    (
-                        project_id,
-                        _text(raw.get("project_name")) or project_id,
-                        _text(raw.get("project_dir")),
-                        _text(raw.get("notion_page_url")),
-                        _text(raw.get("notion_page_id"))
-                        or _notion_page_id_from_url(_text(raw.get("notion_page_url"))),
-                        "unknown",
-                        utc_now(),
-                        utc_now(),
-                    ),
-                )
-                status = (
-                    _text(raw.get("paper_status")) or PaperStatus.DRAFT_REVIEW.value
-                )
-                if status not in PaperStatus._value2member_map_:
-                    status = PaperStatus.DRAFT_REVIEW.value
-                existing_paper = conn.execute(
-                    "SELECT project_id, run_id, paper_type, updated_at FROM papers WHERE paper_id=?",
-                    (paper_id,),
-                ).fetchone()
-                if _paper_identity_conflicts(
-                    existing_paper,
-                    {
-                        "project_id": project_id,
-                        "run_id": _text(raw.get("run_id")),
-                        "paper_type": _text(raw.get("paper_type")) or "arxiv_draft",
-                    },
-                ):
-                    raise IdempotencyConflict(
-                        f"paper id {paper_id!r} was reused with different paper identity"
-                    )
-                if existing_paper and _is_older_timestamp(
-                    raw.get("updated_at"), existing_paper["updated_at"]
-                ):
-                    continue
-                conn.execute(
-                    """INSERT OR REPLACE INTO papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (
-                        paper_id,
-                        project_id,
-                        _text(raw.get("run_id")),
-                        _text(raw.get("paper_type")) or "arxiv_draft",
-                        status,
-                        _text(raw.get("draft_markdown_path")),
-                        _text(raw.get("draft_latex_path")),
-                        _text(raw.get("evidence_bundle_path")),
-                        _text(raw.get("claim_ledger_path")),
-                        _text(raw.get("manifest_path")),
-                        _text(raw.get("generated_at")) or utc_now(),
-                        _text(raw.get("updated_at")) or utc_now(),
-                    ),
-                )
-                papers += 1
+                papers += _import_paper_row(conn, raw)
         return inserted, projects, queue_items, papers
 
     def queue_rows(self) -> list[dict[str, Any]]:
