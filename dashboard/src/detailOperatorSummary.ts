@@ -460,7 +460,7 @@ export function deriveResearchCandidateOperatorSummary(row: Record<string, unkno
   const attention = researchCandidateNeedsAttention(row, rejected)
   const promotePath = researchCandidatePromotePath(rejected, admitted, promoted, ideaId, projectId)
   const entityLinks: EntityLink[] = []
-  pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, row.title))
+  pushLink(entityLinks, entityLink('project', projectId === '—' ? null : projectId, row.title))
 
   return {
     state: operatorStageLabel(row, status),
