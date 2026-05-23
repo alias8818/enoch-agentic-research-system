@@ -167,7 +167,7 @@ function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const paperReview = text(firstValue(run.related_review_status, papers[0]?.review_status))
   const entityLinks: EntityLink[] = []
   pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, projectName))
-  pushLink(entityLinks, entityLink('paper', paperId !== '—' ? paperId : null, papers[0]?.paper_title || papers[0]?.title))
+  pushLink(entityLinks, entityLink('paper', paperId === '—' ? null : paperId, papers[0]?.paper_title || papers[0]?.title))
   const errorState = state.includes('error') || gate.includes('error')
   const artifactFlags = record(run.related_artifact_paths_present)
   const outcome = runOutcomeLabel(state, gate, endedAt)
