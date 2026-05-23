@@ -257,7 +257,12 @@ function eventEntityLinks(payload: Record<string, unknown>): EntityLink[] {
   }
   if (!entityLinks.length && entityId !== '—') {
     if (entityType === 'queue_alert') return entityLinks
-    const kind: DetailKind = entityType.includes('run') ? 'run' : entityType.includes('paper') || entityType.includes('paper_review') ? 'paper' : 'project'
+    let kind: DetailKind = 'project'
+    if (entityType.includes('run')) {
+      kind = 'run'
+    } else if (entityType.includes('paper') || entityType.includes('paper_review')) {
+      kind = 'paper'
+    }
     pushLink(entityLinks, entityLink(kind, entityId))
   }
   return entityLinks
