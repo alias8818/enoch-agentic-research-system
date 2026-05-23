@@ -49,6 +49,7 @@ from .telemetry import TelemetryCollector
 # of the literal across multiple _checked_exists / _checked_is_dir calls and
 # error messages in the dashboard API handlers).
 PROJECT_DIRECTORY_LABEL = "project directory"
+PROJECT_JSON_FILENAME = "project.json"
 
 
 class ControlPlaneHttpError(Exception):
@@ -1113,9 +1114,9 @@ def _normalize_prepare_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
 
 
 def _load_project_metadata(project_dir: Path) -> dict[str, Any]:
-    path = project_dir / ".enoch" / "project.json"
+    path = project_dir / ".enoch" / PROJECT_JSON_FILENAME
     if not _checked_exists(path, label="project metadata"):
-        legacy_path = project_dir / ".omx" / "project.json"
+        legacy_path = project_dir / ".omx" / PROJECT_JSON_FILENAME
         if not _checked_exists(legacy_path, label="project metadata"):
             return {}
         path = legacy_path
@@ -1142,7 +1143,7 @@ def _resolve_workload_profile_for_project_dir(project_dir: Path) -> tuple[str, A
     if metadata is not None and not isinstance(metadata, dict):
         raise ControlPlaneHttpError(
             status_code=500,
-            detail=f"project metadata 'metadata' field must be an object: {project_dir / '.enoch' / 'project.json'}",
+            detail=f"project metadata 'metadata' field must be an object: {project_dir / '.enoch' / PROJECT_JSON_FILENAME}",
         )
     try:
         return config.resolve_workload_profile((metadata or {}).get("workload_class"))
