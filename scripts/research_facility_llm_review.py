@@ -734,6 +734,150 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+_BUDGET_REPORT_KEYS = (
+    "ok",
+    "remaining_credits",
+    "min_remaining_credits",
+    "weekly_percent_remaining",
+    "min_weekly_percent_remaining",
+    "rolling_remaining",
+    "rolling_max",
+    "rolling_limited",
+    "estimated_requests",
+    "reserve_requests",
+    "failures",
+)
+
+
+def _emit_report(args: argparse.Namespace, report: dict[str, Any]) -> None:
+    text = json.dumps(report, indent=2, sort_keys=True, default=str)
+    if args.output:
+        args.output.write_text(text + "\n", encoding="utf-8")
+    else:
+        print(text)
+
+
+def _apply_stored_decisions_if_requested(
+    args: argparse.Namespace,
+    report: dict[str, Any],
+    *,
+    dry_run: bool,
+) -> int | None:
+    if not (args.apply_stored_decisions or args.apply_stored_decisions_only):
+        return None
+    report["stored_decision_apply"] = apply_stored_llm_decisions(
+        args.database_url,
+        requested_by=args.requested_by,
+        limit=args.stored_decision_limit,
+        dry_run=dry_run,
+    )
+    if not args.apply_stored_decisions_only:
+        return None
+    report.update({"ok": True, "action": "applied_stored_decisions"})
+    _emit_report(args, report)
+    return 0
+
+
+def _mark_cooldown_skip(
+    report: dict[str, Any], *, age: float, cooldown_minutes: int
+) -> None:
+    report.update(
+        {
+            "ok": True,
+            "action": "skipped",
+            "reason": f"cooldown active: {age:.1f}m < {cooldown_minutes}m",
+        }
+    )
+
+
+def _mark_budget_skip(report: dict[str, Any], budget: dict[str, Any]) -> None:
+    report.update(
+        {
+            "ok": True,
+            "action": "skipped",
+            "reason": "; ".join(budget.get("failures") or ["budget unavailable"]),
+        }
+    )
+
+
+def _run_provider_review(
+    args: argparse.Namespace,
+    report: dict[str, Any],
+    *,
+    dry_run: bool,
+) -> None:
+    budget = budget_status(
+        base_url=args.provider_base_url,
+        estimated_requests=args.estimated_requests,
+        reserve_requests=args.reserve_requests,
+        min_remaining_credits=args.min_remaining_credits,
+        min_rolling_remaining=args.min_rolling_remaining,
+        min_weekly_percent_remaining=args.min_weekly_percent_remaining,
+        timeout=min(max(args.timeout, 5), 60),
+    )
+    report["budget"] = {key: budget.get(key) for key in _BUDGET_REPORT_KEYS}
+    if not budget.get("ok"):
+        _mark_budget_skip(report, budget)
+        return
+    batch, janitor = select_review_batch(
+        args.database_url,
+        limit=max(1, min(args.batch_size, 50)),
+        janitor_limit=args.janitor_limit,
+    )
+    report["janitor"] = {
+        "row_count": janitor.get("row_count"),
+        "action_counts": janitor.get("action_counts"),
+    }
+    report["batch_count"] = len(batch)
+    if not batch:
+        report.update(
+            {
+                "ok": True,
+                "action": "skipped",
+                "reason": "no rewrite_suggested backlog",
+            }
+        )
+        return
+    prompt = build_review_prompt(batch)
+    report["cooldown_event_inserted"] = record_review_cycle_event(
+        args.database_url,
+        requested_by=args.requested_by,
+        provider_model=args.model,
+        batch_count=len(batch),
+    )
+    raw = call_review_model(
+        base_url=args.openai_base_url,
+        model=args.model,
+        prompt=prompt,
+        timeout=args.timeout,
+        max_tokens=args.max_tokens,
+        temperature=args.temperature,
+    )
+    decisions = normalize_decisions(raw, batch)
+    apply_result = record_review(
+        args.database_url,
+        decisions=decisions,
+        batch=batch,
+        requested_by=args.requested_by,
+        provider_model=args.model,
+        dry_run=dry_run,
+    )
+    report.update(
+        {
+            "ok": True,
+            "action": "reviewed",
+            "provider_model": args.model,
+            "provider_response_id": raw.get("provider_response_id", ""),
+            "prompt_version": PROMPT_VERSION,
+            "decision_count": len(decisions),
+            "decision_counts": apply_result.get("decision_counts")
+            or dict(Counter(d["decision"] for d in decisions)),
+            "apply_result": apply_result,
+            "decisions": decisions,
+        }
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     if not args.database_url:
@@ -745,131 +889,16 @@ def main(argv: list[str] | None = None) -> int:
         "dry_run": dry_run,
         "checked_at": utc_now(),
     }
-    if args.apply_stored_decisions or args.apply_stored_decisions_only:
-        stored = apply_stored_llm_decisions(
-            args.database_url,
-            requested_by=args.requested_by,
-            limit=args.stored_decision_limit,
-            dry_run=dry_run,
-        )
-        report["stored_decision_apply"] = stored
-        if args.apply_stored_decisions_only:
-            report.update({"ok": True, "action": "applied_stored_decisions"})
-            text = json.dumps(report, indent=2, sort_keys=True, default=str)
-            if args.output:
-                args.output.write_text(text + "\n", encoding="utf-8")
-            else:
-                print(text)
-            return 0
+    early_exit = _apply_stored_decisions_if_requested(args, report, dry_run=dry_run)
+    if early_exit is not None:
+        return early_exit
     age = latest_review_age_minutes(args.database_url)
     report["last_review_age_minutes"] = age
     if age is not None and age < args.cooldown_minutes:
-        report.update(
-            {
-                "ok": True,
-                "action": "skipped",
-                "reason": f"cooldown active: {age:.1f}m < {args.cooldown_minutes}m",
-            }
-        )
+        _mark_cooldown_skip(report, age=age, cooldown_minutes=args.cooldown_minutes)
     else:
-        budget = budget_status(
-            base_url=args.provider_base_url,
-            estimated_requests=args.estimated_requests,
-            reserve_requests=args.reserve_requests,
-            min_remaining_credits=args.min_remaining_credits,
-            min_rolling_remaining=args.min_rolling_remaining,
-            min_weekly_percent_remaining=args.min_weekly_percent_remaining,
-            timeout=min(max(args.timeout, 5), 60),
-        )
-        report["budget"] = {
-            key: budget.get(key)
-            for key in (
-                "ok",
-                "remaining_credits",
-                "min_remaining_credits",
-                "weekly_percent_remaining",
-                "min_weekly_percent_remaining",
-                "rolling_remaining",
-                "rolling_max",
-                "rolling_limited",
-                "estimated_requests",
-                "reserve_requests",
-                "failures",
-            )
-        }
-        if not budget.get("ok"):
-            report.update(
-                {
-                    "ok": True,
-                    "action": "skipped",
-                    "reason": "; ".join(
-                        budget.get("failures") or ["budget unavailable"]
-                    ),
-                }
-            )
-        else:
-            batch, janitor = select_review_batch(
-                args.database_url,
-                limit=max(1, min(args.batch_size, 50)),
-                janitor_limit=args.janitor_limit,
-            )
-            report["janitor"] = {
-                "row_count": janitor.get("row_count"),
-                "action_counts": janitor.get("action_counts"),
-            }
-            report["batch_count"] = len(batch)
-            if not batch:
-                report.update(
-                    {
-                        "ok": True,
-                        "action": "skipped",
-                        "reason": "no rewrite_suggested backlog",
-                    }
-                )
-            else:
-                prompt = build_review_prompt(batch)
-                report["cooldown_event_inserted"] = record_review_cycle_event(
-                    args.database_url,
-                    requested_by=args.requested_by,
-                    provider_model=args.model,
-                    batch_count=len(batch),
-                )
-                raw = call_review_model(
-                    base_url=args.openai_base_url,
-                    model=args.model,
-                    prompt=prompt,
-                    timeout=args.timeout,
-                    max_tokens=args.max_tokens,
-                    temperature=args.temperature,
-                )
-                decisions = normalize_decisions(raw, batch)
-                apply_result = record_review(
-                    args.database_url,
-                    decisions=decisions,
-                    batch=batch,
-                    requested_by=args.requested_by,
-                    provider_model=args.model,
-                    dry_run=dry_run,
-                )
-                report.update(
-                    {
-                        "ok": True,
-                        "action": "reviewed",
-                        "provider_model": args.model,
-                        "provider_response_id": raw.get("provider_response_id", ""),
-                        "prompt_version": PROMPT_VERSION,
-                        "decision_count": len(decisions),
-                        "decision_counts": apply_result.get("decision_counts")
-                        or dict(Counter(d["decision"] for d in decisions)),
-                        "apply_result": apply_result,
-                        "decisions": decisions,
-                    }
-                )
-    text = json.dumps(report, indent=2, sort_keys=True, default=str)
-    if args.output:
-        args.output.write_text(text + "\n", encoding="utf-8")
-    else:
-        print(text)
+        _run_provider_review(args, report, dry_run=dry_run)
+    _emit_report(args, report)
     return 0 if report.get("ok") else 1
 
 
