@@ -96,48 +96,70 @@ def _resolve_project_dir(config: GateConfig, candidate: dict[str, Any]) -> Path:
     return project_dir
 
 
-def _write_files(project_dir: Path, files: dict[str, str], *, force: bool) -> None:
+def _resolved_project_dir_for_write(project_dir: Path) -> Path:
     try:
-        project_dir = project_dir.resolve()
+        return project_dir.resolve()
     except (OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(
             status_code=400, detail="project_dir could not be resolved"
         ) from exc
-    for rel_path, content in files.items():
-        raw_rel_path = str(rel_path or "").strip()
-        try:
-            target = (project_dir / raw_rel_path).resolve()
-            target.relative_to(project_dir)
-        except (OSError, RuntimeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=400, detail=f"paper path escapes project dir: {rel_path}"
-            ) from exc
-        if (
-            not raw_rel_path
-            or target == project_dir
-            or (
-                _path_exists_for_paper(target, label="paper path")
-                and _path_is_dir_for_paper(target, label="paper path")
-            )
-        ):
-            raise HTTPException(
-                status_code=400, detail=f"paper path is not a file target: {rel_path}"
-            )
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if _path_exists_for_paper(target, label="paper path") and not force:
-            continue
-        tmp_path = target.with_name(
-            f".{target.name}.{os.getpid()}.{time.time_ns()}.tmp"
+
+
+def _paper_write_target(project_dir: Path, rel_path: Any) -> tuple[Path, str]:
+    raw_rel_path = str(rel_path or "").strip()
+    try:
+        target = (project_dir / raw_rel_path).resolve()
+        target.relative_to(project_dir)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400, detail=f"paper path escapes project dir: {rel_path}"
+        ) from exc
+    return target, raw_rel_path
+
+
+def _reject_directory_or_empty_paper_target(
+    target: Path, project_dir: Path, rel_path: Any, raw_rel_path: str
+) -> None:
+    if not raw_rel_path or target == project_dir:
+        raise HTTPException(
+            status_code=400, detail=f"paper path is not a file target: {rel_path}"
         )
+    if _path_exists_for_paper(target, label="paper path") and _path_is_dir_for_paper(
+        target, label="paper path"
+    ):
+        raise HTTPException(
+            status_code=400, detail=f"paper path is not a file target: {rel_path}"
+        )
+
+
+def _atomic_write_text_file(target: Path, content: str) -> None:
+    tmp_path = target.with_name(f".{target.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    try:
+        tmp_path.write_text(content, encoding="utf-8")
+        os.replace(tmp_path, target)
+    finally:
         try:
-            tmp_path.write_text(content, encoding="utf-8")
-            os.replace(tmp_path, target)
-        finally:
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-            except OSError:
-                pass
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
+
+
+def _write_single_paper_file(
+    project_dir: Path, rel_path: Any, content: str, *, force: bool
+) -> None:
+    target, raw_rel_path = _paper_write_target(project_dir, rel_path)
+    _reject_directory_or_empty_paper_target(target, project_dir, rel_path, raw_rel_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if _path_exists_for_paper(target, label="paper path") and not force:
+        return
+    _atomic_write_text_file(target, content)
+
+
+def _write_files(project_dir: Path, files: dict[str, str], *, force: bool) -> None:
+    project_dir = _resolved_project_dir_for_write(project_dir)
+    for rel_path, content in files.items():
+        _write_single_paper_file(project_dir, rel_path, content, force=force)
 
 
 def _blocked_empty_claim_ledger(paper: PaperRecord, *, provider_note: Any) -> str:
