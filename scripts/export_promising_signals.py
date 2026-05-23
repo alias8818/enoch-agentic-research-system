@@ -22,6 +22,7 @@ from enoch_control_plane.timeutils import parse_utc_datetime
 
 SCHEMA_VERSION = "enoch_promising_signal_v1"
 MANIFEST_SCHEMA_VERSION = "enoch_promising_signal_manifest_v1"
+MANIFEST_JSON = "manifest.json"
 RANKING_SCHEMA_VERSION = "enoch_promising_signal_ranking_v1"
 DISCLAIMER = (
     "These are not validated papers, not peer-reviewed results, and not "
@@ -613,7 +614,7 @@ def _records_from_repo(repo_root: Path) -> list[dict[str, Any]]:
 def validate_export_repo(repo_root: Path) -> list[str]:
     issues: list[str] = []
     records = _records_from_repo(repo_root)
-    manifest_path = repo_root / "data" / "manifest.json"
+    manifest_path = repo_root / "data" / MANIFEST_JSON
     if not manifest_path.exists():
         return ["manifest:missing"]
     try:
@@ -693,7 +694,7 @@ def validate_repo_against_rows(
     issues = validate_export_repo(repo_root)
     report = audit_backfill(materialized)
     expected_summary = report["summary"]
-    manifest_path = repo_root / "data" / "manifest.json"
+    manifest_path = repo_root / "data" / MANIFEST_JSON
     if not manifest_path.exists():
         return sorted(set(issues + ["manifest:missing"]))
     if "manifest:invalid_json" in issues:
@@ -1440,7 +1441,7 @@ def write_export(rows: Iterable[dict[str, Any]], repo_root: Path) -> dict[str, A
     (repo_root / "data" / "ranking.json").write_text(
         json.dumps(ranking, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    (repo_root / "data" / "manifest.json").write_text(
+    (repo_root / "data" / MANIFEST_JSON).write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     index_lines = [
