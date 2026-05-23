@@ -152,6 +152,110 @@ def _extract_tar_member(
     return total_bytes + len(content)
 
 
+def _expand_bounded_tar_gz(
+    payload: bytes,
+    artifact_root: Path,
+    *,
+    max_file_bytes: int,
+    max_total_bytes: int,
+    max_entries: int,
+    max_compression_ratio: int,
+    written: list[str],
+    skipped: list[dict[str, Any]],
+) -> tuple[int, bool]:
+    """Expand untrusted gzip tar with S5042 entry/size/ratio bounds (no extractall)."""
+    compressed_len = max(len(payload), 1)
+    total_bytes = 0
+    limit_exceeded = False
+    threshold_entries = max_entries
+    threshold_size = max_total_bytes
+    threshold_ratio = max_compression_ratio
+    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+        data_filter = getattr(tarfile, "data_filter", None)
+        if data_filter is not None:
+            archive.extraction_filter = data_filter
+        entry_count = 0
+        for member in archive:
+            entry_count += 1
+            if entry_count > threshold_entries:
+                _append_tar_skip(
+                    skipped,
+                    path=member.name,
+                    status="too_many_members",
+                    error="tar archive exceeds safe member count",
+                )
+                limit_exceeded = True
+                break
+            filtered = _filter_tar_member(member, artifact_root)
+            if filtered is None:
+                _append_tar_skip(
+                    skipped,
+                    path=member.name,
+                    status="unsafe_path",
+                    error="tar member rejected by data filter",
+                )
+                continue
+            member = filtered
+            if total_bytes > threshold_size:
+                _append_tar_skip(
+                    skipped,
+                    path=member.name,
+                    status="too_large",
+                    error="tar archive exceeds safe total uncompressed size",
+                )
+                limit_exceeded = True
+                break
+            if total_bytes > 0 and total_bytes / compressed_len > threshold_ratio:
+                _append_tar_skip(
+                    skipped,
+                    path=member.name,
+                    status="compression_ratio",
+                    error="tar archive exceeds safe compression ratio",
+                )
+                limit_exceeded = True
+                break
+            if member.isfile():
+                member_stream = archive.extractfile(member)
+                if member_stream is None:
+                    _append_tar_skip(
+                        skipped,
+                        path=member.name,
+                        status="unsupported_member",
+                        error="tar member is not readable as a regular file",
+                    )
+                    continue
+                member_stream.close()
+            total_bytes = _extract_tar_member(
+                archive,
+                member,
+                artifact_root,
+                max_file_bytes=max_file_bytes,
+                max_total_bytes=threshold_size,
+                written=written,
+                skipped=skipped,
+                total_bytes=total_bytes,
+            )
+            if total_bytes > threshold_size:
+                _append_tar_skip(
+                    skipped,
+                    path=member.name,
+                    status="too_large",
+                    error="tar archive exceeds safe total uncompressed size",
+                )
+                limit_exceeded = True
+                break
+            if total_bytes / compressed_len > threshold_ratio:
+                _append_tar_skip(
+                    skipped,
+                    path=member.name,
+                    status="compression_ratio",
+                    error="tar archive exceeds safe compression ratio",
+                )
+                limit_exceeded = True
+                break
+    return total_bytes, limit_exceeded
+
+
 def extract_safe_tar_bytes(
     payload: bytes,
     artifact_root: Path,
@@ -175,69 +279,18 @@ def extract_safe_tar_bytes(
         }
     written: list[str] = []
     skipped: list[dict[str, Any]] = []
-    total_bytes = 0
-    compressed_len = max(len(payload), 1)
     limit_exceeded = False
     try:
-        # S5042: bounded member count, total bytes, compression ratio, and
-        # PEP 706 data_filter (filter='data') when supported.
-        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
-            data_filter = getattr(tarfile, "data_filter", None)
-            if data_filter is not None:
-                archive.extraction_filter = data_filter
-            entry_count = 0
-            for member in archive:
-                entry_count += 1
-                if entry_count > max_entries:
-                    _append_tar_skip(
-                        skipped,
-                        path=member.name,
-                        status="too_many_members",
-                        error="tar archive exceeds safe member count",
-                    )
-                    limit_exceeded = True
-                    break
-                filtered = _filter_tar_member(member, artifact_root)
-                if filtered is None:
-                    _append_tar_skip(
-                        skipped,
-                        path=member.name,
-                        status="unsafe_path",
-                        error="tar member rejected by data filter",
-                    )
-                    continue
-                member = filtered
-                if (
-                    total_bytes > 0
-                    and total_bytes / compressed_len > max_compression_ratio
-                ):
-                    _append_tar_skip(
-                        skipped,
-                        path=member.name,
-                        status="compression_ratio",
-                        error="tar archive exceeds safe compression ratio",
-                    )
-                    limit_exceeded = True
-                    break
-                total_bytes = _extract_tar_member(
-                    archive,
-                    member,
-                    artifact_root,
-                    max_file_bytes=max_file_bytes,
-                    max_total_bytes=max_total_bytes,
-                    written=written,
-                    skipped=skipped,
-                    total_bytes=total_bytes,
-                )
-                if total_bytes / compressed_len > max_compression_ratio:
-                    _append_tar_skip(
-                        skipped,
-                        path=member.name,
-                        status="compression_ratio",
-                        error="tar archive exceeds safe compression ratio",
-                    )
-                    limit_exceeded = True
-                    break
+        _, limit_exceeded = _expand_bounded_tar_gz(
+            payload,
+            artifact_root,
+            max_file_bytes=max_file_bytes,
+            max_total_bytes=max_total_bytes,
+            max_entries=max_entries,
+            max_compression_ratio=max_compression_ratio,
+            written=written,
+            skipped=skipped,
+        )
     except (tarfile.TarError, OSError, RuntimeError, ValueError) as exc:
         return {
             "ok": False,
