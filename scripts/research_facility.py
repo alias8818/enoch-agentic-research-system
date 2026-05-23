@@ -771,6 +771,246 @@ def sql_raise_if_exists(query: str, message: str) -> str:
     )
 
 
+def _emit_source_record_sql(
+    lines: list[str], source: dict[str, Any], candidate: dict[str, Any]
+) -> None:
+    source_id = _as_text(source.get("source_id")) or "source-" + stable_hash(
+        _as_text(source.get("url") or source.get("title")), 24
+    )
+    source_kind = _as_text(
+        source.get("source_kind") or candidate.get("source_kind") or "other"
+    )
+    lines.append(
+        sql_raise_if_exists(
+            "\n".join(
+                [
+                    _SQL_GUARD_EXISTS_SELECT,
+                    "    from enoch.research_sources",
+                    f"    where source_id = {sql_literal(source_id)}",
+                    _SQL_GUARD_AND_OPEN,
+                    f"        source_kind is distinct from {sql_literal(source_kind)}",
+                    f"        or url is distinct from {sql_literal(_as_text(source.get('url')))}",
+                    f"        or external_id is distinct from {sql_literal(_as_text(source.get('external_id')))}",
+                    "      )",
+                ]
+            ),
+            "conflicting research source identity",
+        )
+    )
+    lines.append(
+        "insert into enoch.research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash) values "
+        f"({sql_literal(source_id)}, {sql_literal(source_kind)}, {sql_literal(_as_text(source.get('title') or candidate['title']))}, {sql_literal(_as_text(source.get('url')))}, {sql_literal(_as_text(source.get('external_id')))}, "
+        f"nullif({sql_literal(_as_text(source.get('retrieved_at')))}, '')::timestamptz, {sql_literal(_as_text(source.get('summary')))}, {sql_json(source.get('payload_json') or {})}, {sql_literal(_as_text(source.get('content_hash')) or stable_hash(json.dumps(source, sort_keys=True), 64))}) "
+        "on conflict (source_id) do update set title = excluded.title, url = excluded.url, summary = excluded.summary, payload_json = excluded.payload_json, content_hash = excluded.content_hash, updated_at = now();"
+    )
+
+
+def _emit_url_source_sql(lines: list[str], url: Any, candidate: dict[str, Any]) -> None:
+    source_id = "url-" + stable_hash(_as_text(url), 24)
+    lines.append(
+        sql_raise_if_exists(
+            "\n".join(
+                [
+                    _SQL_GUARD_EXISTS_SELECT,
+                    "    from enoch.research_sources",
+                    f"    where source_id = {sql_literal(source_id)}",
+                    _SQL_GUARD_AND_OPEN,
+                    f"        url is distinct from {sql_literal(_as_text(url))}",
+                    "      )",
+                ]
+            ),
+            "conflicting research source identity",
+        )
+    )
+    lines.append(
+        "insert into enoch.research_sources(source_id, source_kind, title, url, content_hash, payload_json) values "
+        f"({sql_literal(source_id)}, {sql_literal(candidate['source_kind'] or 'other')}, {sql_literal(candidate['title'])}, {sql_literal(_as_text(url))}, {sql_literal(stable_hash(_as_text(url), 64))}, {sql_json({'url': _as_text(url)})}) "
+        "on conflict (source_id) do update set title = excluded.title, url = excluded.url, updated_at = now();"
+    )
+
+
+def _emit_candidate_sql(
+    lines: list[str], candidate: dict[str, Any], plan: CandidatePlan
+) -> None:
+    c = candidate
+    lines.append(
+        sql_raise_if_exists(
+            "\n".join(
+                [
+                    _SQL_GUARD_EXISTS_SELECT,
+                    "    from enoch.research_candidates",
+                    f"    where candidate_id = {sql_literal(c['candidate_id'])}",
+                    _SQL_GUARD_AND_OPEN,
+                    f"        generation_mode is distinct from {sql_literal(c['generation_mode'])}",
+                    f"        or dedupe_key is distinct from {sql_literal(c['dedupe_key'])}",
+                    f"        or title is distinct from {sql_literal(c['title'])}",
+                    "      )",
+                ]
+            ),
+            "conflicting research candidate identity",
+        )
+    )
+    lines.append(
+        "insert into enoch.research_candidates("
+        "candidate_id, generation_mode, status, title, category, priority, source_kind, source_ids, source_urls, "
+        "parent_project_id, parent_run_id, hypothesis, mechanism, description, implementation, baseline_to_beat, "
+        "success_threshold, kill_condition, accessibility_delta, expected_artifacts, required_evidence, likely_failure_modes, "
+        "estimated_runtime_class, expected_token_budget, machine_target, model, sandbox, novelty_score, feasibility_score, "
+        "accessibility_score, falsifiability_score, total_score, score_breakdown, dedupe_key, similar_prior_projects, "
+        "novelty_comparison, risk_notes, rejection_reason, provider, provider_model, prompt_version, generated_by, raw_candidate_json"
+        ") values ("
+        f"{sql_literal(c['candidate_id'])}, {sql_literal(c['generation_mode'])}, {sql_literal(c['status'])}, {sql_literal(c['title'])}, "
+        f"{sql_literal(c['category'])}, {sql_literal(c['priority'])}, {sql_literal(c['source_kind'])}, {sql_json(c['source_ids'])}, {sql_json(c['source_urls'])}, "
+        f"{sql_literal(c['parent_project_id'])}, {sql_literal(c['parent_run_id'])}, {sql_literal(c['hypothesis'])}, {sql_literal(c['mechanism'])}, "
+        f"{sql_literal(c['description'])}, {sql_literal(c['implementation'])}, {sql_literal(c['baseline_to_beat'])}, {sql_literal(c['success_threshold'])}, "
+        f"{sql_literal(c['kill_condition'])}, {sql_literal(c['accessibility_delta'])}, {sql_json(c['expected_artifacts'])}, {sql_json(c['required_evidence'])}, {sql_json(c['likely_failure_modes'])}, "
+        f"{sql_literal(c['estimated_runtime_class'])}, {sql_literal(c['expected_token_budget'])}, {sql_literal(c['machine_target'])}, {sql_literal(c['model'])}, {sql_literal(c['sandbox'])}, "
+        f"{c['novelty_score']:.2f}, {c['feasibility_score']:.2f}, {c['accessibility_score']:.2f}, {c['falsifiability_score']:.2f}, {c['total_score']:.2f}, "
+        f"{sql_json(c['score_breakdown'])}, {sql_literal(c['dedupe_key'])}, {sql_json(c['similar_prior_projects'])}, {sql_literal(c['novelty_comparison'])}, {sql_literal(c['risk_notes'])}, "
+        f"{sql_literal(plan.admission_reason if plan.admission_decision == 'rejected' else '')}, {sql_literal(c['provider'])}, {sql_literal(c['provider_model'])}, {sql_literal(c['prompt_version'])}, {sql_literal(c['generated_by'])}, {sql_json(c['raw_candidate_json'])}"
+        ") on conflict (candidate_id) do update set "
+        "status = case when enoch.research_candidates.status not in ('admitted', 'rejected', 'merged') then excluded.status else enoch.research_candidates.status end, "
+        "total_score = excluded.total_score, score_breakdown = excluded.score_breakdown, updated_at = now() "
+        "where enoch.research_candidates.status not in ('admitted', 'rejected', 'merged');"
+    )
+
+
+def _emit_lineage_sql(lines: list[str], candidate: dict[str, Any]) -> None:
+    for source_id in candidate["source_ids"]:
+        lines.append(
+            "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
+            f"('source', {sql_literal(_as_text(source_id))}, 'candidate', {sql_literal(candidate['candidate_id'])}, 'generated_from', {sql_json({'source_ids': candidate['source_ids']})});"
+        )
+    for url in candidate["source_urls"]:
+        source_id = "url-" + stable_hash(_as_text(url), 24)
+        lines.append(
+            "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
+            f"('source', {sql_literal(source_id)}, 'candidate', {sql_literal(candidate['candidate_id'])}, 'generated_from', {sql_json({'url': _as_text(url)})});"
+        )
+
+
+def _emit_admitted_queue_sql(
+    lines: list[str],
+    candidate: dict[str, Any],
+    plan: CandidatePlan,
+    *,
+    requested_by: str,
+) -> None:
+    c = candidate
+    idea_id = plan.admitted_idea_id
+    lines.append(
+        sql_raise_if_exists(
+            "\n".join(
+                [
+                    _SQL_GUARD_EXISTS_SELECT,
+                    "    from enoch.ideas",
+                    f"    where idea_id = {sql_literal(idea_id)}",
+                    _SQL_GUARD_AND_OPEN,
+                    "        source_kind is distinct from 'research_facility'",
+                    "      )",
+                ]
+            ),
+            "conflicting research facility idea identity",
+        )
+    )
+    lines.append(
+        "insert into enoch.ideas(idea_id, title, idea_status, category, priority, source_kind, source_external_url, description, implementation, baseline_to_beat, kill_condition, accessibility_delta, expected_token_budget, novelty_score, machine_target, model, sandbox, selection_rank, dispatch_priority, source_payload_json) values "
+        f"({sql_literal(idea_id)}, {sql_literal(c['title'])}, 'testing', {sql_literal(c['category'])}, {sql_literal(c['priority'])}, 'research_facility', {sql_literal(c['source_urls'][0] if c['source_urls'] else '')}, {sql_literal(c['description'] or c['hypothesis'])}, {sql_literal(c['implementation'])}, {sql_literal(c['baseline_to_beat'])}, {sql_literal(c['kill_condition'])}, {sql_literal(c['accessibility_delta'])}, {sql_literal(c['expected_token_budget'])}, {sql_literal(str(c['novelty_score']))}, {sql_literal(c['machine_target'])}, {sql_literal(c['model'])}, {sql_literal(c['sandbox'])}, 50, 50, {sql_json(c)}) "
+        "on conflict (idea_id) do update set title = excluded.title, source_payload_json = excluded.source_payload_json, updated_at = now();"
+    )
+    lines.append(
+        sql_raise_if_exists(
+            "\n".join(
+                [
+                    _SQL_GUARD_EXISTS_SELECT,
+                    "    from enoch.projects",
+                    f"    where project_id = {sql_literal(idea_id)}",
+                    _SQL_GUARD_AND_OPEN,
+                    f"        project_dir is distinct from {sql_literal(idea_id)}",
+                    "        or origin_idea_status is distinct from 'testing'",
+                    "      )",
+                ]
+            ),
+            "conflicting research facility project identity",
+        )
+    )
+    lines.append(
+        "insert into enoch.projects(project_id, project_name, project_dir, origin_idea_status) values "
+        f"({sql_literal(idea_id)}, {sql_literal(c['title'])}, {sql_literal(idea_id)}, 'testing') "
+        "on conflict (project_id) do update set project_name = excluded.project_name, updated_at = now();"
+    )
+    lines.append(
+        sql_raise_if_exists(
+            "\n".join(
+                [
+                    _SQL_GUARD_EXISTS_SELECT,
+                    "    from enoch.queue_items",
+                    f"    where project_id = {sql_literal(idea_id)}",
+                    _SQL_GUARD_AND_OPEN,
+                    "        status is distinct from 'queued'",
+                    "        or coalesce(current_run_id, '') <> ''",
+                    "        or coalesce(next_action_hint, '') not in ('', 'controller_review')",
+                    "      )",
+                ]
+            ),
+            "conflicting research facility queue promotion identity",
+        )
+    )
+    lines.append(
+        "insert into enoch.queue_items(project_id, status, selection_rank, dispatch_priority, auto_continue, continue_count, max_continues, retry_count, max_retries, next_action_hint, manual_review_required, machine_target, model, sandbox, updated_at) values "
+        f"({sql_literal(idea_id)}, 'queued', 50, 50, true, 0, 0, 0, 2, 'controller_review', false, {sql_literal(c['machine_target'])}, {sql_literal(c['model'])}, {sql_literal(c['sandbox'])}, now()) "
+        "on conflict (project_id) do update set machine_target = excluded.machine_target, model = excluded.model, sandbox = excluded.sandbox, updated_at = now() "
+        "where enoch.queue_items.status not in ('dispatching', 'running', 'awaiting_wake', 'wake_received', 'reconciling');"
+    )
+    lines.append(
+        "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
+        f"('candidate', {sql_literal(c['candidate_id'])}, 'idea', {sql_literal(idea_id)}, 'admitted_as', {sql_json({'admission_reason': plan.admission_reason})}), "
+        f"('idea', {sql_literal(idea_id)}, 'project', {sql_literal(idea_id)}, 'queued_as', {sql_json({'queued_by': requested_by})});"
+    )
+
+
+def _emit_admission_sql(
+    lines: list[str],
+    candidate: dict[str, Any],
+    plan: CandidatePlan,
+    *,
+    requested_by: str,
+    queue_admitted: bool,
+    idempotency_key: str,
+) -> None:
+    c = candidate
+    admitted_idea_sql = (
+        sql_literal(plan.admitted_idea_id)
+        if (queue_admitted and plan.admitted_idea_id)
+        else "null"
+    )
+    lines.append(
+        sql_raise_if_exists(
+            "\n".join(
+                [
+                    _SQL_GUARD_EXISTS_SELECT,
+                    "    from enoch.research_admissions",
+                    f"    where idempotency_key = {sql_literal(idempotency_key)}",
+                    _SQL_GUARD_AND_OPEN,
+                    f"        candidate_id is distinct from {sql_literal(c['candidate_id'])}",
+                    f"        or admission_decision is distinct from {sql_literal(plan.admission_decision)}",
+                    f"        or admission_reason is distinct from {sql_literal(plan.admission_reason)}",
+                    f"        or score_breakdown is distinct from {sql_json(plan.score_breakdown)}",
+                    f"        or admitted_idea_id is distinct from {admitted_idea_sql}",
+                    f"        or operator is distinct from {sql_literal(requested_by)}",
+                    "      )",
+                ]
+            ),
+            "conflicting research admission idempotency key",
+        )
+    )
+    lines.append(
+        "insert into enoch.research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key) values "
+        f"({sql_literal(c['candidate_id'])}, {sql_literal(plan.admission_decision)}, {sql_literal(plan.admission_reason)}, {sql_json(plan.score_breakdown)}, {admitted_idea_sql}, {sql_literal(requested_by)}, {sql_literal(idempotency_key)}) "
+        "on conflict (idempotency_key) do nothing;"
+    )
+
+
 def emit_sql(
     plans: list[CandidatePlan], *, requested_by: str, queue_admitted: bool
 ) -> str:
@@ -783,213 +1023,24 @@ def emit_sql(
     for plan in plans:
         c = plan.candidate
         for source in c.get("source_records", []):
-            if not isinstance(source, dict):
-                continue
-            source_id = _as_text(source.get("source_id")) or "source-" + stable_hash(
-                _as_text(source.get("url") or source.get("title")), 24
-            )
-            source_kind = _as_text(
-                source.get("source_kind") or c.get("source_kind") or "other"
-            )
-            lines.append(
-                sql_raise_if_exists(
-                    "\n".join(
-                        [
-                            _SQL_GUARD_EXISTS_SELECT,
-                            "    from enoch.research_sources",
-                            f"    where source_id = {sql_literal(source_id)}",
-                            _SQL_GUARD_AND_OPEN,
-                            f"        source_kind is distinct from {sql_literal(source_kind)}",
-                            f"        or url is distinct from {sql_literal(_as_text(source.get('url')))}",
-                            f"        or external_id is distinct from {sql_literal(_as_text(source.get('external_id')))}",
-                            "      )",
-                        ]
-                    ),
-                    "conflicting research source identity",
-                )
-            )
-            lines.append(
-                "insert into enoch.research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash) values "
-                f"({sql_literal(source_id)}, {sql_literal(source_kind)}, {sql_literal(_as_text(source.get('title') or c['title']))}, {sql_literal(_as_text(source.get('url')))}, {sql_literal(_as_text(source.get('external_id')))}, "
-                f"nullif({sql_literal(_as_text(source.get('retrieved_at')))}, '')::timestamptz, {sql_literal(_as_text(source.get('summary')))}, {sql_json(source.get('payload_json') or {})}, {sql_literal(_as_text(source.get('content_hash')) or stable_hash(json.dumps(source, sort_keys=True), 64))}) "
-                "on conflict (source_id) do update set title = excluded.title, url = excluded.url, summary = excluded.summary, payload_json = excluded.payload_json, content_hash = excluded.content_hash, updated_at = now();"
-            )
+            if isinstance(source, dict):
+                _emit_source_record_sql(lines, source, c)
         for url in c["source_urls"]:
-            source_id = "url-" + stable_hash(_as_text(url), 24)
-            lines.append(
-                sql_raise_if_exists(
-                    "\n".join(
-                        [
-                            _SQL_GUARD_EXISTS_SELECT,
-                            "    from enoch.research_sources",
-                            f"    where source_id = {sql_literal(source_id)}",
-                            _SQL_GUARD_AND_OPEN,
-                            f"        url is distinct from {sql_literal(_as_text(url))}",
-                            "      )",
-                        ]
-                    ),
-                    "conflicting research source identity",
-                )
-            )
-            lines.append(
-                "insert into enoch.research_sources(source_id, source_kind, title, url, content_hash, payload_json) values "
-                f"({sql_literal(source_id)}, {sql_literal(c['source_kind'] or 'other')}, {sql_literal(c['title'])}, {sql_literal(_as_text(url))}, {sql_literal(stable_hash(_as_text(url), 64))}, {sql_json({'url': _as_text(url)})}) "
-                "on conflict (source_id) do update set title = excluded.title, url = excluded.url, updated_at = now();"
-            )
-        lines.append(
-            sql_raise_if_exists(
-                "\n".join(
-                    [
-                        _SQL_GUARD_EXISTS_SELECT,
-                        "    from enoch.research_candidates",
-                        f"    where candidate_id = {sql_literal(c['candidate_id'])}",
-                        _SQL_GUARD_AND_OPEN,
-                        f"        generation_mode is distinct from {sql_literal(c['generation_mode'])}",
-                        f"        or dedupe_key is distinct from {sql_literal(c['dedupe_key'])}",
-                        f"        or title is distinct from {sql_literal(c['title'])}",
-                        "      )",
-                    ]
-                ),
-                "conflicting research candidate identity",
-            )
-        )
-        lines.append(
-            "insert into enoch.research_candidates("
-            "candidate_id, generation_mode, status, title, category, priority, source_kind, source_ids, source_urls, "
-            "parent_project_id, parent_run_id, hypothesis, mechanism, description, implementation, baseline_to_beat, "
-            "success_threshold, kill_condition, accessibility_delta, expected_artifacts, required_evidence, likely_failure_modes, "
-            "estimated_runtime_class, expected_token_budget, machine_target, model, sandbox, novelty_score, feasibility_score, "
-            "accessibility_score, falsifiability_score, total_score, score_breakdown, dedupe_key, similar_prior_projects, "
-            "novelty_comparison, risk_notes, rejection_reason, provider, provider_model, prompt_version, generated_by, raw_candidate_json"
-            ") values ("
-            f"{sql_literal(c['candidate_id'])}, {sql_literal(c['generation_mode'])}, {sql_literal(c['status'])}, {sql_literal(c['title'])}, "
-            f"{sql_literal(c['category'])}, {sql_literal(c['priority'])}, {sql_literal(c['source_kind'])}, {sql_json(c['source_ids'])}, {sql_json(c['source_urls'])}, "
-            f"{sql_literal(c['parent_project_id'])}, {sql_literal(c['parent_run_id'])}, {sql_literal(c['hypothesis'])}, {sql_literal(c['mechanism'])}, "
-            f"{sql_literal(c['description'])}, {sql_literal(c['implementation'])}, {sql_literal(c['baseline_to_beat'])}, {sql_literal(c['success_threshold'])}, "
-            f"{sql_literal(c['kill_condition'])}, {sql_literal(c['accessibility_delta'])}, {sql_json(c['expected_artifacts'])}, {sql_json(c['required_evidence'])}, {sql_json(c['likely_failure_modes'])}, "
-            f"{sql_literal(c['estimated_runtime_class'])}, {sql_literal(c['expected_token_budget'])}, {sql_literal(c['machine_target'])}, {sql_literal(c['model'])}, {sql_literal(c['sandbox'])}, "
-            f"{c['novelty_score']:.2f}, {c['feasibility_score']:.2f}, {c['accessibility_score']:.2f}, {c['falsifiability_score']:.2f}, {c['total_score']:.2f}, "
-            f"{sql_json(c['score_breakdown'])}, {sql_literal(c['dedupe_key'])}, {sql_json(c['similar_prior_projects'])}, {sql_literal(c['novelty_comparison'])}, {sql_literal(c['risk_notes'])}, "
-            f"{sql_literal(plan.admission_reason if plan.admission_decision == 'rejected' else '')}, {sql_literal(c['provider'])}, {sql_literal(c['provider_model'])}, {sql_literal(c['prompt_version'])}, {sql_literal(c['generated_by'])}, {sql_json(c['raw_candidate_json'])}"
-            ") on conflict (candidate_id) do update set "
-            "status = case when enoch.research_candidates.status not in ('admitted', 'rejected', 'merged') then excluded.status else enoch.research_candidates.status end, "
-            "total_score = excluded.total_score, score_breakdown = excluded.score_breakdown, updated_at = now() "
-            "where enoch.research_candidates.status not in ('admitted', 'rejected', 'merged');"
-        )
+            _emit_url_source_sql(lines, url, c)
+        _emit_candidate_sql(lines, c, plan)
         idempotency_key = (
             f"research-admission:{c['candidate_id']}:{plan.admission_decision}"
         )
-        for source_id in c["source_ids"]:
-            lines.append(
-                "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
-                f"('source', {sql_literal(_as_text(source_id))}, 'candidate', {sql_literal(c['candidate_id'])}, 'generated_from', {sql_json({'source_ids': c['source_ids']})});"
-            )
-        for url in c["source_urls"]:
-            source_id = "url-" + stable_hash(_as_text(url), 24)
-            lines.append(
-                "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
-                f"('source', {sql_literal(source_id)}, 'candidate', {sql_literal(c['candidate_id'])}, 'generated_from', {sql_json({'url': _as_text(url)})});"
-            )
+        _emit_lineage_sql(lines, c)
         if plan.admission_decision == "admitted" and queue_admitted:
-            idea_id = plan.admitted_idea_id
-            lines.append(
-                sql_raise_if_exists(
-                    "\n".join(
-                        [
-                            _SQL_GUARD_EXISTS_SELECT,
-                            "    from enoch.ideas",
-                            f"    where idea_id = {sql_literal(idea_id)}",
-                            _SQL_GUARD_AND_OPEN,
-                            "        source_kind is distinct from 'research_facility'",
-                            "      )",
-                        ]
-                    ),
-                    "conflicting research facility idea identity",
-                )
-            )
-            lines.append(
-                "insert into enoch.ideas(idea_id, title, idea_status, category, priority, source_kind, source_external_url, description, implementation, baseline_to_beat, kill_condition, accessibility_delta, expected_token_budget, novelty_score, machine_target, model, sandbox, selection_rank, dispatch_priority, source_payload_json) values "
-                f"({sql_literal(idea_id)}, {sql_literal(c['title'])}, 'testing', {sql_literal(c['category'])}, {sql_literal(c['priority'])}, 'research_facility', {sql_literal(c['source_urls'][0] if c['source_urls'] else '')}, {sql_literal(c['description'] or c['hypothesis'])}, {sql_literal(c['implementation'])}, {sql_literal(c['baseline_to_beat'])}, {sql_literal(c['kill_condition'])}, {sql_literal(c['accessibility_delta'])}, {sql_literal(c['expected_token_budget'])}, {sql_literal(str(c['novelty_score']))}, {sql_literal(c['machine_target'])}, {sql_literal(c['model'])}, {sql_literal(c['sandbox'])}, 50, 50, {sql_json(c)}) "
-                "on conflict (idea_id) do update set title = excluded.title, source_payload_json = excluded.source_payload_json, updated_at = now();"
-            )
-            lines.append(
-                sql_raise_if_exists(
-                    "\n".join(
-                        [
-                            _SQL_GUARD_EXISTS_SELECT,
-                            "    from enoch.projects",
-                            f"    where project_id = {sql_literal(idea_id)}",
-                            _SQL_GUARD_AND_OPEN,
-                            f"        project_dir is distinct from {sql_literal(idea_id)}",
-                            "        or origin_idea_status is distinct from 'testing'",
-                            "      )",
-                        ]
-                    ),
-                    "conflicting research facility project identity",
-                )
-            )
-            lines.append(
-                "insert into enoch.projects(project_id, project_name, project_dir, origin_idea_status) values "
-                f"({sql_literal(idea_id)}, {sql_literal(c['title'])}, {sql_literal(idea_id)}, 'testing') "
-                "on conflict (project_id) do update set project_name = excluded.project_name, updated_at = now();"
-            )
-            lines.append(
-                sql_raise_if_exists(
-                    "\n".join(
-                        [
-                            _SQL_GUARD_EXISTS_SELECT,
-                            "    from enoch.queue_items",
-                            f"    where project_id = {sql_literal(idea_id)}",
-                            _SQL_GUARD_AND_OPEN,
-                            "        status is distinct from 'queued'",
-                            "        or coalesce(current_run_id, '') <> ''",
-                            "        or coalesce(next_action_hint, '') not in ('', 'controller_review')",
-                            "      )",
-                        ]
-                    ),
-                    "conflicting research facility queue promotion identity",
-                )
-            )
-            lines.append(
-                "insert into enoch.queue_items(project_id, status, selection_rank, dispatch_priority, auto_continue, continue_count, max_continues, retry_count, max_retries, next_action_hint, manual_review_required, machine_target, model, sandbox, updated_at) values "
-                f"({sql_literal(idea_id)}, 'queued', 50, 50, true, 0, 0, 0, 2, 'controller_review', false, {sql_literal(c['machine_target'])}, {sql_literal(c['model'])}, {sql_literal(c['sandbox'])}, now()) "
-                "on conflict (project_id) do update set machine_target = excluded.machine_target, model = excluded.model, sandbox = excluded.sandbox, updated_at = now() "
-                "where enoch.queue_items.status not in ('dispatching', 'running', 'awaiting_wake', 'wake_received', 'reconciling');"
-            )
-            lines.append(
-                "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
-                f"('candidate', {sql_literal(c['candidate_id'])}, 'idea', {sql_literal(idea_id)}, 'admitted_as', {sql_json({'admission_reason': plan.admission_reason})}), "
-                f"('idea', {sql_literal(idea_id)}, 'project', {sql_literal(idea_id)}, 'queued_as', {sql_json({'queued_by': requested_by})});"
-            )
-        admitted_idea_sql = (
-            sql_literal(plan.admitted_idea_id)
-            if (queue_admitted and plan.admitted_idea_id)
-            else "null"
-        )
-        lines.append(
-            sql_raise_if_exists(
-                "\n".join(
-                    [
-                        _SQL_GUARD_EXISTS_SELECT,
-                        "    from enoch.research_admissions",
-                        f"    where idempotency_key = {sql_literal(idempotency_key)}",
-                        _SQL_GUARD_AND_OPEN,
-                        f"        candidate_id is distinct from {sql_literal(c['candidate_id'])}",
-                        f"        or admission_decision is distinct from {sql_literal(plan.admission_decision)}",
-                        f"        or admission_reason is distinct from {sql_literal(plan.admission_reason)}",
-                        f"        or score_breakdown is distinct from {sql_json(plan.score_breakdown)}",
-                        f"        or admitted_idea_id is distinct from {admitted_idea_sql}",
-                        f"        or operator is distinct from {sql_literal(requested_by)}",
-                        "      )",
-                    ]
-                ),
-                "conflicting research admission idempotency key",
-            )
-        )
-        lines.append(
-            "insert into enoch.research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key) values "
-            f"({sql_literal(c['candidate_id'])}, {sql_literal(plan.admission_decision)}, {sql_literal(plan.admission_reason)}, {sql_json(plan.score_breakdown)}, {admitted_idea_sql}, {sql_literal(requested_by)}, {sql_literal(idempotency_key)}) "
-            "on conflict (idempotency_key) do nothing;"
+            _emit_admitted_queue_sql(lines, c, plan, requested_by=requested_by)
+        _emit_admission_sql(
+            lines,
+            c,
+            plan,
+            requested_by=requested_by,
+            queue_admitted=queue_admitted,
+            idempotency_key=idempotency_key,
         )
         lines.append("")
     lines.append("commit;")
