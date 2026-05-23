@@ -10,8 +10,11 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+# Centralized filename for the duplicated README.md literal (Sonar S1192 at PUBLIC_FILES).
+README_MD = "README.md"
+
 PUBLIC_FILES = [
-    "README.md",
+    README_MD,
     "site/index.html",
     "site/site.js",
     "site/ecosystem.json",
@@ -20,9 +23,9 @@ PUBLIC_FILES = [
     "docs/launch-checklist.md",
     "docs/outreach/launch-announcement.md",
 ]
-PROFILE_FILES = ["index.html", "README.md", "assets/social-card.svg"]
+PROFILE_FILES = ["index.html", README_MD, "assets/social-card.svg"]
 DOC_FILES = [
-    "README.md",
+    README_MD,
     "index.mdx",
     "introduction.mdx",
     "deployment.mdx",
@@ -30,7 +33,7 @@ DOC_FILES = [
     "configuration/paper-writer.mdx",
     "guides/paper-artifacts.mdx",
 ]
-OWNER_PROFILE_FILES = ["README.md"]
+OWNER_PROFILE_FILES = [README_MD]
 PERSONAL_SITE_FILES = [
     "index.html",
     "writing/index.html",
@@ -422,7 +425,7 @@ def check_github_metadata(
 
 def promising_signal_public_paths(promising: Path) -> list[Path]:
     roots = [
-        promising / "README.md",
+        promising / README_MD,
         promising / "docs",
         promising / "data",
         promising / "schemas",
@@ -495,12 +498,12 @@ def check_hf_export(
     hf_export: Path, artifact_count: int, strict_pass_count: int, failures: list[str]
 ) -> None:
     summary_path = hf_export / "dataset_summary.json"
-    readme_path = hf_export / "README.md"
+    readme_path = hf_export / README_MD
     if not summary_path.exists():
         fail(f"HF export missing dataset_summary.json: {summary_path}", failures)
         return
     if not readme_path.exists():
-        fail(f"HF export missing README.md: {readme_path}", failures)
+        fail(f"HF export missing {README_MD}: {readme_path}", failures)
         return
     try:
         summary = load_json(summary_path)
@@ -646,7 +649,7 @@ def main(argv: list[str] | None = None) -> int:
     public_paths += existing(
         corpus,
         [
-            "README.md",
+            README_MD,
             "quality/quality_report.md",
             "quality/packaging_provenance_report.md",
         ],
