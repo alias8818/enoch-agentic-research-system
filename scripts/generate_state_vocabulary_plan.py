@@ -44,6 +44,11 @@ PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS = (
     "publication_automation_items.automation_status"
 )
 
+# Centralized surface names for duplicated Runs-domain literals (S1192 ~line 81).
+RUNS_STATE = "runs.state"
+QUEUE_ITEMS_LAST_RUN_STATE = "queue_items.last_run_state"
+RUNS_GATE_STATE = "runs.gate_state"
+
 DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
     {
         "Ideas": {
@@ -78,7 +83,7 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
             ),
         },
         "Runs": {
-            "surfaces": ["runs.state", "queue_items.last_run_state", "runs.gate_state"],
+            "surfaces": [RUNS_STATE, QUEUE_ITEMS_LAST_RUN_STATE, RUNS_GATE_STATE],
             "states": OrderedDict(
                 {
                     "running": "Worker dispatch/callback is in progress.",
@@ -142,29 +147,29 @@ FINAL_STATE_OVERRIDES: dict[tuple[str, str], str] = {
     (PROJECT_DECISIONS_DECISION_GATE_STATE, "malformed"): "done_no_paper",
     (PROJECT_DECISIONS_DECISION_GATE_STATE, "unknown"): "done_no_paper",
     # Runs and run/detail states
-    ("runs.state", "prepared"): "running",
-    ("runs.state", "dispatching"): "running",
-    ("runs.state", "running"): "running",
-    ("runs.state", "awaiting_wake"): "running",
-    ("runs.state", "question_pending"): "needs_attention",
-    ("runs.state", "wake_ready"): "delivered",
-    ("runs.state", "session_finished_ready"): "delivered",
-    ("runs.state", "gate_timeout"): "needs_attention",
-    ("runs.state", "gate_error"): "needs_attention",
-    ("runs.state", "reconciled"): "settled",
-    ("runs.state", "dispatch_error"): "needs_attention",
-    ("runs.state", "dispatch_accepted"): "running",
-    ("runs.state", "needs_review"): "needs_attention",
-    ("runs.state", "waiting_external_evidence"): "needs_attention",
-    ("runs.state", "unknown"): "historical",
-    ("runs.state", "cancelled"): "canceled",
-    ("runs.state", "canceled"): "canceled",
-    ("queue_items.last_run_state", "positive"): "decision_positive",
-    ("queue_items.last_run_state", "negative"): "decision_no_paper",
-    ("queue_items.last_run_state", "missing"): "decision_no_paper",
-    ("queue_items.last_run_state", "malformed"): "decision_no_paper",
-    ("queue_items.last_run_state", ""): "historical",
-    ("runs.gate_state", ""): "historical",
+    (RUNS_STATE, "prepared"): "running",
+    (RUNS_STATE, "dispatching"): "running",
+    (RUNS_STATE, "running"): "running",
+    (RUNS_STATE, "awaiting_wake"): "running",
+    (RUNS_STATE, "question_pending"): "needs_attention",
+    (RUNS_STATE, "wake_ready"): "delivered",
+    (RUNS_STATE, "session_finished_ready"): "delivered",
+    (RUNS_STATE, "gate_timeout"): "needs_attention",
+    (RUNS_STATE, "gate_error"): "needs_attention",
+    (RUNS_STATE, "reconciled"): "settled",
+    (RUNS_STATE, "dispatch_error"): "needs_attention",
+    (RUNS_STATE, "dispatch_accepted"): "running",
+    (RUNS_STATE, "needs_review"): "needs_attention",
+    (RUNS_STATE, "waiting_external_evidence"): "needs_attention",
+    (RUNS_STATE, "unknown"): "historical",
+    (RUNS_STATE, "cancelled"): "canceled",
+    (RUNS_STATE, "canceled"): "canceled",
+    (QUEUE_ITEMS_LAST_RUN_STATE, "positive"): "decision_positive",
+    (QUEUE_ITEMS_LAST_RUN_STATE, "negative"): "decision_no_paper",
+    (QUEUE_ITEMS_LAST_RUN_STATE, "missing"): "decision_no_paper",
+    (QUEUE_ITEMS_LAST_RUN_STATE, "malformed"): "decision_no_paper",
+    (QUEUE_ITEMS_LAST_RUN_STATE, ""): "historical",
+    (RUNS_GATE_STATE, ""): "historical",
     # Papers / publication automation
     (PAPERS_PAPER_STATUS, "eligible"): "needed",
     (PAPERS_PAPER_STATUS, "draft_generating"): "drafting",
@@ -198,10 +203,10 @@ def final_state_for(surface: str, raw_value: str) -> str:
     if surface in {"projects.origin_idea_status"}:
         return "historical"
     if (
-        surface in {"queue_items.last_run_state", "runs.gate_state"}
-        and ("runs.state", raw_value) in FINAL_STATE_OVERRIDES
+        surface in {QUEUE_ITEMS_LAST_RUN_STATE, RUNS_GATE_STATE}
+        and (RUNS_STATE, raw_value) in FINAL_STATE_OVERRIDES
     ):
-        return FINAL_STATE_OVERRIDES[("runs.state", raw_value)]
+        return FINAL_STATE_OVERRIDES[(RUNS_STATE, raw_value)]
     raise KeyError(f"missing final state mapping for {surface}.{raw_value!r}")
 
 
