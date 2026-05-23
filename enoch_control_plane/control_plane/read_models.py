@@ -6,7 +6,7 @@ import hashlib
 import math
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, NamedTuple, Sequence
 from urllib.parse import quote
 
 from enoch_control_plane.enoch_core.logic import (
@@ -87,6 +87,13 @@ OPERATOR_DETAIL_LABELS: dict[str, str] = {
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _first_non_empty(row: Mapping[str, Any], *keys: str) -> str:
+    for key in keys:
+        if text := _text(row.get(key)):
+            return text
+    return ""
 
 
 def paper_source_fingerprint(paper_id: str) -> str:
@@ -231,16 +238,12 @@ def _paper_finalization_package_present(row: dict[str, Any]) -> bool:
     return False
 
 
-def _stage(
-    detail_label: str,
-    *,
-    lane: OperatorLane,
-    tone: str,
-    attention: bool,
-    next_step: str,
-    explanation: str,
-    **extra: Any,
-) -> dict[str, Any]:
+def _stage(detail_label: str, /, **fields: Any) -> dict[str, Any]:
+    lane = fields.pop("lane")
+    tone = fields.pop("tone")
+    attention = fields.pop("attention")
+    next_step = fields.pop("next_step")
+    explanation = fields.pop("explanation")
     stage = {
         "operator_stage": lane.value,
         "operator_stage_label": OPERATOR_LANE_LABELS.get(
@@ -256,7 +259,7 @@ def _stage(
         "operator_next_step": next_step,
         "operator_explanation": explanation,
     }
-    stage.update({key: value for key, value in extra.items() if value is not None})
+    stage.update({key: value for key, value in fields.items() if value is not None})
     return stage
 
 
@@ -279,18 +282,23 @@ def _expanduser_or_none(value: str) -> Path | None:
         return None
 
 
-def _project_dir_candidates(project_dir: str) -> list[Path]:
-    raw = _expanduser_or_none(project_dir)
-    if raw is None:
-        return []
-    candidates = [raw]
-    if not raw.is_absolute():
-        configured_root = _configured_project_root()
-        if configured_root:
-            root = _expanduser_or_none(configured_root)
-            if root is not None:
-                candidates.append(root / raw)
-        candidates.append(Path("/var/lib/enoch-control-plane/projects") / raw)
+def _configured_project_root_path() -> Path | None:
+    configured_root = _configured_project_root()
+    if not configured_root:
+        return None
+    return _expanduser_or_none(configured_root)
+
+
+def _project_dir_relative_candidates(raw: Path) -> list[Path]:
+    candidates: list[Path] = []
+    root = _configured_project_root_path()
+    if root is not None:
+        candidates.append(root / raw)
+    candidates.append(Path("/var/lib/enoch-control-plane/projects") / raw)
+    return candidates
+
+
+def _dedupe_paths(candidates: list[Path]) -> list[Path]:
     deduped: list[Path] = []
     seen: set[str] = set()
     for candidate in candidates:
@@ -299,6 +307,16 @@ def _project_dir_candidates(project_dir: str) -> list[Path]:
             seen.add(key)
             deduped.append(candidate)
     return deduped
+
+
+def _project_dir_candidates(project_dir: str) -> list[Path]:
+    raw = _expanduser_or_none(project_dir)
+    if raw is None:
+        return []
+    candidates = [raw]
+    if not raw.is_absolute():
+        candidates.extend(_project_dir_relative_candidates(raw))
+    return _dedupe_paths(candidates)
 
 
 def _paper_draft_gate_for_row(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -647,10 +665,9 @@ def paper_links(row: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def summarize_project_row(row: dict[str, Any]) -> dict[str, Any]:
-    project_id = str(row.get("project_id") or "")
+def _project_row_stage_source(row: dict[str, Any]) -> dict[str, Any]:
     queue_status = row.get("queue_status") or row.get("status") or ""
-    stage_source = {
+    return {
         **row,
         "status": queue_status,
         "current_run_id": row.get("current_run_id") or row.get("latest_run_id") or "",
@@ -664,38 +681,39 @@ def summarize_project_row(row: dict[str, Any]) -> dict[str, Any]:
         or row.get("updated_at")
         or "",
     }
+
+
+def summarize_project_row(row: dict[str, Any]) -> dict[str, Any]:
+    project_id = str(row.get("project_id") or "")
+    stage_source = _project_row_stage_source(row)
+    queue_status = stage_source["status"]
+    staged = with_operator_stage(stage_source)
+    operator_fields = {
+        key: value for key, value in staged.items() if key.startswith("operator_")
+    }
     return _drop_related_artifact_paths(
-        with_operator_stage(
-            {
-                "project_id": project_id,
-                "project_name": row.get("project_name", ""),
-                "origin_idea_status": row.get("origin_idea_status", ""),
-                "queue_status": queue_status,
-                "current_run_id": stage_source["current_run_id"],
-                "latest_run_id": row.get("latest_run_id", ""),
-                "latest_run_state": row.get("latest_run_state", ""),
-                "related_paper_id": stage_source["related_paper_id"],
-                "related_paper_status": stage_source["related_paper_status"],
-                "created_at": row.get("project_created_at")
-                or row.get("created_at", ""),
-                "updated_at": row.get("project_updated_at")
-                or row.get("updated_at", ""),
-                "age_seconds": row_age_seconds(
-                    {
-                        "updated_at": row.get("project_updated_at")
-                        or row.get("updated_at", ""),
-                        "created_at": row.get("project_created_at")
-                        or row.get("created_at", ""),
-                    }
-                ),
-                "links": project_links(stage_source),
-                **{
-                    key: value
-                    for key, value in with_operator_stage(stage_source).items()
-                    if key.startswith("operator_")
-                },
-            }
-        )
+        {
+            "project_id": project_id,
+            "project_name": row.get("project_name", ""),
+            "origin_idea_status": row.get("origin_idea_status", ""),
+            "queue_status": queue_status,
+            "current_run_id": stage_source["current_run_id"],
+            "latest_run_id": row.get("latest_run_id", ""),
+            "latest_run_state": row.get("latest_run_state", ""),
+            "related_paper_id": stage_source["related_paper_id"],
+            "related_paper_status": stage_source["related_paper_status"],
+            "created_at": row.get("project_created_at") or row.get("created_at", ""),
+            "updated_at": stage_source["project_updated_at"],
+            "age_seconds": row_age_seconds(
+                {
+                    "updated_at": stage_source["project_updated_at"],
+                    "created_at": row.get("project_created_at")
+                    or row.get("created_at", ""),
+                }
+            ),
+            "links": project_links(stage_source),
+            **operator_fields,
+        }
     )
 
 
@@ -772,27 +790,32 @@ def _idea_has_queue_context(row: dict[str, Any]) -> bool:
     return bool(_text(row.get("last_run_state")))
 
 
+_IDEA_WORKBENCH_FIELD_SOURCES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("project_id", ("project_id", "idea_id")),
+    ("project_name", ("title",)),
+    ("status", ("queue_status", "status")),
+    ("queue_status", ("queue_status",)),
+    ("origin_idea_status", ("idea_status",)),
+    ("paper_status", ("paper_status",)),
+    ("related_paper_status", ("paper_status",)),
+    ("paper_id", ("paper_id",)),
+    ("related_paper_id", ("paper_id",)),
+    ("current_run_id", ("current_run_id",)),
+    ("last_run_state", ("last_run_state",)),
+    ("next_action_hint", ("next_action_hint",)),
+    ("blocked_reason", ("blocked_reason",)),
+    ("last_error", ("last_error",)),
+    ("machine_target", ("machine_target",)),
+    ("updated_at", ("queue_updated_at", "updated_at")),
+)
+
+
 def _idea_workbench_stage_source(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        **row,
-        "project_id": row.get("project_id") or row.get("idea_id") or "",
-        "project_name": row.get("title") or "",
-        "status": row.get("queue_status") or row.get("status") or "",
-        "queue_status": row.get("queue_status") or "",
-        "origin_idea_status": row.get("idea_status") or "",
-        "paper_status": row.get("paper_status") or "",
-        "related_paper_status": row.get("paper_status") or "",
-        "paper_id": row.get("paper_id") or "",
-        "related_paper_id": row.get("paper_id") or "",
-        "current_run_id": row.get("current_run_id") or "",
-        "last_run_state": row.get("last_run_state") or "",
-        "next_action_hint": row.get("next_action_hint") or "",
-        "manual_review_required": row.get("manual_review_required", False),
-        "blocked_reason": row.get("blocked_reason") or "",
-        "last_error": row.get("last_error") or "",
-        "machine_target": row.get("machine_target") or "",
-        "updated_at": row.get("queue_updated_at") or row.get("updated_at") or "",
-    }
+    staged = dict(row)
+    for target, sources in _IDEA_WORKBENCH_FIELD_SOURCES:
+        staged[target] = _first_non_empty(row, *sources)
+    staged["manual_review_required"] = row.get("manual_review_required", False)
+    return staged
 
 
 def summarize_idea_workbench_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -907,21 +930,83 @@ def summarize_research_facility_workbench(
     admitted = _count_value(counts, "admitted")
     needs_review = _count_value(counts, "needs_review")
     total = sum(int(value or 0) for value in counts.values())
-
+    message = ""
     if total == 0 and returned_rows == 0:
-        return "Research facility ledger is empty; generate candidates or run a bounded dry-run cycle first."
+        message = (
+            "Research facility ledger is empty; generate candidates or run a "
+            "bounded dry-run cycle first."
+        )
+    else:
+        parts: list[str] = []
+        if admitted:
+            parts.append(f"{admitted} admitted candidate(s) ready to promote")
+        if needs_review:
+            parts.append(f"{needs_review} need review before promotion")
+        if parts:
+            message = "; ".join(parts) + "."
+        elif returned_rows:
+            message = (
+                f"{returned_rows} candidate row(s) visible in this slice; select "
+                "one to dry-run promotion."
+            )
+        else:
+            message = (
+                "Research facility has ledger rows but no admitted or "
+                "needs-review candidates in the current counts."
+            )
+    return message
 
-    parts: list[str] = []
-    if admitted:
-        parts.append(f"{admitted} admitted candidate(s) ready to promote")
-    if needs_review:
-        parts.append(f"{needs_review} need review before promotion")
-    if parts:
-        return "; ".join(parts) + "."
 
-    if returned_rows:
-        return f"{returned_rows} candidate row(s) visible in this slice; select one to dry-run promotion."
-    return "Research facility has ledger rows but no admitted or needs-review candidates in the current counts."
+def _summarize_automation_workbench_message(
+    *,
+    total: int,
+    page_returned: int,
+    triage_ready: int,
+    queued: int,
+    blocked: int,
+    filtered: bool,
+) -> str:
+    message = ""
+    if page_returned == 0 and total == 0:
+        message = (
+            "No publication automation rows in the ledger; backfill or wait "
+            "for publication drafts."
+        )
+    elif filtered and page_returned == 0:
+        message = (
+            "No publication automation rows match the current filters; widen "
+            "review status or clear search."
+        )
+    elif triage_ready:
+        if total:
+            message = (
+                f"{total} publication draft(s) in automation; {triage_ready} "
+                "triage-ready for rewrite or finalization."
+            )
+        else:
+            message = (
+                f"{triage_ready} publication draft(s) triage-ready for rewrite or "
+                "finalization in the current slice."
+            )
+    else:
+        headline = total or page_returned
+        if blocked:
+            message = (
+                f"{headline} publication draft(s) tracked; {blocked} blocked and "
+                "need checklist or rewrite attention."
+            )
+        elif queued:
+            message = (
+                f"{headline} publication draft(s) in automation; {queued} queued "
+                "for the next operator pass."
+            )
+        else:
+            visible = page_returned or total
+            message = (
+                f"{visible} publication draft(s) in this slice; select a row to "
+                "dry-run rewrite or finalization."
+            )
+    return message
 
 
 def summarize_automation_workbench(
@@ -934,32 +1019,14 @@ def summarize_automation_workbench(
 ) -> str:
     counts = counts or {}
     total = _count_value(counts, "all") or page_total
-    triage_ready = _count_value(counts, "triage_ready")
-    queued = _count_value(counts, "queued")
-    blocked = _count_value(counts, "blocked")
-    filtered = bool(_text(review_status) or _text(search))
-
-    if page_returned == 0 and total == 0:
-        return "No publication automation rows in the ledger; backfill or wait for publication drafts."
-
-    if filtered and page_returned == 0:
-        return "No publication automation rows match the current filters; widen review status or clear search."
-
-    if triage_ready:
-        if total:
-            return f"{total} publication draft(s) in automation; {triage_ready} triage-ready for rewrite or finalization."
-        return f"{triage_ready} publication draft(s) triage-ready for rewrite or finalization in the current slice."
-
-    if blocked:
-        headline = total or page_returned
-        return f"{headline} publication draft(s) tracked; {blocked} blocked and need checklist or rewrite attention."
-
-    if queued:
-        headline = total or page_returned
-        return f"{headline} publication draft(s) in automation; {queued} queued for the next operator pass."
-
-    visible = page_returned or total
-    return f"{visible} publication draft(s) in this slice; select a row to dry-run rewrite or finalization."
+    return _summarize_automation_workbench_message(
+        total=total,
+        page_returned=page_returned,
+        triage_ready=_count_value(counts, "triage_ready"),
+        queued=_count_value(counts, "queued"),
+        blocked=_count_value(counts, "blocked"),
+        filtered=bool(_text(review_status) or _text(search)),
+    )
 
 
 def summarize_paper_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -1299,29 +1366,31 @@ def _staged_queue_row_for_reconcile(
     return staged, related_paper_id
 
 
+class _QueueReconcileFlags(NamedTuple):
+    related_paper_id: str
+    paper_ids: set[str]
+    paper_run_keys: set[tuple[str, str]]
+    is_queue_row: bool
+    is_active_row: bool
+    needs_attention: bool
+
+
 def _reconciled_queue_row_should_drop(
-    staged: dict[str, Any],
-    *,
-    related_paper_id: str,
-    paper_ids: set[str],
-    paper_run_keys: set[tuple[str, str]],
-    is_queue_row: bool,
-    is_active_row: bool,
-    needs_attention: bool,
+    staged: dict[str, Any], flags: _QueueReconcileFlags
 ) -> bool:
     if (
-        is_queue_row
-        and related_paper_id
-        and related_paper_id in paper_ids
-        and not is_active_row
-        and not needs_attention
+        flags.is_queue_row
+        and flags.related_paper_id
+        and flags.related_paper_id in flags.paper_ids
+        and not flags.is_active_row
+        and not flags.needs_attention
     ):
         return True
     return bool(
-        is_queue_row
-        and not is_active_row
-        and not needs_attention
-        and _queue_is_superseded_by_paper(staged, paper_run_keys)
+        flags.is_queue_row
+        and not flags.is_active_row
+        and not flags.needs_attention
+        and _queue_is_superseded_by_paper(staged, flags.paper_run_keys)
     )
 
 
@@ -1397,12 +1466,14 @@ def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]
         needs_attention = bool(staged.get("operator_attention"))
         if _reconciled_queue_row_should_drop(
             staged,
-            related_paper_id=related_paper_id,
-            paper_ids=paper_ids,
-            paper_run_keys=paper_run_keys,
-            is_queue_row=is_queue_row,
-            is_active_row=is_active_row,
-            needs_attention=needs_attention,
+            _QueueReconcileFlags(
+                related_paper_id=related_paper_id,
+                paper_ids=paper_ids,
+                paper_run_keys=paper_run_keys,
+                is_queue_row=is_queue_row,
+                is_active_row=is_active_row,
+                needs_attention=needs_attention,
+            ),
         ):
             continue
         key = _typed_lifecycle_key(staged)
@@ -1478,6 +1549,14 @@ _OVERVIEW_BATCH_KEYS = {
 }
 
 
+def _overview_batch_row_lists_valid(value: Mapping[str, Any]) -> bool:
+    for rows_key in ("active_items", "raw_queue_rows", "raw_paper_rows"):
+        rows = value.get(rows_key)
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            return False
+    return True
+
+
 def _valid_overview_batch(value: Any) -> Mapping[str, Any] | None:
     """Return a usable optimized overview batch or None to use canonical reads.
 
@@ -1486,22 +1565,18 @@ def _valid_overview_batch(value: Any) -> Mapping[str, Any] | None:
     dashboard; canonical read methods remain the source of truth fallback.
     """
 
-    if not isinstance(value, Mapping):
-        return None
-    if not _OVERVIEW_BATCH_KEYS.issubset(value.keys()):
-        return None
-    events_page = value.get("events_page")
-    if not isinstance(events_page, tuple) or len(events_page) != 3:
-        return None
-    for rows_key in ("active_items", "raw_queue_rows", "raw_paper_rows"):
-        rows = value.get(rows_key)
-        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
-            return None
-    if not isinstance(value.get("counts"), dict) or not isinstance(
-        value.get("paper_counts"), dict
+    events_page = value.get("events_page") if isinstance(value, Mapping) else None
+    if (
+        isinstance(value, Mapping)
+        and _OVERVIEW_BATCH_KEYS.issubset(value.keys())
+        and isinstance(events_page, tuple)
+        and len(events_page) == 3
+        and _overview_batch_row_lists_valid(value)
+        and isinstance(value.get("counts"), dict)
+        and isinstance(value.get("paper_counts"), dict)
     ):
-        return None
-    return value
+        return value
+    return None
 
 
 def _candidate_label(candidate: Mapping[str, Any] | None) -> str:
@@ -1547,7 +1622,9 @@ def _normalize_safe_count_default(default: Any) -> int:
             parsed = int(default)
         except (TypeError, ValueError):
             parsed = 0
-    return parsed if parsed >= 0 else 0
+    if parsed < 0:
+        return 0
+    return parsed
 
 
 def _clamp_non_negative_count(value: int) -> int:
@@ -1564,10 +1641,32 @@ def _parse_count_string(stripped: str) -> int | None:
             return None
 
 
-def _safe_count_from_float(value: float, default_int: int) -> int:
+def _coerce_safe_count_from_float(value: float) -> int | None:
     if math.isnan(value) or value in (float("inf"), float("-inf")):
-        return default_int
-    return _clamp_non_negative_count(int(value))
+        return None
+    return int(value)
+
+
+def _coerce_safe_count_from_string(value: str) -> int | None:
+    stripped = value.strip()
+    if not stripped:
+        return None
+    return _parse_count_string(stripped)
+
+
+def _coerce_safe_count(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return _coerce_safe_count_from_float(value)
+    if isinstance(value, str):
+        return _coerce_safe_count_from_string(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _safe_count(value: Any, default: int = 0) -> int:
@@ -1592,23 +1691,23 @@ def _safe_count(value: Any, default: int = 0) -> int:
     """
 
     default_int = _normalize_safe_count_default(default)
-    if value is None or isinstance(value, bool):
-        return default_int
-    if isinstance(value, int):
-        return _clamp_non_negative_count(value)
-    if isinstance(value, float):
-        return _safe_count_from_float(value, default_int)
-    if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            return default_int
-        parsed = _parse_count_string(stripped)
-        return default_int if parsed is None else _clamp_non_negative_count(parsed)
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
+    parsed = _coerce_safe_count(value)
+    if parsed is None:
         return default_int
     return _clamp_non_negative_count(parsed)
+
+
+def _lane_label(lane: Mapping[str, Any]) -> str:
+    machine = str(lane.get("machine_target") or "").strip()
+    role = str(lane.get("worker_role") or "").strip().lower()
+    lower_machine = machine.lower()
+    if "cpu" in lower_machine or "cpu" in role:
+        return "CPU lane"
+    if "gb10" in lower_machine or "gpu" in role:
+        return "GB10 lane"
+    if machine:
+        return f"{machine} lane"
+    return "default lane"
 
 
 def _open_lane_labels(worker_lanes: Sequence[Mapping[str, Any]] | None) -> list[str]:
@@ -1621,35 +1720,11 @@ def _open_lane_labels(worker_lanes: Sequence[Mapping[str, Any]] | None) -> list[
 
     if not worker_lanes:
         return []
-    labels: list[str] = []
-    for lane in worker_lanes:
-        if not isinstance(lane, Mapping):
-            continue
-        if not bool(lane.get("dispatch_available")):
-            continue
-        machine = str(lane.get("machine_target") or "").strip()
-        role = str(lane.get("worker_role") or "").strip().lower()
-        lower_machine = machine.lower()
-        if "cpu" in lower_machine or "cpu" in role:
-            labels.append("CPU lane")
-        elif "gb10" in lower_machine or "gpu" in role:
-            labels.append("GB10 lane")
-        elif machine:
-            labels.append(f"{machine} lane")
-        else:
-            labels.append("default lane")
-    return labels
-
-
-def _lane_label(lane: Mapping[str, Any]) -> str:
-    machine = str(lane.get("machine_target") or "").strip()
-    role = str(lane.get("worker_role") or "").strip().lower()
-    lower_machine = machine.lower()
-    if "cpu" in lower_machine or "cpu" in role:
-        return "CPU lane"
-    if "gb10" in lower_machine or "gpu" in role:
-        return "GB10 lane"
-    return f"{machine} lane" if machine else "default lane"
+    return [
+        _lane_label(lane)
+        for lane in worker_lanes
+        if isinstance(lane, Mapping) and bool(lane.get("dispatch_available"))
+    ]
 
 
 def _flags_payload(flags: Mapping[str, Any] | Any | None) -> dict[str, Any]:
@@ -1866,9 +1941,7 @@ def _movement_pipeline_blockers(
     return blockers
 
 
-def _movement_status_and_reason(
-    *,
-    flags: Mapping[str, Any],
+def _movement_status_from_blockers(
     blockers: Sequence[Mapping[str, Any]],
 ) -> tuple[str, str]:
     primary = blockers[0] if blockers else None
@@ -1881,31 +1954,37 @@ def _movement_status_and_reason(
         None,
     )
     active_lanes = [item for item in blockers if item["kind"] == "lane_active"]
-    if flags.get("maintenance_mode"):
-        return "blocked", "Maintenance mode is on."
-    if flags.get("queue_paused"):
-        return "blocked", "Queue is paused."
     if actionable:
         return "actionable", str(actionable["summary"])
     if hard_blocker:
         return "blocked", str(hard_blocker["summary"])
     if active_lanes:
         if len(active_lanes) > 1:
-            return (
-                "ready",
-                "Configured worker lanes are occupied by active runs; this is normal while queued backlog waits.",
+            reason = "Configured worker lanes are occupied by active runs; this is normal while queued backlog waits."
+        else:
+            reason = (
+                str(active_lanes[0]["summary"])
+                + " This is normal active work, not a health blocker."
             )
-        return (
-            "ready",
-            str(active_lanes[0]["summary"])
-            + " This is normal active work, not a health blocker.",
-        )
-    if primary:
-        return (
-            "ready",
-            "No dispatch or automation health blocker is preventing unattended operation.",
-        )
-    return "ready", "No deterministic blocker is preventing movement."
+        return "ready", reason
+    reason = (
+        "No dispatch or automation health blocker is preventing unattended operation."
+        if primary
+        else "No deterministic blocker is preventing movement."
+    )
+    return "ready", reason
+
+
+def _movement_status_and_reason(
+    *,
+    flags: Mapping[str, Any],
+    blockers: Sequence[Mapping[str, Any]],
+) -> tuple[str, str]:
+    if flags.get("maintenance_mode"):
+        return "blocked", "Maintenance mode is on."
+    if flags.get("queue_paused"):
+        return "blocked", "Queue is paused."
+    return _movement_status_from_blockers(blockers)
 
 
 def movement_diagnosis(
@@ -2203,6 +2282,27 @@ def _primary_action_for_feed_lane(lane: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _primary_action_for_open_dispatch(
+    lanes: Sequence[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    for lane in lanes:
+        if bool(lane.get("dispatch_available")):
+            return _primary_action_for_dispatch_lane(lane)
+    return None
+
+
+def _primary_action_for_feed_lanes(
+    lanes: Sequence[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    for lane in lanes:
+        feed_action = str(
+            (lane.get("feed_pressure") or {}).get("next_autopilot_action") or ""
+        )
+        if feed_action in _FEED_ACTIONS:
+            return _primary_action_for_feed_lane(lane)
+    return None
+
+
 def primary_operator_action(
     *,
     worker_lanes: Sequence[Mapping[str, Any]] | None,
@@ -2221,24 +2321,14 @@ def primary_operator_action(
     """
 
     lanes = [lane for lane in (worker_lanes or []) if isinstance(lane, Mapping)]
-    status = str(movement.get("status") or "")
-    if status == "blocked":
+    if str(movement.get("status") or "") == "blocked":
         blocked = _primary_action_for_blocked_movement(movement)
         if blocked is not None:
             return blocked
-
-    for lane in lanes:
-        if bool(lane.get("dispatch_available")):
-            return _primary_action_for_dispatch_lane(lane)
-
-    for lane in lanes:
-        feed_action = str(
-            (lane.get("feed_pressure") or {}).get("next_autopilot_action") or ""
-        )
-        if feed_action in _FEED_ACTIONS:
-            return _primary_action_for_feed_lane(lane)
-
-    return None
+    dispatch = _primary_action_for_open_dispatch(lanes)
+    if dispatch is not None:
+        return dispatch
+    return _primary_action_for_feed_lanes(lanes)
 
 
 def _try_overview_batch(
