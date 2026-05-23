@@ -200,51 +200,83 @@ def is_exportable_row(row: dict[str, Any]) -> bool:
     return _export_status(row) in EXPORT_STATUSES
 
 
-def _sources_from_row(row: dict[str, Any]) -> list[dict[str, str]]:
-    records = _list(row.get("source_records"))
+def _source_dict(record: dict[str, Any]) -> dict[str, str]:
+    return {
+        "source_id": _text(record.get("source_id")),
+        "url": _text(record.get("url")),
+        "title": _text(record.get("title")),
+    }
+
+
+def _normalize_source_record(record: Any) -> dict[str, Any] | None:
+    if isinstance(record, str):
+        try:
+            parsed = json.loads(record)
+        except Exception:
+            parsed = None
+        record = parsed if isinstance(parsed, dict) else {"source_id": record}
+    if not isinstance(record, dict):
+        return None
+    return record
+
+
+def _append_unique_source(
+    sources: list[dict[str, str]],
+    seen: set[tuple[str, str, str]],
+    source: dict[str, str],
+) -> None:
+    key = (source["source_id"], source["url"], source["title"])
+    if any(source.values()) and key not in seen:
+        sources.append(source)
+        seen.add(key)
+
+
+def _sources_from_source_records(records: list[Any]) -> list[dict[str, str]]:
     sources: list[dict[str, str]] = []
     seen: set[tuple[str, str, str]] = set()
     for record in records:
-        if isinstance(record, str):
-            try:
-                parsed = json.loads(record)
-            except Exception:
-                parsed = None
-            record = parsed if isinstance(parsed, dict) else {"source_id": record}
-        if not isinstance(record, dict):
+        normalized = _normalize_source_record(record)
+        if normalized is None:
             continue
-        source = {
-            "source_id": _text(record.get("source_id")),
-            "url": _text(record.get("url")),
-            "title": _text(record.get("title")),
-        }
-        key = (source["source_id"], source["url"], source["title"])
-        if any(source.values()) and key not in seen:
-            sources.append(source)
-            seen.add(key)
-    if sources:
-        sources.sort(key=lambda item: (item["source_id"], item["url"], item["title"]))
-        return sources
+        _append_unique_source(sources, seen, _source_dict(normalized))
+    sources.sort(key=lambda item: (item["source_id"], item["url"], item["title"]))
+    return sources
 
+
+def _parallel_source_value(values: list[str], index: int, *, fallback: str = "") -> str:
+    if index < len(values):
+        return values[index]
+    return fallback if index == 0 else ""
+
+
+def _sources_from_parallel_fields(row: dict[str, Any]) -> list[dict[str, str]]:
     ids = [_text(item) for item in _list(row.get("source_ids"))]
     urls = [_text(item) for item in _list(row.get("source_urls"))]
     titles = [_text(item) for item in _list(row.get("source_titles"))]
     count = max(
         len(ids), len(urls), len(titles), 1 if _text(row.get("source_url")) else 0
     )
+    sources: list[dict[str, str]] = []
     for index in range(count):
         source = {
-            "source_id": ids[index] if index < len(ids) else "",
-            "url": urls[index]
-            if index < len(urls)
-            else (_text(row.get("source_url")) if index == 0 else ""),
-            "title": titles[index]
-            if index < len(titles)
-            else (_text(row.get("source_paper")) if index == 0 else ""),
+            "source_id": _parallel_source_value(ids, index),
+            "url": _parallel_source_value(
+                urls, index, fallback=_text(row.get("source_url"))
+            ),
+            "title": _parallel_source_value(
+                titles, index, fallback=_text(row.get("source_paper"))
+            ),
         }
         if any(source.values()):
             sources.append(source)
     return sources
+
+
+def _sources_from_row(row: dict[str, Any]) -> list[dict[str, str]]:
+    sources = _sources_from_source_records(_list(row.get("source_records")))
+    if sources:
+        return sources
+    return _sources_from_parallel_fields(row)
 
 
 def _strength_score(value: Any) -> tuple[int, str]:
