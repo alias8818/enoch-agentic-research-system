@@ -720,6 +720,25 @@ def _claim_evidence_matches(
     return _weak_context_evidence_fallback(public_files)
 
 
+def _claim_support_metadata(
+    strong: bool, refs: list[dict[str, Any]]
+) -> tuple[str, str]:
+    if strong:
+        return (
+            "supported",
+            "Matched by lexical overlap against synced worker artifacts.",
+        )
+    if refs:
+        return (
+            "weakly_supported",
+            "Linked to synced worker context, but no lexical metric/key match was found.",
+        )
+    return (
+        "unsupported",
+        "No matching synced source artifact found; claim requires manual review.",
+    )
+
+
 def _build_claim_ledger_data(
     markdown: str,
     evidence_bundle: dict[str, Any],
@@ -736,27 +755,23 @@ def _build_claim_ledger_data(
     for idx, claim in enumerate(_sentence_claims(markdown), start=1):
         refs = _claim_evidence_matches(claim, public_files)
         strong = any(float(ref.get("match_score") or 0) > 0 for ref in refs)
+        support_status, notes = _claim_support_metadata(strong, refs)
         claims.append(
             {
                 "id": f"C{idx}",
                 "claim": claim,
-                "support_status": "supported"
-                if strong
-                else ("weakly_supported" if refs else "unsupported"),
+                "support_status": support_status,
                 "evidence_refs": refs,
-                "notes": "Matched by lexical overlap against synced worker artifacts."
-                if strong
-                else (
-                    "Linked to synced worker context, but no lexical metric/key match was found."
-                    if refs
-                    else "No matching synced source artifact found; claim requires manual review."
-                ),
+                "notes": notes,
             }
         )
+    all_supported = claims and all(
+        item["support_status"] == "supported" for item in claims
+    )
     return {
         "schema_version": "claim_ledger.v2",
         "ledger_status": "claims_reference_evidence"
-        if claims and all(item["support_status"] == "supported" for item in claims)
+        if all_supported
         else "claims_require_review",
         "paper_id": paper.paper_id,
         "project_id": paper.project_id,
