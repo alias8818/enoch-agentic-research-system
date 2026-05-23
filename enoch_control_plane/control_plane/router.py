@@ -352,6 +352,9 @@ CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE = "control_plane_db+worker_preflight"
 # (paper_review draft rewrite events and comparisons in router.py).
 PAPER_REVIEW_DRAFT_REWRITTEN = "paper_review.draft_rewritten"
 
+# Centralized authority label for Supabase-native ideas workbench freshness paths.
+SUPABASE_NATIVE_IDEAS_WORKBENCH_AUTHORITY = "Supabase-native ideas workbench"
+
 
 def _atomic_write_bytes(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -3636,7 +3639,7 @@ def _ideas_intake_empty_projection_warnings(
         DashboardFinding(
             severity="warn",
             source="idea_intake",
-            authority="Supabase-native ideas workbench",
+            authority=SUPABASE_NATIVE_IDEAS_WORKBENCH_AUTHORITY,
             message="No Supabase-native ideas are visible",
             observed_at=utc_now(),
             suggested_action="load ideas into Supabase before resuming the queue",
@@ -3688,7 +3691,7 @@ def _ideas_intake_parts_from_mapping(
 ]:
     latest = _ideas_intake_latest_from_parts(intake_parts.get("latest_sync"))
     freshness = {
-        **db_freshness("Supabase-native ideas workbench"),
+        **db_freshness(SUPABASE_NATIVE_IDEAS_WORKBENCH_AUTHORITY),
         "idea_intake": freshness_for_observation(
             "idea_intake",
             "latest Supabase-native ideas intake observation",
@@ -5227,7 +5230,7 @@ def create_control_plane_router(
 
     def _intake_freshness() -> dict[str, DashboardFreshness]:
         return {
-            **_db_freshness("Supabase-native ideas workbench"),
+            **_db_freshness(SUPABASE_NATIVE_IDEAS_WORKBENCH_AUTHORITY),
             **_cached_observation_freshness(
                 "idea_intake", "latest Supabase-native ideas intake observation"
             ),
