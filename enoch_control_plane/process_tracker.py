@@ -337,9 +337,7 @@ class ProcessTracker:
         term_signaled: list[ProcessInfo] = []
         for info in candidates:
             try:
-                # SIGTERM before grace window: pid/signal guards only (identity
-                # re-checked before SIGKILL after term_grace_sec).
-                _safe_send_signal(info.pid, signal.SIGTERM)
+                _safe_send_signal(info.pid, signal.SIGTERM, tracked=info)
                 term_signaled.append(info)
             except (ProcessLookupError, PermissionError, OSError, ValueError):
                 continue
