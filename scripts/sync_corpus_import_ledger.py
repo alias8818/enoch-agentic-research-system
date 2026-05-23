@@ -110,6 +110,338 @@ def match_public_records_to_live_papers(
     return matched
 
 
+def _populate_temp_public_index(cur: Any, records: list[PublicCorpusRecord]) -> None:
+    cur.execute(
+        """
+        create temp table tmp_public_index(
+          source_record_fingerprint text,
+          artifact_slug text,
+          public_artifact_id text,
+          public_manifest_path text,
+          title text
+        ) on commit drop
+        """
+    )
+    cur.executemany(
+        """
+        insert into tmp_public_index(
+          source_record_fingerprint, artifact_slug, public_artifact_id, public_manifest_path, title
+        ) values (%s, %s, %s, %s, %s)
+        """,
+        [
+            (
+                record.source_record_fingerprint,
+                record.artifact_slug,
+                record.public_artifact_id,
+                record.public_manifest_path,
+                record.title,
+            )
+            for record in records
+        ],
+    )
+
+
+def _populate_live_paper_fingerprints(cur: Any) -> None:
+    cur.execute(
+        """
+        create temp table tmp_live_paper_fingerprints(
+          paper_id text,
+          project_id text,
+          source_record_fingerprint text
+        ) on commit drop
+        """
+    )
+    cur.execute("select paper_id, project_id from enoch.papers")
+    live_papers = [
+        (
+            _text(row.get("paper_id")),
+            _text(row.get("project_id")),
+            source_fingerprint(_text(row.get("paper_id"))),
+        )
+        for row in cur.fetchall()
+        if _text(row.get("paper_id"))
+    ]
+    if not live_papers:
+        return
+    cur.executemany(
+        """
+        insert into tmp_live_paper_fingerprints(paper_id, project_id, source_record_fingerprint)
+        values (%s, %s, %s)
+        """,
+        live_papers,
+    )
+
+
+def _create_resolved_public_index(cur: Any) -> None:
+    cur.execute(
+        """
+        create temp table tmp_resolved_public_index as
+        select
+          coalesce(p.paper_id, 'public-corpus:' || pi.source_record_fingerprint || ':' || pi.artifact_slug) as paper_id,
+          coalesce(p.project_id, 'public-corpus:' || pi.source_record_fingerprint) as project_id,
+          pi.source_record_fingerprint,
+          pi.artifact_slug,
+          pi.public_artifact_id,
+          pi.public_manifest_path,
+          pi.title
+        from tmp_public_index pi
+        left join tmp_live_paper_fingerprints p
+          on pi.source_record_fingerprint = p.source_record_fingerprint
+        """
+    )
+
+
+def _assert_public_corpus_identity_consistency(cur: Any) -> None:
+    cur.execute(
+        """
+        create temp table tmp_conflicting_public_projects as
+        select p.project_id
+        from enoch.projects p
+        join tmp_resolved_public_index r on r.project_id = p.project_id
+        where r.project_id like 'public-corpus:%'
+          and (
+            coalesce(p.project_name, '') <> coalesce(nullif(r.title, ''), r.artifact_slug)
+            or coalesce(p.project_dir, '') <> r.artifact_slug
+            or coalesce(p.origin_idea_status, '') <> 'validated'
+          )
+        """
+    )
+    cur.execute("select count(*) as count from tmp_conflicting_public_projects")
+    project_conflicts = int((cur.fetchone() or {}).get("count") or 0)
+    if project_conflicts:
+        raise RuntimeError(
+            f"conflicting public-corpus project identity rows: {project_conflicts}"
+        )
+    cur.execute(
+        """
+        create temp table tmp_conflicting_public_papers as
+        select p.paper_id
+        from enoch.papers p
+        join tmp_resolved_public_index r on r.paper_id = p.paper_id
+        where r.paper_id like 'public-corpus:%'
+          and (
+            coalesce(p.project_id, '') <> r.project_id
+            or coalesce(p.paper_type, '') <> 'arxiv_draft'
+            or coalesce(p.paper_status, '') <> 'publication_draft'
+            or coalesce(p.draft_markdown_path, '') <> 'papers/' || r.artifact_slug || '/paper.md'
+            or coalesce(p.draft_latex_path, '') <> 'papers/' || r.artifact_slug || '/paper.tex'
+            or coalesce(p.evidence_bundle_path, '') <> 'papers/' || r.artifact_slug || '/evidence_bundle.json'
+            or coalesce(p.claim_ledger_path, '') <> 'papers/' || r.artifact_slug || '/claim_ledger.json'
+            or coalesce(p.manifest_path, '') <> r.public_manifest_path
+            or coalesce(p.artifact_root, '') <> 'papers/' || r.artifact_slug
+          )
+        """
+    )
+    cur.execute("select count(*) as count from tmp_conflicting_public_papers")
+    paper_conflicts = int((cur.fetchone() or {}).get("count") or 0)
+    if paper_conflicts:
+        raise RuntimeError(
+            f"conflicting public-corpus paper identity rows: {paper_conflicts}"
+        )
+
+
+def _upsert_public_corpus_entities(cur: Any) -> None:
+    cur.execute(
+        """
+        insert into enoch.projects(project_id, project_name, project_dir, origin_idea_status)
+        select project_id, coalesce(nullif(title, ''), artifact_slug), artifact_slug, 'validated'
+        from tmp_resolved_public_index r
+        where not exists (select 1 from enoch.projects p where p.project_id = r.project_id)
+        on conflict (project_id) do nothing
+        """
+    )
+    cur.execute(
+        """
+        insert into enoch.papers(
+          paper_id, project_id, run_id, paper_type, paper_status,
+          draft_markdown_path, draft_latex_path, evidence_bundle_path, claim_ledger_path,
+          manifest_path, artifact_root, artifact_payload_hash
+        )
+        select
+          paper_id, project_id, null, 'arxiv_draft', 'publication_draft',
+          'papers/' || artifact_slug || '/paper.md',
+          'papers/' || artifact_slug || '/paper.tex',
+          'papers/' || artifact_slug || '/evidence_bundle.json',
+          'papers/' || artifact_slug || '/claim_ledger.json',
+          public_manifest_path,
+          'papers/' || artifact_slug,
+          ''
+        from tmp_resolved_public_index r
+        where not exists (select 1 from enoch.papers p where p.paper_id = r.paper_id)
+        on conflict (paper_id) do nothing
+        """
+    )
+
+
+def _upsert_corpus_imports(cur: Any, *, corpus_repo: str, hf_dataset_url: str) -> int:
+    cur.execute(
+        """
+        with matched as (
+          select
+            pi.paper_id,
+            %s::text as corpus_repo,
+            pi.artifact_slug,
+            ''::text as commit_sha,
+            pi.public_manifest_path as manifest_path,
+            ''::text as manifest_hash,
+            pi.source_record_fingerprint,
+            pi.public_artifact_id,
+            'papers/index.json'::text as public_index_path,
+            true as hf_dataset_synced,
+            %s::text as hf_dataset_url
+          from tmp_resolved_public_index pi
+        )
+        insert into enoch.corpus_imports(
+          paper_id, corpus_repo, artifact_slug, commit_sha, manifest_path, manifest_hash,
+          source_record_fingerprint, public_artifact_id, public_index_path, hf_dataset_synced,
+          hf_dataset_url, imported_at
+        )
+        select
+          paper_id, corpus_repo, artifact_slug, commit_sha, manifest_path, manifest_hash,
+          source_record_fingerprint, public_artifact_id, public_index_path, hf_dataset_synced,
+          hf_dataset_url, now()
+        from matched
+        on conflict (paper_id, corpus_repo) do update set
+          artifact_slug = excluded.artifact_slug,
+          commit_sha = coalesce(nullif(excluded.commit_sha, ''), enoch.corpus_imports.commit_sha),
+          manifest_path = excluded.manifest_path,
+          manifest_hash = coalesce(nullif(excluded.manifest_hash, ''), enoch.corpus_imports.manifest_hash),
+          source_record_fingerprint = excluded.source_record_fingerprint,
+          public_artifact_id = excluded.public_artifact_id,
+          public_index_path = excluded.public_index_path,
+          hf_dataset_synced = excluded.hf_dataset_synced,
+          hf_dataset_url = excluded.hf_dataset_url
+        """,
+        (corpus_repo, hf_dataset_url),
+    )
+    return int(cur.rowcount or 0)
+
+
+def _prune_stale_corpus_imports(
+    cur: Any, *, corpus_repo: str, prune_stale: bool
+) -> int:
+    if not prune_stale:
+        return 0
+    cur.execute(
+        """
+        create temp table tmp_stale_imports as
+        select ci.paper_id
+        from enoch.corpus_imports ci
+        where ci.corpus_repo = %s
+          and not exists (
+            select 1
+            from tmp_resolved_public_index pi
+            where pi.source_record_fingerprint = ci.source_record_fingerprint
+          )
+        """,
+        (corpus_repo,),
+    )
+    cur.execute(
+        """
+        delete from enoch.corpus_imports ci
+        using tmp_stale_imports stale
+        where ci.corpus_repo = %s
+          and ci.paper_id = stale.paper_id
+        """,
+        (corpus_repo,),
+    )
+    return int(cur.rowcount or 0)
+
+
+def _ledger_sync_summary(
+    cur: Any,
+    records: list[PublicCorpusRecord],
+    *,
+    corpus_repo: str,
+    changed: int,
+    pruned_rows: int,
+    prune_stale: bool,
+    apply: bool,
+) -> dict[str, Any]:
+    cur.execute(
+        """
+        select
+          %s::integer as public_index_rows,
+          (select count(*) from tmp_public_index) as matched_public_index_rows,
+          (
+            select count(*)
+            from enoch.papers p
+            join tmp_resolved_public_index pi
+              on pi.paper_id = p.paper_id
+          ) as matched_live_papers,
+          (
+            select count(*)
+            from enoch.corpus_imports ci
+            where ci.corpus_repo = %s
+          ) as corpus_imports_total,
+          odc.publication_ready,
+          odc.publication_ready_total,
+          odc.corpus_imported,
+          odc.hf_dataset_synced,
+          (
+            select count(*)
+            from enoch.corpus_imports ci
+            where ci.corpus_repo = %s
+              and not exists (
+                select 1
+                from tmp_resolved_public_index pi
+                where pi.source_record_fingerprint = ci.source_record_fingerprint
+              )
+          ) as stale_corpus_imports,
+          (
+            select count(*)
+            from tmp_resolved_public_index pi
+            where not exists (
+                select 1
+                from enoch.corpus_imports ci
+                where ci.corpus_repo = %s
+                  and ci.source_record_fingerprint = pi.source_record_fingerprint
+            )
+          ) as missing_public_records
+        from enoch.operator_dashboard_counts odc
+        """,
+        (len(records), corpus_repo, corpus_repo, corpus_repo),
+    )
+    summary = dict(cur.fetchone() or {})
+    summary["changed_rows"] = changed
+    summary["pruned_rows"] = pruned_rows
+    summary["prune_stale"] = bool(prune_stale)
+    summary["mode"] = "apply" if apply else "dry-run"
+    return summary
+
+
+def _run_sync_transaction(
+    cur: Any,
+    *,
+    records: list[PublicCorpusRecord],
+    corpus_repo: str,
+    hf_dataset_url: str,
+    apply: bool,
+    prune_stale: bool,
+) -> dict[str, Any]:
+    cur.execute("set search_path to enoch, public")
+    _populate_temp_public_index(cur, records)
+    _populate_live_paper_fingerprints(cur)
+    _create_resolved_public_index(cur)
+    _assert_public_corpus_identity_consistency(cur)
+    _upsert_public_corpus_entities(cur)
+    changed = _upsert_corpus_imports(
+        cur, corpus_repo=corpus_repo, hf_dataset_url=hf_dataset_url
+    )
+    pruned_rows = _prune_stale_corpus_imports(
+        cur, corpus_repo=corpus_repo, prune_stale=prune_stale
+    )
+    return _ledger_sync_summary(
+        cur,
+        records,
+        corpus_repo=corpus_repo,
+        changed=changed,
+        pruned_rows=pruned_rows,
+        prune_stale=prune_stale,
+        apply=apply,
+    )
+
+
 def sync_records(
     *,
     database_url: str,
@@ -126,275 +458,14 @@ def sync_records(
     with _connect(database_url) as conn:
         try:
             with conn.cursor() as cur:
-                cur.execute("set search_path to enoch, public")
-                cur.execute(
-                    """
-                    create temp table tmp_public_index(
-                      source_record_fingerprint text,
-                      artifact_slug text,
-                      public_artifact_id text,
-                      public_manifest_path text,
-                      title text
-                    ) on commit drop
-                    """
+                summary = _run_sync_transaction(
+                    cur,
+                    records=records,
+                    corpus_repo=corpus_repo,
+                    hf_dataset_url=hf_dataset_url,
+                    apply=apply,
+                    prune_stale=prune_stale,
                 )
-                cur.executemany(
-                    """
-                    insert into tmp_public_index(
-                      source_record_fingerprint, artifact_slug, public_artifact_id, public_manifest_path, title
-                    ) values (%s, %s, %s, %s, %s)
-                    """,
-                    [
-                        (
-                            record.source_record_fingerprint,
-                            record.artifact_slug,
-                            record.public_artifact_id,
-                            record.public_manifest_path,
-                            record.title,
-                        )
-                        for record in records
-                    ],
-                )
-                cur.execute(
-                    """
-                    create temp table tmp_live_paper_fingerprints(
-                      paper_id text,
-                      project_id text,
-                      source_record_fingerprint text
-                    ) on commit drop
-                    """
-                )
-                cur.execute("select paper_id, project_id from enoch.papers")
-                live_papers = [
-                    (
-                        _text(row.get("paper_id")),
-                        _text(row.get("project_id")),
-                        source_fingerprint(_text(row.get("paper_id"))),
-                    )
-                    for row in cur.fetchall()
-                    if _text(row.get("paper_id"))
-                ]
-                if live_papers:
-                    cur.executemany(
-                        """
-                        insert into tmp_live_paper_fingerprints(paper_id, project_id, source_record_fingerprint)
-                        values (%s, %s, %s)
-                        """,
-                        live_papers,
-                    )
-                cur.execute(
-                    """
-                    create temp table tmp_resolved_public_index as
-                    select
-                      coalesce(p.paper_id, 'public-corpus:' || pi.source_record_fingerprint || ':' || pi.artifact_slug) as paper_id,
-                      coalesce(p.project_id, 'public-corpus:' || pi.source_record_fingerprint) as project_id,
-                      pi.source_record_fingerprint,
-                      pi.artifact_slug,
-                      pi.public_artifact_id,
-                      pi.public_manifest_path,
-                      pi.title
-                    from tmp_public_index pi
-                    left join tmp_live_paper_fingerprints p
-                      on pi.source_record_fingerprint = p.source_record_fingerprint
-                    """
-                )
-                cur.execute(
-                    """
-                    create temp table tmp_conflicting_public_projects as
-                    select p.project_id
-                    from enoch.projects p
-                    join tmp_resolved_public_index r on r.project_id = p.project_id
-                    where r.project_id like 'public-corpus:%'
-                      and (
-                        coalesce(p.project_name, '') <> coalesce(nullif(r.title, ''), r.artifact_slug)
-                        or coalesce(p.project_dir, '') <> r.artifact_slug
-                        or coalesce(p.origin_idea_status, '') <> 'validated'
-                      )
-                    """
-                )
-                cur.execute(
-                    "select count(*) as count from tmp_conflicting_public_projects"
-                )
-                project_conflicts = int((cur.fetchone() or {}).get("count") or 0)
-                if project_conflicts:
-                    raise RuntimeError(
-                        f"conflicting public-corpus project identity rows: {project_conflicts}"
-                    )
-                cur.execute(
-                    """
-                    create temp table tmp_conflicting_public_papers as
-                    select p.paper_id
-                    from enoch.papers p
-                    join tmp_resolved_public_index r on r.paper_id = p.paper_id
-                    where r.paper_id like 'public-corpus:%'
-                      and (
-                        coalesce(p.project_id, '') <> r.project_id
-                        or coalesce(p.paper_type, '') <> 'arxiv_draft'
-                        or coalesce(p.paper_status, '') <> 'publication_draft'
-                        or coalesce(p.draft_markdown_path, '') <> 'papers/' || r.artifact_slug || '/paper.md'
-                        or coalesce(p.draft_latex_path, '') <> 'papers/' || r.artifact_slug || '/paper.tex'
-                        or coalesce(p.evidence_bundle_path, '') <> 'papers/' || r.artifact_slug || '/evidence_bundle.json'
-                        or coalesce(p.claim_ledger_path, '') <> 'papers/' || r.artifact_slug || '/claim_ledger.json'
-                        or coalesce(p.manifest_path, '') <> r.public_manifest_path
-                        or coalesce(p.artifact_root, '') <> 'papers/' || r.artifact_slug
-                      )
-                    """
-                )
-                cur.execute(
-                    "select count(*) as count from tmp_conflicting_public_papers"
-                )
-                paper_conflicts = int((cur.fetchone() or {}).get("count") or 0)
-                if paper_conflicts:
-                    raise RuntimeError(
-                        f"conflicting public-corpus paper identity rows: {paper_conflicts}"
-                    )
-                cur.execute(
-                    """
-                    insert into enoch.projects(project_id, project_name, project_dir, origin_idea_status)
-                    select project_id, coalesce(nullif(title, ''), artifact_slug), artifact_slug, 'validated'
-                    from tmp_resolved_public_index r
-                    where not exists (select 1 from enoch.projects p where p.project_id = r.project_id)
-                    on conflict (project_id) do nothing
-                    """
-                )
-                cur.execute(
-                    """
-                    insert into enoch.papers(
-                      paper_id, project_id, run_id, paper_type, paper_status,
-                      draft_markdown_path, draft_latex_path, evidence_bundle_path, claim_ledger_path,
-                      manifest_path, artifact_root, artifact_payload_hash
-                    )
-                    select
-                      paper_id, project_id, null, 'arxiv_draft', 'publication_draft',
-                      'papers/' || artifact_slug || '/paper.md',
-                      'papers/' || artifact_slug || '/paper.tex',
-                      'papers/' || artifact_slug || '/evidence_bundle.json',
-                      'papers/' || artifact_slug || '/claim_ledger.json',
-                      public_manifest_path,
-                      'papers/' || artifact_slug,
-                      ''
-                    from tmp_resolved_public_index r
-                    where not exists (select 1 from enoch.papers p where p.paper_id = r.paper_id)
-                    on conflict (paper_id) do nothing
-                    """
-                )
-                cur.execute(
-                    """
-                    with matched as (
-                      select
-                        pi.paper_id,
-                        %s::text as corpus_repo,
-                        pi.artifact_slug,
-                        ''::text as commit_sha,
-                        pi.public_manifest_path as manifest_path,
-                        ''::text as manifest_hash,
-                        pi.source_record_fingerprint,
-                        pi.public_artifact_id,
-                        'papers/index.json'::text as public_index_path,
-                        true as hf_dataset_synced,
-                        %s::text as hf_dataset_url
-                      from tmp_resolved_public_index pi
-                    )
-                    insert into enoch.corpus_imports(
-                      paper_id, corpus_repo, artifact_slug, commit_sha, manifest_path, manifest_hash,
-                      source_record_fingerprint, public_artifact_id, public_index_path, hf_dataset_synced,
-                      hf_dataset_url, imported_at
-                    )
-                    select
-                      paper_id, corpus_repo, artifact_slug, commit_sha, manifest_path, manifest_hash,
-                      source_record_fingerprint, public_artifact_id, public_index_path, hf_dataset_synced,
-                      hf_dataset_url, now()
-                    from matched
-                    on conflict (paper_id, corpus_repo) do update set
-                      artifact_slug = excluded.artifact_slug,
-                      commit_sha = coalesce(nullif(excluded.commit_sha, ''), enoch.corpus_imports.commit_sha),
-                      manifest_path = excluded.manifest_path,
-                      manifest_hash = coalesce(nullif(excluded.manifest_hash, ''), enoch.corpus_imports.manifest_hash),
-                      source_record_fingerprint = excluded.source_record_fingerprint,
-                      public_artifact_id = excluded.public_artifact_id,
-                      public_index_path = excluded.public_index_path,
-                      hf_dataset_synced = excluded.hf_dataset_synced,
-                      hf_dataset_url = excluded.hf_dataset_url
-                    """,
-                    (corpus_repo, hf_dataset_url),
-                )
-                changed = cur.rowcount
-                pruned_rows = 0
-                if prune_stale:
-                    cur.execute(
-                        """
-                        create temp table tmp_stale_imports as
-                        select ci.paper_id
-                        from enoch.corpus_imports ci
-                        where ci.corpus_repo = %s
-                          and not exists (
-                            select 1
-                            from tmp_resolved_public_index pi
-                            where pi.source_record_fingerprint = ci.source_record_fingerprint
-                          )
-                        """,
-                        (corpus_repo,),
-                    )
-                    cur.execute(
-                        """
-                        delete from enoch.corpus_imports ci
-                        using tmp_stale_imports stale
-                        where ci.corpus_repo = %s
-                          and ci.paper_id = stale.paper_id
-                        """,
-                        (corpus_repo,),
-                    )
-                    pruned_rows = int(cur.rowcount or 0)
-
-                cur.execute(
-                    """
-                    select
-                      %s::integer as public_index_rows,
-                      (select count(*) from tmp_public_index) as matched_public_index_rows,
-                      (
-                        select count(*)
-                        from enoch.papers p
-                        join tmp_resolved_public_index pi
-                          on pi.paper_id = p.paper_id
-                      ) as matched_live_papers,
-                      (
-                        select count(*)
-                        from enoch.corpus_imports ci
-                        where ci.corpus_repo = %s
-                      ) as corpus_imports_total,
-                      odc.publication_ready,
-                      odc.publication_ready_total,
-                      odc.corpus_imported,
-                      odc.hf_dataset_synced,
-                      (
-                        select count(*)
-                        from enoch.corpus_imports ci
-                        where ci.corpus_repo = %s
-                          and not exists (
-                            select 1
-                            from tmp_resolved_public_index pi
-                            where pi.source_record_fingerprint = ci.source_record_fingerprint
-                          )
-                      ) as stale_corpus_imports,
-                      (
-                        select count(*)
-                        from tmp_resolved_public_index pi
-                        where not exists (
-                            select 1
-                            from enoch.corpus_imports ci
-                            where ci.corpus_repo = %s
-                              and ci.source_record_fingerprint = pi.source_record_fingerprint
-                        )
-                      ) as missing_public_records
-                    from enoch.operator_dashboard_counts odc
-                    """,
-                    (len(records), corpus_repo, corpus_repo, corpus_repo),
-                )
-                summary = dict(cur.fetchone() or {})
-                summary["changed_rows"] = int(changed or 0)
-                summary["pruned_rows"] = pruned_rows
-                summary["prune_stale"] = bool(prune_stale)
-                summary["mode"] = "apply" if apply else "dry-run"
             if apply:
                 conn.commit()
                 summary["committed"] = True
