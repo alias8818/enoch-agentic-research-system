@@ -45,17 +45,10 @@ export type {
   OperatorSection,
 } from './detailOperatorSummaryHelpers'
 
-function projectNextStepMessage(attention: boolean, state: string, runState: string): string {
-  if (attention) {
-    return 'Resolve the blocker or manual-review flag before dispatching again.'
-  }
-  if (state === 'queued') {
-    return 'Run a dispatch dry-run on the lane card before starting work.'
-  }
-  if (runState === 'running' || state === 'running') {
-    return 'Open the current run and watch gate state plus recent events.'
-  }
-  return 'Review paper status and recent events before taking a write action.'
+function projectActionNeeded(attention: boolean, blocked: string): string | null {
+  if (!attention) return null
+  if (blocked !== '—') return blocked
+  return 'Operator attention required.'
 }
 
 function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary {
@@ -122,7 +115,7 @@ function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary
       },
     ],
     recentActivity: recentActivityFrom(events, queue.last_result_summary, queue.decision_summary),
-    actionNeeded: attention && blocked !== '—' ? blocked : attention ? 'Operator attention required.' : null,
+    actionNeeded: projectActionNeeded(attention, blocked),
   }
 }
 
