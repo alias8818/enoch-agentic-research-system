@@ -23,6 +23,19 @@ import { paperSummary } from './detailOperatorSummaryPaper'
 
 export { deriveIntakeIdeaOperatorSummary } from './detailOperatorSummaryIntake'
 
+function projectNextStepMessage(attention: boolean, state: string, runState: string): string {
+  if (attention) {
+    return 'Resolve the blocker or manual-review flag before dispatching again.'
+  }
+  if (state === 'queued') {
+    return 'Run a dispatch dry-run on the lane card before starting work.'
+  }
+  if (runState === 'running' || state === 'running') {
+    return 'Open the current run and watch gate state plus recent events.'
+  }
+  return 'Review paper status and recent events before taking a write action.'
+}
+
 export type {
   DetailKind,
   DetailOperatorSummary,
@@ -58,13 +71,7 @@ function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary
   return {
     state: operatorStageLabel(stageSource, state),
     context: `Queue ${state}; lane ${lane}; latest run ${runState}.`,
-    next: operatorNextStep(stageSource, attention
-      ? 'Resolve the blocker or manual-review flag before dispatching again.'
-      : state === 'queued'
-        ? 'Run a dispatch dry-run on the lane card before starting work.'
-        : runState === 'running' || state === 'running'
-          ? 'Open the current run and watch gate state plus recent events.'
-          : 'Review paper status and recent events before taking a write action.'),
+    next: operatorNextStep(stageSource, projectNextStepMessage(attention, state, runState)),
     entityLinks,
     sections: [
       {
