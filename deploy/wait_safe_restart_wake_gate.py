@@ -13,7 +13,6 @@ import json
 import subprocess
 import sys
 import time
-import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -159,7 +158,7 @@ def restart_service(service: str, verify_url: str, token: str, timeout: float) -
             last_error = (
                 f"service state={active.stdout.strip() or active.stderr.strip()}"
             )
-        except (OSError, urllib.error.URLError) as exc:
+        except OSError as exc:
             last_error = str(exc)
         time.sleep(2)
     raise RuntimeError(

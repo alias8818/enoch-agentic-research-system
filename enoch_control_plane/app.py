@@ -2003,6 +2003,98 @@ def _dashboard_record_sort_priority(truth: dict[str, Any]) -> int:
     return 2
 
 
+def _dashboard_operator_view(
+    record: RunRecord,
+    active_processes: list[ProcessInfo],
+    *,
+    superseded: bool,
+    stale_callback: bool,
+    delivered: bool,
+) -> tuple[str, str, str, bool, bool]:
+    state = record.gate_state
+    if active_processes or (state == GateState.RUNNING and not superseded):
+        return (
+            "active",
+            "Active",
+            "Codex or project-owned processes are still running.",
+            True,
+            False,
+        )
+    if superseded:
+        return (
+            "superseded",
+            "Superseded",
+            "A newer run exists for this project; this older record is historical evidence, not current attention.",
+            False,
+            False,
+        )
+    if state == GateState.QUESTION_PENDING:
+        return (
+            "question_pending",
+            "Question pending",
+            "Codex asked for input; this is a real operator hold.",
+            True,
+            True,
+        )
+    if state == GateState.ERROR:
+        return (
+            "attention",
+            "Attention",
+            "Wake-gate recorded an error for this run.",
+            False,
+            True,
+        )
+    if stale_callback:
+        return (
+            "stale_callback_ready",
+            "Stale callback",
+            "Wake-gate reached callback-ready but has no delivered idempotency key; inspect or reconcile.",
+            False,
+            True,
+        )
+    if state in {GateState.WAKE_READY, GateState.FINISHED_READY} and not delivered:
+        return (
+            "callback_pending",
+            "Callback pending",
+            "Wake-gate is ready and waiting for callback delivery confirmation.",
+            True,
+            False,
+        )
+    if delivered:
+        lifecycle = (
+            "callback_delivered"
+            if state == GateState.WAKE_READY
+            else "finished_delivered"
+        )
+        return (
+            lifecycle,
+            "Delivered",
+            "The configured completion callback accepted the wake/finish event; this is historical evidence, not live work.",
+            False,
+            False,
+        )
+    if state in {
+        GateState.PENDING_IDLE_GATE,
+        GateState.WAITING_FOR_PROCESS_EXIT,
+        GateState.WAITING_FOR_QUIET_WINDOW,
+        GateState.FINISHED_PENDING_GATE,
+    }:
+        return (
+            "settling",
+            "Settling",
+            "Wake-gate is waiting for process-exit or quiet-window evidence.",
+            True,
+            False,
+        )
+    return (
+        "historical",
+        "Historical",
+        "Inactive historical run record.",
+        False,
+        False,
+    )
+
+
 def _dashboard_truth(
     record: RunRecord,
     active_processes: list[ProcessInfo],
@@ -2021,70 +2113,13 @@ def _dashboard_truth(
         and age_seconds is not None
         and age_seconds > stale_seconds
     )
-
-    if active_processes or (state == GateState.RUNNING and not superseded):
-        lifecycle = "active"
-        status = "Active"
-        detail = "Codex or project-owned processes are still running."
-        is_live = True
-        needs_attention = False
-    elif superseded:
-        lifecycle = "superseded"
-        status = "Superseded"
-        detail = "A newer run exists for this project; this older record is historical evidence, not current attention."
-        is_live = False
-        needs_attention = False
-    elif state == GateState.QUESTION_PENDING:
-        lifecycle = "question_pending"
-        status = "Question pending"
-        detail = "Codex asked for input; this is a real operator hold."
-        is_live = True
-        needs_attention = True
-    elif state == GateState.ERROR:
-        lifecycle = "attention"
-        status = "Attention"
-        detail = "Wake-gate recorded an error for this run."
-        is_live = False
-        needs_attention = True
-    elif stale_callback:
-        lifecycle = "stale_callback_ready"
-        status = "Stale callback"
-        detail = "Wake-gate reached callback-ready but has no delivered idempotency key; inspect or reconcile."
-        is_live = False
-        needs_attention = True
-    elif state in {GateState.WAKE_READY, GateState.FINISHED_READY} and not delivered:
-        lifecycle = "callback_pending"
-        status = "Callback pending"
-        detail = "Wake-gate is ready and waiting for callback delivery confirmation."
-        is_live = True
-        needs_attention = False
-    elif delivered:
-        lifecycle = (
-            "callback_delivered"
-            if state == GateState.WAKE_READY
-            else "finished_delivered"
-        )
-        status = "Delivered"
-        detail = "The configured completion callback accepted the wake/finish event; this is historical evidence, not live work."
-        is_live = False
-        needs_attention = False
-    elif state in {
-        GateState.PENDING_IDLE_GATE,
-        GateState.WAITING_FOR_PROCESS_EXIT,
-        GateState.WAITING_FOR_QUIET_WINDOW,
-        GateState.FINISHED_PENDING_GATE,
-    }:
-        lifecycle = "settling"
-        status = "Settling"
-        detail = "Wake-gate is waiting for process-exit or quiet-window evidence."
-        is_live = True
-        needs_attention = False
-    else:
-        lifecycle = "historical"
-        status = "Historical"
-        detail = "Inactive historical run record."
-        is_live = False
-        needs_attention = False
+    lifecycle, status, detail, is_live, needs_attention = _dashboard_operator_view(
+        record,
+        active_processes,
+        superseded=superseded,
+        stale_callback=stale_callback,
+        delivered=delivered,
+    )
 
     return {
         "lifecycle_state": lifecycle,
