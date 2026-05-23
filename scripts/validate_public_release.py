@@ -656,6 +656,142 @@ def check_corpus_public_trust_validator(
         )
 
 
+def _validate_manifest_alignment(
+    manifest: dict,
+    index: dict,
+    report: dict,
+    generated_manifest: dict | None,
+    promising: Path | None,
+    failures: list[str],
+) -> tuple[int, int, int]:
+    artifact_count = int(index.get("count", len(index.get("papers", []))))
+    pass_count = int(report["passed"])
+    if manifest.get("artifact_count") != artifact_count:
+        fail(
+            f"manifest artifact_count {manifest.get('artifact_count')} != corpus index count {artifact_count}",
+            failures,
+        )
+    if manifest.get("packaging_provenance_pass_count") != pass_count:
+        fail(
+            "manifest packaging_provenance_pass_count does not match quality_report passed",
+            failures,
+        )
+    promising_count = int(manifest.get("promising_signal_count") or 0)
+    if promising:
+        check_promising_signals_repo(promising, promising_count, failures)
+    if manifest.get("packaging_provenance_pass_count") != manifest.get(
+        "artifact_count"
+    ):
+        fail(
+            "manifest pass count and artifact count diverge; update public copy accordingly",
+            failures,
+        )
+    if report.get("gate_name") != "packaging_provenance_gate":
+        fail("quality_report gate_name is not packaging_provenance_gate", failures)
+    if not report.get("not_validated"):
+        fail("quality_report missing not_validated list", failures)
+    check_manifest(manifest, generated_manifest, failures)
+    return artifact_count, pass_count, promising_count
+
+
+def collect_public_validation_paths(
+    system: Path,
+    profile: Path,
+    docs: Path,
+    corpus: Path,
+    owner_profile: Path | None,
+    personal_site: Path | None,
+) -> list[Path]:
+    public_paths = (
+        existing(system, PUBLIC_FILES)
+        + existing(profile, PROFILE_FILES)
+        + existing(docs, DOC_FILES)
+    )
+    if owner_profile:
+        public_paths += existing(owner_profile, OWNER_PROFILE_FILES)
+    if personal_site:
+        public_paths += existing(personal_site, PERSONAL_SITE_FILES)
+    public_paths += existing(
+        corpus,
+        [
+            README_MD,
+            "quality/quality_report.md",
+            "quality/packaging_provenance_report.md",
+        ],
+    )
+    return public_paths
+
+
+def _run_public_surface_validation(
+    corpus: Path,
+    promising: Path | None,
+    manifest: dict,
+    public_paths: list[Path],
+    promising_count: int,
+    failures: list[str],
+    *,
+    execute_corpus_validator: bool,
+) -> None:
+    promising_paths = promising_signal_public_paths(promising) if promising else []
+    check_public_secret_tokens(
+        public_paths + corpus_artifact_public_paths(corpus) + promising_paths, failures
+    )
+    check_counts(
+        public_paths,
+        int(manifest["artifact_count"]),
+        int(manifest["packaging_provenance_pass_count"]),
+        failures,
+    )
+    check_promising_counts(public_paths + promising_paths, promising_count, failures)
+    check_strict_public_counts(
+        public_paths,
+        int(manifest["artifact_count"]),
+        int(manifest.get("strict_claim_evidence_pass_count") or 0),
+        failures,
+    )
+    check_quality_scope(public_paths, failures)
+    check_required_copy(public_paths, failures)
+    check_corpus_public_trust_validator(
+        corpus, failures, execute=execute_corpus_validator
+    )
+
+
+def _check_combined_public_strict_audit(
+    combined_public: str, manifest: dict, failures: list[str]
+) -> None:
+    if "strict claim/evidence" not in combined_public.lower():
+        fail("missing strict claim/evidence audit public framing", failures)
+    for match in FULL_AUDIT_CLAIM.finditer(combined_public):
+        if int(manifest.get("strict_claim_evidence_pass_count", 0)) < int(
+            manifest.get("artifact_count") or 0
+        ):
+            fail(
+                f"public copy implies full strict auditability while strict audit is incomplete: {match.group(0)}",
+                failures,
+            )
+
+
+def _run_optional_release_checks(
+    *,
+    skip_github_metadata: bool,
+    hf_export: Path | None,
+    manifest: dict,
+    promising_count: int,
+    failures: list[str],
+) -> None:
+    if not skip_github_metadata:
+        check_github_metadata(
+            int(manifest["artifact_count"]), failures, promising_count
+        )
+    if hf_export:
+        check_hf_export(
+            hf_export,
+            int(manifest["artifact_count"]),
+            int(manifest.get("strict_claim_evidence_pass_count") or 0),
+            failures,
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Validate Enoch public release accounting and gate wording."
@@ -705,98 +841,32 @@ def main(argv: list[str] | None = None) -> int:
     index = load_json(corpus / "papers" / "index.json")
     report = load_json(corpus / "quality" / "quality_report.json")
 
-    artifact_count = int(index.get("count", len(index.get("papers", []))))
-    pass_count = int(report["passed"])
-    if manifest.get("artifact_count") != artifact_count:
-        fail(
-            f"manifest artifact_count {manifest.get('artifact_count')} != corpus index count {artifact_count}",
-            failures,
-        )
-    if manifest.get("packaging_provenance_pass_count") != pass_count:
-        fail(
-            "manifest packaging_provenance_pass_count does not match quality_report passed",
-            failures,
-        )
-    promising_count = int(manifest.get("promising_signal_count") or 0)
-    if promising:
-        check_promising_signals_repo(promising, promising_count, failures)
-    if manifest.get("packaging_provenance_pass_count") != manifest.get(
-        "artifact_count"
-    ):
-        fail(
-            "manifest pass count and artifact count diverge; update public copy accordingly",
-            failures,
-        )
-    if report.get("gate_name") != "packaging_provenance_gate":
-        fail("quality_report gate_name is not packaging_provenance_gate", failures)
-    if not report.get("not_validated"):
-        fail("quality_report missing not_validated list", failures)
-    check_manifest(manifest, generated_manifest, failures)
-
-    public_paths = (
-        existing(system, PUBLIC_FILES)
-        + existing(profile, PROFILE_FILES)
-        + existing(docs, DOC_FILES)
+    _, _, promising_count = _validate_manifest_alignment(
+        manifest, index, report, generated_manifest, promising, failures
     )
-    if owner_profile:
-        public_paths += existing(owner_profile, OWNER_PROFILE_FILES)
-    if personal_site:
-        public_paths += existing(personal_site, PERSONAL_SITE_FILES)
-    public_paths += existing(
+    public_paths = collect_public_validation_paths(
+        system, profile, docs, corpus, owner_profile, personal_site
+    )
+    _run_public_surface_validation(
         corpus,
-        [
-            README_MD,
-            "quality/quality_report.md",
-            "quality/packaging_provenance_report.md",
-        ],
-    )
-    promising_paths = promising_signal_public_paths(promising) if promising else []
-
-    check_public_secret_tokens(
-        public_paths + corpus_artifact_public_paths(corpus) + promising_paths, failures
-    )
-    check_counts(
+        promising,
+        manifest,
         public_paths,
-        int(manifest["artifact_count"]),
-        int(manifest["packaging_provenance_pass_count"]),
+        promising_count,
         failures,
-    )
-    check_promising_counts(public_paths + promising_paths, promising_count, failures)
-    check_strict_public_counts(
-        public_paths,
-        int(manifest["artifact_count"]),
-        int(manifest.get("strict_claim_evidence_pass_count") or 0),
-        failures,
-    )
-    check_quality_scope(public_paths, failures)
-    check_required_copy(public_paths, failures)
-    check_corpus_public_trust_validator(
-        corpus, failures, execute=bool(args.execute_corpus_validator)
+        execute_corpus_validator=bool(args.execute_corpus_validator),
     )
     combined_public = "\n".join(
         path.read_text(encoding="utf-8", errors="replace") for path in public_paths
     )
-    if "strict claim/evidence" not in combined_public.lower():
-        fail("missing strict claim/evidence audit public framing", failures)
-    for match in FULL_AUDIT_CLAIM.finditer(combined_public):
-        if int(manifest.get("strict_claim_evidence_pass_count", 0)) < int(
-            manifest.get("artifact_count") or 0
-        ):
-            fail(
-                f"public copy implies full strict auditability while strict audit is incomplete: {match.group(0)}",
-                failures,
-            )
-    if not args.skip_github_metadata:
-        check_github_metadata(
-            int(manifest["artifact_count"]), failures, promising_count
-        )
-    if hf_export:
-        check_hf_export(
-            hf_export,
-            int(manifest["artifact_count"]),
-            int(manifest.get("strict_claim_evidence_pass_count") or 0),
-            failures,
-        )
+    _check_combined_public_strict_audit(combined_public, manifest, failures)
+    _run_optional_release_checks(
+        skip_github_metadata=bool(args.skip_github_metadata),
+        hf_export=hf_export,
+        manifest=manifest,
+        promising_count=promising_count,
+        failures=failures,
+    )
 
     if failures:
         for item in failures:
