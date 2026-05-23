@@ -1,147 +1,36 @@
 import { shortId } from './format'
+import {
+  artifactChecklist,
+  entityLink,
+  firstValue,
+  latestEventSummary,
+  operatorNextStep,
+  operatorStageLabel,
+  pushLink,
+  queueRecord,
+  recentActivityFrom,
+  record,
+  recordArray,
+  text,
+  triStateFlag,
+  type DetailKind,
+  type DetailOperatorSummary,
+  type EntityLink,
+  type IntakeIdeaOperatorSummary,
+  type OperatorAnswer,
+  type ResearchCandidateOperatorSummary,
+} from './detailOperatorSummaryHelpers'
+import { paperSummary } from './detailOperatorSummaryPaper'
 
-export type DetailKind = 'project' | 'run' | 'paper' | 'event'
-
-export type EntityLink = {
-  kind: DetailKind
-  id: string
-  label: string
-}
-
-export type OperatorAnswer = {
-  label: string
-  value: string
-}
-
-export type OperatorSection = {
-  title: string
-  answers: OperatorAnswer[]
-}
-
-export type DetailOperatorSummary = {
-  state: string
-  context: string
-  next: string
-  entityLinks: EntityLink[]
-  sections: OperatorSection[]
-  recentActivity: string | null
-  actionNeeded: string | null
-}
-
-export type IntakeIdeaOperatorSummary = {
-  state: string
-  context: string
-  next: string
-  entityLinks: EntityLink[]
-  sections: OperatorSection[]
-  actionNeeded: string | null
-}
-
-export type ResearchCandidateOperatorSummary = IntakeIdeaOperatorSummary
-
-function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-}
-
-function recordArray(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item)) : []
-}
-
-function firstValue(...values: unknown[]): unknown {
-  return values.find((value) => value !== null && value !== undefined && value !== '')
-}
-
-function text(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '—'
-  if (typeof value === 'boolean') return value ? 'yes' : 'no'
-  return String(value)
-}
-
-function entityLink(kind: DetailKind, id: unknown, label?: unknown): EntityLink | null {
-  const normalized = text(id)
-  if (normalized === '—') return null
-  return { kind, id: normalized, label: text(label || shortId(normalized)) }
-}
-
-function pushLink(links: EntityLink[], link: EntityLink | null) {
-  if (!link) return
-  if (links.some((existing) => existing.kind === link.kind && existing.id === link.id)) return
-  links.push(link)
-}
-
-function operatorNextStep(source: Record<string, unknown>, fallback: string): string {
-  return text(firstValue(source.operator_next_step, fallback))
-}
-
-function operatorStageLabel(source: Record<string, unknown>, fallback: string): string {
-  return text(firstValue(source.operator_stage_label, source.operator_detail_stage_label, fallback))
-}
-
-function queueRecord(payload: Record<string, unknown>): Record<string, unknown> {
-  return record(payload.queue_item || payload.queue)
-}
-
-function nullableText(value: unknown): string | null {
-  const normalized = text(value)
-  return normalized === '—' ? null : normalized
-}
-
-function latestEventSummary(events: Record<string, unknown>[]): string | null {
-  const latest = events[0]
-  if (!latest) return null
-  const summary = text(firstValue(latest.summary, latest.event_type))
-  const when = text(firstValue(latest.created_at, latest.updated_at))
-  if (summary === '—') return null
-  return when !== '—' ? `${summary} (${when})` : summary
-}
-
-function recentActivityFrom(events: Record<string, unknown>[], ...fallbacks: unknown[]): string | null {
-  return latestEventSummary(events) ?? nullableText(firstValue(...fallbacks))
-}
-
-function artifactFlagPresent(flags: Record<string, unknown>, key: string): boolean {
-  const aliases: Record<string, string[]> = {
-    draft_markdown: ['draft_markdown', 'draft_markdown_path'],
-    draft_latex: ['draft_latex', 'draft_latex_path'],
-    evidence_bundle: ['evidence_bundle', 'evidence_bundle_path'],
-    claim_ledger: ['claim_ledger', 'claim_ledger_path'],
-    manifest: ['manifest', 'manifest_path'],
-    finalization_package: ['finalization_package', 'finalization_package_path'],
-  }
-  return (aliases[key] || [key]).some((alias) => Boolean(flags[alias]))
-}
-
-function artifactChecklist(flags: Record<string, unknown>): OperatorAnswer[] {
-  const labels: Record<string, string> = {
-    draft_markdown: 'draft markdown',
-    draft_latex: 'draft latex',
-    evidence_bundle: 'evidence bundle',
-    claim_ledger: 'claim ledger',
-    manifest: 'manifest',
-    finalization_package: 'finalization package',
-  }
-  return Object.entries(labels).map(([key, label]) => ({
-    label,
-    value: artifactFlagPresent(flags, key) ? 'present' : 'missing',
-  }))
-}
-
-function missingPublicationArtifacts(flags: Record<string, unknown>): string[] {
-  const labels: Record<string, string> = {
-    draft_markdown: 'draft markdown',
-    evidence_bundle: 'evidence bundle',
-    claim_ledger: 'claim ledger',
-    manifest: 'manifest',
-    finalization_package: 'finalization package',
-  }
-  return Object.keys(labels).filter((key) => !artifactFlagPresent(flags, key)).map((key) => labels[key])
-}
-
-function triStateFlag(value: unknown): string {
-  if (value === true || value === 1 || value === '1' || value === 'true') return 'yes'
-  if (value === false || value === 0 || value === '0' || value === 'false') return 'no'
-  return 'unknown'
-}
+export type {
+  DetailKind,
+  DetailOperatorSummary,
+  EntityLink,
+  IntakeIdeaOperatorSummary,
+  OperatorAnswer,
+  OperatorSection,
+  ResearchCandidateOperatorSummary,
+} from './detailOperatorSummaryHelpers'
 
 function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const project = record(payload.project)
@@ -324,140 +213,6 @@ function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
     ],
     recentActivity: latestEventSummary(events),
     actionNeeded: errorState ? `Run stopped in ${state} with gate ${gate}.` : null,
-  }
-}
-
-function paperPublicationBlocker(
-  review: string,
-  operatorExplanation: string,
-  missingArtifacts: string[],
-  imported: boolean,
-): string {
-  if (review === 'rejected') return 'Review rejected this paper.'
-  if (operatorExplanation !== '—') return operatorExplanation
-  if (missingArtifacts.length) return `Missing: ${missingArtifacts.join(', ')}.`
-  if (imported) return 'Corpus import complete; no publication blockers.'
-  return 'Publication artifacts ready for corpus import.'
-}
-
-function paperSummaryContext(
-  imported: boolean,
-  missingArtifacts: string[],
-  review: string,
-  flags: Record<string, unknown>,
-): string {
-  if (imported) return 'Corpus import ledger shows this paper as imported.'
-  if (missingArtifacts.length) {
-    return `Publication blocked: missing ${missingArtifacts.join(', ')}.`
-  }
-  if (review !== '—') return `Review ${review}; all publication artifacts present.`
-  const evidence = artifactFlagPresent(flags, 'evidence_bundle') ? 'present' : 'missing'
-  const claimLedger = artifactFlagPresent(flags, 'claim_ledger') ? 'present' : 'missing'
-  return `Evidence paths ${evidence}; claim ledger ${claimLedger}.`
-}
-
-function paperSummaryNextStep(
-  stageSource: Record<string, unknown>,
-  imported: boolean,
-  reviewRejected: boolean,
-  needsFinalization: boolean,
-  missingArtifacts: string[],
-): string {
-  if (imported) {
-    return operatorNextStep(stageSource, 'No corpus import action is needed for this paper.')
-  }
-  if (reviewRejected) {
-    return operatorNextStep(stageSource, 'Do not publish; start a new run or resolve review rejection first.')
-  }
-  if (needsFinalization || missingArtifacts.length) {
-    return operatorNextStep(stageSource, 'Preview artifacts, then finalize only after checklist items look correct.')
-  }
-  return operatorNextStep(stageSource, 'Run corpus import when the publication checklist is complete.')
-}
-
-function paperSummaryActionNeeded(
-  reviewRejected: boolean,
-  missingArtifacts: string[],
-): string | null {
-  if (reviewRejected) return 'Review rejected this paper; do not publish without a new run.'
-  if (missingArtifacts.length) {
-    return `Complete missing artifacts before publication: ${missingArtifacts.join(', ')}.`
-  }
-  return null
-}
-
-function paperSummary(payload: Record<string, unknown>): DetailOperatorSummary {
-  const paper = record(payload.paper)
-  const project = record(payload.project)
-  const run = record(payload.run)
-  const queue = queueRecord(payload)
-  const events = recordArray(payload.events)
-  const stageSource = { ...paper, ...payload }
-  const title = text(firstValue(paper.paper_title, paper.title, payload.title))
-  const status = text(firstValue(paper.paper_status, paper.status, payload.status, payload.paper_status))
-  const review = text(firstValue(paper.review_status, payload.review_status))
-  const imported = paper.corpus_imported === true
-  const flags = record(paper.artifact_paths_present)
-  const projectId = text(firstValue(paper.project_id, project.project_id, payload.project_id))
-  const projectName = text(firstValue(project.project_name, paper.project_name))
-  const runId = text(firstValue(paper.run_id, run.run_id, payload.run_id))
-  const runState = text(firstValue(run.state, payload.run_state))
-  const machineTarget = text(firstValue(queue.machine_target, payload.machine_target))
-  const operatorExplanation = text(firstValue(paper.operator_explanation, payload.operator_explanation))
-  const missingArtifacts = missingPublicationArtifacts(flags)
-  const publicationBlocker = paperPublicationBlocker(review, operatorExplanation, missingArtifacts, imported)
-  const entityLinks: EntityLink[] = []
-  pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, projectName))
-  pushLink(entityLinks, entityLink('run', runId !== '—' ? runId : null))
-  const reviewRejected = review === 'rejected'
-  const needsFinalization = missingArtifacts.includes('finalization package')
-  const context = paperSummaryContext(imported, missingArtifacts, review, flags)
-
-  return {
-    state: operatorStageLabel(stageSource, status),
-    context,
-    next: paperSummaryNextStep(stageSource, imported, reviewRejected, needsFinalization, missingArtifacts),
-    entityLinks,
-    sections: [
-      {
-        title: 'What is this paper?',
-        answers: [
-          { label: 'title', value: title },
-          { label: 'paper status', value: status },
-          { label: 'paper type', value: text(paper.paper_type) },
-          { label: 'review status', value: review },
-        ],
-      },
-      {
-        title: 'Related project and run',
-        answers: [
-          { label: 'project', value: projectName !== '—' ? projectName : projectId },
-          { label: 'run state', value: runState },
-          { label: 'machine target', value: machineTarget },
-        ],
-      },
-      {
-        title: 'Publication checklist',
-        answers: artifactChecklist(flags),
-      },
-      {
-        title: 'Draft and import status',
-        answers: [
-          { label: 'corpus imported', value: text(imported) },
-          { label: 'corpus import id', value: text(paper.corpus_import_id) },
-          { label: 'HF dataset synced', value: text(paper.hf_dataset_synced) },
-        ],
-      },
-      {
-        title: 'What blocks publication?',
-        answers: [
-          { label: 'missing artifacts', value: publicationBlocker },
-          { label: 'operator explanation', value: operatorExplanation },
-        ],
-      },
-    ],
-    recentActivity: latestEventSummary(events),
-    actionNeeded: paperSummaryActionNeeded(reviewRejected, missingArtifacts),
   }
 }
 
