@@ -16,7 +16,7 @@ import time
 from typing import Annotated, Any
 
 from fastapi import FastAPI, Header, HTTPException, Query, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from . import callback_outbox
 from .callbacks import CallbackSender
@@ -49,6 +49,116 @@ from .telemetry import TelemetryCollector
 # of the literal across multiple _checked_exists / _checked_is_dir calls and
 # error messages in the dashboard API handlers).
 PROJECT_DIRECTORY_LABEL = "project directory"
+
+
+class ControlPlaneHttpError(Exception):
+    """HTTP error from app helpers; converted to a response by the app exception handler."""
+
+    def __init__(self, status_code: int, detail: str | dict[str, object]) -> None:
+        super().__init__(detail if isinstance(detail, str) else str(detail))
+        self.status_code = status_code
+        self.detail = detail
+
+
+def _http_responses(
+    *parts: dict[int, dict[str, str]],
+) -> dict[int, dict[str, str]]:
+    merged: dict[int, dict[str, str]] = {}
+    for part in parts:
+        merged.update(part)
+    return merged
+
+
+_HTTP_401_INVALID_BEARER: dict[int, dict[str, str]] = {
+    401: {"description": "Invalid or missing control API bearer token"},
+}
+_HTTP_400_INVALID_REQUEST: dict[int, dict[str, str]] = {
+    400: {
+        "description": (
+            "Invalid path, metadata, workload class, or project resolution"
+        ),
+    },
+}
+_HTTP_403_FORBIDDEN_READ: dict[int, dict[str, str]] = {
+    403: {
+        "description": "Project directory or paper artifact is not readable",
+    },
+}
+_HTTP_404_NOT_FOUND: dict[int, dict[str, str]] = {
+    404: {"description": "Project directory, paper artifact, or run not found"},
+}
+_HTTP_409_FILE_EXISTS: dict[int, dict[str, str]] = {
+    409: {"description": "Refusing to overwrite an existing file"},
+}
+_HTTP_413_PAYLOAD_TOO_LARGE: dict[int, dict[str, str]] = {
+    413: {"description": "Paper artifact exceeds the allowed byte limit"},
+}
+_HTTP_415_UNSUPPORTED_MEDIA: dict[int, dict[str, str]] = {
+    415: {"description": "Paper artifact is not UTF-8 text"},
+}
+_HTTP_500_INTERNAL: dict[int, dict[str, str]] = {
+    500: {
+        "description": (
+            "Project metadata, path inspection, or dispatch configuration failure"
+        ),
+    },
+}
+_HTTP_502_BAD_GATEWAY: dict[int, dict[str, str]] = {
+    502: {
+        "description": "Dispatch subprocess failed or returned non-JSON output",
+    },
+}
+_HTTP_504_GATEWAY_TIMEOUT: dict[int, dict[str, str]] = {
+    504: {"description": "Dispatch subprocess timed out"},
+}
+
+_DASHBOARD_SNAPSHOT_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_409_FILE_EXISTS,
+)
+_DASHBOARD_PAPER_ARTIFACT_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_400_INVALID_REQUEST,
+    _HTTP_403_FORBIDDEN_READ,
+    _HTTP_404_NOT_FOUND,
+    _HTTP_413_PAYLOAD_TOO_LARGE,
+    _HTTP_415_UNSUPPORTED_MEDIA,
+)
+_DASHBOARD_API_RUN_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_404_NOT_FOUND,
+)
+_PROJECT_STATUS_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_400_INVALID_REQUEST,
+    _HTTP_403_FORBIDDEN_READ,
+)
+_PREPARE_PROJECT_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_400_INVALID_REQUEST,
+    _HTTP_409_FILE_EXISTS,
+)
+_READ_PROJECT_PAPER_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_400_INVALID_REQUEST,
+    _HTTP_403_FORBIDDEN_READ,
+    _HTTP_404_NOT_FOUND,
+    _HTTP_413_PAYLOAD_TOO_LARGE,
+    _HTTP_415_UNSUPPORTED_MEDIA,
+)
+_WRITE_PROJECT_PAPER_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_400_INVALID_REQUEST,
+    _HTTP_404_NOT_FOUND,
+    _HTTP_413_PAYLOAD_TOO_LARGE,
+)
+_DISPATCH_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_400_INVALID_REQUEST,
+    _HTTP_500_INTERNAL,
+    _HTTP_502_BAD_GATEWAY,
+    _HTTP_504_GATEWAY_TIMEOUT,
+)
 
 
 def load_config(path: Path | None = None) -> GateConfig:
@@ -89,6 +199,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="enoch_worker_gate", version="0.1.0", lifespan=lifespan)
+
+
+@app.exception_handler(ControlPlaneHttpError)
+async def _control_plane_http_error_handler(
+    _request: object, exc: ControlPlaneHttpError
+) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
 if config.route_observability_enabled:
     route_observation_path = (
         Path(config.route_observability_log_path).expanduser()
@@ -896,7 +1015,7 @@ def healthz() -> dict:
 def _require_local_bearer(authorization: str | None) -> None:
     expected = f"Bearer {config.control_api_bearer_token}"
     if authorization != expected:
-        raise HTTPException(status_code=401, detail="invalid bearer token")
+        raise ControlPlaneHttpError(status_code=401, detail="invalid bearer token")
 
 
 def _require_dashboard_bearer(
@@ -915,7 +1034,7 @@ def _resolve_under_root(path_str: str, root: Path) -> Path:
     try:
         raw = Path(path_str).expanduser()
     except RuntimeError as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400,
             detail=f"path contains an unexpandable user home: {path_str}",
         ) from exc
@@ -924,14 +1043,14 @@ def _resolve_under_root(path_str: str, root: Path) -> Path:
         resolved = candidate.resolve()
         root_resolved = root.expanduser().resolve()
     except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400,
             detail=f"path could not be resolved under configured project root: {path_str}",
         ) from exc
     try:
         resolved.relative_to(root_resolved)
     except ValueError as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400, detail=f"path escapes configured project root: {path_str}"
         ) from exc
     return resolved
@@ -940,7 +1059,7 @@ def _resolve_under_root(path_str: str, root: Path) -> Path:
 def _write_text(path: Path, text: str, overwrite: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if _checked_exists(path, label="file target") and not overwrite:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=409, detail=f"refusing to overwrite existing file: {path}"
         )
     tmp_path = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
@@ -967,7 +1086,7 @@ def _checked_exists(path: Path, *, label: str, status_code: int = 500) -> bool:
     try:
         return path.exists()
     except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=status_code, detail=f"{label} could not be inspected: {path}"
         ) from exc
 
@@ -976,7 +1095,7 @@ def _checked_is_dir(path: Path, *, label: str, status_code: int = 500) -> bool:
     try:
         return path.is_dir()
     except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=status_code, detail=f"{label} could not be inspected: {path}"
         ) from exc
 
@@ -988,7 +1107,7 @@ def _normalize_prepare_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
             normalized.get("workload_class")
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise ControlPlaneHttpError(status_code=400, detail=str(exc)) from exc
     normalized["workload_class"] = workload_class
     return normalized
 
@@ -1003,15 +1122,15 @@ def _load_project_metadata(project_dir: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, RuntimeError) as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=500, detail=f"project metadata could not be read: {path}"
         ) from exc
     except json.JSONDecodeError as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=500, detail=f"invalid project metadata JSON: {path}"
         ) from exc
     if not isinstance(payload, dict):
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=500, detail=f"project metadata must be a JSON object: {path}"
         )
     return payload
@@ -1021,14 +1140,14 @@ def _resolve_workload_profile_for_project_dir(project_dir: Path) -> tuple[str, A
     payload = _load_project_metadata(project_dir)
     metadata = payload.get("metadata")
     if metadata is not None and not isinstance(metadata, dict):
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=500,
             detail=f"project metadata 'metadata' field must be an object: {project_dir / '.enoch' / 'project.json'}",
         )
     try:
         return config.resolve_workload_profile((metadata or {}).get("workload_class"))
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise ControlPlaneHttpError(status_code=400, detail=str(exc)) from exc
 
 
 def _assign_record_workload_profile(record: RunRecord) -> RunRecord:
@@ -1041,14 +1160,14 @@ def _assign_record_workload_profile(record: RunRecord) -> RunRecord:
             project_dir = _resolve_under_root(
                 record.project_dir, config.expanded_project_root
             )
-        except HTTPException:
+        except ControlPlaneHttpError:
             project_dir = None
     elif record.project_id:
         try:
             project_dir = _resolve_under_root(
                 record.project_id, config.expanded_project_root
             )
-        except HTTPException:
+        except ControlPlaneHttpError:
             project_dir = None
 
     if project_dir is not None:
@@ -1082,16 +1201,16 @@ def _wake_decision_profile_evidence(record: RunRecord) -> dict[str, Any]:
 def _resolve_project_relative_path(project_dir: Path, relative_path: str) -> Path:
     raw = Path(relative_path)
     if raw.is_absolute():
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400,
             detail=f"paper artifact path must be relative: {relative_path}",
         )
     if not relative_path.strip():
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400, detail="paper artifact path cannot be empty"
         )
     if any(part in {"", ".", ".."} for part in raw.parts):
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400,
             detail=f"paper artifact path contains unsafe segment: {relative_path}",
         )
@@ -1100,14 +1219,14 @@ def _resolve_project_relative_path(project_dir: Path, relative_path: str) -> Pat
         resolved = (project_dir / raw).resolve()
         project_root = project_dir.resolve()
     except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400,
             detail=f"paper artifact path could not be resolved: {relative_path}",
         ) from exc
     try:
         resolved.relative_to(project_root)
     except ValueError as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400,
             detail=f"paper artifact path escapes {PROJECT_DIRECTORY_LABEL}: {relative_path}",
         ) from exc
@@ -1809,7 +1928,7 @@ def _run_dashboard_item(
             project_dir = _resolve_under_root(
                 record.project_dir, config.expanded_project_root
             )
-        except HTTPException:
+        except ControlPlaneHttpError:
             project_dir = None
 
     latest_session = (
@@ -2039,7 +2158,7 @@ def _build_queue_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@app.post("/dashboard/queue-snapshot")
+@app.post("/dashboard/queue-snapshot", responses=_DASHBOARD_SNAPSHOT_RESPONSES)
 def dashboard_queue_snapshot(
     payload: dict[str, Any],
     authorization: Annotated[str | None, Header()] = None,
@@ -2159,7 +2278,7 @@ def _build_paper_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@app.post("/dashboard/paper-snapshot")
+@app.post("/dashboard/paper-snapshot", responses=_DASHBOARD_SNAPSHOT_RESPONSES)
 def dashboard_paper_snapshot(
     payload: dict[str, Any],
     authorization: Annotated[str | None, Header()] = None,
@@ -2173,7 +2292,10 @@ def dashboard_paper_snapshot(
     return {"ok": True, "paper_snapshot": snapshot}
 
 
-@app.get("/dashboard/api/paper-artifact/{project_id}")
+@app.get(
+    "/dashboard/api/paper-artifact/{project_id}",
+    responses=_DASHBOARD_PAPER_ARTIFACT_RESPONSES,
+)
 def dashboard_api_paper_artifact(
     project_id: str,
     path: Annotated[str, Query(min_length=1)],
@@ -2232,7 +2354,11 @@ def dashboard_api_paper_artifact(
     }
 
 
-@app.get("/dashboard/paper-artifact/{project_id}", response_class=HTMLResponse)
+@app.get(
+    "/dashboard/paper-artifact/{project_id}",
+    response_class=HTMLResponse,
+    responses=_DASHBOARD_PAPER_ARTIFACT_RESPONSES,
+)
 def dashboard_paper_artifact(
     project_id: str,
     path: Annotated[str, Query(min_length=1)],
@@ -2254,7 +2380,7 @@ def dashboard_paper_artifact(
     )
 
 
-@app.get("/dashboard/api")
+@app.get("/dashboard/api", responses=_HTTP_401_INVALID_BEARER)
 def dashboard_api(
     authorization: Annotated[str | None, Header()] = None,
     token: Annotated[str | None, Query()] = None,
@@ -2353,7 +2479,10 @@ def dashboard_api(
     }
 
 
-@app.get("/dashboard/api/run/{run_id}")
+@app.get(
+    "/dashboard/api/run/{run_id}",
+    responses=_DASHBOARD_API_RUN_RESPONSES,
+)
 def dashboard_api_run(
     run_id: str,
     authorization: Annotated[str | None, Header()] = None,
@@ -2379,7 +2508,10 @@ def dashboard_api_run(
     }
 
 
-@app.get("/project-status/{project_id}")
+@app.get(
+    "/project-status/{project_id}",
+    responses=_PROJECT_STATUS_RESPONSES,
+)
 async def project_status(
     project_id: str,
     authorization: Annotated[str | None, Header()] = None,
@@ -2390,8 +2522,8 @@ async def project_status(
 
     try:
         resolved_project_dir = _resolve_project_dir(project_id, project_dir)
-    except HTTPException:
-        raise
+    except ControlPlaneHttpError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2431,7 +2563,7 @@ async def project_status(
     return response.model_dump(exclude_none=False)
 
 
-@app.post("/prepare-project")
+@app.post("/prepare-project", responses=_PREPARE_PROJECT_RESPONSES)
 async def prepare_project(
     request: PrepareProjectRequest,
     authorization: Annotated[str | None, Header()] = None,
@@ -2489,7 +2621,10 @@ async def prepare_project(
     }
 
 
-@app.post("/project-paper/{project_id}/read")
+@app.post(
+    "/project-paper/{project_id}/read",
+    responses=_READ_PROJECT_PAPER_RESPONSES,
+)
 async def read_project_paper(
     project_id: str,
     request: PaperArtifactReadRequest,
@@ -2565,7 +2700,10 @@ async def read_project_paper(
     }
 
 
-@app.post("/project-paper/{project_id}")
+@app.post(
+    "/project-paper/{project_id}",
+    responses=_WRITE_PROJECT_PAPER_RESPONSES,
+)
 async def write_project_paper(
     project_id: str,
     request: PaperArtifactRequest,
@@ -2627,7 +2765,7 @@ async def write_project_paper(
     }
 
 
-@app.post("/dispatch")
+@app.post("/dispatch", responses=_DISPATCH_RESPONSES)
 async def dispatch_run(
     request: DispatchRequest,
     authorization: Annotated[str | None, Header()] = None,
