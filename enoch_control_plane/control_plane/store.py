@@ -550,6 +550,74 @@ def _idea_id(raw: dict[str, Any], title: str) -> str:
     return f"idea-{_slug_id(title)}" if title else ""
 
 
+def _collect_idea_intake_candidates(
+    request: IdeaIntakeRequest,
+    include_statuses: set[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    candidates: list[dict[str, Any]] = []
+    skipped_rows: list[dict[str, Any]] = []
+    for raw in request.ideas:
+        title = _idea_title(raw)
+        origin_status = _idea_status(raw).lower()
+        status = origin_status or "exploring"
+        if not title:
+            skipped_rows.append({"reason": "missing title", "row": raw})
+            continue
+        if include_statuses and status and status not in include_statuses:
+            skipped_rows.append(
+                {
+                    "reason": f"status {status!r} not included",
+                    "title": title,
+                    "status": status,
+                    "idea_id": _text(
+                        _first_present(raw, "idea_id", "project_id", "id")
+                    ),
+                }
+            )
+            continue
+        project_id = _idea_id(raw, title)
+        if not project_id:
+            skipped_rows.append({"reason": "missing idea id", "title": title})
+            continue
+        rank = _int(
+            _first_present(raw, "selection_rank", "dispatch_priority"),
+            _priority_rank(raw),
+        )
+        dispatch_priority = _int(
+            _first_present(raw, "dispatch_priority", "selection_rank"), rank
+        )
+        routing = route_machine_target(
+            raw,
+            default_machine_target=request.default_machine_target,
+            workload_machine_targets=request.workload_machine_targets,
+        )
+        candidates.append(
+            {
+                "project_id": project_id,
+                "idea_id": project_id,
+                "project_name": title,
+                "project_dir": project_id,
+                "origin_idea_status": origin_status,
+                "status": QueueStatus.QUEUED.value,
+                "selection_rank": rank,
+                "dispatch_priority": dispatch_priority,
+                "next_action_hint": "controller_review",
+                "machine_target": routing["machine_target"],
+                "workload_class": routing["workload_class"],
+                "routing_reason": routing["routing_reason"],
+                "model": _text(_first_present(raw, "model", "default_model"))
+                or request.default_model,
+                "sandbox": _text(_first_present(raw, "sandbox", "default_sandbox"))
+                or request.default_sandbox,
+                "source_kind": _text(raw.get("source_kind"))
+                or request.source
+                or "supabase_native",
+                "source_row": raw,
+            }
+        )
+    return candidates, skipped_rows
+
+
 REVIEW_CHECKLIST_DEFINITION = (
     ("artifact_readability", "Artifact readability", True),
     ("title_abstract_quality", "Title/abstract quality", True),
@@ -3716,73 +3784,129 @@ class ControlPlaneStore:
                     created += 1
         return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
 
+    def _apply_idea_intake_candidate(
+        self,
+        conn: sqlite3.Connection,
+        candidate: dict[str, Any],
+        *,
+        override_existing_dispatch_metadata: bool,
+        now: str,
+    ) -> bool:
+        """Persist one idea intake candidate. Returns True if queue row was updated."""
+        existed = (
+            conn.execute(
+                "SELECT 1 FROM queue_items WHERE project_id=?",
+                (candidate["project_id"],),
+            ).fetchone()
+            is not None
+        )
+        project = ProjectRecord(
+            project_id=candidate["project_id"],
+            project_name=candidate["project_name"],
+            project_dir=candidate["project_dir"],
+            origin_idea_status=candidate["origin_idea_status"],
+            created_at=now,
+            updated_at=now,
+        )
+        qi = QueueItemRecord(
+            project_id=project.project_id,
+            status=QueueStatus.QUEUED,
+            selection_rank=int(candidate["selection_rank"]),
+            dispatch_priority=int(candidate["dispatch_priority"]),
+            next_action_hint=candidate["next_action_hint"],
+            machine_target=candidate["machine_target"],
+            model=candidate["model"],
+            sandbox=candidate["sandbox"],
+            updated_at=now,
+        )
+        conn.execute(
+            """INSERT INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?)
+            ON CONFLICT(project_id) DO UPDATE SET
+                project_name=excluded.project_name,
+                project_dir=excluded.project_dir,
+                origin_idea_status=COALESCE(NULLIF(excluded.origin_idea_status,''), projects.origin_idea_status),
+                updated_at=excluded.updated_at""",
+            (
+                project.project_id,
+                project.project_name,
+                project.project_dir,
+                "",
+                "",
+                project.origin_idea_status,
+                project.created_at,
+                project.updated_at,
+            ),
+        )
+        if existed:
+            if override_existing_dispatch_metadata:
+                conn.execute(
+                    """UPDATE queue_items SET selection_rank=?, dispatch_priority=?, machine_target=?, model=?, sandbox=?, updated_at=?
+                    WHERE project_id=? AND status NOT IN ('dispatching','running','awaiting_wake','wake_received','reconciling')""",
+                    (
+                        qi.selection_rank,
+                        qi.dispatch_priority,
+                        qi.machine_target,
+                        qi.model,
+                        qi.sandbox,
+                        qi.updated_at,
+                        qi.project_id,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """UPDATE queue_items SET selection_rank=?, dispatch_priority=?, updated_at=?
+                    WHERE project_id=? AND status NOT IN ('dispatching','running','awaiting_wake','wake_received','reconciling')""",
+                    (
+                        qi.selection_rank,
+                        qi.dispatch_priority,
+                        qi.updated_at,
+                        qi.project_id,
+                    ),
+                )
+            return True
+        conn.execute(
+            """INSERT INTO queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                qi.project_id,
+                qi.status.value,
+                qi.selection_rank,
+                qi.dispatch_priority,
+                int(qi.auto_continue),
+                qi.continue_count,
+                qi.max_continues,
+                qi.retry_count,
+                qi.max_retries,
+                qi.current_run_id,
+                qi.current_session_id,
+                qi.last_run_state,
+                qi.last_event_type,
+                qi.next_action_hint,
+                int(qi.manual_review_required),
+                qi.blocked_reason,
+                qi.last_error,
+                qi.last_result_summary,
+                qi.machine_target,
+                qi.model,
+                qi.sandbox,
+                qi.last_dispatch_at,
+                qi.last_callback_at,
+                qi.stale_after,
+                qi.updated_at,
+            ),
+        )
+        return False
+
     def ingest_ideas(
         self, request: IdeaIntakeRequest
     ) -> tuple[bool, int, int, int, list[dict[str, Any]], list[dict[str, Any]]]:
         include_statuses = {
             item.strip().lower() for item in request.include_statuses if item.strip()
         }
-        candidates: list[dict[str, Any]] = []
-        skipped_rows: list[dict[str, Any]] = []
-        for raw in request.ideas:
-            title = _idea_title(raw)
-            origin_status = _idea_status(raw).lower()
-            status = origin_status or "exploring"
-            if not title:
-                skipped_rows.append({"reason": "missing title", "row": raw})
-                continue
-            if include_statuses and status and status not in include_statuses:
-                skipped_rows.append(
-                    {
-                        "reason": f"status {status!r} not included",
-                        "title": title,
-                        "status": status,
-                        "idea_id": _text(
-                            _first_present(raw, "idea_id", "project_id", "id")
-                        ),
-                    }
-                )
-                continue
-            project_id = _idea_id(raw, title)
-            if not project_id:
-                skipped_rows.append({"reason": "missing idea id", "title": title})
-                continue
-            rank = _int(
-                _first_present(raw, "selection_rank", "dispatch_priority"),
-                _priority_rank(raw),
-            )
-            dispatch_priority = _int(
-                _first_present(raw, "dispatch_priority", "selection_rank"), rank
-            )
-            routing = route_machine_target(
-                raw,
-                default_machine_target=request.default_machine_target,
-                workload_machine_targets=request.workload_machine_targets,
-            )
-            candidates.append(
-                {
-                    "project_id": project_id,
-                    "idea_id": project_id,
-                    "project_name": title,
-                    "project_dir": project_id,
-                    "origin_idea_status": origin_status,
-                    "status": QueueStatus.QUEUED.value,
-                    "selection_rank": rank,
-                    "dispatch_priority": dispatch_priority,
-                    "next_action_hint": "controller_review",
-                    "machine_target": routing["machine_target"],
-                    "workload_class": routing["workload_class"],
-                    "routing_reason": routing["routing_reason"],
-                    "model": _text(_first_present(raw, "model", "default_model"))
-                    or request.default_model,
-                    "sandbox": _text(_first_present(raw, "sandbox", "default_sandbox"))
-                    or request.default_sandbox,
-                    "source_kind": _text(raw.get("source_kind"))
-                    or request.source
-                    or "supabase_native",
-                    "source_row": raw,
-                }
-            )
+        candidates, skipped_rows = _collect_idea_intake_candidates(
+            request, include_statuses
+        )
         if request.dry_run:
             return False, 0, 0, len(skipped_rows), candidates, skipped_rows
         event_payload = request.model_dump(mode="json")
@@ -3809,110 +3933,14 @@ class ControlPlaneStore:
                     skipped_rows,
                 )
             for candidate in candidates:
-                existed = (
-                    conn.execute(
-                        "SELECT 1 FROM queue_items WHERE project_id=?",
-                        (candidate["project_id"],),
-                    ).fetchone()
-                    is not None
-                )
-                project = ProjectRecord(
-                    project_id=candidate["project_id"],
-                    project_name=candidate["project_name"],
-                    project_dir=candidate["project_dir"],
-                    origin_idea_status=candidate["origin_idea_status"],
-                    created_at=now,
-                    updated_at=now,
-                )
-                qi = QueueItemRecord(
-                    project_id=project.project_id,
-                    status=QueueStatus.QUEUED,
-                    selection_rank=int(candidate["selection_rank"]),
-                    dispatch_priority=int(candidate["dispatch_priority"]),
-                    next_action_hint=candidate["next_action_hint"],
-                    machine_target=candidate["machine_target"],
-                    model=candidate["model"],
-                    sandbox=candidate["sandbox"],
-                    updated_at=now,
-                )
-                conn.execute(
-                    """INSERT INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
-                    VALUES (?,?,?,?,?,?,?,?)
-                    ON CONFLICT(project_id) DO UPDATE SET
-                        project_name=excluded.project_name,
-                        project_dir=excluded.project_dir,
-                        origin_idea_status=COALESCE(NULLIF(excluded.origin_idea_status,''), projects.origin_idea_status),
-                        updated_at=excluded.updated_at""",
-                    (
-                        project.project_id,
-                        project.project_name,
-                        project.project_dir,
-                        "",
-                        "",
-                        project.origin_idea_status,
-                        project.created_at,
-                        project.updated_at,
-                    ),
-                )
-                if existed:
-                    if request.override_existing_dispatch_metadata:
-                        conn.execute(
-                            """UPDATE queue_items SET selection_rank=?, dispatch_priority=?, machine_target=?, model=?, sandbox=?, updated_at=?
-                            WHERE project_id=? AND status NOT IN ('dispatching','running','awaiting_wake','wake_received','reconciling')""",
-                            (
-                                qi.selection_rank,
-                                qi.dispatch_priority,
-                                qi.machine_target,
-                                qi.model,
-                                qi.sandbox,
-                                qi.updated_at,
-                                qi.project_id,
-                            ),
-                        )
-                    else:
-                        conn.execute(
-                            """UPDATE queue_items SET selection_rank=?, dispatch_priority=?, updated_at=?
-                            WHERE project_id=? AND status NOT IN ('dispatching','running','awaiting_wake','wake_received','reconciling')""",
-                            (
-                                qi.selection_rank,
-                                qi.dispatch_priority,
-                                qi.updated_at,
-                                qi.project_id,
-                            ),
-                        )
+                if self._apply_idea_intake_candidate(
+                    conn,
+                    candidate,
+                    override_existing_dispatch_metadata=request.override_existing_dispatch_metadata,
+                    now=now,
+                ):
                     updated += 1
                 else:
-                    conn.execute(
-                        """INSERT INTO queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (
-                            qi.project_id,
-                            qi.status.value,
-                            qi.selection_rank,
-                            qi.dispatch_priority,
-                            int(qi.auto_continue),
-                            qi.continue_count,
-                            qi.max_continues,
-                            qi.retry_count,
-                            qi.max_retries,
-                            qi.current_run_id,
-                            qi.current_session_id,
-                            qi.last_run_state,
-                            qi.last_event_type,
-                            qi.next_action_hint,
-                            int(qi.manual_review_required),
-                            qi.blocked_reason,
-                            qi.last_error,
-                            qi.last_result_summary,
-                            qi.machine_target,
-                            qi.model,
-                            qi.sandbox,
-                            qi.last_dispatch_at,
-                            qi.last_callback_at,
-                            qi.stale_after,
-                            qi.updated_at,
-                        ),
-                    )
                     created += 1
         return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
 
