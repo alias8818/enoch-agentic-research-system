@@ -14446,6 +14446,8 @@ def test_worker_settling_after_vm_completion_extracted_for_s3776():
     )
     for helper in (
         "_worker_no_live_failed_check",
+        "_queue_row_completed_run_id",
+        "_run_row_completed_run_id",
         "_collect_completed_run_ids",
         "_worker_settling_match_for_completed_runs",
     ):
@@ -14455,11 +14457,15 @@ def test_worker_settling_after_vm_completion_extracted_for_s3776():
 
     from enoch_control_plane.control_plane.router import (
         _collect_completed_run_ids,
+        _queue_row_completed_run_id,
+        _run_row_completed_run_id,
         _worker_settling_after_vm_completion,
         _worker_settling_match_for_completed_runs,
     )
 
     assert callable(_worker_settling_after_vm_completion)
+    assert callable(_queue_row_completed_run_id)
+    assert callable(_run_row_completed_run_id)
     assert callable(_collect_completed_run_ids)
     assert callable(_worker_settling_match_for_completed_runs)
 

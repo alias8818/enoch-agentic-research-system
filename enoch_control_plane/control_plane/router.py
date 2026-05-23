@@ -2087,6 +2087,34 @@ def _terminal_run_states_for_worker_settling() -> set[str]:
     }
 
 
+def _queue_row_completed_run_id(
+    row: dict[str, Any],
+    *,
+    terminal_run_states: set[str],
+) -> str | None:
+    status = _normal_status(row.get("status"))
+    if status in ACTIVE_STATUSES:
+        return None
+    last_run_state = _normal_status(row.get("last_run_state"))
+    if status != "completed" and last_run_state not in terminal_run_states:
+        return None
+    run_id = str(row.get("current_run_id") or "").strip()
+    return run_id or None
+
+
+def _run_row_completed_run_id(
+    row: dict[str, Any],
+    *,
+    terminal_run_states: set[str],
+) -> str | None:
+    state = _normal_status(row.get("state"))
+    gate_state = _normal_status(row.get("gate_state"))
+    if state not in terminal_run_states and gate_state not in terminal_run_states:
+        return None
+    run_id = str(row.get("run_id") or "").strip()
+    return run_id or None
+
+
 def _collect_completed_run_ids(
     *,
     queue_rows: list[dict[str, Any]],
@@ -2095,21 +2123,14 @@ def _collect_completed_run_ids(
 ) -> set[str]:
     completed_run_ids: set[str] = set()
     for row in queue_rows:
-        status = _normal_status(row.get("status"))
-        last_run_state = _normal_status(row.get("last_run_state"))
-        run_id = str(row.get("current_run_id") or "").strip()
-        if status in ACTIVE_STATUSES:
-            continue
-        if status == "completed" or last_run_state in terminal_run_states:
-            if run_id:
-                completed_run_ids.add(run_id)
+        run_id = _queue_row_completed_run_id(
+            row, terminal_run_states=terminal_run_states
+        )
+        if run_id:
+            completed_run_ids.add(run_id)
 
     for row in run_rows:
-        state = _normal_status(row.get("state"))
-        gate_state = _normal_status(row.get("gate_state"))
-        if state not in terminal_run_states and gate_state not in terminal_run_states:
-            continue
-        run_id = str(row.get("run_id") or "").strip()
+        run_id = _run_row_completed_run_id(row, terminal_run_states=terminal_run_states)
         if run_id:
             completed_run_ids.add(run_id)
     return completed_run_ids
