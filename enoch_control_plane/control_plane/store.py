@@ -974,6 +974,84 @@ def _readiness_passed(audit: dict[str, Any]) -> bool:
     )
 
 
+_REVIEW_REQUIRED_JSON = (
+    "evidence_bundle_path",
+    "claim_ledger_path",
+    "manifest_path",
+)
+_BLOCKING_QUEUE_STATUSES = frozenset(
+    {
+        QueueStatus.BLOCKED.value,
+        QueueStatus.NEEDS_REVIEW.value,
+        QueueStatus.DISPATCH_ERROR.value,
+    }
+)
+
+
+def _paper_status_review_score(paper_status: str) -> tuple[int, str | None]:
+    if paper_status == PaperStatus.PUBLICATION_DRAFT.value:
+        return 100, "publication_draft +100"
+    if paper_status == PaperStatus.DRAFT_REVIEW.value:
+        return 40, "draft_review +40"
+    return 0, None
+
+
+def _audit_review_adjustment(
+    audit: dict[str, Any], missing: list[str]
+) -> tuple[int, list[str], str | None]:
+    if _readiness_passed(audit):
+        return 20, missing, "readiness audit passed +20"
+    updated = list(missing)
+    if not audit:
+        updated.append("readiness_audit")
+    return 0, updated, None
+
+
+def _required_json_review_adjustment(
+    paper: dict[str, Any], missing: list[str]
+) -> tuple[int, list[str], str | None]:
+    if all(_text(paper.get(name)) for name in _REVIEW_REQUIRED_JSON):
+        return 10, missing, "evidence/claim/manifest paths present +10"
+    updated = list(missing)
+    for name in _REVIEW_REQUIRED_JSON:
+        if not _text(paper.get(name)):
+            updated.append(name)
+    return 0, updated, None
+
+
+def _draft_paths_review_score(paper: dict[str, Any]) -> tuple[int, str | None]:
+    if _text(paper.get("draft_markdown_path")) and _text(paper.get("draft_latex_path")):
+        return 5, "draft markdown/latex paths present +5"
+    return 0, None
+
+
+def _queue_blocks_review(queue_item: dict[str, Any]) -> bool:
+    return bool(
+        _text(queue_item.get("blocked_reason"))
+        or _text(queue_item.get("status")) in _BLOCKING_QUEUE_STATUSES
+        or bool(queue_item.get("manual_review_required"))
+    )
+
+
+def _review_rank_bucket(score: int) -> str:
+    if score < 0:
+        return "blocked"
+    if score >= 100:
+        return "ready"
+    return "review"
+
+
+def _review_rank_tiebreaker(paper: dict[str, Any], paper_status: str) -> str:
+    status_priority = {
+        PaperStatus.PUBLICATION_DRAFT.value: 0,
+        PaperStatus.DRAFT_REVIEW.value: 1,
+    }.get(paper_status, 9)
+    return (
+        f"{status_priority}:{_text(paper.get('updated_at'))}:"
+        f"{_text(paper.get('paper_id'))}"
+    )
+
+
 def _review_rank(
     paper: dict[str, Any],
     queue_item: dict[str, Any] | None,
@@ -984,44 +1062,30 @@ def _review_rank(
     missing = list(dict.fromkeys(initial_missing))
     score = 0
     paper_status = _text(paper.get("paper_status"))
-    if paper_status == PaperStatus.PUBLICATION_DRAFT.value:
-        score += 100
-        reasons.append("publication_draft +100")
-    elif paper_status == PaperStatus.DRAFT_REVIEW.value:
-        score += 40
-        reasons.append("draft_review +40")
 
-    audit_ready = _readiness_passed(audit)
-    if audit_ready:
-        score += 20
-        reasons.append("readiness audit passed +20")
-    elif not audit:
-        missing.append("readiness_audit")
+    status_score, status_reason = _paper_status_review_score(paper_status)
+    score += status_score
+    if status_reason:
+        reasons.append(status_reason)
 
-    required_json = ["evidence_bundle_path", "claim_ledger_path", "manifest_path"]
-    if all(_text(paper.get(name)) for name in required_json):
-        score += 10
-        reasons.append("evidence/claim/manifest paths present +10")
-    else:
-        for name in required_json:
-            if not _text(paper.get(name)):
-                missing.append(name)
+    audit_score, missing, audit_reason = _audit_review_adjustment(audit, missing)
+    score += audit_score
+    if audit_reason:
+        reasons.append(audit_reason)
 
-    if _text(paper.get("draft_markdown_path")) and _text(paper.get("draft_latex_path")):
-        score += 5
-        reasons.append("draft markdown/latex paths present +5")
+    paths_score, missing, paths_reason = _required_json_review_adjustment(
+        paper, missing
+    )
+    score += paths_score
+    if paths_reason:
+        reasons.append(paths_reason)
 
-    queue_item = queue_item or {}
-    if (
-        _text(queue_item.get("blocked_reason"))
-        or _text(queue_item.get("status"))
-        in {
-            QueueStatus.BLOCKED.value,
-            QueueStatus.NEEDS_REVIEW.value,
-            QueueStatus.DISPATCH_ERROR.value,
-        }
-        or bool(queue_item.get("manual_review_required"))
-    ):
+    draft_score, draft_reason = _draft_paths_review_score(paper)
+    score += draft_score
+    if draft_reason:
+        reasons.append(draft_reason)
+
+    if _queue_blocks_review(queue_item or {}):
         score -= 100
         reasons.append("blocked/manual-action queue signal -100")
 
@@ -1030,12 +1094,8 @@ def _review_rank(
         score -= 25
         reasons.append("material ranking inputs missing -25")
 
-    status_priority = {
-        PaperStatus.PUBLICATION_DRAFT.value: 0,
-        PaperStatus.DRAFT_REVIEW.value: 1,
-    }.get(paper_status, 9)
-    tiebreaker = f"{status_priority}:{_text(paper.get('updated_at'))}:{_text(paper.get('paper_id'))}"
-    bucket = "blocked" if score < 0 else "ready" if score >= 100 else "review"
+    tiebreaker = _review_rank_tiebreaker(paper, paper_status)
+    bucket = _review_rank_bucket(score)
     return score, reasons, material_missing, tiebreaker, bucket
 
 
