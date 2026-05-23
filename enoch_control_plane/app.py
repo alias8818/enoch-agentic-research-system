@@ -3175,6 +3175,111 @@ async def _reap_and_log_stale_project_processes(record: RunRecord) -> None:
     )
 
 
+def _build_gate_timeout_callback(
+    record: RunRecord,
+    timeout_idempotency_key: str,
+    profile_evidence: dict[str, Any],
+) -> GateCallback:
+    return GateCallback(
+        event_type="gate_timeout",
+        run_id=record.run_id,
+        session_id=record.session_id,
+        project_id=record.project_id,
+        project_name=record.project_name,
+        source_event=(record.last_event.value if record.last_event else "unknown"),
+        gate_state=record.gate_state.value,
+        idle_seen_at=record.idle_seen_at,
+        process_tracking=gate.process_tracker.snapshot(record, []),
+        telemetry={
+            "workload_class": profile_evidence["workload_class"],
+            "workload_profile_name": profile_evidence["workload_profile_name"],
+            "thresholds": profile_evidence["workload_thresholds"],
+        },
+        reason="idle_gate_timeout",
+        idempotency_key=timeout_idempotency_key,
+    )
+
+
+async def _process_retry_callback(record: RunRecord) -> bool:
+    retry_callback = _ready_callback_for_retry(record)
+    if retry_callback is None:
+        return False
+    ok, detail = await _deliver_callback(retry_callback)
+    profile_evidence = _wake_decision_profile_evidence(record)
+    store.append_event(
+        {
+            "kind": "callback_retry",
+            "run_id": record.run_id,
+            "event_type": retry_callback.event_type,
+            "ok": ok,
+            "detail": detail,
+            "timestamp": utc_now(),
+            **profile_evidence,
+        }
+    )
+    if not ok:
+        return False
+    record.last_idempotency_key = retry_callback.idempotency_key
+    store.save_run(record)
+    return True
+
+
+async def _process_gate_timeout(record: RunRecord) -> bool:
+    if not gate.is_timed_out(record):
+        return False
+    timeout_idempotency_key = (
+        f"{record.run_id}:gate_timeout:{record.idle_seen_at or record.last_event_at}"
+    )
+    if record.last_idempotency_key == timeout_idempotency_key:
+        return True
+    profile_evidence = _wake_decision_profile_evidence(record)
+    timeout_callback = _build_gate_timeout_callback(
+        record, timeout_idempotency_key, profile_evidence
+    )
+    record.gate_state = GateState.ERROR
+    record.last_idempotency_key = timeout_callback.idempotency_key
+    store.save_run(record)
+    ok, detail = await _deliver_callback(timeout_callback)
+    store.append_event(
+        {
+            "kind": "callback_attempt",
+            "run_id": record.run_id,
+            "event_type": timeout_callback.event_type,
+            "ok": ok,
+            "detail": detail,
+            "timestamp": utc_now(),
+            **profile_evidence,
+        }
+    )
+    store.save_run(record)
+    return True
+
+
+async def _process_gate_evaluation(record: RunRecord) -> bool:
+    record, callback = gate.evaluate(record)
+    store.save_run(record)
+    if callback is None:
+        return False
+    ok, detail = await _deliver_callback(callback)
+    profile_evidence = _wake_decision_profile_evidence(record)
+    store.append_event(
+        {
+            "kind": "callback_attempt",
+            "run_id": record.run_id,
+            "event_type": callback.event_type,
+            "ok": ok,
+            "detail": detail,
+            "timestamp": utc_now(),
+            **profile_evidence,
+        }
+    )
+    if not ok:
+        return False
+    record.last_idempotency_key = callback.idempotency_key
+    store.save_run(record)
+    return True
+
+
 async def _evaluate_until_ready(run_id: str) -> None:
     try:
         while True:
@@ -3185,94 +3290,12 @@ async def _evaluate_until_ready(run_id: str) -> None:
 
             await _reap_and_log_stale_project_processes(record)
 
-            retry_callback = _ready_callback_for_retry(record)
-            if retry_callback is not None:
-                ok, detail = await _deliver_callback(retry_callback)
-                profile_evidence = _wake_decision_profile_evidence(record)
-                store.append_event(
-                    {
-                        "kind": "callback_retry",
-                        "run_id": record.run_id,
-                        "event_type": retry_callback.event_type,
-                        "ok": ok,
-                        "detail": detail,
-                        "timestamp": utc_now(),
-                        **profile_evidence,
-                    }
-                )
-                if ok:
-                    record.last_idempotency_key = retry_callback.idempotency_key
-                    store.save_run(record)
-                    return
-
-            if gate.is_timed_out(record):
-                timeout_idempotency_key = f"{record.run_id}:gate_timeout:{record.idle_seen_at or record.last_event_at}"
-                if record.last_idempotency_key == timeout_idempotency_key:
-                    return
-                profile_evidence = _wake_decision_profile_evidence(record)
-                timeout_callback = GateCallback(
-                    event_type="gate_timeout",
-                    run_id=record.run_id,
-                    session_id=record.session_id,
-                    project_id=record.project_id,
-                    project_name=record.project_name,
-                    source_event=(
-                        record.last_event.value if record.last_event else "unknown"
-                    ),
-                    gate_state=record.gate_state.value,
-                    idle_seen_at=record.idle_seen_at,
-                    process_tracking=gate.process_tracker.snapshot(record, []),
-                    telemetry={
-                        "workload_class": profile_evidence["workload_class"],
-                        "workload_profile_name": profile_evidence[
-                            "workload_profile_name"
-                        ],
-                        "thresholds": profile_evidence["workload_thresholds"],
-                    },
-                    reason="idle_gate_timeout",
-                    idempotency_key=timeout_idempotency_key,
-                )
-                record.gate_state = GateState.ERROR
-                record.last_idempotency_key = timeout_callback.idempotency_key
-                store.save_run(record)
-                ok, detail = await _deliver_callback(timeout_callback)
-                store.append_event(
-                    {
-                        "kind": "callback_attempt",
-                        "run_id": record.run_id,
-                        "event_type": timeout_callback.event_type,
-                        "ok": ok,
-                        "detail": detail,
-                        "timestamp": utc_now(),
-                        **profile_evidence,
-                    }
-                )
-                if ok:
-                    store.save_run(record)
-                    return
-                store.save_run(record)
+            if await _process_retry_callback(record):
                 return
-
-            record, callback = gate.evaluate(record)
-            store.save_run(record)
-            if callback is not None:
-                ok, detail = await _deliver_callback(callback)
-                profile_evidence = _wake_decision_profile_evidence(record)
-                store.append_event(
-                    {
-                        "kind": "callback_attempt",
-                        "run_id": record.run_id,
-                        "event_type": callback.event_type,
-                        "ok": ok,
-                        "detail": detail,
-                        "timestamp": utc_now(),
-                        **profile_evidence,
-                    }
-                )
-                if ok:
-                    record.last_idempotency_key = callback.idempotency_key
-                    store.save_run(record)
-                    return
+            if await _process_gate_timeout(record):
+                return
+            if await _process_gate_evaluation(record):
+                return
 
             await asyncio.sleep(config.sample_interval_sec)
     finally:
