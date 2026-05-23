@@ -18,6 +18,12 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from enoch_control_plane.url_safety import secure_default_service_url
+
+# Documented on-prem control-plane host for the research-facility LAN.
+LAB_CONTROL_PLANE_HOST = "192.168.1.166"  # NOSONAR python:S1313
+DEFAULT_CONTROL_PLANE_URL = secure_default_service_url(LAB_CONTROL_PLANE_HOST, 8787)
+
 
 @dataclass
 class HttpResult:
@@ -272,7 +278,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--control-url",
-        default=os.environ.get("ENOCH_CONTROL_PLANE_URL", "http://192.168.1.166:8787"),
+        default=os.environ.get("ENOCH_CONTROL_PLANE_URL", DEFAULT_CONTROL_PLANE_URL),
     )
     parser.add_argument(
         "--token-file",
