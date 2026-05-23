@@ -261,27 +261,30 @@ def check_required_copy(paths: list[Path], failures: list[str]) -> None:
         fail("missing independent-replication caveat", failures)
 
 
-def check_manifest(
-    committed: dict, generated: dict | None, failures: list[str]
-) -> None:
-    required = [
-        "artifact_count",
-        "promising_signal_count",
-        "packaging_provenance_pass_count",
-        "gate_name",
-        "gate_version",
-        "gate_scope",
-        "validated",
-        "not_validated",
-        "warnings",
-        "strict_claim_evidence_pass_count",
-        "strict_claim_evidence_total_count",
-        "strict_claim_evidence_gate_name",
-        "strict_claim_evidence_gate_status",
-    ]
-    for key in required:
+MANIFEST_REQUIRED_KEYS = [
+    "artifact_count",
+    "promising_signal_count",
+    "packaging_provenance_pass_count",
+    "gate_name",
+    "gate_version",
+    "gate_scope",
+    "validated",
+    "not_validated",
+    "warnings",
+    "strict_claim_evidence_pass_count",
+    "strict_claim_evidence_total_count",
+    "strict_claim_evidence_gate_name",
+    "strict_claim_evidence_gate_status",
+]
+
+
+def _check_manifest_required_keys(committed: dict, failures: list[str]) -> None:
+    for key in MANIFEST_REQUIRED_KEYS:
         if key not in committed:
             fail(f"manifest missing required key: {key}", failures)
+
+
+def _check_manifest_strict_claim_evidence(committed: dict, failures: list[str]) -> None:
     if (
         committed.get("strict_claim_evidence_gate_name")
         != "strict_claim_evidence_audit"
@@ -291,9 +294,8 @@ def check_manifest(
             failures,
         )
     strict_pass_count = int(committed.get("strict_claim_evidence_pass_count") or 0)
-    if strict_pass_count < 0 or strict_pass_count > int(
-        committed.get("artifact_count") or 0
-    ):
+    artifact_count = int(committed.get("artifact_count") or 0)
+    if strict_pass_count < 0 or strict_pass_count > artifact_count:
         fail(
             "manifest strict claim/evidence pass count must be between 0 and artifact count",
             failures,
@@ -311,15 +313,23 @@ def check_manifest(
             "manifest strict audit status cannot be strict_pass unless every artifact passes",
             failures,
         )
-    if generated is None:
-        return
-    stable_keys = [key for key in required if key != "warnings"]
+
+
+def _check_manifest_stable_key_drift(
+    committed: dict, generated: dict, failures: list[str]
+) -> None:
+    stable_keys = [key for key in MANIFEST_REQUIRED_KEYS if key != "warnings"]
     for key in stable_keys:
         if committed.get(key) != generated.get(key):
             fail(
                 f"committed manifest drift for {key}: {committed.get(key)!r} != generated {generated.get(key)!r}",
                 failures,
             )
+
+
+def _check_manifest_repo_drift(
+    committed: dict, generated: dict, failures: list[str]
+) -> None:
     committed_repos = committed.get("repos") or {}
     generated_repos = generated.get("repos") or {}
     for repo_key, generated_repo in generated_repos.items():
@@ -334,6 +344,17 @@ def check_manifest(
                 f"committed manifest should not contain volatile repo commit for {repo_key}",
                 failures,
             )
+
+
+def check_manifest(
+    committed: dict, generated: dict | None, failures: list[str]
+) -> None:
+    _check_manifest_required_keys(committed, failures)
+    _check_manifest_strict_claim_evidence(committed, failures)
+    if generated is None:
+        return
+    _check_manifest_stable_key_drift(committed, generated, failures)
+    _check_manifest_repo_drift(committed, generated, failures)
 
 
 def fetch_github_repo_metadata(repo: str) -> dict:
