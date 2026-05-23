@@ -18,6 +18,8 @@ sonar.projectKey=alias8818_enoch-agentic-research-system_6ab334f2-c45e-42db-87ce
 
 Full workflow, MCP tool catalog, and fix loop: use the personal skill at `~/.cursor/skills/sonarqube-workflow/SKILL.md` (same content). Agents without that path should follow `.cursor/rules/sonarqube_mcp_instructions.mdc` plus the steps below.
 
+**Cognitive complexity:** production `python:S3776` / `typescript:S3776` threshold **15** per function (see `docs/sonarqube-cognitive-complexity.md`, `.vscode/settings.json`, `sonar-project.properties`).
+
 ## Quick loop
 
 1. **`ReadLints`** on files you will edit (Problems panel = source of truth for what the user sees).

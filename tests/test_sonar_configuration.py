@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 
@@ -91,3 +92,27 @@ def test_sonar_accepts_internal_http_for_research_control_plane() -> None:
     http_rule = props.get("sonar.issue.ignore.multicriteria.httpInternal.ruleKey", "")
     assert "python:S5332" in http_rule
     assert "typescript:S5332" in http_rule
+
+
+def test_sonar_cognitive_complexity_policy_thresholds() -> None:
+    """S3776 production threshold is 15; higher bands are documented review guidelines."""
+    props = _properties()
+    assert props["enoch.cognitiveComplexity.productionThreshold"] == "15"
+    assert props["enoch.cognitiveComplexity.scriptGuidelineThreshold"] == "20"
+    assert props["enoch.cognitiveComplexity.testGuidelineThreshold"] == "25"
+    assert props["enoch.cognitiveComplexity.blockThreshold"] == "25"
+    text = (ROOT / "sonar-project.properties").read_text(encoding="utf-8")
+    assert "python:S3776" in text
+    assert "typescript:S3776" in text
+    assert "total cognitive complexity" in text.lower()
+
+
+def test_sonarlint_s3776_threshold_is_fifteen_for_python_and_typescript() -> None:
+    settings = json.loads(
+        (ROOT / ".vscode" / "settings.json").read_text(encoding="utf-8")
+    )
+    rules = settings["sonarlint.rules"]
+    assert rules["python:S3776"]["parameters"]["threshold"] == 15
+    assert rules["typescript:S3776"]["parameters"]["threshold"] == 15
+    assert rules["python:S3776"]["level"] == "on"
+    assert rules["typescript:S3776"]["level"] == "on"
