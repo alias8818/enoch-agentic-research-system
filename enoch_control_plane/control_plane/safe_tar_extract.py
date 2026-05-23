@@ -152,6 +152,82 @@ def _extract_tar_member(
     return total_bytes + len(content)
 
 
+def _tar_archive_entry_limit_reached(
+    entry_count: int,
+    threshold_entries: int,
+    member: tarfile.TarInfo,
+    skipped: list[dict[str, Any]],
+) -> bool:
+    if entry_count <= threshold_entries:
+        return False
+    _append_tar_skip(
+        skipped,
+        path=member.name,
+        status="too_many_members",
+        error="tar archive exceeds safe member count",
+    )
+    return True
+
+
+def _tar_archive_size_limit_reached(
+    total_bytes: int,
+    threshold_size: int,
+    member: tarfile.TarInfo,
+    skipped: list[dict[str, Any]],
+) -> bool:
+    if total_bytes <= threshold_size:
+        return False
+    _append_tar_skip(
+        skipped,
+        path=member.name,
+        status="too_large",
+        error="tar archive exceeds safe total uncompressed size",
+    )
+    return True
+
+
+def _tar_archive_ratio_limit_reached(
+    total_bytes: int,
+    compressed_len: int,
+    threshold_ratio: int,
+    member: tarfile.TarInfo,
+    skipped: list[dict[str, Any]],
+    *,
+    require_positive_total: bool,
+) -> bool:
+    if require_positive_total and total_bytes <= 0:
+        return False
+    if total_bytes / compressed_len <= threshold_ratio:
+        return False
+    _append_tar_skip(
+        skipped,
+        path=member.name,
+        status="compression_ratio",
+        error="tar archive exceeds safe compression ratio",
+    )
+    return True
+
+
+def _tar_regular_file_readable(
+    archive: tarfile.TarFile,
+    member: tarfile.TarInfo,
+    skipped: list[dict[str, Any]],
+) -> bool:
+    if not member.isfile():
+        return True
+    member_stream = archive.extractfile(member)
+    if member_stream is not None:
+        member_stream.close()
+        return True
+    _append_tar_skip(
+        skipped,
+        path=member.name,
+        status="unsupported_member",
+        error="tar member is not readable as a regular file",
+    )
+    return False
+
+
 def _expand_bounded_tar_gz(
     payload: bytes,
     artifact_root: Path,
@@ -177,13 +253,9 @@ def _expand_bounded_tar_gz(
         entry_count = 0
         for member in archive:
             entry_count += 1
-            if entry_count > threshold_entries:
-                _append_tar_skip(
-                    skipped,
-                    path=member.name,
-                    status="too_many_members",
-                    error="tar archive exceeds safe member count",
-                )
+            if _tar_archive_entry_limit_reached(
+                entry_count, threshold_entries, member, skipped
+            ):
                 limit_exceeded = True
                 break
             filtered = _filter_tar_member(member, artifact_root)
@@ -196,35 +268,23 @@ def _expand_bounded_tar_gz(
                 )
                 continue
             member = filtered
-            if total_bytes > threshold_size:
-                _append_tar_skip(
-                    skipped,
-                    path=member.name,
-                    status="too_large",
-                    error="tar archive exceeds safe total uncompressed size",
-                )
+            if _tar_archive_size_limit_reached(
+                total_bytes, threshold_size, member, skipped
+            ):
                 limit_exceeded = True
                 break
-            if total_bytes > 0 and total_bytes / compressed_len > threshold_ratio:
-                _append_tar_skip(
-                    skipped,
-                    path=member.name,
-                    status="compression_ratio",
-                    error="tar archive exceeds safe compression ratio",
-                )
+            if _tar_archive_ratio_limit_reached(
+                total_bytes,
+                compressed_len,
+                threshold_ratio,
+                member,
+                skipped,
+                require_positive_total=True,
+            ):
                 limit_exceeded = True
                 break
-            if member.isfile():
-                member_stream = archive.extractfile(member)
-                if member_stream is None:
-                    _append_tar_skip(
-                        skipped,
-                        path=member.name,
-                        status="unsupported_member",
-                        error="tar member is not readable as a regular file",
-                    )
-                    continue
-                member_stream.close()
+            if not _tar_regular_file_readable(archive, member, skipped):
+                continue
             total_bytes = _extract_tar_member(
                 archive,
                 member,
@@ -235,22 +295,19 @@ def _expand_bounded_tar_gz(
                 skipped=skipped,
                 total_bytes=total_bytes,
             )
-            if total_bytes > threshold_size:
-                _append_tar_skip(
-                    skipped,
-                    path=member.name,
-                    status="too_large",
-                    error="tar archive exceeds safe total uncompressed size",
-                )
+            if _tar_archive_size_limit_reached(
+                total_bytes, threshold_size, member, skipped
+            ):
                 limit_exceeded = True
                 break
-            if total_bytes / compressed_len > threshold_ratio:
-                _append_tar_skip(
-                    skipped,
-                    path=member.name,
-                    status="compression_ratio",
-                    error="tar archive exceeds safe compression ratio",
-                )
+            if _tar_archive_ratio_limit_reached(
+                total_bytes,
+                compressed_len,
+                threshold_ratio,
+                member,
+                skipped,
+                require_positive_total=False,
+            ):
                 limit_exceeded = True
                 break
     return total_bytes, limit_exceeded
