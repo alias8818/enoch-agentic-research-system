@@ -115,7 +115,7 @@ def create_enoch_core_router(
         projection = queue_projection(snapshot)
         return QueueProjection(mode=current_mode(mode), **projection)
 
-    @router.get("/candidates/paper-draft", response_model=CandidateResponse)
+    @router.get("/candidates/paper-draft")
     def paper_draft_candidate(
         authorization: Annotated[str | None, Header()] = None,
         mode: Annotated[EnochCoreMode | None, Query()] = None,
