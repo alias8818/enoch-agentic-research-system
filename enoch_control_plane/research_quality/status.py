@@ -242,6 +242,63 @@ def _load_json_file(path: str) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
+def _autopilot_history_item_timestamp(item: dict[str, Any]) -> str:
+    return str(item.get("checked_at") or item.get("recorded_at") or "")
+
+
+def _parse_autopilot_history_row(line: str, cutoff: str) -> dict[str, Any] | None:
+    try:
+        item = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(item, dict):
+        return None
+    if cutoff and _autopilot_history_item_timestamp(item) < cutoff:
+        return None
+    return item
+
+
+def _collect_autopilot_history_rows(
+    lines: list[str], cutoff: str
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for line in lines:
+        row = _parse_autopilot_history_row(line, cutoff)
+        if row is not None:
+            rows.append(row)
+    return rows
+
+
+def _autopilot_history_summary_from_rows(
+    path: str, rows: list[dict[str, Any]]
+) -> dict[str, Any]:
+    malformed_rows = [
+        item
+        for item in rows
+        if _safe_int(item.get("malformed_provider_response_count")) > 0
+    ]
+    last_row = rows[-1] if rows else None
+    last_malformed = malformed_rows[-1] if malformed_rows else None
+    return {
+        "path": path,
+        "available": True,
+        "rows_checked": len(rows),
+        "malformed_provider_response_ticks": len(malformed_rows),
+        "malformed_provider_response_count": sum(
+            _safe_int(item.get("malformed_provider_response_count")) for item in rows
+        ),
+        "last_malformed_at": _autopilot_history_item_timestamp(last_malformed)
+        if last_malformed
+        else "",
+        "last_generated_count": _safe_int(last_row.get("generated_count"))
+        if last_row
+        else 0,
+        "last_checked_at": _autopilot_history_item_timestamp(last_row)
+        if last_row
+        else "",
+    }
+
+
 def _load_autopilot_history_summary(
     path: str, *, cutoff: str = "", max_rows: int = 200
 ) -> dict[str, Any]:
@@ -255,50 +312,8 @@ def _load_autopilot_history_summary(
     except OSError as exc:
         return {"path": path, "available": False, "reason": f"read_failed: {exc}"}
 
-    rows: list[dict[str, Any]] = []
-    for line in lines:
-        try:
-            item = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(item, dict):
-            continue
-        if (
-            cutoff
-            and str(item.get("checked_at") or item.get("recorded_at") or "") < cutoff
-        ):
-            continue
-        rows.append(item)
-
-    malformed_rows = [
-        item
-        for item in rows
-        if _safe_int(item.get("malformed_provider_response_count")) > 0
-    ]
-    return {
-        "path": path,
-        "available": True,
-        "rows_checked": len(rows),
-        "malformed_provider_response_ticks": len(malformed_rows),
-        "malformed_provider_response_count": sum(
-            _safe_int(item.get("malformed_provider_response_count")) for item in rows
-        ),
-        "last_malformed_at": str(
-            malformed_rows[-1].get("checked_at")
-            or malformed_rows[-1].get("recorded_at")
-            or ""
-        )
-        if malformed_rows
-        else "",
-        "last_generated_count": _safe_int(rows[-1].get("generated_count"))
-        if rows
-        else 0,
-        "last_checked_at": str(
-            rows[-1].get("checked_at") or rows[-1].get("recorded_at") or ""
-        )
-        if rows
-        else "",
-    }
+    rows = _collect_autopilot_history_rows(lines, cutoff)
+    return _autopilot_history_summary_from_rows(path, rows)
 
 
 def _post_prompt_monitor(*, window_path: str, history_path: str) -> dict[str, Any]:
