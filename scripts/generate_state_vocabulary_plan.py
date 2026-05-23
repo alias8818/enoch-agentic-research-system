@@ -30,6 +30,10 @@ QUEUE_ITEMS_STATUS = "queue_items.status"
 # (addresses current top remaining S1192 in the same file, 7x in DOMAIN_TARGETS surfaces and mappings).
 PROJECT_DECISIONS_DECISION_GATE_STATE = "project_decisions.decision_gate_state"
 
+# Centralized surface name for the duplicated PAPERS_PAPER_STATUS literal
+# (addresses current top remaining S1192 in the same file, 10x in DOMAIN_TARGETS surfaces and mappings).
+PAPERS_PAPER_STATUS = "papers.paper_status"
+
 DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
     {
         "Ideas": {
@@ -80,7 +84,7 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
         },
         "Papers": {
             "surfaces": [
-                "papers.paper_status",
+                PAPERS_PAPER_STATUS,
                 "publication_automation_items.automation_status",
             ],
             "states": OrderedDict(
@@ -152,15 +156,15 @@ FINAL_STATE_OVERRIDES: dict[tuple[str, str], str] = {
     ("queue_items.last_run_state", ""): "historical",
     ("runs.gate_state", ""): "historical",
     # Papers / publication automation
-    ("papers.paper_status", "eligible"): "needed",
-    ("papers.paper_status", "draft_generating"): "drafting",
-    ("papers.paper_status", "draft_review"): "finalizing",
-    ("papers.paper_status", "publication_generating"): "finalizing",
-    ("papers.paper_status", "publication_draft"): "finalizing",
-    ("papers.paper_status", "human_review_required"): "blocked",
-    ("papers.paper_status", "archived"): "archived",
-    ("papers.paper_status", "finalized"): "ready_to_publish",
-    ("papers.paper_status", "approved_for_corpus"): "published",
+    (PAPERS_PAPER_STATUS, "eligible"): "needed",
+    (PAPERS_PAPER_STATUS, "draft_generating"): "drafting",
+    (PAPERS_PAPER_STATUS, "draft_review"): "finalizing",
+    (PAPERS_PAPER_STATUS, "publication_generating"): "finalizing",
+    (PAPERS_PAPER_STATUS, "publication_draft"): "finalizing",
+    (PAPERS_PAPER_STATUS, "human_review_required"): "blocked",
+    (PAPERS_PAPER_STATUS, "archived"): "archived",
+    (PAPERS_PAPER_STATUS, "finalized"): "ready_to_publish",
+    (PAPERS_PAPER_STATUS, "approved_for_corpus"): "published",
     ("publication_automation_items.automation_status", "queued"): "finalizing",
     ("publication_automation_items.automation_status", "claimed"): "finalizing",
     ("publication_automation_items.automation_status", "blocked"): "blocked",

@@ -968,3 +968,21 @@ def test_generate_state_vocabulary_plan_project_decisions_decision_gate_state_ce
     assert count == 1, (
         f"{lit!r} still duplicated in vocabulary plan (count={count}); extract to const"
     )
+
+
+def test_generate_state_vocabulary_plan_papers_paper_status_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top remaining S1192 in generate_state_vocabulary_plan.py (line 83).
+
+    "papers.paper_status" (flagged in latest Sonar top duplication, 10x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "generate_state_vocabulary_plan.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "papers.paper_status"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in vocabulary plan (count={count}); extract to const"
+    )
