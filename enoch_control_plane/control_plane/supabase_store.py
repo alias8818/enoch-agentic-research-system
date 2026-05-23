@@ -81,10 +81,13 @@ from .store import (
     _readiness_passed,
     _review_rank,
     _restore_or_remove_path,
+    _import_snapshot_event_payload,
+    _paper_status_from_import_raw,
     _reject_conflicting_snapshot_rows,
     _slug_id,
     _snapshot_rows,
     _text,
+    _validate_import_snapshot_rows,
 )
 from .workload_routing import route_machine_target
 
@@ -5440,36 +5443,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             *request.paper_rows,
             *_snapshot_rows(request.paper_snapshot, paper=True),
         ]
-        _reject_conflicting_snapshot_rows(
-            queue_rows,
-            key_fields=("project_id",),
-            identity_fields=(
-                ("project_name", "name", "title"),
-                ("project_dir", "project_path"),
-                ("status", "queue_status"),
-                ("current_run_id",),
-            ),
-            label="queue project",
-        )
-        _reject_conflicting_snapshot_rows(
-            paper_rows,
-            key_fields=("paper_id",),
-            identity_fields=(
-                ("project_id",),
-                ("run_id",),
-                ("paper_type",),
-                ("paper_status",),
-                ("draft_markdown_path",),
-                ("draft_latex_path",),
-                ("evidence_bundle_path",),
-                ("claim_ledger_path",),
-                ("manifest_path",),
-            ),
-            label="paper",
-        )
-        event_payload = request.model_dump(mode="json")
-        event_payload["normalized_queue_row_count"] = len(queue_rows)
-        event_payload["normalized_paper_row_count"] = len(paper_rows)
+        _validate_import_snapshot_rows(queue_rows, paper_rows)
+        event_payload = _import_snapshot_event_payload(request, queue_rows, paper_rows)
         projects = queue_items = papers = 0
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -5484,251 +5459,301 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 if not inserted:
                     return False, 0, 0, 0
                 for raw in queue_rows:
-                    project_id = _text(raw.get("project_id"))
-                    if not project_id:
-                        continue
-                    status_value = (
-                        _text(_first_present(raw, "status", "queue_status"))
-                        or QueueStatus.QUEUED.value
-                    )
-                    if status_value not in QueueStatus._value2member_map_:
-                        status_value = QueueStatus.QUEUED.value
-                    created_at = (
-                        _text(_first_present(raw, "createdAt", "created_at"))
-                        or utc_now()
-                    )
-                    updated_at = (
-                        _text(
-                            _first_present(
-                                raw, "updatedAt", "updated_at", "last_execution_update"
-                            )
-                        )
-                        or utc_now()
-                    )
-                    cur.execute(
-                        """
-                        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
-                        values (%s,%s,%s,%s,%s,%s,%s,%s)
-                        on conflict (project_id) do update set
-                          project_name=excluded.project_name,
-                          project_dir=coalesce(nullif(projects.project_dir,''), excluded.project_dir),
-                          notion_page_url=coalesce(nullif(excluded.notion_page_url,''), projects.notion_page_url),
-                          notion_page_id=coalesce(nullif(excluded.notion_page_id,''), projects.notion_page_id),
-                          origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
-                          updated_at=excluded.updated_at
-                        where excluded.updated_at >= projects.updated_at
-                        """,
-                        (
-                            project_id,
-                            _text(_first_present(raw, "project_name", "name", "title"))
-                            or project_id,
-                            _text(_first_present(raw, "project_dir", "project_path")),
-                            _text(_first_present(raw, "notion_page_url", "url")),
-                            _text(
-                                _first_present(raw, "notion_page_id", "page_id", "id")
-                            )
-                            or _notion_page_id_from_url(
-                                _text(_first_present(raw, "notion_page_url", "url"))
-                            ),
-                            _text(
-                                _first_present(raw, "origin_idea_status", "idea_status")
-                            )
-                            or "unknown",
-                            created_at,
-                            updated_at,
-                        ),
-                    )
-                    projects += 1
-                    cur.execute(
-                        "select status,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,last_dispatch_at,last_callback_at,stale_after,updated_at from queue_items where project_id = %s",
-                        (project_id,),
-                    )
-                    existing_queue = cur.fetchone()
-                    if existing_queue and _is_older_timestamp(
-                        updated_at, existing_queue.get("updated_at")
-                    ):
-                        continue
-                    existing_run_id = _text(
-                        (existing_queue or {}).get("current_run_id")
-                    )
-                    incoming_run_id = _text(raw.get("current_run_id"))
-                    preserve_active_runtime = bool(
-                        existing_queue
-                        and _text(existing_queue["status"]) in ACTIVE_STATUSES
-                        and (
-                            not existing_run_id
-                            or incoming_run_id != existing_run_id
-                            or status_value not in ACTIVE_STATUSES
-                        )
-                    )
-                    if preserve_active_runtime:
-                        status_value = _text(existing_queue["status"])
-                        current_run_id = existing_run_id
-                        current_session_id = _text(existing_queue["current_session_id"])
-                        last_run_state = _text(existing_queue["last_run_state"])
-                        last_event_type = _text(existing_queue["last_event_type"])
-                        next_action_hint = (
-                            _text(existing_queue["next_action_hint"])
-                            or "await_callback"
-                        )
-                        manual_review_required = _bool(
-                            existing_queue["manual_review_required"]
-                        )
-                        blocked_reason = _text(existing_queue["blocked_reason"])
-                        last_error = _text(existing_queue["last_error"])
-                        last_result_summary = _text(
-                            existing_queue["last_result_summary"]
-                        )
-                        last_dispatch_at = existing_queue["last_dispatch_at"]
-                        last_callback_at = existing_queue["last_callback_at"]
-                        stale_after = existing_queue["stale_after"]
-                    else:
-                        current_run_id = _text(raw.get("current_run_id"))
-                        current_session_id = _text(raw.get("current_session_id"))
-                        last_run_state = _text(raw.get("last_run_state"))
-                        last_event_type = _text(raw.get("last_event_type"))
-                        next_action_hint = (
-                            _text(raw.get("next_action_hint")) or "controller_review"
-                        )
-                        manual_review_required = _bool(
-                            raw.get("manual_review_required")
-                        )
-                        blocked_reason = _text(raw.get("blocked_reason"))
-                        last_error = _text(raw.get("last_error"))
-                        last_result_summary = _text(raw.get("last_result_summary"))
-                        last_dispatch_at = _first_present(
-                            raw, "last_dispatch_at", "last_execution_update"
-                        )
-                        last_callback_at = raw.get("last_callback_at")
-                        stale_after = raw.get("stale_after")
-                    cur.execute(
-                        """
-                        insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
-                        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        on conflict (project_id) do update set
-                          status=excluded.status, selection_rank=excluded.selection_rank, dispatch_priority=excluded.dispatch_priority,
-                          auto_continue=excluded.auto_continue, continue_count=excluded.continue_count, max_continues=excluded.max_continues,
-                          retry_count=excluded.retry_count, max_retries=excluded.max_retries, current_run_id=excluded.current_run_id,
-                          current_session_id=excluded.current_session_id, last_run_state=excluded.last_run_state, last_event_type=excluded.last_event_type,
-                          next_action_hint=excluded.next_action_hint, manual_review_required=excluded.manual_review_required, blocked_reason=excluded.blocked_reason,
-                          last_error=excluded.last_error, last_result_summary=excluded.last_result_summary, machine_target=excluded.machine_target,
-                          model=excluded.model, sandbox=excluded.sandbox, last_dispatch_at=excluded.last_dispatch_at,
-                          last_callback_at=excluded.last_callback_at, stale_after=excluded.stale_after, updated_at=excluded.updated_at
-                        """,
-                        (
-                            project_id,
-                            status_value,
-                            _int(_first_present(raw, "selection_rank", "rank"), 50),
-                            _int(
-                                _first_present(raw, "dispatch_priority", "priority"), 50
-                            ),
-                            _bool(_first_present(raw, "auto_continue", "autoContinue")),
-                            _int(
-                                _first_present(raw, "continue_count", "continueCount"),
-                                0,
-                            ),
-                            _int(
-                                _first_present(raw, "max_continues", "maxContinues"), 0
-                            ),
-                            _int(_first_present(raw, "retry_count", "retryCount"), 0),
-                            _int(_first_present(raw, "max_retries", "maxRetries"), 2),
-                            current_run_id,
-                            current_session_id,
-                            last_run_state,
-                            last_event_type,
-                            next_action_hint,
-                            manual_review_required,
-                            blocked_reason,
-                            last_error,
-                            last_result_summary,
-                            _text(raw.get("machine_target")) or "worker.example",
-                            _text(raw.get("model")) or "gpt-5.5",
-                            _text(raw.get("sandbox")) or "danger-full-access",
-                            last_dispatch_at,
-                            last_callback_at,
-                            stale_after,
-                            updated_at,
-                        ),
-                    )
-                    queue_items += 1
+                    row_projects, row_queue_items = _supabase_import_queue_row(cur, raw)
+                    projects += row_projects
+                    queue_items += row_queue_items
                 for raw in paper_rows:
-                    paper_id = _text(raw.get("paper_id"))
-                    project_id = _text(raw.get("project_id"))
-                    if not paper_id or not project_id:
-                        continue
-                    cur.execute(
-                        """
-                        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
-                        values (%s,%s,%s,%s,%s,%s,%s,%s)
-                        on conflict (project_id) do nothing
-                        """,
-                        (
-                            project_id,
-                            _text(raw.get("project_name")) or project_id,
-                            _text(raw.get("project_dir")),
-                            _text(raw.get("notion_page_url")),
-                            _text(raw.get("notion_page_id"))
-                            or _notion_page_id_from_url(
-                                _text(raw.get("notion_page_url"))
-                            ),
-                            "unknown",
-                            utc_now(),
-                            utc_now(),
-                        ),
-                    )
-                    status = (
-                        _text(raw.get("paper_status")) or PaperStatus.DRAFT_REVIEW.value
-                    )
-                    if status not in PaperStatus._value2member_map_:
-                        status = PaperStatus.DRAFT_REVIEW.value
-                    cur.execute(
-                        "select project_id, run_id, paper_type, updated_at from papers where paper_id=%s",
-                        (paper_id,),
-                    )
-                    existing_paper = cur.fetchone()
-                    if _paper_identity_conflicts(
-                        existing_paper,
-                        {
-                            "project_id": project_id,
-                            "run_id": _text(raw.get("run_id")),
-                            "paper_type": _text(raw.get("paper_type")) or "arxiv_draft",
-                        },
-                    ):
-                        raise IdempotencyConflict(
-                            f"paper id {paper_id!r} was reused with different paper identity"
-                        )
-                    if existing_paper and _is_older_timestamp(
-                        raw.get("updated_at"), existing_paper["updated_at"]
-                    ):
-                        continue
-                    cur.execute(
-                        """
-                        insert into papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
-                        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        on conflict (paper_id) do update set
-                          project_id=excluded.project_id, run_id=excluded.run_id, paper_type=excluded.paper_type,
-                          paper_status=excluded.paper_status, draft_markdown_path=excluded.draft_markdown_path,
-                          draft_latex_path=excluded.draft_latex_path, evidence_bundle_path=excluded.evidence_bundle_path,
-                          claim_ledger_path=excluded.claim_ledger_path, manifest_path=excluded.manifest_path,
-                          generated_at=excluded.generated_at, updated_at=excluded.updated_at
-                        """,
-                        (
-                            paper_id,
-                            project_id,
-                            _text(raw.get("run_id")) or None,
-                            _text(raw.get("paper_type")) or "arxiv_draft",
-                            status,
-                            _text(raw.get("draft_markdown_path")),
-                            _text(raw.get("draft_latex_path")),
-                            _text(raw.get("evidence_bundle_path")),
-                            _text(raw.get("claim_ledger_path")),
-                            _text(raw.get("manifest_path")),
-                            _text(raw.get("generated_at")) or utc_now(),
-                            _text(raw.get("updated_at")) or utc_now(),
-                        ),
-                    )
-                    papers += 1
+                    papers += _supabase_import_paper_row(cur, raw)
         return inserted, projects, queue_items, papers
+
+
+def _supabase_queue_status_value(raw: dict[str, Any]) -> str:
+    status_value = (
+        _text(_first_present(raw, "status", "queue_status")) or QueueStatus.QUEUED.value
+    )
+    if status_value not in QueueStatus._value2member_map_:
+        return QueueStatus.QUEUED.value
+    return status_value
+
+
+def _supabase_project_timestamps_from_queue_raw(
+    raw: dict[str, Any],
+) -> tuple[str, str]:
+    created_at = _text(_first_present(raw, "createdAt", "created_at")) or utc_now()
+    updated_at = (
+        _text(_first_present(raw, "updatedAt", "updated_at", "last_execution_update"))
+        or utc_now()
+    )
+    return created_at, updated_at
+
+
+def _supabase_upsert_import_project_from_queue_raw(
+    cur: Any,
+    raw: dict[str, Any],
+    *,
+    project_id: str,
+    created_at: str,
+    updated_at: str,
+) -> None:
+    cur.execute(
+        """
+        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (project_id) do update set
+          project_name=excluded.project_name,
+          project_dir=coalesce(nullif(projects.project_dir,''), excluded.project_dir),
+          notion_page_url=coalesce(nullif(excluded.notion_page_url,''), projects.notion_page_url),
+          notion_page_id=coalesce(nullif(excluded.notion_page_id,''), projects.notion_page_id),
+          origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
+          updated_at=excluded.updated_at
+        where excluded.updated_at >= projects.updated_at
+        """,
+        (
+            project_id,
+            _text(_first_present(raw, "project_name", "name", "title")) or project_id,
+            _text(_first_present(raw, "project_dir", "project_path")),
+            _text(_first_present(raw, "notion_page_url", "url")),
+            _text(_first_present(raw, "notion_page_id", "page_id", "id"))
+            or _notion_page_id_from_url(
+                _text(_first_present(raw, "notion_page_url", "url"))
+            ),
+            _text(_first_present(raw, "origin_idea_status", "idea_status"))
+            or "unknown",
+            created_at,
+            updated_at,
+        ),
+    )
+
+
+def _supabase_existing_queue_row_for_import(
+    cur: Any, project_id: str
+) -> dict[str, Any] | None:
+    cur.execute(
+        "select status,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,last_dispatch_at,last_callback_at,stale_after,updated_at from queue_items where project_id = %s",
+        (project_id,),
+    )
+    existing_queue = cur.fetchone()
+    return dict(existing_queue) if existing_queue else None
+
+
+def _supabase_should_preserve_active_runtime_on_import(
+    existing_queue: dict[str, Any],
+    *,
+    status_value: str,
+    raw: dict[str, Any],
+) -> bool:
+    existing_run_id = _text(existing_queue.get("current_run_id"))
+    incoming_run_id = _text(raw.get("current_run_id"))
+    return bool(
+        _text(existing_queue["status"]) in ACTIVE_STATUSES
+        and (
+            not existing_run_id
+            or incoming_run_id != existing_run_id
+            or status_value not in ACTIVE_STATUSES
+        )
+    )
+
+
+def _supabase_queue_runtime_fields_for_import(
+    existing_queue: dict[str, Any] | None,
+    raw: dict[str, Any],
+    status_value: str,
+) -> dict[str, Any]:
+    if existing_queue and _supabase_should_preserve_active_runtime_on_import(
+        existing_queue, status_value=status_value, raw=raw
+    ):
+        return {
+            "status_value": _text(existing_queue["status"]),
+            "current_run_id": _text(existing_queue.get("current_run_id")),
+            "current_session_id": _text(existing_queue["current_session_id"]),
+            "last_run_state": _text(existing_queue["last_run_state"]),
+            "last_event_type": _text(existing_queue["last_event_type"]),
+            "next_action_hint": _text(existing_queue["next_action_hint"])
+            or "await_callback",
+            "manual_review_required": _bool(existing_queue["manual_review_required"]),
+            "blocked_reason": _text(existing_queue["blocked_reason"]),
+            "last_error": _text(existing_queue["last_error"]),
+            "last_result_summary": _text(existing_queue["last_result_summary"]),
+            "last_dispatch_at": existing_queue["last_dispatch_at"],
+            "last_callback_at": existing_queue["last_callback_at"],
+            "stale_after": existing_queue["stale_after"],
+        }
+    return {
+        "status_value": status_value,
+        "current_run_id": _text(raw.get("current_run_id")),
+        "current_session_id": _text(raw.get("current_session_id")),
+        "last_run_state": _text(raw.get("last_run_state")),
+        "last_event_type": _text(raw.get("last_event_type")),
+        "next_action_hint": _text(raw.get("next_action_hint")) or "controller_review",
+        "manual_review_required": _bool(raw.get("manual_review_required")),
+        "blocked_reason": _text(raw.get("blocked_reason")),
+        "last_error": _text(raw.get("last_error")),
+        "last_result_summary": _text(raw.get("last_result_summary")),
+        "last_dispatch_at": _first_present(
+            raw, "last_dispatch_at", "last_execution_update"
+        ),
+        "last_callback_at": raw.get("last_callback_at"),
+        "stale_after": raw.get("stale_after"),
+    }
+
+
+def _supabase_upsert_import_queue_item(
+    cur: Any,
+    raw: dict[str, Any],
+    *,
+    project_id: str,
+    updated_at: str,
+    runtime: dict[str, Any],
+) -> None:
+    cur.execute(
+        """
+        insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (project_id) do update set
+          status=excluded.status, selection_rank=excluded.selection_rank, dispatch_priority=excluded.dispatch_priority,
+          auto_continue=excluded.auto_continue, continue_count=excluded.continue_count, max_continues=excluded.max_continues,
+          retry_count=excluded.retry_count, max_retries=excluded.max_retries, current_run_id=excluded.current_run_id,
+          current_session_id=excluded.current_session_id, last_run_state=excluded.last_run_state, last_event_type=excluded.last_event_type,
+          next_action_hint=excluded.next_action_hint, manual_review_required=excluded.manual_review_required, blocked_reason=excluded.blocked_reason,
+          last_error=excluded.last_error, last_result_summary=excluded.last_result_summary, machine_target=excluded.machine_target,
+          model=excluded.model, sandbox=excluded.sandbox, last_dispatch_at=excluded.last_dispatch_at,
+          last_callback_at=excluded.last_callback_at, stale_after=excluded.stale_after, updated_at=excluded.updated_at
+        """,
+        (
+            project_id,
+            runtime["status_value"],
+            _int(_first_present(raw, "selection_rank", "rank"), 50),
+            _int(_first_present(raw, "dispatch_priority", "priority"), 50),
+            _bool(_first_present(raw, "auto_continue", "autoContinue")),
+            _int(_first_present(raw, "continue_count", "continueCount"), 0),
+            _int(_first_present(raw, "max_continues", "maxContinues"), 0),
+            _int(_first_present(raw, "retry_count", "retryCount"), 0),
+            _int(_first_present(raw, "max_retries", "maxRetries"), 2),
+            runtime["current_run_id"],
+            runtime["current_session_id"],
+            runtime["last_run_state"],
+            runtime["last_event_type"],
+            runtime["next_action_hint"],
+            runtime["manual_review_required"],
+            runtime["blocked_reason"],
+            runtime["last_error"],
+            runtime["last_result_summary"],
+            _text(raw.get("machine_target")) or "worker.example",
+            _text(raw.get("model")) or "gpt-5.5",
+            _text(raw.get("sandbox")) or "danger-full-access",
+            runtime["last_dispatch_at"],
+            runtime["last_callback_at"],
+            runtime["stale_after"],
+            updated_at,
+        ),
+    )
+
+
+def _supabase_import_queue_row(cur: Any, raw: dict[str, Any]) -> tuple[int, int]:
+    project_id = _text(raw.get("project_id"))
+    if not project_id:
+        return 0, 0
+    status_value = _supabase_queue_status_value(raw)
+    created_at, updated_at = _supabase_project_timestamps_from_queue_raw(raw)
+    _supabase_upsert_import_project_from_queue_raw(
+        cur,
+        raw,
+        project_id=project_id,
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+    projects = 1
+    existing_queue = _supabase_existing_queue_row_for_import(cur, project_id)
+    if existing_queue and _is_older_timestamp(
+        updated_at, existing_queue.get("updated_at")
+    ):
+        return projects, 0
+    runtime = _supabase_queue_runtime_fields_for_import(
+        existing_queue, raw, status_value
+    )
+    _supabase_upsert_import_queue_item(
+        cur, raw, project_id=project_id, updated_at=updated_at, runtime=runtime
+    )
+    return projects, 1
+
+
+def _supabase_ensure_import_project_for_paper(
+    cur: Any, raw: dict[str, Any], project_id: str
+) -> None:
+    cur.execute(
+        """
+        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (project_id) do nothing
+        """,
+        (
+            project_id,
+            _text(raw.get("project_name")) or project_id,
+            _text(raw.get("project_dir")),
+            _text(raw.get("notion_page_url")),
+            _text(raw.get("notion_page_id"))
+            or _notion_page_id_from_url(_text(raw.get("notion_page_url"))),
+            "unknown",
+            utc_now(),
+            utc_now(),
+        ),
+    )
+
+
+def _supabase_import_paper_row(cur: Any, raw: dict[str, Any]) -> int:
+    paper_id = _text(raw.get("paper_id"))
+    project_id = _text(raw.get("project_id"))
+    if not paper_id or not project_id:
+        return 0
+    _supabase_ensure_import_project_for_paper(cur, raw, project_id)
+    status = _paper_status_from_import_raw(raw)
+    cur.execute(
+        "select project_id, run_id, paper_type, updated_at from papers where paper_id=%s",
+        (paper_id,),
+    )
+    existing_paper = cur.fetchone()
+    if _paper_identity_conflicts(
+        existing_paper,
+        {
+            "project_id": project_id,
+            "run_id": _text(raw.get("run_id")),
+            "paper_type": _text(raw.get("paper_type")) or "arxiv_draft",
+        },
+    ):
+        raise IdempotencyConflict(
+            f"paper id {paper_id!r} was reused with different paper identity"
+        )
+    if existing_paper and _is_older_timestamp(
+        raw.get("updated_at"), existing_paper["updated_at"]
+    ):
+        return 0
+    cur.execute(
+        """
+        insert into papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (paper_id) do update set
+          project_id=excluded.project_id, run_id=excluded.run_id, paper_type=excluded.paper_type,
+          paper_status=excluded.paper_status, draft_markdown_path=excluded.draft_markdown_path,
+          draft_latex_path=excluded.draft_latex_path, evidence_bundle_path=excluded.evidence_bundle_path,
+          claim_ledger_path=excluded.claim_ledger_path, manifest_path=excluded.manifest_path,
+          generated_at=excluded.generated_at, updated_at=excluded.updated_at
+        """,
+        (
+            paper_id,
+            project_id,
+            _text(raw.get("run_id")) or None,
+            _text(raw.get("paper_type")) or "arxiv_draft",
+            status,
+            _text(raw.get("draft_markdown_path")),
+            _text(raw.get("draft_latex_path")),
+            _text(raw.get("evidence_bundle_path")),
+            _text(raw.get("claim_ledger_path")),
+            _text(raw.get("manifest_path")),
+            _text(raw.get("generated_at")) or utc_now(),
+            _text(raw.get("updated_at")) or utc_now(),
+        ),
+    )
+    return 1
 
 
 def resolve_supabase_database_url(configured_url: str) -> str:
