@@ -612,9 +612,8 @@ def export_signals(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def ranked_signals(signals: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    materialized = list(signals)
     return sorted(
-        materialized,
+        signals,
         key=lambda signal: (
             -int((signal.get("curation") or {}).get("score") or 0),
             _text(signal.get("title")).lower(),
