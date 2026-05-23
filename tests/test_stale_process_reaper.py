@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import signal
 import subprocess
 import sys
 import tempfile
@@ -17,8 +18,7 @@ from enoch_control_plane.models import (
     RunRecord,
     TelemetrySample,
 )
-from enoch_control_plane.process_tracker import ProcessTracker, _safe_send_signal
-import signal
+from enoch_control_plane.process_tracker import ProcessTracker
 
 
 class _StaticTelemetry:
@@ -177,39 +177,10 @@ class StaleProcessReaperTests(unittest.TestCase):
                 )
             )
 
-    def test_safe_send_signal_rejects_non_positive_pid(self) -> None:
-        tracked = ProcessInfo(
-            pid=1, elapsed_sec=1, create_time=1.0, cmdline="python smoke.py"
-        )
-        with self.assertRaises(ProcessLookupError):
-            _safe_send_signal(0, signal.SIGTERM, tracked=tracked)
-
-    def test_safe_send_signal_rejects_unsupported_signal(self) -> None:
-        tracked = ProcessInfo(
-            pid=1, elapsed_sec=1, create_time=1.0, cmdline="python smoke.py"
-        )
-        with self.assertRaises(ValueError):
-            _safe_send_signal(1, signal.SIGINT, tracked=tracked)
-
-    def test_safe_send_signal_rejects_pid_reuse(self) -> None:
-        class _ReusedProcess:
-            def create_time(self) -> float:
-                return 2000.0
-
-        tracked = ProcessInfo(
-            pid=123456, elapsed_sec=999, create_time=1000.0, cmdline="python smoke.py"
-        )
-        with (
-            patch(
-                "enoch_control_plane.process_tracker.psutil.Process",
-                return_value=_ReusedProcess(),
-            ),
-            self.assertRaises(ProcessLookupError),
-        ):
-            _safe_send_signal(123456, signal.SIGTERM, tracked=tracked)
-
     def test_reaper_returns_only_successfully_signaled_processes(self) -> None:
-        class _MatchingProcess:
+        class _TrackedProcess:
+            pid = 123456
+
             def create_time(self) -> float:
                 return 1000.0
 
@@ -222,10 +193,10 @@ class StaleProcessReaperTests(unittest.TestCase):
             patch.object(tracker, "stale_reap_candidates", return_value=[candidate]),
             patch(
                 "enoch_control_plane.process_tracker.psutil.Process",
-                return_value=_MatchingProcess(),
+                return_value=_TrackedProcess(),
             ),
             patch(
-                "enoch_control_plane.process_tracker._send_reap_signal_to_process",
+                "enoch_control_plane.process_tracker.os.kill",
                 side_effect=PermissionError,
             ),
         ):
@@ -240,23 +211,12 @@ class StaleProcessReaperTests(unittest.TestCase):
             )
 
     def test_reaper_does_not_sigkill_reused_pid(self) -> None:
-        class _MatchingProcess:
-            pid = 123456
-
-            def create_time(self) -> float:
-                return 1000.0
-
-            def is_running(self) -> bool:
-                return True
-
-            def status(self) -> str:
-                return "running"
-
         class _ReusedProcess:
             pid = 123456
+            _create_time = 1000.0
 
             def create_time(self) -> float:
-                return 2000.0
+                return self._create_time
 
             def is_running(self) -> bool:
                 return True
@@ -269,24 +229,20 @@ class StaleProcessReaperTests(unittest.TestCase):
         candidate = ProcessInfo(
             pid=123456, elapsed_sec=999, create_time=1000.0, cmdline="python smoke.py"
         )
-        signaled: list[int] = []
-        process_handles = [_MatchingProcess(), _ReusedProcess()]
+        signaled: list[tuple[int, int]] = []
+        proc = _ReusedProcess()
 
-        def _signal(proc: object, sig: int) -> None:
-            signaled.append(sig)
-
-        def _process(_pid: int) -> object:
-            return process_handles.pop(0)
+        def _kill(pid: int, sig: int) -> None:
+            signaled.append((pid, sig))
+            if sig == signal.SIGTERM:
+                proc._create_time = 2000.0
 
         with (
             patch.object(tracker, "stale_reap_candidates", return_value=[candidate]),
-            patch(
-                "enoch_control_plane.process_tracker._send_reap_signal_to_process",
-                side_effect=_signal,
-            ),
+            patch("enoch_control_plane.process_tracker.os.kill", side_effect=_kill),
             patch(
                 "enoch_control_plane.process_tracker.psutil.Process",
-                side_effect=_process,
+                return_value=proc,
             ),
         ):
             self.assertEqual(
@@ -301,23 +257,51 @@ class StaleProcessReaperTests(unittest.TestCase):
 
         self.assertEqual(len(signaled), 1)
 
-    def test_reaper_audits_process_that_exits_during_identity_check(self) -> None:
-        class _TermProcess:
+    def test_reaper_skips_sigterm_when_pid_already_reused(self) -> None:
+        class _ReusedProcess:
             pid = 123456
 
             def create_time(self) -> float:
-                return 1000.0
+                return 2000.0
 
-            def is_running(self) -> bool:
-                return True
+        tracker = ProcessTracker(Path("/tmp"))
+        record = RunRecord(run_id="run", session_id="session", root_pid=999_999_999)
+        candidate = ProcessInfo(
+            pid=123456, elapsed_sec=999, create_time=1000.0, cmdline="python smoke.py"
+        )
+        signaled: list[tuple[int, int]] = []
 
-            def status(self) -> str:
-                return "running"
+        def _kill(pid: int, sig: int) -> None:
+            signaled.append((pid, sig))
 
+        with (
+            patch.object(tracker, "stale_reap_candidates", return_value=[candidate]),
+            patch("enoch_control_plane.process_tracker.os.kill", side_effect=_kill),
+            patch(
+                "enoch_control_plane.process_tracker.psutil.Process",
+                return_value=_ReusedProcess(),
+            ),
+        ):
+            self.assertEqual(
+                tracker.reap_stale_project_processes(
+                    record,
+                    stale_after_sec=0,
+                    command_markers=["python"],
+                    term_grace_sec=0,
+                ),
+                [],
+            )
+
+        self.assertEqual(signaled, [])
+
+    def test_reaper_audits_process_that_exits_during_identity_check(self) -> None:
         class _GoneProcess:
             pid = 123456
+            _term_phase = True
 
             def create_time(self) -> float:
+                if self._term_phase:
+                    return 1000.0
                 import psutil
 
                 raise psutil.NoSuchProcess(123456)
@@ -327,17 +311,16 @@ class StaleProcessReaperTests(unittest.TestCase):
         candidate = ProcessInfo(
             pid=123456, elapsed_sec=999, create_time=1000.0, cmdline="python smoke.py"
         )
-        process_handles = [_TermProcess(), _GoneProcess()]
+        proc = _GoneProcess()
 
-        def _process(_pid: int) -> object:
-            return process_handles.pop(0)
+        def _kill(pid: int, sig: int) -> None:
+            proc._term_phase = False
 
         with (
             patch.object(tracker, "stale_reap_candidates", return_value=[candidate]),
-            patch("enoch_control_plane.process_tracker._send_reap_signal_to_process"),
+            patch("enoch_control_plane.process_tracker.os.kill", side_effect=_kill),
             patch(
-                "enoch_control_plane.process_tracker.psutil.Process",
-                side_effect=_process,
+                "enoch_control_plane.process_tracker.psutil.Process", return_value=proc
             ),
         ):
             self.assertEqual(
@@ -370,17 +353,14 @@ class StaleProcessReaperTests(unittest.TestCase):
         )
         calls: list[int] = []
 
-        def _signal(proc: object, sig: int) -> None:
+        def _kill(pid: int, sig: int) -> None:
             calls.append(sig)
             if len(calls) == 2:
                 raise ProcessLookupError
 
         with (
             patch.object(tracker, "stale_reap_candidates", return_value=[candidate]),
-            patch(
-                "enoch_control_plane.process_tracker._send_reap_signal_to_process",
-                side_effect=_signal,
-            ),
+            patch("enoch_control_plane.process_tracker.os.kill", side_effect=_kill),
             patch(
                 "enoch_control_plane.process_tracker.psutil.Process",
                 return_value=_OriginalProcess(),
