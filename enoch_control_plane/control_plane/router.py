@@ -136,6 +136,10 @@ class PaperArtifactRootNotInspectableError(RuntimeError):
     """Paper rewrite project_dir exists but could not be inspected."""
 
 
+class PaperArtifactRootError(ValueError):
+    """Paper rewrite artifact root could not be resolved or inspected."""
+
+
 RequireBearer = Callable[[str | None], None]
 
 _RUN_NOTES_MD = "run_notes.md"
@@ -842,8 +846,8 @@ def _paper_rewrite_current_dir_resolution(
     except ValueError:
         return False, None
     except (OSError, RuntimeError) as exc:
-        raise HTTPException(
-            status_code=400, detail="paper artifact root could not be resolved"
+        raise PaperArtifactRootError(
+            "paper artifact root could not be resolved"
         ) from exc
     try:
         return resolved.exists(), resolved
@@ -864,9 +868,12 @@ def _resolve_paper_rewrite_artifact_root(
     except UnresolvableConfiguredProjectRootError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     current_project_dir = _paper_rewrite_current_project_dir(project)
-    use_current_dir, resolved_current_project_dir = (
-        _paper_rewrite_current_dir_resolution(configured_root, current_project_dir)
-    )
+    try:
+        use_current_dir, resolved_current_project_dir = (
+            _paper_rewrite_current_dir_resolution(configured_root, current_project_dir)
+        )
+    except PaperArtifactRootError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         artifact_root = (
             resolved_current_project_dir
