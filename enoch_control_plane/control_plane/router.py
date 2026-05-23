@@ -123,6 +123,14 @@ _HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT: dict[int, dict[str, str]] = {
     500: {"description": "Configured artifact roots are not resolvable"},
 }
 
+_HTTP_400_RESEARCH_CANDIDATE_ID: dict[int, dict[str, str]] = {
+    400: {
+        "description": (
+            "candidate_id is required or must be a bounded slug-like identifier"
+        ),
+    },
+}
+
 
 class UnresolvableArtifactRootsError(RuntimeError):
     """Configured project and state artifact roots could not be resolved."""
@@ -7980,7 +7988,10 @@ def create_control_plane_router(
         )
         return response
 
-    @router.post("/api/research/run-cycle")
+    @router.post(
+        "/api/research/run-cycle",
+        responses=_HTTP_400_RESEARCH_CANDIDATE_ID,
+    )
     def dashboard_research_run_cycle(
         payload: dict[str, Any] | None = Body(default=None),
         authorization: str | None = Header(default=None),
@@ -8230,7 +8241,10 @@ def create_control_plane_router(
             research_row_lane_key=research_row_lane_key,
         )
 
-    @router.post("/api/research/promote-candidate")
+    @router.post(
+        "/api/research/promote-candidate",
+        responses=_HTTP_400_RESEARCH_CANDIDATE_ID,
+    )
     def dashboard_research_promote_candidate(
         payload: dict[str, Any] | None = Body(default=None),
         authorization: str | None = Header(default=None),
