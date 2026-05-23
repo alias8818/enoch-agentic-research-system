@@ -259,61 +259,66 @@ def _dedupe_public_evidence_path(
     )
 
 
-def _iter_source_evidence_files(project_dir: Path) -> list[Path]:
-    """Collect unique evidence files for the paper writer.
+_EXPLICIT_SOURCE_EVIDENCE_RELS = (
+    "run_notes.md",
+    ".enoch/project_decision.json",
+    ".enoch/metrics.json",
+    ".omx/project_decision.json",
+    ".omx/metrics.json",
+)
 
-    Refactored for lower complexity (was C901=14). Logic split into small focused helpers.
-    """
-    candidates: list[Path] = []
 
-    def _add_explicit() -> None:
-        for rel in [
-            "run_notes.md",
-            ".enoch/project_decision.json",
-            ".enoch/metrics.json",
-            ".omx/project_decision.json",
-            ".omx/metrics.json",
-        ]:
-            path = project_dir / rel
-            if _path_exists_for_paper(
-                path, label="source evidence path", status_code=424
-            ) and _path_is_file_for_paper(
-                path, label="source evidence path", status_code=424
-            ):
-                candidates.append(path)
-
-    def _scan_dir(rel_dir: str) -> None:
-        root = project_dir / rel_dir
-        if not _path_exists_for_paper(
-            root, label="source evidence directory", status_code=424
+def _collect_explicit_source_evidence(project_dir: Path) -> list[Path]:
+    found: list[Path] = []
+    for rel in _EXPLICIT_SOURCE_EVIDENCE_RELS:
+        path = project_dir / rel
+        if _path_exists_for_paper(
+            path, label="source evidence path", status_code=424
+        ) and _path_is_file_for_paper(
+            path, label="source evidence path", status_code=424
         ):
-            return
-        if not _path_is_dir_for_paper(
-            root, label="source evidence directory", status_code=424
+            found.append(path)
+    return found
+
+
+def _is_scannable_source_evidence_file(path: Path) -> bool:
+    if "__pycache__" in path.parts or path.suffix == ".pyc":
+        return False
+    return path.suffix.lower() in EVIDENCE_TEXT_EXTENSIONS
+
+
+def _scan_source_evidence_directory(project_dir: Path, rel_dir: str) -> list[Path]:
+    root = project_dir / rel_dir
+    if not _path_exists_for_paper(
+        root, label="source evidence directory", status_code=424
+    ):
+        return []
+    if not _path_is_dir_for_paper(
+        root, label="source evidence directory", status_code=424
+    ):
+        return []
+    try:
+        paths = sorted(root.rglob("*"))
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=424,
+            detail=f"source evidence directory could not be scanned: {rel_dir}",
+        ) from exc
+    found: list[Path] = []
+    for path in paths:
+        if not _path_is_file_for_paper(
+            path, label="source evidence file", status_code=424
         ):
-            return
-        try:
-            paths = sorted(root.rglob("*"))
-        except (OSError, RuntimeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=424,
-                detail=f"source evidence directory could not be scanned: {rel_dir}",
-            ) from exc
-        for path in paths:
-            if not _path_is_file_for_paper(
-                path, label="source evidence file", status_code=424
-            ):
-                continue
-            if "__pycache__" in path.parts or path.suffix == ".pyc":
-                continue
-            if path.suffix.lower() not in EVIDENCE_TEXT_EXTENSIONS:
-                continue
-            candidates.append(path)
+            continue
+        if not _is_scannable_source_evidence_file(path):
+            continue
+        found.append(path)
+    return found
 
-    _add_explicit()
-    _scan_dir("results")
 
-    # Dedup + limit (preserve order of first discovery)
+def _dedupe_resolved_source_evidence(
+    candidates: list[Path], project_dir: Path
+) -> list[Path]:
     unique: list[Path] = []
     seen: set[Path] = set()
     for path in candidates:
@@ -330,6 +335,13 @@ def _iter_source_evidence_files(project_dir: Path) -> list[Path]:
         seen.add(resolved)
         unique.append(resolved)
     return unique[:MAX_EVIDENCE_FILES]
+
+
+def _iter_source_evidence_files(project_dir: Path) -> list[Path]:
+    """Collect unique evidence files for the paper writer."""
+    candidates = _collect_explicit_source_evidence(project_dir)
+    candidates.extend(_scan_source_evidence_directory(project_dir, "results"))
+    return _dedupe_resolved_source_evidence(candidates, project_dir)
 
 
 def _flatten_json_metrics(
