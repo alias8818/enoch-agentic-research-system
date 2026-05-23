@@ -181,7 +181,7 @@ function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
       {
         title: 'Which project ran?',
         answers: [
-          { label: 'project', value: projectName !== '—' ? projectName : projectId },
+          { label: 'project', value: projectName === '—' ? projectId : projectName },
           { label: 'project id', value: projectId },
         ],
       },
