@@ -1338,15 +1338,7 @@ def _progress_for_items(items: list[dict[str, Any]]) -> dict[str, int]:
 
 def _default_review_checklist() -> dict[str, Any]:
     items = [
-        {
-            "id": item_id,
-            "label": label,
-            "required": required,
-            "status": "pending",
-            "note": "",
-            "updated_at": "",
-            "updated_by": "",
-        }
+        _checklist_item_record(item_id, label, required, {})
         for item_id, label, required in REVIEW_CHECKLIST_DEFINITION
     ]
     return {
@@ -1357,46 +1349,63 @@ def _default_review_checklist() -> dict[str, Any]:
     }
 
 
-def _normalize_review_checklist(checklist: dict[str, Any] | None) -> dict[str, Any]:
-    raw = checklist or {}
+def _checklist_status(existing: dict[str, Any]) -> str:
+    status = _text(existing.get("status")) or "pending"
+    if status not in CHECKLIST_ITEM_STATUSES:
+        return "pending"
+    return status
+
+
+def _checklist_items_by_id(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
     by_id: dict[str, dict[str, Any]] = {}
     if isinstance(raw.get("items"), list):
         for item in raw.get("items") or []:
             if isinstance(item, dict) and _text(item.get("id")):
                 by_id[_text(item.get("id"))] = item
-    else:
-        for item_id, value in raw.items():
-            by_id[_text(item_id)] = {
-                "id": _text(item_id),
-                "status": _text(value) or "pending",
-            }
-    items: list[dict[str, Any]] = []
-    for item_id, label, required in REVIEW_CHECKLIST_DEFINITION:
-        existing = by_id.get(item_id, {})
-        status = _text(existing.get("status")) or "pending"
-        if status not in CHECKLIST_ITEM_STATUSES:
-            status = "pending"
-        items.append(
-            {
-                "id": item_id,
-                "label": label,
-                "required": required,
-                "status": status,
-                "note": _text(existing.get("note")),
-                "updated_at": _text(existing.get("updated_at")),
-                "updated_by": _text(existing.get("updated_by")),
-            }
-        )
+        return by_id
+    for item_id, value in raw.items():
+        by_id[_text(item_id)] = {
+            "id": _text(item_id),
+            "status": _text(value) or "pending",
+        }
+    return by_id
+
+
+def _checklist_item_record(
+    item_id: str, label: str, required: bool, existing: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "id": item_id,
+        "label": label,
+        "required": required,
+        "status": _checklist_status(existing),
+        "note": _text(existing.get("note")),
+        "updated_at": _text(existing.get("updated_at")),
+        "updated_by": _text(existing.get("updated_by")),
+    }
+
+
+def _normalized_review_checklist_items(
+    by_id: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        _checklist_item_record(item_id, label, required, by_id.get(item_id, {}))
+        for item_id, label, required in REVIEW_CHECKLIST_DEFINITION
+    ]
+
+
+def _normalize_review_checklist(checklist: dict[str, Any] | None) -> dict[str, Any]:
+    raw = checklist or {}
+    items = _normalized_review_checklist_items(_checklist_items_by_id(raw))
     accepted_risks = (
         raw.get("accepted_risks") if isinstance(raw.get("accepted_risks"), list) else []
     )
-    normalized = {
+    return {
         "version": "publication_review_v1",
         "items": items,
         "accepted_risks": accepted_risks,
         "progress": _progress_for_items(items),
     }
-    return normalized
 
 
 def _checklist_progress(checklist: dict[str, Any]) -> dict[str, int]:
