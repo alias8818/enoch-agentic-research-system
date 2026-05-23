@@ -559,6 +559,9 @@ PUBLICATION_AUTOMATION_ITEM_NOT_FOUND = "publication automation item not found"
 # Centralized authority label for Supabase-native ideas workbench freshness paths.
 SUPABASE_NATIVE_IDEAS_WORKBENCH_AUTHORITY = "Supabase-native ideas workbench"
 
+# Centralized replacement path for legacy Notion API 410 responses (S1192).
+LEGACY_NOTION_API_REPLACEMENT_PATH = "/control/intake/ideas"
+
 
 def _atomic_write_bytes(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -9066,7 +9069,7 @@ def _register_control_plane_routes(
                 status_code=410,
                 detail={
                     "message": str(exc),
-                    "replacement": "/control/intake/ideas",
+                    "replacement": LEGACY_NOTION_API_REPLACEMENT_PATH,
                 },
             ) from exc
         return _dashboard_ideas_intake_response(
@@ -9163,7 +9166,7 @@ def _register_control_plane_routes(
                 status_code=410,
                 detail={
                     "message": str(exc),
-                    "replacement": "/control/intake/ideas",
+                    "replacement": LEGACY_NOTION_API_REPLACEMENT_PATH,
                 },
             ) from exc
         if not payload.dry_run:
@@ -9256,7 +9259,7 @@ def _register_control_plane_routes(
                 status_code=410,
                 detail={
                     "message": str(exc),
-                    "replacement": "/control/intake/ideas",
+                    "replacement": LEGACY_NOTION_API_REPLACEMENT_PATH,
                 },
             ) from exc
         _require_writable_store("intake observation")
@@ -9541,7 +9544,7 @@ def _register_control_plane_routes(
                 status_code=410,
                 detail={
                     "message": str(exc),
-                    "replacement": "/control/intake/ideas",
+                    "replacement": LEGACY_NOTION_API_REPLACEMENT_PATH,
                 },
             ) from exc
         rows = store.queue_notion_projection()
@@ -9575,7 +9578,7 @@ def _register_control_plane_routes(
                 status_code=410,
                 detail={
                     "message": str(exc),
-                    "replacement": "/control/intake/ideas",
+                    "replacement": LEGACY_NOTION_API_REPLACEMENT_PATH,
                 },
             ) from exc
         rows = store.paper_notion_projection()
@@ -9599,7 +9602,7 @@ def _register_control_plane_routes(
                 status_code=410,
                 detail={
                     "message": str(exc),
-                    "replacement": "/control/intake/ideas",
+                    "replacement": LEGACY_NOTION_API_REPLACEMENT_PATH,
                 },
             ) from exc
         rows = store.notion_execution_update_projection()
