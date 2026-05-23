@@ -27,6 +27,10 @@ from .supabase_store import SupabaseEnochCoreStore
 
 RequireBearer = Callable[[str | None], None]
 
+_HTTP_409_IDEMPOTENCY_CONFLICT: dict[int, dict[str, str]] = {
+    409: {"description": "Idempotency key reused with a different payload"},
+}
+
 
 def _mode_from_env(default: EnochCoreMode = "shadow") -> EnochCoreMode:
     value = os.environ.get("ENOCH_CORE_MODE", default).strip().lower()
@@ -74,7 +78,11 @@ def create_enoch_core_router(
             mode=current_mode(), db_path=store_path, store_backend=backend
         )
 
-    @router.post("/snapshots/n8n-queue", response_model=SnapshotIngestResponse)
+    @router.post(
+        "/snapshots/n8n-queue",
+        response_model=SnapshotIngestResponse,
+        responses=_HTTP_409_IDEMPOTENCY_CONFLICT,
+    )
     def ingest_n8n_queue_snapshot(
         payload: QueueSnapshotRequest,
         authorization: Annotated[str | None, Header()] = None,
