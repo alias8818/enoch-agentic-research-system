@@ -488,73 +488,383 @@ def _is_clean_noop_dry_run(payload: dict[str, Any]) -> bool:
     )
 
 
-def main() -> int:
-    if not _truthy("ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT"):
+def _main_autopilot_disabled_exit() -> int | None:
+    if _truthy("ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT"):
+        return None
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "action": "skipped",
+                "reason": "corpus import autopilot disabled; set ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT=1",
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _main_missing_release_repos_exit(root: Path) -> int | None:
+    missing = [name for name in REPO_NAMES if not (root / name).is_dir()]
+    if not missing:
+        return None
+    print(
+        json.dumps(
+            {
+                "ok": False,
+                "action": "blocked",
+                "reason": "release repos missing",
+                "missing": missing,
+                "release_root": str(root),
+            },
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+    )
+    return 2
+
+
+def _main_dirty_release_repos_exit(root: Path) -> int | None:
+    dirty = [name for name in REPO_NAMES if not _git_clean(root / name)]
+    if not dirty:
+        return None
+    print(
+        json.dumps(
+            {
+                "ok": False,
+                "action": "blocked",
+                "reason": "release repos are dirty before import",
+                "dirty_repos": dirty,
+            },
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+    )
+    return 2
+
+
+def _resolve_control_token(config: dict[str, Any]) -> str:
+    return os.environ.get("ENOCH_CONTROL_TOKEN") or str(
+        config.get("control_api_bearer_token") or ""
+    )
+
+
+def _main_missing_token_exit(token: str) -> int | None:
+    if token:
+        return None
+    print(
+        json.dumps(
+            {
+                "ok": False,
+                "action": "blocked",
+                "reason": "missing control-plane token",
+            },
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+    )
+    return 2
+
+
+def _run_dry_run_import(
+    *,
+    base_url: str,
+    limit: int,
+    corpus: Path,
+    token_file: Path,
+) -> tuple[dict[str, Any], int]:
+    dry, dry_run_attempts = _run_import_dry_run_with_retries(
+        _import_cmd(base_url=base_url, limit=limit, dry_run=True),
+        cwd=corpus,
+        env=_import_env(token_file),
+    )
+    return json.loads(dry.stdout), dry_run_attempts
+
+
+def _print_dry_run_failed_exit(exc: Exception) -> int:
+    print(
+        json.dumps(
+            {
+                "ok": False,
+                "action": "dry_run_failed",
+                "reason": _exception_summary(exc),
+            },
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _dry_run_bounded_failed_exit(dry_payload: dict[str, Any]) -> int | None:
+    if not dry_payload.get("failed"):
+        return None
+    print(
+        json.dumps(
+            {
+                "ok": False,
+                "action": "blocked",
+                "reason": "bounded import dry-run failed",
+                "dry_run": dry_payload,
+            },
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _no_import_dry_run_exit(
+    *,
+    dry_payload: dict[str, Any],
+    dry_run_attempts: int,
+    fast_forwarded: list[str],
+    system: Path,
+    corpus: Path,
+) -> int | None:
+    if dry_payload.get("imported"):
+        return None
+    if _is_clean_noop_dry_run(dry_payload):
+        ledger_sync: dict[str, Any] = {}
+        if _truthy("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "0"):
+            ledger_sync = _sync_corpus_ledger(system, corpus)
         print(
             json.dumps(
                 {
                     "ok": True,
                     "action": "skipped",
-                    "reason": "corpus import autopilot disabled; set ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT=1",
+                    "reason": "no clean importable papers",
+                    "dry_run": dry_payload,
+                    "dry_run_attempts": dry_run_attempts,
+                    "fast_forwarded": fast_forwarded,
+                    "ledger_sync": ledger_sync,
                 },
                 sort_keys=True,
             )
         )
         return 0
+    print(
+        json.dumps(
+            {
+                "ok": False,
+                "action": "blocked",
+                "reason": "bounded import dry-run found no clean importable papers",
+                "dry_run": dry_payload,
+                "dry_run_attempts": dry_run_attempts,
+                "fast_forwarded": fast_forwarded,
+            },
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _run_preflight_import(
+    *,
+    root: Path,
+    base_url: str,
+    limit: int,
+    token_file: Path,
+) -> tuple[int | None, dict[str, Any] | None]:
+    with tempfile.TemporaryDirectory(prefix="enoch-corpus-import-preflight-") as tmp:
+        tmp_root = Path(tmp)
+        _copy_release_root(root, tmp_root)
+        tmp_system = tmp_root / "enoch-agentic-research-system"
+        tmp_corpus = tmp_root / "enoch-ai-research-corpus"
+        live_preflight = _run(
+            _import_cmd(base_url=base_url, limit=limit, dry_run=False),
+            cwd=tmp_corpus,
+            env=_import_env(token_file),
+        )
+        live_payload = json.loads(live_preflight.stdout)
+        if live_payload.get("failed"):
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "action": "preflight_import_failed",
+                        "preflight": live_payload,
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+            )
+            return 1, None
+        checks = _corpus_rebuild(tmp_corpus)
+        count_update = _update_public_counts(
+            tmp_system, tmp_root, tmp_root / "enoch-ecosystem.generated.json"
+        )
+        checks.extend(_corpus_trust_checks(tmp_corpus))
+        release_validation = _validate_release(
+            tmp_system,
+            tmp_root,
+            tmp_corpus,
+            tmp_root / "enoch-ecosystem.generated.json",
+            skip_github_metadata=True,
+        )
+    return None, {
+        "live_payload": live_payload,
+        "checks": checks,
+        "count_update": count_update,
+        "release_validation": release_validation,
+    }
+
+
+def _print_preflight_only_result(
+    *,
+    limit: int,
+    dry_payload: dict[str, Any],
+    dry_run_attempts: int,
+    preflight: dict[str, Any],
+    fast_forwarded: list[str],
+) -> int:
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "action": "preflight_only",
+                "limit": limit,
+                "dry_run": dry_payload,
+                "dry_run_attempts": dry_run_attempts,
+                "preflight_import": preflight["live_payload"],
+                "count_update": preflight["count_update"],
+                "corpus_checks": preflight["checks"],
+                "release_validation": preflight["release_validation"],
+                "fast_forwarded": fast_forwarded,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _maybe_github_metadata(count_update: dict[str, Any]) -> dict[str, Any]:
+    if not _truthy("ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA", "0"):
+        return {}
+    stats = (
+        count_update.get("stats") if isinstance(count_update.get("stats"), dict) else {}
+    )
+    artifact_count = int(
+        stats.get("artifact_count") or count_update.get("artifact_count") or 0
+    )
+    if artifact_count <= 0:
+        raise RuntimeError(
+            "could not determine artifact count for GitHub metadata update"
+        )
+    return _update_github_metadata(artifact_count)
+
+
+def _autocommit_and_push(
+    root: Path,
+    live_payload: dict[str, Any],
+    count_update: dict[str, Any],
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    commits: list[dict[str, str]] = []
+    pushed: list[dict[str, str]] = []
+    if _truthy("ENOCH_CORPUS_IMPORT_AUTOCOMMIT", "0"):
+        commits = _commit_changed_repos(root, live_payload, count_update)
+        if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0"):
+            pushed = _push_commits(root, commits)
+    return commits, pushed
+
+
+def _maybe_ledger_sync(
+    system: Path,
+    corpus: Path,
+    pushed: list[dict[str, str]],
+) -> dict[str, Any]:
+    if not _truthy("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "0"):
+        return {}
+    if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0") and not pushed:
+        raise RuntimeError(
+            "ledger sync requires pushed commits when ENOCH_CORPUS_IMPORT_PUSH=1"
+        )
+    return _sync_corpus_ledger(system, corpus)
+
+
+def _execute_live_corpus_import(
+    *,
+    root: Path,
+    system: Path,
+    corpus: Path,
+    base_url: str,
+    limit: int,
+    token_file: Path,
+    skip_github: bool,
+    dry_payload: dict[str, Any],
+    dry_run_attempts: int,
+    fast_forwarded: list[str],
+) -> int:
+    ecosystem_manifest = _ecosystem_manifest_path()
+    live = _run(
+        _import_cmd(base_url=base_url, limit=limit, dry_run=False),
+        cwd=corpus,
+        env=_import_env(token_file),
+    )
+    live_payload = json.loads(live.stdout)
+    checks = _corpus_rebuild(corpus)
+    count_update = _update_public_counts(system, root, ecosystem_manifest)
+    checks.extend(_corpus_trust_checks(corpus))
+    github_metadata = _maybe_github_metadata(count_update)
+    release_validation = _validate_release(
+        system,
+        root,
+        corpus,
+        ecosystem_manifest,
+        skip_github_metadata=skip_github,
+    )
+    changed_repos = _git_changed_repos(root)
+    commits, pushed = _autocommit_and_push(root, live_payload, count_update)
+    ledger_sync = _maybe_ledger_sync(system, corpus, pushed)
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "action": "corpus_imported",
+                "limit": limit,
+                "dry_run": dry_payload,
+                "dry_run_attempts": dry_run_attempts,
+                "import_result": live_payload,
+                "count_update": count_update,
+                "corpus_checks": checks,
+                "github_metadata": github_metadata,
+                "release_validation": release_validation,
+                "changed_repos": changed_repos,
+                "commits": commits,
+                "pushed": pushed,
+                "ledger_sync": ledger_sync,
+                "fast_forwarded": fast_forwarded,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def main() -> int:
+    exit_code = _main_autopilot_disabled_exit()
+    if exit_code is not None:
+        return exit_code
 
     limit = _bounded_int("ENOCH_CORPUS_IMPORT_LIMIT", 1, 1, 2)
     root = _release_root()
-    missing = [name for name in REPO_NAMES if not (root / name).is_dir()]
-    if missing:
-        print(
-            json.dumps(
-                {
-                    "ok": False,
-                    "action": "blocked",
-                    "reason": "release repos missing",
-                    "missing": missing,
-                    "release_root": str(root),
-                },
-                sort_keys=True,
-            ),
-            file=sys.stderr,
-        )
-        return 2
 
-    dirty = [name for name in REPO_NAMES if not _git_clean(root / name)]
-    if dirty:
-        print(
-            json.dumps(
-                {
-                    "ok": False,
-                    "action": "blocked",
-                    "reason": "release repos are dirty before import",
-                    "dirty_repos": dirty,
-                },
-                sort_keys=True,
-            ),
-            file=sys.stderr,
-        )
-        return 2
+    exit_code = _main_missing_release_repos_exit(root)
+    if exit_code is not None:
+        return exit_code
+
+    exit_code = _main_dirty_release_repos_exit(root)
+    if exit_code is not None:
+        return exit_code
+
     fast_forwarded: list[str] = []
-
     config = _load_config()
-    token = os.environ.get("ENOCH_CONTROL_TOKEN") or str(
-        config.get("control_api_bearer_token") or ""
-    )
-    if not token:
-        print(
-            json.dumps(
-                {
-                    "ok": False,
-                    "action": "blocked",
-                    "reason": "missing control-plane token",
-                },
-                sort_keys=True,
-            ),
-            file=sys.stderr,
-        )
-        return 2
+    token = _resolve_control_token(config)
+    exit_code = _main_missing_token_exit(token)
+    if exit_code is not None:
+        return exit_code
+
     base_url = _base_url(config)
     system = root / "enoch-agentic-research-system"
     corpus = root / "enoch-ai-research-corpus"
@@ -562,203 +872,60 @@ def main() -> int:
 
     with _control_token_file(token) as token_file:
         try:
-            dry, dry_run_attempts = _run_import_dry_run_with_retries(
-                _import_cmd(base_url=base_url, limit=limit, dry_run=True),
-                cwd=corpus,
-                env=_import_env(token_file),
+            dry_payload, dry_run_attempts = _run_dry_run_import(
+                base_url=base_url,
+                limit=limit,
+                corpus=corpus,
+                token_file=token_file,
             )
-            dry_payload = json.loads(dry.stdout)
         except Exception as exc:  # noqa: BLE001 - fail closed without writes
-            print(
-                json.dumps(
-                    {
-                        "ok": False,
-                        "action": "dry_run_failed",
-                        "reason": _exception_summary(exc),
-                    },
-                    sort_keys=True,
-                ),
-                file=sys.stderr,
-            )
-            return 1
-        if dry_payload.get("failed"):
-            print(
-                json.dumps(
-                    {
-                        "ok": False,
-                        "action": "blocked",
-                        "reason": "bounded import dry-run failed",
-                        "dry_run": dry_payload,
-                    },
-                    sort_keys=True,
-                ),
-                file=sys.stderr,
-            )
-            return 1
-        if not dry_payload.get("imported"):
-            if _is_clean_noop_dry_run(dry_payload):
-                ledger_sync: dict[str, Any] = {}
-                if _truthy("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "0"):
-                    ledger_sync = _sync_corpus_ledger(system, corpus)
-                print(
-                    json.dumps(
-                        {
-                            "ok": True,
-                            "action": "skipped",
-                            "reason": "no clean importable papers",
-                            "dry_run": dry_payload,
-                            "dry_run_attempts": dry_run_attempts,
-                            "fast_forwarded": fast_forwarded,
-                            "ledger_sync": ledger_sync,
-                        },
-                        sort_keys=True,
-                    )
-                )
-                return 0
-            print(
-                json.dumps(
-                    {
-                        "ok": False,
-                        "action": "blocked",
-                        "reason": "bounded import dry-run found no clean importable papers",
-                        "dry_run": dry_payload,
-                        "dry_run_attempts": dry_run_attempts,
-                        "fast_forwarded": fast_forwarded,
-                    },
-                    sort_keys=True,
-                ),
-                file=sys.stderr,
-            )
-            return 1
+            return _print_dry_run_failed_exit(exc)
 
-        with tempfile.TemporaryDirectory(
-            prefix="enoch-corpus-import-preflight-"
-        ) as tmp:
-            tmp_root = Path(tmp)
-            _copy_release_root(root, tmp_root)
-            tmp_system = tmp_root / "enoch-agentic-research-system"
-            tmp_corpus = tmp_root / "enoch-ai-research-corpus"
-            live_preflight = _run(
-                _import_cmd(base_url=base_url, limit=limit, dry_run=False),
-                cwd=tmp_corpus,
-                env=_import_env(token_file),
-            )
-            live_payload = json.loads(live_preflight.stdout)
-            if live_payload.get("failed"):
-                print(
-                    json.dumps(
-                        {
-                            "ok": False,
-                            "action": "preflight_import_failed",
-                            "preflight": live_payload,
-                        },
-                        sort_keys=True,
-                    ),
-                    file=sys.stderr,
-                )
-                return 1
-            checks = _corpus_rebuild(tmp_corpus)
-            count_update = _update_public_counts(
-                tmp_system, tmp_root, tmp_root / "enoch-ecosystem.generated.json"
-            )
-            checks.extend(_corpus_trust_checks(tmp_corpus))
-            release_validation = _validate_release(
-                tmp_system,
-                tmp_root,
-                tmp_corpus,
-                tmp_root / "enoch-ecosystem.generated.json",
-                skip_github_metadata=True,
-            )
+        exit_code = _dry_run_bounded_failed_exit(dry_payload)
+        if exit_code is not None:
+            return exit_code
+
+        exit_code = _no_import_dry_run_exit(
+            dry_payload=dry_payload,
+            dry_run_attempts=dry_run_attempts,
+            fast_forwarded=fast_forwarded,
+            system=system,
+            corpus=corpus,
+        )
+        if exit_code is not None:
+            return exit_code
+
+        exit_code, preflight = _run_preflight_import(
+            root=root,
+            base_url=base_url,
+            limit=limit,
+            token_file=token_file,
+        )
+        if exit_code is not None:
+            return exit_code
+        assert preflight is not None
 
         if _truthy("ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY", "0"):
-            print(
-                json.dumps(
-                    {
-                        "ok": True,
-                        "action": "preflight_only",
-                        "limit": limit,
-                        "dry_run": dry_payload,
-                        "dry_run_attempts": dry_run_attempts,
-                        "preflight_import": live_payload,
-                        "count_update": count_update,
-                        "corpus_checks": checks,
-                        "release_validation": release_validation,
-                        "fast_forwarded": fast_forwarded,
-                    },
-                    sort_keys=True,
-                )
+            return _print_preflight_only_result(
+                limit=limit,
+                dry_payload=dry_payload,
+                dry_run_attempts=dry_run_attempts,
+                preflight=preflight,
+                fast_forwarded=fast_forwarded,
             )
-            return 0
 
-        ecosystem_manifest = _ecosystem_manifest_path()
-        live = _run(
-            _import_cmd(base_url=base_url, limit=limit, dry_run=False),
-            cwd=corpus,
-            env=_import_env(token_file),
+        return _execute_live_corpus_import(
+            root=root,
+            system=system,
+            corpus=corpus,
+            base_url=base_url,
+            limit=limit,
+            token_file=token_file,
+            skip_github=skip_github,
+            dry_payload=dry_payload,
+            dry_run_attempts=dry_run_attempts,
+            fast_forwarded=fast_forwarded,
         )
-        live_payload = json.loads(live.stdout)
-        checks = _corpus_rebuild(corpus)
-        count_update = _update_public_counts(system, root, ecosystem_manifest)
-        checks.extend(_corpus_trust_checks(corpus))
-        github_metadata: dict[str, Any] = {}
-        if _truthy("ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA", "0"):
-            stats = (
-                count_update.get("stats")
-                if isinstance(count_update.get("stats"), dict)
-                else {}
-            )
-            artifact_count = int(
-                stats.get("artifact_count") or count_update.get("artifact_count") or 0
-            )
-            if artifact_count <= 0:
-                raise RuntimeError(
-                    "could not determine artifact count for GitHub metadata update"
-                )
-            github_metadata = _update_github_metadata(artifact_count)
-        release_validation = _validate_release(
-            system,
-            root,
-            corpus,
-            ecosystem_manifest,
-            skip_github_metadata=skip_github,
-        )
-        changed_repos = _git_changed_repos(root)
-        commits: list[dict[str, str]] = []
-        pushed: list[dict[str, str]] = []
-        if _truthy("ENOCH_CORPUS_IMPORT_AUTOCOMMIT", "0"):
-            commits = _commit_changed_repos(root, live_payload, count_update)
-            if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0"):
-                pushed = _push_commits(root, commits)
-        ledger_sync: dict[str, Any] = {}
-        if _truthy("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "0"):
-            if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0") and not pushed:
-                raise RuntimeError(
-                    "ledger sync requires pushed commits when ENOCH_CORPUS_IMPORT_PUSH=1"
-                )
-            ledger_sync = _sync_corpus_ledger(system, corpus)
-        print(
-            json.dumps(
-                {
-                    "ok": True,
-                    "action": "corpus_imported",
-                    "limit": limit,
-                    "dry_run": dry_payload,
-                    "dry_run_attempts": dry_run_attempts,
-                    "import_result": live_payload,
-                    "count_update": count_update,
-                    "corpus_checks": checks,
-                    "github_metadata": github_metadata,
-                    "release_validation": release_validation,
-                    "changed_repos": changed_repos,
-                    "commits": commits,
-                    "pushed": pushed,
-                    "ledger_sync": ledger_sync,
-                    "fast_forwarded": fast_forwarded,
-                },
-                sort_keys=True,
-            )
-        )
-        return 0
 
 
 if __name__ == "__main__":
