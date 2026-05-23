@@ -14201,6 +14201,25 @@ def test_promotion_execution_extracted_no_duplication_in_giant():
     assert callable(_execute_promotion)
 
 
+def test_dispatch_queued_project_extracted_no_duplication_in_giant():
+    """AGENTS.md test-first for the next horrible-first S3776 inside the 1595
+    create_control_plane_router / dashboard_research_run_cycle (after promotion extraction).
+
+    The self-contained dispatch_queued_project local function (claim, live_dispatch with 409
+    backpressure handling, heavy response mutation for dispatch_started/dispatched_count/stages/dispatches,
+    return success) is extracted to _dispatch_queued_project to further reduce cognitive complexity of the giant.
+    """
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    assert "def _dispatch_queued_project(" in src, (
+        "_dispatch_queued_project helper missing (dispatch_queued_project logic still inline in the giant)"
+    )
+
+    from enoch_control_plane.control_plane.router import _dispatch_queued_project
+    assert callable(_dispatch_queued_project)
+
+
 def test_router_no_redundant_response_model_fastapi_style():
     """AGENTS.md test-first validator for top BLOCKERs (S8409/S8410, ~49 instances in router.py).
 

@@ -2236,6 +2236,79 @@ def _execute_promotion(
     return response
 
 
+def _dispatch_queued_project(
+    project_id: str,
+    *,
+    store: Any,
+    response: dict[str, Any],
+    requested_by: str,
+    _live_dispatch: Callable,
+    jsonable_encoder: Callable,
+) -> bool:
+    """Extracted from dashboard_research_run_cycle (self-contained dispatch helper contributing to 1595/remaining S3776).
+
+    Handles claim, live_dispatch with 409 backpressure handling, heavy response mutation
+    (dispatch_started, dispatched_count, dispatch record, stages, dispatches list), and returns success.
+    Thin delegation wrapper left in the giant so all call sites remain unchanged.
+    """
+    candidate = store.queue_row(project_id)
+    if candidate and str(candidate.get("status") or "") == "queued":
+        try:
+            live, event_id, updated_candidate = _live_dispatch(
+                candidate, requested_by, force_preflight=True, allow_paused=True
+            )
+        except HTTPException as exc:
+            if int(exc.status_code) != 409:
+                raise
+            response["dispatch"] = {
+                "event_id": None,
+                "candidate": candidate,
+                "live": None,
+                "backpressure": True,
+                "detail": jsonable_encoder(exc.detail),
+            }
+            response["stages"].append(
+                {
+                    "stage": "dispatch",
+                    "ok": True,
+                    "action": "dispatch_backpressure",
+                    "project_id": project_id,
+                    "reason": "dispatch conflict/backpressure; queued work remains safe for the queue pump or next tick",
+                    "detail": jsonable_encoder(exc.detail),
+                }
+            )
+            return False
+        response["dispatch_started"] = True
+        response["dispatched_count"] = (
+            int(response.get("dispatched_count") or 0) + 1
+        )
+        dispatch_record = {
+            "event_id": event_id,
+            "candidate": updated_candidate,
+            "live": live,
+        }
+        response["dispatch"] = dispatch_record
+        response.setdefault("dispatches", []).append(dispatch_record)
+        response["stages"].append(
+            {
+                "stage": "dispatch",
+                "ok": True,
+                "project_id": project_id,
+                "event_id": event_id,
+            }
+        )
+        return True
+    response["stages"].append(
+        {
+            "stage": "dispatch",
+            "ok": False,
+            "reason": "queued project was not dispatchable",
+            "project_id": project_id,
+        }
+    )
+    return False
+
+
 def create_control_plane_router(
     config: GateConfig, require_bearer: RequireBearer
 ) -> APIRouter:
@@ -7074,62 +7147,15 @@ def create_control_plane_router(
             return response
 
         def dispatch_queued_project(project_id: str) -> bool:
-            candidate = store.queue_row(project_id)
-            if candidate and str(candidate.get("status") or "") == "queued":
-                try:
-                    live, event_id, updated_candidate = _live_dispatch(
-                        candidate, requested_by, force_preflight=True, allow_paused=True
-                    )
-                except HTTPException as exc:
-                    if int(exc.status_code) != 409:
-                        raise
-                    response["dispatch"] = {
-                        "event_id": None,
-                        "candidate": candidate,
-                        "live": None,
-                        "backpressure": True,
-                        "detail": jsonable_encoder(exc.detail),
-                    }
-                    response["stages"].append(
-                        {
-                            "stage": "dispatch",
-                            "ok": True,
-                            "action": "dispatch_backpressure",
-                            "project_id": project_id,
-                            "reason": "dispatch conflict/backpressure; queued work remains safe for the queue pump or next tick",
-                            "detail": jsonable_encoder(exc.detail),
-                        }
-                    )
-                    return False
-                response["dispatch_started"] = True
-                response["dispatched_count"] = (
-                    int(response.get("dispatched_count") or 0) + 1
-                )
-                dispatch_record = {
-                    "event_id": event_id,
-                    "candidate": updated_candidate,
-                    "live": live,
-                }
-                response["dispatch"] = dispatch_record
-                response.setdefault("dispatches", []).append(dispatch_record)
-                response["stages"].append(
-                    {
-                        "stage": "dispatch",
-                        "ok": True,
-                        "project_id": project_id,
-                        "event_id": event_id,
-                    }
-                )
-                return True
-            response["stages"].append(
-                {
-                    "stage": "dispatch",
-                    "ok": False,
-                    "reason": "queued project was not dispatchable",
-                    "project_id": project_id,
-                }
+            # Thin delegation after extraction of the self-contained dispatch logic (reduces cognitive complexity of the 1595 giant).
+            return _dispatch_queued_project(
+                project_id,
+                store=store,
+                response=response,
+                requested_by=requested_by,
+                _live_dispatch=_live_dispatch,
+                jsonable_encoder=jsonable_encoder,
             )
-            return False
 
         response = _handle_followup_and_early_skips(
             store=store,
