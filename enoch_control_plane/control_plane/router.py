@@ -4687,9 +4687,7 @@ def _worker_evidence_sync_kwargs_for_row(
     }
 
 
-def _status_has_no_live_worker_preflight_conflict(
-    status: DashboardStatusResponse,
-) -> bool:
+def _status_has_no_live_worker_conflict(status: DashboardStatusResponse) -> bool:
     return any(
         item.source == CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE
         and "no live worker run" in item.message
@@ -4697,16 +4695,15 @@ def _status_has_no_live_worker_preflight_conflict(
     )
 
 
-def _reconcile_row_evidence_and_gate(
-    config: GateConfig,
-    row: dict[str, Any],
-) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+def _auto_reconcile_evidence_gate_for_row(
+    config: GateConfig, row: dict[str, Any]
+) -> tuple[Path, dict[str, Any], dict[str, Any], str, str]:
+    project_id = str(row.get("project_id") or "").strip()
+    run_id = str(row.get("current_run_id") or "").strip()
     artifact_root, project_dir_text = _artifact_root_for_queue_row(config, row)
     gate = paper_draft_decision_gate(artifact_root)
     evidence_sync = _evidence_sync_skipped_by_gate(config, gate)
     if gate.get("eligible") or not gate.get("values"):
-        project_id = str(row.get("project_id") or "").strip()
-        run_id = str(row.get("current_run_id") or "").strip()
         evidence_sync = _sync_remote_project_evidence(
             config,
             project_id=project_id,
@@ -4716,10 +4713,10 @@ def _reconcile_row_evidence_and_gate(
             **_worker_evidence_sync_kwargs_for_row(config, row),
         )
         gate = paper_draft_decision_gate(artifact_root)
-    return artifact_root, gate, evidence_sync
+    return artifact_root, gate, evidence_sync, project_id, run_id
 
 
-def _auto_reconcile_missing_paper_evidence(
+def _auto_reconcile_missing_evidence_failure(
     config: GateConfig,
     store: Any,
     *,
@@ -4757,27 +4754,7 @@ def _auto_reconcile_missing_paper_evidence(
     }
 
 
-def _auto_reconcile_missing_decision_artifact(
-    *,
-    project_id: str,
-    run_id: str,
-    artifact_root: Path,
-    gate: dict[str, Any],
-    evidence_sync: dict[str, Any],
-) -> dict[str, Any] | None:
-    if gate.get("values"):
-        return None
-    return {
-        "ok": False,
-        "project_id": project_id,
-        "run_id": run_id,
-        "reason": "missing project decision artifact",
-        "artifact_root": str(artifact_root),
-        "evidence_sync": evidence_sync,
-    }
-
-
-def _auto_reconcile_replay_wake_ready_callback(
+def _auto_reconcile_replay_wake_ready_for_row(
     store: Any,
     row: dict[str, Any],
     *,
@@ -4788,6 +4765,15 @@ def _auto_reconcile_replay_wake_ready_callback(
     evidence_sync: dict[str, Any],
     requested_by: str,
 ) -> dict[str, Any]:
+    if not gate.get("values"):
+        return {
+            "ok": False,
+            "project_id": project_id,
+            "run_id": run_id,
+            "reason": "missing project decision artifact",
+            "artifact_root": str(artifact_root),
+            "evidence_sync": evidence_sync,
+        }
     callback = GateCallback(
         event_type="wake_ready",
         run_id=run_id,
@@ -4855,20 +4841,16 @@ def _auto_reconcile_stale_callback_ready(
     *,
     requested_by: str,
 ) -> list[dict[str, Any]]:
-    if not status.active_items:
-        return []
-    if not _status_has_no_live_worker_preflight_conflict(status):
+    if not status.active_items or not _status_has_no_live_worker_conflict(status):
         return []
     reconciled: list[dict[str, Any]] = []
     for row in status.active_items:
-        project_id = str(row.get("project_id") or "").strip()
-        run_id = str(row.get("current_run_id") or "").strip()
+        artifact_root, gate, evidence_sync, project_id, run_id = (
+            _auto_reconcile_evidence_gate_for_row(config, row)
+        )
         if not project_id or not run_id:
             continue
-        artifact_root, gate, evidence_sync = _reconcile_row_evidence_and_gate(
-            config, row
-        )
-        blocked = _auto_reconcile_missing_paper_evidence(
+        missing_evidence = _auto_reconcile_missing_evidence_failure(
             config,
             store,
             project_id=project_id,
@@ -4877,21 +4859,11 @@ def _auto_reconcile_stale_callback_ready(
             gate=gate,
             evidence_sync=evidence_sync,
         )
-        if blocked is not None:
-            reconciled.append(blocked)
-            continue
-        blocked = _auto_reconcile_missing_decision_artifact(
-            project_id=project_id,
-            run_id=run_id,
-            artifact_root=artifact_root,
-            gate=gate,
-            evidence_sync=evidence_sync,
-        )
-        if blocked is not None:
-            reconciled.append(blocked)
+        if missing_evidence is not None:
+            reconciled.append(missing_evidence)
             continue
         reconciled.append(
-            _auto_reconcile_replay_wake_ready_callback(
+            _auto_reconcile_replay_wake_ready_for_row(
                 store,
                 row,
                 project_id=project_id,

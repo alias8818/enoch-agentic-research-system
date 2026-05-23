@@ -14488,6 +14488,10 @@ def test_paper_evidence_and_auto_reconcile_extracted_from_giant():
         "_artifact_root_for_queue_row",
         "_evidence_sync_skipped_by_gate",
         "_worker_evidence_sync_kwargs_for_row",
+        "_status_has_no_live_worker_conflict",
+        "_auto_reconcile_evidence_gate_for_row",
+        "_auto_reconcile_missing_evidence_failure",
+        "_auto_reconcile_replay_wake_ready_for_row",
         "_auto_reconcile_stale_callback_ready",
     ):
         assert f"def {name}(" in src, (
