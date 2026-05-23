@@ -132,7 +132,8 @@ def _execute_rowcount(cur: Any, result: Any | None = None) -> int:
         count = getattr(result, "rowcount", None)
         if count is not None:
             return int(count or 0)
-    return int(getattr(cur, "rowcount", 0) or 0)
+    # Match prior getattr(..., getattr(cur, "rowcount", 1)) fallback semantics.
+    return int(getattr(cur, "rowcount", 1) or 0)
 
 
 def _decision_gate_values_text(gate: dict[str, Any]) -> str:
