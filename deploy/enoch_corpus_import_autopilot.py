@@ -303,6 +303,18 @@ def _control_token_file(token: str):
         Path(path).unlink(missing_ok=True)
 
 
+def _ecosystem_manifest_path() -> Path:
+    override = os.environ.get("ENOCH_ECOSYSTEM_MANIFEST")
+    if override:
+        return Path(override)
+    fd, path = tempfile.mkstemp(
+        prefix="enoch-ecosystem.generated.",
+        suffix=".json",
+    )
+    os.close(fd)
+    return Path(path)
+
+
 def _import_env(token_file: Path) -> dict[str, str]:
     # Pass only the pathname in the child initial environment. The wrapper reads
     # the 0600 token file and injects ENOCH_CONTROL_TOKEN in-process before
@@ -678,6 +690,7 @@ def main() -> int:
             )
             return 0
 
+        ecosystem_manifest = _ecosystem_manifest_path()
         live = _run(
             _import_cmd(base_url=base_url, limit=limit, dry_run=False),
             cwd=corpus,
@@ -685,15 +698,7 @@ def main() -> int:
         )
         live_payload = json.loads(live.stdout)
         checks = _corpus_rebuild(corpus)
-        count_update = _update_public_counts(
-            system,
-            root,
-            Path(
-                os.environ.get(
-                    "ENOCH_ECOSYSTEM_MANIFEST", "/tmp/enoch-ecosystem.generated.json"
-                )
-            ),
-        )
+        count_update = _update_public_counts(system, root, ecosystem_manifest)
         checks.extend(_corpus_trust_checks(corpus))
         github_metadata: dict[str, Any] = {}
         if _truthy("ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA", "0"):
@@ -714,11 +719,7 @@ def main() -> int:
             system,
             root,
             corpus,
-            Path(
-                os.environ.get(
-                    "ENOCH_ECOSYSTEM_MANIFEST", "/tmp/enoch-ecosystem.generated.json"
-                )
-            ),
+            ecosystem_manifest,
             skip_github_metadata=skip_github,
         )
         changed_repos = _git_changed_repos(root)
