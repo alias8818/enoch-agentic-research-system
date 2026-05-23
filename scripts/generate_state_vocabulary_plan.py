@@ -34,6 +34,12 @@ PROJECT_DECISIONS_DECISION_GATE_STATE = "project_decisions.decision_gate_state"
 # (addresses current top remaining S1192 in the same file, 10x in DOMAIN_TARGETS surfaces and mappings).
 PAPERS_PAPER_STATUS = "papers.paper_status"
 
+# Centralized surface name for the duplicated PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS literal
+# (addresses current top remaining S1192 in the same file, 12x in DOMAIN_TARGETS surfaces and mappings).
+PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS = (
+    "publication_automation_items.automation_status"
+)
+
 DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
     {
         "Ideas": {
@@ -85,7 +91,7 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
         "Papers": {
             "surfaces": [
                 PAPERS_PAPER_STATUS,
-                "publication_automation_items.automation_status",
+                PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS,
             ],
             "states": OrderedDict(
                 {
@@ -165,20 +171,20 @@ FINAL_STATE_OVERRIDES: dict[tuple[str, str], str] = {
     (PAPERS_PAPER_STATUS, "archived"): "archived",
     (PAPERS_PAPER_STATUS, "finalized"): "ready_to_publish",
     (PAPERS_PAPER_STATUS, "approved_for_corpus"): "published",
-    ("publication_automation_items.automation_status", "queued"): "finalizing",
-    ("publication_automation_items.automation_status", "claimed"): "finalizing",
-    ("publication_automation_items.automation_status", "blocked"): "blocked",
-    ("publication_automation_items.automation_status", "finalized"): "ready_to_publish",
-    ("publication_automation_items.automation_status", "deferred"): "archived",
-    ("publication_automation_items.automation_status", "triage_ready"): "finalizing",
-    ("publication_automation_items.automation_status", "unreviewed"): "finalizing",
-    ("publication_automation_items.automation_status", "in_review"): "finalizing",
-    ("publication_automation_items.automation_status", "changes_requested"): "blocked",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "queued"): "finalizing",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "claimed"): "finalizing",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "blocked"): "blocked",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "finalized"): "ready_to_publish",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "deferred"): "archived",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "triage_ready"): "finalizing",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "unreviewed"): "finalizing",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "in_review"): "finalizing",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "changes_requested"): "blocked",
     (
-        "publication_automation_items.automation_status",
+        PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS,
         "approved_for_finalization",
     ): "finalizing",
-    ("publication_automation_items.automation_status", "rejected"): "archived",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "rejected"): "archived",
 }
 
 
