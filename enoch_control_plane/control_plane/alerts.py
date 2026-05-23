@@ -121,21 +121,25 @@ def _has_live_worker_run(status: DashboardStatusResponse, run_id: str | None) ->
     return False
 
 
+def _lane_has_dispatchable_queued_work(lane: dict[str, Any]) -> bool:
+    return (
+        bool(lane.get("dispatch_available")) and int(lane.get("queued_count") or 0) > 0
+    )
+
+
+def _worker_lane_dicts(status: DashboardStatusResponse) -> list[dict[str, Any]]:
+    worker_lanes = getattr(status, "worker_lanes", []) or []
+    if not isinstance(worker_lanes, list):
+        return []
+    return [lane for lane in worker_lanes if isinstance(lane, dict)]
+
+
 def _has_idle_lane_dispatch_opportunity(status: DashboardStatusResponse) -> bool:
     if getattr(status, "next_candidate", None):
         return True
-    worker_lanes = getattr(status, "worker_lanes", []) or []
-    if not isinstance(worker_lanes, list):
-        return False
-    for lane in worker_lanes:
-        if not isinstance(lane, dict):
-            continue
-        if (
-            bool(lane.get("dispatch_available"))
-            and int(lane.get("queued_count") or 0) > 0
-        ):
-            return True
-    return False
+    return any(
+        _lane_has_dispatchable_queued_work(lane) for lane in _worker_lane_dicts(status)
+    )
 
 
 def _skip_active_lane_alert_for_live_run(
