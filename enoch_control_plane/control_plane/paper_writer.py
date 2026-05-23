@@ -18,6 +18,7 @@ from .models import PaperRecord
 
 EVIDENCE_TEXT_EXTENSIONS = {".md", ".txt", ".json", ".jsonl", ".csv", ".log", ".py"}
 EVIDENCE_PUBLIC_DIR = "evidence"
+PAPER_PATH_LABEL = "paper path"
 MAX_EVIDENCE_FILES = 80
 MAX_PUBLIC_EVIDENCE_BYTES = 80_000
 MAX_METRIC_FILES = 40
@@ -116,15 +117,15 @@ def _write_files(project_dir: Path, files: dict[str, str], *, force: bool) -> No
             not raw_rel_path
             or target == project_dir
             or (
-                _path_exists_for_paper(target, label="paper path")
-                and _path_is_dir_for_paper(target, label="paper path")
+                _path_exists_for_paper(target, label=PAPER_PATH_LABEL)
+                and _path_is_dir_for_paper(target, label=PAPER_PATH_LABEL)
             )
         ):
             raise HTTPException(
                 status_code=400, detail=f"paper path is not a file target: {rel_path}"
             )
         target.parent.mkdir(parents=True, exist_ok=True)
-        if _path_exists_for_paper(target, label="paper path") and not force:
+        if _path_exists_for_paper(target, label=PAPER_PATH_LABEL) and not force:
             continue
         tmp_path = target.with_name(
             f".{target.name}.{os.getpid()}.{time.time_ns()}.tmp"
