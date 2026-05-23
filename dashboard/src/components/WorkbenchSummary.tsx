@@ -16,7 +16,7 @@ export function WorkbenchCountsFold({
   counts,
   label = 'Ledger counts',
 }: {
-  counts?: Record<string, number | unknown> | null
+  counts?: Record<string, unknown> | null
   label?: string
 }) {
   const entries = Object.entries(counts || {})
