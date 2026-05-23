@@ -1224,16 +1224,65 @@ def clean_export_rows(rows: Iterable[dict[str, Any]]) -> ExportRows:
     return ExportRows(clean_rows, selection_summary=report["summary"])
 
 
+_AUDIT_BACKFILL_BUCKET_LABELS: tuple[tuple[str, str], ...] = (
+    ("Export cleanly now", "export_cleanly_now"),
+    ("Backfilled exportable", "backfilled_exportable"),
+    ("Missing required evidence/fields", "missing_required_evidence_or_fields"),
+    ("Excluded because paper/corpus", "excluded_paper_or_corpus"),
+    ("Hard negative or stale", "hard_negative_or_stale"),
+)
+
+
+def _audit_backfill_bucket_rows(
+    buckets: dict[str, Any], key: str
+) -> list[dict[str, Any]]:
+    if key == "backfilled_exportable":
+        return [
+            row
+            for row in buckets.get("export_cleanly_now") or []
+            if (row.get("backfill") or {}).get("actions")
+        ]
+    return list(buckets.get(key) or [])
+
+
+def _audit_backfill_row_table_line(row: dict[str, Any]) -> str:
+    project = row.get("project_id") or row.get("title") or "unknown"
+    outcome = row.get("research_outcome") or (
+        "compute_scale_blocked" if row.get("compute_scale_blocked") else ""
+    )
+    issues = ", ".join(row.get("issues") or [])
+    backfill = row.get("backfill") if isinstance(row.get("backfill"), dict) else {}
+    backfill_text = "; ".join(
+        part
+        for part in [
+            ", ".join(backfill.get("classification") or []),
+            ", ".join(backfill.get("actions") or []),
+        ]
+        if part
+    )
+    return f"| `{project}` | `{outcome}` | {issues} | {backfill_text} |"
+
+
+def _audit_backfill_bucket_section_lines(
+    label: str, rows: list[dict[str, Any]]
+) -> list[str]:
+    lines = [
+        f"## {label}",
+        "",
+        "| Project | Outcome | Issues | Backfill |",
+        "|---|---|---|---|",
+    ]
+    if not rows:
+        lines.append("| _none_ |  |  |  |")
+    else:
+        lines.extend(_audit_backfill_row_table_line(row) for row in rows)
+    lines.append("")
+    return lines
+
+
 def audit_backfill_markdown(report: dict[str, Any]) -> str:
     summary = report.get("summary") or {}
     buckets = report.get("buckets") or {}
-    labels = [
-        ("Export cleanly now", "export_cleanly_now"),
-        ("Backfilled exportable", "backfilled_exportable"),
-        ("Missing required evidence/fields", "missing_required_evidence_or_fields"),
-        ("Excluded because paper/corpus", "excluded_paper_or_corpus"),
-        ("Hard negative or stale", "hard_negative_or_stale"),
-    ]
     lines = [
         "# Promising signals backfill audit",
         "",
@@ -1247,7 +1296,7 @@ def audit_backfill_markdown(report: dict[str, Any]) -> str:
         "|---|---:|",
         f"| Total candidate rows | {summary.get('total_candidate_rows', 0)} |",
     ]
-    for label, key in labels:
+    for label, key in _AUDIT_BACKFILL_BUCKET_LABELS:
         lines.append(f"| {label} | {summary.get(key, 0)} |")
     lines.extend(
         [
@@ -1261,45 +1310,9 @@ def audit_backfill_markdown(report: dict[str, Any]) -> str:
             "",
         ]
     )
-    for label, key in labels:
-        rows = buckets.get(key) or []
-        if key == "backfilled_exportable":
-            rows = [
-                row
-                for row in buckets.get("export_cleanly_now") or []
-                if (row.get("backfill") or {}).get("actions")
-            ]
-        else:
-            rows = buckets.get(key) or []
-        lines.extend(
-            [
-                f"## {label}",
-                "",
-                "| Project | Outcome | Issues | Backfill |",
-                "|---|---|---|---|",
-            ]
-        )
-        if not rows:
-            lines.append("| _none_ |  |  |  |")
-        for row in rows:
-            project = row.get("project_id") or row.get("title") or "unknown"
-            outcome = row.get("research_outcome") or (
-                "compute_scale_blocked" if row.get("compute_scale_blocked") else ""
-            )
-            issues = ", ".join(row.get("issues") or [])
-            backfill = (
-                row.get("backfill") if isinstance(row.get("backfill"), dict) else {}
-            )
-            backfill_text = "; ".join(
-                part
-                for part in [
-                    ", ".join(backfill.get("classification") or []),
-                    ", ".join(backfill.get("actions") or []),
-                ]
-                if part
-            )
-            lines.append(f"| `{project}` | `{outcome}` | {issues} | {backfill_text} |")
-        lines.append("")
+    for label, key in _AUDIT_BACKFILL_BUCKET_LABELS:
+        rows = _audit_backfill_bucket_rows(buckets, key)
+        lines.extend(_audit_backfill_bucket_section_lines(label, rows))
     return "\n".join(lines)
 
 
