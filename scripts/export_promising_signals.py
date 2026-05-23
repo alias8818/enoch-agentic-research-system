@@ -1457,8 +1457,12 @@ def audit_backfill_markdown(report: dict[str, Any]) -> str:
         ]
     )
     for label, key in _AUDIT_BACKFILL_BUCKET_LABELS:
-        rows = _audit_backfill_bucket_rows(buckets, key)
-        lines.extend(_audit_backfill_bucket_section_lines(label, rows))
+        lines.extend(
+            _audit_backfill_bucket_section_lines(
+                label,
+                _audit_backfill_bucket_rows(buckets, key),
+            )
+        )
     return "\n".join(lines)
 
 
