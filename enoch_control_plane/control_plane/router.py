@@ -742,6 +742,7 @@ _PAPER_REWRITE_DRAFT_RESPONSES: dict[int, dict[str, str]] = {
             "artifacts, or validation error"
         ),
     },
+    404: {"description": "Publication automation item not found"},
     409: {
         "description": (
             "Idempotency key conflict: key reused with a different payload, "
