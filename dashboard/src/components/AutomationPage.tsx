@@ -319,8 +319,10 @@ export function AutomationPage({
   })
 
   function invalidateAutomation(paperId?: string) {
-    void queryClient.invalidateQueries({ queryKey: ['publication-automation'] })
-    if (paperId) void queryClient.invalidateQueries({ queryKey: ['publication-automation-detail', paperId] })
+    queryClient.invalidateQueries({ queryKey: ['publication-automation'] }).catch(() => undefined)
+    if (paperId) {
+      queryClient.invalidateQueries({ queryKey: ['publication-automation-detail', paperId] }).catch(() => undefined)
+    }
   }
 
   const rewriteDryRun = useMutation({
@@ -460,8 +462,8 @@ export function AutomationPage({
   const selectedTitle = displayText(selectedRow?.project_name, activePaperId)
 
   function refreshAutomation() {
-    void automation.refetch()
-    if (selectedPaperId) void detail.refetch()
+    automation.refetch().catch(() => undefined)
+    if (selectedPaperId) detail.refetch().catch(() => undefined)
   }
 
   return (
