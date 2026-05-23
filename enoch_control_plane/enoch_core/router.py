@@ -149,7 +149,7 @@ def create_enoch_core_router(
             snapshot_captured_at=snapshot.get("captured_at"),
         )
 
-    @router.get("/candidates/paper-polish", response_model=CandidateResponse)
+    @router.get("/candidates/paper-polish")
     def paper_polish_candidate(
         authorization: Annotated[str | None, Header()] = None,
         mode: Annotated[EnochCoreMode | None, Query()] = None,
