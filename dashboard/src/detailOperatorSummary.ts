@@ -133,6 +133,19 @@ function runOutcomeLabel(state: string, gate: string, endedAt: string): string {
   return state !== '—' ? state : 'unknown'
 }
 
+function runNextStepMessage(errorState: boolean, outcome: string, state: string): string {
+  if (errorState) {
+    return 'Inspect recent events and worker logs before retrying dispatch.'
+  }
+  if (outcome === 'waiting for wake') {
+    return 'Wait for the worker wake callback unless the gate has been stale for too long.'
+  }
+  if (state === 'running' || state === 'dispatching') {
+    return 'Watch activity and recent events; intervene only if the gate stops moving.'
+  }
+  return 'Review related paper artifacts before queuing another action.'
+}
+
 function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const run = record(payload.run)
   const project = record(payload.project)
@@ -162,13 +175,7 @@ function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   return {
     state: operatorStageLabel(stageSource, state),
     context: `Gate ${gate}; activity ${activity}; outcome ${outcome}.`,
-    next: operatorNextStep(stageSource, errorState
-      ? 'Inspect recent events and worker logs before retrying dispatch.'
-      : outcome === 'waiting for wake'
-        ? 'Wait for the worker wake callback unless the gate has been stale for too long.'
-        : state === 'running' || state === 'dispatching'
-          ? 'Watch activity and recent events; intervene only if the gate stops moving.'
-          : 'Review related paper artifacts before queuing another action.'),
+    next: operatorNextStep(stageSource, runNextStepMessage(errorState, outcome, state)),
     entityLinks,
     sections: [
       {
