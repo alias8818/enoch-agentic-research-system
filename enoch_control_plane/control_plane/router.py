@@ -2063,11 +2063,82 @@ def _worker_run_updated_recently(
     return now <= observed + grace
 
 
-def _recent_worker_settling_without_vm_match(
-    *, preflight: DashboardObservationRecord | None
+def _worker_no_live_failed_check(
+    preflight: DashboardObservationRecord | None,
 ) -> dict[str, Any] | None:
     no_live = _preflight_check(preflight, "worker_no_live_runs")
     if not no_live or no_live.get("ok") is not False:
+        return None
+    return no_live
+
+
+def _terminal_run_states_for_worker_settling() -> set[str]:
+    return set(TERMINAL_SUCCESS_CALLBACK_STATES) | {
+        "completed",
+        "complete",
+        "finished",
+    }
+
+
+def _collect_completed_run_ids(
+    *,
+    queue_rows: list[dict[str, Any]],
+    run_rows: list[dict[str, Any]],
+    terminal_run_states: set[str],
+) -> set[str]:
+    completed_run_ids: set[str] = set()
+    for row in queue_rows:
+        status = _normal_status(row.get("status"))
+        last_run_state = _normal_status(row.get("last_run_state"))
+        run_id = str(row.get("current_run_id") or "").strip()
+        if status in ACTIVE_STATUSES:
+            continue
+        if status == "completed" or last_run_state in terminal_run_states:
+            if run_id:
+                completed_run_ids.add(run_id)
+
+    for row in run_rows:
+        state = _normal_status(row.get("state"))
+        gate_state = _normal_status(row.get("gate_state"))
+        if state not in terminal_run_states and gate_state not in terminal_run_states:
+            continue
+        run_id = str(row.get("run_id") or "").strip()
+        if run_id:
+            completed_run_ids.add(run_id)
+    return completed_run_ids
+
+
+def _worker_settling_match_for_completed_runs(
+    *,
+    preflight: DashboardObservationRecord | None,
+    no_live: dict[str, Any],
+    completed_run_ids: set[str],
+) -> dict[str, Any] | None:
+    body = _worker_dashboard_body_from_preflight(preflight)
+    runs = body.get("runs")
+    if not isinstance(runs, list):
+        return None
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        run_id = str(run.get("run_id") or "").strip()
+        if run_id not in completed_run_ids:
+            continue
+        if not _worker_run_is_settling_without_process(run):
+            continue
+        return {
+            "worker_run": run,
+            "worker_check": no_live,
+            "matched_run_id": run_id,
+        }
+    return None
+
+
+def _recent_worker_settling_without_vm_match(
+    *, preflight: DashboardObservationRecord | None
+) -> dict[str, Any] | None:
+    no_live = _worker_no_live_failed_check(preflight)
+    if no_live is None:
         return None
 
     body = _worker_dashboard_body_from_preflight(preflight)
@@ -2096,56 +2167,23 @@ def _worker_settling_after_vm_completion(
     queue_rows: list[dict[str, Any]],
     run_rows: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
-    no_live = _preflight_check(preflight, "worker_no_live_runs")
-    if not no_live or no_live.get("ok") is not False:
+    no_live = _worker_no_live_failed_check(preflight)
+    if no_live is None:
         return None
 
-    completed_run_ids: set[str] = set()
-    terminal_run_states = set(TERMINAL_SUCCESS_CALLBACK_STATES) | {
-        "completed",
-        "complete",
-        "finished",
-    }
-    for row in queue_rows:
-        status = _normal_status(row.get("status"))
-        last_run_state = _normal_status(row.get("last_run_state"))
-        run_id = str(row.get("current_run_id") or "").strip()
-        if status in ACTIVE_STATUSES:
-            continue
-        if status == "completed" or last_run_state in terminal_run_states:
-            if run_id:
-                completed_run_ids.add(run_id)
-
-    for row in run_rows:
-        state = _normal_status(row.get("state"))
-        gate_state = _normal_status(row.get("gate_state"))
-        if state not in terminal_run_states and gate_state not in terminal_run_states:
-            continue
-        run_id = str(row.get("run_id") or "").strip()
-        if run_id:
-            completed_run_ids.add(run_id)
-
+    completed_run_ids = _collect_completed_run_ids(
+        queue_rows=queue_rows,
+        run_rows=run_rows,
+        terminal_run_states=_terminal_run_states_for_worker_settling(),
+    )
     if not completed_run_ids:
         return None
 
-    body = _worker_dashboard_body_from_preflight(preflight)
-    runs = body.get("runs")
-    if not isinstance(runs, list):
-        return None
-    for run in runs:
-        if not isinstance(run, dict):
-            continue
-        run_id = str(run.get("run_id") or "").strip()
-        if run_id not in completed_run_ids:
-            continue
-        if not _worker_run_is_settling_without_process(run):
-            continue
-        return {
-            "worker_run": run,
-            "worker_check": no_live,
-            "matched_run_id": run_id,
-        }
-    return None
+    return _worker_settling_match_for_completed_runs(
+        preflight=preflight,
+        no_live=no_live,
+        completed_run_ids=completed_run_ids,
+    )
 
 
 def _truncate_text(value: Any, limit: int = 500) -> Any:
