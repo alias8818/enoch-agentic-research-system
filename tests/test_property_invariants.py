@@ -429,7 +429,7 @@ def test_worker_http_evidence_sync_never_writes_outside_artifact_root(
             )
 
         with patch(
-            "enoch_control_plane.control_plane.router.post_worker_json",
+            "enoch_control_plane.control_plane.worker_evidence_sync.post_worker_json",
             side_effect=fake_post_worker_json,
         ):
             _sync_worker_http_evidence(

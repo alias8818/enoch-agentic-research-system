@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from functools import partial
 import io
 import hashlib
 import mimetypes
@@ -115,6 +116,7 @@ from .supabase_store import (
     resolve_supabase_database_url,
 )
 from .worker_adapter import HttpResult, post_worker_json, run_worker_preflight
+from .worker_evidence_sync import _sync_worker_http_evidence
 
 RequireBearer = Callable[[str | None], None]
 
@@ -551,255 +553,6 @@ def _local_paper_evidence_present(project_dir: Path) -> bool:
     )
 
 
-def _target_is_existing_dir(path: Path) -> tuple[bool, str]:
-    try:
-        if not path.exists():
-            return False, ""
-        return path.is_dir(), ""
-    except (OSError, RuntimeError, ValueError) as exc:
-        return (
-            False,
-            f"{type(exc).__name__}: evidence target could not be inspected: {exc}",
-        )
-
-
-def _worker_json_request(
-    base_url: str,
-    path: str,
-    token: str,
-    payload: dict[str, Any],
-    *,
-    timeout_seconds: float,
-) -> HttpResult:
-    """Call the worker read endpoint without leaving uncancellable threads.
-
-    The underlying adapter uses urllib with a bounded socket timeout. Keeping
-    the call synchronous means a stuck or slow worker consumes the current
-    request only, not an unbounded background daemon thread per evidence file.
-    """
-
-    try:
-        return post_worker_json(base_url, path, token, payload, timeout=timeout_seconds)
-    except TypeError as exc:
-        if "timeout" not in str(exc):
-            raise
-        return post_worker_json(base_url, path, token, payload)
-
-
-def _sync_worker_http_evidence(
-    config: GateConfig,
-    *,
-    project_id: str,
-    artifact_root: Path,
-    source_run_id: str = "",
-    worker_wake_gate_url: str | None = None,
-    worker_bearer_token: str | None = None,
-    per_request_timeout_seconds: float = 5.0,
-    overall_timeout_seconds: float = 45.0,
-) -> dict[str, Any]:
-    wake_gate_url = (worker_wake_gate_url or config.worker_wake_gate_url or "").strip()
-    bearer_token = (
-        worker_bearer_token or config.worker_wake_gate_bearer_token or ""
-    ).strip()
-    if not bearer_token:
-        return {"ok": False, "reason": "worker_token_missing"}
-    if not wake_gate_url:
-        return {"ok": False, "reason": "worker_url_missing"}
-    base_run = source_run_id.removesuffix("-publication") if source_run_id else ""
-    paths = [
-        "run_notes.md",
-        ".enoch/project_decision.json",
-        ".enoch/metrics.json",
-        ".omx/project_decision.json",
-        ".omx/metrics.json",
-        "results/hot_cold_sim_results.json",
-        "results/smoke.json",
-        "results/llamacpp_probe/hotcold_probe.json",
-        "results/llamacpp_hotcold_residency/qwen32b_hotcold_residency.json",
-        "results/llamacpp_hotcold_residency/qwen32b_hotcold_fixed_budget_pager_sweep.json",
-        "results/llamacpp_hotcold_residency/qwen32b_hotcold_fixed_budget_pager_sweep_summary.csv",
-        "results/llamacpp_hotcold_residency/qwen32b_hotcold_reuse_pager_sweep.json",
-        "results/llamacpp_hotcold_residency/qwen32b_hotcold_reuse_pager_sweep_summary.csv",
-    ]
-    if base_run:
-        paths.extend(
-            [
-                f"papers/{base_run}/README.md",
-                f"papers/{base_run}/paper.md",
-                f"papers/{base_run}/paper_manifest.json",
-                f"papers/{base_run}/evidence_bundle.json",
-                f"papers/{base_run}/claim_ledger.json",
-            ]
-        )
-    written = []
-    skipped = []
-    try:
-        artifact_root = artifact_root.resolve()
-        artifact_root.mkdir(parents=True, exist_ok=True)
-    except (OSError, RuntimeError, ValueError) as exc:
-        return {
-            "ok": False,
-            "reason": "artifact_root_unusable",
-            "files": 0,
-            "paths": [],
-            "skipped": [],
-            "error": f"{type(exc).__name__}: {exc}",
-        }
-    if not artifact_root.is_dir():
-        return {
-            "ok": False,
-            "reason": "artifact_root_unusable",
-            "files": 0,
-            "paths": [],
-            "skipped": [],
-            "error": "artifact root is not a directory",
-        }
-    # Read each evidence path independently. The GB10 worker read endpoint is
-    # intentionally strict and returns a non-2xx response when any requested
-    # path is missing. Most projects only have a subset of the optional
-    # artifacts below, so a single bulk read can fail an otherwise valid rewrite
-    # before useful evidence is copied. Treat missing optional paths as skipped
-    # and let the later local evidence gate decide whether enough material was
-    # synced to ground a paper.
-    started = time.monotonic()
-    timeouts = 0
-    for path in paths:
-        remaining = overall_timeout_seconds - (time.monotonic() - started)
-        if remaining <= 0:
-            timeouts += 1
-            skipped.append(
-                {
-                    "path": path,
-                    "status": "timeout",
-                    "error": "overall worker evidence sync timeout exceeded",
-                }
-            )
-            break
-        request_timeout = min(per_request_timeout_seconds, remaining)
-        result = _worker_json_request(
-            wake_gate_url,
-            f"/project-paper/{project_id}/read",
-            bearer_token,
-            {"paths": [path], "max_bytes_per_file": 2_000_000},
-            timeout_seconds=request_timeout,
-        )
-        if not result.ok or not result.body:
-            is_timeout = "TimeoutError:" in (result.error or "")
-            if is_timeout:
-                timeouts += 1
-            skipped.append(
-                {
-                    "path": path,
-                    "status": "timeout" if is_timeout else result.status,
-                    "error": (result.error or str(result.status))[:300],
-                }
-            )
-            continue
-        if not isinstance(result.body, dict):
-            skipped.append(
-                {
-                    "path": path,
-                    "status": "malformed_response",
-                    "error": "worker read response body is not an object",
-                }
-            )
-            continue
-        files = result.body.get("files", [])
-        if not isinstance(files, list):
-            skipped.append(
-                {
-                    "path": path,
-                    "status": "malformed_response",
-                    "error": "worker read response files field is not a list",
-                }
-            )
-            continue
-        for file in files:
-            if not isinstance(file, dict):
-                skipped.append(
-                    {
-                        "path": path,
-                        "status": "malformed_file",
-                        "error": "worker read response file entry is not an object",
-                    }
-                )
-                continue
-            rel = str(file.get("path") or "").strip()
-            content = str(file.get("content") or "")
-            if not content:
-                try:
-                    stale_target = (artifact_root / rel).resolve()
-                    stale_target.relative_to(artifact_root)
-                    if rel and stale_target != artifact_root and stale_target.is_file():
-                        stale_target.unlink()
-                except (OSError, RuntimeError, ValueError):
-                    pass
-                skipped.append(
-                    {
-                        "path": rel,
-                        "status": "empty_content",
-                        "error": "worker returned empty evidence content",
-                    }
-                )
-                continue
-            try:
-                target = (artifact_root / rel).resolve()
-                target.relative_to(artifact_root)
-            except (OSError, RuntimeError, ValueError):
-                skipped.append(
-                    {
-                        "path": rel,
-                        "status": "unsafe_path",
-                        "error": "worker returned path outside artifact root",
-                    }
-                )
-                continue
-            target_is_dir, target_error = _target_is_existing_dir(target)
-            if target_error:
-                skipped.append(
-                    {"path": rel, "status": "unsafe_path", "error": target_error[:300]}
-                )
-                continue
-            if not rel or target == artifact_root or target_is_dir:
-                skipped.append(
-                    {
-                        "path": rel,
-                        "status": "unsafe_path",
-                        "error": "worker returned path is not a file target",
-                    }
-                )
-                continue
-            try:
-                _atomic_write_text(target, content)
-            except OSError as exc:
-                skipped.append(
-                    {
-                        "path": rel,
-                        "status": "write_failed",
-                        "error": f"{type(exc).__name__}: {exc}"[:300],
-                    }
-                )
-                continue
-            written.append(rel)
-    if not written:
-        return {
-            "ok": False,
-            "reason": "no_worker_http_evidence" if timeouts else "worker_read_failed",
-            "files": 0,
-            "paths": [],
-            "skipped": skipped[:30],
-            "timeouts": timeouts,
-        }
-    return {
-        "ok": True,
-        "reason": "worker_http_synced",
-        "files": len(written),
-        "paths": written[:30],
-        "skipped": skipped[:30],
-        "timeouts": timeouts,
-    }
-
-
 def _remote_evidence_dir(
     config: GateConfig, *, project_id: str, source_project_dir: str = ""
 ) -> str:
@@ -901,6 +654,336 @@ def _local_artifact_root(
         root, candidate if candidate.is_absolute() else root / candidate
     )
     return safe_candidate or fallback
+
+
+_PAPER_REWRITE_BLOCKED_REVIEW_STATUSES = frozenset(
+    {
+        "blocked",
+        "changes_requested",
+        "in_review",
+        "unreviewed",
+        "rejected",
+    }
+)
+
+_PAPER_REWRITE_PUBLICATION_POLICY = {
+    "ai_generated": True,
+    "operator_credit_claim": "none",
+    "disclaimer": (
+        "AI-generated and AI-written from automated research artifacts; "
+        "released with no personal authorship credit claimed by the operator."
+    ),
+}
+
+
+def _paper_record_from_store_row(row: dict[str, Any]) -> PaperRecord:
+    data = dict(row)
+    for key in ("generated_at", "updated_at"):
+        value = data.get(key)
+        if isinstance(value, datetime):
+            data[key] = value.isoformat()
+    return PaperRecord.model_validate(data)
+
+
+def _paper_rewrite_rows_or_404(
+    store: ControlPlaneStore, paper_id: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    paper = store.paper_row(paper_id)
+    item = store.paper_review_row(paper_id, include_rank_reasons=True)
+    if paper is None or item is None:
+        raise HTTPException(
+            status_code=404, detail="publication automation item not found"
+        )
+    review_status = _normal_status(item.get("review_status"))
+    if review_status in _PAPER_REWRITE_BLOCKED_REVIEW_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"publication automation items with review_status={review_status} "
+                "cannot be rewritten or auto-published"
+            ),
+        )
+    return paper, item
+
+
+def _resolve_paper_rewrite_artifact_root(
+    config: GateConfig,
+    *,
+    project_id: str,
+    project: dict[str, Any] | None,
+) -> tuple[Path, bool]:
+    try:
+        configured_root = config.expanded_project_root.resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400, detail="configured project root could not be resolved"
+        ) from exc
+    try:
+        current_project_dir = (
+            Path(str((project or {}).get("project_dir") or "")).expanduser()
+            if project
+            else Path()
+        )
+    except RuntimeError:
+        current_project_dir = Path()
+    use_current_dir = False
+    resolved_current_project_dir: Path | None = None
+    if str(current_project_dir):
+        try:
+            resolved_current_project_dir = current_project_dir.resolve()
+            resolved_current_project_dir.relative_to(configured_root)
+        except ValueError:
+            use_current_dir = False
+            resolved_current_project_dir = None
+        except (OSError, RuntimeError) as exc:
+            raise HTTPException(
+                status_code=400, detail="paper artifact root could not be resolved"
+            ) from exc
+        else:
+            try:
+                use_current_dir = resolved_current_project_dir.exists()
+            except (OSError, RuntimeError) as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail="paper artifact root could not be inspected",
+                ) from exc
+    try:
+        artifact_root = (
+            resolved_current_project_dir
+            if use_current_dir and resolved_current_project_dir is not None
+            else (configured_root / project_id).resolve()
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400, detail="paper artifact root could not be resolved"
+        ) from exc
+    return artifact_root, use_current_dir
+
+
+def _paper_rewrite_idempotent_response(
+    store: ControlPlaneStore,
+    *,
+    payload: PaperReviewRewriteDraftRequest,
+    paper_id: str,
+    item: dict[str, Any],
+    paper: dict[str, Any],
+    artifact_root: Path,
+) -> PaperReviewRewriteDraftResponse | None:
+    existing_event_reader = getattr(store, "event_by_idempotency_key", None)
+    if not callable(existing_event_reader):
+        return None
+    existing_event = existing_event_reader(payload.idempotency_key)
+    if not existing_event:
+        return None
+    if (
+        str(existing_event.get("event_type") or "") != PAPER_REVIEW_DRAFT_REWRITTEN
+        or str(existing_event.get("entity_id") or "") != paper_id
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"idempotency key {payload.idempotency_key!r} was reused with "
+                "different payload"
+            ),
+        )
+    return PaperReviewRewriteDraftResponse(
+        inserted_event=False,
+        event_id=int(existing_event.get("event_id") or 0),
+        item=item,
+        paper=paper,
+        writer={"idempotent_replay": True},
+        artifact_root=str(artifact_root),
+    )
+
+
+def _paper_rewrite_candidate_payload(
+    *,
+    project_id: str,
+    project: dict[str, Any] | None,
+    paper: dict[str, Any],
+    item: dict[str, Any],
+    artifact_root: Path,
+    record: PaperRecord,
+    evidence_sync: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "project_id": project_id,
+        "project_name": str(
+            (project or paper or item).get("project_name") or project_id
+        ),
+        "project_dir": str(artifact_root),
+        "run_id": record.run_id,
+        "current_run_id": record.run_id,
+        "notion_page_url": str((project or paper).get("notion_page_url") or ""),
+        "paper_review_item": item,
+        "paper": paper,
+        "evidence_sync": evidence_sync,
+        "publication_policy": _PAPER_REWRITE_PUBLICATION_POLICY,
+    }
+
+
+def _snapshot_paper_rewrite_artifacts(
+    artifact_root: Path, record: PaperRecord
+) -> dict[Path, tuple[bool, bytes]]:
+    artifact_snapshots: dict[Path, tuple[bool, bytes]] = {}
+    for rel_path in {
+        record.draft_markdown_path,
+        record.draft_latex_path,
+        record.evidence_bundle_path,
+        record.claim_ledger_path,
+        record.manifest_path,
+    }:
+        try:
+            target = (artifact_root / rel_path).resolve()
+            target.relative_to(artifact_root)
+        except (OSError, RuntimeError, ValueError):
+            continue
+        try:
+            existed = target.exists()
+            content = target.read_bytes() if existed and target.is_file() else b""
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"paper artifact snapshot could not be read: {rel_path}",
+            ) from exc
+        artifact_snapshots[target] = (existed, content)
+    return artifact_snapshots
+
+
+def _restore_paper_rewrite_side_effects(
+    store: ControlPlaneStore,
+    *,
+    artifact_snapshots: Mapping[Path, tuple[bool, bytes]],
+    original_record: PaperRecord,
+    original_project_dir: str,
+    project_id: str,
+) -> None:
+    for path, (existed, content) in artifact_snapshots.items():
+        _restore_or_remove_path(path, existed=existed, content=content)
+    try:
+        store.upsert_paper(original_record.model_copy(update={"updated_at": utc_now()}))
+        if original_project_dir:
+            store.update_project_dir(project_id, original_project_dir)
+    except Exception as exc:
+        raise RuntimeError("failed to restore paper rewrite side effects") from exc
+
+
+def _commit_paper_rewrite_draft(
+    store: ControlPlaneStore,
+    config: GateConfig,
+    *,
+    paper_id: str,
+    payload: PaperReviewRewriteDraftRequest,
+    candidate: dict[str, Any],
+    record: PaperRecord,
+    artifact_root: Path,
+    use_current_dir: bool,
+    project_id: str,
+    evidence_sync: dict[str, Any],
+    artifact_snapshots: dict[Path, tuple[bool, bytes]],
+    original_record: PaperRecord,
+    original_project_dir: str,
+    item: dict[str, Any],
+) -> PaperReviewRewriteDraftResponse:
+    draft_event_committed = False
+    try:
+        writer = write_paper_artifacts(config, candidate, record, force=payload.force)
+        if not use_current_dir:
+            store.update_project_dir(project_id, str(artifact_root))
+        store.upsert_paper(record)
+        event_payload = {
+            "action": "rewrite_draft",
+            "requested_by": payload.requested_by,
+            "force": payload.force,
+            "artifact_root": str(artifact_root),
+            "writer": writer,
+            "evidence_sync": evidence_sync,
+            "publication_policy": candidate["publication_policy"],
+            "paper_paths": {
+                "draft_markdown_path": record.draft_markdown_path,
+                "draft_latex_path": record.draft_latex_path,
+                "evidence_bundle_path": record.evidence_bundle_path,
+                "claim_ledger_path": record.claim_ledger_path,
+                "manifest_path": record.manifest_path,
+            },
+        }
+        event_id, inserted = store.append_event(
+            idempotency_key=payload.idempotency_key,
+            event_type=PAPER_REVIEW_DRAFT_REWRITTEN,
+            entity_type="paper_review",
+            entity_id=paper_id,
+            payload=event_payload,
+        )
+        draft_event_committed = True
+        (
+            finalization_event_id,
+            finalization_inserted,
+            finalized_item,
+            package_path,
+            _manifest,
+        ) = store.prepare_paper_review_finalization_package(
+            paper_id,
+            PaperReviewPrepareFinalizationRequest(
+                idempotency_key=f"{payload.idempotency_key}:automated-finalization",
+                requested_by=payload.requested_by,
+                target_label="automated-publication",
+                dry_run=False,
+            ),
+            require_approval=False,
+        )
+    except IdempotencyConflict as exc:
+        if not draft_event_committed:
+            _restore_paper_rewrite_side_effects(
+                store,
+                artifact_snapshots=artifact_snapshots,
+                original_record=original_record,
+                original_project_dir=original_project_dir,
+                project_id=project_id,
+            )
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        if not draft_event_committed:
+            _restore_paper_rewrite_side_effects(
+                store,
+                artifact_snapshots=artifact_snapshots,
+                original_record=original_record,
+                original_project_dir=original_project_dir,
+                project_id=project_id,
+            )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception:
+        if not draft_event_committed:
+            _restore_paper_rewrite_side_effects(
+                store,
+                artifact_snapshots=artifact_snapshots,
+                original_record=original_record,
+                original_project_dir=original_project_dir,
+                project_id=project_id,
+            )
+        raise
+    refreshed = (
+        store.paper_review_row(paper_id, include_rank_reasons=True)
+        or finalized_item
+        or item
+    )
+    writer_with_sync = {
+        **writer,
+        "evidence_sync": evidence_sync,
+        "automated_finalization": {
+            "inserted_event": finalization_inserted,
+            "event_id": finalization_event_id,
+            "package_path": package_path,
+            "review_status": str((refreshed or {}).get("review_status") or ""),
+        },
+    }
+    return PaperReviewRewriteDraftResponse(
+        inserted_event=inserted,
+        event_id=event_id,
+        item=refreshed,
+        paper=store.paper_row(paper_id),
+        writer=writer_with_sync,
+        artifact_root=str(artifact_root),
+    )
 
 
 def _stop_process(proc: subprocess.Popen | None) -> None:
@@ -1201,6 +1284,376 @@ def _live_run_id(project_id: str) -> str:
         .replace("+00:00", "Z")
     )
     return f"{project_id}-{stamp}"
+
+
+def _assert_live_dispatch_preconditions(
+    *,
+    config: GateConfig,
+    store: ControlPlaneStore,
+    require_writable_store: Callable[[str], None],
+    allow_paused: bool,
+) -> None:
+    if not config.live_dispatch_enabled:
+        raise HTTPException(
+            status_code=501,
+            detail="live dispatch is disabled by config.live_dispatch_enabled",
+        )
+    require_writable_store("live dispatch")
+    flags = store.flags()
+    if flags.maintenance_mode:
+        raise HTTPException(
+            status_code=409,
+            detail="control plane must be out of maintenance mode before live dispatch",
+        )
+    if flags.queue_paused and not allow_paused:
+        raise HTTPException(
+            status_code=409,
+            detail="control plane must be resumed before live dispatch",
+        )
+
+
+def _live_dispatch_project_context(candidate: dict) -> tuple[str, str, str]:
+    project_id = str(candidate.get("project_id") or "").strip()
+    if not project_id:
+        raise HTTPException(status_code=400, detail="candidate lacks project_id")
+    project_dir = _safe_slug(
+        str(candidate.get("project_dir") or project_id), project_id
+    )
+    return project_id, project_dir, _live_run_id(project_id)
+
+
+def _resolved_worker_target_with_bearer(
+    config: GateConfig,
+    candidate: dict,
+    *,
+    release_claim: Callable[[], None] | None = None,
+) -> Any:
+    worker_target = config.resolved_worker_target(
+        str(candidate.get("machine_target") or "")
+    )
+    if worker_target.bearer_token:
+        return worker_target
+    if release_claim is not None:
+        release_claim()
+    raise HTTPException(
+        status_code=500,
+        detail=(
+            "worker bearer token is not configured for "
+            f"machine_target={candidate.get('machine_target') or 'default'}"
+        ),
+    )
+
+
+def _claim_live_dispatch_candidate(
+    store: ControlPlaneStore,
+    *,
+    project_id: str,
+    run_id: str,
+    requested_by: str,
+    conflicting_machine_targets: set[str],
+) -> dict:
+    claim_kwargs = {
+        "project_id": project_id,
+        "run_id": run_id,
+        "requested_by": requested_by,
+        "conflicting_machine_targets": conflicting_machine_targets,
+    }
+    try:
+        claim = store.claim_dispatch_candidate(**claim_kwargs)
+    except TypeError as exc:
+        if "conflicting_machine_targets" not in str(exc):
+            raise
+        claim_kwargs.pop("conflicting_machine_targets")
+        claim = store.claim_dispatch_candidate(**claim_kwargs)
+    if not claim:
+        raise HTTPException(
+            status_code=409,
+            detail="dispatch candidate was already claimed or is no longer queued",
+        )
+    return claim
+
+
+def _live_dispatch_preflight_min_memory_mib(worker_target: Any) -> int:
+    if worker_target.min_memory_available_mib is not None:
+        return int(worker_target.min_memory_available_mib)
+    return int(WorkerPreflightRequest.model_fields["min_memory_available_mib"].default)
+
+
+def _run_live_dispatch_preflight(
+    *,
+    worker_target: Any,
+    store: ControlPlaneStore,
+    project_id: str,
+    run_id: str,
+    force_preflight: bool,
+    callback_acceptance_token_fingerprint: Callable[[], str],
+    record_preflight_observations: Callable[[WorkerPreflightResponse], None],
+) -> WorkerPreflightResponse:
+    try:
+        preflight = run_worker_preflight(
+            WorkerPreflightRequest(
+                wake_gate_url=worker_target.wake_gate_url,
+                bearer_token=worker_target.bearer_token,
+                expected_callback_token_fingerprint=callback_acceptance_token_fingerprint(),
+                require_paused=False,
+                strict=False,
+                min_memory_available_mib=_live_dispatch_preflight_min_memory_mib(
+                    worker_target
+                ),
+            ),
+            store.flags(),
+        )
+    except Exception as exc:
+        reason = f"{WORKER_PREFLIGHT_FAILED_REASON}: {type(exc).__name__}: {exc}"
+        store.release_dispatch_claim(
+            project_id=project_id, run_id=run_id, reason=reason
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": WORKER_PREFLIGHT_FAILED_REASON,
+                "preflight_error": reason,
+                "force_preflight_ignored": not force_preflight,
+            },
+        ) from exc
+    record_preflight_observations(preflight)
+    if preflight.ok:
+        return preflight
+    store.release_dispatch_claim(
+        project_id=project_id,
+        run_id=run_id,
+        reason=WORKER_PREFLIGHT_FAILED_REASON,
+    )
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "message": WORKER_PREFLIGHT_FAILED_REASON,
+            "preflight": preflight.model_dump(mode="json"),
+            "force_preflight_ignored": not force_preflight,
+        },
+    )
+
+
+def _live_dispatch_prepare_payload(
+    *,
+    run_id: str,
+    project_id: str,
+    project_dir: str,
+    candidate: dict,
+    requested_by: str,
+    config: GateConfig,
+    worker_target: Any,
+    dispatch_route_metadata: Callable[[str, Any], dict[str, Any]],
+) -> dict[str, Any]:
+    prompt_file = f"{project_dir}/prompts/initial.md"
+    resume_prompt_file = f"{project_dir}/prompts/resume.md"
+    workload_class = config.workload_class_for_machine_target(
+        str(candidate.get("machine_target") or ""),
+        str(candidate.get("workload_class") or ""),
+    )
+    machine_target = str(candidate.get("machine_target") or "")
+    return {
+        "run_id": run_id,
+        "project_id": project_id,
+        "project_name": str(candidate.get("project_name") or project_id),
+        "notion_page_url": str(candidate.get("notion_page_url") or ""),
+        "project_dir": project_dir,
+        "prompt_file": prompt_file,
+        "prompt_text": _project_prompt(candidate),
+        "resume_prompt_file": resume_prompt_file,
+        "resume_prompt_text": _project_prompt(candidate)
+        + "\n\nResume from the existing project artifacts and continue to a verified decision.\n",
+        "metadata": {
+            "workload_class": workload_class,
+            "machine_target": machine_target,
+            "dispatch_route": dispatch_route_metadata(machine_target, worker_target),
+            "source": "langgraph_control_plane",
+            "requested_by": requested_by,
+        },
+        "overwrite": True,
+    }
+
+
+def _post_live_dispatch_prepare(
+    *,
+    worker_target: Any,
+    store: ControlPlaneStore,
+    project_id: str,
+    run_id: str,
+    prepare_payload: dict[str, Any],
+) -> dict[str, Any]:
+    prepare = post_worker_json(
+        worker_target.wake_gate_url,
+        "/prepare-project",
+        worker_target.bearer_token,
+        prepare_payload,
+    )
+    if prepare.ok:
+        return prepare.body if isinstance(prepare.body, dict) else {}
+    store.release_dispatch_claim(
+        project_id=project_id,
+        run_id=run_id,
+        reason="worker prepare-project failed",
+    )
+    raise HTTPException(
+        status_code=502,
+        detail={
+            "message": "worker prepare-project failed",
+            "status": prepare.status,
+            "error": prepare.error,
+            "body": prepare.body,
+        },
+    )
+
+
+def _dispatch_session_id_from_body(body: dict[str, Any]) -> str:
+    dispatch_body = body.get("dispatch")
+    if not isinstance(dispatch_body, dict):
+        dispatch_body = {}
+    return str(dispatch_body.get("session_id") or "")
+
+
+def _post_live_dispatch_run(
+    *,
+    worker_target: Any,
+    store: ControlPlaneStore,
+    project_id: str,
+    run_id: str,
+    project_dir: str,
+    candidate: dict,
+) -> tuple[dict[str, Any], str]:
+    prompt_file = f"{project_dir}/prompts/initial.md"
+    dispatch_payload = {
+        "run_id": run_id,
+        "project_id": project_id,
+        "project_dir": project_dir,
+        "prompt_file": prompt_file,
+        "mode": "exec",
+        "model": str(candidate.get("model") or "gpt-5.5"),
+        "reasoning_effort": "medium",
+        "sandbox": str(candidate.get("sandbox") or "danger-full-access"),
+    }
+    dispatch = post_worker_json(
+        worker_target.wake_gate_url,
+        "/dispatch",
+        worker_target.bearer_token,
+        dispatch_payload,
+    )
+    if not dispatch.ok:
+        store.release_dispatch_claim(
+            project_id=project_id, run_id=run_id, reason="worker dispatch failed"
+        )
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "worker dispatch failed",
+                "status": dispatch.status,
+                "error": dispatch.error,
+                "body": dispatch.body,
+            },
+        )
+    body = dispatch.body if isinstance(dispatch.body, dict) else {}
+    return body, _dispatch_session_id_from_body(body)
+
+
+def _execute_live_dispatch(
+    candidate: dict,
+    requested_by: str,
+    force_preflight: bool,
+    *,
+    allow_paused: bool = False,
+    config: GateConfig,
+    store: ControlPlaneStore,
+    require_writable_store: Callable[[str], None],
+    candidate_machine_target_conflict_set: Callable[[dict[str, Any]], set[str]],
+    callback_acceptance_token_fingerprint: Callable[[], str],
+    record_preflight_observations: Callable[[WorkerPreflightResponse], None],
+    dispatch_route_metadata: Callable[[str, Any], dict[str, Any]],
+) -> tuple[dict, int | None, dict]:
+    _assert_live_dispatch_preconditions(
+        config=config,
+        store=store,
+        require_writable_store=require_writable_store,
+        allow_paused=allow_paused,
+    )
+    project_id, project_dir, run_id = _live_dispatch_project_context(candidate)
+    _resolved_worker_target_with_bearer(config, candidate)
+    candidate = _claim_live_dispatch_candidate(
+        store,
+        project_id=project_id,
+        run_id=run_id,
+        requested_by=requested_by,
+        conflicting_machine_targets=candidate_machine_target_conflict_set(candidate),
+    )
+
+    def _release_for_missing_token() -> None:
+        store.release_dispatch_claim(
+            project_id=project_id,
+            run_id=run_id,
+            reason="worker bearer token missing for routed target",
+        )
+
+    worker_target = _resolved_worker_target_with_bearer(
+        config, candidate, release_claim=_release_for_missing_token
+    )
+    preflight = _run_live_dispatch_preflight(
+        worker_target=worker_target,
+        store=store,
+        project_id=project_id,
+        run_id=run_id,
+        force_preflight=force_preflight,
+        callback_acceptance_token_fingerprint=callback_acceptance_token_fingerprint,
+        record_preflight_observations=record_preflight_observations,
+    )
+    prepare_payload = _live_dispatch_prepare_payload(
+        run_id=run_id,
+        project_id=project_id,
+        project_dir=project_dir,
+        candidate=candidate,
+        requested_by=requested_by,
+        config=config,
+        worker_target=worker_target,
+        dispatch_route_metadata=dispatch_route_metadata,
+    )
+    prepare_body = _post_live_dispatch_prepare(
+        worker_target=worker_target,
+        store=store,
+        project_id=project_id,
+        run_id=run_id,
+        prepare_payload=prepare_payload,
+    )
+    dispatch_body, session_id = _post_live_dispatch_run(
+        worker_target=worker_target,
+        store=store,
+        project_id=project_id,
+        run_id=run_id,
+        project_dir=project_dir,
+        candidate=candidate,
+    )
+    store.update_project_dir(project_id, project_dir)
+    event_id, updated_candidate = store.mark_dispatch_started(
+        project_id=project_id,
+        run_id=run_id,
+        session_id=session_id,
+        dispatch_payload=dispatch_body,
+        requested_by=requested_by,
+    )
+    machine_target = str(candidate.get("machine_target") or "")
+    prompt_file = f"{project_dir}/prompts/initial.md"
+    return (
+        {
+            "run_id": run_id,
+            "project_id": project_id,
+            "project_dir": project_dir,
+            "prompt_file": prompt_file,
+            "prepare": prepare_body,
+            "dispatch": dispatch_body,
+            "preflight": preflight.model_dump(mode="json"),
+            "dispatch_route": dispatch_route_metadata(machine_target, worker_target),
+        },
+        event_id,
+        updated_candidate,
+    )
 
 
 def _parse_ts(value: str | None) -> datetime | None:
@@ -1943,9 +2396,7 @@ def _handle_followup_and_early_skips(
         followup_candidate = store.next_followup_candidate(max_followup_depth=4)
     if followup_candidate:
         followup_lane_key = research_row_lane_key(followup_candidate)
-        generation_lane_key = str(
-            (generation_target_lane or {}).get("lane_key") or ""
-        )
+        generation_lane_key = str((generation_target_lane or {}).get("lane_key") or "")
         followup_starves_target_lane = (
             bool(generation_target_lane)
             and bool(max_provider_requests)
@@ -1985,9 +2436,9 @@ def _handle_followup_and_early_skips(
                     "stage": "followup_launch",
                     "ok": followup_launch.get("action") == "followup_queued",
                     "action": followup_launch.get("action"),
-                    "parent_project_id": (
-                        followup_launch.get("candidate") or {}
-                    ).get("project_id"),
+                    "parent_project_id": (followup_launch.get("candidate") or {}).get(
+                        "project_id"
+                    ),
                     "project_id": (followup_launch.get("followup") or {}).get(
                         "idea_id"
                     ),
@@ -2111,9 +2562,7 @@ def _execute_provider_generation(
                 max_tokens=generation_max_tokens,
                 attempts=generation_attempts,
                 default_machine=generation_machine_target,
-                default_model=os.environ.get(
-                    "ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"
-                ),
+                default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
                 default_sandbox=os.environ.get(
                     "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
                 ),
@@ -2141,9 +2590,7 @@ def _execute_provider_generation(
                 generated_plans, requested_by=requested_by, queue_admitted=False
             )
             response["generated_count"] = len(generated_plans)
-            response["provider_response_id"] = generated.get(
-                "provider_response_id", ""
-            )
+            response["provider_response_id"] = generated.get("provider_response_id", "")
             response["attempts_used"] = generated.get("attempts_used", 1)
             response["generation_target_lane"] = generation_target_lane
             response["ledger_result"] = ledger_result
@@ -2279,9 +2726,7 @@ def _dispatch_queued_project(
             )
             return False
         response["dispatch_started"] = True
-        response["dispatched_count"] = (
-            int(response.get("dispatched_count") or 0) + 1
-        )
+        response["dispatched_count"] = int(response.get("dispatched_count") or 0) + 1
         dispatch_record = {
             "event_id": event_id,
             "candidate": updated_candidate,
@@ -2309,19 +2754,616 @@ def _dispatch_queued_project(
     return False
 
 
-def research_row_lane_key(row: dict[str, Any]) -> str:
-    """Top-level version of the lane key helper (extracted from the giant for reduced cognitive complexity and better testability).
+_RESEARCH_CYCLE_BUDGET_RESPONSE_KEYS = frozenset(
+    {
+        "ok",
+        "provider",
+        "checked_at",
+        "estimated_requests",
+        "reserve_requests",
+        "remaining_credits",
+        "min_remaining_credits",
+        "rolling_remaining",
+        "rolling_max",
+        "rolling_limited",
+        "rolling_next_tick_at",
+        "weekly_next_regen_at",
+        "weekly_next_regen_credits",
+        "subscription_remaining",
+        "subscription_renews_at",
+        "failures",
+    }
+)
 
-    The thin local wrapper inside the giant closes over the factory's _worker_lane_key.
+
+def _fetch_synthetic_research_budget(
+    *,
+    body: dict[str, Any],
+    provider_base_url: str,
+    estimated_requests: int,
+    bounded_int: Callable[[str, int, int, int], int],
+    bounded_float: Callable[[str, float, float, float], float],
+    research_provider_budget: Any,
+) -> dict[str, Any]:
+    """Extracted from dashboard_research_run_cycle (budget try/except path contributing to S3776)."""
+    try:
+        reserve_requests = bounded_int("reserve_requests", 2, 1, 100)
+        quota_payload = research_provider_budget.fetch_json(
+            f"{provider_base_url}/v2/quotas",
+            api_key="",
+            timeout=bounded_int("budget_timeout", 20, 1, 60),
+        )
+        return research_provider_budget.synthetic_budget_status(
+            quota_payload,
+            min_remaining_credits=bounded_float(
+                "min_remaining_credits", 5.0, 0.0, 1_000_000.0
+            ),
+            min_rolling_remaining=bounded_int("min_rolling_remaining", 10, 0, 100_000),
+            estimated_requests=estimated_requests,
+            reserve_requests=reserve_requests,
+        )
+    except Exception as exc:  # noqa: BLE001 - fail closed if budget cannot be checked
+        return {
+            "ok": False,
+            "provider": "synthetic",
+            "checked_at": utc_now(),
+            "estimated_requests": estimated_requests,
+            "reserve_requests": bounded_int("reserve_requests", 2, 1, 100),
+            "failures": [f"provider budget check failed: {exc}"],
+        }
+
+
+def _collect_research_cycle_stop_reasons(
+    *,
+    body: dict[str, Any],
+    dry_run: bool,
+    enabled: bool,
+    blocked_count: int,
+    budget: dict[str, Any],
+    max_provider_requests: int,
+    backpressure_reasons: list[str],
+) -> list[str]:
+    """Extracted from dashboard_research_run_cycle (stop_reason assembly contributing to S3776)."""
+    stop_reasons: list[str] = []
+    if blocked_count and bool(body.get("stop_if_dashboard_attention", True)):
+        stop_reasons.append(f"{blocked_count} blocked item(s) need attention")
+    if not dry_run and not enabled:
+        stop_reasons.append("live run-cycle requires enabled=true")
+    if not budget.get("ok") and max_provider_requests and not backpressure_reasons:
+        stop_reasons.append(
+            "; ".join(
+                str(item)
+                for item in budget.get("failures") or ["provider budget unavailable"]
+            )
+        )
+    return stop_reasons
+
+
+def _evaluate_research_cycle_backpressure(
+    *,
+    active: list[dict[str, Any]],
+    initial_open_lane_promotable: list[dict[str, Any]],
+    generation_target_lane: Any,
+    max_provider_requests: int,
+) -> list[str]:
+    """Extracted from dashboard_research_run_cycle (lane backpressure gate contributing to S3776)."""
+    if (
+        active
+        and not initial_open_lane_promotable
+        and not (generation_target_lane and max_provider_requests)
+    ):
+        return [
+            "active worker lane already exists and no promotable candidate targets an idle lane"
+        ]
+    return []
+
+
+def _build_research_cycle_initial_response(
+    *,
+    dry_run: bool,
+    enabled: bool,
+    provider_model: str,
+    allowed_models: list[str],
+    body: dict[str, Any],
+    max_provider_requests: int,
+    max_promotions: int,
+    max_dispatches: int,
+    min_queue_depth_per_lane: int,
+    max_paper_drafts: int,
+    max_publication_rewrites: int,
+    min_admission_score: float,
+    wait_for_completion: bool,
+    max_wait_seconds: int,
+    fresh_generation_backlog_threshold: int,
+    janitor_enabled: bool,
+    janitor_limit: int,
+    janitor_report: dict[str, Any],
+    budget: dict[str, Any],
+    initial_promotable: list[dict[str, Any]],
+    initial_open_lane_promotable: list[dict[str, Any]],
+    lane_feed_pressure: dict[str, Any],
+    generation_target_lane: Any,
+    stop_reasons: list[str],
+) -> dict[str, Any]:
+    """Extracted from dashboard_research_run_cycle (large response skeleton contributing to S3776)."""
+    return {
+        "ok": not stop_reasons,
+        "action": "dry_run_research_cycle" if dry_run else "research_cycle",
+        "dry_run": dry_run,
+        "enabled": enabled,
+        "queue_admitted": False,
+        "dispatch_started": False,
+        "provider": "synthetic.new",
+        "provider_model": provider_model,
+        "allowed_models": allowed_models,
+        "policy": {
+            "max_provider_requests_per_run": max_provider_requests,
+            "max_promotions_per_run": max_promotions,
+            "max_dispatches_per_run": max_dispatches,
+            "min_queue_depth_per_lane": min_queue_depth_per_lane,
+            "max_paper_drafts_per_run": max_paper_drafts,
+            "max_publication_rewrites_per_run": max_publication_rewrites,
+            "min_admission_score": min_admission_score,
+            "require_budget_ok": True,
+            "stop_if_queue_active": True,
+            "stop_if_dashboard_attention": bool(
+                body.get("stop_if_dashboard_attention", True)
+            ),
+            "wait_for_completion": wait_for_completion,
+            "max_wait_seconds": max_wait_seconds,
+            "fresh_generation_backlog_threshold": fresh_generation_backlog_threshold,
+            "janitor_enabled": janitor_enabled,
+            "janitor_limit": janitor_limit,
+        },
+        "janitor": janitor_report,
+        "budget": {
+            key: budget.get(key)
+            for key in _RESEARCH_CYCLE_BUDGET_RESPONSE_KEYS
+            if key in budget
+        },
+        "initial_promotable_count": len(initial_promotable),
+        "planned_promotions": [
+            row.get("candidate_id")
+            for row in (initial_open_lane_promotable or initial_promotable)[
+                :max_promotions
+            ]
+        ],
+        "open_lane_promotable_count": len(initial_open_lane_promotable),
+        "lane_feed_pressure": lane_feed_pressure,
+        "generation_target_lane": generation_target_lane,
+        "generated_count": 0,
+        "promoted_count": 0,
+        "dispatched_count": 0,
+        "queued_count": 0,
+        "stages": [],
+    }
+
+
+def _append_research_cycle_queue_paused_guardrail(
+    *,
+    store: Any,
+    response: dict[str, Any],
+    dry_run: bool,
+    requested_by: str,
+) -> None:
+    """Extracted from dashboard_research_run_cycle (queue-paused guardrail contributing to S3776)."""
+    flags = store.flags() if hasattr(store, "flags") else None
+    queue_paused = bool(getattr(flags, "queue_paused", False))
+    if dry_run or not queue_paused:
+        return
+    guardrail = "research autopilot is active but broad queue is paused"
+    response.setdefault("guardrails", []).append(guardrail)
+    if hasattr(store, "append_event"):
+        store.append_event(
+            idempotency_key=f"research-guardrail:queue-paused:{requested_by}:{utc_now()}",
+            event_type="research.guardrail.queue_paused",
+            entity_type="research",
+            entity_id="run-cycle",
+            payload={
+                "message": guardrail,
+                "queue_paused": True,
+                "dry_run": dry_run,
+                "requested_by": requested_by,
+            },
+        )
+
+
+def _research_cycle_pre_live_exit(
+    *,
+    store: Any,
+    response: dict[str, Any],
+    dry_run: bool,
+    requested_by: str,
+    stop_reasons: list[str],
+    backpressure_reasons: list[str],
+    active: list[dict[str, Any]],
+    wait_for_completion: bool,
+    max_wait_seconds: int,
+    max_provider_requests: int,
+    max_promotions: int,
+    max_dispatches: int,
+    max_paper_drafts: int,
+    max_publication_rewrites: int,
+) -> dict[str, Any] | None:
+    """Extracted from dashboard_research_run_cycle (stop/backpressure/dry-run exits contributing to S3776).
+
+    Returns a response dict when the handler should return early; None to continue to live execution.
     """
-    # Note: the actual implementation is provided by the thin wrapper inside the factory
-    # that closes over the local _worker_lane_key. This top-level name is for the test validator
-    # and future direct use; the logic is duplicated minimally in the wrapper for now.
-    raise NotImplementedError("Use the local thin wrapper inside create_control_plane_router that closes over _worker_lane_key")
+    if stop_reasons:
+        response["reason"] = "; ".join(stop_reasons)
+        if hasattr(store, "append_event"):
+            store.append_event(
+                idempotency_key=f"research-cycle:{'dry' if dry_run else 'live'}:{requested_by}:{utc_now()}",
+                event_type="research.run_cycle.blocked",
+                entity_type="research",
+                entity_id="run-cycle",
+                payload=jsonable_encoder(response),
+            )
+        return response
+    if backpressure_reasons:
+        response["ok"] = True
+        response["action"] = (
+            "dry_run_research_cycle_backpressure"
+            if dry_run
+            else "research_cycle_backpressure"
+        )
+        response["reason"] = "; ".join(backpressure_reasons)
+        response["backpressure"] = True
+        response["active_count"] = len(active)
+        response["stages"].append(
+            {
+                "stage": "backpressure",
+                "ok": True,
+                "reason": response["reason"],
+                "active_count": len(active),
+            }
+        )
+        if hasattr(store, "append_event"):
+            try:
+                store.append_event(
+                    idempotency_key=(
+                        f"research-cycle:backpressure:{'dry' if dry_run else 'live'}:{requested_by}:"
+                        f"{_active_lane_signature(active)}:{_event_cooldown_bucket()}"
+                    ),
+                    event_type="research.run_cycle.backpressure",
+                    entity_type="research",
+                    entity_id="run-cycle",
+                    payload=jsonable_encoder(response),
+                )
+            except IdempotencyConflict as exc:
+                response["event_write_suppressed"] = "idempotency_conflict"
+                response["event_write_suppressed_reason"] = str(exc)
+        return response
+    if dry_run:
+        response["reason"] = (
+            "dry-run only; provider was not called and no ledgers, queue rows, dispatches, or papers were written"
+        )
+        response["would_generate"] = max_provider_requests > 0
+        response["would_promote_up_to"] = max_promotions
+        response["would_dispatch_up_to"] = max_dispatches
+        response["would_wait_for_completion"] = (
+            wait_for_completion and max_wait_seconds > 0
+        )
+        response["would_draft_papers_up_to"] = max_paper_drafts
+        response["would_finalize_papers_up_to"] = max_publication_rewrites
+        if hasattr(store, "append_event"):
+            store.append_event(
+                idempotency_key=f"research-cycle:dry:{requested_by}:{utc_now()}",
+                event_type="research.run_cycle.dry_run",
+                entity_type="research",
+                entity_id="run-cycle",
+                payload=jsonable_encoder(response),
+            )
+        return response
+    return None
+
+
+def _wait_for_completion(
+    *,
+    store: Any,
+    response: dict[str, Any],
+    wait_for_completion: bool,
+    max_wait_seconds: int,
+    poll_interval_seconds: int,
+) -> dict[str, Any]:
+    """Extracted from dashboard_research_run_cycle (polling loop contributing to S3776).
+
+    Polls queue status until the dispatched project leaves active states or times out.
+    Mutates response with wait stage when polling runs.
+    """
+    wait_result: dict[str, Any] = {
+        "action": "skipped",
+        "reason": "wait_for_completion disabled",
+    }
+    if not (response.get("dispatch_started") and wait_for_completion):
+        return wait_result
+    if max_wait_seconds <= 0:
+        wait_result = {"action": "skipped", "reason": "max_wait_seconds is 0"}
+    else:
+        dispatched_project_id = str(
+            (response.get("dispatch", {}).get("candidate") or {}).get("project_id")
+            or ""
+        )
+        deadline = time.monotonic() + max_wait_seconds
+        polls = 0
+        last_status = ""
+        while True:
+            polls += 1
+            row = (
+                store.queue_row(dispatched_project_id)
+                if dispatched_project_id
+                else None
+            )
+            active_now = store.active_items()
+            last_status = str((row or {}).get("status") or "")
+            if not active_now and last_status not in {
+                "dispatching",
+                "running",
+                "awaiting_wake",
+                "wake_received",
+                "reconciling",
+            }:
+                wait_result = {
+                    "action": "completed",
+                    "project_id": dispatched_project_id,
+                    "status": last_status,
+                    "polls": polls,
+                }
+                break
+            if time.monotonic() >= deadline:
+                wait_result = {
+                    "action": "timeout",
+                    "project_id": dispatched_project_id,
+                    "status": last_status,
+                    "active_count": len(active_now),
+                    "polls": polls,
+                }
+                break
+            time.sleep(poll_interval_seconds)
+    response["wait"] = wait_result
+    response["stages"].append({"stage": "wait_for_completion", **wait_result})
+    return wait_result
+
+
+def _execute_research_paper_stages(
+    *,
+    store: Any,
+    response: dict[str, Any],
+    max_paper_drafts: int,
+    max_publication_rewrites: int,
+    wait_for_completion: bool,
+    wait_result: dict[str, Any],
+    requested_by: str,
+    draft_next: Callable[..., Any],
+    rewrite_paper_review_draft: Callable[..., Any],
+    control_api_bearer_token: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Extracted from dashboard_research_run_cycle (paper draft/finalize loop contributing to S3776)."""
+    drafted_papers: list[dict[str, Any]] = []
+    finalized_papers: list[dict[str, Any]] = []
+    if not max_paper_drafts:
+        return drafted_papers, finalized_papers
+    if (
+        response.get("dispatch_started")
+        and wait_for_completion
+        and wait_result.get("action") != "completed"
+    ):
+        response["stages"].append(
+            {
+                "stage": "paper_draft",
+                "ok": False,
+                "reason": "dispatched work did not complete inside this bounded run; paper stage skipped",
+                "wait": wait_result,
+            }
+        )
+        return drafted_papers, finalized_papers
+    if store.active_items():
+        response["stages"].append(
+            {
+                "stage": "paper_draft",
+                "ok": False,
+                "reason": "active worker lane exists; paper stage skipped",
+            }
+        )
+        return drafted_papers, finalized_papers
+    for draft_index in range(max_paper_drafts):
+        draft_response = draft_next(
+            DraftNextRequest(force=False, requested_by=requested_by, dry_run=False),
+            authorization=f"Bearer {control_api_bearer_token}",
+        )
+        draft_payload = draft_response.model_dump(mode="json")
+        drafted_papers.append(draft_payload)
+        response["stages"].append(
+            {
+                "stage": "paper_draft",
+                "ok": draft_response.ok,
+                "action": draft_response.action,
+                "reason": draft_response.reason,
+            }
+        )
+        if draft_response.action != "drafted" or draft_response.paper is None:
+            break
+        if len(finalized_papers) < max_publication_rewrites:
+            paper_id = draft_response.paper.paper_id
+            rewrite_response = rewrite_paper_review_draft(
+                paper_id,
+                PaperReviewRewriteDraftRequest(
+                    idempotency_key=f"research-cycle:{requested_by}:{draft_index}:{paper_id}:{utc_now()}",
+                    requested_by=requested_by,
+                    force=True,
+                ),
+            )
+            rewrite_payload = rewrite_response.model_dump(mode="json")
+            finalized_papers.append(rewrite_payload)
+            response["stages"].append(
+                {
+                    "stage": "publication_finalization",
+                    "ok": rewrite_response.ok,
+                    "paper_id": paper_id,
+                    "event_id": rewrite_response.event_id,
+                    "review_status": str(
+                        (rewrite_payload.get("item") or {}).get("review_status") or ""
+                    ),
+                }
+            )
+    return drafted_papers, finalized_papers
+
+
+def _execute_live_research_cycle(
+    *,
+    store: Any,
+    response: dict[str, Any],
+    requested_by: str,
+    generation_target_lane: Any,
+    max_dispatches: int,
+    max_provider_requests: int,
+    fresh_generation_backlog_threshold: int,
+    initial_promotable: list[dict[str, Any]],
+    promotable_rows: Callable[[], list[dict[str, Any]]],
+    open_lane_research_rows: Callable[..., list[dict[str, Any]]],
+    max_promotions: int,
+    provider_openai_base_url: str,
+    provider_model: str,
+    max_candidates: int,
+    topic: str,
+    temperature: float,
+    seed: str,
+    generation_timeout: int,
+    generation_max_tokens: int,
+    generation_attempts: int,
+    min_admission_score: float,
+    bounded_float: Callable[[str, float, float, float], float],
+    Namespace: Any,
+    research_provider_generate: Any,
+    research_facility: Any,
+    wait_for_completion: bool,
+    max_wait_seconds: int,
+    poll_interval_seconds: int,
+    max_paper_drafts: int,
+    max_publication_rewrites: int,
+    draft_next: Callable[..., Any],
+    rewrite_paper_review_draft: Callable[..., Any],
+    control_api_bearer_token: str,
+    _worker_lane_key: Callable[[dict[str, Any]], str],
+    _live_dispatch: Callable[..., Any],
+    jsonable_encoder: Callable[..., Any],
+    research_row_lane_key: Callable[[dict[str, Any]], str],
+) -> dict[str, Any]:
+    """Extracted from dashboard_research_run_cycle (live path orchestration contributing to S3776)."""
+
+    def dispatch_queued_project(project_id: str) -> bool:
+        return _dispatch_queued_project(
+            project_id,
+            store=store,
+            response=response,
+            requested_by=requested_by,
+            _live_dispatch=_live_dispatch,
+            jsonable_encoder=jsonable_encoder,
+        )
+
+    response = _handle_followup_and_early_skips(
+        store=store,
+        generation_target_lane=generation_target_lane,
+        max_dispatches=max_dispatches,
+        max_provider_requests=max_provider_requests,
+        fresh_generation_backlog_threshold=fresh_generation_backlog_threshold,
+        initial_promotable=initial_promotable,
+        response=response,
+        requested_by=requested_by,
+        dispatch_queued_project=dispatch_queued_project,
+        research_row_lane_key=research_row_lane_key,
+    )
+    response = _execute_provider_generation(
+        max_provider_requests=max_provider_requests,
+        response=response,
+        generation_target_lane=generation_target_lane,
+        provider_openai_base_url=provider_openai_base_url,
+        provider_model=provider_model,
+        max_candidates=max_candidates,
+        topic=topic,
+        temperature=temperature,
+        seed=seed,
+        generation_timeout=generation_timeout,
+        generation_max_tokens=generation_max_tokens,
+        generation_attempts=generation_attempts,
+        min_admission_score=min_admission_score,
+        bounded_float=bounded_float,
+        Namespace=Namespace,
+        research_provider_generate=research_provider_generate,
+        research_facility=research_facility,
+        store=store,
+        requested_by=requested_by,
+    )
+    response = _execute_promotion(
+        promotable_rows=promotable_rows,
+        open_lane_research_rows=open_lane_research_rows,
+        max_promotions=max_promotions,
+        max_dispatches=max_dispatches,
+        store=store,
+        requested_by=requested_by,
+        response=response,
+        _worker_lane_key=_worker_lane_key,
+        dispatch_queued_project=dispatch_queued_project,
+    )
+    wait_result = _wait_for_completion(
+        store=store,
+        response=response,
+        wait_for_completion=wait_for_completion,
+        max_wait_seconds=max_wait_seconds,
+        poll_interval_seconds=poll_interval_seconds,
+    )
+    drafted_papers, finalized_papers = _execute_research_paper_stages(
+        store=store,
+        response=response,
+        max_paper_drafts=max_paper_drafts,
+        max_publication_rewrites=max_publication_rewrites,
+        wait_for_completion=wait_for_completion,
+        wait_result=wait_result,
+        requested_by=requested_by,
+        draft_next=draft_next,
+        rewrite_paper_review_draft=rewrite_paper_review_draft,
+        control_api_bearer_token=control_api_bearer_token,
+    )
+    response["paper_drafts"] = drafted_papers
+    response["paper_drafted_count"] = sum(
+        1 for item in drafted_papers if item.get("action") == "drafted"
+    )
+    response["publication_finalizations"] = finalized_papers
+    response["publication_finalized_count"] = len(finalized_papers)
+    if not response.get("reason"):
+        response["reason"] = (
+            "bounded research cycle completed; broad queue pause preserved and paper stages were positive-gated"
+        )
+    if hasattr(store, "append_event"):
+        store.append_event(
+            idempotency_key=f"research-cycle:live:{requested_by}:{utc_now()}",
+            event_type="research.run_cycle.live",
+            entity_type="research",
+            entity_id="run-cycle",
+            payload=jsonable_encoder(response),
+        )
+    return response
+
+
+def _research_row_lane_key(
+    worker_lane_key: Callable[[dict[str, Any]], str], row: dict[str, Any]
+) -> str:
+    """Map a research workbench row to a worker lane key (extracted from dashboard_research_run_cycle)."""
+    return worker_lane_key({"machine_target": str(row.get("machine_target") or "")})
+
+
+def research_row_lane_key(row: dict[str, Any]) -> str:
+    """Top-level name retained for extraction validators; requires a worker_lane_key at call sites."""
+    raise NotImplementedError(
+        "Use partial(_research_row_lane_key, worker_lane_key) inside create_control_plane_router"
+    )
 
 
 def open_lane_research_rows(
-    rows: list[dict[str, Any]], active_lane_keys: set[str], *, lane_key_func: Callable[[dict[str, Any]], str] | None = None
+    rows: list[dict[str, Any]],
+    active_lane_keys: set[str],
+    *,
+    lane_key_func: Callable[[dict[str, Any]], str] | None = None,
 ) -> list[dict[str, Any]]:
     """Top-level version of the open-lane filter (extracted from the giant for reduced cognitive complexity).
 
@@ -2331,16 +3373,13 @@ def open_lane_research_rows(
         return rows
     if lane_key_func is None:
         # Fallback only for direct top-level calls; inside the giant the thin wrapper passes the local one.
-        raise NotImplementedError("lane_key_func must be provided when calling the top-level version directly")
-    return [
-        row
-        for row in rows
-        if lane_key_func(row) not in active_lane_keys
-    ]
+        raise NotImplementedError(
+            "lane_key_func must be provided when calling the top-level version directly"
+        )
+    return [row for row in rows if lane_key_func(row) not in active_lane_keys]
 
 
-
-def _research_lane_feed_pressure(
+def _compute_research_lane_feed_pressure(
     *,
     active: list[dict[str, Any]],
     queued: list[dict[str, Any]] | None,
@@ -2355,9 +3394,7 @@ def _research_lane_feed_pressure(
     store: Any,
 ) -> dict[str, dict[str, Any]]:
     lane_rows = lanes or _worker_lane_capacity(active=active, rows=queued or [])
-    queued_rows = list(
-        queued if queued is not None else _queue_rows_for_lane_feed()
-    )
+    queued_rows = list(queued if queued is not None else _queue_rows_for_lane_feed())
     if promotable is None:
         if not hasattr(store, "research_facility_workbench_projection"):
             promotable_rows_for_feed: list[dict[str, Any]] = []
@@ -2844,7 +3881,7 @@ def create_control_plane_router(
         min_admission_score: float = 72.0,
     ) -> dict[str, dict[str, Any]]:
         # Thin local wrapper after top-level extraction.
-        return _research_lane_feed_pressure(
+        return _compute_research_lane_feed_pressure(
             active=active,
             queued=queued,
             lanes=lanes,
@@ -2857,6 +3894,7 @@ def create_control_plane_router(
             _worker_lane_key=_worker_lane_key,
             store=store,
         )
+
     def _candidate_machine_target_conflict_set(candidate: dict[str, Any]) -> set[str]:
         candidate_lane_key = _worker_lane_key(candidate)
         if not candidate_lane_key:
@@ -2880,245 +3918,6 @@ def create_control_plane_router(
         candidate_lane_key = _worker_lane_key(candidate)
         return any(
             _worker_lane_key(row) == candidate_lane_key for row in store.active_items()
-        )
-
-    def _live_dispatch(
-        candidate: dict,
-        requested_by: str,
-        force_preflight: bool,
-        *,
-        allow_paused: bool = False,
-    ) -> tuple[dict, int | None, dict]:
-        if not config.live_dispatch_enabled:
-            raise HTTPException(
-                status_code=501,
-                detail="live dispatch is disabled by config.live_dispatch_enabled",
-            )
-        _require_writable_store("live dispatch")
-        flags = store.flags()
-        if flags.maintenance_mode:
-            raise HTTPException(
-                status_code=409,
-                detail="control plane must be out of maintenance mode before live dispatch",
-            )
-        if flags.queue_paused and not allow_paused:
-            raise HTTPException(
-                status_code=409,
-                detail="control plane must be resumed before live dispatch",
-            )
-        project_id = str(candidate.get("project_id") or "").strip()
-        if not project_id:
-            raise HTTPException(status_code=400, detail="candidate lacks project_id")
-        worker_target = config.resolved_worker_target(
-            str(candidate.get("machine_target") or "")
-        )
-        if not worker_target.bearer_token:
-            raise HTTPException(
-                status_code=500,
-                detail=f"worker bearer token is not configured for machine_target={candidate.get('machine_target') or 'default'}",
-            )
-        project_dir = _safe_slug(
-            str(candidate.get("project_dir") or project_id), project_id
-        )
-        run_id = _live_run_id(project_id)
-        claim_kwargs = {
-            "project_id": project_id,
-            "run_id": run_id,
-            "requested_by": requested_by,
-            "conflicting_machine_targets": _candidate_machine_target_conflict_set(
-                candidate
-            ),
-        }
-        try:
-            claim = store.claim_dispatch_candidate(**claim_kwargs)
-        except TypeError as exc:
-            if "conflicting_machine_targets" not in str(exc):
-                raise
-            claim_kwargs.pop("conflicting_machine_targets")
-            claim = store.claim_dispatch_candidate(**claim_kwargs)
-        if not claim:
-            raise HTTPException(
-                status_code=409,
-                detail="dispatch candidate was already claimed or is no longer queued",
-            )
-        candidate = claim
-        worker_target = config.resolved_worker_target(
-            str(candidate.get("machine_target") or "")
-        )
-        if not worker_target.bearer_token:
-            store.release_dispatch_claim(
-                project_id=project_id,
-                run_id=run_id,
-                reason="worker bearer token missing for routed target",
-            )
-            raise HTTPException(
-                status_code=500,
-                detail=f"worker bearer token is not configured for machine_target={candidate.get('machine_target') or 'default'}",
-            )
-        # Live dispatch is never allowed to bypass fresh worker evidence.  The
-        # request field remains for API compatibility, but the control plane
-        # always performs the non-mutating worker preflight before prepare/dispatch.
-        try:
-            preflight = run_worker_preflight(
-                WorkerPreflightRequest(
-                    wake_gate_url=worker_target.wake_gate_url,
-                    bearer_token=worker_target.bearer_token,
-                    expected_callback_token_fingerprint=_callback_acceptance_token_fingerprint(),
-                    require_paused=False,
-                    strict=False,
-                    min_memory_available_mib=worker_target.min_memory_available_mib
-                    if worker_target.min_memory_available_mib is not None
-                    else WorkerPreflightRequest.model_fields[
-                        "min_memory_available_mib"
-                    ].default,
-                ),
-                store.flags(),
-            )
-        except Exception as exc:
-            reason = f"{WORKER_PREFLIGHT_FAILED_REASON}: {type(exc).__name__}: {exc}"
-            store.release_dispatch_claim(
-                project_id=project_id, run_id=run_id, reason=reason
-            )
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": WORKER_PREFLIGHT_FAILED_REASON,
-                    "preflight_error": reason,
-                    "force_preflight_ignored": not force_preflight,
-                },
-            ) from exc
-        _record_preflight_observations(preflight)
-        if not preflight.ok:
-            store.release_dispatch_claim(
-                project_id=project_id,
-                run_id=run_id,
-                reason=WORKER_PREFLIGHT_FAILED_REASON,
-            )
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": WORKER_PREFLIGHT_FAILED_REASON,
-                    "preflight": preflight.model_dump(mode="json"),
-                    "force_preflight_ignored": not force_preflight,
-                },
-            )
-        prompt_file = f"{project_dir}/prompts/initial.md"
-        resume_prompt_file = f"{project_dir}/prompts/resume.md"
-        workload_class = config.workload_class_for_machine_target(
-            str(candidate.get("machine_target") or ""),
-            str(candidate.get("workload_class") or ""),
-        )
-        prepare_payload = {
-            "run_id": run_id,
-            "project_id": project_id,
-            "project_name": str(candidate.get("project_name") or project_id),
-            "notion_page_url": str(candidate.get("notion_page_url") or ""),
-            "project_dir": project_dir,
-            "prompt_file": prompt_file,
-            "prompt_text": _project_prompt(candidate),
-            "resume_prompt_file": resume_prompt_file,
-            "resume_prompt_text": _project_prompt(candidate)
-            + "\n\nResume from the existing project artifacts and continue to a verified decision.\n",
-            "metadata": {
-                "workload_class": workload_class,
-                "machine_target": str(candidate.get("machine_target") or ""),
-                "dispatch_route": _dispatch_route_metadata(
-                    str(candidate.get("machine_target") or ""), worker_target
-                ),
-                "source": "langgraph_control_plane",
-                "requested_by": requested_by,
-            },
-            "overwrite": True,
-        }
-        prepare = post_worker_json(
-            worker_target.wake_gate_url,
-            "/prepare-project",
-            worker_target.bearer_token,
-            prepare_payload,
-        )
-        if not prepare.ok:
-            store.release_dispatch_claim(
-                project_id=project_id,
-                run_id=run_id,
-                reason="worker prepare-project failed",
-            )
-            raise HTTPException(
-                status_code=502,
-                detail={
-                    "message": "worker prepare-project failed",
-                    "status": prepare.status,
-                    "error": prepare.error,
-                    "body": prepare.body,
-                },
-            )
-        prepare_body = prepare.body if isinstance(prepare.body, dict) else {}
-        dispatch_payload = {
-            "run_id": run_id,
-            "project_id": project_id,
-            "project_dir": project_dir,
-            "prompt_file": prompt_file,
-            "mode": "exec",
-            "model": str(candidate.get("model") or "gpt-5.5"),
-            "reasoning_effort": "medium",
-            "sandbox": str(candidate.get("sandbox") or "danger-full-access"),
-        }
-        dispatch = post_worker_json(
-            worker_target.wake_gate_url,
-            "/dispatch",
-            worker_target.bearer_token,
-            dispatch_payload,
-        )
-        if not dispatch.ok:
-            store.release_dispatch_claim(
-                project_id=project_id, run_id=run_id, reason="worker dispatch failed"
-            )
-            raise HTTPException(
-                status_code=502,
-                detail={
-                    "message": "worker dispatch failed",
-                    "status": dispatch.status,
-                    "error": dispatch.error,
-                    "body": dispatch.body,
-                },
-            )
-        body = dispatch.body if isinstance(dispatch.body, dict) else {}
-        session_id = str(
-            (
-                (body.get("dispatch") or {})
-                if isinstance(body.get("dispatch"), dict)
-                else {}
-            ).get("session_id")
-            or ""
-        )
-        # Persist the exact worker directory slug used for prepare/dispatch.
-        # Research-facility IDs can exceed the safe worker path length and are
-        # intentionally shortened by _safe_slug.  If the DB keeps the full
-        # project_id as project_dir, later callback and evidence-sync paths look
-        # in a non-existent directory and mark a completed run as missing its
-        # decision artifact.
-        store.update_project_dir(project_id, project_dir)
-        event_id, updated_candidate = store.mark_dispatch_started(
-            project_id=project_id,
-            run_id=run_id,
-            session_id=session_id,
-            dispatch_payload=body,
-            requested_by=requested_by,
-        )
-        return (
-            {
-                "run_id": run_id,
-                "project_id": project_id,
-                "project_dir": project_dir,
-                "prompt_file": prompt_file,
-                "prepare": prepare_body,
-                "dispatch": body,
-                "preflight": preflight.model_dump(mode="json") if preflight else None,
-                "dispatch_route": _dispatch_route_metadata(
-                    str(candidate.get("machine_target") or ""), worker_target
-                ),
-            },
-            event_id,
-            updated_candidate,
         )
 
     def state_response() -> ControlStateResponse:
@@ -3407,6 +4206,20 @@ def create_control_plane_router(
                         payload=scoped_payload,
                     )
 
+    # Live dispatch is never allowed to bypass fresh worker evidence.  The
+    # request field remains for API compatibility, but the control plane
+    # always performs the non-mutating worker preflight before prepare/dispatch.
+    _live_dispatch = partial(
+        _execute_live_dispatch,
+        config=config,
+        store=store,
+        require_writable_store=_require_writable_store,
+        candidate_machine_target_conflict_set=_candidate_machine_target_conflict_set,
+        callback_acceptance_token_fingerprint=_callback_acceptance_token_fingerprint,
+        record_preflight_observations=_record_preflight_observations,
+        dispatch_route_metadata=_dispatch_route_metadata,
+    )
+
     def _freshness_for_observation(
         source: str, authority: str, observation: DashboardObservationRecord | None
     ) -> DashboardFreshness:
@@ -3484,26 +4297,23 @@ def create_control_plane_router(
         _record_preflight_observations(preflight)
         return store.latest_dashboard_observations()
 
-    def dashboard_status_response(
-        *, refresh_worker: bool = False
-    ) -> DashboardStatusResponse:
-        rows = _queued_items_fast()
-        paper_counts = (
-            store.paper_counts_sql() if hasattr(store, "paper_counts_sql") else {}
+    def _dispatch_gates_allow_live(flags: Any, config: GateConfig) -> bool:
+        return (
+            config.live_dispatch_enabled
+            and not flags.queue_paused
+            and not flags.maintenance_mode
         )
-        flags = store.flags()
-        active = _active_items_fast()
+
+    def _fetch_dashboard_status_observations(
+        *, refresh_worker: bool, active: list[dict]
+    ) -> dict[str, DashboardObservationRecord | None]:
         observations: dict[str, DashboardObservationRecord | None] = {
-            # Status uses the bounded preflight payload for dispatch-safety checks.
             "worker_preflight": store.latest_dashboard_observation(
                 source="worker_preflight"
             ),
-            # The preflight payload already carries the bounded dashboard check used by status.
-            # Keep the standalone dashboard observation to freshness metadata here.
             "worker_dashboard_api": _latest_dashboard_observation_metadata(
                 "worker_dashboard_api"
             ),
-            # Intake/snapshot observations can contain full batch payloads. Status only needs freshness.
             "idea_intake": _latest_dashboard_observation_metadata("idea_intake"),
             "snapshot_mirror": _latest_dashboard_observation_metadata(
                 "snapshot_mirror"
@@ -3523,21 +4333,15 @@ def create_control_plane_router(
                     "snapshot_mirror"
                 ),
             }
-        preflight = observations.get("worker_preflight")
-        worker_dashboard = observations.get("worker_dashboard_api")
-        recent_events = store.recent_events(10)
-        queue_counts = (
-            store.queue_counts_sql()
-            if hasattr(store, "queue_counts_sql")
-            else store.status_counts()
-        )
-        counts = {
-            **queue_counts,
-            "papers": int(paper_counts.get("all", 0)),
-            "queue_total": int(queue_counts.get("all", 0)),
-        }
-        cfg = _config_status()
-        source_freshness = {
+        return observations
+
+    def _dashboard_status_source_freshness(
+        observations: dict[str, DashboardObservationRecord | None],
+        *,
+        preflight: DashboardObservationRecord | None,
+        worker_dashboard: DashboardObservationRecord | None,
+    ) -> dict[str, DashboardFreshness]:
+        return {
             "control_plane_db": DashboardFreshness(
                 source="control_plane_db",
                 authority="canonical execution/control state",
@@ -3573,9 +4377,13 @@ def create_control_plane_router(
                 observations.get("snapshot_mirror"),
             ),
         }
-        warnings: list[DashboardFinding] = []
-        conflicts: list[DashboardFinding] = []
-        blockers: list[str] = []
+
+    def _append_dashboard_control_flag_findings(
+        *,
+        flags: Any,
+        warnings: list[DashboardFinding],
+        blockers: list[str],
+    ) -> None:
         if flags.queue_paused:
             blockers.append("queue paused")
             warnings.append(
@@ -3609,9 +4417,15 @@ def create_control_plane_router(
                     suggested_action="enable live_dispatch_enabled only when ready",
                 )
             )
-        open_worker_candidate = _open_worker_dispatch_candidate(
-            active=active, queued=rows
-        )
+
+    def _append_dashboard_dispatch_lane_blockers(
+        *,
+        flags: Any,
+        active: list[dict],
+        rows: list[dict],
+        open_worker_candidate: dict | None,
+        blockers: list[str],
+    ) -> None:
         configured_lane_keys = {
             str(lane.get("lane_key") or "") for lane in _configured_worker_lanes()
         }
@@ -3625,13 +4439,15 @@ def create_control_plane_router(
             and (_queued_dispatch_candidates(rows) or all_configured_lanes_active)
         ):
             blockers.append("all configured worker lanes active")
-        elif (
-            not flags.queue_paused
-            and not flags.maintenance_mode
-            and config.live_dispatch_enabled
-            and not open_worker_candidate
-        ):
+        elif _dispatch_gates_allow_live(flags, config) and not open_worker_candidate:
             blockers.append("no queued dispatch candidate")
+
+    def _dashboard_worker_preflight_context(
+        preflight: DashboardObservationRecord | None,
+        *,
+        active: list[dict],
+        open_worker_candidate: dict | None,
+    ) -> dict[str, Any]:
         no_live = _preflight_check(preflight, "worker_no_live_runs")
         default_worker_lane = _worker_lane_key({"machine_target": ""})
         preflight_lane = _preflight_observation_lane_key(preflight)
@@ -3663,6 +4479,27 @@ def create_control_plane_router(
                 worker_settling_after_vm_completion = (
                     _recent_worker_settling_without_vm_match(preflight=preflight)
                 )
+        return {
+            "no_live": no_live,
+            "preflight_targets_default_worker": preflight_targets_default_worker,
+            "preflight_applies_to_open_candidate": preflight_applies_to_open_candidate,
+            "active_on_default_worker": active_on_default_worker,
+            "worker_live_matches_active": worker_live_matches_active,
+            "worker_settling_after_vm_completion": worker_settling_after_vm_completion,
+        }
+
+    def _append_dashboard_observation_freshness_findings(
+        source_freshness: dict[str, DashboardFreshness],
+        *,
+        flags: Any,
+        worker_ctx: dict[str, Any],
+        warnings: list[DashboardFinding],
+        blockers: list[str],
+    ) -> None:
+        worker_live_matches_active = bool(worker_ctx["worker_live_matches_active"])
+        worker_settling = worker_ctx["worker_settling_after_vm_completion"]
+        preflight_applies = bool(worker_ctx["preflight_applies_to_open_candidate"])
+        live_dispatch_open = _dispatch_gates_allow_live(flags, config)
         for name, freshness in source_freshness.items():
             if freshness.stale and name in {"worker_preflight", "worker_dashboard_api"}:
                 warnings.append(
@@ -3675,40 +4512,43 @@ def create_control_plane_router(
                         suggested_action="run /control/api/preflight or wait for the next refresh observation",
                     )
                 )
-                if (
-                    config.live_dispatch_enabled
-                    and not flags.queue_paused
-                    and not flags.maintenance_mode
-                ):
+                if live_dispatch_open:
                     blockers.append(f"{name} stale or missing")
-            elif (
-                name in {"worker_preflight", "worker_dashboard_api"}
-                and freshness.status != "ok"
+                continue
+            if name not in {"worker_preflight", "worker_dashboard_api"}:
+                continue
+            if freshness.status == "ok":
+                continue
+            if name == "worker_preflight" and (
+                worker_live_matches_active or worker_settling
             ):
-                if name == "worker_preflight" and (
-                    worker_live_matches_active or worker_settling_after_vm_completion
-                ):
-                    continue
-                warnings.append(
-                    DashboardFinding(
-                        severity="warn",
-                        source=name,
-                        authority=freshness.authority,
-                        message=f"{name} status is {freshness.status}",
-                        observed_at=freshness.observed_at,
-                        suggested_action="run /control/api/preflight and verify GB10 health before dispatch",
-                    )
+                continue
+            warnings.append(
+                DashboardFinding(
+                    severity="warn",
+                    source=name,
+                    authority=freshness.authority,
+                    message=f"{name} status is {freshness.status}",
+                    observed_at=freshness.observed_at,
+                    suggested_action="run /control/api/preflight and verify GB10 health before dispatch",
                 )
-                if (
-                    config.live_dispatch_enabled
-                    and not flags.queue_paused
-                    and not flags.maintenance_mode
-                    and (
-                        name != "worker_preflight"
-                        or preflight_applies_to_open_candidate
-                    )
-                ):
-                    blockers.append(f"{name} not ok")
+            )
+            if live_dispatch_open and (name != "worker_preflight" or preflight_applies):
+                blockers.append(f"{name} not ok")
+
+    def _append_dashboard_preflight_runtime_findings(
+        preflight: DashboardObservationRecord | None,
+        *,
+        flags: Any,
+        worker_ctx: dict[str, Any],
+        warnings: list[DashboardFinding],
+        blockers: list[str],
+    ) -> None:
+        preflight_targets_default_worker = bool(
+            worker_ctx["preflight_targets_default_worker"]
+        )
+        preflight_applies = bool(worker_ctx["preflight_applies_to_open_candidate"])
+        live_dispatch_open = _dispatch_gates_allow_live(flags, config)
         health = _preflight_check(preflight, "wake_gate_healthz")
         dashboard = _preflight_check(preflight, "wake_gate_dashboard_api")
         resource_findings = (
@@ -3733,32 +4573,41 @@ def create_control_plane_router(
                     data=health,
                 )
             )
-            if (
-                config.live_dispatch_enabled
-                and not flags.queue_paused
-                and not flags.maintenance_mode
-                and preflight_applies_to_open_candidate
-            ):
+            if live_dispatch_open and preflight_applies:
                 blockers.append("worker health check failed")
-        if dashboard and dashboard.get("data", {}).get("skipped"):
-            warnings.append(
-                DashboardFinding(
-                    severity="warn",
-                    source="worker_preflight",
-                    authority="worker runtime evidence",
-                    message="authenticated worker dashboard checks were skipped",
-                    observed_at=preflight.observed_at if preflight else None,
-                    suggested_action="configure worker bearer token before live dispatch",
-                    data=dashboard,
-                )
+        if not (dashboard and dashboard.get("data", {}).get("skipped")):
+            return
+        warnings.append(
+            DashboardFinding(
+                severity="warn",
+                source="worker_preflight",
+                authority="worker runtime evidence",
+                message="authenticated worker dashboard checks were skipped",
+                observed_at=preflight.observed_at if preflight else None,
+                suggested_action="configure worker bearer token before live dispatch",
+                data=dashboard,
             )
-            if (
-                config.live_dispatch_enabled
-                and not flags.queue_paused
-                and not flags.maintenance_mode
-                and preflight_applies_to_open_candidate
-            ):
-                blockers.append("worker dashboard telemetry skipped")
+        )
+        if live_dispatch_open and preflight_applies:
+            blockers.append("worker dashboard telemetry skipped")
+
+    def _append_dashboard_active_lane_findings(
+        preflight: DashboardObservationRecord | None,
+        *,
+        flags: Any,
+        worker_ctx: dict[str, Any],
+        warnings: list[DashboardFinding],
+        blockers: list[str],
+        conflicts: list[DashboardFinding],
+    ) -> None:
+        no_live = worker_ctx["no_live"]
+        preflight_targets_default_worker = bool(
+            worker_ctx["preflight_targets_default_worker"]
+        )
+        preflight_applies = bool(worker_ctx["preflight_applies_to_open_candidate"])
+        active_on_default_worker = worker_ctx["active_on_default_worker"]
+        worker_settling = worker_ctx["worker_settling_after_vm_completion"]
+        live_dispatch_open = _dispatch_gates_allow_live(flags, config)
         if (
             preflight_targets_default_worker
             and active_on_default_worker
@@ -3779,61 +4628,127 @@ def create_control_plane_router(
                     },
                 )
             )
-        if (
+            return
+        if not (
             preflight_targets_default_worker
             and not active_on_default_worker
             and no_live
             and no_live.get("ok") is False
         ):
-            if worker_settling_after_vm_completion:
-                settling_without_match = (
-                    worker_settling_after_vm_completion.get("match_type")
-                    == "recent_worker_settling_without_vm_active_row"
-                )
+            return
+        if worker_settling:
+            settling_without_match = (
+                worker_settling.get("match_type")
+                == "recent_worker_settling_without_vm_active_row"
+            )
+            if settling_without_match:
                 settling_message = (
                     "GB10 worker is settling a recent worker run with no active process"
-                    if settling_without_match
-                    else "GB10 worker is settling a completed VM run with no active process"
                 )
-                settling_blocker = (
-                    "GB10 worker settling recent run"
-                    if settling_without_match
-                    else "GB10 worker settling completed run"
-                )
-                warnings.append(
-                    DashboardFinding(
-                        severity="warn",
-                        source="worker_settling",
-                        authority="cross-source active-lane reconciliation",
-                        message=settling_message,
-                        observed_at=preflight.observed_at if preflight else None,
-                        suggested_action="wait for the worker quiet-window to clear before dispatch",
-                        data=worker_settling_after_vm_completion,
-                    )
-                )
-                if (
-                    config.live_dispatch_enabled
-                    and not flags.queue_paused
-                    and not flags.maintenance_mode
-                    and preflight_applies_to_open_candidate
-                ):
-                    blockers.append(settling_blocker)
+                settling_blocker = "GB10 worker settling recent run"
             else:
-                conflicts.append(
-                    DashboardFinding(
-                        severity="critical"
-                        if preflight_applies_to_open_candidate
-                        else "warn",
-                        source="control_plane_db+worker_preflight",
-                        authority="single active GB10 lane safety",
-                        message="GB10 reports live/active work but VM control plane has no active row",
-                        observed_at=preflight.observed_at if preflight else None,
-                        suggested_action="pause dispatch to the affected worker lane and reconcile before starting another job",
-                        data={"worker_check": no_live},
-                    )
+                settling_message = (
+                    "GB10 worker is settling a completed VM run with no active process"
                 )
-                if preflight_applies_to_open_candidate:
-                    blockers.append("GB10/VM active-lane conflict")
+                settling_blocker = "GB10 worker settling completed run"
+            warnings.append(
+                DashboardFinding(
+                    severity="warn",
+                    source="worker_settling",
+                    authority="cross-source active-lane reconciliation",
+                    message=settling_message,
+                    observed_at=preflight.observed_at if preflight else None,
+                    suggested_action="wait for the worker quiet-window to clear before dispatch",
+                    data=worker_settling,
+                )
+            )
+            if live_dispatch_open and preflight_applies:
+                blockers.append(settling_blocker)
+            return
+        conflicts.append(
+            DashboardFinding(
+                severity="critical" if preflight_applies else "warn",
+                source="control_plane_db+worker_preflight",
+                authority="single active GB10 lane safety",
+                message="GB10 reports live/active work but VM control plane has no active row",
+                observed_at=preflight.observed_at if preflight else None,
+                suggested_action="pause dispatch to the affected worker lane and reconcile before starting another job",
+                data={"worker_check": no_live},
+            )
+        )
+        if preflight_applies:
+            blockers.append("GB10/VM active-lane conflict")
+
+    def dashboard_status_response(
+        *, refresh_worker: bool = False
+    ) -> DashboardStatusResponse:
+        rows = _queued_items_fast()
+        paper_counts = (
+            store.paper_counts_sql() if hasattr(store, "paper_counts_sql") else {}
+        )
+        flags = store.flags()
+        active = _active_items_fast()
+        observations = _fetch_dashboard_status_observations(
+            refresh_worker=refresh_worker, active=active
+        )
+        preflight = observations.get("worker_preflight")
+        worker_dashboard = observations.get("worker_dashboard_api")
+        recent_events = store.recent_events(10)
+        queue_counts = (
+            store.queue_counts_sql()
+            if hasattr(store, "queue_counts_sql")
+            else store.status_counts()
+        )
+        counts = {
+            **queue_counts,
+            "papers": int(paper_counts.get("all", 0)),
+            "queue_total": int(queue_counts.get("all", 0)),
+        }
+        cfg = _config_status()
+        source_freshness = _dashboard_status_source_freshness(
+            observations, preflight=preflight, worker_dashboard=worker_dashboard
+        )
+        warnings: list[DashboardFinding] = []
+        conflicts: list[DashboardFinding] = []
+        blockers: list[str] = []
+        _append_dashboard_control_flag_findings(
+            flags=flags, warnings=warnings, blockers=blockers
+        )
+        open_worker_candidate = _open_worker_dispatch_candidate(
+            active=active, queued=rows
+        )
+        _append_dashboard_dispatch_lane_blockers(
+            flags=flags,
+            active=active,
+            rows=rows,
+            open_worker_candidate=open_worker_candidate,
+            blockers=blockers,
+        )
+        worker_ctx = _dashboard_worker_preflight_context(
+            preflight, active=active, open_worker_candidate=open_worker_candidate
+        )
+        _append_dashboard_observation_freshness_findings(
+            source_freshness,
+            flags=flags,
+            worker_ctx=worker_ctx,
+            warnings=warnings,
+            blockers=blockers,
+        )
+        _append_dashboard_preflight_runtime_findings(
+            preflight,
+            flags=flags,
+            worker_ctx=worker_ctx,
+            warnings=warnings,
+            blockers=blockers,
+        )
+        _append_dashboard_active_lane_findings(
+            preflight,
+            flags=flags,
+            worker_ctx=worker_ctx,
+            warnings=warnings,
+            blockers=blockers,
+            conflicts=conflicts,
+        )
         has_critical = any(item.severity == "critical" for item in conflicts)
         dispatch_safe = not blockers and not has_critical
         worker_lanes = _worker_lane_capacity(
@@ -5151,9 +6066,7 @@ def create_control_plane_router(
             )
         return conflicts
 
-    @router.get(
-        "/api/projects/{project_id}"
-    )
+    @router.get("/api/projects/{project_id}")
     def dashboard_project(
         project_id: str, authorization: str | None = Header(default=None)
     ) -> DashboardProjectDetailResponse:
@@ -5266,9 +6179,7 @@ def create_control_plane_router(
     @router.post(
         "/api/publication-automation/backfill",
     )
-    @router.post(
-        "/api/paper-reviews/backfill"
-    )
+    @router.post("/api/paper-reviews/backfill")
     def dashboard_paper_reviews_backfill(
         payload: PaperReviewBackfillRequest,
         authorization: str | None = Header(default=None),
@@ -5353,9 +6264,7 @@ def create_control_plane_router(
             conflicts=[],
         )
 
-    @router.get(
-        "/api/publication-automation"
-    )
+    @router.get("/api/publication-automation")
     def dashboard_publication_automation(
         authorization: str | None = Header(default=None),
         page: int = Query(default=1, ge=1),
@@ -5486,9 +6395,7 @@ def create_control_plane_router(
             search=search,
         )
 
-    @router.get(
-        "/api/paper-reviews/next"
-    )
+    @router.get("/api/paper-reviews/next")
     def dashboard_next_paper_review(
         authorization: str | None = Header(default=None),
         review_status: str = "",
@@ -5622,92 +6529,22 @@ def create_control_plane_router(
     def _rewrite_paper_review_draft(
         paper_id: str, payload: PaperReviewRewriteDraftRequest
     ) -> PaperReviewRewriteDraftResponse:
-        paper = store.paper_row(paper_id)
-        item = store.paper_review_row(paper_id, include_rank_reasons=True)
-        if paper is None or item is None:
-            raise HTTPException(
-                status_code=404, detail="publication automation item not found"
-            )
-        review_status = _normal_status(item.get("review_status"))
-        if review_status in {
-            "blocked",
-            "changes_requested",
-            "in_review",
-            "unreviewed",
-            "rejected",
-        }:
-            raise HTTPException(
-                status_code=400,
-                detail=f"publication automation items with review_status={review_status} cannot be rewritten or auto-published",
-            )
+        paper, item = _paper_rewrite_rows_or_404(store, paper_id)
         project_id = str(paper.get("project_id") or "")
         project = store.project_row(project_id) if project_id else None
-        try:
-            configured_root = config.expanded_project_root.resolve()
-        except (OSError, RuntimeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=400, detail="configured project root could not be resolved"
-            ) from exc
-        try:
-            current_project_dir = (
-                Path(str((project or {}).get("project_dir") or "")).expanduser()
-                if project
-                else Path()
-            )
-        except RuntimeError:
-            current_project_dir = Path()
-        use_current_dir = False
-        resolved_current_project_dir: Path | None = None
-        if str(current_project_dir):
-            try:
-                resolved_current_project_dir = current_project_dir.resolve()
-                resolved_current_project_dir.relative_to(configured_root)
-            except ValueError:
-                use_current_dir = False
-                resolved_current_project_dir = None
-            except (OSError, RuntimeError) as exc:
-                raise HTTPException(
-                    status_code=400, detail="paper artifact root could not be resolved"
-                ) from exc
-            else:
-                try:
-                    use_current_dir = resolved_current_project_dir.exists()
-                except (OSError, RuntimeError) as exc:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="paper artifact root could not be inspected",
-                    ) from exc
-        try:
-            artifact_root = (
-                resolved_current_project_dir
-                if use_current_dir and resolved_current_project_dir is not None
-                else (configured_root / project_id).resolve()
-            )
-        except (OSError, RuntimeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=400, detail="paper artifact root could not be resolved"
-            ) from exc
-        existing_event_reader = getattr(store, "event_by_idempotency_key", None)
-        if callable(existing_event_reader):
-            existing_event = existing_event_reader(payload.idempotency_key)
-            if existing_event:
-                if (
-                    str(existing_event.get("event_type") or "")
-                    != PAPER_REVIEW_DRAFT_REWRITTEN
-                    or str(existing_event.get("entity_id") or "") != paper_id
-                ):
-                    raise HTTPException(
-                        status_code=409,
-                        detail=f"idempotency key {payload.idempotency_key!r} was reused with different payload",
-                    )
-                return PaperReviewRewriteDraftResponse(
-                    inserted_event=False,
-                    event_id=int(existing_event.get("event_id") or 0),
-                    item=item,
-                    paper=paper,
-                    writer={"idempotent_replay": True},
-                    artifact_root=str(artifact_root),
-                )
+        artifact_root, use_current_dir = _resolve_paper_rewrite_artifact_root(
+            config, project_id=project_id, project=project
+        )
+        replay = _paper_rewrite_idempotent_response(
+            store,
+            payload=payload,
+            paper_id=paper_id,
+            item=item,
+            paper=paper,
+            artifact_root=artifact_root,
+        )
+        if replay is not None:
+            return replay
         artifact_root.mkdir(parents=True, exist_ok=True)
         source_project_dir = str((project or {}).get("project_dir") or "")
         evidence_sync = _sync_remote_project_evidence(
@@ -5738,7 +6575,7 @@ def create_control_plane_router(
                     "evidence_sync": evidence_sync,
                 },
             )
-        original_record = _paper_record_from_row(paper)
+        original_record = _paper_record_from_store_row(paper)
         original_project_dir = str(
             (project or {}).get("project_dir") or paper.get("project_dir") or ""
         )
@@ -5748,143 +6585,31 @@ def create_control_plane_router(
                 "updated_at": utc_now(),
             }
         )
-        candidate = {
-            "project_id": project_id,
-            "project_name": str(
-                (project or paper or item).get("project_name") or project_id
-            ),
-            "project_dir": str(artifact_root),
-            "run_id": record.run_id,
-            "current_run_id": record.run_id,
-            "notion_page_url": str((project or paper).get("notion_page_url") or ""),
-            "paper_review_item": item,
-            "paper": paper,
-            "evidence_sync": evidence_sync,
-            "publication_policy": {
-                "ai_generated": True,
-                "operator_credit_claim": "none",
-                "disclaimer": "AI-generated and AI-written from automated research artifacts; released with no personal authorship credit claimed by the operator.",
-            },
-        }
-        artifact_snapshots: dict[Path, tuple[bool, bytes]] = {}
-        for rel_path in {
-            record.draft_markdown_path,
-            record.draft_latex_path,
-            record.evidence_bundle_path,
-            record.claim_ledger_path,
-            record.manifest_path,
-        }:
-            try:
-                target = (artifact_root / rel_path).resolve()
-                target.relative_to(artifact_root)
-            except (OSError, RuntimeError, ValueError):
-                continue
-            try:
-                existed = target.exists()
-                content = target.read_bytes() if existed and target.is_file() else b""
-            except (OSError, RuntimeError, ValueError) as exc:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"paper artifact snapshot could not be read: {rel_path}",
-                ) from exc
-            artifact_snapshots[target] = (existed, content)
-
-        def restore_rewrite_side_effects() -> None:
-            for path, (existed, content) in artifact_snapshots.items():
-                _restore_or_remove_path(path, existed=existed, content=content)
-            try:
-                store.upsert_paper(
-                    original_record.model_copy(update={"updated_at": utc_now()})
-                )
-                if original_project_dir:
-                    store.update_project_dir(project_id, original_project_dir)
-            except Exception as exc:
-                raise RuntimeError(
-                    "failed to restore paper rewrite side effects"
-                ) from exc
-
-        draft_event_committed = False
-        try:
-            writer = write_paper_artifacts(
-                config, candidate, record, force=payload.force
-            )
-            if not use_current_dir:
-                store.update_project_dir(project_id, str(artifact_root))
-            store.upsert_paper(record)
-            event_payload = {
-                "action": "rewrite_draft",
-                "requested_by": payload.requested_by,
-                "force": payload.force,
-                "artifact_root": str(artifact_root),
-                "writer": writer,
-                "evidence_sync": evidence_sync,
-                "publication_policy": candidate["publication_policy"],
-                "paper_paths": {
-                    "draft_markdown_path": record.draft_markdown_path,
-                    "draft_latex_path": record.draft_latex_path,
-                    "evidence_bundle_path": record.evidence_bundle_path,
-                    "claim_ledger_path": record.claim_ledger_path,
-                    "manifest_path": record.manifest_path,
-                },
-            }
-            event_id, inserted = store.append_event(
-                idempotency_key=payload.idempotency_key,
-                event_type=PAPER_REVIEW_DRAFT_REWRITTEN,
-                entity_type="paper_review",
-                entity_id=paper_id,
-                payload=event_payload,
-            )
-            draft_event_committed = True
-            (
-                finalization_event_id,
-                finalization_inserted,
-                finalized_item,
-                package_path,
-                _manifest,
-            ) = store.prepare_paper_review_finalization_package(
-                paper_id,
-                PaperReviewPrepareFinalizationRequest(
-                    idempotency_key=f"{payload.idempotency_key}:automated-finalization",
-                    requested_by=payload.requested_by,
-                    target_label="automated-publication",
-                    dry_run=False,
-                ),
-                require_approval=False,
-            )
-        except IdempotencyConflict as exc:
-            if not draft_event_committed:
-                restore_rewrite_side_effects()
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except ValueError as exc:
-            if not draft_event_committed:
-                restore_rewrite_side_effects()
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception:
-            if not draft_event_committed:
-                restore_rewrite_side_effects()
-            raise
-        refreshed = (
-            store.paper_review_row(paper_id, include_rank_reasons=True)
-            or finalized_item
-            or item
+        candidate = _paper_rewrite_candidate_payload(
+            project_id=project_id,
+            project=project,
+            paper=paper,
+            item=item,
+            artifact_root=artifact_root,
+            record=record,
+            evidence_sync=evidence_sync,
         )
-        writer_with_sync = {
-            **writer,
-            "evidence_sync": evidence_sync,
-            "automated_finalization": {
-                "inserted_event": finalization_inserted,
-                "event_id": finalization_event_id,
-                "package_path": package_path,
-                "review_status": str((refreshed or {}).get("review_status") or ""),
-            },
-        }
-        return PaperReviewRewriteDraftResponse(
-            inserted_event=inserted,
-            event_id=event_id,
-            item=refreshed,
-            paper=store.paper_row(paper_id),
-            writer=writer_with_sync,
-            artifact_root=str(artifact_root),
+        artifact_snapshots = _snapshot_paper_rewrite_artifacts(artifact_root, record)
+        return _commit_paper_rewrite_draft(
+            store,
+            config,
+            paper_id=paper_id,
+            payload=payload,
+            candidate=candidate,
+            record=record,
+            artifact_root=artifact_root,
+            use_current_dir=use_current_dir,
+            project_id=project_id,
+            evidence_sync=evidence_sync,
+            artifact_snapshots=artifact_snapshots,
+            original_record=original_record,
+            original_project_dir=original_project_dir,
+            item=item,
         )
 
     def _require_safe_paper_artifact_root(paper_id: str) -> None:
@@ -6893,17 +7618,8 @@ def create_control_plane_router(
             return model_resolution
         provider_model, allowed_models = model_resolution
 
-        # Local bounded helpers are still required for the *ad-hoc* bounded reads
-        # scattered through the rest of the handler (reserve_requests, budget_timeout,
-        # min_remaining_credits, etc.). The *repetitive initial block* of 20 specific
-        # max_* / generation_* resolutions has been extracted.
-        def bounded_int(name: str, default: int, lower: int, upper: int) -> int:
-            return _bounded_int_from_mapping(body, name, default, lower, upper)
-
-        def bounded_float(
-            name: str, default: float, lower: float, upper: float
-        ) -> float:
-            return _bounded_float_from_mapping(body, name, default, lower, upper)
+        bounded_int = partial(_bounded_int_from_mapping, body)
+        bounded_float = partial(_bounded_float_from_mapping, body)
 
         # The 3 inputs below feed (or parallel) the extracted resolver...
         worker_lane_limit = max(1, min(4, len(_configured_worker_lanes()) or 1))
@@ -6941,79 +7657,35 @@ def create_control_plane_router(
         active = store.active_items()
         counts = store.status_counts()
         blocked_count = int(counts.get("blocked") or 0)
-        stop_reasons: list[str] = []
         backpressure_reasons: list[str] = []
-        if blocked_count and bool(body.get("stop_if_dashboard_attention", True)):
-            stop_reasons.append(f"{blocked_count} blocked item(s) need attention")
-        if not dry_run and not enabled:
-            stop_reasons.append("live run-cycle requires enabled=true")
-
         estimated_requests = max_provider_requests * generation_attempts
-        budget: dict[str, Any]
-        try:
-            reserve_requests = bounded_int("reserve_requests", 2, 1, 100)
-            quota_payload = research_provider_budget.fetch_json(
-                f"{provider_base_url}/v2/quotas",
-                api_key="",
-                timeout=bounded_int("budget_timeout", 20, 1, 60),
-            )
-            budget = research_provider_budget.synthetic_budget_status(
-                quota_payload,
-                min_remaining_credits=bounded_float(
-                    "min_remaining_credits", 5.0, 0.0, 1_000_000.0
-                ),
-                min_rolling_remaining=bounded_int(
-                    "min_rolling_remaining", 10, 0, 100_000
-                ),
-                estimated_requests=estimated_requests,
-                reserve_requests=reserve_requests,
-            )
-        except Exception as exc:  # noqa: BLE001 - fail closed if budget cannot be checked
-            budget = {
-                "ok": False,
-                "provider": "synthetic",
-                "checked_at": utc_now(),
-                "estimated_requests": estimated_requests,
-                "reserve_requests": bounded_int("reserve_requests", 2, 1, 100),
-                "failures": [f"provider budget check failed: {exc}"],
-            }
-        if not budget.get("ok") and max_provider_requests and not backpressure_reasons:
-            stop_reasons.append(
-                "; ".join(
-                    str(item)
-                    for item in budget.get("failures")
-                    or ["provider budget unavailable"]
-                )
-            )
+        budget = _fetch_synthetic_research_budget(
+            body=body,
+            provider_base_url=provider_base_url,
+            estimated_requests=estimated_requests,
+            bounded_int=bounded_int,
+            bounded_float=bounded_float,
+            research_provider_budget=research_provider_budget,
+        )
+        stop_reasons = _collect_research_cycle_stop_reasons(
+            body=body,
+            dry_run=dry_run,
+            enabled=enabled,
+            blocked_count=blocked_count,
+            budget=budget,
+            max_provider_requests=max_provider_requests,
+            backpressure_reasons=backpressure_reasons,
+        )
 
-        def research_row_lane_key(row: dict[str, Any]) -> str:
-            # Thin local wrapper (closes over the factory's _worker_lane_key) after top-level extraction
-            # for reduced cognitive complexity of the giant.
-            return _worker_lane_key(
-                {"machine_target": str(row.get("machine_target") or "")}
-            )
-
-        def open_lane_research_rows(
-            rows: list[dict[str, Any]], active_lane_keys: set[str]
-        ) -> list[dict[str, Any]]:
-            # Thin local wrapper after top-level extraction (lane_key_func is the local research_row_lane_key).
-            if not active_lane_keys:
-                return rows
-            return [
-                row
-                for row in rows
-                if research_row_lane_key(row) not in active_lane_keys
-            ]
-
-        def promotable_rows() -> list[dict[str, Any]]:
-            # Thin delegation after extraction of the large nested logic (reduces cognitive complexity of the 1595 giant).
-            return _compute_promotable_rows(
-                store=store,
-                min_admission_score=min_admission_score,
-                active=active,
-                research_row_lane_key=research_row_lane_key,
-                research_facility=research_facility,
-            )
+        research_row_lane_key = partial(_research_row_lane_key, _worker_lane_key)
+        promotable_rows = partial(
+            _compute_promotable_rows,
+            store=store,
+            min_admission_score=min_admission_score,
+            active=active,
+            research_row_lane_key=research_row_lane_key,
+            research_facility=research_facility,
+        )
 
         janitor_enabled = bool(body.get("janitor_enabled", True))
         janitor_limit = bounded_int("janitor_limit", 250, 0, 500)
@@ -7031,7 +7703,9 @@ def create_control_plane_router(
         initial_promotable = promotable_rows()
         active_lane_keys = {_worker_lane_key(row) for row in active}
         initial_open_lane_promotable = open_lane_research_rows(
-            initial_promotable, active_lane_keys
+            initial_promotable,
+            active_lane_keys,
+            lane_key_func=research_row_lane_key,
         )
         initial_feed_lanes = _worker_lane_capacity(
             active=active, rows=_queue_rows_for_lane_feed()
@@ -7047,196 +7721,81 @@ def create_control_plane_router(
         generation_target_lane = _select_generation_target_lane(
             lane_feed_pressure, max_dispatches
         )
-        if (
-            active
-            and not initial_open_lane_promotable
-            and not (generation_target_lane and max_provider_requests)
-        ):
-            backpressure_reasons.append(
-                "active worker lane already exists and no promotable candidate targets an idle lane"
+        backpressure_reasons.extend(
+            _evaluate_research_cycle_backpressure(
+                active=active,
+                initial_open_lane_promotable=initial_open_lane_promotable,
+                generation_target_lane=generation_target_lane,
+                max_provider_requests=max_provider_requests,
             )
-        response: dict[str, Any] = {
-            "ok": not stop_reasons,
-            "action": "dry_run_research_cycle" if dry_run else "research_cycle",
-            "dry_run": dry_run,
-            "enabled": enabled,
-            "queue_admitted": False,
-            "dispatch_started": False,
-            "provider": "synthetic.new",
-            "provider_model": provider_model,
-            "allowed_models": allowed_models,
-            "policy": {
-                "max_provider_requests_per_run": max_provider_requests,
-                "max_promotions_per_run": max_promotions,
-                "max_dispatches_per_run": max_dispatches,
-                "min_queue_depth_per_lane": min_queue_depth_per_lane,
-                "max_paper_drafts_per_run": max_paper_drafts,
-                "max_publication_rewrites_per_run": max_publication_rewrites,
-                "min_admission_score": min_admission_score,
-                "require_budget_ok": True,
-                "stop_if_queue_active": True,
-                "stop_if_dashboard_attention": bool(
-                    body.get("stop_if_dashboard_attention", True)
-                ),
-                "wait_for_completion": wait_for_completion,
-                "max_wait_seconds": max_wait_seconds,
-                "fresh_generation_backlog_threshold": fresh_generation_backlog_threshold,
-                "janitor_enabled": janitor_enabled,
-                "janitor_limit": janitor_limit,
-            },
-            "janitor": janitor_report,
-            "budget": {
-                key: budget.get(key)
-                for key in {
-                    "ok",
-                    "provider",
-                    "checked_at",
-                    "estimated_requests",
-                    "reserve_requests",
-                    "remaining_credits",
-                    "min_remaining_credits",
-                    "rolling_remaining",
-                    "rolling_max",
-                    "rolling_limited",
-                    "rolling_next_tick_at",
-                    "weekly_next_regen_at",
-                    "weekly_next_regen_credits",
-                    "subscription_remaining",
-                    "subscription_renews_at",
-                    "failures",
-                }
-                if key in budget
-            },
-            "initial_promotable_count": len(initial_promotable),
-            "planned_promotions": [
-                row.get("candidate_id")
-                for row in (initial_open_lane_promotable or initial_promotable)[
-                    :max_promotions
-                ]
-            ],
-            "open_lane_promotable_count": len(initial_open_lane_promotable),
-            "lane_feed_pressure": lane_feed_pressure,
-            "generation_target_lane": generation_target_lane,
-            "generated_count": 0,
-            "promoted_count": 0,
-            "dispatched_count": 0,
-            "queued_count": 0,
-            "stages": [],
-        }
-        flags = store.flags() if hasattr(store, "flags") else None
-        queue_paused = bool(getattr(flags, "queue_paused", False))
-        if not dry_run and queue_paused:
-            guardrail = "research autopilot is active but broad queue is paused"
-            response.setdefault("guardrails", []).append(guardrail)
-            if hasattr(store, "append_event"):
-                store.append_event(
-                    idempotency_key=f"research-guardrail:queue-paused:{requested_by}:{utc_now()}",
-                    event_type="research.guardrail.queue_paused",
-                    entity_type="research",
-                    entity_id="run-cycle",
-                    payload={
-                        "message": guardrail,
-                        "queue_paused": True,
-                        "dry_run": dry_run,
-                        "requested_by": requested_by,
-                    },
-                )
-
-        if stop_reasons:
-            response["reason"] = "; ".join(stop_reasons)
-            if hasattr(store, "append_event"):
-                store.append_event(
-                    idempotency_key=f"research-cycle:{'dry' if dry_run else 'live'}:{requested_by}:{utc_now()}",
-                    event_type="research.run_cycle.blocked",
-                    entity_type="research",
-                    entity_id="run-cycle",
-                    payload=jsonable_encoder(response),
-                )
-            return response
-        if backpressure_reasons:
-            response["ok"] = True
-            response["action"] = (
-                "dry_run_research_cycle_backpressure"
-                if dry_run
-                else "research_cycle_backpressure"
-            )
-            response["reason"] = "; ".join(backpressure_reasons)
-            response["backpressure"] = True
-            response["active_count"] = len(active)
-            response["stages"].append(
-                {
-                    "stage": "backpressure",
-                    "ok": True,
-                    "reason": response["reason"],
-                    "active_count": len(active),
-                }
-            )
-            if hasattr(store, "append_event"):
-                try:
-                    store.append_event(
-                        idempotency_key=(
-                            f"research-cycle:backpressure:{'dry' if dry_run else 'live'}:{requested_by}:"
-                            f"{_active_lane_signature(active)}:{_event_cooldown_bucket()}"
-                        ),
-                        event_type="research.run_cycle.backpressure",
-                        entity_type="research",
-                        entity_id="run-cycle",
-                        payload=jsonable_encoder(response),
-                    )
-                except IdempotencyConflict as exc:
-                    response["event_write_suppressed"] = "idempotency_conflict"
-                    response["event_write_suppressed_reason"] = str(exc)
-            return response
-        if dry_run:
-            response["reason"] = (
-                "dry-run only; provider was not called and no ledgers, queue rows, dispatches, or papers were written"
-            )
-            response["would_generate"] = max_provider_requests > 0
-            response["would_promote_up_to"] = max_promotions
-            response["would_dispatch_up_to"] = max_dispatches
-            response["would_wait_for_completion"] = (
-                wait_for_completion and max_wait_seconds > 0
-            )
-            response["would_draft_papers_up_to"] = max_paper_drafts
-            response["would_finalize_papers_up_to"] = max_publication_rewrites
-            if hasattr(store, "append_event"):
-                store.append_event(
-                    idempotency_key=f"research-cycle:dry:{requested_by}:{utc_now()}",
-                    event_type="research.run_cycle.dry_run",
-                    entity_type="research",
-                    entity_id="run-cycle",
-                    payload=jsonable_encoder(response),
-                )
-            return response
-
-        def dispatch_queued_project(project_id: str) -> bool:
-            # Thin delegation after extraction of the self-contained dispatch logic (reduces cognitive complexity of the 1595 giant).
-            return _dispatch_queued_project(
-                project_id,
-                store=store,
-                response=response,
-                requested_by=requested_by,
-                _live_dispatch=_live_dispatch,
-                jsonable_encoder=jsonable_encoder,
-            )
-
-        response = _handle_followup_and_early_skips(
+        )
+        response = _build_research_cycle_initial_response(
+            dry_run=dry_run,
+            enabled=enabled,
+            provider_model=provider_model,
+            allowed_models=allowed_models,
+            body=body,
+            max_provider_requests=max_provider_requests,
+            max_promotions=max_promotions,
+            max_dispatches=max_dispatches,
+            min_queue_depth_per_lane=min_queue_depth_per_lane,
+            max_paper_drafts=max_paper_drafts,
+            max_publication_rewrites=max_publication_rewrites,
+            min_admission_score=min_admission_score,
+            wait_for_completion=wait_for_completion,
+            max_wait_seconds=max_wait_seconds,
+            fresh_generation_backlog_threshold=fresh_generation_backlog_threshold,
+            janitor_enabled=janitor_enabled,
+            janitor_limit=janitor_limit,
+            janitor_report=janitor_report,
+            budget=budget,
+            initial_promotable=initial_promotable,
+            initial_open_lane_promotable=initial_open_lane_promotable,
+            lane_feed_pressure=lane_feed_pressure,
+            generation_target_lane=generation_target_lane,
+            stop_reasons=stop_reasons,
+        )
+        _append_research_cycle_queue_paused_guardrail(
             store=store,
+            response=response,
+            dry_run=dry_run,
+            requested_by=requested_by,
+        )
+        early_response = _research_cycle_pre_live_exit(
+            store=store,
+            response=response,
+            dry_run=dry_run,
+            requested_by=requested_by,
+            stop_reasons=stop_reasons,
+            backpressure_reasons=backpressure_reasons,
+            active=active,
+            wait_for_completion=wait_for_completion,
+            max_wait_seconds=max_wait_seconds,
+            max_provider_requests=max_provider_requests,
+            max_promotions=max_promotions,
+            max_dispatches=max_dispatches,
+            max_paper_drafts=max_paper_drafts,
+            max_publication_rewrites=max_publication_rewrites,
+        )
+        if early_response is not None:
+            return early_response
+
+        open_lane_research_rows_local = partial(
+            open_lane_research_rows, lane_key_func=research_row_lane_key
+        )
+
+        return _execute_live_research_cycle(
+            store=store,
+            response=response,
+            requested_by=requested_by,
             generation_target_lane=generation_target_lane,
             max_dispatches=max_dispatches,
             max_provider_requests=max_provider_requests,
             fresh_generation_backlog_threshold=fresh_generation_backlog_threshold,
             initial_promotable=initial_promotable,
-            response=response,
-            requested_by=requested_by,
-            dispatch_queued_project=dispatch_queued_project,
-            research_row_lane_key=research_row_lane_key,
-        )
-
-        response = _execute_provider_generation(
-            max_provider_requests=max_provider_requests,
-            response=response,
-            generation_target_lane=generation_target_lane,
+            promotable_rows=promotable_rows,
+            open_lane_research_rows=open_lane_research_rows_local,
+            max_promotions=max_promotions,
             provider_openai_base_url=provider_openai_base_url,
             provider_model=provider_model,
             max_candidates=max_candidates,
@@ -7251,164 +7810,19 @@ def create_control_plane_router(
             Namespace=Namespace,
             research_provider_generate=research_provider_generate,
             research_facility=research_facility,
-            store=store,
-            requested_by=requested_by,
-        )
-
-        response = _execute_promotion(
-            promotable_rows=promotable_rows,
-            open_lane_research_rows=open_lane_research_rows,
-            max_promotions=max_promotions,
-            max_dispatches=max_dispatches,
-            store=store,
-            requested_by=requested_by,
-            response=response,
+            wait_for_completion=wait_for_completion,
+            max_wait_seconds=max_wait_seconds,
+            poll_interval_seconds=poll_interval_seconds,
+            max_paper_drafts=max_paper_drafts,
+            max_publication_rewrites=max_publication_rewrites,
+            draft_next=draft_next,
+            rewrite_paper_review_draft=_rewrite_paper_review_draft,
+            control_api_bearer_token=config.control_api_bearer_token,
             _worker_lane_key=_worker_lane_key,
-            dispatch_queued_project=dispatch_queued_project,
+            _live_dispatch=_live_dispatch,
+            jsonable_encoder=jsonable_encoder,
+            research_row_lane_key=research_row_lane_key,
         )
-
-        wait_result = {"action": "skipped", "reason": "wait_for_completion disabled"}
-        if response.get("dispatch_started") and wait_for_completion:
-            if max_wait_seconds <= 0:
-                wait_result = {"action": "skipped", "reason": "max_wait_seconds is 0"}
-            else:
-                dispatched_project_id = str(
-                    (response.get("dispatch", {}).get("candidate") or {}).get(
-                        "project_id"
-                    )
-                    or ""
-                )
-                deadline = time.monotonic() + max_wait_seconds
-                polls = 0
-                last_status = ""
-                while True:
-                    polls += 1
-                    row = (
-                        store.queue_row(dispatched_project_id)
-                        if dispatched_project_id
-                        else None
-                    )
-                    active_now = store.active_items()
-                    last_status = str((row or {}).get("status") or "")
-                    if not active_now and last_status not in {
-                        "dispatching",
-                        "running",
-                        "awaiting_wake",
-                        "wake_received",
-                        "reconciling",
-                    }:
-                        wait_result = {
-                            "action": "completed",
-                            "project_id": dispatched_project_id,
-                            "status": last_status,
-                            "polls": polls,
-                        }
-                        break
-                    if time.monotonic() >= deadline:
-                        wait_result = {
-                            "action": "timeout",
-                            "project_id": dispatched_project_id,
-                            "status": last_status,
-                            "active_count": len(active_now),
-                            "polls": polls,
-                        }
-                        break
-                    time.sleep(poll_interval_seconds)
-            response["wait"] = wait_result
-            response["stages"].append({"stage": "wait_for_completion", **wait_result})
-
-        drafted_papers: list[dict[str, Any]] = []
-        finalized_papers: list[dict[str, Any]] = []
-        if max_paper_drafts:
-            if (
-                response.get("dispatch_started")
-                and wait_for_completion
-                and wait_result.get("action") != "completed"
-            ):
-                response["stages"].append(
-                    {
-                        "stage": "paper_draft",
-                        "ok": False,
-                        "reason": "dispatched work did not complete inside this bounded run; paper stage skipped",
-                        "wait": wait_result,
-                    }
-                )
-            elif store.active_items():
-                response["stages"].append(
-                    {
-                        "stage": "paper_draft",
-                        "ok": False,
-                        "reason": "active worker lane exists; paper stage skipped",
-                    }
-                )
-            else:
-                for draft_index in range(max_paper_drafts):
-                    draft_response = draft_next(
-                        DraftNextRequest(
-                            force=False, requested_by=requested_by, dry_run=False
-                        ),
-                        authorization=f"Bearer {config.control_api_bearer_token}",
-                    )
-                    draft_payload = draft_response.model_dump(mode="json")
-                    drafted_papers.append(draft_payload)
-                    response["stages"].append(
-                        {
-                            "stage": "paper_draft",
-                            "ok": draft_response.ok,
-                            "action": draft_response.action,
-                            "reason": draft_response.reason,
-                        }
-                    )
-                    if (
-                        draft_response.action != "drafted"
-                        or draft_response.paper is None
-                    ):
-                        break
-                    if len(finalized_papers) < max_publication_rewrites:
-                        paper_id = draft_response.paper.paper_id
-                        rewrite_response = _rewrite_paper_review_draft(
-                            paper_id,
-                            PaperReviewRewriteDraftRequest(
-                                idempotency_key=f"research-cycle:{requested_by}:{draft_index}:{paper_id}:{utc_now()}",
-                                requested_by=requested_by,
-                                force=True,
-                            ),
-                        )
-                        rewrite_payload = rewrite_response.model_dump(mode="json")
-                        finalized_papers.append(rewrite_payload)
-                        response["stages"].append(
-                            {
-                                "stage": "publication_finalization",
-                                "ok": rewrite_response.ok,
-                                "paper_id": paper_id,
-                                "event_id": rewrite_response.event_id,
-                                "review_status": str(
-                                    (rewrite_payload.get("item") or {}).get(
-                                        "review_status"
-                                    )
-                                    or ""
-                                ),
-                            }
-                        )
-        response["paper_drafts"] = drafted_papers
-        response["paper_drafted_count"] = sum(
-            1 for item in drafted_papers if item.get("action") == "drafted"
-        )
-        response["publication_finalizations"] = finalized_papers
-        response["publication_finalized_count"] = len(finalized_papers)
-        if not response.get("reason"):
-            response["reason"] = (
-                "bounded research cycle completed; broad queue pause preserved and paper stages were positive-gated"
-            )
-        if hasattr(store, "append_event"):
-            store.append_event(
-                idempotency_key=f"research-cycle:live:{requested_by}:{utc_now()}",
-                event_type="research.run_cycle.live",
-                entity_type="research",
-                entity_id="run-cycle",
-                payload=jsonable_encoder(response),
-            )
-        return response
 
     @router.post("/api/research/promote-candidate")
     def dashboard_research_promote_candidate(
@@ -7968,9 +8382,7 @@ def create_control_plane_router(
             counts[key] = counts.get(key, 0) + 1
         return ProjectionResponse(rows=rows, counts=counts)
 
-    @router.get(
-        "/projections/notion/execution-updates"
-    )
+    @router.get("/projections/notion/execution-updates")
     def notion_execution_updates_projection(
         authorization: str | None = Header(default=None),
     ) -> ProjectionResponse:

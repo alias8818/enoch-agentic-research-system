@@ -251,39 +251,75 @@ function ActiveWorkSummary({ activeItems }: { activeItems: Record<string, unknow
   )
 }
 
+function readinessPillClass(ok: boolean | undefined): string {
+  return ok ? 'readiness-pill readiness-pill--good' : 'readiness-pill readiness-pill--warn'
+}
+
+function formatReadinessErrorMessage(error: unknown): string {
+  return String(error instanceof Error ? error.message : error)
+}
+
+function automationReadinessSummaryLabel(readiness: AutomationReadiness | undefined, isLoading: boolean): string {
+  if (readiness?.label) return readiness.label
+  if (isLoading) return 'Checking automation readiness…'
+  return 'Automation readiness unavailable'
+}
+
+function ReadinessFacts({ summary }: { summary: NonNullable<AutomationReadiness['summary']> }) {
+  return (
+    <div className="readiness-facts">
+      <span>queued {String(summary.queued ?? 0)}</span>
+      <span>active {String(summary.active ?? 0)}</span>
+      <span>queue {summary.queue_paused ? 'paused' : 'unpaused'}</span>
+      <span>maintenance {summary.maintenance_mode ? 'on' : 'off'}</span>
+    </div>
+  )
+}
+
+function ReadinessBlockersBody({ blockers, showAllPassed }: { blockers: string[]; showAllPassed: boolean }) {
+  if (blockers.length > 0) {
+    return (
+      <ul>
+        {blockers.slice(0, 6).map((blocker) => <li key={blocker}>{blocker}</li>)}
+      </ul>
+    )
+  }
+  if (showAllPassed) {
+    return <p>All reported long-haul readiness checks passed.</p>
+  }
+  return null
+}
+
+function ReadinessChecksList({ checks }: { checks: NonNullable<AutomationReadiness['checks']> }) {
+  if (checks.length === 0) return null
+  return (
+    <div className="readiness-checks" aria-label="Automation readiness checks">
+      {checks.slice(0, 8).map((check) => (
+        <span key={String(check.name)} className={readinessPillClass(check.ok)}>
+          {String(check.name || 'check')}: {check.ok ? 'ok' : 'blocked'}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function AutomationReadinessSummary({ readiness, isLoading, error }: { readiness?: AutomationReadiness; isLoading: boolean; error: unknown }) {
-  const blockers = readiness?.blockers || []
-  const checks = readiness?.checks || []
-  const summary = readiness?.summary || {}
-  const label = readiness?.label || (isLoading ? 'Checking automation readiness…' : 'Automation readiness unavailable')
+  const blockers = readiness?.blockers ?? []
+  const checks = readiness?.checks ?? []
+  const summary = readiness?.summary ?? {}
+  const label = automationReadinessSummaryLabel(readiness, isLoading)
+  const showAllPassed = Boolean(readiness && !error && !isLoading && blockers.length === 0)
+
   return (
     <section className="readiness-snapshot" aria-label="Automation readiness">
       <div>
         <h3>Automation readiness</h3>
-        <span className={readiness?.ok ? 'readiness-pill readiness-pill--good' : 'readiness-pill readiness-pill--warn'}>{label}</span>
+        <span className={readinessPillClass(readiness?.ok)}>{label}</span>
       </div>
-      {error ? <p>Automation readiness unavailable: {String(error instanceof Error ? error.message : error)}</p> : null}
-      {!error && blockers.length > 0 ? (
-        <ul>
-          {blockers.slice(0, 6).map((blocker) => <li key={blocker}>{blocker}</li>)}
-        </ul>
-      ) : null}
-      {readiness && !error && !isLoading && blockers.length === 0 ? <p>All reported long-haul readiness checks passed.</p> : null}
-      <div className="readiness-facts">
-        <span>queued {String(summary.queued ?? 0)}</span>
-        <span>active {String(summary.active ?? 0)}</span>
-        <span>queue {summary.queue_paused ? 'paused' : 'unpaused'}</span>
-        <span>maintenance {summary.maintenance_mode ? 'on' : 'off'}</span>
-      </div>
-      {checks.length > 0 ? (
-        <div className="readiness-checks" aria-label="Automation readiness checks">
-          {checks.slice(0, 8).map((check) => (
-            <span key={String(check.name)} className={check.ok ? 'readiness-pill readiness-pill--good' : 'readiness-pill readiness-pill--warn'}>
-              {String(check.name || 'check')}: {check.ok ? 'ok' : 'blocked'}
-            </span>
-          ))}
-        </div>
-      ) : null}
+      {error ? <p>Automation readiness unavailable: {formatReadinessErrorMessage(error)}</p> : null}
+      {error ? null : <ReadinessBlockersBody blockers={blockers} showAllPassed={showAllPassed} />}
+      <ReadinessFacts summary={summary} />
+      <ReadinessChecksList checks={checks} />
     </section>
   )
 }

@@ -14034,7 +14034,9 @@ def test_alerts_queue_alert_findings_54_c901_extracted():
     """
     from pathlib import Path
 
-    src = Path("enoch_control_plane/control_plane/alerts.py").read_text(encoding="utf-8")
+    src = Path("enoch_control_plane/control_plane/alerts.py").read_text(
+        encoding="utf-8"
+    )
 
     # The extraction centralizes the logic; the helper must now be present at module level.
     assert "def _collect_active_lane_findings(" in src, (
@@ -14045,7 +14047,10 @@ def test_alerts_queue_alert_findings_54_c901_extracted():
     # (ensures semantics preserved exactly)
     from datetime import datetime, timezone, timedelta
     from enoch_control_plane.control_plane.alerts import _collect_active_lane_findings
-    from enoch_control_plane.control_plane.models import DashboardStatusResponse, DashboardFinding
+    from enoch_control_plane.control_plane.models import (
+        DashboardStatusResponse,
+        DashboardFinding,
+    )
 
     # Minimal fake row that should produce one "stale" finding (no live run)
     class FakeFlags:
@@ -14063,7 +14068,9 @@ def test_alerts_queue_alert_findings_54_c901_extracted():
             {
                 "project_id": "p1",
                 "current_run_id": "r1",
-                "stale_after": (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat(),
+                "stale_after": (
+                    datetime.now(timezone.utc) - timedelta(seconds=10)
+                ).isoformat(),
                 "updated_at": None,
                 "last_dispatch_at": None,
             }
@@ -14089,7 +14096,9 @@ def test_janitor_report_computed_extracted_no_duplication_in_giant():
     """
     from pathlib import Path
 
-    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
     assert "def _compute_janitor_report(" in src, (
         "_compute_janitor_report helper missing (61-complexity janitor block still inline)"
     )
@@ -14098,6 +14107,7 @@ def test_janitor_report_computed_extracted_no_duplication_in_giant():
     # We only test that it is importable and callable with the expected shape; full paths
     # are covered by the existing suite.
     from enoch_control_plane.control_plane.router import _compute_janitor_report
+
     # If the helper was added correctly, this import succeeds; the call would require
     # a real store, so we just assert the name is the centralized one.
     assert callable(_compute_janitor_report)
@@ -14113,12 +14123,15 @@ def test_generation_target_lane_extracted_no_duplication_in_giant():
     """
     from pathlib import Path
 
-    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
     assert "def _select_generation_target_lane(" in src, (
         "_select_generation_target_lane helper missing (generation target logic still inline)"
     )
 
     from enoch_control_plane.control_plane.router import _select_generation_target_lane
+
     assert callable(_select_generation_target_lane)
 
 
@@ -14132,12 +14145,15 @@ def test_promotable_rows_computed_extracted_no_duplication_in_giant():
     """
     from pathlib import Path
 
-    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
     assert "def _compute_promotable_rows(" in src, (
         "_compute_promotable_rows helper missing (promotable_rows logic still nested inside the giant)"
     )
 
     from enoch_control_plane.control_plane.router import _compute_promotable_rows
+
     assert callable(_compute_promotable_rows)
 
 
@@ -14152,12 +14168,17 @@ def test_followup_and_early_skips_extracted_no_duplication_in_giant():
     """
     from pathlib import Path
 
-    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
     assert "def _handle_followup_and_early_skips(" in src, (
         "_handle_followup_and_early_skips helper missing (followup/early-skips logic still inline in the giant)"
     )
 
-    from enoch_control_plane.control_plane.router import _handle_followup_and_early_skips
+    from enoch_control_plane.control_plane.router import (
+        _handle_followup_and_early_skips,
+    )
+
     assert callable(_handle_followup_and_early_skips)
 
 
@@ -14172,12 +14193,15 @@ def test_provider_generation_execution_extracted_no_duplication_in_giant():
     """
     from pathlib import Path
 
-    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
     assert "def _execute_provider_generation(" in src, (
         "_execute_provider_generation helper missing (provider generation execution logic still inline in the giant)"
     )
 
     from enoch_control_plane.control_plane.router import _execute_provider_generation
+
     assert callable(_execute_provider_generation)
 
 
@@ -14192,12 +14216,15 @@ def test_promotion_execution_extracted_no_duplication_in_giant():
     """
     from pathlib import Path
 
-    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
     assert "def _execute_promotion(" in src, (
         "_execute_promotion helper missing (promotion execution logic still inline in the giant)"
     )
 
     from enoch_control_plane.control_plane.router import _execute_promotion
+
     assert callable(_execute_promotion)
 
 
@@ -14211,12 +14238,15 @@ def test_dispatch_queued_project_extracted_no_duplication_in_giant():
     """
     from pathlib import Path
 
-    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
     assert "def _dispatch_queued_project(" in src, (
         "_dispatch_queued_project helper missing (dispatch_queued_project logic still inline in the giant)"
     )
 
     from enoch_control_plane.control_plane.router import _dispatch_queued_project
+
     assert callable(_dispatch_queued_project)
 
 
@@ -14231,12 +14261,18 @@ def test_lane_helpers_extracted_no_duplication_in_giant():
     """
     from pathlib import Path
 
-    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
     assert "def research_row_lane_key(" in src
     assert "def open_lane_research_rows(" in src
 
     # Behavioral smoke
-    from enoch_control_plane.control_plane.router import research_row_lane_key, open_lane_research_rows
+    from enoch_control_plane.control_plane.router import (
+        research_row_lane_key,
+        open_lane_research_rows,
+    )
+
     assert callable(research_row_lane_key)
     assert callable(open_lane_research_rows)
 
@@ -14251,13 +14287,41 @@ def test_research_lane_feed_pressure_extracted_no_duplication_in_giant():
     """
     from pathlib import Path
 
-    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
-    assert "def _research_lane_feed_pressure(" in src, (
-        "_research_lane_feed_pressure helper missing (pressure computation logic still inline in the giant)"
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def _compute_research_lane_feed_pressure(" in src, (
+        "_compute_research_lane_feed_pressure helper missing (pressure computation logic still inline in the giant)"
     )
 
-    from enoch_control_plane.control_plane.router import _research_lane_feed_pressure
-    assert callable(_research_lane_feed_pressure)
+    from enoch_control_plane.control_plane.router import (
+        _compute_research_lane_feed_pressure,
+    )
+
+    assert callable(_compute_research_lane_feed_pressure)
+
+
+def test_wait_for_completion_extracted_no_duplication_in_giant():
+    """AGENTS.md test-first for the current horrible-first S3776 (54 in router.py
+    inside the 1595 create_control_plane_router / dashboard_research_run_cycle).
+
+    The self-contained wait-for-completion polling logic (the wait_result setup,
+    the while loop for polling status until completion or timeout, the deadline and
+    last_status handling) is extracted to _wait_for_completion to further reduce
+    cognitive complexity of the giant.
+    """
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def _wait_for_completion(" in src, (
+        "_wait_for_completion helper missing (wait-for-completion logic still inline in the giant)"
+    )
+
+    from enoch_control_plane.control_plane.router import _wait_for_completion
+
+    assert callable(_wait_for_completion)
 
 
 def test_router_no_redundant_response_model_fastapi_style():
@@ -14271,7 +14335,9 @@ def test_router_no_redundant_response_model_fastapi_style():
     """
     from pathlib import Path
 
-    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
     count = src.count("response_model=")
     assert count == 0, (
         f"redundant response_model= still present (count={count}); remove all per S8409/S8410 to clear 49+ BLOCKERs"

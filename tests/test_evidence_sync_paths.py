@@ -585,7 +585,10 @@ def test_sync_worker_http_evidence_can_use_routed_worker_credentials(
             error=None,
         )
 
-    monkeypatch.setattr(router, "_worker_json_request", fake_worker_json)
+    monkeypatch.setattr(
+        "enoch_control_plane.control_plane.worker_evidence_sync._worker_json_request",
+        fake_worker_json,
+    )
     config = GateConfig(
         state_dir=str(tmp_path / "state"),
         project_root=str(tmp_path / "projects"),
@@ -632,7 +635,7 @@ def test_sync_worker_http_evidence_rejects_worker_returned_escape_paths(
         )
 
     with patch(
-        "enoch_control_plane.control_plane.router.post_worker_json",
+        "enoch_control_plane.control_plane.worker_evidence_sync.post_worker_json",
         side_effect=fake_post_worker_json,
     ):
         result = _sync_worker_http_evidence(
@@ -707,7 +710,7 @@ def test_sync_worker_http_evidence_skips_empty_worker_paths(tmp_path) -> None:
         )
 
     with patch(
-        "enoch_control_plane.control_plane.router.post_worker_json",
+        "enoch_control_plane.control_plane.worker_evidence_sync.post_worker_json",
         side_effect=fake_post_worker_json,
     ):
         result = _sync_worker_http_evidence(
@@ -736,7 +739,7 @@ def test_sync_worker_http_evidence_skips_invalid_worker_path_bytes(tmp_path) -> 
         )
 
     with patch(
-        "enoch_control_plane.control_plane.router.post_worker_json",
+        "enoch_control_plane.control_plane.worker_evidence_sync.post_worker_json",
         side_effect=fake_post_worker_json,
     ):
         result = _sync_worker_http_evidence(
@@ -811,7 +814,7 @@ def test_sync_worker_http_evidence_removes_existing_file_when_worker_returns_emp
         )
 
     with patch(
-        "enoch_control_plane.control_plane.router.post_worker_json",
+        "enoch_control_plane.control_plane.worker_evidence_sync.post_worker_json",
         side_effect=fake_post_worker_json,
     ):
         result = _sync_worker_http_evidence(
@@ -827,7 +830,7 @@ def test_sync_worker_http_evidence_removes_existing_file_when_worker_returns_emp
 def test_sync_worker_http_evidence_skips_uninspectable_worker_target(
     tmp_path, monkeypatch
 ) -> None:
-    from enoch_control_plane.control_plane import router
+    from enoch_control_plane.control_plane import router, worker_evidence_sync
 
     config = _config(tmp_path)
     config.worker_wake_gate_bearer_token = "worker-token"
@@ -848,7 +851,9 @@ def test_sync_worker_http_evidence_skips_uninspectable_worker_target(
             raise PermissionError("simulated target access failure")
         return real_exists(path)
 
-    monkeypatch.setattr(router, "post_worker_json", lambda *args, **kwargs: Result())
+    monkeypatch.setattr(
+        worker_evidence_sync, "post_worker_json", lambda *args, **kwargs: Result()
+    )
     monkeypatch.setattr(Path, "exists", blocked_exists)
 
     result = router._sync_worker_http_evidence(
@@ -880,11 +885,13 @@ def test_sync_worker_http_evidence_preserves_existing_file_when_write_fails(
         error = ""
         body = {"files": [{"path": "run_notes.md", "content": "new evidence"}]}
 
-    import enoch_control_plane.control_plane.router as router
+    from enoch_control_plane.control_plane import router, worker_evidence_sync
 
-    monkeypatch.setattr(router, "post_worker_json", lambda *args, **kwargs: Result())
     monkeypatch.setattr(
-        router,
+        worker_evidence_sync, "post_worker_json", lambda *args, **kwargs: Result()
+    )
+    monkeypatch.setattr(
+        worker_evidence_sync,
         "_atomic_write_text",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             OSError("simulated evidence write failure")
@@ -924,7 +931,7 @@ def test_sync_worker_http_evidence_skips_malformed_success_bodies(tmp_path) -> N
         )
 
     with patch(
-        "enoch_control_plane.control_plane.router.post_worker_json",
+        "enoch_control_plane.control_plane.worker_evidence_sync.post_worker_json",
         side_effect=fake_post_worker_json,
     ):
         result = _sync_worker_http_evidence(
@@ -954,7 +961,10 @@ def test_worker_http_evidence_sync_times_out_slow_worker_reads(tmp_path, monkeyp
             error="TimeoutError: worker request exceeded 0.010s",
         )
 
-    monkeypatch.setattr(router, "_worker_json_request", timed_out_worker_json)
+    monkeypatch.setattr(
+        "enoch_control_plane.control_plane.worker_evidence_sync._worker_json_request",
+        timed_out_worker_json,
+    )
     config = GateConfig(
         state_dir=str(tmp_path / "state"),
         project_root=str(tmp_path / "projects"),
