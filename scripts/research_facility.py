@@ -750,6 +750,10 @@ def sql_json(value: Any) -> str:
     )
 
 
+# Indented SELECT for sql_raise_if_exists guards (Sonar S1192 at emit_sql :792).
+_SQL_GUARD_EXISTS_SELECT = "    select 1"
+
+
 def sql_raise_if_exists(query: str, message: str) -> str:
     return "\n".join(
         [
@@ -789,7 +793,7 @@ def emit_sql(
                 sql_raise_if_exists(
                     "\n".join(
                         [
-                            "    select 1",
+                            _SQL_GUARD_EXISTS_SELECT,
                             "    from enoch.research_sources",
                             f"    where source_id = {sql_literal(source_id)}",
                             "      and (",
@@ -814,7 +818,7 @@ def emit_sql(
                 sql_raise_if_exists(
                     "\n".join(
                         [
-                            "    select 1",
+                            _SQL_GUARD_EXISTS_SELECT,
                             "    from enoch.research_sources",
                             f"    where source_id = {sql_literal(source_id)}",
                             "      and (",
@@ -834,7 +838,7 @@ def emit_sql(
             sql_raise_if_exists(
                 "\n".join(
                     [
-                        "    select 1",
+                        _SQL_GUARD_EXISTS_SELECT,
                         "    from enoch.research_candidates",
                         f"    where candidate_id = {sql_literal(c['candidate_id'])}",
                         "      and (",
@@ -890,7 +894,7 @@ def emit_sql(
                 sql_raise_if_exists(
                     "\n".join(
                         [
-                            "    select 1",
+                            _SQL_GUARD_EXISTS_SELECT,
                             "    from enoch.ideas",
                             f"    where idea_id = {sql_literal(idea_id)}",
                             "      and (",
@@ -910,7 +914,7 @@ def emit_sql(
                 sql_raise_if_exists(
                     "\n".join(
                         [
-                            "    select 1",
+                            _SQL_GUARD_EXISTS_SELECT,
                             "    from enoch.projects",
                             f"    where project_id = {sql_literal(idea_id)}",
                             "      and (",
@@ -931,7 +935,7 @@ def emit_sql(
                 sql_raise_if_exists(
                     "\n".join(
                         [
-                            "    select 1",
+                            _SQL_GUARD_EXISTS_SELECT,
                             "    from enoch.queue_items",
                             f"    where project_id = {sql_literal(idea_id)}",
                             "      and (",
@@ -964,7 +968,7 @@ def emit_sql(
             sql_raise_if_exists(
                 "\n".join(
                     [
-                        "    select 1",
+                        _SQL_GUARD_EXISTS_SELECT,
                         "    from enoch.research_admissions",
                         f"    where idempotency_key = {sql_literal(idempotency_key)}",
                         "      and (",
