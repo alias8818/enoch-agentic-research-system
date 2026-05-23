@@ -585,31 +585,51 @@ def _local_paper_evidence_present(project_dir: Path) -> bool:
     )
 
 
+def _remote_evidence_dir_fallback(remote_root: str, project_id: str) -> str:
+    return f"{remote_root}/{_safe_project_artifact_name(project_id)}"
+
+
+def _remote_evidence_dir_for_source(
+    config: GateConfig,
+    *,
+    remote_root: str,
+    project_id: str,
+    source: str,
+) -> str | None:
+    remote_source = PurePosixPath(source.replace("\\", "/"))
+    if ".." in remote_source.parts:
+        return _remote_evidence_dir_fallback(remote_root, project_id)
+    try:
+        source_path = Path(source).expanduser()
+    except RuntimeError:
+        return _remote_evidence_dir_fallback(remote_root, project_id)
+    try:
+        local_root = config.expanded_project_root.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return _remote_evidence_dir_fallback(remote_root, project_id)
+    if source_path.is_absolute():
+        try:
+            source_path.resolve().relative_to(local_root)
+        except (OSError, RuntimeError, ValueError):
+            return source
+        return None
+    if not remote_source.is_absolute():
+        return f"{remote_root}/{remote_source.as_posix()}"
+    return None
+
+
 def _remote_evidence_dir(
     config: GateConfig, *, project_id: str, source_project_dir: str = ""
 ) -> str:
-    source = source_project_dir.strip()
     remote_root = config.paper_evidence_sync_remote_root.rstrip("/")
-    if source:
-        remote_source = PurePosixPath(source.replace("\\", "/"))
-        if ".." in remote_source.parts:
-            return f"{remote_root}/{_safe_project_artifact_name(project_id)}"
-        try:
-            source_path = Path(source).expanduser()
-        except RuntimeError:
-            return f"{remote_root}/{_safe_project_artifact_name(project_id)}"
-        try:
-            local_root = config.expanded_project_root.resolve()
-        except (OSError, RuntimeError, ValueError):
-            return f"{remote_root}/{_safe_project_artifact_name(project_id)}"
-        if source_path.is_absolute():
-            try:
-                source_path.resolve().relative_to(local_root)
-            except (OSError, RuntimeError, ValueError):
-                return source
-        else:
-            if not remote_source.is_absolute():
-                return f"{remote_root}/{remote_source.as_posix()}"
+    source = source_project_dir.strip()
+    if not source:
+        return f"{remote_root}/{project_id}"
+    resolved = _remote_evidence_dir_for_source(
+        config, remote_root=remote_root, project_id=project_id, source=source
+    )
+    if resolved is not None:
+        return resolved
     return f"{remote_root}/{project_id}"
 
 

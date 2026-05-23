@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 
 from ..models import utc_now
 
+DEFAULT_MACHINE_TARGET = "worker.example"
+
 
 class QueueStatus(str, Enum):
     QUEUED = "queued"
@@ -99,7 +101,7 @@ class NotionIntakeRequest(BaseModel):
     include_statuses: list[str] = Field(
         default_factory=lambda: ["exploring", "testing"]
     )
-    default_machine_target: str = "worker.example"
+    default_machine_target: str = DEFAULT_MACHINE_TARGET
     workload_machine_targets: dict[str, str] = Field(default_factory=dict)
     default_model: str = "gpt-5.5"
     default_sandbox: str = "danger-full-access"
@@ -125,7 +127,7 @@ class IdeaIntakeRequest(BaseModel):
     include_statuses: list[str] = Field(
         default_factory=lambda: ["exploring", "testing"]
     )
-    default_machine_target: str = "worker.example"
+    default_machine_target: str = DEFAULT_MACHINE_TARGET
     workload_machine_targets: dict[str, str] = Field(default_factory=dict)
     default_model: str = "gpt-5.5"
     default_sandbox: str = "danger-full-access"
@@ -173,7 +175,7 @@ class QueueItemRecord(BaseModel):
     blocked_reason: str = ""
     last_error: str = ""
     last_result_summary: str = ""
-    machine_target: str = "worker.example"
+    machine_target: str = DEFAULT_MACHINE_TARGET
     model: str = "gpt-5.5"
     sandbox: str = "danger-full-access"
     last_dispatch_at: str | None = None

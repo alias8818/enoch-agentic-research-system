@@ -160,7 +160,7 @@ button:disabled { cursor: not-allowed; }
 .nav-more--active > summary {
   border-color: rgba(226, 177, 91, 0.65);
   color: #fff8ea;
-  background: rgba(226, 177, 91, 0.12);
+  background: #221c11;
 }
 
 .nav-menu {
