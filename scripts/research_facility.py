@@ -913,6 +913,8 @@ def sql_json(value: Any) -> str:
 _SQL_GUARD_EXISTS_SELECT = "    select 1"
 # Opening AND clause for identity-conflict guards (Sonar S1192 in emit_sql).
 _SQL_GUARD_AND_OPEN = "      and ("
+# Closing paren for identity-conflict guards (Sonar S1192 in emit_sql).
+_SQL_GUARD_AND_CLOSE = "      )"
 
 
 def sql_raise_if_exists(query: str, message: str) -> str:
@@ -950,7 +952,7 @@ def _emit_source_record_sql(
                     f"        source_kind is distinct from {sql_literal(source_kind)}",
                     f"        or url is distinct from {sql_literal(_as_text(source.get('url')))}",
                     f"        or external_id is distinct from {sql_literal(_as_text(source.get('external_id')))}",
-                    "      )",
+                    _SQL_GUARD_AND_CLOSE,
                 ]
             ),
             "conflicting research source identity",
@@ -975,7 +977,7 @@ def _emit_url_source_sql(lines: list[str], url: Any, candidate: dict[str, Any]) 
                     f"    where source_id = {sql_literal(source_id)}",
                     _SQL_GUARD_AND_OPEN,
                     f"        url is distinct from {sql_literal(_as_text(url))}",
-                    "      )",
+                    _SQL_GUARD_AND_CLOSE,
                 ]
             ),
             "conflicting research source identity",
@@ -1003,7 +1005,7 @@ def _emit_candidate_sql(
                     f"        generation_mode is distinct from {sql_literal(c['generation_mode'])}",
                     f"        or dedupe_key is distinct from {sql_literal(c['dedupe_key'])}",
                     f"        or title is distinct from {sql_literal(c['title'])}",
-                    "      )",
+                    _SQL_GUARD_AND_CLOSE,
                 ]
             ),
             "conflicting research candidate identity",
@@ -1066,7 +1068,7 @@ def _emit_admitted_queue_sql(
                     f"    where idea_id = {sql_literal(idea_id)}",
                     _SQL_GUARD_AND_OPEN,
                     "        source_kind is distinct from 'research_facility'",
-                    "      )",
+                    _SQL_GUARD_AND_CLOSE,
                 ]
             ),
             "conflicting research facility idea identity",
@@ -1087,7 +1089,7 @@ def _emit_admitted_queue_sql(
                     _SQL_GUARD_AND_OPEN,
                     f"        project_dir is distinct from {sql_literal(idea_id)}",
                     "        or origin_idea_status is distinct from 'testing'",
-                    "      )",
+                    _SQL_GUARD_AND_CLOSE,
                 ]
             ),
             "conflicting research facility project identity",
@@ -1109,7 +1111,7 @@ def _emit_admitted_queue_sql(
                     "        status is distinct from 'queued'",
                     "        or coalesce(current_run_id, '') <> ''",
                     "        or coalesce(next_action_hint, '') not in ('', 'controller_review')",
-                    "      )",
+                    _SQL_GUARD_AND_CLOSE,
                 ]
             ),
             "conflicting research facility queue promotion identity",
@@ -1157,7 +1159,7 @@ def _emit_admission_sql(
                     f"        or score_breakdown is distinct from {sql_json(plan.score_breakdown)}",
                     f"        or admitted_idea_id is distinct from {admitted_idea_sql}",
                     f"        or operator is distinct from {sql_literal(requested_by)}",
-                    "      )",
+                    _SQL_GUARD_AND_CLOSE,
                 ]
             ),
             "conflicting research admission idempotency key",
