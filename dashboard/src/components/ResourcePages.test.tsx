@@ -24,7 +24,7 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   saveToken('')
-  window.localStorage.removeItem(SAVED_TABLE_FILTERS_STORAGE_KEY)
+  globalThis.localStorage.removeItem(SAVED_TABLE_FILTERS_STORAGE_KEY)
 })
 
 it('loads queue rows from the V1 queue endpoint with the route status', async () => {
@@ -145,7 +145,7 @@ it('checks selected queued rows with dispatch-one dry-run only', async () => {
 
 it('live-dispatches a selected queued row only after dry-run and dialog confirmation', async () => {
   saveToken('test-token')
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'project-live', status: 'queued', machine_target: 'gb10', title: 'Live queue item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ project_id: 'project-live', project: { project_name: 'Live queue item' } }), { status: 200 }))
@@ -326,7 +326,7 @@ it('applies queue filters and follows the backend cursor without inventing pagin
 })
 
 it('loads saved queue filter presets from localStorage and applies them to the queue read model', async () => {
-  window.localStorage.setItem(SAVED_TABLE_FILTERS_STORAGE_KEY, JSON.stringify({
+  globalThis.localStorage.setItem(SAVED_TABLE_FILTERS_STORAGE_KEY, JSON.stringify({
     queue: [{ id: 'preset-1', name: 'Queued watch', search: 'oracle', status: 'queued', pageSize: '25' }],
   }))
   const fetchMock = vi.spyOn(globalThis, 'fetch')
@@ -358,7 +358,7 @@ it('saves the current queue filter draft as a local preset', async () => {
   fireEvent.change(screen.getByLabelText(/Preset name/i), { target: { value: 'Queued watch' } })
   fireEvent.click(screen.getByRole('button', { name: /Save preset/i }))
 
-  const stored = JSON.parse(window.localStorage.getItem(SAVED_TABLE_FILTERS_STORAGE_KEY) || '{}')
+  const stored = JSON.parse(globalThis.localStorage.getItem(SAVED_TABLE_FILTERS_STORAGE_KEY) || '{}')
   expect(stored.queue).toEqual([expect.objectContaining({
     name: 'Queued watch',
     search: 'oracle',
@@ -401,7 +401,7 @@ it('writes applied event filters back to the V2 hash', async () => {
   fireEvent.click(screen.getByRole('button', { name: /Apply filters/i }))
 
   await screen.findByText('Callback summary')
-  expect(window.location.hash).toBe('#events?event_type=worker.callback&search=stalled')
+  expect(globalThis.location.hash).toBe('#events?event_type=worker.callback&search=stalled')
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
 

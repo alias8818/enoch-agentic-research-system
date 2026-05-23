@@ -34,7 +34,7 @@ function IdCell({ column, idValue, href }: { column: TableColumnSpec; idValue: s
     event.stopPropagation()
     await copyToClipboard(idValue)
     setCopied(true)
-    window.setTimeout(() => setCopied(false), 1200)
+    globalThis.setTimeout(() => setCopied(false), 1200)
   }
   return (
     <span className="table-id-chip" title={idValue}>

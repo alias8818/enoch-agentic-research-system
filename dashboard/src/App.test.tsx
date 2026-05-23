@@ -3,11 +3,19 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from './api/client'
 import { App } from './App'
 
+function fetchMockCallUrl(fetchMock: { mock: { calls: unknown[][] } }, callIndex: number): string {
+  const input = fetchMock.mock.calls[callIndex][0]
+  if (typeof input === 'string') return input
+  if (input instanceof URL) return input.href
+  if (input instanceof Request) return input.url
+  throw new TypeError(`Expected fetch URL to be a string, URL, or Request, got ${typeof input}`)
+}
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   saveToken('')
-  window.location.hash = ''
+  globalThis.location.hash = ''
 })
 
 it('keeps overview secondary links in V2 and exposes data freshness', async () => {
@@ -387,7 +395,7 @@ it('shows operator queue counts inside the collapsed overview secondary fold', a
 
 
 it('keeps visible resource filters aligned with hash navigation', async () => {
-  window.location.hash = '#queue:queued'
+  globalThis.location.hash = '#queue:queued'
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'queued-project', status: 'queued', title: 'Queued item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'active-project', status: 'active', title: 'Active item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
@@ -396,17 +404,17 @@ it('keeps visible resource filters aligned with hash navigation', async () => {
   render(<App />)
   await screen.findByText('Queued item')
 
-  window.location.hash = '#queue:active'
-  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  globalThis.location.hash = '#queue:active'
+  globalThis.dispatchEvent(new HashChangeEvent('hashchange'))
 
   await screen.findByText('Active item')
   expect(screen.getByLabelText(/Status/i)).toHaveValue('active')
-  expect(new URL(String(fetchMock.mock.calls[0][0]), 'https://enoch.local').searchParams.get('status')).toBe('queued')
-  expect(new URL(String(fetchMock.mock.calls[1][0]), 'https://enoch.local').searchParams.get('status')).toBe('active')
+  expect(new URL(fetchMockCallUrl(fetchMock, 0), 'https://enoch.local').searchParams.get('status')).toBe('queued')
+  expect(new URL(fetchMockCallUrl(fetchMock, 1), 'https://enoch.local').searchParams.get('status')).toBe('active')
 })
 
 it('keeps unsupported hashes inside the V2 shell with route suggestions only', () => {
-  window.location.hash = '#unknown-workflow'
+  globalThis.location.hash = '#unknown-workflow'
   saveToken('test-token')
 
   render(<App />)
@@ -418,17 +426,17 @@ it('keeps unsupported hashes inside the V2 shell with route suggestions only', (
 })
 
 it('canonicalizes alias hashes to supported routes on load', () => {
-  window.location.hash = '#reviews'
+  globalThis.location.hash = '#reviews'
   saveToken('test-token')
 
   render(<App />)
 
-  expect(window.location.hash).toBe('#automation')
+  expect(globalThis.location.hash).toBe('#automation')
   expect(screen.getByRole('heading', { name: 'Publication automation' })).toBeInTheDocument()
 })
 
 it('redirects legacy status hashes to the command center', () => {
-  window.location.hash = '#status'
+  globalThis.location.hash = '#status'
   saveToken('test-token')
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
     generated_at: '2026-05-21T12:00:00Z',
@@ -439,7 +447,7 @@ it('redirects legacy status hashes to the command center', () => {
 
   render(<App />)
 
-  expect(window.location.hash).toBe('#overview')
+  expect(globalThis.location.hash).toBe('#overview')
 })
 
 
@@ -453,7 +461,7 @@ it('uses V2-authored token and fallback surfaces', () => {
 
 
 it('opens direct V2 detail hashes without legacy fallback', async () => {
-  window.location.hash = '#run:run-1'
+  globalThis.location.hash = '#run:run-1'
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ run_id: 'run-1', run: { run_id: 'run-1', project_id: 'project-1', state: 'running' } }), { status: 200 }))
   saveToken('test-token')
@@ -467,7 +475,7 @@ it('opens direct V2 detail hashes without legacy fallback', async () => {
 
 
 it('opens direct V2 event detail hashes from the events read model', async () => {
-  window.location.hash = '#event:7'
+  globalThis.location.hash = '#event:7'
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ event_id: 7, event_type: 'Queue Alert', summary: 'Target event summary', entity_id: 'project-1', created_at: '2026-05-21T00:00:00Z' }], page: { returned: 1, has_more: false } }), { status: 200 }))
   saveToken('test-token')
@@ -486,7 +494,7 @@ it('opens direct V2 event detail hashes from the events read model', async () =>
 
 
 it('keeps corpus hash filters in the V2 corpus read model', async () => {
-  window.location.hash = '#corpus?status=draft_review&search=manifest'
+  globalThis.location.hash = '#corpus?status=draft_review&search=manifest'
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ paper_pipeline: { publish_ready: 0, published_imported: 0, publication_ready_total: 0 } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-manifest', status: 'draft_review', title: 'Manifest review paper' }], page: { returned: 1 } }), { status: 200 }))
@@ -500,7 +508,7 @@ it('keeps corpus hash filters in the V2 corpus read model', async () => {
 })
 
 it('keeps project and run hash search filters in V2 read models', async () => {
-  window.location.hash = '#projects?status=testing&search=oracle'
+  globalThis.location.hash = '#projects?status=testing&search=oracle'
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'project-filtered', project_name: 'Oracle project', origin_idea_status: 'testing' }], page: { returned: 1 } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ run_id: 'run-filtered', state: 'running', current_activity: 'oracle replay' }], page: { returned: 1 } }), { status: 200 }))
@@ -512,8 +520,8 @@ it('keeps project and run hash search filters in V2 read models', async () => {
   expect(await screen.findByText('Oracle project')).toBeInTheDocument()
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/projects?page_size=50&sort=recent&status=testing&search=oracle', expect.any(Object))
 
-  window.location.hash = '#runs:running?search=replay'
-  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  globalThis.location.hash = '#runs:running?search=replay'
+  globalThis.dispatchEvent(new HashChangeEvent('hashchange'))
 
   expect(await screen.findByRole('heading', { name: 'Runs' })).toBeInTheDocument()
   expect(await screen.findByText('oracle replay')).toBeInTheDocument()
@@ -521,7 +529,7 @@ it('keeps project and run hash search filters in V2 read models', async () => {
 })
 
 it('keeps queue hash search filters in the V2 queue read model', async () => {
-  window.location.hash = '#queue:queued?search=gb10'
+  globalThis.location.hash = '#queue:queued?search=gb10'
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'queued-gb10', status: 'queued', title: 'GB10 queued work' }], page: { returned: 1 } }), { status: 200 }))
   saveToken('test-token')
@@ -534,7 +542,7 @@ it('keeps queue hash search filters in the V2 queue read model', async () => {
 })
 
 it('keeps paper hash filters in the V2 papers read model', async () => {
-  window.location.hash = '#papers?status=publication_draft&search=trace-oracle'
+  globalThis.location.hash = '#papers?status=publication_draft&search=trace-oracle'
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-filtered', status: 'publication_draft', title: 'Trace oracle paper' }], page: { returned: 1 } }), { status: 200 }))
   saveToken('test-token')
@@ -547,7 +555,7 @@ it('keeps paper hash filters in the V2 papers read model', async () => {
 })
 
 it('keeps event hash filters in the V2 events read model', async () => {
-  window.location.hash = '#events?event_type=Queue%20Alert&search=active-lane'
+  globalThis.location.hash = '#events?event_type=Queue%20Alert&search=active-lane'
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ id: 'event-filtered', event_type: 'Queue Alert', summary: 'active-lane blocked' }], page: { returned: 1 } }), { status: 200 }))
   saveToken('test-token')
@@ -561,7 +569,7 @@ it('keeps event hash filters in the V2 events read model', async () => {
 
 
 it('opens legacy review hashes in the V2 automation page instead of legacy fallback', async () => {
-  window.location.hash = '#review:paper-legacy'
+  globalThis.location.hash = '#review:paper-legacy'
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [] }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ item: { paper_id: 'paper-legacy', project_name: 'Legacy review paper', review_status: 'triage_ready', paper_status: 'publication_draft' }, checklist: { items: [] } }), { status: 200 }))
@@ -577,7 +585,7 @@ it('opens legacy review hashes in the V2 automation page instead of legacy fallb
 
 
 it('opens intake hashes in the V2 ideas intake page instead of legacy fallback', async () => {
-  window.location.hash = '#intake'
+  globalThis.location.hash = '#intake'
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({
       latest_sync: { source: 'idea_intake', status: 'ok', observed_at: '2026-05-21T00:00:00Z', payload: { payload_omitted: true, skipped_row_count: 1 } },
@@ -597,7 +605,7 @@ it('opens intake hashes in the V2 ideas intake page instead of legacy fallback',
 })
 
 it('opens intake idea hashes as first-class V2 details', async () => {
-  window.location.hash = '#idea:idea-1'
+  globalThis.location.hash = '#idea:idea-1'
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({
       latest_sync: { source: 'idea_intake', status: 'ok', observed_at: '2026-05-21T00:00:00Z' },
@@ -628,7 +636,7 @@ it('uses compact secondary page headers instead of repeating the command-center 
     rows: [],
   }), { status: 200 }))
   saveToken('test-token')
-  window.location.hash = '#projects'
+  globalThis.location.hash = '#projects'
 
   const { container } = render(<App />)
 
@@ -657,7 +665,7 @@ it('routes global search to the projects list with a search query', async () => 
       rows: [],
     }), { status: 200 }))
   saveToken('test-token')
-  window.location.hash = '#overview'
+  globalThis.location.hash = '#overview'
 
   render(<App />)
   await screen.findByText('Can I leave this running?')
@@ -665,7 +673,7 @@ it('routes global search to the projects list with a search query', async () => 
   fireEvent.change(screen.getByLabelText('Global search'), { target: { value: 'oracle lane' } })
   fireEvent.click(screen.getByRole('button', { name: 'Search projects' }))
 
-  expect(window.location.hash).toBe('#projects?search=oracle%20lane')
+  expect(globalThis.location.hash).toBe('#projects?search=oracle%20lane')
 })
 
 it('toggles the dashboard theme from the shell header', async () => {
@@ -706,15 +714,16 @@ it('opens keyboard shortcut help from the header button and question-mark shortc
   fireEvent.click(screen.getByRole('button', { name: 'Close' }))
   expect(screen.queryByRole('heading', { name: 'Keyboard shortcuts' })).not.toBeInTheDocument()
 
-  fireEvent.keyDown(window, { key: '?' })
+  const keyboardTarget = globalThis as unknown as Window
+  fireEvent.keyDown(keyboardTarget, { key: '?' })
   expect(screen.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeInTheDocument()
 
-  fireEvent.keyDown(window, { key: '/' })
+  fireEvent.keyDown(keyboardTarget, { key: '/' })
   expect(screen.getByRole('textbox', { name: /global search/i })).not.toHaveFocus()
 
-  fireEvent.keyDown(window, { key: 'Escape' })
+  fireEvent.keyDown(keyboardTarget, { key: 'Escape' })
   expect(screen.queryByRole('heading', { name: 'Keyboard shortcuts' })).not.toBeInTheDocument()
 
-  fireEvent.keyDown(window, { key: '/' })
+  fireEvent.keyDown(keyboardTarget, { key: '/' })
   expect(screen.getByRole('textbox', { name: /global search/i })).toHaveFocus()
 })

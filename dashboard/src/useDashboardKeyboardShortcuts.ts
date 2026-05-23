@@ -35,7 +35,7 @@ export function useDashboardKeyboardShortcuts({
       }
     }
 
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    globalThis.addEventListener('keydown', onKeyDown)
+    return () => globalThis.removeEventListener('keydown', onKeyDown)
   }, [helpOpen, onCloseHelp, onToggleHelp, searchInputRef])
 }

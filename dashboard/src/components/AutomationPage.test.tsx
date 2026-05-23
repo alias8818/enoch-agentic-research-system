@@ -116,7 +116,7 @@ it('previews selected paper artifacts inside V2 automation detail', async () => 
 })
 
 it('updates automation checklist items through dialog-confirmed V2 mutation', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [{ paper_id: 'paper-target', review_status: 'triage_ready', paper_status: 'publication_draft', project_name: 'Target paper' }] }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ item: { paper_id: 'paper-target', project_name: 'Target paper', review_status: 'triage_ready', paper_status: 'publication_draft', rank_score: 91 }, checklist: { items: [{ item_id: 'evidence', label: 'Evidence bundle present', status: 'pending', note: '' }] } }), { status: 200 }))

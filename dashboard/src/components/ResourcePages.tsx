@@ -85,8 +85,8 @@ function withCommonParams(state: FilterState, sort: string): URLSearchParams {
 
 
 function replaceRouteHash(hash: string) {
-  if (typeof window === 'undefined') return
-  window.history.replaceState(window.history.state, '', hash)
+  if (globalThis.window === undefined) return
+  globalThis.history.replaceState(globalThis.history.state, '', hash)
 }
 
 function queueHash(state: FilterState): string {

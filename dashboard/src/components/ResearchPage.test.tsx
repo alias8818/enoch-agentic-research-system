@@ -117,7 +117,7 @@ it('dry-runs internal candidate generation and enables live batch after success'
 })
 
 it('uses a dialog before running a bounded live research cycle after dry-run', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T08:10:00Z', counts: {}, rows: [] }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'research_cycle_dry_run', dry_run: true }), { status: 200 }))
@@ -167,7 +167,7 @@ it('invalidates bounded-cycle live authorization when facility state changes', a
 })
 
 it('dry-runs and confirms admitted candidate promotion without dispatching', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: { admitted: 1 }, rows: [{ candidate_id: 'cand-1', status: 'admitted', admission_decision: 'admitted', admitted_idea_id: '', title: 'Candidate one' }] }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'dry_run_promote_candidate', candidate_id: 'cand-1', title: 'Candidate one', reason: 'candidate can be promoted' }), { status: 200 }))

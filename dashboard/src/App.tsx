@@ -325,10 +325,10 @@ function AutomationReadinessSummary({ readiness, isLoading, error }: { readiness
 }
 
 function currentRoute(): DashboardRoute {
-  const rawHash = window.location.hash || '#overview'
+  const rawHash = globalThis.location.hash || '#overview'
   const canonical = canonicalDashboardHash(rawHash)
   if (canonical !== rawHash) {
-    window.history.replaceState(window.history.state, '', `${DASHBOARD_V2_PATH}${canonical}`)
+    globalThis.history.replaceState(globalThis.history.state, '', `${DASHBOARD_V2_PATH}${canonical}`)
   }
   return parseDashboardRoute(canonical)
 }
@@ -378,7 +378,7 @@ function GlobalSearchForm({ inputRef }: { inputRef: RefObject<HTMLInputElement |
   function submit(event: FormEvent) {
     event.preventDefault()
     const trimmed = query.trim()
-    window.location.href = dashboardV2Href(trimmed ? `#projects?search=${encodeURIComponent(trimmed)}` : '#projects')
+    globalThis.location.href = dashboardV2Href(trimmed ? `#projects?search=${encodeURIComponent(trimmed)}` : '#projects')
   }
   return (
     <form className="app-global-search" onSubmit={submit}>
@@ -409,8 +409,8 @@ function Shell() {
 
   useEffect(() => {
     const onHashChange = () => setRoute(currentRoute())
-    window.addEventListener('hashchange', onHashChange)
-    return () => window.removeEventListener('hashchange', onHashChange)
+    globalThis.addEventListener('hashchange', onHashChange)
+    return () => globalThis.removeEventListener('hashchange', onHashChange)
   }, [])
 
   useDashboardKeyboardShortcuts({

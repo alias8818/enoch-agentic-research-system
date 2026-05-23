@@ -39,8 +39,8 @@ function automationListUrl(state: ListFilterState): string {
 }
 
 function replaceRouteHash(hash: string) {
-  if (typeof window === 'undefined') return
-  window.history.replaceState(window.history.state, '', hash)
+  if (globalThis.window === undefined) return
+  globalThis.history.replaceState(globalThis.history.state, '', hash)
 }
 
 function automationCellHref(row: Record<string, unknown>, column: string): string | undefined {

@@ -64,7 +64,7 @@ it('explains why the primary live action is disabled before preflight', () => {
 })
 
 it('dispatches the top dispatch action only after dry-run and dialog confirmation', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch', reason: 'dry-run dispatch selected candidate' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dispatch_started', reason: 'live dispatch accepted selected candidate' }), { status: 200 }))
@@ -131,7 +131,7 @@ it('runs follow-up primary actions as safe dry-runs instead of only linking away
 })
 
 it('launches the top follow-up action only after dry-run and dialog confirmation', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_followup', reason: 'would queue bounded follow-up', followup: { idea_id: 'follow-1', title: 'Follow-up test' } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'followup_queued', reason: 'follow-up queued without dispatch', followup: { idea_id: 'follow-1' } }), { status: 200 }))
@@ -182,7 +182,7 @@ it('runs write-paper primary actions as safe dry-runs instead of only linking aw
 })
 
 it('drafts the top write-paper action only after dry-run and dialog confirmation', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_draft', reason: 'eligible paper-ready candidate found', paper: { paper_id: 'paper-1' } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'draft_created', reason: 'draft written for paper-ready candidate', paper: { paper_id: 'paper-1' } }), { status: 200 }))
@@ -234,7 +234,7 @@ it('runs finalize-paper primary actions as safe dry-runs instead of only linking
 })
 
 it('finalizes the top paper action only after dry-run and dialog confirmation', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, matched: 2, processed: 2, reason: 'would finalize 2 publication drafts' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: false, rewritten: 2, failed: 0, reason: 'finalized 2 publication drafts' }), { status: 200 }))
@@ -288,7 +288,7 @@ it('renders worker lane commands without deriving queue truth from aggregate cou
 })
 
 it('uses dialog confirmations for queue pause instead of window.confirm', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }))
   const onRefresh = vi.fn()
 
@@ -311,8 +311,8 @@ it('uses dialog confirmations for queue pause instead of window.confirm', async 
 })
 
 it('dry-runs dispatch from lane buttons without starting live dispatch', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
-  const alertSpy = vi.spyOn(window, 'alert')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
+  const alertSpy = vi.spyOn(globalThis, 'alert')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch', reason: 'dry-run dispatch selected candidate', candidate: { project_name: 'GB10 job' } }), { status: 200 }))
   const onRefresh = vi.fn()
@@ -359,7 +359,7 @@ it('requires an open-lanes dry-run before live dispatch is enabled', async () =>
 })
 
 it('uses a dialog before live dispatching open lanes', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch', reason: 'dry-run dispatch accepted queued work' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dispatch_started', reason: 'live dispatch accepted queued work' }), { status: 200 }))
@@ -428,7 +428,7 @@ it('keeps live feed disabled after a blocked feed dry-run', async () => {
 })
 
 it('runs a confirmed live feed cycle only after a feed dry-run', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'research_cycle_dry_run', dry_run: true, reason: 'would generate one candidate' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'research_cycle_live', dry_run: false, reason: 'generated one candidate without dispatch' }), { status: 200 }))
@@ -499,7 +499,7 @@ it('uses dispatch-one for lane-card dispatch checks so the selected lane candida
 })
 
 it('live-dispatches a lane candidate only after exact lane dry-run and dialog confirmation', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'dry-run selected explicit queued candidate', candidate: { project_id: 'gb10-project' } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'live_dispatch_one', reason: 'live dispatch started exact GB10 candidate', candidate: { project_id: 'gb10-project' } }), { status: 200 }))
@@ -565,7 +565,7 @@ it('runs paper finalize strip actions as dry-runs without rewriting drafts live'
 })
 
 it('finalizes paper strip drafts only after dry-run and dialog confirmation', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, matched: 1, processed: 1, reason: 'would rewrite one publication draft' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: false, rewritten: 1, failed: 0, reason: 'rewrote one publication draft' }), { status: 200 }))
