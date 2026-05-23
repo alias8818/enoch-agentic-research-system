@@ -12,11 +12,38 @@ from __future__ import annotations
 
 import argparse
 import os
+import socket
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+CONTROL_PLANE_PORT = 8787
+# Documented on-prem control-plane host for the research-facility LAN.
+# Override via ENOCH_WORKER_HOST (host only) or ENOCH_CONTROL_URL (full base URL).
+LAB_CONTROL_PLANE_HOST = "192.168.1.166"  # NOSONAR python:S1313
+
+
+def _default_control_plane_host() -> str:
+    explicit = os.environ.get("ENOCH_WORKER_HOST", "").strip()
+    if explicit:
+        return explicit
+    try:
+        hostname = socket.gethostname().strip()
+    except OSError:
+        hostname = ""
+    if hostname and hostname not in {"localhost", "localhost.localdomain"}:
+        return hostname
+    return LAB_CONTROL_PLANE_HOST
+
+
+def default_control_url() -> str:
+    explicit = os.environ.get("ENOCH_CONTROL_URL", "").strip()
+    if explicit:
+        return explicit
+    host = _default_control_plane_host()
+    return f"http://{host}:{CONTROL_PLANE_PORT}"
 
 
 @dataclass(frozen=True)
@@ -286,7 +313,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--control-url",
-        default=os.environ.get("ENOCH_CONTROL_URL", "http://192.168.1.166:8787"),
+        default=default_control_url(),
     )
     parser.add_argument("--token", default="")
     parser.add_argument(
