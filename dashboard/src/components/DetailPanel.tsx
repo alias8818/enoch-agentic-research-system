@@ -313,6 +313,13 @@ function findingKey(finding: Record<string, unknown>, index: number): string {
   return `${detailText(firstValue(finding.message, finding.source))}-${index}`
 }
 
+function suggestedActionElement(action: string) {
+  if (action === '—') {
+    return null
+  }
+  return <span>{action}</span>
+}
+
 function QueueAlertDetails({ payload }: Readonly<{ payload: Record<string, unknown> }>) {
   const isQueueAlert = isQueueAlertEvent(payload)
   const nested = record(payload.payload)
@@ -357,22 +364,13 @@ function QueueAlertDetails({ payload }: Readonly<{ payload: Record<string, unkno
       {findings.length ? (
         <div className="detail-related-list">
           <strong>Alert findings</strong>
-          {findings.slice(0, 5).map((finding, index) => {
-            const suggestedAction = detailText(finding.suggested_action)
-            let suggestedActionNode = null
-            if (suggestedAction === '—') {
-              suggestedActionNode = null
-            } else {
-              suggestedActionNode = <span>{suggestedAction}</span>
-            }
-            return (
+          {findings.slice(0, 5).map((finding, index) => (
             <div key={findingKey(finding, index)} className="detail-related-row">
               <strong>{detailText(firstValue(finding.message, finding.source, `finding ${index + 1}`))}</strong>
               <span>{detailText(firstValue(finding.severity, 'unknown'))} · {detailText(firstValue(finding.source, 'unknown source'))}</span>
-              {suggestedActionNode}
+              {suggestedActionElement(detailText(finding.suggested_action))}
             </div>
-            )
-          })}
+          ))}
         </div>
       ) : null}
     </section>
