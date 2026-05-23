@@ -2123,56 +2123,88 @@ def _is_superseded_record(
     return latest is not None and latest.run_id != record.run_id
 
 
+_RUN_DASHBOARD_PROCESS_STATES = {
+    GateState.RUNNING,
+    GateState.PENDING_IDLE_GATE,
+    GateState.WAITING_FOR_PROCESS_EXIT,
+    GateState.WAITING_FOR_QUIET_WINDOW,
+    GateState.FINISHED_PENDING_GATE,
+}
+
+
+def _resolve_run_project_dir(record: RunRecord) -> Path | None:
+    if not record.project_dir:
+        return None
+    try:
+        return _resolve_under_root(record.project_dir, config.expanded_project_root)
+    except ControlPlaneHttpError:
+        return None
+
+
+def _run_dashboard_active_processes(
+    record: RunRecord, *, detail: bool
+) -> list[ProcessInfo]:
+    if detail or record.gate_state in _RUN_DASHBOARD_PROCESS_STATES:
+        return gate.process_tracker.describe_processes(record)
+    return []
+
+
+def _run_dashboard_project_context(
+    project_dir: Path | None, *, detail: bool
+) -> tuple[
+    SessionHistoryEntry | None,
+    ProjectDecision | None,
+    str | None,
+    list[str],
+    list[str],
+    list[str],
+]:
+    if project_dir is None or not project_dir.exists():
+        return None, None, None, [], [], []
+
+    run_notes_tail = _tail_lines(
+        project_dir / "run_notes.md", limit=30 if detail else 8
+    )
+    recent_files: list[str] = []
+    result_files: list[str] = []
+    if detail:
+        recent_files = _recent_files(
+            project_dir, limit=30, max_entries=6_000, max_seconds=0.9
+        )
+        result_files = _result_files(
+            project_dir, limit=50, max_entries=6_000, max_seconds=0.9
+        )
+    project_decision, decision_error = _load_project_decision(
+        project_dir,
+        include_summary_fallback=detail,
+    )
+    latest_session = _latest_session(project_dir) if detail else None
+    return (
+        latest_session,
+        project_decision,
+        decision_error,
+        run_notes_tail,
+        recent_files,
+        result_files,
+    )
+
+
 def _run_dashboard_item(
     record: RunRecord,
     *,
     detail: bool = False,
     superseded: bool = False,
 ) -> dict[str, Any]:
-    process_states = {
-        GateState.RUNNING,
-        GateState.PENDING_IDLE_GATE,
-        GateState.WAITING_FOR_PROCESS_EXIT,
-        GateState.WAITING_FOR_QUIET_WINDOW,
-        GateState.FINISHED_PENDING_GATE,
-    }
-    active_processes = (
-        gate.process_tracker.describe_processes(record)
-        if detail or record.gate_state in process_states
-        else []
-    )
-    project_dir: Path | None = None
-    if record.project_dir:
-        try:
-            project_dir = _resolve_under_root(
-                record.project_dir, config.expanded_project_root
-            )
-        except ControlPlaneHttpError:
-            project_dir = None
-
-    latest_session = (
-        _latest_session(project_dir) if detail and project_dir is not None else None
-    )
-    project_decision: ProjectDecision | None = None
-    decision_error: str | None = None
-    run_notes_tail: list[str] = []
-    recent_files: list[str] = []
-    result_files: list[str] = []
-    if project_dir is not None and project_dir.exists():
-        run_notes_tail = _tail_lines(
-            project_dir / "run_notes.md", limit=30 if detail else 8
-        )
-        if detail:
-            recent_files = _recent_files(
-                project_dir, limit=30, max_entries=6_000, max_seconds=0.9
-            )
-            result_files = _result_files(
-                project_dir, limit=50, max_entries=6_000, max_seconds=0.9
-            )
-        project_decision, decision_error = _load_project_decision(
-            project_dir,
-            include_summary_fallback=detail,
-        )
+    active_processes = _run_dashboard_active_processes(record, detail=detail)
+    project_dir = _resolve_run_project_dir(record)
+    (
+        latest_session,
+        project_decision,
+        decision_error,
+        run_notes_tail,
+        recent_files,
+        result_files,
+    ) = _run_dashboard_project_context(project_dir, detail=detail)
 
     truth = _dashboard_truth(record, active_processes, superseded=superseded)
     current_activity = _activity_from_processes(
