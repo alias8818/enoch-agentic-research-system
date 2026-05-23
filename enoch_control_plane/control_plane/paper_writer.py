@@ -636,58 +636,88 @@ def _tokenize(value: str) -> set[str]:
     return {tok.lower() for tok in re.findall(r"[A-Za-z0-9][A-Za-z0-9._-]{2,}", value)}
 
 
+def _first_matching_quote(text: str, claim_tokens: set[str]) -> str:
+    for line in text.splitlines():
+        if len(line.strip()) < 20:
+            continue
+        if _tokenize(line) & claim_tokens:
+            return line.strip()[:500]
+    return ""
+
+
+def _claim_token_overlap_score(
+    claim_tokens: set[str], evidence_tokens: set[str]
+) -> float:
+    if not evidence_tokens:
+        return 0.0
+    overlap = claim_tokens & evidence_tokens
+    return len(overlap) / max(1, len(claim_tokens))
+
+
+def _evidence_ref_dict(
+    item: dict[str, Any],
+    *,
+    match_score: float,
+    quote: str,
+    support_level: str | None = None,
+) -> dict[str, Any]:
+    ref: dict[str, Any] = {
+        "path": str(item.get("path") or ""),
+        "source_path": str(item.get("source_path") or ""),
+        "sha256": str(item.get("sha256") or ""),
+        "match_score": round(match_score, 4) if match_score > 0 else 0.0,
+        "quote": quote,
+    }
+    if support_level is not None:
+        ref["support_level"] = support_level
+    return ref
+
+
+def _score_public_file_match(
+    claim_tokens: set[str], item: dict[str, Any]
+) -> tuple[float, str] | None:
+    text = str(item.get("content") or "")
+    haystack = f"{item.get('source_path')} {text[:20000]}"
+    score = _claim_token_overlap_score(claim_tokens, _tokenize(haystack))
+    if score <= 0:
+        return None
+    return score, _first_matching_quote(text, claim_tokens)
+
+
+def _weak_context_evidence_fallback(
+    public_files: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    fallback: list[dict[str, Any]] = []
+    for item in public_files[:2]:
+        content = str(item.get("content") or "")
+        lines = content.splitlines()
+        quote = lines[0][:500] if lines else ""
+        fallback.append(
+            _evidence_ref_dict(
+                item,
+                match_score=0.0,
+                quote=quote,
+                support_level="weak_context",
+            )
+        )
+    return fallback
+
+
 def _claim_evidence_matches(
     claim: str, public_files: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     claim_tokens = _tokenize(claim)
     scored: list[tuple[float, dict[str, Any]]] = []
     for item in public_files:
-        text = str(item.get("content") or "")
-        haystack = f"{item.get('source_path')} {text[:20000]}"
-        evidence_tokens = _tokenize(haystack)
-        if not evidence_tokens:
+        match = _score_public_file_match(claim_tokens, item)
+        if match is None:
             continue
-        overlap = claim_tokens & evidence_tokens
-        score = len(overlap) / max(1, len(claim_tokens))
-        if score <= 0:
-            continue
-        quote = ""
-        for line in text.splitlines():
-            if len(line.strip()) < 20:
-                continue
-            if _tokenize(line) & claim_tokens:
-                quote = line.strip()[:500]
-                break
-        scored.append(
-            (
-                score,
-                {
-                    "path": str(item.get("path") or ""),
-                    "source_path": str(item.get("source_path") or ""),
-                    "sha256": str(item.get("sha256") or ""),
-                    "match_score": round(score, 4),
-                    "quote": quote,
-                },
-            )
-        )
+        score, quote = match
+        scored.append((score, _evidence_ref_dict(item, match_score=score, quote=quote)))
     scored.sort(key=lambda pair: pair[0], reverse=True)
     if scored:
         return [entry for _, entry in scored[:3]]
-    fallback: list[dict[str, Any]] = []
-    for item in public_files[:2]:
-        fallback.append(
-            {
-                "path": str(item.get("path") or ""),
-                "source_path": str(item.get("source_path") or ""),
-                "sha256": str(item.get("sha256") or ""),
-                "match_score": 0.0,
-                "quote": str(item.get("content") or "").splitlines()[0][:500]
-                if str(item.get("content") or "").splitlines()
-                else "",
-                "support_level": "weak_context",
-            }
-        )
-    return fallback
+    return _weak_context_evidence_fallback(public_files)
 
 
 def _build_claim_ledger_data(
