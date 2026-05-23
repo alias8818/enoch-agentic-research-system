@@ -969,6 +969,22 @@ def _candidate_context(
     )
 
 
+def _text_from_content_part(item: Any) -> str | None:
+    if not isinstance(item, dict):
+        return None
+    text = item.get("text") or item.get("content")
+    return text.strip() if isinstance(text, str) else None
+
+
+def _text_from_message_content(content: Any) -> str | None:
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return None
+    parts = [part for item in content if (part := _text_from_content_part(item))]
+    return "\n".join(parts).strip() if parts else None
+
+
 def _extract_chat_content(response: dict[str, Any]) -> str:
     choices = response.get("choices") if isinstance(response, dict) else None
     if not choices:
@@ -976,17 +992,9 @@ def _extract_chat_content(response: dict[str, Any]) -> str:
     first = choices[0]
     message = first.get("message") if isinstance(first, dict) else None
     content = message.get("content") if isinstance(message, dict) else None
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        parts = []
-        for item in content:
-            if isinstance(item, dict):
-                text = item.get("text") or item.get("content")
-                if isinstance(text, str):
-                    parts.append(text)
-        if parts:
-            return "\n".join(parts).strip()
+    text = _text_from_message_content(content)
+    if text:
+        return text
     raise ValueError("missing text content in model response")
 
 
