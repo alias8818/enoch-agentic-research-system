@@ -607,36 +607,31 @@ def normalize_candidate(
     return row
 
 
-def evaluate_candidate(
-    row: dict[str, Any],
-    *,
-    admit_threshold: float = 72.0,
-    review_threshold: float = 58.0,
-) -> CandidatePlan:
-    plan = CandidatePlan(candidate=row)
+def _collect_candidate_hard_failures(row: dict[str, Any]) -> list[str]:
+    failures: list[str] = []
     mode = row["generation_mode"]
     if mode not in GENERATION_MODES:
-        plan.hard_failures.append(f"unsupported generation_mode: {mode}")
+        failures.append(f"unsupported generation_mode: {mode}")
     if row["status"] not in CANDIDATE_STATUSES:
-        plan.hard_failures.append(f"unsupported status: {row['status']}")
+        failures.append(f"unsupported status: {row['status']}")
     for key in REQUIRED_TEXT_FIELDS:
         if not row[key]:
-            plan.hard_failures.append(f"missing {key}")
+            failures.append(f"missing {key}")
     for key in REQUIRED_ARRAY_FIELDS:
         if not row[key]:
-            plan.hard_failures.append(f"missing {key}")
+            failures.append(f"missing {key}")
     if mode == "fresh_grounded" and not row["source_ids"] and not row["source_urls"]:
-        plan.hard_failures.append("fresh_grounded requires source_ids or source_urls")
+        failures.append("fresh_grounded requires source_ids or source_urls")
     if (
         mode == "followup_from_negative"
         and not row["parent_project_id"]
         and not row["parent_run_id"]
     ):
-        plan.hard_failures.append(
+        failures.append(
             "followup_from_negative requires parent_project_id or parent_run_id"
         )
     if row["similar_prior_projects"] and not row["novelty_comparison"]:
-        plan.hard_failures.append("similar_prior_projects requires novelty_comparison")
+        failures.append("similar_prior_projects requires novelty_comparison")
     text = "\n".join(
         [
             row["title"],
@@ -647,26 +642,53 @@ def evaluate_candidate(
         ]
     ).lower()
     if any(re.search(pattern, text) for pattern in SHALLOW_INCREMENT_PATTERNS):
-        plan.hard_failures.append("candidate looks like shallow incremental sludge")
+        failures.append("candidate looks like shallow incremental sludge")
+    return failures
 
-    novelty = row["novelty_score"]
-    feasibility = row["feasibility_score"]
-    accessibility = row["accessibility_score"]
-    falsifiability = row["falsifiability_score"]
+
+def _resolved_accessibility_score(row: dict[str, Any], accessibility: float) -> float:
     if not accessibility and row["accessibility_delta"]:
-        accessibility = 5.0
+        return 5.0
+    return accessibility
+
+
+def _resolved_falsifiability_score(row: dict[str, Any], falsifiability: float) -> float:
     if not falsifiability and row["success_threshold"] and row["kill_condition"]:
-        falsifiability = 6.0
-    mode_bonus = {
-        "moonshot": 4.0 if falsifiability >= 7 else -8.0,
-        "home_hardware_accessibility": 4.0 if accessibility >= 7 else -5.0,
-        "followup_from_negative": 3.0 if row["novelty_comparison"] else -8.0,
+        return 6.0
+    return falsifiability
+
+
+def _candidate_mode_bonus(
+    mode: str,
+    row: dict[str, Any],
+    *,
+    accessibility: float,
+    falsifiability: float,
+) -> float:
+    if mode == "moonshot":
+        return 4.0 if falsifiability >= 7 else -8.0
+    if mode == "home_hardware_accessibility":
+        return 4.0 if accessibility >= 7 else -5.0
+    if mode == "followup_from_negative":
+        return 3.0 if row["novelty_comparison"] else -8.0
+    return {
         "fresh_grounded": 2.0,
         "implementation_gap": 2.0,
         "paper_replication_extension": 1.0,
         "manual_import": 0.0,
     }.get(mode, 0.0)
-    missing_field_penalty = 6.0 * len(plan.hard_failures)
+
+
+def _compute_candidate_total_score(
+    *,
+    novelty: float,
+    feasibility: float,
+    accessibility: float,
+    falsifiability: float,
+    mode_bonus: float,
+    hard_failure_count: int,
+) -> float:
+    missing_field_penalty = 6.0 * hard_failure_count
     total = (
         (novelty * 2.6)
         + (feasibility * 1.7)
@@ -675,11 +697,21 @@ def evaluate_candidate(
         + mode_bonus
         - missing_field_penalty
     )
-    total = max(0.0, min(100.0, round(total, 2)))
-    row["accessibility_score"] = accessibility
-    row["falsifiability_score"] = falsifiability
-    row["total_score"] = total
-    row["score_breakdown"] = {
+    return max(0.0, min(100.0, round(total, 2)))
+
+
+def _build_candidate_score_breakdown(
+    *,
+    novelty: float,
+    feasibility: float,
+    accessibility: float,
+    falsifiability: float,
+    mode_bonus: float,
+    missing_field_penalty: float,
+    admit_threshold: float,
+    review_threshold: float,
+) -> dict[str, float]:
+    return {
         "novelty_weighted": round(novelty * 2.6, 2),
         "feasibility_weighted": round(feasibility * 1.7, 2),
         "accessibility_weighted": round(accessibility * 2.5, 2),
@@ -689,30 +721,96 @@ def evaluate_candidate(
         "admit_threshold": admit_threshold,
         "review_threshold": review_threshold,
     }
-    plan.score_breakdown = row["score_breakdown"] | {"total_score": total}
 
+
+def _apply_candidate_admission(
+    plan: CandidatePlan,
+    row: dict[str, Any],
+    total: float,
+    *,
+    admit_threshold: float,
+    review_threshold: float,
+) -> None:
     if plan.hard_failures:
         plan.admission_decision = "rejected"
         plan.admission_reason = "; ".join(plan.hard_failures)
-    elif total >= admit_threshold:
+        return
+    if total >= admit_threshold:
         plan.admission_decision = "admitted"
-        plan.admission_reason = f"score {total} >= admit threshold {admit_threshold} with required research contract present"
-        plan.admitted_idea_id = row["candidate_id"]
-    elif total >= review_threshold:
-        plan.admission_decision = "needs_review"
-        plan.admission_reason = f"score {total} below admit threshold {admit_threshold} but above review threshold {review_threshold}"
-    else:
-        plan.admission_decision = "rejected"
         plan.admission_reason = (
-            f"score {total} below review threshold {review_threshold}"
+            f"score {total} >= admit threshold {admit_threshold} "
+            "with required research contract present"
         )
-    row["status"] = (
-        "admitted"
-        if plan.admission_decision == "admitted"
-        else (
-            "needs_review" if plan.admission_decision == "needs_review" else "rejected"
+        plan.admitted_idea_id = row["candidate_id"]
+        return
+    if total >= review_threshold:
+        plan.admission_decision = "needs_review"
+        plan.admission_reason = (
+            f"score {total} below admit threshold {admit_threshold} "
+            f"but above review threshold {review_threshold}"
         )
+        return
+    plan.admission_decision = "rejected"
+    plan.admission_reason = f"score {total} below review threshold {review_threshold}"
+
+
+def _status_for_admission_decision(decision: str) -> str:
+    if decision == "admitted":
+        return "admitted"
+    if decision == "needs_review":
+        return "needs_review"
+    return "rejected"
+
+
+def evaluate_candidate(
+    row: dict[str, Any],
+    *,
+    admit_threshold: float = 72.0,
+    review_threshold: float = 58.0,
+) -> CandidatePlan:
+    plan = CandidatePlan(candidate=row)
+    mode = row["generation_mode"]
+    plan.hard_failures = _collect_candidate_hard_failures(row)
+
+    novelty = row["novelty_score"]
+    feasibility = row["feasibility_score"]
+    accessibility = _resolved_accessibility_score(row, row["accessibility_score"])
+    falsifiability = _resolved_falsifiability_score(row, row["falsifiability_score"])
+    mode_bonus = _candidate_mode_bonus(
+        mode, row, accessibility=accessibility, falsifiability=falsifiability
     )
+    missing_field_penalty = 6.0 * len(plan.hard_failures)
+    total = _compute_candidate_total_score(
+        novelty=novelty,
+        feasibility=feasibility,
+        accessibility=accessibility,
+        falsifiability=falsifiability,
+        mode_bonus=mode_bonus,
+        hard_failure_count=len(plan.hard_failures),
+    )
+    row["accessibility_score"] = accessibility
+    row["falsifiability_score"] = falsifiability
+    row["total_score"] = total
+    row["score_breakdown"] = _build_candidate_score_breakdown(
+        novelty=novelty,
+        feasibility=feasibility,
+        accessibility=accessibility,
+        falsifiability=falsifiability,
+        mode_bonus=mode_bonus,
+        missing_field_penalty=missing_field_penalty,
+        admit_threshold=admit_threshold,
+        review_threshold=review_threshold,
+    )
+    plan.score_breakdown = row["score_breakdown"] | {"total_score": total}
+
+    _apply_candidate_admission(
+        plan,
+        row,
+        total,
+        admit_threshold=admit_threshold,
+        review_threshold=review_threshold,
+    )
+    row["status"] = _status_for_admission_decision(plan.admission_decision)
     return plan
 
 
