@@ -13954,3 +13954,39 @@ def test_resolve_research_cycle_params_smoke() -> None:
     assert hasattr(params, "min_admission_score")
     assert params.max_provider_requests >= 0
     assert params.generation_attempts >= 1
+
+
+def test_resolve_research_cycle_params_extracted_no_duplication_in_giant() -> None:
+    """AGENTS.md deterministic validator for duplication/C901 extraction.
+
+    The repetitive ~50-line bounded param resolution block (with its env defaults,
+    worker_lane caps, and 20+ bounded_* calls) must not exist inside
+    dashboard_research_run_cycle after wiring. It lives only in the extracted helper.
+    This test enforces the invariant before/after the wiring patch.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    from enoch_control_plane.control_plane.router import (
+        _resolve_research_cycle_params,
+    )
+
+    # Deterministic source-level validator (no reliance on inspecting the decorated
+    # local handler name; the giant fn is defined inside the router factory).
+    spec = importlib.util.find_spec("enoch_control_plane.control_plane.router")
+    router_src = Path(spec.origin)
+    src = router_src.read_text(encoding="utf-8")
+    # distinctive literal from the inline duplication block (must appear only in helper after wiring)
+    # The *statement* form (with " = ") lives only in the giant fn today; helper uses
+    # kwarg form inside Namespace(...) without the spaces around = .
+    stmt_literal = '        max_provider_requests = bounded_int("max_provider_requests_per_run", 1, 0, 3)'
+    count = src.count(stmt_literal)
+    assert count == 0, (
+        f"Duplicated resolution logic still present in giant fn (count={count}); expected 0 after wiring"
+    )
+    # after wiring the delegation call must be present in the giant handler
+    assert "_resolve_research_cycle_params" in src
+    # helper still works
+    p = _resolve_research_cycle_params({})
+    assert hasattr(p, "max_provider_requests")
+    assert hasattr(p, "generation_attempts")

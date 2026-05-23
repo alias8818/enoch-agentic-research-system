@@ -211,10 +211,17 @@ def _resolve_research_provider_model(
     return provider_model, allowed_models
 
 
-def _resolve_research_cycle_params(body: dict[str, Any]) -> Any:
+def _resolve_research_cycle_params(
+    body: dict[str, Any],
+    *,
+    worker_lane_limit: int = 4,
+    promotion_batch_limit: int | None = None,
+) -> Any:
     """Resolve all bounded limits and thresholds for one research cycle run.
 
     Extracted from dashboard_research_run_cycle to reduce cyclomatic complexity.
+    The lane-dependent caps are passed from the (closure) call site that can
+    see _configured_worker_lanes(); resolver stays top-level for testability.
     """
     from argparse import Namespace
 
@@ -224,12 +231,10 @@ def _resolve_research_cycle_params(body: dict[str, Any]) -> Any:
     def bounded_float(name: str, default: float, lower: float, upper: float) -> float:
         return _bounded_float_from_mapping(body, name, default, lower, upper)
 
-    # NOTE: real implementation uses _configured_worker_lanes(); defaulted here to keep linter happy
-    # while resolver is prepared for future wiring.
-    worker_lane_limit = 4
-    promotion_batch_limit = _bounded_int_env(
-        "ENOCH_RESEARCH_MAX_PROMOTIONS_PER_RUN_CAP", 25, 1, 100
-    )
+    if promotion_batch_limit is None:
+        promotion_batch_limit = _bounded_int_env(
+            "ENOCH_RESEARCH_MAX_PROMOTIONS_PER_RUN_CAP", 25, 1, 100
+        )
 
     return Namespace(
         max_provider_requests=bounded_int("max_provider_requests_per_run", 1, 0, 3),
@@ -6273,6 +6278,10 @@ def create_control_plane_router(
             return model_resolution
         provider_model, allowed_models = model_resolution
 
+        # Local bounded helpers are still required for the *ad-hoc* bounded reads
+        # scattered through the rest of the handler (reserve_requests, budget_timeout,
+        # min_remaining_credits, etc.). The *repetitive initial block* of 20 specific
+        # max_* / generation_* resolutions has been extracted.
         def bounded_int(name: str, default: int, lower: int, upper: int) -> int:
             return _bounded_int_from_mapping(body, name, default, lower, upper)
 
@@ -6281,66 +6290,41 @@ def create_control_plane_router(
         ) -> float:
             return _bounded_float_from_mapping(body, name, default, lower, upper)
 
-        max_provider_requests = bounded_int("max_provider_requests_per_run", 1, 0, 3)
+        # The 3 inputs below feed (or parallel) the extracted resolver...
         worker_lane_limit = max(1, min(4, len(_configured_worker_lanes()) or 1))
         promotion_batch_limit = _bounded_int_env(
             "ENOCH_RESEARCH_MAX_PROMOTIONS_PER_RUN_CAP", 25, 1, 100
         )
-        max_promotions = bounded_int(
-            "max_promotions_per_run",
-            min(2, worker_lane_limit),
-            0,
-            promotion_batch_limit,
-        )
-        max_dispatches = bounded_int("max_dispatches_per_run", 0, 0, worker_lane_limit)
-        min_queue_depth_per_lane = bounded_int(
-            "min_queue_depth_per_lane",
-            _bounded_int_env("ENOCH_RESEARCH_MIN_QUEUE_DEPTH_PER_LANE", 25, 0, 100),
-            0,
-            100,
-        )
-        max_paper_drafts = bounded_int("max_paper_drafts_per_run", 0, 0, 1)
-        max_publication_rewrites = bounded_int(
-            "max_publication_rewrites_per_run", 0, 0, 1
-        )
-        wait_for_completion = bool(body.get("wait_for_completion", False))
-        max_wait_seconds = bounded_int("max_wait_seconds", 0, 0, 1800)
-        poll_interval_seconds = bounded_int("poll_interval_seconds", 10, 2, 60)
-        min_admission_score = bounded_float(
-            "min_admission_score",
-            bounded_float("admit_threshold", 72.0, 0.0, 100.0),
-            0.0,
-            100.0,
-        )
-        max_candidates = bounded_int("max_candidates", 2, 1, 10)
         default_backlog_threshold = _bounded_int_env(
             "ENOCH_RESEARCH_FRESH_GENERATION_BACKLOG_THRESHOLD", 25, 0, 500
         )
-        fresh_generation_backlog_threshold = bounded_int(
-            "fresh_generation_backlog_threshold", default_backlog_threshold, 0, 500
+
+        params = _resolve_research_cycle_params(
+            body,
+            worker_lane_limit=worker_lane_limit,
+            promotion_batch_limit=promotion_batch_limit,
         )
-        topic = str(body.get("topic") or "").strip()
-        temperature = bounded_float("temperature", 0.6, 0.0, 1.5)
-        seed = str(body.get("seed") or utc_now()).strip()
-        provider_base_url = os.environ.get(
-            "ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"
-        ).rstrip("/")
-        provider_openai_base_url = os.environ.get(
-            "ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL", f"{provider_base_url}/openai/v1"
-        ).rstrip("/")
-        generation_timeout = bounded_int("generation_timeout", 240, 10, 300)
-        default_generation_max_tokens = _bounded_int_env(
-            "ENOCH_RESEARCH_PROVIDER_MAX_TOKENS", 8000, 1000, 16000
-        )
-        default_generation_attempts = _bounded_int_env(
-            "ENOCH_RESEARCH_PROVIDER_ATTEMPTS", 2, 1, 3
-        )
-        generation_max_tokens = bounded_int(
-            "generation_max_tokens", default_generation_max_tokens, 1000, 16000
-        )
-        generation_attempts = bounded_int(
-            "generation_attempts", default_generation_attempts, 1, 3
-        )
+
+        max_provider_requests = params.max_provider_requests
+        max_promotions = params.max_promotions
+        max_dispatches = params.max_dispatches
+        min_queue_depth_per_lane = params.min_queue_depth_per_lane
+        max_paper_drafts = params.max_paper_drafts
+        max_publication_rewrites = params.max_publication_rewrites
+        wait_for_completion = params.wait_for_completion
+        max_wait_seconds = params.max_wait_seconds
+        poll_interval_seconds = params.poll_interval_seconds
+        min_admission_score = params.min_admission_score
+        max_candidates = params.max_candidates
+        fresh_generation_backlog_threshold = params.fresh_generation_backlog_threshold
+        topic = params.topic
+        temperature = params.temperature
+        seed = params.seed
+        provider_base_url = params.provider_base_url
+        provider_openai_base_url = params.provider_openai_base_url
+        generation_timeout = params.generation_timeout
+        generation_max_tokens = params.generation_max_tokens
+        generation_attempts = params.generation_attempts
 
         active = store.active_items()
         counts = store.status_counts()
