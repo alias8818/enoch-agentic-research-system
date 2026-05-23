@@ -54,6 +54,17 @@ def _tar_bytes(
     return buffer.getvalue()
 
 
+def test_safe_tar_extract_rejects_too_many_members(tmp_path) -> None:
+    artifact_root = tmp_path / "artifact"
+    entries = {f"file_{index}.txt": b"x" for index in range(600)}
+    payload = _tar_bytes(entries)
+
+    result = _extract_safe_tar_bytes(payload, artifact_root, max_entries=512)
+
+    assert result["ok"] is False
+    assert any(item["status"] == "too_many_members" for item in result["skipped"])
+
+
 def test_safe_tar_extract_rejects_traversal_and_symlinks(tmp_path) -> None:
     artifact_root = tmp_path / "artifact"
     outside = tmp_path / "outside.txt"
