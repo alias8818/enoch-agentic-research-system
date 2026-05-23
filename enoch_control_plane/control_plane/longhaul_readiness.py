@@ -248,11 +248,13 @@ def _add_corpus_tick_check(
     corpus_recent = publish_ready == 0 or (
         corpus_age is not None and corpus_age <= corpus_max_age_seconds
     )
-    corpus_detail = (
-        "publish_ready=0; corpus tick freshness not required"
-        if publish_ready == 0
-        else f"latest corpus tick age={corpus_age if corpus_age is not None else 'missing'}s max={corpus_max_age_seconds}s"
-    )
+    if publish_ready == 0:
+        corpus_detail = "publish_ready=0; corpus tick freshness not required"
+    else:
+        age_display = "missing" if corpus_age is None else str(corpus_age)
+        corpus_detail = (
+            f"latest corpus tick age={age_display}s max={corpus_max_age_seconds}s"
+        )
     acc.add(
         check(
             "corpus_tick_recent_when_needed",
