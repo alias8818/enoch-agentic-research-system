@@ -154,15 +154,11 @@ def _collect_active_lane_findings(
                 )
             )
         elif not stale_at:
-            updated = _parse_ts(
-                row.get("updated_at") or row.get("last_dispatch_at")
-            )
+            updated = _parse_ts(row.get("updated_at") or row.get("last_dispatch_at"))
             if updated and datetime.now(timezone.utc) > updated + timedelta(
                 seconds=hang_after_sec
             ):
-                if _has_live_worker_run(
-                    status, str(row.get("current_run_id") or "")
-                ):
+                if _has_live_worker_run(status, str(row.get("current_run_id") or "")):
                     continue
                 findings.append(
                     DashboardFinding(
