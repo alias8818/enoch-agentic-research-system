@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from ..models import utc_now
 
 DEFAULT_MACHINE_TARGET = "worker.example"
+DEFAULT_DISPATCH_MODEL = "gpt-5.5"
 
 
 class QueueStatus(str, Enum):
@@ -103,7 +104,7 @@ class NotionIntakeRequest(BaseModel):
     )
     default_machine_target: str = DEFAULT_MACHINE_TARGET
     workload_machine_targets: dict[str, str] = Field(default_factory=dict)
-    default_model: str = "gpt-5.5"
+    default_model: str = DEFAULT_DISPATCH_MODEL
     default_sandbox: str = "danger-full-access"
     override_existing_dispatch_metadata: bool = False
 
@@ -129,7 +130,7 @@ class IdeaIntakeRequest(BaseModel):
     )
     default_machine_target: str = DEFAULT_MACHINE_TARGET
     workload_machine_targets: dict[str, str] = Field(default_factory=dict)
-    default_model: str = "gpt-5.5"
+    default_model: str = DEFAULT_DISPATCH_MODEL
     default_sandbox: str = "danger-full-access"
     override_existing_dispatch_metadata: bool = False
 
@@ -176,7 +177,7 @@ class QueueItemRecord(BaseModel):
     last_error: str = ""
     last_result_summary: str = ""
     machine_target: str = DEFAULT_MACHINE_TARGET
-    model: str = "gpt-5.5"
+    model: str = DEFAULT_DISPATCH_MODEL
     sandbox: str = "danger-full-access"
     last_dispatch_at: str | None = None
     last_callback_at: str | None = None
