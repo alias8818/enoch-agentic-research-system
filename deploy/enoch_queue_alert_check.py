@@ -17,6 +17,7 @@ ALERT_FINDINGS_PRESENT_REASON = (
 )
 DISPATCH_NOT_SAFE_REASON = "dispatch not safe"
 ACTIVE_WORKER_LANE_PRESENT_REASON = "active worker lane present"
+QUEUE_PUMP_DISABLED_REASON = "queue pump disabled"
 
 
 def _load_config() -> dict:
@@ -235,7 +236,7 @@ def _execute_queue_pump(
     followup_launch_enabled: bool,
 ) -> tuple[dict, dict, dict, dict, dict]:
     """Run enabled queue-pump actions (extracted from main for S3776)."""
-    pump_disabled = _skipped("queue pump disabled")
+    pump_disabled = _skipped(QUEUE_PUMP_DISABLED_REASON)
     publication_rewrite = _skipped("no paper drafted")
     paper_draft = pump_disabled
 
@@ -353,10 +354,10 @@ def main() -> int:
     followup_launch_enabled = bool(
         config.get("queue_pump_followup_launch_enabled", False)
     )
-    dispatch = _skipped("queue pump disabled")
-    paper_draft = _skipped("queue pump disabled")
-    followup_dry_run = _skipped("queue pump disabled")
-    followup_launch = _skipped("queue pump disabled")
+    dispatch = _skipped(QUEUE_PUMP_DISABLED_REASON)
+    paper_draft = _skipped(QUEUE_PUMP_DISABLED_REASON)
+    followup_dry_run = _skipped(QUEUE_PUMP_DISABLED_REASON)
+    followup_launch = _skipped(QUEUE_PUMP_DISABLED_REASON)
     publication_rewrite = _skipped("no paper drafted")
     if queue_pump_enabled:
         (
