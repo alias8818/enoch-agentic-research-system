@@ -140,6 +140,10 @@ class PaperArtifactRootError(ValueError):
     """Paper rewrite artifact root could not be resolved or inspected."""
 
 
+class PaperArtifactSnapshotReadError(ValueError):
+    """A paper rewrite artifact snapshot could not be read."""
+
+
 RequireBearer = Callable[[str | None], None]
 
 _RUN_NOTES_MD = "run_notes.md"
@@ -969,9 +973,8 @@ def _snapshot_paper_rewrite_artifacts(
             existed = target.exists()
             content = target.read_bytes() if existed and target.is_file() else b""
         except (OSError, RuntimeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=400,
-                detail=f"paper artifact snapshot could not be read: {rel_path}",
+            raise PaperArtifactSnapshotReadError(
+                f"paper artifact snapshot could not be read: {rel_path}"
             ) from exc
         artifact_snapshots[target] = (existed, content)
     return artifact_snapshots
@@ -7084,7 +7087,12 @@ def create_control_plane_router(
             record=record,
             evidence_sync=evidence_sync,
         )
-        artifact_snapshots = _snapshot_paper_rewrite_artifacts(artifact_root, record)
+        try:
+            artifact_snapshots = _snapshot_paper_rewrite_artifacts(
+                artifact_root, record
+            )
+        except PaperArtifactSnapshotReadError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return _commit_paper_rewrite_draft(
             store,
             config,
