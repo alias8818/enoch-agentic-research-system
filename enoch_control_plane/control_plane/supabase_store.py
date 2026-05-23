@@ -729,6 +729,118 @@ def _artifact_file_stats(
         return bool(raw_path), False, 0
 
 
+_SUPABASE_EVENT_PAGE_ORDER_BY = {
+    "type": "event_type asc, event_id desc",
+    "entity": "entity_type asc, entity_id asc, event_id desc",
+}
+
+
+def _supabase_event_page_filter_clauses(
+    *,
+    event_id: str = "",
+    entity_type: str = "",
+    entity_id: str = "",
+    event_type: str = "",
+    search: str = "",
+) -> tuple[list[str], list[Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    event_id_int = _int(event_id, 0)
+    if event_id_int > 0:
+        clauses.append("event_id = %s")
+        params.append(event_id_int)
+    if entity_type:
+        clauses.append("entity_type = %s")
+        params.append(entity_type)
+    if entity_id:
+        clauses.append("entity_id = %s")
+        params.append(entity_id)
+    if event_type:
+        clauses.append("event_type = %s")
+        params.append(event_type)
+    if search:
+        clauses.append("(event_type ilike %s or entity_id ilike %s)")
+        needle = f"%{search}%"
+        params.extend([needle, needle])
+    return clauses, params
+
+
+def _supabase_event_page_sort_plan(
+    sort: str, cursor_id: int
+) -> tuple[str, list[str], list[Any], bool]:
+    if sort == "oldest":
+        extra_clauses: list[str] = []
+        extra_params: list[Any] = []
+        if cursor_id > 0:
+            extra_clauses.append("event_id > %s")
+            extra_params.append(cursor_id)
+        return "event_id asc", extra_clauses, extra_params, True
+    if sort == "recent":
+        extra_clauses = []
+        extra_params = []
+        if cursor_id > 0:
+            extra_clauses.append("event_id < %s")
+            extra_params.append(cursor_id)
+        return "event_id desc", extra_clauses, extra_params, True
+    order_by = _SUPABASE_EVENT_PAGE_ORDER_BY.get(sort, "event_id desc")
+    return order_by, [], [], False
+
+
+def _supabase_event_page_select_list(*, include_payload: bool) -> str:
+    if include_payload:
+        return """
+            event_id,
+            idempotency_key,
+            event_type,
+            entity_type,
+            entity_id,
+            payload_json,
+            created_at
+        """
+    return """
+        event_id,
+        idempotency_key,
+        event_type,
+        entity_type,
+        entity_id,
+        pg_column_size(payload_json) as payload_bytes,
+        created_at
+    """
+
+
+def _supabase_event_page_item(
+    row: dict[str, Any],
+    *,
+    include_payload: bool,
+    payload_fn: Callable[[Any], Any],
+) -> dict[str, Any]:
+    item = dict(row)
+    if include_payload:
+        item["payload"] = payload_fn(item.pop("payload_json"))
+    else:
+        item["payload_summary"] = {
+            "keys": [],
+            "bytes": int(item.pop("payload_bytes") or 0),
+        }
+    item["created_at"] = str(item.get("created_at") or "")
+    return item
+
+
+def _supabase_event_page_next_cursor(
+    *,
+    uses_event_id_cursor: bool,
+    has_more: bool,
+    out: list[dict[str, Any]],
+    cursor_id: int,
+    safe_size: int,
+) -> str | None:
+    if not has_more or not out:
+        return None
+    if uses_event_id_cursor:
+        return str(out[-1]["event_id"])
+    return str(max(0, cursor_id) + safe_size)
+
+
 class ReadOnlyStoreError(RuntimeError):
     """Raised when a write path is attempted through the Supabase read adapter."""
 
@@ -1725,69 +1837,23 @@ class SupabaseReadOnlyControlPlaneStore:
         sort: str = "recent",
     ) -> tuple[list[dict[str, Any]], str | None, bool]:
         safe_size = max(1, min(page_size, 200))
-        clauses: list[str] = []
-        params: list[Any] = []
-        event_id_int = _int(event_id, 0)
-        if event_id_int > 0:
-            clauses.append("event_id = %s")
-            params.append(event_id_int)
-        if entity_type:
-            clauses.append("entity_type = %s")
-            params.append(entity_type)
-        if entity_id:
-            clauses.append("entity_id = %s")
-            params.append(entity_id)
-        if event_type:
-            clauses.append("event_type = %s")
-            params.append(event_type)
-        if search:
-            clauses.append("(event_type ilike %s or entity_id ilike %s)")
-            needle = f"%{search}%"
-            params.extend([needle, needle])
-
+        clauses, params = _supabase_event_page_filter_clauses(
+            event_id=event_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            event_type=event_type,
+            search=search,
+        )
         cursor_id = _int(cursor, 0)
-        if sort == "oldest":
-            if cursor_id > 0:
-                clauses.append("event_id > %s")
-                params.append(cursor_id)
-            order_by = "event_id asc"
-        elif sort == "recent":
-            if cursor_id > 0:
-                clauses.append("event_id < %s")
-                params.append(cursor_id)
-            order_by = "event_id desc"
-        else:
-            # Non-event-id orderings need offset cursors to preserve a stable
-            # sorted page contract. Keep the SQL bounded; never fetch
-            # cursor+page_size rows and slice in Python.
-            order_by = {
-                "type": "event_type asc, event_id desc",
-                "entity": "entity_type asc, entity_id asc, event_id desc",
-            }.get(sort, "event_id desc")
-
+        order_by, sort_clauses, sort_params, uses_event_id_cursor = (
+            _supabase_event_page_sort_plan(sort, cursor_id)
+        )
+        clauses.extend(sort_clauses)
+        params.extend(sort_params)
         where = f"where {' and '.join(clauses)}" if clauses else ""
-        if include_payload:
-            select_list = """
-                event_id,
-                idempotency_key,
-                event_type,
-                entity_type,
-                entity_id,
-                payload_json,
-                created_at
-            """
-        else:
-            select_list = """
-                event_id,
-                idempotency_key,
-                event_type,
-                entity_type,
-                entity_id,
-                pg_column_size(payload_json) as payload_bytes,
-                created_at
-            """
+        select_list = _supabase_event_page_select_list(include_payload=include_payload)
 
-        if sort in {"recent", "oldest"}:
+        if uses_event_id_cursor:
             params.append(safe_size + 1)
             rows = self._query(
                 f"select {select_list} from control_events {where} order by {order_by} limit %s",
@@ -1801,23 +1867,20 @@ class SupabaseReadOnlyControlPlaneStore:
                 tuple(params),
             )
 
-        out: list[dict[str, Any]] = []
-        for row in rows[:safe_size]:
-            item = dict(row)
-            if include_payload:
-                item["payload"] = self._payload(item.pop("payload_json"))
-            else:
-                item["payload_summary"] = {
-                    "keys": [],
-                    "bytes": int(item.pop("payload_bytes") or 0),
-                }
-            item["created_at"] = str(item.get("created_at") or "")
-            out.append(item)
+        out = [
+            _supabase_event_page_item(
+                row, include_payload=include_payload, payload_fn=self._payload
+            )
+            for row in rows[:safe_size]
+        ]
         has_more = len(rows) > safe_size
-        if sort in {"recent", "oldest"}:
-            next_cursor = str(out[-1]["event_id"]) if has_more and out else None
-        else:
-            next_cursor = str(max(0, cursor_id) + safe_size) if has_more else None
+        next_cursor = _supabase_event_page_next_cursor(
+            uses_event_id_cursor=uses_event_id_cursor,
+            has_more=has_more,
+            out=out,
+            cursor_id=cursor_id,
+            safe_size=safe_size,
+        )
         return out, next_cursor, has_more
 
     def _overview_queue_status_counts(self, cur: Any) -> dict[str, int]:
