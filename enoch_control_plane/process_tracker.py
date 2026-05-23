@@ -50,10 +50,7 @@ def _safe_send_signal(
         if active_proc is None:
             if psutil is None:
                 raise ProcessLookupError(pid)
-            try:
-                active_proc = psutil.Process(pid)
-            except psutil.NoSuchProcess as exc:
-                raise ProcessLookupError(pid) from exc
+            active_proc = psutil.Process(pid)
         if ProcessTracker._same_process(active_proc, tracked) is not True:
             raise ProcessLookupError(pid)
     os.kill(pid, sig)
@@ -338,27 +335,25 @@ class ProcessTracker:
             return []
 
         term_signaled: list[ProcessInfo] = []
+        already_gone: list[ProcessInfo] = []
         for info in candidates:
             pid = info.pid
-            if pid <= 0:
-                continue
+            if info.create_time is not None and psutil is not None:
+                try:
+                    proc = psutil.Process(pid)
+                    same_process = self._same_process(proc, info)
+                    if same_process is None:
+                        already_gone.append(info)
+                        continue
+                    if same_process is False:
+                        continue
+                except (psutil.NoSuchProcess, ProcessLookupError):
+                    already_gone.append(info)
+                    continue
+                except (PermissionError, psutil.AccessDenied, OSError):
+                    continue
             try:
-                proc = None
-                if psutil is not None:
-                    try:
-                        proc = psutil.Process(pid)
-                    except psutil.NoSuchProcess:
-                        proc = None
-                if info.create_time is not None and proc is not None:
-                    same = self._same_process(proc, info)
-                    if same is False:
-                        continue
-                    if same is None:
-                        # Cannot verify identity; TERM only (SIGKILL path re-checks).
-                        _safe_send_signal(pid, signal.SIGTERM, tracked=None, proc=None)
-                        term_signaled.append(info)
-                        continue
-                _safe_send_signal(pid, signal.SIGTERM, tracked=info, proc=proc)
+                _safe_send_signal(pid, signal.SIGTERM, tracked=info)
                 term_signaled.append(info)
             except (ProcessLookupError, PermissionError, OSError, ValueError):
                 continue
@@ -389,4 +384,4 @@ class ProcessTracker:
                 reaped.append(info)
             except (PermissionError, psutil.AccessDenied):
                 continue
-        return reaped
+        return already_gone + reaped
