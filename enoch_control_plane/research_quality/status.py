@@ -39,18 +39,19 @@ def _weak_evidence_problem_severity(
     decision: str,
     hypothesis_status: str,
 ) -> str | None:
-    if (
+    weak_evidence_problems = {
+        "weak_or_missing_evidence_strength",
+        "supported_but_negative_requires_review",
+    }
+    demote_decision = (
         decision == "finalize_negative"
         and hypothesis_status in {"mixed", "unsupported"}
     ) or (
         decision == "blocked"
         and hypothesis_status in {"inconclusive", "mixed", "unsupported", "unknown"}
-    ):
-        if problem in {
-            "weak_or_missing_evidence_strength",
-            "supported_but_negative_requires_review",
-        }:
-            return "warning"
+    )
+    if demote_decision and problem in weak_evidence_problems:
+        return "warning"
     return None
 
 
