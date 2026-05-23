@@ -119,6 +119,15 @@ from .supabase_store import (
 from .worker_adapter import HttpResult, post_worker_json, run_worker_preflight
 from .worker_evidence_sync import _sync_worker_http_evidence
 
+_HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT: dict[int, dict[str, str]] = {
+    500: {"description": "Configured artifact roots are not resolvable"},
+}
+
+
+class UnresolvableArtifactRootsError(RuntimeError):
+    """Configured project and state artifact roots could not be resolved."""
+
+
 RequireBearer = Callable[[str | None], None]
 
 _RUN_NOTES_MD = "run_notes.md"
@@ -698,8 +707,8 @@ def _local_artifact_root(
         try:
             root = (config.expanded_state_dir / "evidence-artifacts").resolve()
         except (OSError, RuntimeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=500, detail="configured artifact roots are not resolvable"
+            raise UnresolvableArtifactRootsError(
+                "configured artifact roots are not resolvable"
             ) from exc
     fallback = _safe_fallback_artifact_root(root, project_id)
     source = str(project_dir_text or "").strip()
@@ -713,6 +722,17 @@ def _local_artifact_root(
         root, candidate if candidate.is_absolute() else root / candidate
     )
     return safe_candidate or fallback
+
+
+def _local_artifact_root_http(
+    config: GateConfig, *, project_id: str, project_dir_text: str = ""
+) -> Path:
+    try:
+        return _local_artifact_root(
+            config, project_id=project_id, project_dir_text=project_dir_text
+        )
+    except UnresolvableArtifactRootsError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 _PAPER_REWRITE_BLOCKED_REVIEW_STATUSES = frozenset(
@@ -5495,7 +5515,7 @@ def create_control_plane_router(
     def _artifact_root_for_queue_row(row: dict[str, Any]) -> tuple[Path, str]:
         project_id = str(row.get("project_id") or "").strip()
         project_dir_text = str(row.get("project_dir") or project_id).strip()
-        return _local_artifact_root(
+        return _local_artifact_root_http(
             config, project_id=project_id, project_dir_text=project_dir_text
         ), project_dir_text
 
@@ -5667,7 +5687,10 @@ def create_control_plane_router(
             )
         return reconciled
 
-    @router.post("/api/alerts/queue-check")
+    @router.post(
+        "/api/alerts/queue-check",
+        responses=_HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT,
+    )
     def dashboard_queue_alert_check(
         payload: dict[str, Any] | None = None,
         authorization: str | None = Header(default=None),
@@ -5758,7 +5781,10 @@ def create_control_plane_router(
             ),
         }
 
-    @router.post("/api/worker-callback")
+    @router.post(
+        "/api/worker-callback",
+        responses=_HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT,
+    )
     def worker_callback(
         callback: GateCallback, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
@@ -7061,7 +7087,7 @@ def create_control_plane_router(
             raise HTTPException(status_code=404, detail="paper not found")
         project_id = str(paper.get("project_id") or "").strip()
         project_dir_text = str(paper.get("project_dir") or project_id).strip()
-        safe_root = _local_artifact_root(
+        safe_root = _local_artifact_root_http(
             config, project_id=project_id, project_dir_text=project_dir_text
         )
         candidate = _expanduser_path_or_http(
@@ -7233,9 +7259,11 @@ def create_control_plane_router(
 
     @router.post(
         "/api/publication-automation/{paper_id}/prepare-finalization-package",
+        responses=_HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT,
     )
     @router.post(
         "/api/paper-reviews/{paper_id}/prepare-finalization-package",
+        responses=_HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT,
     )
     def dashboard_paper_review_prepare_finalization_package(
         paper_id: str,
@@ -7329,7 +7357,7 @@ def create_control_plane_router(
             paper.get("project_dir") or paper.get("project_id") or ""
         ).strip()
         project_dir = (
-            _local_artifact_root(
+            _local_artifact_root_http(
                 config,
                 project_id=str(paper.get("project_id") or "").strip(),
                 project_dir_text=project_dir_text,
@@ -7369,7 +7397,10 @@ def create_control_plane_router(
             )
         return resolved
 
-    @router.get("/api/papers/{paper_id}/artifact/{field}")
+    @router.get(
+        "/api/papers/{paper_id}/artifact/{field}",
+        responses=_HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT,
+    )
     def dashboard_paper_artifact(
         paper_id: str, field: str, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
@@ -8744,7 +8775,7 @@ def create_control_plane_router(
         # Completed worker rows can carry worker-absolute or stale relative paths
         # that are not valid on the VM. Use a VM-local artifact root and keep the
         # original source path only for evidence sync.
-        return _local_artifact_root(
+        return _local_artifact_root_http(
             config, project_id=project_id, project_dir_text=project_dir_text
         )
 
@@ -8792,7 +8823,10 @@ def create_control_plane_router(
             return artifact_gate, artifact_root
         return row_gate, artifact_root
 
-    @router.post("/papers/draft-next")
+    @router.post(
+        "/papers/draft-next",
+        responses=_HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT,
+    )
     def draft_next(
         payload: DraftNextRequest, authorization: str | None = Header(default=None)
     ) -> DraftNextResponse:

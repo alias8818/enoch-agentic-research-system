@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.router import (
     _extract_safe_tar_bytes,
+    UnresolvableArtifactRootsError,
     _local_artifact_root,
     _local_paper_evidence_present,
     _remote_evidence_dir,
@@ -193,11 +194,10 @@ def test_local_artifact_root_fails_closed_when_project_and_state_roots_unresolva
         raise OSError("unresolvable")
 
     monkeypatch.setattr(Path, "resolve", fail_resolve)
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(UnresolvableArtifactRootsError) as exc:
         _local_artifact_root(config, project_id="project", project_dir_text="")
 
-    assert exc.value.status_code == 500
-    assert "artifact roots" in str(exc.value.detail)
+    assert "artifact roots" in str(exc.value)
 
 
 def test_local_paper_evidence_rejects_symlinked_high_signal_files(tmp_path) -> None:
