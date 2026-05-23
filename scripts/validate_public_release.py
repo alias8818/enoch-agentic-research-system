@@ -245,31 +245,55 @@ def check_counts(
         _check_packaging_pass_phrases(path, text, artifact_count, pass_count, failures)
 
 
+def _check_strict_public_pass_phrases(
+    path: Path,
+    text: str,
+    strict_pass_count: int,
+    artifact_count: int,
+    failures: list[str],
+) -> None:
+    for match in PASS_PHRASE.finditer(text):
+        left, right = int(match.group(1)), int(match.group(2))
+        phrase = match.group(3).lower()
+        if "packaging" not in phrase and (left, right) != (
+            strict_pass_count,
+            artifact_count,
+        ):
+            fail(
+                f"strict audit pass count drift in {path}:{line_for(text, match.start())}: {left}/{right} != {strict_pass_count}/{artifact_count}",
+                failures,
+            )
+
+
+def _check_strict_public_fail_phrases(
+    path: Path,
+    text: str,
+    strict_fail_count: int,
+    artifact_count: int,
+    failures: list[str],
+) -> None:
+    for pattern in STRICT_FAIL_PHRASES:
+        for match in pattern.finditer(text):
+            left, right = int(match.group(1)), int(match.group(2))
+            if (left, right) != (strict_fail_count, artifact_count):
+                fail(
+                    f"strict audit fail count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {strict_fail_count} of {artifact_count}",
+                    failures,
+                )
+
+
 def check_strict_public_counts(
     paths: list[Path], artifact_count: int, strict_pass_count: int, failures: list[str]
 ) -> None:
     strict_fail_count = artifact_count - strict_pass_count
     for path in paths:
         text = path.read_text(encoding="utf-8", errors="replace")
-        for match in PASS_PHRASE.finditer(text):
-            left, right = int(match.group(1)), int(match.group(2))
-            phrase = match.group(3).lower()
-            if "packaging" not in phrase and (left, right) != (
-                strict_pass_count,
-                artifact_count,
-            ):
-                fail(
-                    f"strict audit pass count drift in {path}:{line_for(text, match.start())}: {left}/{right} != {strict_pass_count}/{artifact_count}",
-                    failures,
-                )
-        for pattern in STRICT_FAIL_PHRASES:
-            for match in pattern.finditer(text):
-                left, right = int(match.group(1)), int(match.group(2))
-                if (left, right) != (strict_fail_count, artifact_count):
-                    fail(
-                        f"strict audit fail count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {strict_fail_count} of {artifact_count}",
-                        failures,
-                    )
+        _check_strict_public_pass_phrases(
+            path, text, strict_pass_count, artifact_count, failures
+        )
+        _check_strict_public_fail_phrases(
+            path, text, strict_fail_count, artifact_count, failures
+        )
 
 
 def check_quality_scope(paths: list[Path], failures: list[str]) -> None:
