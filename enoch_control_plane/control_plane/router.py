@@ -130,6 +130,120 @@ _HTTP_400_RESEARCH_CANDIDATE_ID: dict[int, dict[str, str]] = {
     },
 }
 
+_HTTP_501_WRITABLE_STORE: dict[int, dict[str, str]] = {
+    501: {
+        "description": (
+            "Mutating action requires a writable control-plane store; "
+            "supabase_readonly is read-only"
+        ),
+    },
+}
+
+_HTTP_501_SUPABASE_LEDGER: dict[int, dict[str, str]] = {
+    501: {
+        "description": (
+            "Research Facility ledger writes require the Supabase control-plane store"
+        ),
+    },
+}
+
+_HTTP_410_LEGACY_NOTION_API: dict[int, dict[str, str]] = {
+    410: {
+        "description": (
+            "Legacy Notion control-plane APIs are disabled; use Supabase-native "
+            "/control/intake/ideas and /control/api/intake/ideas"
+        ),
+    },
+}
+
+_HTTP_503_DASHBOARD_V2: dict[int, dict[str, str]] = {
+    503: {"description": "Dashboard V2 static assets are missing or not built"},
+}
+
+_HTTP_503_WORKER_PREFLIGHT_URL: dict[int, dict[str, str]] = {
+    503: {
+        "description": "Worker preflight requires configured worker_wake_gate_url",
+    },
+}
+
+_HTTP_404_RUN: dict[int, dict[str, str]] = {404: {"description": "Run not found"}}
+
+_HTTP_404_PROJECT: dict[int, dict[str, str]] = {
+    404: {"description": "Project not found"},
+}
+
+_HTTP_404_PAPER: dict[int, dict[str, str]] = {404: {"description": "Paper not found"}}
+
+_HTTP_404_QUEUE_ITEM: dict[int, dict[str, str]] = {
+    404: {"description": "Queue item not found"},
+}
+
+_HTTP_404_DASHBOARD_ASSET: dict[int, dict[str, str]] = {
+    404: {"description": "Dashboard V2 asset not found"},
+}
+
+_HTTP_404_PUBLICATION_AUTOMATION: dict[int, dict[str, str]] = {
+    404: {"description": "Publication automation item not found"},
+}
+
+_HTTP_404_PUBLICATION_AUTOMATION_NEXT: dict[int, dict[str, str]] = {
+    404: {"description": "No matching publication automation item"},
+}
+
+_HTTP_409_IDEMPOTENCY: dict[int, dict[str, str]] = {
+    409: {"description": "Idempotency key conflict or incompatible replay"},
+}
+
+_HTTP_409_DISPATCH: dict[int, dict[str, str]] = {
+    409: {
+        "description": (
+            "Dispatch rejected: project not queued, manual review required, "
+            "or active worker lane conflict"
+        ),
+    },
+}
+
+_HTTP_400_DISPATCH_PROJECT: dict[int, dict[str, str]] = {
+    400: {"description": "project_id is required"},
+}
+
+_HTTP_400_PREFLIGHT_WAKE_GATE: dict[int, dict[str, str]] = {
+    400: {
+        "description": (
+            "wake_gate_url must match configured worker_wake_gate_url or a "
+            "configured worker target; use machine_target for named routes"
+        ),
+    },
+}
+
+_HTTP_PAPER_REVIEW_MUTATION_RESPONSES: dict[int, dict[str, str]] = {
+    **_HTTP_501_WRITABLE_STORE,
+    400: {"description": "Invalid publication automation mutation request"},
+    409: _HTTP_409_IDEMPOTENCY[409],
+}
+
+_HTTP_PUBLICATION_AUTOMATION_DETAIL_RESPONSES: dict[int, dict[str, str]] = {
+    404: _HTTP_404_PUBLICATION_AUTOMATION[404],
+}
+
+_HTTP_DISPATCH_ONE_RESPONSES: dict[int, dict[str, str]] = {
+    **_HTTP_501_WRITABLE_STORE,
+    **_HTTP_400_DISPATCH_PROJECT,
+    404: {"description": "project_id was not found in the queue"},
+    **_HTTP_409_DISPATCH,
+}
+
+_HTTP_NOTION_INTAKE_RESPONSES: dict[int, dict[str, str]] = {
+    **_HTTP_501_WRITABLE_STORE,
+    **_HTTP_409_IDEMPOTENCY,
+    **_HTTP_410_LEGACY_NOTION_API,
+}
+
+_HTTP_WRITABLE_IDEMPOTENCY_RESPONSES: dict[int, dict[str, str]] = {
+    **_HTTP_501_WRITABLE_STORE,
+    **_HTTP_409_IDEMPOTENCY,
+}
+
 
 class UnresolvableArtifactRootsError(RuntimeError):
     """Configured project and state artifact roots could not be resolved."""
@@ -155,19 +269,44 @@ class WritableControlPlaneStoreRequiredError(RuntimeError):
     """A mutating control-plane action requires a writable store backend."""
 
 
+class LegacyNotionApiDisabledError(RuntimeError):
+    """Legacy Notion control-plane APIs are disabled."""
+
+
+class PublicationAutomationNotFoundError(LookupError):
+    """Publication automation paper or review row is missing."""
+
+
+class PaperRewriteBlockedReviewStatusError(ValueError):
+    """Publication automation item cannot be rewritten in this review status."""
+
+
+class PaperRewriteIdempotencyReuseError(ValueError):
+    """Idempotency key was reused with a different rewrite payload."""
+
+
+class PaperRewriteEvidenceRequiredError(RuntimeError):
+    """Paper rewrite requires synced project evidence."""
+
+    def __init__(self, evidence_sync: dict[str, Any]) -> None:
+        self.evidence_sync = evidence_sync
+        super().__init__("paper rewrite requires synced project evidence")
+
+
+class WorkerPreflightUrlNotConfiguredError(RuntimeError):
+    """Worker preflight URL is not configured."""
+
+
+class WakeGateUrlNotAllowedError(ValueError):
+    """wake_gate_url does not match configured worker targets."""
+
+
 def _assert_writable_control_plane_store(action: str, *, backend: str) -> None:
     if backend == "supabase_readonly":
         raise WritableControlPlaneStoreRequiredError(
             f"{action} requires a writable control-plane store; "
             "supabase_readonly is read-only"
         )
-
-
-def _require_writable_store_http(action: str, *, backend: str) -> None:
-    try:
-        _assert_writable_control_plane_store(action, backend=backend)
-    except WritableControlPlaneStoreRequiredError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
 
 
 RequireBearer = Callable[[str | None], None]
@@ -694,17 +833,14 @@ def _paper_rewrite_rows_or_404(
     paper = store.paper_row(paper_id)
     item = store.paper_review_row(paper_id, include_rank_reasons=True)
     if paper is None or item is None:
-        raise HTTPException(
-            status_code=404, detail="publication automation item not found"
+        raise PublicationAutomationNotFoundError(
+            "publication automation item not found"
         )
     review_status = _normal_status(item.get("review_status"))
     if review_status in _PAPER_REWRITE_BLOCKED_REVIEW_STATUSES:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"publication automation items with review_status={review_status} "
-                "cannot be rewritten or auto-published"
-            ),
+        raise PaperRewriteBlockedReviewStatusError(
+            f"publication automation items with review_status={review_status} "
+            "cannot be rewritten or auto-published"
         )
     return paper, item
 
@@ -761,14 +897,11 @@ def _resolve_paper_rewrite_artifact_root(
     try:
         configured_root = _expanded_configured_project_root(config)
     except UnresolvableConfiguredProjectRootError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise PaperArtifactRootError(str(exc)) from exc
     current_project_dir = _paper_rewrite_current_project_dir(project)
-    try:
-        use_current_dir, resolved_current_project_dir = (
-            _paper_rewrite_current_dir_resolution(configured_root, current_project_dir)
-        )
-    except PaperArtifactRootError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    use_current_dir, resolved_current_project_dir = (
+        _paper_rewrite_current_dir_resolution(configured_root, current_project_dir)
+    )
     try:
         artifact_root = (
             resolved_current_project_dir
@@ -776,8 +909,8 @@ def _resolve_paper_rewrite_artifact_root(
             else (configured_root / project_id).resolve()
         )
     except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=400, detail="paper artifact root could not be resolved"
+        raise PaperArtifactRootError(
+            "paper artifact root could not be resolved"
         ) from exc
     return artifact_root, use_current_dir
 
@@ -801,12 +934,9 @@ def _paper_rewrite_idempotent_response(
         str(existing_event.get("event_type") or "") != PAPER_REVIEW_DRAFT_REWRITTEN
         or str(existing_event.get("entity_id") or "") != paper_id
     ):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"idempotency key {payload.idempotency_key!r} was reused with "
-                "different payload"
-            ),
+        raise PaperRewriteIdempotencyReuseError(
+            f"idempotency key {payload.idempotency_key!r} was reused with "
+            "different payload"
         )
     return PaperReviewRewriteDraftResponse(
         inserted_event=False,
@@ -993,10 +1123,6 @@ def _handle_paper_rewrite_draft_commit_error(
             original_project_dir=original_project_dir,
             project_id=project_id,
         )
-    if isinstance(exc, IdempotencyConflict):
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if isinstance(exc, ValueError):
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     raise exc
 
 
@@ -3961,7 +4087,12 @@ def create_control_plane_router(
         require_bearer(authorization)
 
     def _require_writable_store(action: str) -> None:
-        _require_writable_store_http(action, backend=config.control_plane_store_backend)
+        try:
+            _assert_writable_control_plane_store(
+                action, backend=config.control_plane_store_backend
+            )
+        except WritableControlPlaneStoreRequiredError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
 
     def _alert_paper_evidence_blocked(
         *, project_id: str, run_id: str = "", paper_id: str = "", reason: str = ""
@@ -5428,12 +5559,9 @@ def create_control_plane_router(
 
     def _require_legacy_notion_api_enabled() -> None:
         if not config.legacy_notion_api_enabled:
-            raise HTTPException(
-                status_code=410,
-                detail={
-                    "message": "Legacy Notion control-plane APIs are disabled; use Supabase-native /control/intake/ideas and /control/api/intake/ideas.",
-                    "replacement": "/control/intake/ideas",
-                },
+            raise LegacyNotionApiDisabledError(
+                "Legacy Notion control-plane APIs are disabled; use Supabase-native "
+                "/control/intake/ideas and /control/api/intake/ideas."
             )
 
     @router.get("/dashboard")
@@ -5441,7 +5569,9 @@ def create_control_plane_router(
         """Legacy dashboard URL redirects to canonical Dashboard V2 (hash preserved client-side)."""
         return RedirectResponse(url="/control/dashboard-v2", status_code=307)
 
-    @router.get("/dashboard-v2", response_class=HTMLResponse)
+    @router.get(
+        "/dashboard-v2", response_class=HTMLResponse, responses=_HTTP_503_DASHBOARD_V2
+    )
     def dashboard_v2() -> HTMLResponse:
         index_path = DASHBOARD_V2_DIST_PATH / "index.html"
         if not index_path.is_file():
@@ -5454,7 +5584,9 @@ def create_control_plane_router(
             headers={"Cache-Control": "no-store"},
         )
 
-    @router.get("/dashboard-v2/assets/{asset_path:path}")
+    @router.get(
+        "/dashboard-v2/assets/{asset_path:path}", responses=_HTTP_404_DASHBOARD_ASSET
+    )
     def dashboard_v2_asset(asset_path: str) -> Response:
         asset_root = (DASHBOARD_V2_DIST_PATH / "assets").resolve()
         candidate = (asset_root / asset_path).resolve()
@@ -6090,7 +6222,7 @@ def create_control_plane_router(
             "rows": out,
         }
 
-    @router.get("/api/v1/runs/{run_id}")
+    @router.get("/api/v1/runs/{run_id}", responses=_HTTP_404_RUN)
     def dashboard_v1_run_detail(
         run_id: str,
         authorization: Annotated[str | None, Header()] = None,
@@ -6170,7 +6302,7 @@ def create_control_plane_router(
             "rows": out,
         }
 
-    @router.get("/api/v1/projects/{project_id}")
+    @router.get("/api/v1/projects/{project_id}", responses=_HTTP_404_PROJECT)
     def dashboard_v1_project_detail(
         project_id: str,
         authorization: Annotated[str | None, Header()] = None,
@@ -6259,7 +6391,7 @@ def create_control_plane_router(
             "rows": out,
         }
 
-    @router.get("/api/v1/papers/{paper_id}")
+    @router.get("/api/v1/papers/{paper_id}", responses=_HTTP_404_PAPER)
     def dashboard_v1_paper_detail(
         paper_id: str,
         authorization: Annotated[str | None, Header()] = None,
@@ -6526,7 +6658,7 @@ def create_control_plane_router(
             )
         return conflicts
 
-    @router.get("/api/projects/{project_id}")
+    @router.get("/api/projects/{project_id}", responses=_HTTP_404_PROJECT)
     def dashboard_project(
         project_id: str, authorization: Annotated[str | None, Header()] = None
     ) -> DashboardProjectDetailResponse:
@@ -6585,7 +6717,7 @@ def create_control_plane_router(
             ),
         )
 
-    @router.get("/api/runs/{run_id}")
+    @router.get("/api/runs/{run_id}", responses=_HTTP_404_RUN)
     def dashboard_run(
         run_id: str, authorization: Annotated[str | None, Header()] = None
     ) -> DashboardRunDetailResponse:
@@ -6638,8 +6770,11 @@ def create_control_plane_router(
 
     @router.post(
         "/api/publication-automation/backfill",
+        responses=_HTTP_WRITABLE_IDEMPOTENCY_RESPONSES,
     )
-    @router.post("/api/paper-reviews/backfill")
+    @router.post(
+        "/api/paper-reviews/backfill", responses=_HTTP_WRITABLE_IDEMPOTENCY_RESPONSES
+    )
     def dashboard_paper_reviews_backfill(
         payload: PaperReviewBackfillRequest,
         authorization: Annotated[str | None, Header()] = None,
@@ -6776,8 +6911,8 @@ def create_control_plane_router(
         item = store.paper_review_row(paper_id, include_rank_reasons=True)
         paper = store.paper_row(paper_id)
         if item is None or paper is None:
-            raise HTTPException(
-                status_code=404, detail="publication automation item not found"
+            raise PublicationAutomationNotFoundError(
+                "publication automation item not found"
             )
         project_id = str(paper.get("project_id") or "")
         return DashboardPaperReviewDetailResponse(
@@ -6834,13 +6969,14 @@ def create_control_plane_router(
             ]
         rows = _sort_rows(_search_rows(rows, search), "-rank_score")
         if not rows:
-            raise HTTPException(
-                status_code=404, detail="no matching publication automation item"
+            raise PublicationAutomationNotFoundError(
+                "no matching publication automation item"
             )
         return _paper_review_detail_response(str(rows[0].get("paper_id") or ""))
 
     @router.get(
         "/api/publication-automation/next",
+        responses=_HTTP_404_PUBLICATION_AUTOMATION_NEXT,
     )
     def dashboard_next_publication_automation(
         authorization: Annotated[str | None, Header()] = None,
@@ -6848,50 +6984,72 @@ def create_control_plane_router(
         paper_status: str = "publication_draft",
         search: str = "",
     ) -> DashboardPaperReviewDetailResponse:
-        return _dashboard_next_paper_review_response(
-            authorization=authorization,
-            review_status=review_status,
-            paper_status=paper_status,
-            search=search,
-        )
+        try:
+            return _dashboard_next_paper_review_response(
+                authorization=authorization,
+                review_status=review_status,
+                paper_status=paper_status,
+                search=search,
+            )
+        except PublicationAutomationNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @router.get("/api/paper-reviews/next")
+    @router.get(
+        "/api/paper-reviews/next", responses=_HTTP_404_PUBLICATION_AUTOMATION_NEXT
+    )
     def dashboard_next_paper_review(
         authorization: Annotated[str | None, Header()] = None,
         review_status: str = "",
         paper_status: str = "publication_draft",
         search: str = "",
     ) -> DashboardPaperReviewDetailResponse:
-        return _dashboard_next_paper_review_response(
-            authorization=authorization,
-            review_status=review_status,
-            paper_status=paper_status,
-            search=search,
-        )
+        try:
+            return _dashboard_next_paper_review_response(
+                authorization=authorization,
+                review_status=review_status,
+                paper_status=paper_status,
+                search=search,
+            )
+        except PublicationAutomationNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.get(
         "/api/publication-automation/{paper_id}",
+        responses=_HTTP_PUBLICATION_AUTOMATION_DETAIL_RESPONSES,
     )
     def dashboard_publication_automation_item(
         paper_id: str, authorization: Annotated[str | None, Header()] = None
     ) -> DashboardPaperReviewDetailResponse:
         authorize(authorization)
-        return _paper_review_detail_response(paper_id)
+        try:
+            return _paper_review_detail_response(paper_id)
+        except PublicationAutomationNotFoundError as exc:
+            raise HTTPException(
+                status_code=404, detail="publication automation item not found"
+            ) from exc
 
     @router.get(
         "/api/paper-reviews/{paper_id}",
+        responses=_HTTP_PUBLICATION_AUTOMATION_DETAIL_RESPONSES,
     )
     def dashboard_paper_review(
         paper_id: str, authorization: Annotated[str | None, Header()] = None
     ) -> DashboardPaperReviewDetailResponse:
         authorize(authorization)
-        return _paper_review_detail_response(paper_id)
+        try:
+            return _paper_review_detail_response(paper_id)
+        except PublicationAutomationNotFoundError as exc:
+            raise HTTPException(
+                status_code=404, detail="publication automation item not found"
+            ) from exc
 
     @router.post(
         "/api/publication-automation/{paper_id}/claim",
+        responses=_HTTP_PAPER_REVIEW_MUTATION_RESPONSES,
     )
     @router.post(
         "/api/paper-reviews/{paper_id}/claim",
+        responses=_HTTP_PAPER_REVIEW_MUTATION_RESPONSES,
     )
     def dashboard_paper_review_claim(
         paper_id: str,
@@ -6912,9 +7070,11 @@ def create_control_plane_router(
 
     @router.post(
         "/api/publication-automation/{paper_id}/checklist/{item_id}",
+        responses=_HTTP_PAPER_REVIEW_MUTATION_RESPONSES,
     )
     @router.post(
         "/api/paper-reviews/{paper_id}/checklist/{item_id}",
+        responses=_HTTP_PAPER_REVIEW_MUTATION_RESPONSES,
     )
     def dashboard_paper_review_checklist(
         paper_id: str,
@@ -6938,9 +7098,11 @@ def create_control_plane_router(
 
     @router.post(
         "/api/publication-automation/{paper_id}/status",
+        responses=_HTTP_PAPER_REVIEW_MUTATION_RESPONSES,
     )
     @router.post(
         "/api/paper-reviews/{paper_id}/status",
+        responses=_HTTP_PAPER_REVIEW_MUTATION_RESPONSES,
     )
     def dashboard_paper_review_status(
         paper_id: str,
@@ -6963,9 +7125,11 @@ def create_control_plane_router(
 
     @router.post(
         "/api/publication-automation/{paper_id}/approve-finalization",
+        responses=_HTTP_PAPER_REVIEW_MUTATION_RESPONSES,
     )
     @router.post(
         "/api/paper-reviews/{paper_id}/approve-finalization",
+        responses=_HTTP_PAPER_REVIEW_MUTATION_RESPONSES,
     )
     def dashboard_paper_review_approve_finalization(
         paper_id: str,
@@ -6997,7 +7161,7 @@ def create_control_plane_router(
                 config, project_id=project_id, project=project
             )
         except PaperArtifactRootNotInspectableError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise PaperArtifactRootError(str(exc)) from exc
         replay = _paper_rewrite_idempotent_response(
             store,
             payload=payload,
@@ -7031,13 +7195,7 @@ def create_control_plane_router(
                 artifact_root=str(artifact_root),
                 evidence_sync=evidence_sync,
             )
-            raise HTTPException(
-                status_code=424,
-                detail={
-                    "message": "paper rewrite requires synced project evidence",
-                    "evidence_sync": evidence_sync,
-                },
-            )
+            raise PaperRewriteEvidenceRequiredError(evidence_sync) from None
         original_record = _paper_record_from_store_row(paper)
         original_project_dir = str(
             (project or {}).get("project_dir") or paper.get("project_dir") or ""
@@ -7062,7 +7220,7 @@ def create_control_plane_router(
                 artifact_root, record
             )
         except PaperArtifactSnapshotReadError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise exc
         return _commit_paper_rewrite_draft(
             store,
             config,
@@ -7111,9 +7269,11 @@ def create_control_plane_router(
 
     @router.post(
         "/api/publication-automation/rewrite-batch",
+        responses=_PAPER_REWRITE_DRAFT_RESPONSES,
     )
     @router.post(
         "/api/paper-reviews/rewrite-batch",
+        responses=_PAPER_REWRITE_DRAFT_RESPONSES,
     )
     def dashboard_paper_reviews_rewrite_batch(
         payload: PaperReviewBulkRewriteRequest,
@@ -7218,6 +7378,27 @@ def create_control_plane_router(
                     }
                 )
             except (
+                PublicationAutomationNotFoundError,
+                PaperRewriteBlockedReviewStatusError,
+                PaperRewriteIdempotencyReuseError,
+                PaperRewriteEvidenceRequiredError,
+                PaperArtifactRootError,
+                PaperArtifactRootNotInspectableError,
+                PaperArtifactSnapshotReadError,
+                UnresolvableConfiguredProjectRootError,
+                IdempotencyConflict,
+                ValueError,
+            ) as exc:
+                failed += 1
+                out_rows.append(
+                    {
+                        "paper_id": pid,
+                        "project_name": row.get("project_name"),
+                        "ok": False,
+                        "error": str(exc),
+                    }
+                )
+            except (
                 Exception
             ) as exc:  # pragma: no cover - defensive for live batch operations
                 failed += 1
@@ -7253,7 +7434,35 @@ def create_control_plane_router(
     ) -> PaperReviewRewriteDraftResponse:
         authorize(authorization)
         _require_writable_store("publication automation draft rewrite")
-        return _rewrite_paper_review_draft(paper_id, payload)
+        try:
+            return _rewrite_paper_review_draft(paper_id, payload)
+        except PublicationAutomationNotFoundError as exc:
+            raise HTTPException(
+                status_code=404, detail="publication automation item not found"
+            ) from exc
+        except PaperRewriteBlockedReviewStatusError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (
+            UnresolvableConfiguredProjectRootError,
+            PaperArtifactRootError,
+            PaperArtifactRootNotInspectableError,
+            PaperArtifactSnapshotReadError,
+        ) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except PaperRewriteIdempotencyReuseError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except PaperRewriteEvidenceRequiredError as exc:
+            raise HTTPException(
+                status_code=424,
+                detail={
+                    "message": "paper rewrite requires synced project evidence",
+                    "evidence_sync": exc.evidence_sync,
+                },
+            ) from exc
+        except IdempotencyConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @router.post(
         "/api/publication-automation/{paper_id}/prepare-finalization-package",
@@ -7431,7 +7640,7 @@ def create_control_plane_router(
             "content": data.decode("utf-8", errors="replace"),
         }
 
-    @router.get("/api/papers/{paper_id}")
+    @router.get("/api/papers/{paper_id}", responses=_HTTP_404_PAPER)
     def dashboard_paper(
         paper_id: str, authorization: Annotated[str | None, Header()] = None
     ) -> DashboardPaperDetailResponse:
@@ -7614,7 +7823,7 @@ def create_control_plane_router(
             },
         }
 
-    @router.post("/api/research/generate-batch")
+    @router.post("/api/research/generate-batch", responses=_HTTP_501_SUPABASE_LEDGER)
     def dashboard_research_generate_batch(
         payload: Annotated[dict[str, Any] | None, Body()] = None,
         authorization: Annotated[str | None, Header()] = None,
@@ -7725,7 +7934,9 @@ def create_control_plane_router(
         )
         return response
 
-    @router.post("/api/research/generate-provider-batch")
+    @router.post(
+        "/api/research/generate-provider-batch", responses=_HTTP_501_SUPABASE_LEDGER
+    )
     def dashboard_research_generate_provider_batch(
         payload: Annotated[dict[str, Any] | None, Body()] = None,
         authorization: Annotated[str | None, Header()] = None,
@@ -8292,14 +8503,23 @@ def create_control_plane_router(
         )
         return response
 
-    @router.get("/api/intake/notion")
+    @router.get("/api/intake/notion", responses=_HTTP_410_LEGACY_NOTION_API)
     def dashboard_notion_intake(
         authorization: Annotated[str | None, Header()] = None,
         page_size: Annotated[int, Query(ge=1, le=200)] = 50,
         include_latest_payload: Annotated[bool, Query()] = False,
     ) -> DashboardIntakeResponse:
         authorize(authorization)
-        _require_legacy_notion_api_enabled()
+        try:
+            _require_legacy_notion_api_enabled()
+        except LegacyNotionApiDisabledError as exc:
+            raise HTTPException(
+                status_code=410,
+                detail={
+                    "message": str(exc),
+                    "replacement": "/control/intake/ideas",
+                },
+            ) from exc
         return _dashboard_ideas_intake_response(
             legacy_notion_alias=True,
             page_size=page_size,
@@ -8330,7 +8550,10 @@ def create_control_plane_router(
         )
         return state_response()
 
-    @router.post("/queue/mark-paused")
+    @router.post(
+        "/queue/mark-paused",
+        responses={**_HTTP_501_WRITABLE_STORE, **_HTTP_404_QUEUE_ITEM},
+    )
     def mark_queue_item_paused(
         payload: MarkQueueItemPausedRequest,
         authorization: Annotated[str | None, Header()] = None,
@@ -8345,7 +8568,9 @@ def create_control_plane_router(
             raise HTTPException(status_code=404, detail="queue item not found")
         return state_response()
 
-    @router.post("/import/legacy-snapshot")
+    @router.post(
+        "/import/legacy-snapshot", responses=_HTTP_WRITABLE_IDEMPOTENCY_RESPONSES
+    )
     def import_snapshot(
         payload: ImportSnapshotRequest,
         authorization: Annotated[str | None, Header()] = None,
@@ -8376,13 +8601,22 @@ def create_control_plane_router(
         )
         return response
 
-    @router.post("/intake/notion-ideas")
+    @router.post("/intake/notion-ideas", responses=_HTTP_NOTION_INTAKE_RESPONSES)
     def intake_notion_ideas(
         payload: NotionIntakeRequest,
         authorization: Annotated[str | None, Header()] = None,
     ) -> NotionIntakeResponse:
         authorize(authorization)
-        _require_legacy_notion_api_enabled()
+        try:
+            _require_legacy_notion_api_enabled()
+        except LegacyNotionApiDisabledError as exc:
+            raise HTTPException(
+                status_code=410,
+                detail={
+                    "message": str(exc),
+                    "replacement": "/control/intake/ideas",
+                },
+            ) from exc
         if not payload.dry_run:
             _require_writable_store("Notion ideas intake")
         if payload.default_machine_target == DEFAULT_MACHINE_TARGET:
@@ -8419,7 +8653,7 @@ def create_control_plane_router(
             )
         return response
 
-    @router.post("/intake/ideas")
+    @router.post("/intake/ideas", responses=_HTTP_WRITABLE_IDEMPOTENCY_RESPONSES)
     def intake_ideas(
         payload: IdeaIntakeRequest,
         authorization: Annotated[str | None, Header()] = None,
@@ -8466,7 +8700,16 @@ def create_control_plane_router(
         payload: dict[str, Any], authorization: Annotated[str | None, Header()] = None
     ) -> dict[str, Any]:
         authorize(authorization)
-        _require_legacy_notion_api_enabled()
+        try:
+            _require_legacy_notion_api_enabled()
+        except LegacyNotionApiDisabledError as exc:
+            raise HTTPException(
+                status_code=410,
+                detail={
+                    "message": str(exc),
+                    "replacement": "/control/intake/ideas",
+                },
+            ) from exc
         _require_writable_store("intake observation")
         status = str(payload.get("status") or "ok")
         if status not in {"ok", "warn", "error", "unavailable"}:
@@ -8504,9 +8747,8 @@ def create_control_plane_router(
         worker_url = (config.worker_wake_gate_url or "").strip()
         worker_host = urlparse(worker_url).hostname or ""
         if not worker_url or worker_host == DEFAULT_MACHINE_TARGET:
-            raise HTTPException(
-                status_code=503,
-                detail="worker preflight requires configured worker_wake_gate_url",
+            raise WorkerPreflightUrlNotConfiguredError(
+                "worker preflight requires configured worker_wake_gate_url"
             )
         return worker_url
 
@@ -8544,9 +8786,9 @@ def create_control_plane_router(
             },
         }
         if requested_url and requested_url not in allowed_urls:
-            raise HTTPException(
-                status_code=400,
-                detail="wake_gate_url must match configured worker_wake_gate_url or a configured worker target; use machine_target for named routes",
+            raise WakeGateUrlNotAllowedError(
+                "wake_gate_url must match configured worker_wake_gate_url or a "
+                "configured worker target; use machine_target for named routes"
             )
         worker_host = urlparse((payload.wake_gate_url or "").strip()).hostname or ""
         if worker_host == DEFAULT_MACHINE_TARGET:
@@ -8565,15 +8807,19 @@ def create_control_plane_router(
             }
         )
 
-    @router.post("/worker/preflight")
+    @router.post("/worker/preflight", responses=_HTTP_503_WORKER_PREFLIGHT_URL)
     def worker_preflight(
         payload: WorkerPreflightRequest,
         authorization: Annotated[str | None, Header()] = None,
     ) -> WorkerPreflightResponse:
         authorize(authorization)
+        try:
+            worker_url = _configured_worker_preflight_url()
+        except WorkerPreflightUrlNotConfiguredError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         payload = payload.model_copy(
             update={
-                "wake_gate_url": _configured_worker_preflight_url(),
+                "wake_gate_url": worker_url,
                 "bearer_token": config.worker_wake_gate_bearer_token,
                 "expected_callback_token_fingerprint": payload.expected_callback_token_fingerprint
                 or _callback_acceptance_token_fingerprint(),
@@ -8583,13 +8829,16 @@ def create_control_plane_router(
         _record_preflight_observations(response)
         return response
 
-    @router.post("/api/preflight")
+    @router.post("/api/preflight", responses=_HTTP_400_PREFLIGHT_WAKE_GATE)
     def dashboard_preflight(
         payload: WorkerPreflightRequest,
         authorization: Annotated[str | None, Header()] = None,
     ) -> WorkerPreflightResponse:
         authorize(authorization)
-        payload = _target_aware_preflight_payload(payload)
+        try:
+            payload = _target_aware_preflight_payload(payload)
+        except WakeGateUrlNotAllowedError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         response = run_worker_preflight(payload, store.flags())
         if _preflight_targets_default_worker(payload):
             _record_preflight_observations(response)
@@ -8652,7 +8901,7 @@ def create_control_plane_router(
             event_id=None,
         )
 
-    @router.post("/dispatch-one")
+    @router.post("/dispatch-one", responses=_HTTP_DISPATCH_ONE_RESPONSES)
     def dispatch_one(
         payload: DispatchOneRequest,
         authorization: Annotated[str | None, Header()] = None,
@@ -8731,12 +8980,21 @@ def create_control_plane_router(
             events=snapshot["events"],
         )
 
-    @router.get("/projections/notion/queue")
+    @router.get("/projections/notion/queue", responses=_HTTP_410_LEGACY_NOTION_API)
     def notion_queue_projection(
         authorization: Annotated[str | None, Header()] = None,
     ) -> ProjectionResponse:
         authorize(authorization)
-        _require_legacy_notion_api_enabled()
+        try:
+            _require_legacy_notion_api_enabled()
+        except LegacyNotionApiDisabledError as exc:
+            raise HTTPException(
+                status_code=410,
+                detail={
+                    "message": str(exc),
+                    "replacement": "/control/intake/ideas",
+                },
+            ) from exc
         rows = store.queue_notion_projection()
         return ProjectionResponse(rows=rows, counts=store.status_counts())
 
@@ -8756,12 +9014,21 @@ def create_control_plane_router(
             counts[key] = counts.get(key, 0) + 1
         return ProjectionResponse(rows=rows, counts=counts)
 
-    @router.get("/projections/notion/papers")
+    @router.get("/projections/notion/papers", responses=_HTTP_410_LEGACY_NOTION_API)
     def notion_papers_projection(
         authorization: Annotated[str | None, Header()] = None,
     ) -> ProjectionResponse:
         authorize(authorization)
-        _require_legacy_notion_api_enabled()
+        try:
+            _require_legacy_notion_api_enabled()
+        except LegacyNotionApiDisabledError as exc:
+            raise HTTPException(
+                status_code=410,
+                detail={
+                    "message": str(exc),
+                    "replacement": "/control/intake/ideas",
+                },
+            ) from exc
         rows = store.paper_notion_projection()
         counts: dict[str, int] = {}
         for row in rows:
@@ -8769,12 +9036,23 @@ def create_control_plane_router(
             counts[key] = counts.get(key, 0) + 1
         return ProjectionResponse(rows=rows, counts=counts)
 
-    @router.get("/projections/notion/execution-updates")
+    @router.get(
+        "/projections/notion/execution-updates", responses=_HTTP_410_LEGACY_NOTION_API
+    )
     def notion_execution_updates_projection(
         authorization: Annotated[str | None, Header()] = None,
     ) -> ProjectionResponse:
         authorize(authorization)
-        _require_legacy_notion_api_enabled()
+        try:
+            _require_legacy_notion_api_enabled()
+        except LegacyNotionApiDisabledError as exc:
+            raise HTTPException(
+                status_code=410,
+                detail={
+                    "message": str(exc),
+                    "replacement": "/control/intake/ideas",
+                },
+            ) from exc
         rows = store.notion_execution_update_projection()
         return ProjectionResponse(rows=rows, counts={"updates": len(rows)})
 
