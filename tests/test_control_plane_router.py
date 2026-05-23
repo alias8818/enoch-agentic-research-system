@@ -14122,6 +14122,25 @@ def test_generation_target_lane_extracted_no_duplication_in_giant():
     assert callable(_select_generation_target_lane)
 
 
+def test_promotable_rows_computed_extracted_no_duplication_in_giant():
+    """AGENTS.md test-first for the next horrible-first S3776 inside the 1595
+    create_control_plane_router / dashboard_research_run_cycle (after generation target extraction).
+
+    The large promotable_rows() + inner candidate_priority logic (workbench projection,
+    filtering, priority scoring with lane_bonus + dispatch_priority_score) is extracted
+    to _compute_promotable_rows to further reduce cognitive complexity of the giant.
+    """
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/router.py").read_text(encoding="utf-8")
+    assert "def _compute_promotable_rows(" in src, (
+        "_compute_promotable_rows helper missing (promotable_rows logic still nested inside the giant)"
+    )
+
+    from enoch_control_plane.control_plane.router import _compute_promotable_rows
+    assert callable(_compute_promotable_rows)
+
+
 def test_router_no_redundant_response_model_fastapi_style():
     """AGENTS.md test-first validator for top BLOCKERs (S8409/S8410, ~49 instances in router.py).
 

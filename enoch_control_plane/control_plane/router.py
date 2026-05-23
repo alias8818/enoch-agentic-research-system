@@ -1873,6 +1873,51 @@ def _select_generation_target_lane(
     return chosen  # return the full pressure item dict (original max() semantics) so callers can do .get("lane_key") etc.
 
 
+def _compute_promotable_rows(
+    *,
+    store: Any,
+    min_admission_score: float,
+    active: list[dict[str, Any]],
+    research_row_lane_key: Callable[[dict[str, Any]], str],
+    research_facility: Any,
+) -> list[dict[str, Any]]:
+    """Extracted from dashboard_research_run_cycle (large nested block contributing to 1595/remaining S3776).
+
+    Performs the workbench projection, filtering for admitted candidates above threshold,
+    category counting, and priority sorting (lane bonus + dispatch_priority_score).
+    The inner candidate_priority is kept inside for minimal diff.
+    """
+    from datetime import datetime, timezone
+
+    rows = list(store.research_facility_workbench_projection(limit=100))
+    category_counts: dict[str, int] = {}
+    for row in rows:
+        category = str(row.get("category") or "").strip().lower()
+        if category:
+            category_counts[category] = category_counts.get(category, 0) + 1
+
+    candidates = [
+        row
+        for row in rows
+        if str(row.get("admission_decision") or "") == "admitted"
+        and not str(row.get("admitted_idea_id") or "").strip()
+        and float(row.get("total_score") or 0) >= min_admission_score
+    ]
+    now_dt = datetime.now(timezone.utc)
+
+    active_lane_keys = {research_row_lane_key(row) for row in active}
+
+    def candidate_priority(row: dict[str, Any]) -> tuple[int, float, float, str]:
+        lane_bonus = 1 if research_row_lane_key(row) not in active_lane_keys else 0
+        priority = research_facility.dispatch_priority_score(
+            row, category_counts=category_counts, now=now_dt
+        )
+        score = float(row.get("total_score") or 0)
+        return (lane_bonus, priority, score, str(row.get("candidate_id") or ""))
+
+    return sorted(candidates, key=candidate_priority, reverse=True)
+
+
 def create_control_plane_router(
     config: GateConfig, require_bearer: RequireBearer
 ) -> APIRouter:
@@ -6507,36 +6552,14 @@ def create_control_plane_router(
             ]
 
         def promotable_rows() -> list[dict[str, Any]]:
-            rows = list(store.research_facility_workbench_projection(limit=100))
-            category_counts: dict[str, int] = {}
-            for row in rows:
-                category = str(row.get("category") or "").strip().lower()
-                if category:
-                    category_counts[category] = category_counts.get(category, 0) + 1
-            candidates = [
-                row
-                for row in rows
-                if str(row.get("admission_decision") or "") == "admitted"
-                and not str(row.get("admitted_idea_id") or "").strip()
-                and float(row.get("total_score") or 0) >= min_admission_score
-            ]
-            now_dt = datetime.now(timezone.utc)
-
-            active_lane_keys = {_worker_lane_key(row) for row in active}
-
-            def candidate_priority(
-                row: dict[str, Any],
-            ) -> tuple[int, float, float, str]:
-                lane_bonus = (
-                    1 if research_row_lane_key(row) not in active_lane_keys else 0
-                )
-                priority = research_facility.dispatch_priority_score(
-                    row, category_counts=category_counts, now=now_dt
-                )
-                score = float(row.get("total_score") or 0)
-                return (lane_bonus, priority, score, str(row.get("candidate_id") or ""))
-
-            return sorted(candidates, key=candidate_priority, reverse=True)
+            # Thin delegation after extraction of the large nested logic (reduces cognitive complexity of the 1595 giant).
+            return _compute_promotable_rows(
+                store=store,
+                min_admission_score=min_admission_score,
+                active=active,
+                research_row_lane_key=research_row_lane_key,
+                research_facility=research_facility,
+            )
 
         janitor_enabled = bool(body.get("janitor_enabled", True))
         janitor_limit = bounded_int("janitor_limit", 250, 0, 500)
