@@ -2712,31 +2712,37 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         payload["action"] = action
         return payload
 
-    def backfill_paper_reviews(
+    def _papers_for_review_backfill(
         self, request: PaperReviewBackfillRequest
-    ) -> tuple[bool, int, int, int, list[dict[str, Any]]]:
-        audit_by_paper = _audit_rows(request.source_audit_path)
+    ) -> list[dict[str, Any]]:
         requested_paper_ids = sorted(
             {_text(paper_id) for paper_id in request.paper_ids if _text(paper_id)}
         )
-        if requested_paper_ids:
-            placeholders = ",".join(["%s"] * len(requested_paper_ids))
-            papers = self._paper_rows(
-                f"where pa.paper_id in ({placeholders})", tuple(requested_paper_ids)
-            )
-        else:
-            papers = self.paper_rows()
+        if not requested_paper_ids:
+            return self.paper_rows()
+        placeholders = ",".join(["%s"] * len(requested_paper_ids))
+        return self._paper_rows(
+            f"where pa.paper_id in ({placeholders})", tuple(requested_paper_ids)
+        )
+
+    def _paper_review_backfill_candidates(
+        self,
+        papers: list[dict[str, Any]],
+        *,
+        audit_by_paper: dict[str, dict[str, Any]],
+        source_audit_path: str,
+    ) -> tuple[list[PaperReviewRecord], list[dict[str, Any]]]:
         errors: list[dict[str, Any]] = []
         candidates: list[PaperReviewRecord] = []
+        mandatory = [
+            "draft_markdown_path",
+            "draft_latex_path",
+            "evidence_bundle_path",
+            "claim_ledger_path",
+            "manifest_path",
+        ]
         for paper in papers:
             paper_id = _text(paper.get("paper_id"))
-            mandatory = [
-                "draft_markdown_path",
-                "draft_latex_path",
-                "evidence_bundle_path",
-                "claim_ledger_path",
-                "manifest_path",
-            ]
             missing_paths = [name for name in mandatory if not _text(paper.get(name))]
             if missing_paths:
                 errors.append(
@@ -2762,9 +2768,92 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     rank_reasons=rank_reasons,
                     missing_signals=missing_signals,
                     rank_tiebreaker=tiebreaker,
-                    source_audit_path=request.source_audit_path,
+                    source_audit_path=source_audit_path,
                 )
             )
+        return candidates, errors
+
+    def _upsert_backfill_paper_review_row(
+        self, cur: Any, record: PaperReviewRecord, now: Any
+    ) -> str:
+        existing = cur.execute(
+            "select * from publication_automation_items where paper_id = %s",
+            (record.paper_id,),
+        ).fetchone()
+        rank_reasons_json = _json(record.rank_reasons)
+        missing_signals_json = _json(record.missing_signals)
+        if not existing:
+            cur.execute(
+                """
+                insert into publication_automation_items(paper_id,automation_status,automation_actor,blocker,claimed_at,checklist_json,rank_score,rank_reasons_json,missing_signals_json,rank_tiebreaker,source_audit_path,finalization_package_path,finalized_at,decision_summary,created_at,updated_at)
+                values (%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    record.paper_id,
+                    record.review_status.value,
+                    record.reviewer,
+                    record.blocker,
+                    None,
+                    _json(_normalize_review_checklist(record.checklist_json)),
+                    record.rank_score,
+                    rank_reasons_json,
+                    missing_signals_json,
+                    record.rank_tiebreaker,
+                    record.source_audit_path,
+                    record.finalization_package_path,
+                    None,
+                    record.decision_summary,
+                    now,
+                    now,
+                ),
+            )
+            return "created"
+        existing_status = _text(existing["automation_status"])
+        next_status = (
+            record.review_status.value
+            if existing_status in SYSTEM_REVIEW_STATUSES
+            else existing_status
+        )
+        changes = {
+            "automation_status": next_status,
+            "rank_score": record.rank_score,
+            "rank_reasons_json": rank_reasons_json,
+            "missing_signals_json": missing_signals_json,
+            "rank_tiebreaker": record.rank_tiebreaker,
+            "source_audit_path": record.source_audit_path,
+        }
+        if all(str(existing[key]) == str(value) for key, value in changes.items()):
+            return "skipped"
+        cur.execute(
+            """
+            update publication_automation_items
+            set automation_status=%s, rank_score=%s, rank_reasons_json=%s::jsonb, missing_signals_json=%s::jsonb,
+                rank_tiebreaker=%s, source_audit_path=%s, updated_at=%s
+            where paper_id=%s
+            """,
+            (
+                next_status,
+                record.rank_score,
+                rank_reasons_json,
+                missing_signals_json,
+                record.rank_tiebreaker,
+                record.source_audit_path,
+                now,
+                record.paper_id,
+            ),
+        )
+        return "updated"
+
+    def backfill_paper_reviews(
+        self, request: PaperReviewBackfillRequest
+    ) -> tuple[bool, int, int, int, list[dict[str, Any]]]:
+        audit_by_paper = _audit_rows(request.source_audit_path)
+        papers = self._papers_for_review_backfill(request)
+        candidates, errors = self._paper_review_backfill_candidates(
+            papers,
+            audit_by_paper=audit_by_paper,
+            source_audit_path=request.source_audit_path,
+        )
         if request.dry_run:
             return False, len(candidates), 0, 0, errors
         event_payload = request.model_dump(mode="json")
@@ -2786,78 +2875,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 if not inserted:
                     return False, 0, 0, 0, errors
                 for record in candidates:
-                    existing = cur.execute(
-                        "select * from publication_automation_items where paper_id = %s",
-                        (record.paper_id,),
-                    ).fetchone()
-                    rank_reasons_json = _json(record.rank_reasons)
-                    missing_signals_json = _json(record.missing_signals)
-                    if existing:
-                        existing_status = _text(existing["automation_status"])
-                        next_status = (
-                            record.review_status.value
-                            if existing_status in SYSTEM_REVIEW_STATUSES
-                            else existing_status
-                        )
-                        changes = {
-                            "automation_status": next_status,
-                            "rank_score": record.rank_score,
-                            "rank_reasons_json": rank_reasons_json,
-                            "missing_signals_json": missing_signals_json,
-                            "rank_tiebreaker": record.rank_tiebreaker,
-                            "source_audit_path": record.source_audit_path,
-                        }
-                        if all(
-                            str(existing[key]) == str(value)
-                            for key, value in changes.items()
-                        ):
-                            skipped += 1
-                            continue
-                        cur.execute(
-                            """
-                            update publication_automation_items
-                            set automation_status=%s, rank_score=%s, rank_reasons_json=%s::jsonb, missing_signals_json=%s::jsonb,
-                                rank_tiebreaker=%s, source_audit_path=%s, updated_at=%s
-                            where paper_id=%s
-                            """,
-                            (
-                                next_status,
-                                record.rank_score,
-                                rank_reasons_json,
-                                missing_signals_json,
-                                record.rank_tiebreaker,
-                                record.source_audit_path,
-                                now,
-                                record.paper_id,
-                            ),
-                        )
+                    outcome = self._upsert_backfill_paper_review_row(cur, record, now)
+                    if outcome == "created":
+                        created += 1
+                    elif outcome == "updated":
                         updated += 1
-                        continue
-                    cur.execute(
-                        """
-                        insert into publication_automation_items(paper_id,automation_status,automation_actor,blocker,claimed_at,checklist_json,rank_score,rank_reasons_json,missing_signals_json,rank_tiebreaker,source_audit_path,finalization_package_path,finalized_at,decision_summary,created_at,updated_at)
-                        values (%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s)
-                        """,
-                        (
-                            record.paper_id,
-                            record.review_status.value,
-                            record.reviewer,
-                            record.blocker,
-                            None,
-                            _json(_normalize_review_checklist(record.checklist_json)),
-                            record.rank_score,
-                            rank_reasons_json,
-                            missing_signals_json,
-                            record.rank_tiebreaker,
-                            record.source_audit_path,
-                            record.finalization_package_path,
-                            None,
-                            record.decision_summary,
-                            now,
-                            now,
-                        ),
-                    )
-                    created += 1
+                    else:
+                        skipped += 1
         return inserted, created, updated, skipped, errors
 
     def claim_paper_review(
