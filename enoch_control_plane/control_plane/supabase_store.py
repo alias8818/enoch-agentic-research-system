@@ -644,30 +644,41 @@ def _followup_escalation_payload(
     }
 
 
+_GATE_DECISION_VALUE_FIELDS = (
+    "project_decision",
+    "decision",
+    "status",
+    "hypothesis_status",
+    "verdict",
+    "outcome",
+    "recommendation",
+)
+
+
+def _gate_value_for_field(values: Sequence[Any], field: str) -> str:
+    for item in values:
+        if (
+            isinstance(item, (list, tuple))
+            and len(item) >= 3
+            and _text(item[1]) == field
+        ):
+            return _text(item[2])
+    return ""
+
+
+def _decision_from_gate_values(values: Sequence[Any]) -> str:
+    for preferred_field in _GATE_DECISION_VALUE_FIELDS:
+        decision = _gate_value_for_field(values, preferred_field)
+        if decision:
+            return decision
+    return ""
+
+
 def _decision_summary(gate: dict[str, Any]) -> str:
     reason = _text(gate.get("reason"))
-    decision = _text(gate.get("decision"))
-    if not decision:
-        values = gate.get("values") or []
-        for preferred_field in (
-            "project_decision",
-            "decision",
-            "status",
-            "hypothesis_status",
-            "verdict",
-            "outcome",
-            "recommendation",
-        ):
-            for item in values:
-                if (
-                    isinstance(item, (list, tuple))
-                    and len(item) >= 3
-                    and _text(item[1]) == preferred_field
-                ):
-                    decision = _text(item[2])
-                    break
-            if decision:
-                break
+    decision = _text(gate.get("decision")) or _decision_from_gate_values(
+        gate.get("values") or []
+    )
     if decision and reason:
         return f"{decision} ({reason})"
     return decision or reason
