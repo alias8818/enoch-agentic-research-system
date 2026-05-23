@@ -277,11 +277,11 @@ def _resolve_research_cycle_params(
         temperature=bounded_float("temperature", 0.6, 0.0, 1.5),
         seed=str(body.get("seed") or utc_now()).strip(),
         provider_base_url=os.environ.get(
-            "ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"
+            "ENOCH_RESEARCH_PROVIDER_BASE_URL", DEFAULT_RESEARCH_PROVIDER_BASE_URL
         ).rstrip("/"),
         provider_openai_base_url=os.environ.get(
             "ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL",
-            f"{os.environ.get('ENOCH_RESEARCH_PROVIDER_BASE_URL', 'https://synthetic.int.exe.xyz').rstrip('/')}/openai/v1",
+            f"{os.environ.get('ENOCH_RESEARCH_PROVIDER_BASE_URL', DEFAULT_RESEARCH_PROVIDER_BASE_URL).rstrip('/')}/openai/v1",
         ).rstrip("/"),
         generation_timeout=bounded_int("generation_timeout", 240, 10, 300),
         generation_max_tokens=bounded_int(
@@ -329,6 +329,10 @@ DEFAULT_ALLOWED_RESEARCH_MODELS: list[str] = [
     "hf:moonshotai/Kimi-K2.6",
     "hf:zai-org/GLM-5.1",
 ]
+
+# Centralized default for the top remaining S1192 duplication (synthetic research
+# provider base URL used in getenv defaults and f-string fallbacks).
+DEFAULT_RESEARCH_PROVIDER_BASE_URL = "https://synthetic.int.exe.xyz"
 
 
 def _atomic_write_bytes(path: Path, content: bytes) -> None:
@@ -2597,7 +2601,7 @@ def create_control_plane_router(
         from scripts import research_provider_budget
 
         base_url = os.environ.get(
-            "ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"
+            "ENOCH_RESEARCH_PROVIDER_BASE_URL", DEFAULT_RESEARCH_PROVIDER_BASE_URL
         ).rstrip("/")
         estimated_requests = int(
             os.environ.get("ENOCH_RESEARCH_AUTOPILOT_ESTIMATED_REQUESTS") or 1
@@ -6041,7 +6045,7 @@ def create_control_plane_router(
         if not dry_run:
             _require_writable_store("Research Facility provider generation")
         provider_base_url = os.environ.get(
-            "ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"
+            "ENOCH_RESEARCH_PROVIDER_BASE_URL", DEFAULT_RESEARCH_PROVIDER_BASE_URL
         ).rstrip("/")
         provider_openai_base_url = os.environ.get(
             "ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL", f"{provider_base_url}/openai/v1"
@@ -7173,7 +7177,7 @@ def create_control_plane_router(
         from scripts import research_provider_budget
 
         base_url = os.environ.get(
-            "ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"
+            "ENOCH_RESEARCH_PROVIDER_BASE_URL", DEFAULT_RESEARCH_PROVIDER_BASE_URL
         ).rstrip("/")
         try:
             payload = research_provider_budget.fetch_json(

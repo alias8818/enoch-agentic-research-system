@@ -831,3 +831,20 @@ def test_read_models_missing_project_decision_artifact_centralized() -> None:
     assert count == 1, (
         f"{lit!r} still duplicated in read_models (count={count}); extract to const"
     )
+
+
+def test_router_synthetic_base_url_centralized_no_s1192_duplication() -> None:
+    """AGENTS.md validator for current top S1192 (router.py:280).
+
+    "https://synthetic.int.exe.xyz" (flagged in latest Sonar top duplication, 4x in
+    _resolve_research_cycle_params getenv defaults and f-string fallback)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "control_plane" / "router.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "https://synthetic.int.exe.xyz"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in router (count={count}); extract to const"
+    )
