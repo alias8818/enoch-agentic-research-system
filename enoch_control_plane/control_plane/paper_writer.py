@@ -35,8 +35,9 @@ MAX_SECRET_TOKEN_LENGTH = 12_000
 SECRET_REDACTION_PATTERNS = [
     re.compile(r"(?i)(Authorization\s*:\s*Bearer\s+)([A-Za-z0-9._\-]{16,})"),
     re.compile(
-        r"(?i)((?:OPENAI|ANTHROPIC|SYNTHETIC|GITHUB|HF|HUGGINGFACE|SUPABASE)?[_-]?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[=:]\s*)([^\s'\"]{12,})"
+        r"(?i)((?:OPENAI|ANTHROPIC|SYNTHETIC|GITHUB|HF|HUGGINGFACE|SUPABASE)[_-](?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[=:]\s*)([^\s'\"]{12,})"
     ),
+    re.compile(r"(?i)((?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[=:]\s*)([^\s'\"]{12,})"),
     re.compile(r"\b(sk-(?:proj-)?[A-Za-z0-9_-]{20,})\b"),
     re.compile(r"\b(syn_[A-Za-z0-9]{20,})\b"),
     re.compile(r"\b(gh[pousr]_[A-Za-z0-9_]{20,})\b"),
