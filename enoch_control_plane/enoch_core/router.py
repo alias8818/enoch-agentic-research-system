@@ -80,7 +80,6 @@ def create_enoch_core_router(
 
     @router.post(
         "/snapshots/n8n-queue",
-        response_model=SnapshotIngestResponse,
         responses=_HTTP_409_IDEMPOTENCY_CONFLICT,
     )
     def ingest_n8n_queue_snapshot(
