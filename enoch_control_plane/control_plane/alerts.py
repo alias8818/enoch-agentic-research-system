@@ -287,20 +287,27 @@ def _is_active_row_worker_preflight_race(finding: DashboardFinding) -> bool:
     )
 
 
-def _suppress_dispatch_race_findings(
+def _active_project_ids(status: DashboardStatusResponse) -> set[str]:
+    return {str(row.get("project_id") or "") for row in status.active_items}
+
+
+def _should_apply_dispatch_race_suppression(
     *,
     store: ControlPlaneStore,
     status: DashboardStatusResponse,
     findings: list[DashboardFinding],
-) -> tuple[list[DashboardFinding], list[DashboardFinding]]:
+) -> bool:
     if not findings or not status.active_items:
-        return findings, []
+        return False
     recent_projects = _recent_dispatch_transition_projects(store)
     if not recent_projects:
-        return findings, []
-    active_projects = {str(row.get("project_id") or "") for row in status.active_items}
-    if not (active_projects & recent_projects):
-        return findings, []
+        return False
+    return bool(_active_project_ids(status) & recent_projects)
+
+
+def _partition_dispatch_race_findings(
+    findings: list[DashboardFinding],
+) -> tuple[list[DashboardFinding], list[DashboardFinding]]:
     kept: list[DashboardFinding] = []
     suppressed: list[DashboardFinding] = []
     for finding in findings:
@@ -309,6 +316,19 @@ def _suppress_dispatch_race_findings(
         else:
             kept.append(finding)
     return kept, suppressed
+
+
+def _suppress_dispatch_race_findings(
+    *,
+    store: ControlPlaneStore,
+    status: DashboardStatusResponse,
+    findings: list[DashboardFinding],
+) -> tuple[list[DashboardFinding], list[DashboardFinding]]:
+    if not _should_apply_dispatch_race_suppression(
+        store=store, status=status, findings=findings
+    ):
+        return findings, []
+    return _partition_dispatch_race_findings(findings)
 
 
 def send_pushover(
