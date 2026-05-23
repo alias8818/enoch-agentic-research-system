@@ -344,6 +344,9 @@ DEFAULT_RESEARCH_PROVIDER_BASE_URL = "https://synthetic.int.exe.xyz"
 # (worker preflight error paths and messages in router.py).
 WORKER_PREFLIGHT_FAILED_REASON = "worker preflight failed"
 
+# Dashboard finding source for cross-source control-plane DB + worker preflight.
+CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE = "control_plane_db+worker_preflight"
+
 # Centralized event type / status constant for the top remaining S1192 duplication
 # (paper_review draft rewrite events and comparisons in router.py).
 PAPER_REVIEW_DRAFT_REWRITTEN = "paper_review.draft_rewritten"
@@ -4881,7 +4884,7 @@ def create_control_plane_router(
             conflicts.append(
                 DashboardFinding(
                     severity="warn",
-                    source="control_plane_db+worker_preflight",
+                    source=CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
                     authority="cross-source active-lane reconciliation",
                     message="VM control plane has an active row on the default worker, but cached default-worker preflight says no live worker run",
                     observed_at=preflight.observed_at if preflight else None,
@@ -4932,7 +4935,7 @@ def create_control_plane_router(
         conflicts.append(
             DashboardFinding(
                 severity="critical" if preflight_applies else "warn",
-                source="control_plane_db+worker_preflight",
+                source=CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
                 authority="single active GB10 lane safety",
                 message="GB10 reports live/active work but VM control plane has no active row",
                 observed_at=preflight.observed_at if preflight else None,
@@ -5343,7 +5346,7 @@ def create_control_plane_router(
         if not status.active_items:
             return []
         has_no_live_conflict = any(
-            item.source == "control_plane_db+worker_preflight"
+            item.source == CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE
             and "no live worker run" in item.message
             for item in [*status.conflicts, *status.warnings]
         )
@@ -6300,7 +6303,7 @@ def create_control_plane_router(
             conflicts.append(
                 DashboardFinding(
                     severity="warn",
-                    source="control_plane_db+worker_preflight",
+                    source=CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
                     authority="cross-source active-lane reconciliation",
                     message="control-plane row is active but latest worker preflight reports no live run",
                     observed_at=preflight.observed_at if preflight else None,
@@ -6312,7 +6315,7 @@ def create_control_plane_router(
             conflicts.append(
                 DashboardFinding(
                     severity="critical",
-                    source="control_plane_db+worker_preflight",
+                    source=CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
                     authority="single active GB10 lane safety",
                     message="worker reports live work but this detail view has no active control-plane row",
                     observed_at=preflight.observed_at if preflight else None,

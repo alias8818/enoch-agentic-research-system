@@ -882,6 +882,24 @@ def test_router_paper_review_draft_rewritten_centralized_no_s1192_duplication() 
     )
 
 
+def test_router_control_plane_db_worker_preflight_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for S1192 in router.py (~4922).
+
+    "control_plane_db+worker_preflight" (5x in DashboardFinding source fields and
+    conflict checks) must appear exactly once after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "control_plane" / "router.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "control_plane_db+worker_preflight"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in router (count={count}); extract to const"
+    )
+
+
 def test_state_contract_source_provenance_status_only_centralized_no_s1192_duplication() -> (
     None
 ):
