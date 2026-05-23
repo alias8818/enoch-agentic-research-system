@@ -393,7 +393,7 @@ function eventSummary(payload: Record<string, unknown>): DetailOperatorSummary {
       { title: 'Which entity was affected?', answers: [{ label: 'entity type', value: entityType }, { label: 'entity id', value: entityId }, { label: 'related links', value: entityLinks.length ? `${entityLinks.length} linked` : 'none resolved' }] },
       { title: 'What does the payload prove?', answers: payloadProofAnswers(payload) },
     ],
-    recentActivity: headline !== eventType ? headline : null,
+    recentActivity: headline === eventType ? null : headline,
     actionNeeded,
   }
 }
