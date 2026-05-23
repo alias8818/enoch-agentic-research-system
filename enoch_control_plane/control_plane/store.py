@@ -1587,6 +1587,75 @@ def _int(value: Any, default: int) -> int:
         return default
 
 
+_EVENT_PAGE_ORDER_BY = {
+    "recent": "event_id DESC",
+    "oldest": "event_id ASC",
+    "type": "event_type ASC, event_id DESC",
+    "entity": "entity_type ASC, entity_id ASC, event_id DESC",
+}
+
+
+def _event_page_filter_clauses(
+    *,
+    event_id: str = "",
+    entity_type: str = "",
+    entity_id: str = "",
+    event_type: str = "",
+    search: str = "",
+    cursor: str = "",
+) -> tuple[list[str], list[Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    event_id_int = _int(event_id, 0)
+    if event_id_int > 0:
+        clauses.append("event_id = ?")
+        params.append(event_id_int)
+    if entity_type:
+        clauses.append("entity_type = ?")
+        params.append(entity_type)
+    if entity_id:
+        clauses.append("entity_id = ?")
+        params.append(entity_id)
+    if event_type:
+        clauses.append("event_type = ?")
+        params.append(event_type)
+    if search:
+        clauses.append("(event_type LIKE ? OR entity_id LIKE ? OR payload_json LIKE ?)")
+        needle = f"%{search}%"
+        params.extend([needle, needle, needle])
+    cursor_id = _int(cursor, 0)
+    if cursor_id > 0:
+        clauses.append("event_id < ?")
+        params.append(cursor_id)
+    return clauses, params
+
+
+def _event_page_order_by(sort: str) -> str:
+    return _EVENT_PAGE_ORDER_BY.get(sort, "event_id DESC")
+
+
+def _event_page_attach_payload_fields(
+    item: dict[str, Any], *, include_payload: bool
+) -> None:
+    payload_json = item.pop("payload_json", "{}")
+    item.pop("payload_hash", None)
+    if include_payload:
+        item["payload"] = json.loads(payload_json)
+        return
+    try:
+        payload = json.loads(payload_json)
+        item["payload_summary"] = {
+            "keys": sorted(payload.keys())[:12] if isinstance(payload, dict) else [],
+            "bytes": len(payload_json.encode("utf-8")),
+        }
+    except json.JSONDecodeError:
+        item["payload_summary"] = {
+            "keys": [],
+            "bytes": len(payload_json.encode("utf-8")),
+            "invalid_json": True,
+        }
+
+
 class ControlPlaneStore:
     def __init__(self, path: Path) -> None:
         self.path = path.expanduser()
@@ -3598,38 +3667,16 @@ class ControlPlaneStore:
         sort: str = "recent",
     ) -> tuple[list[dict[str, Any]], str | None, bool]:
         safe_size = max(1, min(page_size, 200))
-        clauses: list[str] = []
-        params: list[Any] = []
-        event_id_int = _int(event_id, 0)
-        if event_id_int > 0:
-            clauses.append("event_id = ?")
-            params.append(event_id_int)
-        if entity_type:
-            clauses.append("entity_type = ?")
-            params.append(entity_type)
-        if entity_id:
-            clauses.append("entity_id = ?")
-            params.append(entity_id)
-        if event_type:
-            clauses.append("event_type = ?")
-            params.append(event_type)
-        if search:
-            clauses.append(
-                "(event_type LIKE ? OR entity_id LIKE ? OR payload_json LIKE ?)"
-            )
-            needle = f"%{search}%"
-            params.extend([needle, needle, needle])
-        cursor_id = _int(cursor, 0)
-        if cursor_id > 0:
-            clauses.append("event_id < ?")
-            params.append(cursor_id)
+        clauses, params = _event_page_filter_clauses(
+            event_id=event_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            event_type=event_type,
+            search=search,
+            cursor=cursor,
+        )
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        order_by = {
-            "recent": "event_id DESC",
-            "oldest": "event_id ASC",
-            "type": "event_type ASC, event_id DESC",
-            "entity": "entity_type ASC, entity_id ASC, event_id DESC",
-        }.get(sort, "event_id DESC")
+        order_by = _event_page_order_by(sort)
         with self._connect() as conn:
             rows = conn.execute(
                 f"SELECT * FROM events {where} ORDER BY {order_by} LIMIT ?",
@@ -3638,25 +3685,7 @@ class ControlPlaneStore:
         out = []
         for row in rows[:safe_size]:
             item = dict(row)
-            payload_json = item.pop("payload_json", "{}")
-            item.pop("payload_hash", None)
-            if include_payload:
-                item["payload"] = json.loads(payload_json)
-            else:
-                try:
-                    payload = json.loads(payload_json)
-                    item["payload_summary"] = {
-                        "keys": sorted(payload.keys())[:12]
-                        if isinstance(payload, dict)
-                        else [],
-                        "bytes": len(payload_json.encode("utf-8")),
-                    }
-                except json.JSONDecodeError:
-                    item["payload_summary"] = {
-                        "keys": [],
-                        "bytes": len(payload_json.encode("utf-8")),
-                        "invalid_json": True,
-                    }
+            _event_page_attach_payload_fields(item, include_payload=include_payload)
             out.append(item)
         has_more = len(rows) > safe_size
         next_cursor = str(out[-1]["event_id"]) if has_more and out else None
