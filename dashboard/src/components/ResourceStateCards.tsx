@@ -44,11 +44,11 @@ export function PageResourceErrorCard({
 
 export function ComposedEmptyState({ state }: { state: ComposedEmptyStateCopy }) {
   return (
-    <section className={`composed-empty-state composed-empty-state--${state.kind}`} role="status">
+    <output className={`composed-empty-state composed-empty-state--${state.kind}`}>
       <p className="eyebrow">{emptyEyebrow(state.kind)}</p>
       <strong>{state.title}</strong>
       <p>{state.body}</p>
       {state.hint ? <p className="composed-empty-state-hint">{state.hint}</p> : null}
-    </section>
+    </output>
   )
 }
