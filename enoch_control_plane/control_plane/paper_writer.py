@@ -1023,15 +1023,7 @@ def write_paper_artifacts(
     return meta
 
 
-def backfill_paper_evidence_artifacts(
-    config: GateConfig,
-    candidate: dict[str, Any],
-    paper: PaperRecord,
-    *,
-    force: bool,
-    writer_note: str = "evidence_backfill",
-) -> dict[str, Any]:
-    project_dir = _resolve_project_dir(config, candidate)
+def _read_paper_markdown_for_backfill(project_dir: Path, paper: PaperRecord) -> str:
     try:
         paper_path = (project_dir / paper.draft_markdown_path).resolve()
         paper_path.relative_to(project_dir)
@@ -1046,12 +1038,53 @@ def backfill_paper_evidence_artifacts(
             detail=f"paper markdown not found: {paper.draft_markdown_path}",
         )
     try:
-        markdown = paper_path.read_text(encoding="utf-8", errors="replace")
+        return paper_path.read_text(encoding="utf-8", errors="replace")
     except (OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(
             status_code=400,
             detail=f"paper markdown could not be read: {paper.draft_markdown_path}",
         ) from exc
+
+
+def _load_paper_manifest_for_backfill(
+    project_dir: Path, paper: PaperRecord
+) -> dict[str, Any]:
+    manifest: dict[str, Any] = {}
+    try:
+        manifest_path = (project_dir / paper.manifest_path).resolve()
+        manifest_path.relative_to(project_dir)
+        if _path_exists_for_paper(manifest_path, label="paper manifest"):
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                manifest = {}
+            except (OSError, RuntimeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"paper manifest could not be read: {paper.manifest_path}",
+                ) from exc
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"paper path escapes project dir: {paper.manifest_path}",
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception:
+        manifest = {}
+    return manifest
+
+
+def backfill_paper_evidence_artifacts(
+    config: GateConfig,
+    candidate: dict[str, Any],
+    paper: PaperRecord,
+    *,
+    force: bool,
+    writer_note: str = "evidence_backfill",
+) -> dict[str, Any]:
+    project_dir = _resolve_project_dir(config, candidate)
+    markdown = _read_paper_markdown_for_backfill(project_dir, paper)
     provider_meta = {
         "provider": writer_note,
         "model": "deterministic_evidence_extractor_v1",
@@ -1081,29 +1114,7 @@ def backfill_paper_evidence_artifacts(
         paper.claim_ledger_path: json.dumps(claim_ledger, indent=2, sort_keys=True)
         + "\n",
     }
-    manifest: dict[str, Any] = {}
-    try:
-        manifest_path = (project_dir / paper.manifest_path).resolve()
-        manifest_path.relative_to(project_dir)
-        if _path_exists_for_paper(manifest_path, label="paper manifest"):
-            try:
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                manifest = {}
-            except (OSError, RuntimeError, ValueError) as exc:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"paper manifest could not be read: {paper.manifest_path}",
-                ) from exc
-    except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"paper path escapes project dir: {paper.manifest_path}",
-        ) from exc
-    except HTTPException:
-        raise
-    except Exception:
-        manifest = {}
+    manifest = _load_paper_manifest_for_backfill(project_dir, paper)
     manifest.update(
         {
             "paper_id": paper.paper_id,
