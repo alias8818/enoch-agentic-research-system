@@ -70,7 +70,7 @@ function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary
   const blocked = text(firstValue(queue.blocked_reason, queue.last_error, queue.decision_summary))
   const attention = queue.operator_attention === true || state.includes('blocked') || state.includes('review')
   const entityLinks: EntityLink[] = []
-  pushLink(entityLinks, entityLink('run', runId !== '—' ? runId : null))
+  pushLink(entityLinks, entityLink('run', runId === '—' ? null : runId))
   pushLink(entityLinks, entityLink('paper', paperId !== '—' ? paperId : null, papers[0]?.paper_title || papers[0]?.title))
 
   return {
