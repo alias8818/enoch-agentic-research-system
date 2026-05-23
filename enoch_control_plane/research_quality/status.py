@@ -20,6 +20,10 @@ DEFAULT_AUTOPILOT_HISTORY_PATH = (
     "/var/lib/enoch-control-plane/research-quality/autopilot-history.jsonl"
 )
 
+RESEARCH_QUALITY_LABEL_BLOCKED = "Research quality: BLOCKED"
+RESEARCH_QUALITY_LABEL_CLEAN = "Research quality: clean"
+RESEARCH_QUALITY_LABEL_WARNINGS = "Research quality: warnings"
+
 
 def _utc_iso_from_mtime(path: Path) -> str:
     return (
@@ -94,7 +98,7 @@ def classify_quality_report(
         return {
             "ok": False,
             "status": "blocked",
-            "label": "Research quality: BLOCKED",
+            "label": RESEARCH_QUALITY_LABEL_BLOCKED,
             "report_path": report_path,
             "report_mtime": report_mtime,
             "report_generated_at": report.get("generated_at") or "",
@@ -146,9 +150,9 @@ def classify_quality_report(
     warnings = int(severity_counts.get("warning") or 0)
     status = "blocked" if blocked else "warnings" if warnings else "clean"
     label = {
-        "clean": "Research quality: clean",
-        "warnings": "Research quality: warnings",
-        "blocked": "Research quality: BLOCKED",
+        "clean": RESEARCH_QUALITY_LABEL_CLEAN,
+        "warnings": RESEARCH_QUALITY_LABEL_WARNINGS,
+        "blocked": RESEARCH_QUALITY_LABEL_BLOCKED,
     }[status]
     return {
         "ok": status != "blocked",
@@ -324,7 +328,7 @@ def load_latest_quality_status(
         return {
             "ok": False,
             "status": "blocked",
-            "label": "Research quality: BLOCKED",
+            "label": RESEARCH_QUALITY_LABEL_BLOCKED,
             "report_path": report_path,
             "report_mtime": "",
             "report_generated_at": "",
