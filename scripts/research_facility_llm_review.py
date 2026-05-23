@@ -462,6 +462,96 @@ def _apply_admit_decision(
     return {"status_updates": promoted, "admissions_inserted": admissions_inserted}
 
 
+def _insert_llm_review_event(
+    cur: Any,
+    *,
+    event_key: str,
+    candidate_id: str,
+    payload: dict[str, Any],
+    payload_hash: str,
+) -> int:
+    event_type = "research.janitor.llm_review"
+    entity_type = "research_candidate"
+    cur.execute(
+        """
+        select event_id, event_type, entity_type, entity_id, payload_hash
+        from control_events
+        where idempotency_key = %s
+        """,
+        (event_key,),
+    )
+    existing = cur.fetchone()
+    if existing and (
+        _row_get(existing, "event_type", 1) != event_type
+        or _row_get(existing, "entity_type", 2) != entity_type
+        or _row_get(existing, "entity_id", 3) != candidate_id
+        or _row_get(existing, "payload_hash", 4) != payload_hash
+    ):
+        raise IdempotencyConflict(
+            f"idempotency key {event_key!r} was reused with different event identity"
+        )
+    if existing:
+        return 0
+    cur.execute(
+        """
+        insert into control_events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at)
+        values (%s,'research.janitor.llm_review','research_candidate',%s,%s::jsonb,%s,%s)
+        """,
+        (
+            event_key,
+            candidate_id,
+            json.dumps(payload, sort_keys=True, default=str),
+            payload_hash,
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    return int(cur.rowcount or 0)
+
+
+def _apply_review_decision(
+    cur: Any,
+    *,
+    decision: dict[str, Any],
+    janitor_action: dict[str, Any],
+    requested_by: str,
+    provider_model: str,
+) -> tuple[dict[str, int], str | None]:
+    candidate_id = decision["candidate_id"]
+    if decision["decision"] == "admit" and _confidence_allows_admit(decision):
+        update = _apply_admit_decision(
+            cur,
+            candidate_id=candidate_id,
+            decision=decision,
+            requested_by=requested_by,
+            janitor_action=janitor_action,
+        )
+        updated = int(update.get("status_updates") or 0)
+        return update, "admitted" if updated else None
+    update = _apply_non_admit_decision(
+        cur,
+        candidate_id=candidate_id,
+        decision=decision,
+        requested_by=requested_by,
+        provider_model=provider_model,
+        janitor_action=janitor_action,
+    )
+    status = _candidate_status_for_decision(decision)
+    updated = int(update.get("status_updates") or 0)
+    if updated and status in {"rejected", "rewrite_needed", "deferred"}:
+        return update, status
+    return update, None
+
+
+def _accumulate_apply_result(
+    result: dict[str, Any], update: dict[str, int], *, status_key: str | None
+) -> None:
+    updated = int(update.get("status_updates") or 0)
+    result["status_updates"] += updated
+    result["admissions_inserted"] += int(update.get("admissions_inserted") or 0)
+    if status_key:
+        result[status_key] += updated
+
+
 def record_review(
     database_url: str,
     *,
@@ -505,75 +595,21 @@ def record_review(
                 event_key = (
                     f"research-janitor-llm:{candidate_id}:{decision['decision']}"
                 )
-                payload_hash = _payload_hash(payload)
-                event_type = "research.janitor.llm_review"
-                entity_type = "research_candidate"
-                cur.execute(
-                    """
-                    select event_id, event_type, entity_type, entity_id, payload_hash
-                    from control_events
-                    where idempotency_key = %s
-                    """,
-                    (event_key,),
-                )
-                existing = cur.fetchone()
-                if existing and (
-                    _row_get(existing, "event_type", 1) != event_type
-                    or _row_get(existing, "entity_type", 2) != entity_type
-                    or _row_get(existing, "entity_id", 3) != candidate_id
-                    or _row_get(existing, "payload_hash", 4) != payload_hash
-                ):
-                    raise IdempotencyConflict(
-                        f"idempotency key {event_key!r} was reused with different event identity"
-                    )
-                if not existing:
-                    cur.execute(
-                        """
-                        insert into control_events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at)
-                        values (%s,'research.janitor.llm_review','research_candidate',%s,%s::jsonb,%s,%s)
-                        """,
-                        (
-                            event_key,
-                            candidate_id,
-                            json.dumps(payload, sort_keys=True, default=str),
-                            payload_hash,
-                            datetime.now(timezone.utc).isoformat(),
-                        ),
-                    )
-                    result["events_inserted"] += int(cur.rowcount or 0)
-                if decision["decision"] == "admit" and _confidence_allows_admit(
-                    decision
-                ):
-                    update = _apply_admit_decision(
-                        cur,
-                        candidate_id=candidate_id,
-                        decision=decision,
-                        requested_by=requested_by,
-                        janitor_action=source.get("janitor_action") or {},
-                    )
-                    promoted = int(update.get("status_updates") or 0)
-                    result["admitted"] += promoted
-                    result["status_updates"] += promoted
-                    result["admissions_inserted"] += int(
-                        update.get("admissions_inserted") or 0
-                    )
-                    continue
-                update = _apply_non_admit_decision(
+                result["events_inserted"] += _insert_llm_review_event(
                     cur,
+                    event_key=event_key,
                     candidate_id=candidate_id,
+                    payload=payload,
+                    payload_hash=_payload_hash(payload),
+                )
+                update, status_key = _apply_review_decision(
+                    cur,
                     decision=decision,
+                    janitor_action=janitor_action,
                     requested_by=requested_by,
                     provider_model=provider_model,
-                    janitor_action=janitor_action,
                 )
-                status = _candidate_status_for_decision(decision)
-                updated = int(update.get("status_updates") or 0)
-                result["status_updates"] += updated
-                result["admissions_inserted"] += int(
-                    update.get("admissions_inserted") or 0
-                )
-                if updated and status in {"rejected", "rewrite_needed", "deferred"}:
-                    result[status] += updated
+                _accumulate_apply_result(result, update, status_key=status_key)
     return result
 
 
@@ -637,39 +673,14 @@ def apply_stored_llm_decisions(
             for row in rows:
                 decision = dict(row["llm_decision"] or {})
                 decision["candidate_id"] = row["candidate_id"]
-                if decision.get("decision") == "admit" and _confidence_allows_admit(
-                    decision
-                ):
-                    update = _apply_admit_decision(
-                        cur,
-                        candidate_id=row["candidate_id"],
-                        decision=decision,
-                        requested_by=requested_by,
-                        janitor_action=dict(row["janitor_action"] or {}),
-                    )
-                    promoted = int(update.get("status_updates") or 0)
-                    result["admitted"] += promoted
-                    result["status_updates"] += promoted
-                    result["admissions_inserted"] += int(
-                        update.get("admissions_inserted") or 0
-                    )
-                    continue
-                update = _apply_non_admit_decision(
+                update, status_key = _apply_review_decision(
                     cur,
-                    candidate_id=row["candidate_id"],
                     decision=decision,
+                    janitor_action=dict(row["janitor_action"] or {}),
                     requested_by=requested_by,
                     provider_model=row["provider_model"] or DEFAULT_MODEL,
-                    janitor_action=dict(row["janitor_action"] or {}),
                 )
-                status = _candidate_status_for_decision(decision)
-                updated = int(update.get("status_updates") or 0)
-                result["status_updates"] += updated
-                result["admissions_inserted"] += int(
-                    update.get("admissions_inserted") or 0
-                )
-                if updated and status in {"rejected", "rewrite_needed", "deferred"}:
-                    result[status] += updated
+                _accumulate_apply_result(result, update, status_key=status_key)
     return result
 
 
