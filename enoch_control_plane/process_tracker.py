@@ -50,10 +50,7 @@ def _safe_send_signal(
         if active_proc is None:
             if psutil is None:
                 raise ProcessLookupError(pid)
-            try:
-                active_proc = psutil.Process(pid)
-            except psutil.NoSuchProcess:
-                raise ProcessLookupError(pid) from None
+            active_proc = psutil.Process(pid)
         if ProcessTracker._same_process(active_proc, tracked) is not True:
             raise ProcessLookupError(pid)
     os.kill(pid, sig)
@@ -337,31 +334,20 @@ class ProcessTracker:
         if not candidates:
             return []
 
-        reaped: list[ProcessInfo] = []
         term_signaled: list[ProcessInfo] = []
         for info in candidates:
-            pid = info.pid
-            # S4828: never signal pid <= 0 (pid 0 is the process group).
-            if pid <= 0:
-                continue
             try:
-                _safe_send_signal(pid, signal.SIGTERM, tracked=info)
+                # SIGTERM before grace window: pid/signal guards only (identity
+                # re-checked before SIGKILL after term_grace_sec).
+                _safe_send_signal(info.pid, signal.SIGTERM)
                 term_signaled.append(info)
-            except ProcessLookupError:
-                if info.create_time is not None and psutil is not None:
-                    try:
-                        proc = psutil.Process(pid)
-                        if self._same_process(proc, info) is None:
-                            reaped.append(info)
-                    except psutil.NoSuchProcess:
-                        reaped.append(info)
-                continue
-            except (PermissionError, OSError, ValueError):
+            except (ProcessLookupError, PermissionError, OSError, ValueError):
                 continue
 
         if term_grace_sec > 0:
             time.sleep(term_grace_sec)
 
+        reaped: list[ProcessInfo] = []
         for info in term_signaled:
             try:
                 proc = psutil.Process(info.pid) if psutil is not None else None
